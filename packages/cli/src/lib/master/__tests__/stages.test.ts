@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   readMasterIndex,
   MasterIndexError,
@@ -37,6 +37,14 @@ function writeIndex(index: MasterIndex): void {
 
 function makeStageFolder(dir: string): void {
   mkdirSync(join(masterDirPath(cwd, SPECS_DIR), dir), { recursive: true });
+}
+
+function touchMasterFiles(relatives: readonly string[]): void {
+  for (const relative of relatives) {
+    const path = join(masterDirPath(cwd, SPECS_DIR), relative);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "");
+  }
 }
 
 function stage(overrides: Partial<StageEntry> = {}): StageEntry {
@@ -184,7 +192,7 @@ describe("activeStage", () => {
 describe("contextForArchitects — R52 fixture", () => {
   it("returns null for stage 1 (nothing to read yet)", () => {
     const index: MasterIndex = { version: 1, stages: [stage({ state: "activa" })] };
-    expect(contextForArchitects(index)).toBeNull();
+    expect(contextForArchitects(index, masterDirPath(cwd, SPECS_DIR))).toBeNull();
   });
 
   it("computes full vs reference-only reading lists over four stages", () => {
@@ -197,7 +205,16 @@ describe("contextForArchitects — R52 fixture", () => {
         stage({ number: 4, slug: "d", dir: "04-d", state: "activa", closedAt: null }),
       ],
     };
-    const ctx = contextForArchitects(index);
+    touchMasterFiles([
+      "01-a/CLOSURE.md",
+      "02-b/MASTER.md",
+      "02-b/DECISIONS.md",
+      "02-b/CLOSURE.md",
+      "03-c/DECISIONS.md",
+      "03-c/CLOSURE.md",
+      "INDEX.md",
+    ]);
+    const ctx = contextForArchitects(index, masterDirPath(cwd, SPECS_DIR));
     expect(ctx).not.toBeNull();
     expect(ctx!.full).toEqual([
       "02-b/MASTER.md",
@@ -207,5 +224,19 @@ describe("contextForArchitects — R52 fixture", () => {
       "03-c/CLOSURE.md",
     ]);
     expect(ctx!.referenceOnly).toEqual(["01-a/CLOSURE.md", "INDEX.md"]);
+  });
+
+  // Covers: R34
+  it("etapa abandonada sin DECISIONS.md no aparece en el contexto de arquitectos", () => {
+    const index: MasterIndex = {
+      version: 1,
+      stages: [
+        stage({ number: 1, slug: "a", dir: "01-a", state: "abandonada", closedAt: "2026-01-01" }),
+        stage({ number: 2, slug: "b", dir: "02-b", state: "activa", closedAt: null }),
+      ],
+    };
+    touchMasterFiles(["01-a/CLOSURE.md"]);
+    const ctx = contextForArchitects(index, masterDirPath(cwd, SPECS_DIR));
+    expect(ctx!.full).toEqual(["01-a/CLOSURE.md"]);
   });
 });

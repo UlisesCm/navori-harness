@@ -638,3 +638,99 @@ describe("implementer-no-markdown hook — block per Bash form (#985 R4)", () =>
     expect(r.stderr).toContain("markdownRequests");
   });
 });
+
+function edit(filePath: string, tool = "Edit", agentType: string | null = "implementer"): Payload {
+  return {
+    hook_event_name: "PreToolUse",
+    tool_name: tool,
+    tool_input: { file_path: filePath },
+    ...(agentType ? { agent_type: agentType } : {}),
+  };
+}
+
+describe("implementer-no-markdown hook — AI doctrine exception (R49)", () => {
+  const DOCTRINE = [
+    "packages/core/core-assets/agents/implementer.md",
+    "packages/core/core-assets/skills/x.md",
+    "packages/core/core-assets/managed/y.md",
+    "packages/core/core-assets/hooks/z.mdx",
+    ".claude/agents/implementer.md",
+    ".claude/skills/verify/SKILL.md",
+    ".claude/context/a.md",
+    ".codex/agents/implementer.md",
+    ".codex/orchestrator.md",
+    ".agents/skills/s/SKILL.md",
+    ".pi/navori/hooks/h.md",
+  ];
+  const BLOCKED = [
+    "progress/current.md",
+    "specs/0052/tasks.md",
+    "docs/DIRECTION.md",
+    "README.md",
+    ".navori/state/handoffs/x.md",
+    ".claude/progress/impl_x.md",
+    ".claude/skills/../../progress/current.md",
+    "../outside/.claude/agents/a.md",
+    ".claude/agents-evil/a.md",
+  ];
+
+  // Covers: R49
+  it("el implementer edita doctrina de IA y sigue bloqueado en progress, specs, docs, rutas con .. y Bash", () => {
+    for (const path of DOCTRINE) {
+      for (const tool of ["Write", "Edit"]) {
+        expect(runHook(edit(path, tool)).status, `${tool} ${path}`).toBe(0);
+      }
+    }
+    expect(
+      runHook({
+        hook_event_name: "PreToolUse",
+        tool_name: "NotebookEdit",
+        tool_input: { notebook_path: ".claude/agents/n.md" },
+        agent_type: "implementer",
+      }).status,
+    ).toBe(0);
+    for (const path of BLOCKED) {
+      expect(runHook(edit(path)).status, path).toBe(2);
+    }
+    // The message names the allowed prefixes and the markdownRequests route.
+    const msg = runHook(edit("docs/x.md"));
+    expect(msg.stderr).toContain(".claude/agents/");
+    expect(msg.stderr).toContain("packages/core/core-assets/agents/");
+    expect(msg.stderr).toContain("markdownRequests");
+    // Bash forms never relax, even onto a doctrine path.
+    expect(runHook(bash("echo hi > .claude/agents/a.md")).status).toBe(2);
+    expect(runHook(bash("tee .claude/skills/s/SKILL.md")).status).toBe(2);
+  });
+
+  // Covers: R49
+  it("trims an absolute path against the repo root and blocks one outside it", () => {
+    const prelude = `CLAUDE_PROJECT_DIR=${JSON.stringify(dir)}; export CLAUDE_PROJECT_DIR`;
+    const run = (p: string): number => runHook(edit(p), undefined, true, "claude", prelude).status;
+    expect(run(`${dir}/.claude/agents/a.md`)).toBe(0);
+    expect(run(`${dir}/docs/a.md`)).toBe(2);
+    expect(run(`${dir}/.claude/../progress/current.md`)).toBe(2);
+    expect(run("/elsewhere/.claude/agents/a.md")).toBe(2);
+    expect(run(`${dir}-sibling/.claude/agents/a.md`)).toBe(2);
+  });
+
+  // Covers: R49
+  it("checks every apply_patch path: doctrine passes, a mixed patch with progress blocks (Codex)", () => {
+    const patch = (...paths: string[]): Payload => ({
+      hook_event_name: "PreToolUse",
+      tool_name: "apply_patch",
+      tool_input: {
+        command: `${paths.map((p) => `*** Update File: ${p}\n@@\n-a\n+b`).join("\n")}\n`,
+      },
+      agent_type: "implementer",
+    });
+    const run = (p: Payload): number => runHook(p, undefined, true, "codex").status;
+    expect(run(patch(".codex/agents/a.md", ".agents/skills/s/SKILL.md"))).toBe(0);
+    expect(run(patch(".codex/agents/a.md", "progress/current.md"))).toBe(2);
+  });
+
+  // Covers: R49
+  it("leaves other roles and the main thread unchanged", () => {
+    expect(runHook(edit("progress/current.md", "Edit", "scribe")).status).toBe(0);
+    expect(runHook(edit("progress/current.md", "Edit", null)).status).toBe(0);
+  });
+});

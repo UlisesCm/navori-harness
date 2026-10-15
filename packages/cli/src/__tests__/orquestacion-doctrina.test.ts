@@ -193,3 +193,18 @@ describe("spec 0019 — la detección del cross-review no se auto-cumple", () =>
     expect(read(ORCHESTRATOR)).not.toContain("codex-cross-review");
   });
 });
+
+describe("spec 0052 — una sola regla de dos rechazos (R38)", () => {
+  const norm = (text: string): string => text.replace(/\s+/g, " ");
+  const RULE =
+    "Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the " +
+    "next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, " +
+    "who alone authorizes another round with `navori plan escalation-reset`.";
+
+  // Covers: R38
+  it("orchestrator, planificacion y plan-advanced llevan la misma regla de dos rechazos", () => {
+    for (const asset of [ORCHESTRATOR, "managed/planificacion.md", "skills/plan-advanced.md"]) {
+      expect(norm(read(asset)), `${asset} no lleva la regla de R38`).toContain(RULE);
+    }
+  });
+});

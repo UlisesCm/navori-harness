@@ -6,6 +6,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { readConfig, writeConfig } from "../config/config.ts";
 import { runRender } from "../../commands/render.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { normalizeEol } from "../primitives/eol.ts";
 import { masterMarkers } from "./markers.ts";
 import {
   MasterStateSchema,
@@ -65,9 +66,7 @@ function finishRender(
 }
 
 function hash(content: string): string {
-  return createHash("sha256")
-    .update(content.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), "utf8")
-    .digest("hex");
+  return createHash("sha256").update(normalizeEol(content), "utf8").digest("hex");
 }
 
 function escapeCell(value: string | number | null | undefined): string {
@@ -112,30 +111,28 @@ function renderClosure(
   finalStateBytes: string,
 ): string {
   const outcome = state.outcome!;
+  const markers = masterMarkers(language);
+  const l = markers.closure;
   const lines = [
-    `# ${language === "es" ? "Cierre" : "Closure"}: ${stageDir}`,
+    `# ${l.title}: ${stageDir}`,
     "",
-    `- ${language === "es" ? "Resultado" : "Outcome"}: ${outcome}`,
-    `- ${language === "es" ? "Apertura" : "Opened"}: ${openedAt}`,
-    `- ${language === "es" ? "Cierre" : "Closed"}: ${state.closedAt}`,
+    `- ${l.outcome}: ${outcome}`,
+    `- ${l.opened}: ${openedAt}`,
+    `- ${l.closed}: ${state.closedAt}`,
   ];
   if (outcome === "abandonada") {
-    lines.push(
-      `- ${language === "es" ? "Razón" : "Reason"}: ${escapeCell(state.abandonment?.reason)}`,
-    );
-    lines.push(`- ${language === "es" ? "Fase" : "Phase"}: ${state.abandonment?.phase}`);
+    lines.push(`- ${l.reason}: ${escapeCell(state.abandonment?.reason)}`);
+    lines.push(`- ${l.phase}: ${state.abandonment?.phase}`);
   } else {
     if (outcome === "convertida") {
-      lines.push(
-        `- ${language === "es" ? "Razón" : "Reason"}: ${escapeCell(state.conversion?.reason)}`,
-      );
+      lines.push(`- ${l.reason}: ${escapeCell(state.conversion?.reason)}`);
       lines.push(`- Spec: ${state.conversion?.spec}`);
     }
     lines.push(
       "",
-      "## Partes",
+      `## ${l.parts}`,
       "",
-      "| ID | Estado | Spec | Issue | Razón |",
+      `| ${l.partColumns.join(" | ")} |`,
       "|---|---|---|---|---|",
     );
     for (const part of parts) {
@@ -144,13 +141,19 @@ function renderClosure(
         `| ${part.id} | ${effective} | ${escapeCell(part.spec)} | ${escapeCell(part.issue)} | ${escapeCell(part.reason)} |`,
       );
     }
-    lines.push("", "## Criterios", "", "| ID | Método | Evidencia | Fecha |", "|---|---|---|---|");
+    lines.push(
+      "",
+      `## ${l.criteria}`,
+      "",
+      `| ${l.criterionColumns.join(" | ")} |`,
+      "|---|---|---|---|",
+    );
     for (const part of parts)
       for (const criterion of part.acceptance) {
         const disposition = part.state === "descartada" || part.state === "diferida";
         const evidence = disposition ? null : criterion.evidence;
-        let detail = "no verificado";
-        if (evidence?.kind === "approval") detail = "aprobado por el usuario";
+        let detail = l.unverified;
+        if (evidence?.kind === "approval") detail = l.approvedByUser;
         if (evidence?.kind === "run") {
           let orphan = false;
           let behind: string | null = null;
@@ -173,16 +176,13 @@ function renderClosure(
           `| ${part.id}.${criterion.id} | ${criterion.method} | ${escapeCell(detail)} | ${evidence?.date ?? "—"} |`,
         );
       }
-    lines.push(
-      "",
-      `- ${language === "es" ? "Decisiones" : "Decisions"}: ${decisionCount(join(stagePath, "DECISIONS.md"))}`,
-    );
+    lines.push("", `- ${l.decisions}: ${decisionCount(join(stagePath, "DECISIONS.md"))}`);
   }
   lines.push(
     "",
-    `## ${masterMarkers(language).integridad}`,
+    `## ${markers.integridad}`,
     "",
-    "| Archivo | SHA-256 |",
+    `| ${markers.archivoColumn} | SHA-256 |`,
     "|---|---|",
   );
   for (const file of [
@@ -205,6 +205,8 @@ function renderClosure(
 /** Close one active stage, or repair only the final config/render step after a cut. */
 export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseResult {
   if (options.convert && options.abandon) throw new Error("--convert y --abandon son excluyentes");
+  if (options.reason !== undefined && options.reason.trim() === "")
+    throw new Error("--reason no puede estar vacío");
   const configPath = join(cwd, "navori.config.json");
   const config = readConfig(configPath);
   const specsDir = config.sdd?.specsDir ?? "specs";
@@ -300,6 +302,8 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
     existing ?? (options.convert ? "convertida" : options.abandon ? "abandonada" : "entregada");
   if (existing && (options.reason || options.convert || options.abandon))
     throw new Error("cierre ya iniciado: reanude con 'navori master close' sin opciones");
+  if (options.reason !== undefined && !options.convert && !options.abandon)
+    throw new Error("--reason solo aplica con --abandon o --convert");
   if (!existing) {
     const early = ["context", "transcribed", "mapped", "planned", "questioned"].includes(
       state.phase,
@@ -310,8 +314,19 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       if (blocked.length > 0) throw new Error(blocked.join("\n"));
       if (!status.closable)
         throw new Error(`no se puede cerrar; blockers:\n${status.blockers.join("\n")}`);
+      // Orphaned evidence depends on HEAD, so it gates close without touching `closable` (0051 R6).
+      if (status.evidenceBlockers.length > 0)
+        throw new Error(
+          `no se puede cerrar; evidencia huérfana:\n${status.evidenceBlockers.join("\n")}`,
+        );
     } else {
-      if (!early) throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
+      const partsFile = join(stagePath, "parts.json");
+      // Late abandon is the exit for a stage stuck with no parts (spec 0051 R5).
+      const noParts =
+        !existsSync(partsFile) ||
+        json(partsFile, PartsSchema.parse.bind(PartsSchema)).parts.length === 0;
+      if (!(early || (outcome === "abandonada" && noParts)))
+        throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
       if (!options.reason?.trim()) throw new Error("--reason no puede estar vacío");
       if (outcome === "convertida") specPath(cwd, specsDir, options.convert!);
     }

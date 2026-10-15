@@ -1,4 +1,4 @@
-// Covers: R31, R36, R40, R44, R46, R47, R54, R61
+// Covers: R10, R11, R31, R36, R40, R44, R46, R47, R54, R61
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,11 +14,14 @@ import {
   writeMasterStatus,
 } from "../status.ts";
 import { runMasterCheck } from "../checks.ts";
+import { approveDeliveryBaseline } from "../delivery.ts";
+import { presentedDeliveryFixture } from "./delivery-flow.ts";
+import type { MasterIndex, Part, StageEntry } from "../schema.ts";
 
 let cwd: string;
 const part = (state: string, evidence: unknown = null) => ({
   id: "P1",
-  title: "Title\nwith control",
+  title: "Title with control",
   objective: "Build",
   scope: [],
   outOfScope: [],
@@ -92,7 +95,264 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
+/** Seed valid executable evidence, optionally linked to a complete part spec. */
+function executablePart(commit: string, method: "test" | "comando", linked: boolean): Part {
+  const input: Part = {
+    ...part("hecho"),
+    state: "hecho",
+    acceptance: [
+      {
+        id: "A1",
+        description: "Works",
+        ...(method === "test"
+          ? { method, test: { file: "test.ts", case: "works" } }
+          : { method, command: { run: "true", expected: "exit 0" } }),
+        evidence: { kind: "run", command: "true", result: "ok", commit, date: "2026-01-01" },
+      },
+    ],
+  };
+  if (linked) {
+    input.spec = "specs/demo";
+    const spec = join(cwd, input.spec);
+    mkdirSync(spec);
+    writeFileSync(join(spec, "requirements.md"), "**R1** — P1.A1 works\n");
+    writeFileSync(join(spec, "design.md"), "Contract\n");
+    writeFileSync(
+      join(spec, "tasks.md"),
+      [
+        "- [x] **T1** Build",
+        "  - **Archivos:** test.ts",
+        "  - **Interfaces:** Contract",
+        "  - **Patrón:** navori.config.json",
+        "  - **Lectura:** design.md",
+        "  - **Librerías:** ninguna",
+        '  - **Done:** command `true`, expected exit 0, test case: "works", P1.A1',
+        "  - **Fuera de alcance:** none",
+      ].join("\n"),
+    );
+  }
+  writeFileSync(
+    join(cwd, "specs/_master/01-mvp/parts.json"),
+    JSON.stringify({ version: 1, parts: [input] }),
+  );
+  return input;
+}
+
+/** Advance the isolated fixture history without changing its working tree. */
+function commitHead(): string {
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "baseline",
+    ],
+    { cwd },
+  );
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+}
+
 describe("master status", () => {
+  // Covers: R6
+  it("STATUS.md estable tras commit ajeno y tras evidencia huérfana; --json expone evidenceBlockers, commitsBehind y orphan", (): void => {
+    commitHead();
+    const evidence = commitHead();
+    executablePart(evidence, "comando", false);
+    const statusPath = join(cwd, "specs/_master/01-mvp/STATUS.md");
+    writeMasterStatus(cwd);
+    const first = readFileSync(statusPath, "utf8");
+    expect(first).not.toMatch(/commitsBehind|orphan|revalidar|huérfana/);
+    // Unrelated commit: byte-stable render, age only in the JSON status.
+    commitHead();
+    const aged = readMasterStatus(cwd);
+    expect(aged.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
+    expect(aged.evidenceBlockers).toEqual([]);
+    writeMasterStatus(cwd);
+    expect(readFileSync(statusPath, "utf8")).toBe(first);
+    // Orphaned evidence: reset away the evidence commit and add a new one.
+    execFileSync("git", ["reset", "-q", "--hard", "HEAD~2"], { cwd });
+    // A distinct message keeps the new commit from hashing to the dropped evidence commit.
+    execFileSync(
+      "git",
+      ["-c", "user.name=Test", "-c", "user.email=test@example.test"].concat([
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "replacement",
+      ]),
+      { cwd },
+    );
+    const orphaned = readMasterStatus(cwd);
+    expect(orphaned.parts[0]?.acceptance[0]).toMatchObject({ orphan: true, commitsBehind: null });
+    expect(orphaned.evidenceBlockers).toEqual([
+      "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
+    ]);
+    expect(orphaned.blockers).toEqual([]);
+    expect(orphaned.closable).toBe(true);
+    // Covers: R6
+    expect(statusLine(orphaned, "specs")).toContain("no cerrable: evidencia huérfana");
+    expect(statusLine(aged, "specs")).not.toContain("no cerrable");
+    writeMasterStatus(cwd);
+    expect(readFileSync(statusPath, "utf8")).toBe(first);
+    const json = JSON.parse(JSON.stringify(orphaned)) as typeof orphaned;
+    expect(json.evidenceBlockers).toHaveLength(1);
+    expect(json.parts[0]?.acceptance[0]).toHaveProperty("commitsBehind");
+    expect(json.parts[0]?.acceptance[0]).toHaveProperty("orphan");
+  });
+
+  // Covers: R11, R6
+  it.each(["test", "comando"] as const)(
+    "exposes orphan %s evidence in evidenceBlockers, not in STATUS.md",
+    (method): void => {
+      const baseline = commitHead();
+      const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+        cwd,
+        encoding: "utf8",
+      }).trim();
+      const orphan = execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit-tree",
+          tree,
+          "-p",
+          baseline,
+        ],
+        { cwd, input: "unreachable evidence\n", encoding: "utf8" },
+      ).trim();
+      for (const linked of [false, true]) {
+        executablePart(orphan, method, linked);
+        const status = readMasterStatus(cwd);
+        expect(status.parts[0]?.acceptance[0]).toMatchObject({
+          verified: true,
+          orphan: true,
+          commitsBehind: null,
+        });
+        expect(status.evidenceBlockers).toContain(
+          "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
+        );
+        expect(status.blockers.join("\n")).not.toContain("huérfana");
+        expect(renderStatusMd(status, "es")).not.toContain("huérfana");
+      }
+    },
+  );
+
+  // Covers: R11, R6
+  it("blocks an absent executable evidence commit", (): void => {
+    commitHead();
+    executablePart("0".repeat(40), "comando", false);
+    expect(readMasterStatus(cwd).evidenceBlockers.join("\n")).toContain(
+      "P1.A1: evidencia huérfana",
+    );
+  });
+
+  // Covers: R12
+  it.each(["test", "comando"] as const)(
+    "keeps current and ancestor %s evidence valid and offers revalidation only for old evidence",
+    (method): void => {
+      const baseline = commitHead();
+      executablePart(baseline, method, false);
+      expect(readMasterStatus(cwd).closable).toBe(true);
+      expect(renderStatusMd(readMasterStatus(cwd), "es")).not.toContain("revalidar");
+      commitHead();
+      const status = readMasterStatus(cwd);
+      expect(status.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
+      expect(status.blockers).toEqual([]);
+      expect(status.closable).toBe(true);
+      expect(renderStatusMd(status, "es")).not.toContain("commitsBehind");
+      expect(renderStatusMd(status, "es")).not.toContain("revalidar");
+    },
+  );
+
+  // Covers: R13
+  it.each(["descartada", "diferida"] as const)(
+    "exempts orphan executable evidence for a %s part",
+    (state): void => {
+      const input = executablePart("0".repeat(40), "comando", false);
+      input.state = state;
+      input.reason = "later";
+      writeFileSync(
+        join(cwd, "specs/_master/01-mvp/parts.json"),
+        JSON.stringify({ version: 1, parts: [input] }),
+      );
+      const status = readMasterStatus(cwd);
+      expect(status.parts[0]?.effective).toBe(state);
+      expect(status.blockers).toEqual([]);
+      expect(status.evidenceBlockers).toEqual([]);
+      expect(status.closable).toBe(true);
+    },
+  );
+  // Covers: R5
+  it("omits the optional architectContext JSON field in the first stage", () => {
+    const status = readMasterStatus(cwd);
+    expect(status.stage?.number).toBe(1);
+    expect(status).not.toHaveProperty("architectContext");
+    expect(JSON.parse(JSON.stringify(status))).not.toHaveProperty("architectContext");
+    expect(status).not.toHaveProperty("contextForArchitects");
+  });
+
+  // Covers: R5
+  it.each(["cerrada", "convertida", "abandonada"] as const)(
+    "keeps the exact architectContext JSON reading lists in stage two after a %s stage",
+    (previousState: "cerrada" | "convertida" | "abandonada"): void => {
+      const base = join(cwd, "specs", "_master");
+      const index = JSON.parse(readFileSync(join(base, "index.json"), "utf8")) as MasterIndex;
+      const first = index.stages[0]!;
+      const previous: StageEntry = {
+        ...first,
+        state: previousState,
+        closedAt: "2026-02-01",
+        ...(previousState === "convertida" ? { spec: "specs/demo" } : {}),
+      };
+      const current: StageEntry = {
+        ...first,
+        number: 2,
+        slug: "next",
+        dir: "02-next",
+        openedAt: "2026-02-02",
+      };
+      mkdirSync(join(base, current.dir));
+      for (const file of ["state.json", "parts.json", "MASTER.md"]) {
+        writeFileSync(
+          join(base, current.dir, file),
+          readFileSync(join(base, "01-mvp", file), "utf8"),
+        );
+      }
+      writeFileSync(
+        join(base, "index.json"),
+        JSON.stringify({ version: 1, stages: [previous, current] }),
+      );
+
+      // R34: only files that exist are listed (01-mvp/MASTER.md already exists).
+      for (const file of ["01-mvp/DECISIONS.md", "01-mvp/CLOSURE.md", "INDEX.md"])
+        writeFileSync(join(base, file), "");
+
+      const status = readMasterStatus(cwd);
+      expect(status.stage?.number).toBe(2);
+      expect(status.architectContext).toEqual({
+        full: [
+          ...(previousState === "cerrada" ? ["01-mvp/MASTER.md"] : []),
+          "01-mvp/DECISIONS.md",
+          "01-mvp/CLOSURE.md",
+        ],
+        referenceOnly: previousState === "cerrada" ? ["INDEX.md"] : [],
+      });
+      expect(JSON.parse(JSON.stringify(status))).toHaveProperty(
+        "architectContext",
+        status.architectContext,
+      );
+      expect(status).not.toHaveProperty("contextForArchitects");
+    },
+  );
+
   // Covers: R31, R36, R40, R47, R61
   it("downgrades unevidenced done and renders identical bytes twice", () => {
     const first = writeMasterStatus(cwd);
@@ -107,18 +367,24 @@ describe("master status", () => {
     expect(readFileSync(join(cwd, "specs/_master/01-mvp/MASTER.md"), "utf8")).toContain(
       "navori:master-parts hash=",
     );
-    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+    const drift = "01-mvp/STATUS.md differs from its render; repare con 'navori master status'";
+    expect(runMasterCheck(cwd).failures).not.toContain(drift);
     writeFileSync(path, `${bytes}tampered`);
-    expect(runMasterCheck(cwd).failures).toContain("01-mvp/STATUS.md differs from its render");
+    expect(runMasterCheck(cwd).failures).toContain(drift);
   });
 
   // Covers: R44, R46, R54
   it("reports active part and sanitizes the line title", () => {
     const status = readMasterStatus(cwd);
     expect(status.activePart).toBe("P1");
-    expect(statusLine(status, "specs")).toContain('P1 "Title with control"');
-    expect(statusLine(status, "specs")).not.toContain("\n");
-    expect(renderStatusMd(status)).toContain("Discrepancias");
+    // The schema now rejects a newline in a title (R20), so inject it past the reader.
+    const dirty = {
+      ...status,
+      parts: status.parts.map((p) => ({ ...p, title: "Title\nwith control" })),
+    };
+    expect(statusLine(dirty, "specs")).toContain('P1 "Title with control"');
+    expect(statusLine(dirty, "specs")).not.toContain("\n");
+    expect(renderStatusMd(status, "es")).toContain("Discrepancias");
   });
 
   // Covers: R31, R40, R47
@@ -156,11 +422,29 @@ describe("master status", () => {
     const parts = JSON.parse(
       readFileSync(join(cwd, "specs/_master/01-mvp/parts.json"), "utf8"),
     ).parts;
-    expect(renderMasterParts(parts, "template")).toBe(renderMasterParts(parts, "template"));
+    expect(renderMasterParts(parts, "template", "es")).toBe(
+      renderMasterParts(parts, "template", "es"),
+    );
   });
 
-  // Covers: R47, R54, R61
-  it("does not let orphan evidence block closure", () => {
+  // Covers: R31
+  it("repo en rotula STATUS.md y la región en inglés", () => {
+    const parts = JSON.parse(
+      readFileSync(join(cwd, "specs/_master/01-mvp/parts.json"), "utf8"),
+    ).parts;
+    const md = renderStatusMd(readMasterStatus(cwd), "en");
+    expect(md).toContain("# Stage status 01-mvp");
+    expect(md).toContain("Closable:");
+    expect(md).toContain("## Blockers");
+    expect(md).not.toContain("Estado de etapa");
+    const region = renderMasterParts(parts, "en-curso", "en");
+    expect(region).toContain("Objective: Build");
+    expect(region).toContain("State:");
+    expect(region).not.toContain("Objetivo:");
+  });
+
+  // Covers: R13, R47, R54, R61
+  it("preserves valid manual approval without requiring a Git commit", () => {
     const input = part("hecho") as ReturnType<typeof part>;
     input.acceptance = [
       {
@@ -246,6 +530,47 @@ describe("master status", () => {
     expect(line).not.toContain("ninguna");
   });
 
+  // Covers: R10
+  it("primera inserción conserva Origen y prosa tras dos corridas idénticas; MASTER.md en CRLF sigue solo CRLF", () => {
+    const masterPath = join(cwd, "specs/_master/01-mvp/MASTER.md");
+    const body = "Origen: context/raw/a.md\n\nProsa previa.\n";
+    const doc = `# Master\n\n## Entrega en partes\n\n${body}\n## Preguntas abiertas\n\nNinguna\n`;
+    writeFileSync(masterPath, doc);
+    writeMasterStatus(cwd);
+    const first = readFileSync(masterPath, "utf8");
+    expect(first).toContain("Origen: context/raw/a.md");
+    expect(first).toContain("Prosa previa.");
+    expect(first).toMatch(
+      /## Entrega en partes\n\n<!-- navori:master-parts[^]*<!-- \/navori:master-parts -->\n\nOrigen: /,
+    );
+    expect(first).toContain("\n## Preguntas abiertas\n\nNinguna\n");
+    writeMasterStatus(cwd);
+    expect(readFileSync(masterPath, "utf8")).toBe(first);
+
+    writeFileSync(masterPath, doc.replace(/\n/g, "\r\n"));
+    writeMasterStatus(cwd);
+    const crlf = readFileSync(masterPath, "utf8");
+    expect(crlf).toContain("Origen: context/raw/a.md");
+    expect(crlf.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    writeMasterStatus(cwd);
+    expect(readFileSync(masterPath, "utf8")).toBe(crlf);
+  });
+
+  // Covers: R11
+  it("marcador de apertura sin cierre falla sin escribir", () => {
+    const dir = join(cwd, "specs/_master/01-mvp");
+    const masterPath = join(dir, "MASTER.md");
+    writeFileSync(
+      masterPath,
+      '# Master\n\n## Entrega en partes\n\n<!-- navori:master-parts hash="abc" -->\nResto\n\n## Otra\n',
+    );
+    const before = readFileSync(masterPath, "utf8");
+    expect(() => writeMasterStatus(cwd)).toThrow("navori:master-parts");
+    expect(readFileSync(masterPath, "utf8")).toBe(before);
+    expect(() => readFileSync(join(dir, "STATUS.md"))).toThrow();
+    expect(() => readFileSync(join(cwd, "specs/_master/INDEX.md"))).toThrow();
+  });
+
   // Covers: R36, R54
   it("refuses a derived STATUS.md symlink outside the repository", () => {
     const outside = mkdtempSync(join(tmpdir(), "navori-master-escape-"));
@@ -259,4 +584,52 @@ describe("master status", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+describe("master status (deliveries)", () => {
+  const fixtures: string[] = [];
+  afterEach(() => {
+    for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const presented = (): ReturnType<typeof presentedDeliveryFixture> => {
+    const fixture = presentedDeliveryFixture();
+    fixtures.push(fixture.cwd);
+    return fixture;
+  };
+
+  // Covers: R24
+  it("STATUS.md de entregas no lleva presented ni scope y status --json sí", () => {
+    const { cwd: repo, identity } = presented();
+    const status = readMasterStatus(repo);
+    const md = renderStatusMd(status, "es");
+    expect(md).toContain("E1: pending; publication=pending");
+    expect(md).not.toContain("presented=");
+    expect(md).not.toContain("scope=");
+    expect(md).not.toContain("Preparación");
+    const json = JSON.parse(JSON.stringify(status)) as {
+      deliveryLifecycle: { deliveries: { presentedIdentity: string; scopeIdentity: string }[] };
+    };
+    expect(json.deliveryLifecycle.deliveries[0]).toMatchObject({ presentedIdentity: identity });
+    expect(json.deliveryLifecycle.deliveries[0]?.scopeIdentity).toMatch(/^[0-9a-f]{64}$/);
+  }, 120_000);
+
+  // Covers: R26
+  it("parts.json inválido en entregas devuelve workflow y bloqueo sin excepción", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "parts.json"), "{ not json");
+    const status = readMasterStatus(repo);
+    expect(status.workflow).toBe("deliveries");
+    expect(status.blockers).toEqual([expect.stringContaining("parts.json inválido")]);
+    expect(() => writeMasterStatus(repo)).not.toThrow();
+  }, 120_000);
+
+  // Covers: R27
+  it("baseline obsoleta con cola autorizada nombra delivery-revoke", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "MASTER.md"), "# Reviewed delivery\nRN-1 changed\n");
+    expect(readMasterStatus(repo).blockers).toContainEqual(
+      expect.stringContaining("navori master delivery-revoke"),
+    );
+    expect(() => approveDeliveryBaseline(repo, "user")).toThrow("navori master delivery-revoke");
+  }, 120_000);
 });

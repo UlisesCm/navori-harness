@@ -155,6 +155,7 @@ Orden de los lotes:
     `lib/master/__tests__/part.test.ts`, con `// Covers: R33, R44, R48, R59, R61, R62`, cubre el
     issue duplicado, la spec inexistente, la razón obligatoria y cada validación de `--accept`
     (método equivocado, árbol sucio, `manual` con `--command`, bandera apagada).
+  - Enmendado por 0051 R6 (2026-10-13): `commitsBehind` y `orphan` salen en `status --json`, no en `STATUS.md`; la evidencia huérfana vive en `evidenceBlockers`, que bloquea `close` sin afectar `closable`.
 - [x] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
   - `lib/master/close.ts` con la secuencia reanudable de 6 pasos de D10: validar, escribir
     `CLOSURE.md` determinista (con "Integridad" y cada criterio con su método, evidencia, fecha,
@@ -172,6 +173,10 @@ Orden de los lotes:
     ruta ocupada; `--abandon` en `mastered`, sin razón y combinado con `--convert`; y la misma
     lista de archivos antes y después de abandonar; los criterios en `CLOSURE.md` con evidencia y
     los de una parte `diferida` como no verificados.
+  - Enmendado por 0051 R5 (2026-10-13): `--abandon` también se acepta en `mastered`/`ux`/`executing`
+    cuando la etapa no tiene partes; con una parte sigue rechazado. La prueba de 0034 "rejects both
+    early exits in mastered" sigue vigente porque su fixture tiene una parte; la cobertura nueva
+    está en `close.test.ts` (0051 T5).
 - [x] **T10** (R4, R49, R50) — Fila de `doctor`.
   - `lib/diagnose/master-plan.ts`: corre siempre que exista `<specsDir>/_master/index.json`, con la
     bandera encendida o no (cuarta excepción del principio 3). Da `warn`, nunca error, en los tres

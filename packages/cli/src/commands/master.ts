@@ -23,11 +23,17 @@ import {
   captureDeliveryReview,
 } from "../lib/master/part.ts";
 import { runMasterClose } from "../lib/master/close.ts";
-import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
+import {
+  derivedWriteFailure,
+  readMasterStatus,
+  statusLine,
+  writeMasterStatus,
+} from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
 import {
   activeStage,
+  assertNoCloseInProgress,
   MASTER_DIR_NAME,
   masterDirPath,
   readMasterIndex,
@@ -109,7 +115,7 @@ const initSubCommand = defineCommand({
       );
       if (result.workflow === "deliveries")
         process.stdout.write(
-          "Deliveries: preparación, baseline y cola disponibles; ejecución, aceptación y publicación aún no disponibles.\n",
+          "Deliveries: siguiente paso navori master delivery-check; luego delivery-baseline, delivery-queue, delivery-slice, delivery-criterion, delivery-review, delivery-present, delivery-decision y delivery-publication.\n",
         );
       if (result.phase === "context") {
         const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
@@ -118,7 +124,12 @@ const initSubCommand = defineCommand({
             `${specsDir}/${MASTER_DIR_NAME}/${result.stage.dir}/context/raw/\n`,
         );
       }
-      if (result.requestedSlugIgnored) process.exitCode = 1;
+      if (result.requestedSlugIgnored) {
+        process.stderr.write(
+          `[navori] slug "${args.slug}" ignorado: ya hay una etapa activa (${result.stage.dir}); ciérrala antes de abrir otra\n`,
+        );
+        process.exitCode = 1;
+      }
     } catch (cause) {
       if (cause instanceof MasterInitError) {
         reportError(cause);
@@ -190,6 +201,7 @@ function setMasterUx(cwd: string, value: string): void {
     throw new Error(`state.json not found for stage ${active.dir}`);
   }
   const state = MasterStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")) as unknown);
+  assertNoCloseInProgress(state, active.dir);
   if (state.phase !== "ux") {
     throw new Error(`ux can only be set in phase 'ux' (current phase: '${state.phase}')`);
   }
@@ -356,16 +368,25 @@ const checkSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
       if (
-        [Boolean(args.stage), Boolean(args.part), Boolean(args.fit)].filter(Boolean).length > 1 ||
+        [Boolean(args.stage), args.part !== undefined, Boolean(args.fit)].filter(Boolean).length >
+          1 ||
         (args.json && !args.fit)
       ) {
-        throw new Error("--stage, --part and --fit are mutually exclusive; --json requires --fit");
+        reportError(
+          new Error("--stage, --part and --fit are mutually exclusive; --json requires --fit"),
+        );
+        return;
       }
-      if (args.part) {
-        const findings = checkPart(cwd, args.part as string);
+      if (args.part !== undefined) {
+        const partId = String(args.part).trim();
+        if (!partId) {
+          reportError(new Error("--part requires a P<n> value"));
+          return;
+        }
+        const findings = checkPart(cwd, partId);
         for (const finding of findings) process.stderr.write(`[navori] ${finding}\n`);
         if (findings.some((finding) => !finding.startsWith("warning:"))) process.exitCode = 1;
-        else process.stdout.write(`${args.part as string}: ok\n`);
+        else process.stdout.write(`${partId}: ok\n`);
         return;
       }
       if (args.fit) {
@@ -472,6 +493,15 @@ const partSubCommand = defineCommand({
         approvedBy: args["approved-by"],
       });
       if (args.accept) appendCliEvent(cwd, { name: "master-part-accept", verdict: "allow" });
+      try {
+        writeMasterStatus(cwd);
+      } catch (cause) {
+        const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
+        const dir = activeStage(readMasterIndex(cwd, specsDir))?.dir ?? "etapa activa";
+        throw new Error(
+          derivedWriteFailure(`${dir}: parts.json actualizado`, "navori master part", cause),
+        );
+      }
       process.stdout.write(`${args.id as string}: updated\n`);
     } catch (cause) {
       reportError(cause);

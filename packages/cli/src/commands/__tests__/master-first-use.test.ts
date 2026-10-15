@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,9 @@ import { dirname, join, resolve } from "node:path";
 import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
+import * as renderer from "../render.ts";
+import * as atomic from "../../lib/primitives/atomic.ts";
+import { readMasterStatus, renderStatusMd } from "../../lib/master/status.ts";
 import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
 
 /**
@@ -24,6 +27,7 @@ const temps: string[] = [];
 const exercised: string[][] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -71,10 +75,59 @@ async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
   return result;
 }
 
+// Covers: R1
+it("recovers CLI init with a persisted legacy flag and missing engine artifacts", async (): Promise<void> => {
+  const cwd = freshRepo();
+  const configPath = join(cwd, "navori.config.json");
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...readJson(configPath), harness: { masterPlan: true } }),
+  );
+  await ok(cwd, "init", "mvp");
+  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
+    "navori master",
+  );
+  expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toContain("navori:managed");
+});
+
+// Covers: R1, R2
+it("reports ok:false as nonzero without success guidance, then repairs on retry", async (): Promise<void> => {
+  const cwd = freshRepo();
+  const render = vi.spyOn(renderer, "runRender").mockReturnValueOnce({
+    ok: false,
+    reason: "test render failure",
+    language: "es",
+    filePath: join(cwd, "CLAUDE.md"),
+    entries: [],
+    written: false,
+    languageFallbacks: [],
+    updatesAvailable: [],
+    downgrades: [],
+    workspaces: [],
+  });
+  const failed = await master(cwd, "init", "mvp");
+  expect(failed.exitCode).toBe(1);
+  expect(failed.err).toContain("render failed: test render failure");
+  expect(failed.out).toBe("");
+  expect(failed.out).not.toContain("context/raw/");
+  expect(failed.out).not.toContain("navori master delivery-check");
+  render.mockRestore();
+  const statePath = stageFile(cwd, "state.json");
+  const indexPath = join(cwd, "specs/_master/index.json");
+  const before = [statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"));
+  await ok(cwd, "init");
+  expect([statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"))).toEqual(
+    before,
+  );
+  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
+    "navori master",
+  );
+});
+
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
   expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
-    "preparación, baseline y cola disponibles",
+    "navori master delivery-check",
   );
   const stage = join(cwd, "specs", "_master", "01-delivery");
   const statePath = join(stage, "state.json");
@@ -87,7 +140,7 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
-  expect((await ok(cwd, "init")).out).toContain("preparación, baseline y cola disponibles");
+  expect((await ok(cwd, "init")).out).toContain("navori master delivery-check");
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {
@@ -173,6 +226,7 @@ describe("master-plan first use — executable scenario (R59)", () => {
     expect(readJson(stageFile(cwd, "state.json")).mode).toBe("template");
     await ok(cwd, "template", "plan");
     await ok(cwd, "template", "ux");
+    await ok(cwd, "template", "parts");
 
     // Context phase without raw files: check and advance refuse, and say why.
     expect((await master(cwd, "check")).exitCode).toBe(1);
@@ -316,6 +370,83 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     ]);
   }, 120_000);
 
+  /** Seeds an executing stage with PART committed, ready for `part` mutations. */
+  async function executingStage(): Promise<{ cwd: string; log: string }> {
+    const cwd = freshRepo();
+    const log = startAudit(cwd);
+    await ok(cwd, "init", "mvp");
+    writeFileSync(
+      stageFile(cwd, "parts.json"),
+      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
+    );
+    setPhase(cwd, "executing");
+    mkdirSync(join(cwd, "specs", "p1-spec"), { recursive: true });
+    createCommitHelper(createGitHelper(cwd))("plan");
+    return { cwd, log };
+  }
+
+  // Covers: R7
+  it("tras part --state, --spec, --issue y --accept no hay drift de STATUS.md", async () => {
+    const { cwd } = await executingStage();
+    const inSync = (): void =>
+      expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toBe(
+        renderStatusMd(readMasterStatus(cwd), "es"),
+      );
+    await ok(cwd, "part", "P1", "--state", "parcial");
+    inSync();
+    await ok(cwd, "part", "P1", "--spec", "specs/p1-spec");
+    inSync();
+    await ok(cwd, "part", "P1", "--issue", "7");
+    inSync();
+    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
+    inSync();
+    expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toContain("verificado");
+  }, 120_000);
+
+  // Covers: R21
+  it("con cierre iniciado part, advance y ux piden reanudar con close sin escribir", async () => {
+    const { cwd } = await executingStage();
+    const statePath = stageFile(cwd, "state.json");
+    writeFileSync(
+      statePath,
+      `${JSON.stringify({ ...readJson(statePath), outcome: "entregada" }, null, 2)}\n`,
+    );
+    const files = ["parts.json", "state.json"].map((name) => stageFile(cwd, name));
+    const before = files.map((path) => readFileSync(path, "utf8"));
+    for (const argv of [["part", "P1", "--state", "parcial"], ["advance"], ["ux", "none"]]) {
+      const result = await master(cwd, ...argv);
+      expect(result.exitCode, argv.join(" ")).toBe(1);
+      expect(result.err).toContain("reanude con 'navori master close'");
+    }
+    expect(files.map((path) => readFileSync(path, "utf8"))).toEqual(before);
+  }, 120_000);
+
+  // Covers: R8
+  it("fallo de regeneración tras --accept conserva parts.json y el evento master-part-accept y dice Repare con navori master status", async () => {
+    const { cwd, log } = await executingStage();
+    const original = atomic.writeFileAtomic;
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementation(
+      (path: string, content: string): void => {
+        if (path === stageFile(cwd, "STATUS.md")) throw new Error("derived failure");
+        original(path, content);
+      },
+    );
+    const failed = await master(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
+    vi.restoreAllMocks();
+    expect(failed.exitCode).toBe(1);
+    expect(failed.err).toContain(`${STAGE}: parts.json actualizado`);
+    expect(failed.err).toContain("derived failure");
+    expect(failed.err).toContain("Repare con 'navori master status'");
+    expect(failed.err).toContain("no repita 'navori master part'");
+    const parts = readJson(stageFile(cwd, "parts.json")) as {
+      parts: Array<{ acceptance: Array<{ id: string; evidence: unknown }> }>;
+    };
+    expect(parts.parts[0]?.acceptance.find((a) => a.id === "A2")?.evidence).not.toBeNull();
+    expect(cliEvents(log)).toEqual([
+      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
+    ]);
+  }, 120_000);
+
   // Covers: R55
   it("writes nothing without a session id (fail-open)", async () => {
     const cwd = freshRepo();
@@ -339,7 +470,8 @@ interface SkillForm {
 
 function skillForms(skill: string): SkillForm[] {
   const forms: SkillForm[] = [];
-  for (const match of skill.matchAll(/navori master ([a-z]+)([^`\n.;]*)/g)) {
+  // Delivery forms have a separate real subprocess lifecycle in master-delivery.test.ts.
+  for (const match of skill.matchAll(/navori master ((?!delivery-)[a-z]+)([^`\n.;]*)/g)) {
     const rest = match[2] ?? "";
     const positional = /^ ([a-z][a-z-]*)(?= |$)/.exec(rest)?.[1] ?? null;
     forms.push({
@@ -385,4 +517,32 @@ describe("master-plan skill — every `navori master …` form is exercised (R59
       expect.objectContaining({ sub: "template", positional: "ux", flags: [] }),
     ]);
   });
+});
+
+// Covers: R14
+it("check --part ausente, vacío o espacios es error de uso sin check de etapa", async () => {
+  const cwd = freshRepo();
+  await ok(cwd, "init", "mvp");
+  const before = readFileSync(stageFile(cwd, "state.json"), "utf8");
+  for (const value of ["", "   "]) {
+    const result = await master(cwd, "check", "--part", value);
+    expect(result.exitCode).toBe(1);
+    expect(result.err).toContain("--part");
+    expect(result.out).toBe("");
+  }
+  const exclusive = await master(cwd, "check", "--part", "", "--fit");
+  expect(exclusive.exitCode).toBe(1);
+  expect(exclusive.err).toContain("mutually exclusive");
+  expect(readFileSync(stageFile(cwd, "state.json"), "utf8")).toBe(before);
+});
+
+// Covers: R15
+it("init con otro slug y etapa activa explica en stderr y sale 1", async () => {
+  const cwd = freshRepo();
+  await ok(cwd, "init", "mvp");
+  const result = await master(cwd, "init", "other");
+  expect(result.exitCode).toBe(1);
+  expect(result.err).toContain('"other"');
+  expect(result.err).toContain("ignorado");
+  expect(result.err).toContain(STAGE);
 });

@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "2b01ad507271b1afb2b27f8912f4a35d84cd6779479eb7c655183d91cb24a6f1"
+    "hash": "fd9a9a6450f6c436dd11dee86461b61210af9e87baa9eb4ab63e2b6242f6b671"
   },
   "schemaVersion": 2,
   "agents": [
@@ -184,7 +184,15 @@
       "Bash(navori master ux:*)",
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
-      "Bash(navori master close:*)"
+      "Bash(navori master close:*)",
+      "Bash(navori master delivery-baseline:*)",
+      "Bash(navori master delivery-queue:*)",
+      "Bash(navori master delivery-criterion:*)",
+      "Bash(navori master delivery-review:*)",
+      "Bash(navori master delivery-decision:*)",
+      "Bash(navori master delivery-publication:*)",
+      "Bash(navori master delivery-revoke:*)",
+      "Bash(navori plan escalation-reset:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

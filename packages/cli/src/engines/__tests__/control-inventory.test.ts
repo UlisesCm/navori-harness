@@ -317,7 +317,7 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     expect(claudePlan).not.toContain("A hook denies dispatching");
     expect(claudeHookRegistered(claudeSettings, "PreToolUse", "Agent", "plan-gate.sh")).toBe(true);
 
-    expect(codexPlan).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
+    expect(codexPlan).toMatch(/Codex[^\n]*plan-gate[^\n]*denies/i);
     expect(codexPlan).not.toContain("A hook denies dispatching");
     expect(codexConfig).toContain("plan-gate.sh");
     expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
@@ -400,11 +400,12 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
   });
 });
 
-// Covers: R10
+// Covers: R10, R41
 describe("acceptance-evidence control", () => {
-  it("is advisory for Claude and unsupported for Codex and prose engines", () => {
+  it("acceptance-evidence es advisory en Claude y Codex y unsupported en prosa", () => {
     expect(ENGINE_CAPABILITIES.claude.controls["acceptance-evidence"].state).toBe("advisory");
-    for (const id of ["codex", "agents-md", "cursor", "copilot"] as const) {
+    expect(ENGINE_CAPABILITIES.codex.controls["acceptance-evidence"].state).toBe("advisory");
+    for (const id of ["agents-md", "cursor", "copilot"] as const) {
       expect(ENGINE_CAPABILITIES[id].controls["acceptance-evidence"].state).toBe("unsupported");
     }
     expect(CONTROL_DEFINITIONS["acceptance-evidence"].hookScripts).toEqual([]);

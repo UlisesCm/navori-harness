@@ -14,7 +14,7 @@ set -euo pipefail
 
 # Every matching command needs this literal token, so its absence from the raw
 # payload proves this hook cannot apply and avoids parsing the payload at all.
-TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue navori master'
+TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue escalation-reset navori master'
 # navori:include gate-trigger
 
 has_trigger_token "${payload:-}" || exit 0
@@ -56,12 +56,20 @@ QUEUE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-queue([[:space:]]|\$).
 DELIVERY_REVIEW_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-(review|decision|publication|revoke)([[:space:];&|)<>]|\$)"
 DELIVERY_CRITERION_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-criterion([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
 DELIVERY_REFRESH_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-slice([[:space:]]|\$).*--refresh([[:space:]=]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE})"
+RESET_RE="${NAVORI}[[:space:]]+plan[[:space:]]+escalation-reset([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE}|${RESET_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
 navori_semi='; '
 cmd="${cmd//"$navori_subst"/$navori_semi}"
+# Quotes hide the boundary from `BOUND` in wrapped forms (`sh -c 'navori master
+# close'`, `eval "…"`, `navori master "close"`): delete ONLY `"` and `'`. Never
+# `\`: `navori_count_triggers` joins a `\<newline>` continuation first, and
+# removing the backslash here would split the segment (spec 0052 R36). The cost
+# is asking on `echo "navori master close"`, the safe direction. A word split by
+# quotes (`navo"ri`) is deliberate obfuscation this hook does not claim to catch.
+cmd="${cmd//[\"\']/}"
 is_scan_trigger "$cmd" || exit 0
 
 approval_description="a manual criterion"
@@ -71,6 +79,7 @@ case "$cmd" in
   *delivery-publication*) approval_description="the release or deploy reference for this exact accepted delivery; this records publication, it does not deploy" ;;
   *delivery-revoke*) approval_description="revocation of the active authority generation and prior effective proof" ;;
   *delivery-slice*) approval_description="the current-queue reverification refresh; pending criteria reset and normal plan approval is required again" ;;
+  *escalation-reset*) approval_description="another review round after two rejections at level 2 or higher" ;;
   *delivery-baseline*|*delivery-queue*) approval_description="the delivery baseline or bounded queue" ;;
 esac
 

@@ -10,7 +10,7 @@ import {
   type DistributionReport,
 } from "../lib/diagnose/distribution.ts";
 import { computeHealthVerdict } from "./doctor.ts";
-import { runRender, countPendingRenderChanges } from "./render.ts";
+import { computeRenderPending } from "../lib/render/render-pending.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
@@ -62,23 +62,6 @@ export function distributionSummary(
     parts.push(ts.distributionRowBehind(report.base.behind, report.base.ref));
   }
   return parts.join(" · ");
-}
-
-/**
- * Files/blocks a `navori render` would still write or delete, from a dry-run of
- * the same engine (writes nothing). `drift` only sees markers already on disk,
- * so it reads 0 while render would create or retire dozens of files (#1143).
- * `null` when unknown: never rendered (no CLAUDE.md), render refused the repo,
- * or the dry run threw — status degrades instead of crashing.
- */
-export function computeRenderPending(cwd: string, claudeMdExists: boolean): number | null {
-  if (!claudeMdExists) return null;
-  try {
-    const result = runRender(cwd, { dryRun: true });
-    return result.ok ? countPendingRenderChanges(result) : null;
-  } catch {
-    return null;
-  }
 }
 
 export const statusCommand = defineCommand({

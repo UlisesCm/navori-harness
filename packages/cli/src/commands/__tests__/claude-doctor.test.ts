@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
+import { writeConfig } from "../../lib/config/config.ts";
+import { runRender } from "../render.ts";
 import { scanClaudeHookScripts, computeHealthVerdict, doctorCommand } from "../doctor.ts";
 
 describe("doctor progressSize (#1263)", () => {
@@ -182,5 +184,64 @@ describe("computeHealthVerdict (#244 — shared doctor/status gate)", () => {
     const verdict = computeHealthVerdict(cwd, config({ plugins: { ghost: { enabled: true } } }));
     expect(verdict.ok).toBe(false);
     expect(verdict.missingPlugins.map((m) => m.id)).toContain("ghost");
+  });
+});
+
+describe("doctor render-pending (spec 0052 R3)", () => {
+  // Covers: R3
+  it("doctor advierte render pendiente cuando plan-gate.sh renderizado es más viejo que el binario", async () => {
+    const cwd = tempRepo();
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "pending-doctor",
+      engines: ["claude", "agents-md"],
+      preset: "custom",
+      harness: { planTiers: true },
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+    });
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const run = async (json: boolean, strict = false): Promise<unknown> => {
+      output.mockClear();
+      process.exitCode = undefined;
+      await doctorCommand.run?.({
+        args: { _: [], cwd, json, strict },
+        rawArgs: [],
+        cmd: doctorCommand,
+      });
+      return json ? JSON.parse(String(output.mock.calls.at(-1)?.[0])) : undefined;
+    };
+    const before = process.exitCode;
+    try {
+      expect(runRender(cwd).ok).toBe(true);
+      const fresh = (await run(true)) as { renderPending: number | null };
+      expect(fresh.renderPending).toBe(0);
+      const freshExit = process.exitCode;
+      await run(true, true);
+      const freshStrictExit = process.exitCode;
+
+      // An older binary rendered a plan-gate.sh with other contents: the file exists.
+      writeFileSync(
+        join(cwd, ".claude/hooks/plan-gate.sh"),
+        "#!/usr/bin/env bash\n# plan-gate from an older navori\nexit 0\n",
+      );
+      const stale = (await run(true)) as { renderPending: number | null };
+      expect(stale.renderPending).toBeGreaterThan(0);
+      // The warning is advisory: same exit code, also under --strict.
+      expect(process.exitCode).toBe(freshExit);
+      await run(true, true);
+      expect(process.exitCode).toBe(freshStrictExit);
+
+      // Text mode names the remedy.
+      const warn = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      warn.mockClear();
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      await run(false);
+      const text = [...warn.mock.calls, ...stdout.mock.calls].flat().join("\n");
+      stdout.mockRestore();
+      expect(text).toContain("navori render --apply");
+    } finally {
+      process.exitCode = before;
+      output.mockRestore();
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

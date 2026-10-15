@@ -6,13 +6,14 @@ import { join } from "node:path";
 import {
   readTemplateFile,
   resolveTemplatePath,
+  sectionsForMode,
   splitTemplateSections,
   templateHeaders,
   printTemplate,
   printIssueTemplate,
   TEMPLATE_NAMES,
 } from "../templates.ts";
-import type { Part } from "../schema.ts";
+import { PartsSchema, type Part } from "../schema.ts";
 import { UX_SECTION_KINDS } from "../ux.ts";
 import { writeUxTemplateFixture } from "./test-utils.ts";
 
@@ -92,6 +93,12 @@ describe("splitTemplateSections — parsing", () => {
       "Estado actual vs. objetivo",
       "Entrega en partes",
     ]);
+  });
+
+  // Covers: R1
+  it("yields the same sections for a CRLF document as for its LF twin", () => {
+    const crlf = PLAN_FIXTURE.replace(/\n/g, "\r\n");
+    expect(splitTemplateSections(crlf)).toEqual(splitTemplateSections(PLAN_FIXTURE));
   });
 
   it("reads the only-mode marker and strips it from the exposed body", () => {
@@ -353,5 +360,35 @@ describe("ux template (master_plan_ux A3)", () => {
     rmSync(join(root, "core-assets", "master-plan", "en", "ux.md"));
     expect(resolveTemplatePath("ux", "en", { root }).fallback).toBe(true);
     expect(printTemplate("ux", "en", null, { root })).toContain("## Sec surfaces");
+  });
+});
+
+describe("parts and section-less templates (0051 M8)", () => {
+  // Covers: R12
+  it("el JSON de template parts valida con PartsSchema en es y en", () => {
+    expect(TEMPLATE_NAMES).toContain("parts");
+    for (const language of ["es", "en"] as const) {
+      expect(resolveTemplatePath("parts", language).fallback).toBe(false);
+      const printed = printTemplate("parts", language);
+      const json = /```json\n([\s\S]*?)\n```/.exec(printed)?.[1];
+      expect(json).toBeDefined();
+      const doc = PartsSchema.parse(JSON.parse(json!));
+      const methods = new Set(doc.parts.flatMap((p) => p.acceptance.map((a) => a.method)));
+      expect([...methods].sort()).toEqual(["comando", "manual", "test"]);
+    }
+  });
+
+  // Covers: R13
+  it("template intake imprime la tabla; template master igual que la base", () => {
+    for (const language of ["es", "en"] as const) {
+      const intake = printTemplate("intake", language);
+      expect(intake).toContain("|---|");
+      expect(intake.trim().length).toBeGreaterThan(0);
+      const master = readTemplateFile("master", language);
+      const base = `${sectionsForMode(splitTemplateSections(master), null)
+        .map((s) => `## ${s.heading}\n\n${s.body}`)
+        .join("\n\n")}\n`;
+      expect(printTemplate("master", language)).toBe(base);
+    }
   });
 });

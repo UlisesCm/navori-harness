@@ -119,6 +119,15 @@ export function assertLegacyStage(stage: StageEntry): void {
     throw new Error(`${stage.dir}: deliveries workflow is not supported by this legacy operation`);
 }
 
+/** A started close (`state.outcome` set) must be resumed with `navori master close`;
+ * any other mutation of the stage would race its half-written closure (R21). */
+export function assertNoCloseInProgress(state: { outcome: string | null }, stageDir: string): void {
+  if (state.outcome !== null)
+    throw new Error(
+      `${stageDir}: cierre iniciado (${state.outcome}); reanude con 'navori master close'`,
+    );
+}
+
 /** The last stage that closed as a delivery (`cerrada`), in registration
  * order — the entry point (R51) and D11's context window both key off it. */
 export function lastClosedStage(index: MasterIndex | null): StageEntry | null {
@@ -149,9 +158,14 @@ export interface ArchitectContext {
  * their `CLOSURE.md`, plus `INDEX.md`. Returns `null` for stage 1 (no
  * non-active stage exists yet to read).
  */
-export function contextForArchitects(index: MasterIndex): ArchitectContext | null {
+export function contextForArchitects(
+  index: MasterIndex,
+  masterDir: string,
+): ArchitectContext | null {
   const nonActive = index.stages.filter((s) => s.state !== "activa");
   if (nonActive.length === 0) return null;
+  // R34: list only files that exist (an abandoned stage may have no DECISIONS.md).
+  const exists = (relative: string): boolean => existsSync(join(masterDir, relative));
 
   const stages = index.stages;
   let lastClosedPos = -1;
@@ -165,7 +179,9 @@ export function contextForArchitects(index: MasterIndex): ArchitectContext | nul
   if (lastClosedPos === -1) {
     // No stage ever reached `cerrada`: read every non-active stage's
     // DECISIONS.md and CLOSURE.md in full (design.md D11).
-    const full = nonActive.flatMap((s) => [`${s.dir}/DECISIONS.md`, `${s.dir}/CLOSURE.md`]);
+    const full = nonActive
+      .flatMap((s) => [`${s.dir}/DECISIONS.md`, `${s.dir}/CLOSURE.md`])
+      .filter(exists);
     return { full, referenceOnly: [] };
   }
 
@@ -188,7 +204,7 @@ export function contextForArchitects(index: MasterIndex): ArchitectContext | nul
   }
   referenceOnly.push("INDEX.md");
 
-  return { full, referenceOnly };
+  return { full: full.filter(exists), referenceOnly: referenceOnly.filter(exists) };
 }
 
 /**

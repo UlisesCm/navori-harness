@@ -28,6 +28,27 @@ export const PI_ROLE_TOOLS: Readonly<Record<PiRoleName, readonly string[]>> = {
   publisher: ["read", "grep", "find", "ls", "bash"],
 };
 
+/**
+ * AI-doctrine Markdown the implementer may write with `edit`/`write` (spec 0052 R49): the same closed,
+ * repo-root-relative list as `implementer-no-markdown.sh`. A trailing `/` is a directory prefix; any other
+ * entry is one exact file. Keep both lists identical.
+ */
+export const PI_IMPLEMENTER_DOCTRINE_PREFIXES: readonly string[] = [
+  "packages/core/core-assets/agents/",
+  "packages/core/core-assets/skills/",
+  "packages/core/core-assets/managed/",
+  "packages/core/core-assets/hooks/",
+  ".claude/agents/",
+  ".claude/skills/",
+  ".claude/context/",
+  ".claude/hooks/",
+  ".codex/agents/",
+  ".codex/hooks/",
+  ".codex/orchestrator.md",
+  ".agents/skills/",
+  ".pi/navori/",
+];
+
 /** Gate timeout (600 s) the commit/push roles must outlive. */
 export const PI_GATE_TIMEOUT_MS = 600_000;
 

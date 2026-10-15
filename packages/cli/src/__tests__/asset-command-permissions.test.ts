@@ -328,12 +328,16 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
   ],
   [
-    "navori plan render",
-    "writes workplan_<feature>.md from its JSON source (R11) — a write, not a read; `navori plan classify`/`plan check` are pre-approved instead",
+    "navori master delivery-check",
+    "read-only preparation check; this opt-in deliveries route retains its existing prompt rather than granting global pre-approval through a documentation change",
   ],
   [
-    "navori plan update",
-    "writes workplan_<feature>.json (progress/decisions) and re-renders its `.md` — a write, same reason as `navori plan render`",
+    "navori master delivery-slice",
+    "writes the authorized part's workplan projection; refresh can reset pending criteria and requires explicit user approval, so the write keeps its prompt",
+  ],
+  [
+    "navori master delivery-present",
+    "writes a technically reviewed presentation identity and review phase; this state mutation keeps its prompt and never records client acceptance",
   ],
   [
     "navori gate",
@@ -471,14 +475,16 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     expect(stale, `no asset orders these any more — delete them: ${stale.join(", ")}`).toEqual([]);
     // Raised 15 → 16 for #998: five distinct-risk entries from two new
     // project-local skills, none a broadened existing prefix. Raised 16 → 18
-    // for #1011: `navori plan render`/`navori plan update` are the two write
-    // subcommands of `plan-simple`; `plan classify`/`plan check` are read-only
-    // and went into `settings-base.json`'s allowlist instead. Raised 18 → 20
+    // for #1011: `navori plan render`/`navori plan update` were the two write
+    // subcommands of `plan-simple` (spec 0052 R48 moved both into
+    // `settings-base.json`'s allowlist, alongside `plan classify`/`plan check`). Raised 18 → 20
     // for the two one-time `git config` setups `rebase-rerender` orders (each
     // writes .git/config, none a broadened existing prefix). Raised 20 → 21 for
     // #1272: the bare `navori gate <kind>` shape of the sentinel contract; its
-    // exact per-kind allow rules exist only for safe gates (#197).
-    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(21);
+    // exact per-kind allow rules exist only for safe gates (#197). Raised 21 → 30
+    // for spec 0049 M7: nine exact delivery subcommands retain their existing
+    // prompts; no broader master prefix or permission rule is introduced.
+    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(30);
     for (const [prefix, why] of EXPECTED_PROMPTS) {
       expect(why.length, `${prefix} needs a real reason, not a placeholder`).toBeGreaterThan(30);
     }

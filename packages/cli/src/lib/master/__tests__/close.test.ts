@@ -1,6 +1,7 @@
 // Covers: R47, R49, R50, R57, R58, R63, A1, A2 (master_plan_ux)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -139,6 +140,105 @@ beforeEach(() => {
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
 describe("master close", () => {
+  // Covers: R11, R6
+  it("close rechaza evidencia huérfana desde evidenceBlockers sin escribir aunque closable sea verdadero", (): void => {
+    seed("executing");
+    const input = {
+      ...part("hecho"),
+      acceptance: [
+        {
+          id: "A1",
+          description: "Run",
+          method: "comando",
+          command: { run: "true", expected: "exit 0" },
+          evidence: {
+            kind: "run",
+            command: "true",
+            result: "ok",
+            commit: "0".repeat(40),
+            date: "2026-01-01",
+          },
+        },
+      ],
+    };
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+    const before = listStageFiles().map((name) => [name, read(name)]);
+    const blocker = readMasterStatus(cwd).evidenceBlockers[0]!;
+    expect(blocker).toContain("P1.A1: evidencia huérfana");
+    expect(readMasterStatus(cwd).closable).toBe(true);
+    expect(() => runMasterClose(cwd)).toThrow(blocker);
+    expect(listStageFiles().map((name) => [name, read(name)])).toEqual(before);
+    expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);
+  });
+
+  // Covers: R12
+  it("closes with older ancestor evidence and records its age", (): void => {
+    seed("executing");
+    const commitArgs = [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "baseline",
+    ];
+    execFileSync("git", commitArgs, { cwd });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+    execFileSync("git", commitArgs, { cwd });
+    const input = {
+      ...part("hecho"),
+      acceptance: [
+        {
+          id: "A1",
+          description: "Run",
+          method: "comando",
+          command: { run: "true", expected: "exit 0" },
+          evidence: { kind: "run", command: "true", result: "ok", commit, date: "2026-01-01" },
+        },
+      ],
+    };
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+    expect(readMasterStatus(cwd).closable).toBe(true);
+    runMasterClose(cwd);
+    expect(read("CLOSURE.md")).toContain("commitsBehind=1");
+    expect(checkClosedStage(cwd, "specs", "01-mvp", "es")).toEqual([]);
+  });
+
+  // Covers: R13
+  it.each(["descartada", "diferida"] as const)(
+    "closes a %s part despite orphan evidence",
+    (state): void => {
+      seed("executing");
+      const input = {
+        ...part("hecho"),
+        state,
+        reason: "out of this stage",
+        acceptance: [
+          {
+            id: "A1",
+            description: "Run",
+            method: "comando",
+            command: { run: "true", expected: "exit 0" },
+            evidence: {
+              kind: "run",
+              command: "true",
+              result: "ok",
+              commit: "0".repeat(40),
+              date: "2026-01-01",
+            },
+          },
+        ],
+      };
+      writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+      expect(readMasterStatus(cwd).closable).toBe(true);
+      runMasterClose(cwd);
+      expect(read("CLOSURE.md")).toContain("no verificado");
+      expect(read("CLOSURE.md")).not.toContain("orphan");
+    },
+  );
+
   // Covers: R47
   it("lists a partial part and writes nothing when delivery is blocked", () => {
     seed("executing", "parcial");
@@ -171,6 +271,16 @@ describe("master close", () => {
     const frozen = read("CLOSURE.md");
     expect(runMasterClose(cwd).stage).toBeNull();
     expect(read("CLOSURE.md")).toBe(frozen);
+  });
+
+  // Covers: R1
+  it("records the sha256 of the LF-normalized content, unchanged by the shared EOL helper", () => {
+    seed("executing", "hecho");
+    runMasterClose(cwd);
+    const expected = createHash("sha256")
+      .update(read("MASTER.md").replace(/\r\n/g, "\n"), "utf8")
+      .digest("hex");
+    expect(read("CLOSURE.md")).toContain(`| MASTER.md | ${expected}`);
   });
 
   // Covers: R49
@@ -236,8 +346,8 @@ describe("master close", () => {
     expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(false);
   });
 
-  // Covers: R50, R63
-  it("renders run evidence, commit age and orphan marks; detects post-close evidence edits", () => {
+  // Covers: R11, R50, R63
+  it("requires revalidation of orphan runs before closure and detects post-close evidence edits", () => {
     seed("executing");
     execFileSync("git", ["add", "-A"], { cwd });
     execFileSync(
@@ -276,10 +386,24 @@ describe("master close", () => {
       },
     ];
     writeFileSync(join(stage(), "parts.json"), JSON.stringify(parts));
+    expect(() => runMasterClose(cwd)).toThrow("P1.A2: evidencia huérfana");
+    expect(existsSync(join(stage(), "CLOSURE.md"))).toBe(false);
+    execFileSync("git", ["add", "-A"], { cwd });
+    execFileSync(
+      "git",
+      ["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-qm", "criteria"],
+      { cwd },
+    );
+    const revalidatedCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+    }).trim();
+    changeMasterPart(cwd, "P1", { accept: "A2", command: "bun build", result: "ok" });
+    expect(readMasterStatus(cwd).closable).toBe(true);
     runMasterClose(cwd);
     const closure = read("CLOSURE.md");
-    expect(closure).toContain(`bun test; passed; ${commit.slice(0, 8)} · commitsBehind=0`);
-    expect(closure).toContain("bun build; ok; 00000000 · orphan");
+    expect(closure).toContain(`bun test; passed; ${commit.slice(0, 8)} · commitsBehind=1`);
+    expect(closure).toContain(`bun build; ok; ${revalidatedCommit.slice(0, 8)} · commitsBehind=0`);
     expect(closure).toContain("| P1.A1 | test |");
     expect(closure).toContain("| P1.A2 | comando |");
     expect(checkClosedStage(cwd, "specs", "01-mvp", "es")).toEqual([]);
@@ -403,15 +527,104 @@ describe("master close", () => {
   });
 });
 
+describe("close --reason without --abandon/--convert", () => {
+  // Covers: R16
+  it("close --reason en entrega legacy sale 1 sin escrituras; deliveries rechaza igual", async () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexBefore = readFileSync(join(root(), "index.json"), "utf8");
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/--reason/);
+    const cli = await invoke(["close", "--reason", "x"]);
+    expect(cli.exitCode).toBe(1);
+    expect(cli.error).toContain("--reason");
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+    expect(readFileSync(join(root(), "index.json"), "utf8")).toBe(indexBefore);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(join(root(), "index.json"), JSON.stringify(index));
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/identity-bound/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
+describe("close --reason in blank", () => {
+  // Covers: R33
+  it("close con reason en blanco se rechaza sin escribir en legacy y en deliveries", () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexPath = join(root(), "index.json");
+    const indexBefore = readFileSync(indexPath, "utf8");
+    for (const reason of ["", "   "]) {
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+      expect(() => runMasterClose(cwd, { abandon: true, reason })).toThrow(
+        /--reason no puede estar vacío/,
+      );
+    }
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(indexPath, JSON.stringify(index));
+    for (const reason of ["", "   "])
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
+describe("late abandon without parts", () => {
+  // Covers: R5
+  it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {
+    for (const phase of ["mastered", "ux", "executing"]) {
+      for (const setup of ["absent", "empty"] as const) {
+        seed(phase);
+        rmSync(join(stage(), "CLOSURE.md"), { force: true });
+        if (setup === "absent") rmSync(join(stage(), "parts.json"));
+        else writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+        const result = runMasterClose(cwd, { abandon: true, reason: "stuck" });
+        expect(result.outcome).toBe("abandonada");
+        expect(read("CLOSURE.md")).toContain(`Fase: ${phase}`);
+      }
+    }
+    seed("executing");
+    const before = read("state.json");
+    expect(() => runMasterClose(cwd, { abandon: true, reason: "stop" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(() => runMasterClose(cwd, { convert: "specs/new", reason: "focus" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+  });
+});
+
 describe("navori master ux", () => {
   it("records the choice in phase ux and regenerates STATUS.md in the same operation", async () => {
     seed("ux");
     const result = await invoke(["ux", "none"]);
     expect(result.exitCode).toBeUndefined();
     expect(JSON.parse(read("state.json")).ux).toBe("none");
-    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
+    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd), "es"));
     expect(read("STATUS.md")).toContain("UX: none");
-    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+    expect(
+      runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
+    ).toEqual([]);
   });
 
   it("re-choosing in phase ux overwrites the decision", async () => {
@@ -514,12 +727,12 @@ describe("STATUS.md compat", () => {
     seed("executing");
     const legacy = readMasterStatus(cwd);
     expect("ux" in legacy).toBe(false);
-    expect(renderStatusMd(legacy)).not.toContain("UX:");
+    expect(renderStatusMd(legacy, "es")).not.toContain("UX:");
     seed("ux", "hecho", "md-json");
     const status = readMasterStatus(cwd);
     expect(status.ux).toBe("md-json");
     expect(status.nextPhase).toBe("executing");
-    expect(renderStatusMd(status)).toContain("UX: md-json");
+    expect(renderStatusMd(status, "es")).toContain("UX: md-json");
   });
 
   it("mastered's next phase is ux", () => {

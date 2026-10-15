@@ -1,12 +1,131 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { runCommand } from "citty";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { masterCommand } from "../master.ts";
 import * as delivery from "../../lib/master/delivery.ts";
 import * as part from "../../lib/master/part.ts";
 import { DeliveryStateSchema } from "../../lib/master/delivery-schema.ts";
+import {
+  cli,
+  initDeliveryRepo,
+  presentFromSlice,
+  writeDeliveryParts,
+} from "../../lib/master/__tests__/delivery-flow.ts";
+
+// Covers: R15
+it("smoke integrated: first stage, close, second stage, conversion and full deliveries lifecycle", (): void => {
+  const { cwd, commit, master } = initDeliveryRepo();
+  dirs.push(cwd);
+  const json = (path: string): Record<string, unknown> =>
+    JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ stage: null, lastClosed: null });
+  master("init", "first");
+  master("mode", "template");
+  const first = join(cwd, "specs/_master/01-first");
+  // Seed authored plan output; transitions and dispositions still use the real CLI.
+  writeFileSync(
+    join(first, "parts.json"),
+    JSON.stringify({
+      version: 1,
+      parts: [
+        {
+          id: "P1",
+          title: "One",
+          objective: "Review",
+          scope: [],
+          outOfScope: [],
+          dependsOn: [],
+          seedRequirements: [],
+          inheritedFrom: null,
+          state: "pendiente",
+          reason: null,
+          spec: null,
+          issue: null,
+          acceptance: [
+            {
+              id: "A1",
+              description: "Inspect",
+              method: "manual",
+              manual: { check: "Inspect", how: "Read" },
+              evidence: null,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(first, "state.json"),
+    JSON.stringify({ ...json(join(first, "state.json")), phase: "executing" }),
+  );
+  commit("first plan");
+  master("part", "P1", "--accept", "A1", "--approved-by", "user");
+  master("part", "P1", "--state", "hecho");
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
+  master("close");
+  expect(json(join(first, "state.json"))).toMatchObject({ outcome: "entregada" });
+  master("init", "second");
+  const second = join(cwd, "specs/_master/02-second");
+  expect(json(join(second, "state.json"))).toMatchObject({ mode: "en-curso" });
+  expect(cli(cwd, "master", "mode", "template").code).toBe(1);
+  master("close", "--convert", "specs/converted", "--reason", "Single delivery");
+  expect(json(join(second, "state.json"))).toMatchObject({ outcome: "convertida" });
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    stage: null,
+  });
+  master("init", "delivery", "--workflow", "deliveries");
+  const stage = join(cwd, "specs/_master/03-delivery");
+  master("init");
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    workflow: "deliveries",
+    closable: false,
+  });
+  const statePath = join(stage, "state.json");
+  const before = readFileSync(statePath, "utf8");
+  expect(cli(cwd, "master", "advance").code).toBe(1);
+  expect(readFileSync(statePath, "utf8")).toBe(before);
+  writeDeliveryParts(cwd, stage);
+  expect(JSON.parse(master("delivery-check"))).toMatchObject({ ready: true });
+  expect(cli(cwd, "master", "delivery-baseline").code).toBe(1);
+  master("delivery-baseline", "--approved-by", "user");
+  expect(cli(cwd, "master", "delivery-queue", "--delivery", "E1", "--parts", "P1").code).toBe(1);
+  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
+  const presented = { identity: presentFromSlice({ cwd, commit, master }, stage) };
+  master(
+    "delivery-decision",
+    "--delivery",
+    "E1",
+    "--identity",
+    presented.identity,
+    "--decision",
+    "accepted",
+    "--approved-by",
+    "user",
+  );
+  expect(cli(cwd, "master", "close").code).toBe(1);
+  master(
+    "delivery-publication",
+    "--delivery",
+    "E1",
+    "--identity",
+    presented.identity,
+    "--kind",
+    "release",
+    "--reference",
+    "fixture-v1",
+    "--approved-by",
+    "user",
+  );
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
+  master("close");
+  expect(json(statePath)).toMatchObject({ phase: "closed" });
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    stage: null,
+    lastClosed: { slug: "delivery", state: "cerrada" },
+  });
+}, 120_000);
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -264,3 +383,21 @@ describe("delivery CLI", () => {
     expect((await invoke(cwd, "delivery-check")).output).toMatch(/no active deliveries stage/);
   });
 });
+
+// Covers: R35
+it("delivery-criterion sin workplan nombra la ruta relativa sin ENOENT ni ruta absoluta", (): void => {
+  const { cwd, master } = initDeliveryRepo();
+  dirs.push(cwd);
+  master("init", "delivery", "--workflow", "deliveries");
+  master("init");
+  writeDeliveryParts(cwd, join(cwd, "specs/_master/01-delivery"));
+  master("delivery-baseline", "--approved-by", "user");
+  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
+  const result = cli(cwd, "master", "delivery-criterion", "--part", "P1", "--criterion", "A1");
+  const output = `${result.out}${result.err}`;
+  expect(result.code).not.toBe(0);
+  expect(output).toContain(".navori/state/handoffs/workplan_delivery-delivery-p1.json");
+  expect(output).toContain("navori master delivery-slice");
+  expect(output).not.toMatch(/ENOENT/);
+  expect(output).not.toContain(cwd);
+}, 120_000);

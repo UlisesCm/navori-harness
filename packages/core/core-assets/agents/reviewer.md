@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 3046
+maxWords: 3241
 ---
 
 # Reviewer Agent
@@ -65,6 +65,9 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 <!-- navori:if planTiers -->
 - With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`.
 - With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence (the routing-watch hook records it only when the host ran the exact `command`) is a finding → `CHANGES_REQUESTED`.
+- `progress-unevidenced` or `progress-evidence-stale` → `CHANGES_REQUESTED`; `progress-unevidenced-accepted` is not a rejection.
+- With phases: check each phase's receipt with `navori receipt gate --feature <feature> --phase <phase>`.
+- The receipt, the gate log and `navori plan escalation-reset` are local attestations without authentication: seatbelts, not boundaries. Codex review independence depends on `CODEX_THREAD_ID`.
 <!-- /navori:if -->
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 

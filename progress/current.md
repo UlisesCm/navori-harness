@@ -1,19 +1,15 @@
 # Sesión actual
 
-**Estado:** Plan-gate recuperado; composite E4 y documentación del borrador aplicados y atestados. Pendiente revisión independiente del diff completo/receipt. Sin commits nuevos, push ni PR.
+**Estado:** checkpoint de 0.12.1 solicitado como PR draft a `dev`; trabajo funcional detenido por solicitud del usuario. No considerar listo para release.
 
-## Trabajo conservado
-
-Branch `feat/0050-cierre`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-final`, base/destino `main`, HEAD `d3e81758`. El usuario autorizó completar el trabajo necesario para tener el PR y alinear la configuración y el harness a `main`. Se preservan los criterios originales y el ámbito global/trust.
+Branch `release/0.12.1`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-release-0.12.1`. Integra main, dev y siete archivos locales; el checkout original `navori-harness-0050-final` permanece intacto.
 
 ## Siguiente paso
 
-El operador aplicó el composite JSON después del segundo falso positivo del guard, sin retry del agente. El mismo productor verificó/atestó el handoff actual; scribe modificó sólo tasks.md/evaluation.md para reflejar la autorización del borrador, conservando originales sin marcar, y atestó el resultado. La referencia previousScope corresponde al blocker histórico; el QA anterior se conserva en reportes/logs. Sigue reviewer fresco E4 sobre todo el diff y receipt vigente antes de publisher. No regenerar el acuse consumido; no merge ni cierre de spec.
+Retomar el draft por esta branch. Aplicar presupuesto1600KiB ya aprobado (script sigue1500), reconstruir handoff actual y atestarlo con el productor; el canónico conserva un BLOCKED histórico. Reviewer independiente, full gate y receipt siguen pendientes. El commit/publicación de checkpoint no equivale a aprobación técnica ni habilita merge, npm o tag.
 
-## Evidencia disponible
+## Evidencia y límites
 
-Fix final: 151/151 pruebas, fast/build/size exit0; bundle 1,519,705 bytes. Full del reviewer mantenimiento exit0: 433 suites, 8,849 aprobadas y 2 omitidas, coverage150 módulos verde; log `.navori/state/gate/full-20261014T232403559Z.log`. Esto verifica calidad técnica del checkpoint previo a la enmienda documental, no aceptación ni publicación E4. Se requiere revisión/receipt E4 vigente para el borrador. Backup del paquete previo: `/tmp/navori-cli-recovery.q31BIO/navori-0.12.0.tgz`.
+Productor: A3 4suites/294pruebas, fast0, diff-check0; render/goldens/assets/docbudgets/links0. Build1545568bytes=1509.3KiB: size falla contra1500 vigente. Sin nuevas dependencias ni lock churn. Receipt check de cierre: revisión no correlacionada. T6/T11/T12 de0050 pendientes;0053 docs solamente.
 
-## Seguimientos
-
-T6 sigue sin fuente humana/host verificable ligada a acción, destino y diff. T11 carece de aplicación nativa observada de todos los perfiles; T12 carece de los ocho outcomes vivos y sus controles. Los diagnósticos, JSON y pruebas deterministas no cumplen esos criterios. No se habilitará una aceptación falsa ni se reintentará un despacho bloqueado por otra vía. Historia en `progress/history.md`; el workplan no se duplica aquí.
+Hook implementer-no-markdown rechazó JSON por referencias .md en evidencia; sin retry ni attest. Reviewer/receipt/publisher no aceptan MERGE_HEAD como integración de dev en HEAD. Historial completo en progress/history.md.

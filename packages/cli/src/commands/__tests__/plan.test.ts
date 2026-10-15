@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
@@ -14,13 +15,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
 import { planCommand } from "../plan.ts";
+import { evaluatePlanGate } from "../../lib/plan/gate.ts";
 import { computeWorktreeTree, readHead } from "../../lib/plan/evidence.ts";
+
+/** Lets a test edit the workplan "between phases" of `plan update`: runs right
+ * after the real evidence validation, before the lock is taken (R11). */
+const evidenceHook = vi.hoisted(() => ({ afterValidate: undefined as (() => void) | undefined }));
+vi.mock("../../lib/plan/evidence.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/plan/evidence.ts")>();
+  return {
+    ...actual,
+    validateEvidence: (...args: Parameters<typeof actual.validateEvidence>) => {
+      const verdict = actual.validateEvidence(...args);
+      evidenceHook.afterValidate?.();
+      return verdict;
+    },
+  };
+});
 
 let cwd: string;
 const dir = ".claude/progress";
 
 beforeEach(() => {
   vi.stubEnv("CODEX_THREAD_ID", undefined);
+  evidenceHook.afterValidate = undefined;
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-")));
   execFileSync("git", ["init", "-b", "main"], { cwd });
   process.exitCode = undefined;
@@ -163,6 +181,22 @@ describe("navori plan classify", () => {
     expect(parsed.level).toBe(2);
   });
 
+  // Covers: R17
+  it("classify sin archivos ni borrador falla con error de uso", async () => {
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, { rawArgs: ["classify", "demo", "--json", "--cwd", cwd] });
+    const noDraftExit = process.exitCode;
+    // A draft whose `files` is empty is the same silent-level-0 trap.
+    writeDraft([]);
+    process.exitCode = undefined;
+    await runCommand(planCommand, { rawArgs: ["classify", "demo", "--json", "--cwd", cwd] });
+    spy.restore();
+    expect(noDraftExit).toBe(1);
+    expect(process.exitCode).toBe(1);
+    expect(logs.join("")).toBe("");
+  });
+
   // Covers: #1067
   it("fails with a clear message when the draft workplan is not readable JSON", async () => {
     mkdirSync(join(cwd, dir), { recursive: true });
@@ -215,7 +249,8 @@ describe("navori plan classify --diff", () => {
     });
     spy.restore();
     const parsed = JSON.parse(logs.join(""));
-    expect(parsed.files).toEqual(["src/a.ts"]);
+    // The untracked workplan itself is part of the work tree's diff (R18).
+    expect(parsed.files).toEqual([".claude/progress/workplan_demo.json", "src/a.ts"]);
     expect(parsed.declaredLevel).toBe(1);
     expect(parsed.exceedsDeclared).toBe(false);
     expect(process.exitCode ?? 0).toBe(0);
@@ -284,6 +319,36 @@ describe("navori plan classify --diff", () => {
     });
     // origin/main == main here, so the diff is empty and level stays declared.
     expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  // Covers: R18
+  it("classify --diff incluye un archivo sin commitear y otro sin seguimiento contra origin/prTarget", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    // Only `origin/develop` exists: the default base must come from `prTarget`.
+    execFileSync("git", ["branch", "origin/develop", "main"], { cwd });
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        qualityGate: { full: "true", fast: "true" },
+        branchBase: "main",
+        prTarget: "develop",
+      }),
+    );
+    writeFileSync(join(cwd, "README.md"), "edited, not committed\n");
+    writeFileSync(join(cwd, "untracked.ts"), "export {};\n");
+    writePlan("demo", validPlan);
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "--json", "--cwd", cwd],
+    });
+    spy.restore();
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.base).toBe("origin/develop");
+    expect(parsed.files).toEqual(expect.arrayContaining(["src/a.ts", "README.md", "untracked.ts"]));
   });
 
   it("fails when the feature has no workplan", async () => {
@@ -430,6 +495,137 @@ describe("navori plan update", () => {
     );
     expect(updated.decisions).toHaveLength(1);
     expect(updated.decisions[0]?.text).toBe("Escalated to level 2");
+  });
+});
+
+// Covers: R10, R11, R12, R16
+describe("navori plan update — input, lock and config (M7)", () => {
+  const jsonFile = (): string => join(cwd, dir, "workplan_demo.json");
+  const bytes = (): string => readFileSync(jsonFile(), "utf8");
+  const update = async (...flags: string[]): Promise<void> => {
+    process.exitCode = undefined;
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await runCommand(planCommand, { rawArgs: ["update", "demo", ...flags, "--cwd", cwd] });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  // Covers: R10
+  it("update con estado inválido, id inexistente, fecha no ISO o progress con decision sale 1 sin cambiar bytes", async () => {
+    writePlan("demo", validPlan);
+    const before = bytes();
+    const cases: string[][] = [
+      ["--progress", "A1=hecho"],
+      ["--progress", "A9=cumplido"],
+      ["--progress", "A1=cumplido=x"],
+      ["--decision", "x", "--date", "ayer"],
+      ["--decision", "x", "--date", "2026-02-30"],
+      ["--progress", "A1=cumplido", "--decision", "x", "--date", "2026-10-14"],
+    ];
+    for (const flags of cases) {
+      await update(...flags);
+      expect(process.exitCode, flags.join(" ")).toBe(1);
+      expect(bytes()).toBe(before);
+    }
+  });
+
+  // Covers: R11
+  it("update con el lock tomado sale 1 sin escribir y dos updates seguidos conservan ambos", async () => {
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [
+        ...validPlan.acceptance,
+        { id: "A2", description: "second", command: "bun test", expected: "pass" },
+      ],
+      progress: { A1: "pendiente", A2: "pendiente" },
+    });
+    const before = bytes();
+    const lock = join(cwd, dir, ".plan-update.lock");
+    writeFileSync(lock, "999999\n");
+    await update("--progress", "A1=cumplido");
+    expect(process.exitCode).toBe(1);
+    expect(bytes()).toBe(before);
+    rmSync(lock);
+
+    await update("--progress", "A1=cumplido");
+    await update("--progress", "A2=bloqueado");
+    const written: { progress: Record<string, string> } = JSON.parse(bytes());
+    expect(written.progress).toEqual({ A1: "cumplido", A2: "bloqueado" });
+    expect(existsSync(lock)).toBe(false);
+  }, 20_000);
+
+  // Covers: R11
+  it("update sale 1 sin escribir si el criterion cambia entre las dos fases", async () => {
+    vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "ev", engines: ["claude"], preset: "custom" }),
+    );
+    writePlan("demo", validPlan);
+    const command = validPlan.acceptance[0]?.command as string;
+    writeFileSync(
+      join(cwd, dir, "workplan_demo.evidence.jsonl"),
+      `${JSON.stringify({
+        ts: "2026-09-30T10:00:00Z",
+        feature: "demo",
+        id: "A1",
+        command,
+        tree: cwd,
+        cwd,
+        head: readHead(cwd),
+        worktreeTree: computeWorktreeTree(cwd),
+        dirty: true,
+      })}\n`,
+    );
+    evidenceHook.afterValidate = () => {
+      const edited = { ...validPlan, acceptance: [{ ...validPlan.acceptance[0], command: "x" }] };
+      writeFileSync(jsonFile(), JSON.stringify(edited, null, 2));
+    };
+    await update("--progress", "A1=cumplido");
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(bytes()).progress.A1).toBe("pendiente");
+  });
+
+  // Covers: R12
+  it("configuración ilegible rechaza cumplido sin evidencia en Claude, Pi y Codex", async () => {
+    const sessions: Array<[string, string]> = [
+      ["CLAUDE_CODE_CHILD_SESSION", "1"],
+      ["PI_SESSION_ID", "pi-1"],
+      ["CODEX_THREAD_ID", "thread-1"],
+    ];
+    for (const [name, value] of sessions) {
+      for (const [other] of sessions) vi.stubEnv(other, undefined);
+      vi.stubEnv(name, value);
+      writePlan("demo", validPlan);
+      const before = bytes();
+      writeFileSync(join(cwd, "navori.config.json"), "{ not json");
+      await update("--progress", "A1=cumplido");
+      expect(process.exitCode, `${name} unreadable`).toBe(1);
+      expect(bytes()).toBe(before);
+
+      rmSync(join(cwd, "navori.config.json"));
+      await update("--progress", "A1=cumplido");
+      expect(process.exitCode ?? 0, `${name} absent`).toBe(0);
+      expect(JSON.parse(bytes()).evidence.A1.kind).toBe("unevidenced");
+    }
+  });
+
+  // Covers: R16
+  it("update conserva campos no declarados en la raíz y dentro de un criterion", async () => {
+    const { progress: _omit, ...withoutProgress } = validPlan;
+    writePlan("demo", {
+      ...withoutProgress,
+      "x-note": { keep: ["me"] },
+      acceptance: [{ ...validPlan.acceptance[0], "x-note": "inner" }],
+    });
+    await update("--progress", "A1=bloqueado");
+    expect(process.exitCode ?? 0).toBe(0);
+    const written = JSON.parse(bytes());
+    expect(written["x-note"]).toEqual({ keep: ["me"] });
+    expect(written.acceptance[0]["x-note"]).toBe("inner");
+    expect(written.progress.A1).toBe("bloqueado");
   });
 });
 
@@ -700,11 +896,127 @@ describe("navori plan check", () => {
     );
   });
 
+  // Covers: R15
+  it("check con JSON ilegible sale 2 con hallazgo schema y sin traza", async () => {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    writeFileSync(join(cwd, dir, "workplan_garbled.json"), "{ not json");
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    let thrown: unknown;
+    try {
+      await runCommand(planCommand, { rawArgs: ["check", "garbled", "--json", "--cwd", cwd] });
+    } catch (error) {
+      thrown = error;
+    }
+    spy.restore();
+    expect(thrown).toBeUndefined();
+    expect(process.exitCode).toBe(2);
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.findings).toHaveLength(1);
+    expect(parsed.findings[0].rule).toBe("schema");
+    expect(logs.join("")).not.toContain("    at ");
+  });
+
   it("fails when the workplan file is missing", async () => {
     await runCommand(planCommand, {
       rawArgs: ["check", "absent", "--cwd", cwd],
     });
     expect(process.exitCode).toBe(1);
+  });
+});
+
+/** Covers: R9 */
+describe("navori plan escalation-reset", () => {
+  const level2 = {
+    ...validPlan,
+    level: 2,
+    classification: { score: 8, level: 2, signals: [] },
+    solution: { path: ".claude/progress/solution_demo.md", verdict: "READY" },
+    phases: [{ name: "phase 1", acceptance: ["A1"] }],
+    risks: [{ risk: "regression", rollback: "revert the commit" }],
+  };
+  const logFile = (): string => join(cwd, dir, "workplan_demo.gate.jsonl");
+  const rejections = (n: number): void => {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    const lines = Array.from({ length: n }, (_, i) =>
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        reviewHash: createHash("sha256").update(`h${i}`).digest("hex"),
+        verdict: "CHANGES_REQUESTED",
+      }),
+    );
+    writeFileSync(logFile(), lines.map((l) => `${l}\n`).join(""));
+  };
+  const reset = async (...flags: string[]): Promise<void> => {
+    process.exitCode = undefined;
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await runCommand(planCommand, {
+        rawArgs: ["escalation-reset", "demo", "--cwd", cwd, ...flags],
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  const lineCount = (): number => readFileSync(logFile(), "utf8").trim().split("\n").length;
+
+  // Covers: R9
+  it("escalation-reset rechaza sin usuario, razón vacía, nivel 1 o un rechazo y escribe una sola línea reset", async () => {
+    writePlan("demo", level2);
+    rejections(2);
+    const before = readFileSync(logFile(), "utf8");
+
+    for (const flags of [
+      ["--reason", "again"],
+      ["--approved-by", "agent", "--reason", "again"],
+      ["--approved-by", "user"],
+      ["--approved-by", "user", "--reason", "   "],
+      ["--approved-by", "user", "--reason", "x".repeat(4097)],
+      ["--approved-by", "user", "--reason", "漢".repeat(3000)],
+    ]) {
+      await reset(...flags);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(logFile(), "utf8")).toBe(before);
+    }
+
+    // Level 1: the way out is the design, not the reset.
+    writePlan("demo", validPlan);
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(logFile(), "utf8")).toBe(before);
+
+    // One rejection only.
+    writePlan("demo", level2);
+    rejections(1);
+    const one = readFileSync(logFile(), "utf8");
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(logFile(), "utf8")).toBe(one);
+
+    rejections(2);
+    await reset("--approved-by", "user", "--reason", "client asked for another round");
+    expect(process.exitCode).toBeUndefined();
+    expect(lineCount()).toBe(3);
+    const last = JSON.parse(readFileSync(logFile(), "utf8").trim().split("\n")[2] ?? "");
+    expect(last).toMatchObject({
+      kind: "reset",
+      approvedBy: "user",
+      reason: "client asked for another round",
+      rejectionsBefore: 2,
+    });
+    expect(typeof last.ts).toBe("string");
+
+    // After the reset the count is back to zero: a second reset is refused.
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(lineCount()).toBe(3);
+  });
+
+  it("escalation-reset sin workplan sale 1 sin escribir", async () => {
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(logFile())).toBe(false);
   });
 });
 
@@ -725,8 +1037,8 @@ function vi_spyConsole(sink: string[]): { restore: () => void } {
 }
 
 describe("navori plan acknowledge", () => {
-  // Covers: R19
-  it("records explicit bounded user escalation without changing the review verdict", async () => {
+  /** Disposable CLI state, deliberately retaining the legacy source directory. */
+  function seedAcknowledgement(): string {
     writeFileSync(
       join(cwd, "navori.config.json"),
       JSON.stringify({
@@ -757,6 +1069,98 @@ describe("navori plan acknowledge", () => {
         )
         .join("\n") + "\n",
     );
+    return log;
+  }
+
+  async function invoke(flags: string[]): Promise<Record<string, unknown>> {
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    try {
+      await runCommand(planCommand, {
+        rawArgs: [
+          "acknowledge",
+          "demo",
+          "--cwd",
+          cwd,
+          "--opening",
+          "workplan: demo",
+          "--json",
+          ...flags,
+        ],
+      });
+    } finally {
+      spy.restore();
+    }
+    return JSON.parse(logs.join("")) as Record<string, unknown>;
+  }
+
+  it.each([
+    ["--continue-after", "base:" + "a".repeat(64)],
+    ["--authorization-id", "fixture"],
+    ["--snapshot", "a".repeat(64)],
+    ["--unknown", "value"],
+    ["--decision", "fixture", "--decision", "fixture"],
+    ["--inspect", "--inspect"],
+    ["--inspect", "--decision", "fixture"],
+  ])(
+    "rejects partial, repeated, conflicting or unknown inputs %j before writes",
+    async (...flags) => {
+      seedAcknowledgement();
+      const result = await invoke(flags);
+      expect(result.status).toBe("denied");
+      expect(process.exitCode).toBe(2);
+      expect(existsSync(join(cwd, ".navori/state/handoffs"))).toBe(false);
+    },
+  );
+
+  it("reports outstanding winners, exact replay and conflicts without silently advancing the chain", async () => {
+    const log = seedAcknowledgement(),
+      original = readFileSync(log, "utf8");
+    expect((await invoke(["--decision", "fixture root approval"])).status).toBe("acknowledged");
+    expect(
+      evaluatePlanGate({
+        cwd,
+        tool_input: { subagent_type: "implementer", prompt: "workplan: demo" },
+      }).decision,
+    ).toBe("allow");
+    const info = await invoke(["--inspect"]);
+    expect(info.status).toBe("inspected");
+    const flags = [
+      "--continue-after",
+      String(info.eligiblePredecessor),
+      "--authorization-id",
+      "fixture-cli",
+      "--snapshot",
+      String(info.currentSnapshot),
+      "--decision",
+      "fixture child approval",
+    ];
+    const first = await invoke(flags);
+    expect(first.status).toBe("acknowledged");
+    expect(await invoke(flags)).toEqual(first);
+    const terminal = (await invoke(["--inspect"])).terminal;
+    expect(terminal).toMatchObject({
+      reference: first.reference,
+      status: "unconsumed",
+      authorizationId: "fixture-cli",
+    });
+    expect(
+      (await invoke(flags.map((flag) => (flag === "fixture-cli" ? "fixture-other" : flag)))).status,
+    ).toBe("denied");
+    expect((await invoke(["--inspect"])).eligiblePredecessor).toBeUndefined();
+    expect(
+      evaluatePlanGate({
+        cwd,
+        tool_input: { subagent_type: "implementer", prompt: "workplan: demo" },
+      }).decision,
+    ).toBe("allow");
+    expect((await invoke(flags)).status).toBe("consumed");
+    expect(readFileSync(log, "utf8")).toBe(original);
+  });
+
+  // Covers: R19
+  it("records explicit bounded user escalation without changing the review verdict", async () => {
+    const log = seedAcknowledgement();
     const original = readFileSync(log, "utf8");
     const logs: string[] = [];
     const spy = vi_spyConsole(logs);

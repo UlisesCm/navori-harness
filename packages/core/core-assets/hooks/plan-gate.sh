@@ -38,8 +38,9 @@
 #     modes only) / hard (Codex, no payload or jq, non-prompting modes) — no verdict.
 #   - `navori plan gate` denied the dispatch: hard — a real verdict.
 #
-# CODEX (spec 0041 R9). Registered on PreToolUse(spawn_agent$) as the last late
-# row. Only `implementer` is gated, with the role from `tool_input.agent_type`.
+# CODEX (spec 0041 R9, spec 0052 R3). Registered on PreToolUse(spawn_agent$) as the
+# last late row. Every role outside the non-writing list is gated (fail-closed),
+# with the role from `tool_input.agent_type`.
 # Codex V2 encrypts the spawn `message`, so the opening line then comes from the
 # orchestrator's `.navori/state/handoffs/dispatch_<feature>.json` (TTL 10 min,
 # exactly one fresh file); the decision logic stays in `navori plan gate`.
@@ -102,7 +103,16 @@ if ! command -v navori >/dev/null 2>&1; then
     "[navori] plan-gate could not check the workplan: navori is not on PATH, so there is no verdict. Approve to dispatch the implementer WITHOUT the plan gate, or deny and install navori. If you are an agent, report this to the user and wait."
 fi
 
-printf '%s' "$payload" | navori plan gate
+# The Codex copy tells the binary which engine spawned the agent (R3): there every
+# role outside the non-writing list is gated. An env var, not a flag, so an older
+# binary ignores it; without it the binary falls back to "agent_type is present".
+codex_copy=0
+case "$0" in *".codex/hooks/"*) codex_copy=1 ;; esac
+if [ "$codex_copy" = 1 ]; then
+  printf '%s' "$payload" | NAVORI_HOOK_ENGINE=codex navori plan gate
+else
+  printf '%s' "$payload" | navori plan gate
+fi
 navori_exit=$?
 case "$navori_exit" in
   0) exit 0 ;;

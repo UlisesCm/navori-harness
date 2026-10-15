@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkWorkplan, formatCheckResult } from "../check.ts";
 import type { Workplan } from "../schema.ts";
@@ -135,5 +138,67 @@ describe("checkWorkplan — evidence warnings", () => {
 
   it("does not warn for a pendiente criterion", () => {
     expect(checkWorkplan(validLevel1).warnings).toEqual([]);
+  });
+});
+
+describe("checkWorkplan — R15 rules shared with the gate", () => {
+  // Covers: R15
+  it("check reporta ids duplicados, feature ajeno, nivel bajo el recálculo y BLOCKED", () => {
+    const criterion = validLevel1.acceptance[0]!;
+    const dup = checkWorkplan({ ...validLevel1, acceptance: [criterion, criterion] });
+    expect(dup.findings.map((f) => f.rule)).toContain("acceptance-duplicate-id");
+
+    expect(checkWorkplan(validLevel1, { feature: "demo" }).ok).toBe(true);
+    const foreign = checkWorkplan(validLevel1, { feature: "other" });
+    expect(foreign.findings.map((f) => f.rule)).toEqual(["feature-mismatch"]);
+    // Without `feature` the rule does not apply.
+    expect(checkWorkplan(validLevel1).findings).toEqual([]);
+
+    // The embedded classification says level 0, but its declared signals
+    // recompute to a floor level above the declared level 1.
+    const low = checkWorkplan({
+      ...validLevel1,
+      classification: { score: 0, level: 0, signals: ["floor:shared-contract"] },
+    });
+    const lowFinding = low.findings.find((f) => f.rule === "level-below-classification");
+    expect(lowFinding?.message).toContain("recomputed level 2");
+
+    const blocked = checkWorkplan({
+      ...validLevel1,
+      level: 2,
+      classification: { score: 8, level: 2, signals: [] },
+      solution: { path: "solution_demo", verdict: "BLOCKED" },
+      phases: [{ name: "Core", acceptance: ["A1"] }],
+      risks: [{ risk: "r", rollback: "r" }],
+    });
+    expect(blocked.findings.map((f) => f.rule)).toEqual(["solution-blocked"]);
+  });
+
+  // Covers: R15
+  it("recomputes the level from the files, with criticalPaths only when a cwd is given", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-check-"));
+    try {
+      writeFileSync(
+        join(dir, "navori.config.json"),
+        JSON.stringify({
+          name: "check-demo",
+          engines: ["claude"],
+          preset: "custom",
+          project: { criticalPaths: ["secure/**"] },
+        }),
+      );
+      const plan = {
+        ...validLevel1,
+        level: 0,
+        // Bug signal (+2) alone stays level 0; with the critical path (+3) it is 5.
+        classification: { score: 2, level: 0, signals: ["bug-without-root-cause(+2)"] },
+        files: [{ path: "secure/a.ts", new: false }],
+      };
+      expect(checkWorkplan(plan).ok).toBe(true);
+      const withContext = checkWorkplan(plan, { cwd: dir });
+      expect(withContext.findings.map((f) => f.rule)).toEqual(["level-below-classification"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

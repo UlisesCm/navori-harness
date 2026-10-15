@@ -1,4 +1,5 @@
 // Covers: R35, R60
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PartsSchema } from "../schema.ts";
 import { validatePartSpec } from "../check-part.ts";
@@ -24,10 +25,22 @@ const parts = PartsSchema.parse({
 }).parts;
 const task =
   "- [ ] **T1** (R1) — Work.\n  - **Archivos:** src/a.ts\n  - **Interfaces:** Foo\n  - **Patrón:** package.json\n  - **Lectura:** design.md\n  - **Librerías:** lib@1.2.0\n  - **Done:** comando `bun test`, esperado exit 0, caso test `works`, P1.A1\n  - **Fuera de alcance:** deploy\n";
+const taskEn = task
+  .replace("**Archivos:**", "**Files:**")
+  .replace("**Patrón:**", "**Pattern:**")
+  .replace("**Lectura:**", "**Reading:**")
+  .replace("**Librerías:**", "**Libraries:**")
+  .replace("**Fuera de alcance:**", "**Out of scope:**");
 const requirement = "- **R1** — Do this. Covers P1.A1.\n";
+const LABEL = /^ {2}- \*\*([^:*]+):\*\*/gm;
 
-function validate(tasks = task, requirements = requirement, design = "interface Foo {}") {
-  return validatePartSpec(cwd, parts[0]!, parts, tasks, design, requirements);
+function validate(
+  tasks = task,
+  requirements = requirement,
+  design = "interface Foo {}",
+  language?: "es" | "en",
+) {
+  return validatePartSpec(cwd, parts[0]!, parts, tasks, design, requirements, language);
 }
 
 describe("part spec rigor", () => {
@@ -84,5 +97,40 @@ describe("part spec rigor", () => {
   // Covers: R35, R60
   it("accepts a complete task and a wrapped requirement mapping", () => {
     expect(validate(task, "- **R1** — Do this.\n  Covers P1.A1.")).toEqual([]);
+  });
+
+  // Covers: R3
+  it("accepts English labels in an English repo", () => {
+    expect(validate(taskEn, requirement, "interface Foo {}", "en")).toEqual([]);
+  });
+
+  // Covers: R3
+  it("accepts Spanish labels in an English repo", () => {
+    expect(validate(task, requirement, "interface Foo {}", "en")).toEqual([]);
+  });
+
+  // Covers: R3
+  it("names a missing field with the English label in an English repo", () => {
+    const withoutField = taskEn
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("- **Out of scope:**"))
+      .join("\n");
+    expect(validate(withoutField, requirement, "interface Foo {}", "en")).toContain(
+      "T1: missing Out of scope",
+    );
+  });
+
+  // Covers: R3
+  it.each([
+    ["es", task, "tasks.md"],
+    ["en", taskEn, "en/tasks.md"],
+  ] as const)("every %s label appears in its tasks template", (_lang, source, rel) => {
+    const template = readFileSync(
+      new URL(`../../../../../core/core-assets/master-plan/${rel}`, import.meta.url),
+      "utf8",
+    );
+    const labels = [...source.matchAll(LABEL)].map((m) => m[1]);
+    expect(labels).toHaveLength(7);
+    for (const label of labels) expect(template).toContain(`- **${label}:**`);
   });
 });

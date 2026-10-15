@@ -49,6 +49,54 @@ export interface MasterMarkers {
   /** `CLOSURE.md`'s hash table heading (D10, R50) — `check --stage` reads its
    * hashes to detect a hand-edit of a closed stage. */
   integridad: string;
+  /** `CODEBASE.md`'s required section headings, in order (R31). */
+  codebaseHeaders: readonly string[];
+  /** Labels `renderStatusMd` writes into `STATUS.md` (R31). */
+  status: {
+    stage: string;
+    delivery: string;
+    phase: string;
+    activePart: string;
+    closable: string;
+    yes: string;
+    no: string;
+    none: string;
+    pendingPublication: string;
+    blockers: string;
+    evidence: string;
+    discrepancies: string;
+    verified: string;
+    unverified: string;
+    /** `Parte | Estado | Tareas | Spec | Issue` columns. */
+    columns: readonly [string, string, string, string, string];
+  };
+  /** Labels `renderMasterParts` writes into the `navori:master-parts` region (R31). */
+  parts: {
+    objective: string;
+    scope: string;
+    outOfScope: string;
+    dependsOn: string;
+    seedRequirements: string;
+    state: string;
+  };
+  /** Labels `renderClosure` writes into `CLOSURE.md` (R31). */
+  closure: {
+    title: string;
+    outcome: string;
+    opened: string;
+    closed: string;
+    reason: string;
+    phase: string;
+    parts: string;
+    criteria: string;
+    decisions: string;
+    /** `ID | Estado | Spec | Issue | Razón` columns. */
+    partColumns: readonly [string, string, string, string, string];
+    /** `ID | Método | Evidencia | Fecha` columns. */
+    criterionColumns: readonly [string, string, string, string];
+    unverified: string;
+    approvedByUser: string;
+  };
 }
 
 const MASTER_MARKERS: Readonly<Record<AssetLanguage, MasterMarkers>> = {
@@ -71,6 +119,47 @@ const MASTER_MARKERS: Readonly<Record<AssetLanguage, MasterMarkers>> = {
     metodoLabel: "Método",
     ningunoDigest: "Ninguno",
     integridad: "Integridad",
+    codebaseHeaders: ["Stack", "Estructura", "Convenciones", "Specs"],
+    status: {
+      stage: "Estado de etapa",
+      delivery: "Estado de entrega",
+      phase: "Fase",
+      activePart: "Parte activa",
+      closable: "Cerrable",
+      yes: "sí",
+      no: "no",
+      none: "ninguna",
+      pendingPublication: "Publicación pendiente",
+      blockers: "Bloqueos",
+      evidence: "Evidencia",
+      discrepancies: "Discrepancias",
+      verified: "verificado",
+      unverified: "sin evidencia",
+      columns: ["Parte", "Estado", "Tareas", "Spec", "Issue"],
+    },
+    parts: {
+      objective: "Objetivo",
+      scope: "Alcance",
+      outOfScope: "Fuera de alcance",
+      dependsOn: "Dependencias",
+      seedRequirements: "Requisitos semilla",
+      state: "Estado",
+    },
+    closure: {
+      title: "Cierre",
+      outcome: "Resultado",
+      opened: "Apertura",
+      closed: "Cierre",
+      reason: "Razón",
+      phase: "Fase",
+      parts: "Partes",
+      criteria: "Criterios",
+      decisions: "Decisiones",
+      partColumns: ["ID", "Estado", "Spec", "Issue", "Razón"],
+      criterionColumns: ["ID", "Método", "Evidencia", "Fecha"],
+      unverified: "no verificado",
+      approvedByUser: "aprobado por el usuario",
+    },
   },
   en: {
     origen: "Source:",
@@ -91,6 +180,47 @@ const MASTER_MARKERS: Readonly<Record<AssetLanguage, MasterMarkers>> = {
     metodoLabel: "Method",
     ningunoDigest: "None",
     integridad: "Integrity",
+    codebaseHeaders: ["Stack", "Structure", "Conventions", "Specs"],
+    status: {
+      stage: "Stage status",
+      delivery: "Delivery status",
+      phase: "Phase",
+      activePart: "Active part",
+      closable: "Closable",
+      yes: "yes",
+      no: "no",
+      none: "none",
+      pendingPublication: "Pending publication",
+      blockers: "Blockers",
+      evidence: "Evidence",
+      discrepancies: "Discrepancies",
+      verified: "verified",
+      unverified: "no evidence",
+      columns: ["Part", "State", "Tasks", "Spec", "Issue"],
+    },
+    parts: {
+      objective: "Objective",
+      scope: "Scope",
+      outOfScope: "Out of scope",
+      dependsOn: "Dependencies",
+      seedRequirements: "Seed requirements",
+      state: "State",
+    },
+    closure: {
+      title: "Closure",
+      outcome: "Outcome",
+      opened: "Opened",
+      closed: "Closed",
+      reason: "Reason",
+      phase: "Phase",
+      parts: "Parts",
+      criteria: "Criteria",
+      decisions: "Decisions",
+      partColumns: ["ID", "State", "Spec", "Issue", "Reason"],
+      criterionColumns: ["ID", "Method", "Evidence", "Date"],
+      unverified: "not verified",
+      approvedByUser: "approved by the user",
+    },
   },
 };
 

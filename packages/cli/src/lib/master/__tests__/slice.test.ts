@@ -194,6 +194,18 @@ describe("delivery slice projection", () => {
     expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/branch/);
   });
 
+  // Covers: R11
+  it("prepareDeliverySlice with the plan-state lock taken fails without writing", () => {
+    const { cwd } = fixture();
+    approveDeliveryBaseline(cwd, "user");
+    authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
+    const state = join(cwd, ".navori", "state", "handoffs");
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, ".plan-update.lock"), "999999\n");
+    expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/lock/);
+    expect(existsSync(join(state, "workplan_delivery-demo-p1.json"))).toBe(false);
+  }, 20_000);
+
   it("projects executable criteria only, preserves level-2 floor and refuses diverged replay", () => {
     const { cwd } = fixture();
     approveDeliveryBaseline(cwd, "user");
@@ -220,10 +232,10 @@ describe("delivery slice projection", () => {
     authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
     const plan = deliverySliceProjection(cwd, "P1");
     expect(
-      checkWorkplan(plan, cwd).findings.some((finding) => finding.rule === "delivery-source"),
+      checkWorkplan(plan, { cwd }).findings.some((finding) => finding.rule === "delivery-source"),
     ).toBe(false);
     expect(
-      checkWorkplan({ ...plan, objective: "changed" }, cwd).findings.some(
+      checkWorkplan({ ...plan, objective: "changed" }, { cwd }).findings.some(
         (finding) => finding.rule === "delivery-source",
       ),
     ).toBe(true);
@@ -639,7 +651,7 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
       const pending = readMasterStatus(cwd);
       expect(pending.closable).toBe(false);
       expect(pending.deliveryLifecycle?.pendingPublication).toEqual(["E1"]);
-      expect(renderStatusMd(pending)).toMatch(
+      expect(renderStatusMd(pending, "es")).toMatch(
         /Cerrable: no\nPublicación pendiente: E1; ejecute 'navori master delivery-publication'/,
       );
       const watched = [
@@ -657,7 +669,7 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
       expect(snapshot()).toEqual(untouched);
       publishDelivery(cwd, "E1", presentation.identity, "release", "fixture-v1", "user");
       expect(readMasterStatus(cwd).closable).toBe(true);
-      expect(renderStatusMd(readMasterStatus(cwd))).not.toMatch(/Publicación pendiente/);
+      expect(renderStatusMd(readMasterStatus(cwd), "es")).not.toMatch(/Publicación pendiente/);
       expect(() =>
         runMasterClose(cwd, {
           afterStep: (completed) => {
@@ -771,8 +783,9 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
       risks: [{ risk: "whole-tree drift", rollback: "stop" }],
     });
     expect(
-      checkWorkplan(JSON.parse(readFileSync(join(dir, `workplan_${p2.feature}.json`), "utf8")), cwd)
-        .ok,
+      checkWorkplan(JSON.parse(readFileSync(join(dir, `workplan_${p2.feature}.json`), "utf8")), {
+        cwd,
+      }).ok,
     ).toBe(true);
     writeFileSync(join(cwd, "next-code.ts"), "export const next = true;\n");
     expect(() => effectiveDeliveryPart(cwd, "P1")).toThrow(/stale/);
@@ -1263,7 +1276,7 @@ describe("source-owned projection and human planning", () => {
     authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
     const plan = humanPlan(cwd);
     writeFileSync(join(cwd, "design.txt"), "Changed design");
-    expect(checkWorkplan(plan, cwd).ok).toBe(false);
+    expect(checkWorkplan(plan, { cwd }).ok).toBe(false);
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "navori-d3-design-")));
     dirs.push(outside);
     writeFileSync(join(outside, "design.txt"), "Reviewed design");
@@ -1277,7 +1290,7 @@ describe("source-owned projection and human planning", () => {
     const plan = { ...humanPlan(cwd), level: 3 as const };
     const path = savePlan(cwd, plan);
     const bytes = readFileSync(path, "utf8");
-    expect(checkWorkplan(plan, cwd).ok).toBe(true);
+    expect(checkWorkplan(plan, { cwd }).ok).toBe(true);
     expect(prepareDeliverySlice(cwd, "P1").unchanged).toBe(true);
     expect(readFileSync(path, "utf8")).toBe(bytes);
   });
@@ -1294,7 +1307,7 @@ describe("source-owned projection and human planning", () => {
       if (field === "classification") plan.classification.signals = [];
       const path = savePlan(cwd, plan);
       const bytes = readFileSync(path, "utf8");
-      expect(checkWorkplan(plan, cwd).ok).toBe(false);
+      expect(checkWorkplan(plan, { cwd }).ok).toBe(false);
       expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/diverged/);
       expect(readFileSync(path, "utf8")).toBe(bytes);
     },
@@ -1304,7 +1317,7 @@ describe("source-owned projection and human planning", () => {
     const { cwd } = authorized();
     const plan = deliverySliceProjection(cwd, "P1");
     savePlan(cwd, plan);
-    expect(checkWorkplan(plan, cwd).ok).toBe(false);
+    expect(checkWorkplan(plan, { cwd }).ok).toBe(false);
     expect(checkWorkplan(humanPlan(cwd)).findings).toContainEqual(
       expect.objectContaining({ rule: "delivery-source" }),
     );
@@ -1338,7 +1351,7 @@ describe("source-owned projection and human planning", () => {
         (kind === "queue" ? state.authorization : state.baseline).identity = "0".repeat(64);
         writeFileSync(join(stage, "state.json"), JSON.stringify(state));
       }
-      expect(checkWorkplan(plan, cwd).ok).toBe(false);
+      expect(checkWorkplan(plan, { cwd }).ok).toBe(false);
       expect(
         evaluatePlanGate({
           cwd,

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orchestrator-codex-base" hash="e4f3aca4" version="0.12.0" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-codex-base" hash="79e98aa6" version="0.12.1" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which `AGENTS.md` supplies to the main thread: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `spawn_agent(orchestrator)`.
@@ -71,7 +71,7 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `publisher`.
 
-**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap above is stricter still: it ends the whole run, not just one task.
+**Caps, so a loop cannot pass for persistence.** The cap is 2 `CHANGES_REQUESTED` cycles on the SAME task. Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, who alone authorizes another round with `navori plan escalation-reset`. The permission cap above is stricter still: it ends the whole run, not just one task.
 
 Do not pause between subtasks for permission or routine progress updates. Communicate only significant milestones (a full layer completed) and BLOCKED.
 
@@ -120,7 +120,7 @@ When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
 1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
-3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
+3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `dev`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 4. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `publisher`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the publisher.

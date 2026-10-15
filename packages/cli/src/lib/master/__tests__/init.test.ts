@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runCommand } from "citty";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readConfig, writeConfig } from "../../config/config.ts";
@@ -9,6 +17,9 @@ import { writeFileAtomic } from "../../primitives/atomic.ts";
 import { runMasterInit, MasterInitError } from "../init.ts";
 import { masterDirPath, indexJsonPath, indexMdPath } from "../stages.ts";
 import { masterCommand } from "../../../commands/master.ts";
+import * as renderer from "../../../commands/render.ts";
+import * as claude from "../../../engines/claude/index.ts";
+import { injectManagedSection, splitUserSection } from "../../render/marker.ts";
 import type { MasterIndex } from "../schema.ts";
 import { createGitHelper, createCommitHelper, createSeedConfigHelper } from "./test-utils.ts";
 
@@ -53,7 +64,288 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(cwd, { recursive: true, force: true });
+});
+
+/** Renderer result fixture with the same contract as the existing owner. */
+function renderOutcome(ok: boolean, reason?: string): ReturnType<typeof renderer.runRender> {
+  return {
+    ok,
+    ...(reason === undefined ? {} : { reason }),
+    language: "es",
+    filePath: join(cwd, "CLAUDE.md"),
+    entries: [],
+    written: false,
+    languageFallbacks: [],
+    updatesAvailable: [],
+    downgrades: [],
+    workspaces: [],
+  };
+}
+
+/** Durable cut fixture: init finishes its writes while rendering produces no artifacts. */
+function interruptedStage(workflow: "legacy" | "deliveries" = "legacy"): void {
+  const render = vi.spyOn(renderer, "runRender").mockReturnValueOnce(renderOutcome(true));
+  runMasterInit(cwd, "mvp", workflow);
+  render.mockRestore();
+}
+
+/** Snapshot only durable files; derived INDEX.md and STATUS.md may be regenerated. */
+function durableBytes(): string[] {
+  return [indexJsonPath(cwd, SPECS_DIR), stagePaths("01-mvp").stateJson].map(
+    (path: string): string => readFileSync(path, "utf8"),
+  );
+}
+
+/** Assert configured-engine content, not just the existence of a generated file. */
+function expectEngineOutput(engine: "claude" | "agents-md"): void {
+  const file = engine === "claude" ? "CLAUDE.md" : "AGENTS.md";
+  expect(readFileSync(join(cwd, file), "utf8")).toContain(
+    engine === "claude" ? "navori:managed" : "master-plan",
+  );
+  if (engine === "claude")
+    expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
+      "navori master",
+    );
+  else expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+}
+
+describe("runMasterInit — recovery and preservation (0049 M1)", () => {
+  // Covers: R1
+  it.each(["claude", "agents-md"] as const)(
+    "repairs persisted activation for %s",
+    (engine: "claude" | "agents-md"): void => {
+      seedConfig({ engines: [engine], harness: { masterPlan: true } });
+      runMasterInit(cwd, "mvp");
+      expectEngineOutput(engine);
+    },
+  );
+
+  // Covers: R1, R2
+  it.each(["claude", "agents-md"] as const)(
+    "repairs a durable interrupted stage for %s",
+    (engine: "claude" | "agents-md"): void => {
+      seedConfig({ engines: [engine] });
+      interruptedStage();
+      const before = durableBytes();
+      expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);
+      expect(existsSync(join(cwd, engine === "claude" ? "CLAUDE.md" : "AGENTS.md"))).toBe(false);
+      expect(runMasterInit(cwd, undefined).stage.dir).toBe("01-mvp");
+      expect(durableBytes()).toEqual(before);
+      expectEngineOutput(engine);
+    },
+  );
+
+  // Covers: R1, R2
+  it.each([
+    ["legacy", "throw"],
+    ["legacy", "ok:false"],
+    ["deliveries", "throw"],
+    ["deliveries", "ok:false"],
+  ] as const)(
+    "recovers %s after %s without rewriting durable state",
+    (workflow: "legacy" | "deliveries", failure: "throw" | "ok:false"): void => {
+      interruptedStage(workflow);
+      const statePath = stagePaths("01-mvp").stateJson;
+      const state = JSON.parse(readFileSync(statePath, "utf8")) as Record<string, unknown>;
+      const phase = workflow === "legacy" ? "transcribed" : "execution";
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          ...state,
+          phase,
+          mode: "template",
+          history: [
+            { phase: "context", at: "2026-01-01" },
+            { phase, at: "2026-01-02" },
+          ],
+        }),
+      );
+      const before = durableBytes();
+      const configPath = join(cwd, "navori.config.json");
+      const config = readConfig(configPath);
+      writeConfig(configPath, { ...config, harness: { ...config.harness, masterPlan: false } });
+      const render = vi.spyOn(renderer, "runRender");
+      if (failure === "throw")
+        render.mockImplementationOnce((): never => {
+          throw new Error("interrupted render");
+        });
+      else render.mockReturnValueOnce(renderOutcome(false, "interrupted render"));
+      expect(() => runMasterInit(cwd, "mvp", workflow)).toThrow(
+        failure === "throw" ? "interrupted render" : "render failed: interrupted render",
+      );
+      if (failure === "ok:false") {
+        render.mockReturnValueOnce(renderOutcome(false, "interrupted render"));
+        expect(() => runMasterInit(cwd, undefined)).toThrow(MasterInitError);
+      }
+      render.mockRestore();
+      expect(durableBytes()).toEqual(before);
+      expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);
+      const result = runMasterInit(cwd, undefined);
+      expect(result).toMatchObject({ stage: { dir: "01-mvp" }, phase, mode: "template" });
+      expect(durableBytes()).toEqual(before);
+      expectEngineOutput("claude");
+    },
+  );
+
+  // Covers: R2
+  it.each(["claude", "agents-md"] as const)(
+    "preserves phase, history and user prose for %s",
+    (engine: "claude" | "agents-md"): void => {
+      seedConfig({ engines: [engine] });
+      runMasterInit(cwd, "mvp");
+      const statePath = stagePaths("01-mvp").stateJson;
+      const state = JSON.parse(readFileSync(statePath, "utf8")) as Record<string, unknown>;
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          ...state,
+          phase: "transcribed",
+          mode: "template",
+          history: [
+            { phase: "context", at: "2026-01-01" },
+            { phase: "transcribed", at: "2026-01-02" },
+          ],
+        }),
+      );
+      const file = join(cwd, engine === "claude" ? "CLAUDE.md" : "AGENTS.md");
+      const prose = "\nUser-owned instructions: preserve spacing.  \nSecond line.\n";
+      const generated = readFileSync(file, "utf8");
+      writeFileSync(
+        file,
+        engine === "claude"
+          ? generated.replace("<!-- navori:user-end -->", `${prose}<!-- navori:user-end -->`)
+          : generated + prose,
+      );
+      const before = durableBytes();
+      const userBody = splitUserSection(readFileSync(file, "utf8")).userBody;
+      for (let i = 0; i < 2; i++) {
+        expect(runMasterInit(cwd, undefined)).toMatchObject({
+          stage: { dir: "01-mvp" },
+          phase: "transcribed",
+          mode: "template",
+        });
+        expect(durableBytes()).toEqual(before);
+        expect(readFileSync(file, "utf8")).toContain(prose);
+        expect(splitUserSection(readFileSync(file, "utf8")).userBody).toBe(userBody);
+      }
+    },
+  );
+
+  // Covers: R2
+  it.each(["newer-marker", "config-floor", "edited-block"] as const)(
+    "preserves %s through repeated init",
+    (guard: "newer-marker" | "config-floor" | "edited-block"): void => {
+      seedConfig({
+        engines: ["agents-md"],
+        harness: { masterPlan: true },
+        ...(guard === "config-floor" ? { harnessVersion: "999.0.0" } : {}),
+      });
+      const protectedBody = "Protected managed content, different from current output.";
+      const block = injectManagedSection("", "navori-agents", protectedBody, {
+        version: guard === "newer-marker" ? "999.0.0" : "0.1.0",
+        source: "@navori/core",
+      }).output;
+      const original =
+        guard === "edited-block"
+          ? block.replace(protectedBody, "User edited managed content.")
+          : block;
+      writeFileSync(join(cwd, "AGENTS.md"), original);
+      runMasterInit(cwd, "mvp");
+      runMasterInit(cwd, undefined);
+      expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
+      if (guard === "config-floor")
+        expect(readConfig(join(cwd, "navori.config.json")).harnessVersion).toBe("999.0.0");
+    },
+  );
+
+  // Covers: R2
+  it("clears the ambient floor after a real render throws", (): void => {
+    seedConfig({ harnessVersion: "999.0.0" });
+    const engine = vi.spyOn(claude, "renderClaudeEngine").mockImplementationOnce((): never => {
+      throw new Error("engine interrupted");
+    });
+    expect(() => runMasterInit(cwd, "mvp")).toThrow("engine interrupted");
+    engine.mockRestore();
+    const old = injectManagedSection("", "probe", "old", { version: "0.1.0" }).output;
+    expect(injectManagedSection(old, "probe", "new", { version: "0.2.0" }).status).not.toBe(
+      "downgrade-skipped",
+    );
+    const unrelated = mkdtempSync(join(tmpdir(), "navori-floor-probe-"));
+    try {
+      createSeedConfigHelper(unrelated)({ engines: ["agents-md"], harness: { masterPlan: true } });
+      const agentsPath = join(unrelated, "AGENTS.md");
+      writeFileSync(
+        agentsPath,
+        injectManagedSection("", "navori-agents", "old unrelated body", { version: "0.1.0" })
+          .output,
+      );
+      expect(renderer.runRender(unrelated).ok).toBe(true);
+      expect(readFileSync(agentsPath, "utf8")).toContain("master-plan");
+      expect(readFileSync(agentsPath, "utf8")).not.toContain("old unrelated body");
+    } finally {
+      rmSync(unrelated, { recursive: true, force: true });
+    }
+    runMasterInit(cwd, undefined);
+    expectEngineOutput("claude");
+  });
+
+  // Covers: R1, R2
+  it("recovers a valid preset without pruning disabled outputs or user prose", (): void => {
+    seedConfig({ engines: ["agents-md"], preset: "vite-react-ts", harness: { masterPlan: true } });
+    const sentinel = "Disabled Claude output must survive.\n";
+    writeFileSync(join(cwd, "CLAUDE.md"), sentinel);
+    writeFileSync(join(cwd, "AGENTS.md"), "User-owned project guidance.\n");
+    runMasterInit(cwd, "mvp");
+    runMasterInit(cwd, undefined);
+    const agents = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(agents).toContain("master-plan");
+    expect(agents).toContain("React");
+    expect(agents).toContain("User-owned project guidance.\n");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(sentinel);
+  });
+
+  // Covers: R2
+  it.each([
+    "registry",
+    "legacy-json",
+    "legacy-schema",
+    "delivery-json",
+    "delivery-schema",
+    "workflow",
+    "parts",
+    "symlink",
+  ] as const)("validates %s before rendering or writing", (invalid: string): void => {
+    seedConfig({ harness: { masterPlan: true } });
+    interruptedStage(
+      invalid.startsWith("delivery") || invalid === "parts" ? "deliveries" : "legacy",
+    );
+    const statePath = stagePaths("01-mvp").stateJson;
+    if (invalid === "registry") writeFileSync(indexJsonPath(cwd, SPECS_DIR), "{");
+    if (invalid.endsWith("json")) writeFileSync(statePath, "{");
+    if (invalid.endsWith("schema")) writeFileSync(statePath, '{"version":999}');
+    if (invalid === "parts")
+      writeFileSync(join(stagePaths("01-mvp").root, "parts.json"), '{"version":2}');
+    if (invalid === "symlink") {
+      rmSync(stagePaths("01-mvp").plansDir, { recursive: true });
+      symlinkSync(tmpdir(), stagePaths("01-mvp").plansDir, "dir");
+    }
+    writeFileSync(join(cwd, "CLAUDE.md"), "Harness sentinel\n");
+    const paths = [
+      join(cwd, "navori.config.json"),
+      indexJsonPath(cwd, SPECS_DIR),
+      statePath,
+      join(cwd, "CLAUDE.md"),
+    ];
+    const before = paths.map((path: string): string => readFileSync(path, "utf8"));
+    const render = vi.spyOn(renderer, "runRender");
+    expect(() =>
+      runMasterInit(cwd, undefined, invalid === "workflow" ? "deliveries" : undefined),
+    ).toThrow();
+    expect(render).not.toHaveBeenCalled();
+    expect(paths.map((path: string): string => readFileSync(path, "utf8"))).toEqual(before);
+  });
 });
 
 describe("runMasterInit — first stage (R3)", () => {
@@ -206,6 +498,33 @@ describe("runMasterInit — second stage registers en-curso (R16)", () => {
     const result = runMasterInit(cwd, "pagos");
     expect(result.stage).toEqual({ number: 2, slug: "pagos", dir: "02-pagos" });
     expect(result.mode).toBe("en-curso");
+  });
+});
+
+describe("runMasterInit — slug reuse (R22)", () => {
+  // Covers: R22
+  it("init con el slug de una etapa abandonada falla nombrando la etapa previa", () => {
+    const masterDir = masterDirPath(cwd, SPECS_DIR);
+    writeIndexRaw({
+      version: 1,
+      stages: [
+        {
+          number: 1,
+          slug: "mvp",
+          dir: "01-mvp",
+          state: "abandonada",
+          openedAt: "2026-01-01",
+          closedAt: "2026-02-01",
+          spec: null,
+        },
+      ],
+    });
+    mkdirSync(join(masterDir, "01-mvp"), { recursive: true });
+    const before = readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8");
+
+    expect(() => runMasterInit(cwd, "mvp")).toThrow(/slug "mvp" ya lo usó la etapa 01-mvp/);
+    expect(readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8")).toBe(before);
+    expect(runMasterInit(cwd, "otro").stage.dir).toBe("02-otro");
   });
 });
 

@@ -104,6 +104,10 @@ function openNewStage(
       `invalid slug "${slug}": must be kebab-case (lowercase letters, digits and hyphens), max 40 chars`,
     );
   }
+  const previous = index?.stages.find((stage) => stage.slug === slug);
+  if (previous) {
+    throw new MasterInitError(`slug "${slug}" ya lo usó la etapa ${previous.dir}; elija otro`);
+  }
   const number = nextStageNumber(index);
   if (number > MAX_STAGE_NUMBER) {
     throw new MasterInitError(
@@ -265,11 +269,9 @@ export function runMasterInit(
       harness: { ...(config.harness ?? {}), masterPlan: true },
     });
   }
-  if (config.harness?.masterPlan !== true || active.workflow === "deliveries") {
-    const rendered = runRender(cwd);
-    if (!rendered.ok)
-      throw new MasterInitError(`render failed: ${rendered.reason ?? "unknown error"}`);
-  }
+  const rendered = runRender(cwd);
+  if (!rendered.ok)
+    throw new MasterInitError(`render failed: ${rendered.reason ?? "unknown error"}`);
 
   // STATUS.md exists from the start: INDEX.md already links to it (R54).
   writeMasterStatus(cwd);
