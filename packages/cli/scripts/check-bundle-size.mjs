@@ -62,8 +62,13 @@ import { dirname, resolve } from "node:path";
  * extension source and hook copies inside the bundle, with ZERO new
  * dependencies. The split into a hard dependency ceiling plus a soft
  * first-party trend line is still owed.
+ *
+ * Raised 1500 -> 1600 for the approved 0.12.1 release integration, with ZERO
+ * new dependencies or lockfile changes. Measured at 1509.3KiB; restores
+ * ~91KiB of headroom. This remains a temporary combined ceiling: split the
+ * dependency ceiling from the first-party trend before another growth raise.
  */
-const LIMIT_KB = 1500;
+const LIMIT_KB = 1600;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");

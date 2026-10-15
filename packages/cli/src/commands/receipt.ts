@@ -18,6 +18,7 @@ import {
   type WorkplanGateDecision,
 } from "../lib/plan/gate-decision.ts";
 import { beginReview, sealReview } from "../lib/handoff/review-evidence.ts";
+import { preflightReviewEdits } from "../lib/handoff/review-edit-binding.ts";
 
 export function resolveReceiptOptions(args: {
   feature: string;
@@ -203,6 +204,19 @@ const reviewArgs = {
   cwd: { type: "string" as const },
   json: { type: "boolean" as const },
 };
+/** Read-only native reviewer/host compatibility check before the expensive gate. */
+export function executeReviewPreflight(args: {
+  feature: string;
+  hostCwd: string;
+  cwd?: string;
+  json?: boolean;
+}): void {
+  const result = preflightReviewEdits({ ...args, cwd: args.cwd ?? process.cwd() });
+  process.stdout.write(
+    `${args.json ? JSON.stringify(result) : `${result.status}: ${result.reason}`}\n`,
+  );
+  if (result.status !== "ok") process.exitCode = 1;
+}
 const shared = {
   feature: { type: "string" as const, required: true },
   target: { type: "string" as const },
@@ -248,6 +262,23 @@ export const receiptCommand = defineCommand({
           "Producer evidence for review_<feature>.json: begin before the diff, seal after",
       },
       subCommands: {
+        preflight: defineCommand({
+          meta: {
+            name: "preflight",
+            description: "Check native review output binding and host hook compatibility",
+          },
+          args: {
+            feature: reviewArgs.feature,
+            cwd: { type: "string" as const, description: "Actual target checkout" },
+            json: { type: "boolean" as const, description: "Print structured diagnostics" },
+            "host-cwd": {
+              type: "string" as const,
+              required: true,
+              description: "Native hook event's host checkout",
+            },
+          },
+          run: ({ args }) => executeReviewPreflight({ ...args, hostCwd: args["host-cwd"] }),
+        }),
         begin: defineCommand({
           meta: { name: "begin", description: "Stamp the content identity; prints the nonce" },
           args: reviewArgs,

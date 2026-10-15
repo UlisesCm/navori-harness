@@ -1,15 +1,11 @@
 # Sesión actual
 
-**Estado:** checkpoint de 0.12.1 solicitado como PR draft a `dev`; trabajo funcional detenido por solicitud del usuario. No considerar listo para release.
+**Estado:** PR draft #1328 en `release/0.12.1`; integración revisada y aprobada, pendiente del publisher. Integra el fix #1329 de `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1.
 
-Branch `release/0.12.1`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-release-0.12.1`. Integra main, dev y siete archivos locales; el checkout original `navori-harness-0050-final` permanece intacto.
+El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos.
+
+T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes.
 
 ## Siguiente paso
 
-Retomar el draft por esta branch. Aplicar presupuesto1600KiB ya aprobado (script sigue1500), reconstruir handoff actual y atestarlo con el productor; el canónico conserva un BLOCKED histórico. Reviewer independiente, full gate y receipt siguen pendientes. El commit/publicación de checkpoint no equivale a aprobación técnica ni habilita merge, npm o tag.
-
-## Evidencia y límites
-
-Productor: A3 4suites/294pruebas, fast0, diff-check0; render/goldens/assets/docbudgets/links0. Build1545568bytes=1509.3KiB: size falla contra1500 vigente. Sin nuevas dependencias ni lock churn. Receipt check de cierre: revisión no correlacionada. T6/T11/T12 de0050 pendientes;0053 docs solamente.
-
-Hook implementer-no-markdown rechazó JSON por referencias .md en evidencia; sin retry ni attest. Reviewer/receipt/publisher no aceptan MERGE_HEAD como integración de dev en HEAD. Historial completo en progress/history.md.
+Publisher: crear el commit, hacer push y actualizar el draft #1328. Todavía no hay commit ni push de esta integración; no hacer merge, publicación npm ni tag.

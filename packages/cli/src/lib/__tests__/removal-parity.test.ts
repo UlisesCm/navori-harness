@@ -431,6 +431,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "private ownership alone does not authorize deletion",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/plan/escalation.ts":
+      "finally unlinks only this invocation's UUID-named escalation_private_*.tmp, " +
+      "after exclusive wx creation in the contained state directory; no-replace hard-link " +
+      "publication retains the destination on success or uncertainty. Existing private paths " +
+      "are never acquired or cleaned, and published grants and burns are never removed",
     "lib/plan/gate.ts":
       "consumes (one dispatch per spawn) the single `.navori/state/handoffs/dispatch_<feature>.json` " +
       "the orchestrator wrote for the allowed spawn; a navori state artifact, non-recursive, and the " +
@@ -471,6 +476,20 @@ describe("the inventory of delete paths is complete (#496)", () => {
     );
     expect(DELETES.test("unlinkSync(unexpectedUserPath)")).toBe(true);
     expect(DELETE_SITES["lib/codex/unexpected-observer.ts"]).toBeUndefined();
+  });
+
+  it("bounds escalation cleanup to its exclusively created private publication temporary", () => {
+    const source = readFileSync(join(SRC, "lib/plan/escalation.ts"), "utf-8");
+    expect(source.match(/\bunlinkSync\s*\([^)]*\)/g)).toEqual(["unlinkSync(temporary)"]);
+    expect(source).toMatch(
+      /const temporary = stateArtifactPath\(root, `escalation_private_\$\{randomUUID\(\)\}\.tmp`\);\s*const fd = openSync\(temporary, "wx", 0o600\);\s*let published = false;\s*try\s*\{/,
+    );
+    expect(source).toContain("linkSync(temporary, destination);");
+    expect(source).toMatch(
+      /finally\s*\{\s*closeSync\(fd\);\s*\/\/[^\n]*\n\s*unlinkSync\(temporary\);\s*\}/,
+    );
+    expect(DELETES.test("unlinkSync(unexpectedPublishedGrant)")).toBe(true);
+    expect(DELETE_SITES["lib/plan/unexpected-publication.ts"]).toBeUndefined();
   });
 
   it("sees the promise-based and the aliased spellings too", () => {

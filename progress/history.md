@@ -233,3 +233,7 @@ Retomar el draft por release/0.12.1; aplicar presupuesto1600 ya autorizado media
 
 ## Relevant Files
 packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.ts; packages/cli/scripts/{bundle-render-data.ts,check-bundle-size.mjs}; packages/cli/package.json; navori.config.json; apps/website/src/content/releases.ts; progress/current.md; progress/history.md.
+
+## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
+
+El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.
