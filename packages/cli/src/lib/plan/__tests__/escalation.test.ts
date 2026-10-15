@@ -1198,3 +1198,38 @@ describe("bound workflow escalation", () => {
     expect((await Promise.all([run(), run()])).sort()).toEqual(["allow", "deny"]);
   });
 });
+
+describe("readPlanSnapshot bounds", () => {
+  it("returns exact content for small and empty files and null for a missing one", () => {
+    writeFileSync(join(cwd, "small.txt"), "héllo\n");
+    writeFileSync(join(cwd, "empty.txt"), "");
+    expect(escalation.readPlanSnapshot(join(cwd, "small.txt")).content).toBe("héllo\n");
+    expect(escalation.readPlanSnapshot(join(cwd, "empty.txt")).content).toBe("");
+    expect(escalation.readPlanSnapshot(join(cwd, "missing.txt")).content).toBeNull();
+  });
+
+  it("rejects oversized, non-regular and invalid UTF-8 files", () => {
+    writeFileSync(join(cwd, "big.txt"), "12345");
+    expect(() => escalation.readPlanSnapshot(join(cwd, "big.txt"), 4)).toThrow("oversized");
+    expect(escalation.readPlanSnapshot(join(cwd, "big.txt"), 5).content).toBe("12345");
+    expect(() => escalation.readPlanSnapshot(cwd)).toThrow("unsafe or oversized");
+    writeFileSync(join(cwd, "bad.txt"), Buffer.from([0xff, 0xfe]));
+    expect(() => escalation.readPlanSnapshot(join(cwd, "bad.txt"))).toThrow();
+  });
+
+  it("rejects a file that grows past its stat'd size during the read, and closes the fd", () => {
+    const file = join(cwd, "grow.txt");
+    writeFileSync(file, "abc");
+    const closed = vi.spyOn(fs, "closeSync");
+    vi.mocked(fs.readSync).mockImplementation(((...args: Parameters<typeof fs.readSync>) => {
+      appendFileSync(file, "more");
+      return actualFs.readSync(...args);
+    }) as typeof fs.readSync);
+    try {
+      expect(() => escalation.readPlanSnapshot(file)).toThrow("changed during read");
+      expect(closed).toHaveBeenCalled();
+    } finally {
+      vi.mocked(fs.readSync).mockImplementation(actualFs.readSync);
+    }
+  });
+});
