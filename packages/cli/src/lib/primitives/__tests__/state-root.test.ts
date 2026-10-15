@@ -141,3 +141,17 @@ describe("resolveStateRoot", () => {
     expect(() => resolveStateRoot({ cwd, feature: "demo" })).toThrow("not a Git checkout");
   });
 });
+
+describe("checkoutRoot spawn failures", () => {
+  // Covers: R1
+  it("reports the spawn error instead of claiming the cwd is not a Git checkout", () => {
+    const cwd = fixture();
+    const previous = process.env.PATH;
+    process.env.PATH = join(cwd, "no-such-bin");
+    try {
+      expect(() => checkoutRoot(cwd)).toThrow(/failed to run git.*ENOENT/u);
+    } finally {
+      process.env.PATH = previous;
+    }
+  });
+});
