@@ -279,6 +279,23 @@ Los mensajes de bloqueo son accionables: cuando existe una salida segura, la lí
 (por ejemplo, un directorio literal con `git -C <dir>` o partir el comando). Los bloqueos sin salida
 (`rm` sobre root o home, fork bomb, dispositivos de bloque) no la dan.
 
+**`implementer-no-markdown` y doctrina en worktrees (#1330).** Un Write/Edit de doctrina (prefijos de la
+lista del hook) con ruta absoluta se acepta si cae en otro worktree registrado del mismo repo: sin `..`,
+sin componente symlink, listado en `git worktree list` de la sesión y con el mismo `--git-common-dir`.
+Cualquier duda (git ausente, fallo de `worktree list`) bloquea. Las formas Bash no se relajan.
+
+Residual: todo worktree registrado del repo queda confiado para esos prefijos. No existe una concesión por
+entrega antes de que empiece la revisión, así que no hay más estrechamiento posible hoy.
+
+Relación con #1329: son los mismos primitivos de identidad de checkout (ruta física, registro en
+`worktree list`, `--git-common-dir`), pero otra fase. Este guard actúa antes de `receipt review begin`, así
+que no puede exigir el sello de binding de `review-edit-binding`.
+
+Analizador de escrituras Python: uno solo y basado en destino. Parsea con `ast` y nunca ejecuta el código.
+Un `.md` que aparece solo como dato (por ejemplo `filesTouched` dentro de un JSON) no bloquea; un destino
+`.md`, dinámico o desconocido sí. El writer de `.json` en Node admite la creación con literales. Los
+subprocesos git de solo lectura (`rev-parse`, `diff`, `status`, `log` y exactamente `git branch --show-current`) están permitidos.
+
 `ask` solo se emite si `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh))
 lo permite: script no-Codex, `jq`, payload `PreToolUse` y `permission_mode` en
 `default`, `acceptEdits` o `auto`. `plan` queda fuera (puede correr con prompts
