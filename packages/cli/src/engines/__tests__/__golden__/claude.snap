@@ -297,7 +297,7 @@ name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxTurns: 160
-maxWords: 2695
+maxWords: 2693
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
@@ -307,7 +307,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 
 ## Protocol
 
-1. **Ground yourself in** `CLAUDE.md` — it is already in your context when your host injects it; identify the repo's conventions and the "Project rules" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.navori/state/handoffs/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
+1. **Ground yourself in** `CLAUDE.md` — it is already in your context when your host injects it; identify the repo's conventions and the "Project rules" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it. Then read whatever prior artifact your scope names — `.navori/state/handoffs/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
 2. **Note** in `.navori/state/handoffs/impl_<feature>.md` (your working file; on close it becomes the report):
    - `Task: <brief description>`
    - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).
@@ -321,7 +321,8 @@ You execute **a single** task from start to verification. You don't orchestrate,
      ```
 
    - `Expected files: <list>`
-3. **Implement** following the repo's flow (the orchestrator's "Project rules" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.
+3. **Implement** following the repo's flow (the orchestrator's "Project rules" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span.
+
 4. **Quality gate** (mandatory before returning):
 
    ```bash
@@ -331,7 +332,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `pnpm lint`. Open the log only on a red.
 
    If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.claude/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.
-5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
+5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up.
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
 
 
@@ -340,19 +341,19 @@ You execute **a single** task from start to verification. You don't orchestrate,
 
 - **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.
 - **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.
-- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
+- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus uncommitted changes) — every file outside the encargo's scope is either justified in the report or reverted before you close.
 - **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.md`.
-- **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
+- **Strong typing, `any` forbidden in new code.** Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.
 - **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.
-- Iterate with area tests only (filter by runner path). Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
+- Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
 - Keep intermediate runs quiet; use verbose output only to diagnose a concrete failure. Record this turn's gate command, exit code, and summary before reporting green.
 
 ## Restraint (YAGNI)
@@ -370,7 +371,7 @@ No speculative abstractions: no interface / layer / flag with a single "just in 
 
 **YAGNI ≠ incomplete or lower-quality code.** It applies to *speculative scope* (building for a hypothetical future), NOT to the *completeness of the current requirement*: the edge cases, error states, and validations of what you ARE building are part of the work, not "extra code". The ladder picks the simplest solution that **covers the case**, never the one that covers fewer cases. **Never** simplify away (always ships): input validation at trust boundaries, error handling that avoids data loss, security, accessibility, or anything explicitly requested. Non-trivial logic leaves at least ONE executable check.
 
-**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply ("I did X; it covers Y. Do you need Z? say so") instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.
+**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.
 
 ## Evidence-based completion (gate before the report)
 
@@ -1484,24 +1485,23 @@ You are the main agent. **Every change to source goes through `implementer` → 
 ### The mechanics
 
 - **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
-- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs/ --json`; require `"status":"ok"`.
+- **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
-- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- Before plan approval or an option choice, give the chat decision summary (`formato-respuesta.md`). Artifacts supplement it; gates stay unchanged.
 - **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review the implementer's output.
+
 - **Review after implementation.**
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
 - **`pnpm test && pnpm lint` green** is Pass 2 on the shipping diff of the PR, once per PR.
-- **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.
+- **A verification brief names the probe criterion**, never an open "verify X"; track agents by artifact.
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for remaining work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
 
 ### How much analysis does this task deserve (signal → mechanism)
-
-Reading depth:
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
@@ -1509,7 +1509,7 @@ Reading depth:
 | …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose SDD (scaffolds once accepted, via prose or `/spec-bootstrap`) — opt-in, never self-assigned; don't duplicate its criteria |
+| Real scope, by the threshold the **SDD** block owns | propose SDD (`/spec-bootstrap` scaffolds once accepted) — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
 | A scoped question (does Y happen? what consumes X?) or a broad map (where does X live?) | `scout` |
 | Independent sub-questions or sub-bugs (no shared state) | N `scout` in PARALLEL (same turn) → your synthesis |
@@ -1520,7 +1520,7 @@ Reading depth:
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default. **Independent** sub-tasks (no shared state or output dependency) go in the same turn; serialize only on a real dependency. Scope first; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default. **Independent** sub-tasks go in the same turn; serialize only on a real dependency. Scope first; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check.
 
 ### Nested dispatch unavailable
 
@@ -1528,11 +1528,11 @@ Without nested dispatch (Codex, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`), run `
 
 ### When delegation is genuinely impossible
 
-Rare, and it leaves a trace: the operator forbade subagents or `Agent` is unavailable. Do the work and **say why in your reply**; the `publisher` will require `pnpm test && pnpm lint` green in pre-flight, since no review exists. An undeclared inline change is a deviation.
+Rare: the operator forbade subagents or `Agent` is unavailable. Do the work and **say why in your reply**; the `publisher` will require `pnpm test && pnpm lint` green in pre-flight, since no review exists. An undeclared inline change is a deviation.
 
-### Where the depth lives (read it when the moment asks)
+### Where the depth lives
 
-Open when the moment asks: **`.claude/agents/orchestrator.md`** (decomposing, frugal delegation, anti-broken-telephone, per-agent output files, continuous execution and caps, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal: the design pass).
+Open when the moment asks: **`.claude/agents/orchestrator.md`** (decomposing, delegation, caps, closing the cycle, second opinion, worktree reclaim) · **`.claude/skills/resolve-ticket/SKILL.md`** · **`.claude/skills/solution-design/SKILL.md`** (the design pass).
 <!-- /navori:managed id="orquestacion" -->
 
 
@@ -15962,7 +15962,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 | 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
-| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh verification evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
+| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
 | 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
 

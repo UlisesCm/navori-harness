@@ -199,3 +199,26 @@ describe("verify-before-done.md — the implementer's done-claim path follows th
     expect(renderedSkill("verify-before-done", true)).toContain("done -> impl_<feature>.json");
   });
 });
+
+describe("#1022 — opt-in final writes from an accepted spec", () => {
+  it("keeps prior parallel authority behind scribeOwnsMarkdown and leaves serial as the default", () => {
+    const on = renderedManaged("orquestacion", true);
+    expect(on).toMatch(/serial.{0,30}default|default.{0,30}serial/i);
+    expect(on).toContain("prepare-parallel");
+    expect(on).toContain("finalize-parallel");
+    expect(on).toMatch(/level.?3/i);
+    expect(renderedManaged("orquestacion", false)).not.toContain("prepare-parallel");
+  });
+
+  it("gives both producers native run-bound completion and a no-commit parallel mode", () => {
+    for (const role of ["implementer", "scribe"]) {
+      const on = renderedAgent(role, true);
+      expect(on).toContain("begin-parallel");
+      expect(on).toContain("complete-parallel");
+      expect(on).toContain("--run");
+      expect(on).toMatch(/no commits?|do not commit|never commit/i);
+      expect(renderedAgent(role, false)).not.toContain("begin-parallel");
+    }
+    expect(renderedAgent("scribe", true)).toContain("--parallel");
+  });
+});
