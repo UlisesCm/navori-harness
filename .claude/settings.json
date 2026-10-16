@@ -1,7 +1,7 @@
 {
   "$navori": {
     "managed": true,
-    "version": "0.12.0",
+    "version": "0.12.1",
     "notes": "Archivo generado por navori. NO editar a mano — los cambios se pierden en el próximo `navori render`. Per-user / per-machine permissions van a settings.local.json (gitignored)."
   },
   "attribution": {
@@ -380,7 +380,10 @@
       "Bash(navori master delivery-decision:*)",
       "Bash(navori master delivery-publication:*)",
       "Bash(navori master delivery-revoke:*)",
-      "Bash(navori plan escalation-reset:*)"
+      "Bash(navori plan escalation-reset:*)",
+      "Bash(navori workspace link:*)",
+      "Bash(navori workspace add-repo:*)",
+      "Bash(navori workspace init:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

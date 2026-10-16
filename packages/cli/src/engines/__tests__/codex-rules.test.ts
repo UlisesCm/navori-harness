@@ -133,6 +133,19 @@ describe("buildCodexRules — translation (spec 0035 D5)", () => {
 });
 
 describe("Codex permission translation guarantees (spec 0041)", () => {
+  // Covers: #1097
+  it("translates the workspace-registration ask rules to Codex prompts, never an allow", () => {
+    const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);
+    const body = buildCodexRules(rules).body;
+    for (const sub of ["link", "add-repo", "init"]) {
+      expect(rules.ask).toContain(`Bash(navori workspace ${sub}:*)`);
+      expect(rules.allow).not.toContain(`Bash(navori workspace ${sub}:*)`);
+      expect(body).toMatch(
+        new RegExp(`pattern = \\["navori", "workspace", "${sub}"\\][\\s\\S]*?decision = "prompt"`),
+      );
+    }
+  });
+
   // Covers: R9
   it("translates the escalation-reset ask rule to a Codex prompt, never an allow", () => {
     const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);

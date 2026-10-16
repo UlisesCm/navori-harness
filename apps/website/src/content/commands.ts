@@ -1059,11 +1059,15 @@ const es: Record<string, CommandDoc> = {
     title: "gate",
     summary:
       "Corre el quality gate del proyecto con la salida completa en un log y solo un veredicto compacto en stdout.",
-    usage: "navori gate <fast|full> [--cwd <path>]",
+    usage: "navori gate <fast|full|foreign> [--cwd <path>]",
     flags: [
       {
         flag: "<fast|full>",
         desc: "Qué gate correr: qualityGate.fast o qualityGate.full de navori.config.json, tal cual está escrito.",
+      },
+      {
+        flag: "foreign",
+        desc: "Lo invoca el hook del quality gate cuando un commit cae en otro repo: corre el qualityGate.fast de ese repo solo si lo registraste (navori workspace link), la cadena es simple y no usa nativeHooks. Sale con 64 y sin centinela si no es elegible.",
       },
       { flag: "--cwd <path>", desc: "Raíz del proyecto; por defecto el directorio actual." },
     ],
@@ -1078,6 +1082,7 @@ const es: Record<string, CommandDoc> = {
       "La salida completa va a .navori/state/gate/<kind>-<ts>.log. En verde imprime un resumen corto (menos de 2 KB); en rojo, el fragmento con los errores y la cola, con tope.",
       "El exit code es el de la cadena del gate. Sale con 2 sin correr nada si el gate configurado ya no pasa el chequeo de seguridad que da su permiso exacto.",
       "Reenvía SIGINT/SIGTERM a los procesos hijos y deja un centinela 'killed'.",
+      "foreign guarda el log en un directorio temporal privado (nunca en el repo destino) y conserva solo los más recientes.",
     ],
   },
 };
@@ -2136,11 +2141,15 @@ const en: Record<string, CommandDoc> = {
     title: "gate",
     summary:
       "Runs the project's quality gate with the full output in a log and only a compact verdict on stdout.",
-    usage: "navori gate <fast|full> [--cwd <path>]",
+    usage: "navori gate <fast|full|foreign> [--cwd <path>]",
     flags: [
       {
         flag: "<fast|full>",
         desc: "Which gate to run: qualityGate.fast or qualityGate.full from navori.config.json, verbatim.",
+      },
+      {
+        flag: "foreign",
+        desc: "Called by the quality-gate hook when a commit lands in another repo: runs that repo's qualityGate.fast only if you registered it (navori workspace link), the chain is plain and it does not use nativeHooks. Exits 64 with no sentinel when not eligible.",
       },
       { flag: "--cwd <path>", desc: "Project root; defaults to the current directory." },
     ],
@@ -2155,6 +2164,7 @@ const en: Record<string, CommandDoc> = {
       "The full output goes to .navori/state/gate/<kind>-<ts>.log. Green prints a short summary (under 2 KB); red prints the error excerpt and the tail, capped.",
       "The exit code is the gate chain's. It exits 2 without running anything when the configured gate no longer passes the safety check that earns its exact permission.",
       "It forwards SIGINT/SIGTERM to the child processes and writes a 'killed' sentinel.",
+      "foreign keeps its log in a private temp directory (never in the destination repo) and retains only the newest ones.",
     ],
   },
 };

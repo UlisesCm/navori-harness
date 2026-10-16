@@ -8,10 +8,23 @@
  * first line is a stable sentinel.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, closeSync, openSync, readFileSync, statSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import {
+  appendFileSync,
+  closeSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import { isSafeGateChain } from "../../engines/shared/permission-rules.ts";
 import { readConfig } from "../config/config.ts";
+import { gitOut, isRegisteredCheckout } from "../workspace/workspace.ts";
 import {
   ensureStateDirectory,
   resolveStateRoot,
@@ -20,6 +33,16 @@ import {
 import { renderVerdict, sentinelLine } from "./summary.ts";
 
 export type GateKind = "fast" | "full";
+
+/**
+ * Exit code of a `navori gate foreign` refusal (#1097). Distinct from every plain
+ * refusal (2) so a caller can tell "not eligible" from "the destination's gate
+ * exited 2"; the caller still pairs it with the first output line.
+ */
+export const FOREIGN_REFUSED_EXIT = 64;
+/** Prefix of the private per-run log directories; pruned to `FOREIGN_LOG_KEEP`. */
+export const FOREIGN_LOG_PREFIX = "navori-gate-foreign-";
+const FOREIGN_LOG_KEEP = 20;
 
 export interface GateResult {
   exitCode: number;
@@ -32,8 +55,8 @@ export interface GateResult {
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 const SIGNAL_NUMBER: Record<(typeof SIGNALS)[number], number> = { SIGINT: 2, SIGTERM: 15 };
 
-function refuse(kind: string, reason: string): GateResult {
-  return { exitCode: 2, stdout: "", stderr: `navori gate ${kind}: refused — ${reason}` };
+function refuse(kind: string, reason: string, exitCode = 2): GateResult {
+  return { exitCode, stdout: "", stderr: `navori gate ${kind}: refused — ${reason}` };
 }
 
 function timestamp(now: Date): string {
@@ -221,6 +244,101 @@ export async function runGate(options: {
   return {
     exitCode: result.code,
     stdout: renderVerdict(kind, result.code, shown, log),
+    stderr: "",
+  };
+}
+
+/** Keeps the newest `keep` own-prefix log dirs under `root`; never follows symlinks. */
+export function pruneForeignLogs(root: string, keep = FOREIGN_LOG_KEEP): void {
+  try {
+    const uid = process.getuid?.();
+    const dirs = readdirSync(root)
+      .filter((name) => name.startsWith(FOREIGN_LOG_PREFIX))
+      .map((name) => ({ path: join(root, name), st: lstatSync(join(root, name)) }))
+      .filter(({ st }) => st.isDirectory() && (uid === undefined || st.uid === uid))
+      .sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
+    for (const { path } of dirs.slice(keep)) rmSync(path, { recursive: true, force: true });
+  } catch {
+    // retention is best effort; it never decides a verdict
+  }
+}
+
+/**
+ * `navori gate foreign --cwd <toplevel>` (#1097): runs the destination repo's
+ * `qualityGate.fast` for a commit that lands outside the hook's own repo. The
+ * destination's config is untrusted content, so, in this order: the canonical
+ * toplevel must be registered by the user (or be a back-linked worktree of a
+ * registered repo) BEFORE its config is parsed; `nativeHooks` repos refuse (their
+ * own pre-commit runs it); the chain must pass `isSafeGateChain`; then it runs
+ * shell-free. The log goes to a private temp directory, never into the
+ * destination tree. Every refusal is exit `FOREIGN_REFUSED_EXIT` with no sentinel.
+ */
+export async function runForeignGate(options: { cwd: string; now?: Date }): Promise<GateResult> {
+  const kind = "foreign";
+  let top: string;
+  try {
+    const out = gitOut(resolve(options.cwd), ["rev-parse", "--show-toplevel"])?.trim();
+    if (!out) throw new Error("not a git checkout");
+    top = realpathSync(out);
+  } catch {
+    return refuse(kind, `--cwd is not a Git checkout: ${options.cwd}`, FOREIGN_REFUSED_EXIT);
+  }
+  if (!isRegisteredCheckout(top)) {
+    return refuse(
+      kind,
+      `${top} is not registered in any navori workspace; run 'navori workspace link <workspace> --cwd ${top}' to opt in`,
+      FOREIGN_REFUSED_EXIT,
+    );
+  }
+  let config: ReturnType<typeof readConfig>;
+  try {
+    config = readConfig(resolve(top, "navori.config.json"));
+  } catch (err) {
+    return refuse(
+      kind,
+      `cannot read navori.config.json (${(err as Error).message})`,
+      FOREIGN_REFUSED_EXIT,
+    );
+  }
+  const gate = config.qualityGate?.fast;
+  if (!gate?.trim()) {
+    return refuse(kind, "qualityGate.fast is not set in navori.config.json", FOREIGN_REFUSED_EXIT);
+  }
+  if (config.qualityGate?.nativeHooks === true) {
+    return refuse(
+      kind,
+      "qualityGate.nativeHooks is true; the destination's native pre-commit runs its gate",
+      FOREIGN_REFUSED_EXIT,
+    );
+  }
+  if (!isSafeGateChain(gate)) {
+    return refuse(
+      kind,
+      `qualityGate.fast is not a plain command chain; run it by hand in the destination: ${gate.trim()}`,
+      FOREIGN_REFUSED_EXIT,
+    );
+  }
+
+  const base = tmpdir();
+  pruneForeignLogs(base);
+  const dir = mkdtempSync(join(base, FOREIGN_LOG_PREFIX)); // mode 0700
+  const logPath = join(dir, `fast-${timestamp(options.now ?? new Date())}.log`);
+  const fd = openSync(logPath, "wx", 0o600);
+  let result: { code: number; signal: string | null };
+  try {
+    result = await runChain(gate, top, fd);
+  } finally {
+    closeSync(fd);
+  }
+  if (result.signal !== null) {
+    const exitCode = 128 + (SIGNAL_NUMBER[result.signal as (typeof SIGNALS)[number]] ?? 1);
+    const note = `killed by ${result.signal}`;
+    appendFileSync(logPath, `\n[navori gate] ${note}\n`);
+    return { exitCode, stdout: `${sentinelLine(kind, exitCode, logPath)}\n${note}`, stderr: "" };
+  }
+  return {
+    exitCode: result.code,
+    stdout: renderVerdict(kind, result.code, logPath, readFileSync(logPath, "utf8")),
     stderr: "",
   };
 }
