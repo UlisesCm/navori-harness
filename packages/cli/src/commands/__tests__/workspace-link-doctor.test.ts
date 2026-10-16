@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config/config.ts";
@@ -15,7 +15,7 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
-const { scanWorkspaceLink } = await import("../doctor.ts");
+const { scanWorkspaceLink, scanWorkspaceDeadRepos } = await import("../doctor.ts");
 const { writeWorkspace } = await import("../../lib/workspace/workspace.ts");
 
 let repoDir: string;
@@ -86,5 +86,89 @@ describe("scanWorkspaceLink", () => {
       repos: [{ name: "webapp-alias", path: repoDir }],
     });
     expect(scanWorkspaceLink(repoDir, config())).toBeNull();
+  });
+});
+
+// Covers: #1269
+describe("scanWorkspaceLink without a declared workspace (#1269)", () => {
+  it("flags the repo registered by name under a stale path", () => {
+    writeWorkspace({
+      name: "bonum",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [{ name: "webapp", path: "/old/parent/webapp" }],
+    });
+    expect(scanWorkspaceLink(repoDir, config({ workspace: undefined }))).toEqual({
+      kind: "undeclared-path-mismatch",
+      workspace: "bonum",
+      repoName: "webapp",
+      registeredPath: "/old/parent/webapp",
+    });
+  });
+
+  it("stays quiet when the registered path is this checkout or the name is unknown", () => {
+    writeWorkspace({
+      name: "bonum",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [{ name: "webapp", path: repoDir }],
+    });
+    writeWorkspace({
+      name: "other",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [{ name: "api", path: "/old/api" }],
+    });
+    expect(scanWorkspaceLink(repoDir, config({ workspace: undefined }))).toBeNull();
+  });
+
+  it("skips an invalid manifest instead of throwing", () => {
+    writeWorkspace({ name: "bonum", ticketsDir: "tickets", defaults: {}, repos: [] });
+    writeFileSync(join(home.dir, ".navori", "workspaces", "bonum", "workspace.json"), "{nope");
+    expect(scanWorkspaceLink(repoDir, config({ workspace: undefined }))).toBeNull();
+  });
+});
+
+// Covers: #1269
+describe("scanWorkspaceDeadRepos (#1269)", () => {
+  it("lists the other repos whose registered path does not exist", () => {
+    writeWorkspace({
+      name: "bonum",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [
+        { name: "webapp", path: repoDir },
+        { name: "api", path: "/old/parent/api" },
+        { name: "dashboard", path: "/old/parent/dashboard" },
+      ],
+    });
+    expect(scanWorkspaceDeadRepos(repoDir, config({ workspace: undefined }))).toEqual([
+      {
+        workspace: "bonum",
+        repos: [
+          { name: "api", path: "/old/parent/api" },
+          { name: "dashboard", path: "/old/parent/dashboard" },
+        ],
+      },
+    ]);
+  });
+
+  it("returns [] for a healthy workspace and ignores workspaces the repo is not in", () => {
+    writeWorkspace({
+      name: "bonum",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [
+        { name: "webapp", path: repoDir },
+        { name: "api", path: tmpdir() },
+      ],
+    });
+    writeWorkspace({
+      name: "unrelated",
+      ticketsDir: "tickets",
+      defaults: {},
+      repos: [{ name: "x", path: "/gone/x" }],
+    });
+    expect(scanWorkspaceDeadRepos(repoDir, config())).toEqual([]);
   });
 });
