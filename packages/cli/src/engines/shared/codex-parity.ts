@@ -732,7 +732,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       verified(
         equivalente(
           "PreToolUse(spawn_agent$) gates only implementer, role from tool_input.agent_type; with an encrypted message (probe V3) the opening line is read from the orchestrator's dispatch_<feature>.json (spec 0041 R9)",
-          "the dispatch file has a 10 min TTL and exactly one fresh file may exist. The hook shells out to the globally installed `navori` CLI, so the v2 dispatch path needs a navori release that contains it (S4 ran with a PATH shim to the branch build); smoked live under v1 and v2 (S3, S4)",
+          "the dispatch file has a 10 min TTL and at most one fresh file may exist per session: the marker's `sessionId` ($CODEX_SESSION_ID, fallback $CODEX_THREAD_ID) is matched to the payload `session_id`, other sessions' markers are ignored and never touched, and the deny prints the expected id. Residuals: a lone unstamped marker can be consumed by any session; a mixed stamped/unstamped set relaxes one-at-a-time; a corrupt marker with no recoverable `sessionId` still blocks all sessions. The scoping is not an identity check of the caller (a child thread payload carries the root id); it relies on role-guard denying nested `spawn_agent`. The hook shells out to the globally installed `navori` CLI, so the v2 dispatch path needs a navori release that contains it (S4 ran with a PATH shim to the branch build); smoked live under v1 and v2 (S3, S4)",
         ),
         "S4",
         true,

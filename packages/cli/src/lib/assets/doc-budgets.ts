@@ -75,7 +75,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // used before: ceil(4471 × 1.10) = 4919.
   // #1273: Codex dropped `gh-protocol` (3805 → 3698 words measured); the old
   // ceiling had also drifted slack. ceil(3698 × 1.10) = 4068.
-  "AGENTS.md": 4068,
+  // #1331: Codex dispatch sessionId + residuals (3877 measured → ceil(3877 × 1.05) = 4071).
+  "AGENTS.md": 4071, // 3877 → 5.0%
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
@@ -94,7 +95,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // per-milestone cycle bullet; same floor recovered (1102 measured → 1161).
   // Spec 0052 E1 M15 (R41): Codex note names the denying gate and one-at-a-time dispatch
   // (1124 measured → ceil(1124 × 1.05) = 1181).
-  "packages/core/core-assets/managed/orquestacion.md": 1181, // 1124 → 5.1%
+  // #1331: Codex dispatch sessionId + residuals (1169 measured → ceil(1169 × 1.05) = 1228).
+  "packages/core/core-assets/managed/orquestacion.md": 1228, // 1169 → 5.0%
   "packages/core/core-assets/managed/plan-maestro.md": 90,
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition
@@ -106,7 +108,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Spec 0052 E1 M15 (R6, R38, R40, R41): plan precondition, no-inline-route rule, `spec:`
   // opening, level-0 grammar with feature, the single two-rejections rule and the Codex
   // gate text (371 measured → ceil(371 × 1.05) = 390).
-  "packages/core/core-assets/managed/planificacion.md": 390, // 371 → 5.1%
+  // #1331: Codex dispatch sessionId + residuals (383 measured → ceil(383 × 1.05) = 403).
+  "packages/core/core-assets/managed/planificacion.md": 403, // 383 → 5.2%
 
   // Spec 0041 T14: the source carries both engine branches (`if-not onCodex` /
   // `if onCodex`), so it measures more than any single render; the text
