@@ -122,6 +122,7 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
    satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
    y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   navori puede ejecutar el `qualityGate.fast` de **otro** repo solo si el usuario lo registró (`navori workspace link`), la cadena es plana (`isSafeGateChain`) y corre sin shell (`navori gate foreign`); si no se cumple, el commit solo avisa (#1097).
    *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
