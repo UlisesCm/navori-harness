@@ -15,6 +15,24 @@ fi
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
+# Session-state ceiling (#1266) for HUMAN commits: the agent-side lane lives in the
+# `guard-destructive` hook, which never sees a commit typed in a terminal. The check is
+# the shared partial itself, sourced as-is (no third copy); only the ceiling differs,
+# read from the one TS constant instead of the render-time placeholder.
+# shellcheck source=packages/core/core-assets/hooks/_partials/progress-ratchet.sh
+source "$ROOT/packages/core/core-assets/hooks/_partials/progress-ratchet.sh"
+navori_progress_hard_cap=$(bun -e 'import { PROGRESS_HARD_CAP_BYTES as c } from "./packages/cli/src/lib/assets/doc-budgets.ts"; console.log(c)' 2>/dev/null || true)
+case "$navori_progress_hard_cap" in
+  '' | *[!0-9]*)
+    echo "pre-commit: could not read the session-state ceiling; skipping that check." >&2
+    ;;
+  *)
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf" || exit 2
+    done
+    ;;
+esac
+
 echo "▶ pre-commit: running check:fast (no tests)…"
 export NAVORI_PRE_COMMIT_RUNNING=1
 # No check:fast step may read or write the commit's index: scrub the GIT_*
