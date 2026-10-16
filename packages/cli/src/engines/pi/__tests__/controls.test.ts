@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import * as nodeFs from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
@@ -117,7 +118,9 @@ function loadRuntime(env: Record<string, string> = {}): {
   runInNewContext(compiled, {
     exports,
     require: (id: string): unknown => {
-      if (id === "node:child_process") return { spawn };
+      // spawnSync is real: the doctrine lane asks git about sibling worktrees (#1330), and on Linux
+      // (no /var symlink in the tmp path) the "../elsewhere" case reaches it.
+      if (id === "node:child_process") return { spawn, spawnSync };
       // The edit/write lane (spec 0048 T5) resolves real paths, so fs and path are the real ones.
       if (id === "node:fs") return nodeFs;
       if (id === "node:path") return nodePath;
