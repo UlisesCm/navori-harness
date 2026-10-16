@@ -431,6 +431,12 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "private ownership alone does not authorize deletion",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/gate/run.ts":
+      "pruneForeignLogs (#1097) retires navori's own `navori-gate-foreign-*` log directories: " +
+      "the only caller passes os.tmpdir(), never a repo path; it lists only names with that " +
+      "prefix, lstat-checks each (a symlink is never a directory, so never followed or removed) " +
+      "and keeps only directories owned by the current uid; it keeps the newest 20 by mtime and " +
+      "removes the rest; best effort, it never decides a verdict",
     "lib/plan/escalation.ts":
       "finally unlinks only this invocation's UUID-named escalation_private_*.tmp, " +
       "after exclusive wx creation in the contained state directory; no-replace hard-link " +

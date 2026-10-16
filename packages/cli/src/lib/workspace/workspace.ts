@@ -8,7 +8,8 @@ import {
   rmSync,
   realpathSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { safeHomedir } from "../primitives/home.ts";
@@ -309,6 +310,41 @@ export function findWorkspacesForPath(path: string): string[] {
     if (ws.repos.some((r) => canonicalPath(r.path) === target)) matches.push(name);
   }
   return matches;
+}
+
+/** Runs git with the repo-pinning env vars stripped; stdout on success, else null. */
+export function gitOut(cwd: string, args: string[]): string | null {
+  const env = { ...process.env };
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) {
+    delete env[key];
+  }
+  const r = spawnSync("git", args, { cwd, env, encoding: "utf8", timeout: 10_000 });
+  return r.status === 0 ? r.stdout : null;
+}
+
+/**
+ * Is the checkout whose canonical toplevel is `toplevel` one the user registered
+ * (#1097)? Trust is decided on the toplevel that will be EXECUTED:
+ *   1. it is itself a registered repo of any workspace, or
+ *   2. it is a linked worktree whose main repo is registered AND that main repo
+ *      lists the toplevel in `git worktree list --porcelain` (verified back-link).
+ * Never trusts `git-common-dir` alone: `.git/commondir` is plain repo content, so
+ * a forged pointer at a registered repo must not lend its trust (B1).
+ */
+export function isRegisteredCheckout(toplevel: string): boolean {
+  const top = canonicalPath(toplevel);
+  if (findWorkspacesForPath(top).length > 0) return true;
+  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim();
+  if (!common) return false;
+  const commonDir = canonicalPath(common);
+  if (basename(commonDir) !== ".git") return false;
+  const main = dirname(commonDir);
+  if (main === top || findWorkspacesForPath(main).length === 0) return false;
+  const listing = gitOut(main, ["worktree", "list", "--porcelain"]);
+  if (listing === null) return false;
+  return listing
+    .split("\n")
+    .some((line) => line.startsWith("worktree ") && canonicalPath(line.slice(9)) === top);
 }
 
 /**
