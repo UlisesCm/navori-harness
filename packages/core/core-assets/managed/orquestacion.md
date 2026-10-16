@@ -9,7 +9,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 | You are about to… | Route |
 |---|---|
 | change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
-| **answer, explain, investigate, review, or plan** | do it yourself; nothing is written, so there is nothing to review. Delegate only for scale (signal table) |
+| **answer, explain, investigate, review, or plan** | do it yourself; nothing written, nothing to review. Delegate only for scale (signal table) |
 | write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
 | run commands, read files, inspect state | you do it |
 
@@ -20,10 +20,10 @@ You are the main agent. **Every change to source goes through `implementer` → 
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 <!-- /navori:if -->
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
-- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers, verification). Artifacts supplement it; approval gates unchanged.
 - **1 focused `implementer`**, then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** only when `markdownRequests` is non-empty (else `navori handoff render <feature>`; `sonnet` for shipped prose, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Run serially; review each output.
 <!-- navori:if scribeOwnsMarkdown -->
-- **Parallel scribe (opt-in):** level-3 specs only, serial default. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` and independent review. Codex 0.162.1 only; guide: https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md.
+- **Parallel scribe (opt-in):** level-3 specs, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
 <!-- /navori:if -->
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `{{qualityGate.fast}}` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
@@ -32,13 +32,13 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. <!-- navori:if-not onCodex -->Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. <!-- /navori:if-not -->Missing markers or handoffs do not prove a cap.<!-- navori:if onCodex --> Codex: with `harness.planTiers`, write `.navori/state/handoffs/dispatch_<feature>.json` (`feature`, `opening`, `createdAt`, `sessionId` = `printf %s "${CODEX_SESSION_ID:-$CODEX_THREAD_ID}"`, never hand-composed, omitted only if empty) before spawning `implementer` (spawn `message` is encrypted); one fresh file (TTL 10 min) per spawn, consumed on use. The plan-gate denies (printing the expected id), allows one implementer at a time per session, and never reads, claims or deletes other sessions' markers. Residuals: a lone unstamped marker is consumable by any session, unstamped beside stamped relaxes the limit, a corrupt marker without recoverable `sessionId` blocks all. Name a listed role on every analysis spawn. `gh pr create` and `general-purpose` are denied as confirmation: the user runs or confirms.<!-- /navori:if -->
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. <!-- navori:if-not onCodex -->Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. <!-- /navori:if-not -->Missing markers or handoffs prove no cap.<!-- navori:if onCodex --> Codex: with `harness.planTiers`, write `.navori/state/handoffs/dispatch_<feature>.json` (`feature`, `opening`, `createdAt`, `sessionId` = `printf %s "${CODEX_SESSION_ID:-$CODEX_THREAD_ID}"`, never hand-composed, omitted only if empty) before spawning `implementer` (spawn `message` is encrypted); one fresh file (TTL 10 min) per spawn, consumed on use. The plan-gate denies (printing the expected id), allows one implementer at a time per session, and never reads, claims or deletes other sessions' markers. Residuals: a lone unstamped marker is consumable by any session, unstamped beside stamped relaxes the limit, a corrupt marker without recoverable `sessionId` blocks all. Name a listed role on every analysis spawn. `gh pr create` and `general-purpose` are denied as confirmation: the user runs or confirms.<!-- /navori:if -->
 
 ### How much analysis does this task deserve (signal → mechanism)
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
-| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — the pipeline that chains the rest |
+| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — chains the rest |
 <!-- navori:if auditor -->
 | …and it hits a critical area (`{{project.criticalAreas}}`), a structural migration, >3 layers, or no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
