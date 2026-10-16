@@ -1,9 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGate } from "../run.ts";
+import { buildSpawnSpec, runGate } from "../run.ts";
 
 let cwd: string;
 
@@ -19,6 +28,7 @@ beforeEach(() => {
         ok: "echo all-good && echo Tests 2 passed",
         bad: "echo FAIL boom && exit 3",
         slow: "sleep 30",
+        mark: "node -e \"require('fs').writeFileSync('marker','x')\"",
       },
     }),
   );
@@ -100,4 +110,106 @@ describe("runGate", () => {
     expect(r.stdout.split("\n")[0]).toMatch(/^navori gate full: exit 143 — log /);
     expect(r.stdout).toContain("killed by SIGTERM");
   }, 15000);
+
+  // Covers: #1307
+  it("&& short-circuits: the step after a failure does not run", async () => {
+    config("npm run bad && npm run mark");
+    const r = await runGate({ cwd, kind: "full" });
+    expect(r.exitCode).toBe(3);
+    expect(existsSync(join(cwd, "marker"))).toBe(false);
+  });
+
+  // Covers: #1307
+  it("|| runs the fallback only after a failure", async () => {
+    config("npm run ok || npm run mark");
+    expect((await runGate({ cwd, kind: "full" })).exitCode).toBe(0);
+    expect(existsSync(join(cwd, "marker"))).toBe(false);
+    config("npm run bad || npm run mark");
+    const r = await runGate({ cwd, kind: "full" });
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(join(cwd, "marker"))).toBe(true);
+  });
+
+  // Covers: #1307
+  it("; runs the next step regardless and reports the last status", async () => {
+    config("npm run bad ; npm run mark");
+    const r = await runGate({ cwd, kind: "full" });
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(join(cwd, "marker"))).toBe(true);
+    config("npm run mark ; npm run bad");
+    expect((await runGate({ cwd, kind: "full" })).exitCode).toBe(3);
+  });
+
+  // Covers: #1307
+  it("cd moves the following steps into the directory", async () => {
+    mkdirSync(join(cwd, "sub"));
+    writeFileSync(
+      join(cwd, "sub", "package.json"),
+      JSON.stringify({ name: "s", version: "1.0.0", scripts: { where: "node where.js" } }),
+    );
+    writeFileSync(join(cwd, "sub", "where.js"), "console.log(process.cwd())");
+    config("cd sub && npm run where");
+    const r = await runGate({ cwd, kind: "full" });
+    expect(r.exitCode).toBe(0);
+    const log = readFileSync(join(cwd, r.stdout.split(" — log ")[1]!.split("\n")[0]!), "utf8");
+    expect(log).toContain(join(cwd, "sub"));
+  });
+
+  // Covers: #1307
+  it("cd to a missing directory fails with 1, logs it and stops the && chain", async () => {
+    config("cd nope && npm run mark");
+    const r = await runGate({ cwd, kind: "full" });
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toContain("cd: nope: no such directory");
+    expect(existsSync(join(cwd, "marker"))).toBe(false);
+  });
+
+  // Covers: #1307
+  it("exits 127 when the runner binary is absent", async () => {
+    const saved = process.env.PATH;
+    // Keep only git reachable (state-root needs it); npm is then absent.
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    symlinkSync(execFileSync("which", ["git"]).toString().trim(), join(bin, "git"));
+    process.env.PATH = bin;
+    try {
+      config("npm run ok");
+      const r = await runGate({ cwd, kind: "full" });
+      expect(r.exitCode).toBe(127);
+    } finally {
+      process.env.PATH = saved;
+    }
+  });
+
+  // Covers: #1307
+  it("SIGTERM stops the chain: later steps do not run", async () => {
+    config("npm run slow ; npm run mark");
+    const pending = runGate({ cwd, kind: "full" });
+    await new Promise((r) => setTimeout(r, 1000));
+    process.emit("SIGTERM");
+    const r = await pending;
+    expect(r.exitCode).toBe(143);
+    expect(existsSync(join(cwd, "marker"))).toBe(false);
+  }, 15000);
+});
+
+describe("buildSpawnSpec", () => {
+  // Covers: #1307
+  it("splits a posix step into file + args", () => {
+    expect(buildSpawnSpec("pnpm run  test -- --run", "linux")).toEqual({
+      file: "pnpm",
+      args: ["run", "test", "--", "--run"],
+      options: {},
+    });
+  });
+
+  // Covers: #1307
+  it("routes win32 through cmd.exe /d /s /c with verbatim arguments", () => {
+    expect(buildSpawnSpec("pnpm run test", "win32", { ComSpec: "C:\\Windows\\cmd.exe" })).toEqual({
+      file: "C:\\Windows\\cmd.exe",
+      args: ["/d", "/s", "/c", "pnpm run test"],
+      options: { windowsVerbatimArguments: true },
+    });
+    expect(buildSpawnSpec("npm test", "win32", {}).file).toBe("cmd.exe");
+  });
 });

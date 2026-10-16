@@ -1,10 +1,14 @@
 /**
- * Runner behind `navori gate <fast|full>`: runs `qualityGate.<kind>` verbatim
- * (no splitting, no rewriting), streams everything to a log file and returns a
- * compact verdict whose first line is a stable sentinel.
+ * Runner behind `navori gate <fast|full>`: runs `qualityGate.<kind>` as a chain
+ * of steps WITHOUT a shell (#1307). `runGate` has already validated the string
+ * with `isSafeGateChain`, so every step is `<pm> …` or `cd <dir>`; we split it on
+ * the same `&&` / `||` / `;` sequencers, apply POSIX and-or semantics left to
+ * right, spawn each package-manager step directly, and emulate `cd` in-process.
+ * Everything streams to one log file and the result is a compact verdict whose
+ * first line is a stable sentinel.
  */
-import { spawn } from "node:child_process";
-import { closeSync, openSync, readFileSync, appendFileSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { appendFileSync, closeSync, openSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { isSafeGateChain } from "../../engines/shared/permission-rules.ts";
 import { readConfig } from "../config/config.ts";
@@ -36,47 +40,133 @@ function timestamp(now: Date): string {
   return now.toISOString().replace(/[-:.]/g, "");
 }
 
-/** Runs the shell string with stdio on the log fd; resolves the chain's exit code. */
-function runShell(
-  command: string,
-  cwd: string,
+/** Spawn recipe for one `<pm> …` step; `options` carries only the platform-specific bits. */
+export interface SpawnSpec {
+  file: string;
+  args: string[];
+  options: { windowsVerbatimArguments?: true };
+}
+
+/**
+ * Builds the spawn recipe for a validated `<pm> …` step. POSIX: the first token is
+ * the executable. win32: npm/pnpm/yarn are `.cmd` shims, which Node >= 20 refuses
+ * to spawn with `shell: false` (EINVAL, CVE-2024-27980), so the step goes through
+ * `cmd.exe /d /s /c` with verbatim arguments. That is safe because every step
+ * already passed SAFE_GATE_STEP (`[\w @.:/=-]`): no quotes, `&`, `|`, `<`, `>`,
+ * `^` or `%` (the cmd.exe escape and expansion characters) can reach the command line.
+ */
+export function buildSpawnSpec(
+  step: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv = process.env,
+): SpawnSpec {
+  if (platform === "win32") {
+    return {
+      file: env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", step],
+      options: { windowsVerbatimArguments: true },
+    };
+  }
+  const [file = "", ...args] = step.split(/\s+/);
+  return { file, args, options: {} };
+}
+
+type ChainOp = ";" | "&&" | "||";
+interface ChainStep {
+  /** Operator that joins this step to the previous one (`;` for the first). */
+  op: ChainOp;
+  text: string;
+}
+
+/** Splits a validated gate on its sequencers, keeping the operator before each step. */
+function parseChain(gate: string): ChainStep[] {
+  const parts = gate.trim().split(/\s*(&&|\|\||;)\s*/);
+  const steps: ChainStep[] = [{ op: ";", text: parts[0]!.trim() }];
+  for (let i = 1; i < parts.length; i += 2) {
+    steps.push({ op: parts[i] as ChainOp, text: parts[i + 1]!.trim() });
+  }
+  return steps;
+}
+
+/** Runs the validated chain without a shell; resolves the last status (or the received signal). */
+async function runChain(
+  gate: string,
+  repoCwd: string,
   logFd: number,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<{ code: number; signal: string | null }> {
-  return new Promise((resolveRun) => {
-    const posix = process.platform !== "win32";
-    // detached => own process group, so a signal reaches vitest/semgrep grandchildren too.
-    // Intentional: the gate is a shell chain by contract, and `runGate` validated it with
-    // `isSafeGateChain` (no pipes/quotes/`$`) before getting here.
-    // prettier-ignore
-    // ast-grep-ignore: no-shell-exec
-    const child = spawn(command, { // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
-      cwd,
-      shell: true,
-      stdio: ["ignore", logFd, logFd],
-      detached: posix,
-    });
-    let received: string | null = null;
-    const forward = (signal: (typeof SIGNALS)[number]): void => {
-      received = signal;
-      try {
-        if (posix && child.pid !== undefined) process.kill(-child.pid, signal);
-        else child.kill(signal);
-      } catch {
-        // already gone
-      }
-    };
-    const handlers = SIGNALS.map((signal) => {
-      const handler = (): void => forward(signal);
-      process.on(signal, handler);
-      return [signal, handler] as const;
-    });
-    const done = (code: number, signal: string | null): void => {
-      for (const [signal, handler] of handlers) process.off(signal, handler);
-      resolveRun({ code, signal: received ?? signal });
-    };
-    child.on("error", () => done(127, null));
-    child.on("close", (code, signal) => done(code ?? 1, signal));
+  const posix = platform !== "win32";
+  let received: string | null = null;
+  let current: ChildProcess | null = null;
+  const forward = (signal: (typeof SIGNALS)[number]): void => {
+    received = signal;
+    const child = current;
+    if (!child) return;
+    try {
+      // detached => own process group, so a signal reaches vitest/semgrep grandchildren too.
+      if (posix && child.pid !== undefined) process.kill(-child.pid, signal);
+      else child.kill(signal);
+    } catch {
+      // already gone
+    }
+  };
+  const handlers = SIGNALS.map((signal) => {
+    const handler = (): void => forward(signal);
+    process.on(signal, handler);
+    return [signal, handler] as const;
   });
+
+  const spawnStep = (step: string, cwd: string): Promise<number> =>
+    new Promise((resolveStep) => {
+      const spec = buildSpawnSpec(step, platform);
+      const child = spawn(spec.file, spec.args, {
+        ...spec.options,
+        shell: false,
+        cwd,
+        stdio: ["ignore", logFd, logFd],
+        detached: posix,
+      });
+      current = child;
+      child.on("error", () => resolveStep(127));
+      child.on("close", (code, signal) => {
+        received ??= signal;
+        resolveStep(code ?? 1);
+      });
+    });
+
+  let cwd = repoCwd;
+  let status = 0;
+  try {
+    for (const { op, text } of parseChain(gate)) {
+      if (received !== null) break;
+      if ((op === "&&" && status !== 0) || (op === "||" && status === 0)) continue;
+      const [head = "", dir = ""] = text.split(/\s+/);
+      if (head === "cd") {
+        const target = resolve(cwd, dir);
+        if (isDirectory(target)) {
+          cwd = target;
+          status = 0;
+        } else {
+          appendFileSync(logFd, `[navori gate] cd: ${dir}: no such directory\n`);
+          status = 1;
+        }
+        continue;
+      }
+      status = await spawnStep(text, cwd);
+      current = null;
+    }
+  } finally {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  }
+  return { code: status, signal: received };
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -116,7 +206,7 @@ export async function runGate(options: {
   const fd = openSync(logPath, "wx", 0o644);
   let result: { code: number; signal: string | null };
   try {
-    result = await runShell(gate.trim(), repo, fd);
+    result = await runChain(gate, repo, fd);
   } finally {
     closeSync(fd);
   }
