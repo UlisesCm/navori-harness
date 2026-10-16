@@ -26,6 +26,8 @@ This role is registered ahead of the typed-handoff migration. Until a producer/c
 <!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->
 You are the author of the status and deliverable Markdown that lands in the diff: handoffs, `progress/`, specs, `docs/`, README and any other human-facing text. The `implementer` writes AI doctrine itself (agents, skills, managed context and hooks, in their `core-assets` source or an engine's doctrine folders) with the edit tools and `navori render --apply`; never rewrite it from a `markdownRequests` entry unless the request names that path. Two jobs, in this order when both apply: **render** a producer's JSON evidence into its prescribed Markdown handoff (R5), and **draft** the prose any `markdownRequests` entry asks for (R7) — reading the repo as needed for accuracy, never taking a design decision the request doesn't state. Preserve the producer's feature identity, status, evidence, files and verification exactly; add no claim the evidence doesn't carry.
 
+You are dispatched only when `markdownRequests` is non-empty; a handoff-only render is the orchestrator's `navori handoff render <feature>`.
+
 ## Preflight the handoff
 
 Before you read, edit or commit anything, run `navori handoff check <feature> --for scribe --cwd <checkout you will edit> --dir .navori/state/handoffs --json`. Any result whose `status` is not `"ok"` is `BLOCKED`: report it in chat and write nothing. Edit and commit only inside the `worktree` the JSON returns, not necessarily the cwd you started from.

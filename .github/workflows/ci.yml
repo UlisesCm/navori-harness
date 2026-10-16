@@ -1,7 +1,8 @@
 name: CI
 
-# Two tiers: `main` (pushes and PRs targeting it) runs the full `quality`
-# job, tests included; everything else — `dev` and PRs into it — runs `fast`:
+# Two tiers: `main` and `dev` (pushes and PRs targeting either) run the full
+# `quality` job, tests included — `dev` too, because it is the last full-suite
+# barrier before a PR lands there (spec 0054 R18); everything else runs `fast`:
 # format, lint, typecheck, duplication and ast-grep rules, no tests. The
 # versioned pre-commit hook runs `check:fast` (the same set), also without tests.
 # A separate `semgrep` job scans only `main` (pushes and PRs into it).
@@ -24,7 +25,7 @@ env:
 
 jobs:
   quality:
-    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.base_ref == 'main' || github.base_ref == 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -55,9 +56,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Build first: the e2e suite runs against dist/index.js + bundled assets.
+      # The ONE build: the e2e suite runs against dist/index.js + bundled assets.
+      # `ensure-dist` seals `dist/` with the fingerprint of its inputs, so
+      # `check:render` and the test suite below find the seal and build nothing.
       - name: Build
-        run: bun run --filter navori build
+        run: bun run ensure-dist
 
       # #508 — `apps/website` was built ONLY by the deploy workflow, which runs
       # after the merge, so a change that breaks the site (an Astro/Tailwind
@@ -77,10 +80,12 @@ jobs:
       # of `navori render` over @navori/core. A PR that touches a managed asset
       # WITHOUT re-rendering the mirror leaves the harness (hooks included) running
       # the previous version, which is how #420 shipped a day of stale hook scripts.
-      # `check:render` rebuilds before rendering ON PURPOSE (dist/assets/core is a
-      # build-time copy of packages/core; rendering with a stale dist compares
-      # against the OLD core and passes in silence) — don't "optimize" the rebuild
-      # away just because the Build step above already ran.
+      # `check:render` still verifies `dist/` is fresh before rendering
+      # (dist/assets/core is a build-time copy of packages/core; rendering with a
+      # stale dist compares against the OLD core and passes in silence), but it
+      # does so through the seal: the fingerprint covers `packages/core`,
+      # `packages/plugins` and the build config, so the Build step above is
+      # reused and a stale dist would rebuild instead of passing.
       - name: Harness mirror up to date
         run: bun run check:render
 
@@ -163,11 +168,21 @@ jobs:
       # instrumentation costs seconds.
       - name: Test + coverage gate
         run: bun run --filter navori test:coverage
+        env:
+          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-report.json
 
-  # Format check, lint, typecheck, duplication and ast-grep on `dev` and PRs
-  # into it. No tests (they run only on `main`) and no semgrep (`main`-only job).
+      # Per-file time budget (spec 0054 R3). Factor 2: the budget is set on a
+      # local run; shared 2-4 vCPU runners are slower, and 2 absorbs that noise
+      # without hiding a file that doubles. Revisit with CI timings in M8.
+      - name: Test time budget
+        run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-report.json"
+        env:
+          NAVORI_TEST_BUDGET_FACTOR: "2"
+
+  # Format check, lint, typecheck, duplication and ast-grep on every other ref
+  # and base. No tests (they run on `main` and `dev`) and no semgrep (`main`-only job).
   fast:
-    if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' && github.base_ref != 'main' && github.base_ref != 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

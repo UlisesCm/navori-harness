@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}
 maxTurns: 160
-maxWords: 2693
+maxWords: 2707
 ---
 
 # Implementer Agent
@@ -44,7 +44,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    {{gateRun.fast}}
    ```
 
-   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `{{qualityGate.fast}}`. Open the log only on a red.
+   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `{{qualityGate.fast}}`. Open the log only on a red. Its green feeds the pre-commit probe, so don't rerun it by hand.
 
    If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (<!-- navori:if-not onCodex -->no shell `&`, no `run_in_background`, no `Monitor`<!-- /navori:if-not --><!-- navori:if onCodex -->no shell `&`, no background execution<!-- /navori:if -->). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.claude/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up.

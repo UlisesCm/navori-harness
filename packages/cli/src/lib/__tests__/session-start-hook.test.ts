@@ -454,7 +454,9 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
 });
 
 /**
- * #1244 — tool update notice. The hook calls `navori tools notice` and trusts nothing it
+ * #1244 — tool update notice. The hook calls `navori tools session-context` (spec 0054 R25) and,
+ * when that is not framed as expected (this stub answers every call alike, like an older CLI),
+ * falls back to `navori tools notice`; it trusts nothing it
  * prints: output without the `#navori-tool-notice v1` sentinel (an older navori's usage
  * banner) or with a bad ack charset is discarded, and the delivery is acked only when the
  * BODY (not the budget pointer) was emitted. Every case uses a temp HOME and a stub `navori`
@@ -506,7 +508,11 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const r = emit(stub(OUTPUT));
     expect(r.ctx).toContain(NOTICE);
     expect(r.ctx).not.toContain("#navori-tool-notice");
-    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+    expect(r.calls).toEqual([
+      "tools session-context",
+      "tools notice",
+      "tools notice --ack engram@3.2.1",
+    ]);
   });
 
   it("is the LAST section: it follows the repository state", () => {
@@ -525,7 +531,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const banner = "USAGE navori init|add|render|doctor\n\nCOMMANDS\n  init  ...\n";
     const r = emit(stub(banner, { exit: 2 }));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
   });
 
   it.each([
@@ -537,20 +543,24 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   ])("discards %s", (_name, output) => {
     const r = emit(stub(output));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
   });
 
   it("still delivers and acks the body when the budget is spent: the notice has its own reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_CTX_BUDGET: "10" });
     expect(r.ctx).toContain(NOTICE);
-    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+    expect(r.calls).toEqual([
+      "tools session-context",
+      "tools notice",
+      "tools notice --ack engram@3.2.1",
+    ]);
   });
 
   it("degrades to the fixed English pointer and does NOT ack when the notice exceeds its reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_NOTICE_RESERVE: "10" });
     expect(r.ctx).toContain("tool update notices didn't fit here");
     expect(r.ctx).not.toContain(NOTICE);
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
   });
 
   it("does not call navori when opted out", () => {

@@ -1,4 +1,4 @@
-import { fstatSync, lstatSync, readSync } from "node:fs";
+import { fstatSync, lstatSync, readdirSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import {
   findMarkedSessions,
@@ -18,6 +18,7 @@ import {
 import {
   appendPrivateAuditFile,
   createPrivateAuditFile,
+  ensurePrivateAuditDirectory,
   readPrivateAuditFile,
   readAuditJsonl,
   removePrivateAuditFile,
@@ -669,6 +670,9 @@ export function recordAuditMetadata(request: AuditMetadataRequest): MetadataReco
     const event = metadataEvent(request.event);
     const target = metadataTarget(request);
     if (!event || !target) return metadataResult("invalid", "invalid-metadata");
+    // The session is closing (`audit-mode-close` sends this over the CLI, never the
+    // spool): fold the spool in first so every event precedes the `session-end` line.
+    if (event.event === "session-end") consolidateSpool(request);
     const record = {
       wireVersion: 1,
       eventId: randomUUID(),
@@ -942,5 +946,221 @@ export function absorbAuditMetadataSpool(
       : finish(metadataResult("partial", "incomplete-source", recorded, skipped));
   } catch {
     return finish(metadataResult("unavailable", "unsafe-target"));
+  }
+}
+
+// ─── Event spool (spec 0054 R26, D8) ──────────────────────────────────────────
+// A hook records an event WITHOUT starting this CLI by dropping one file into
+// `<auditRoot>/<repo>/spool-<session>/` (created here, 0700). The CLI stays the
+// single writer of the session log: `consolidateSpool` re-validates every file,
+// drops the invalid ones one by one, and appends the rest in one write.
+
+/** What a spool file may be called: the shell writes `<stamp>-<pid>-<rand>.json`. */
+const SPOOL_NAME = /^[A-Za-z0-9._-]{1,128}\.json$/;
+/** A file younger than this that fails to read or parse may still be mid-write. */
+const SPOOL_GRACE_MS = 5000;
+/** One spool file is `{ v, host, metadata }` around a metadata event of at most 2 KiB. */
+const SPOOL_FILE_MAX_BYTES = 4096;
+/** Reading the log to skip already-present ids is bounded; over it, readers deduplicate. */
+const SPOOL_LOG_SCAN_MAX_BYTES = 32 * 1024 * 1024;
+
+/** Outcome of one consolidation pass; counts are files, never content. */
+export interface SpoolConsolidation {
+  status: "consolidated" | "empty" | "unavailable";
+  /** Events appended to the log. */
+  recorded: number;
+  /** Files discarded (invalid, or already in the log). */
+  dropped: number;
+  /** Files left for the next pass (possibly mid-write, or the append failed). */
+  retained: number;
+}
+
+function spoolDir(request: Omit<AuditMetadataRequest, "event">): string | null {
+  return metadataTarget(request) === null
+    ? null
+    : join(request.auditRoot, request.repo, `spool-${request.rootSessionId}`);
+}
+
+/**
+ * Deterministic UUID-shaped id from a session and a spool file name: consolidating
+ * the same file twice (a crash between append and delete) yields the same `eventId`.
+ */
+export function uuidFromSha256(namespace: string, name: string): string {
+  const h = createHash("sha256").update(`${namespace}\0${name}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Creates the session's private (0700, owner-checked) spool directory; false when it cannot. */
+export function ensureAuditSpoolDir(request: Omit<AuditMetadataRequest, "event">): boolean {
+  try {
+    const dir = spoolDir(request);
+    return dir !== null && ensurePrivateAuditDirectory(dir, { ownedRoot: request.auditRoot }).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Validates one spool file's bytes into a persisted record line, or `null`. */
+function spoolRecord(
+  bytes: Buffer,
+  name: string,
+  request: Omit<AuditMetadataRequest, "event">,
+): { canonical: string; id: string; tsMs: number } | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+  if (
+    !metadataObject(value) ||
+    Object.keys(value).sort().join() !== "host,metadata,v" ||
+    value.v !== 1 ||
+    value.host !== request.host
+  )
+    return null;
+  const event = metadataEvent(value.metadata);
+  if (!event) return null;
+  const record = {
+    wireVersion: 1,
+    eventId: uuidFromSha256(request.rootSessionId, name),
+    host: request.host,
+    rootSessionId: request.rootSessionId,
+    ...event,
+  };
+  if (Buffer.byteLength(JSON.stringify(record)) > 2048) return null;
+  const persisted = persistedMetadata(record, request);
+  return persisted ? { ...persisted, tsMs: Number(event.tsMs) } : null;
+}
+
+/**
+ * Folds the session's spool files into its log (spec 0054 R26, D8). Never aborts the
+ * batch for one bad file; a pass over an already-consolidated spool changes nothing.
+ *
+ * - The spool dir and the log header are re-validated first; if either is unsafe or
+ *   foreign nothing is read from or deleted in the spool.
+ * - Each file is checked with the SAME validator as {@link recordAuditMetadata}
+ *   (closed categories, 2 KiB, `host` equal to the log header's). Invalid files are
+ *   deleted, except a young unreadable/unparseable one, which may be half written.
+ * - `eventId` is derived from the file name, so a crash between append and delete
+ *   re-appends the same ids; ids already in the log are skipped and readers deduplicate.
+ * - All valid events go out in ONE append, in `tsMs` order; files are removed only
+ *   after it succeeded. An append failure (e.g. an incomplete log tail) keeps them all.
+ */
+export function consolidateSpool(request: Omit<AuditMetadataRequest, "event">): SpoolConsolidation {
+  const result = (
+    status: SpoolConsolidation["status"],
+    recorded = 0,
+    dropped = 0,
+    retained = 0,
+  ): SpoolConsolidation => ({ status, recorded, dropped, retained });
+  try {
+    const dir = spoolDir(request);
+    const target = metadataTarget(request);
+    if (!dir || !target) return result("unavailable");
+    try {
+      if (!lstatSync(dir).isDirectory()) return result("unavailable");
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT"
+        ? result("empty")
+        : result("unavailable");
+    }
+    const options = { ownedRoot: request.auditRoot };
+    if (!ensurePrivateAuditDirectory(dir, options).ok) return result("unavailable");
+    const names = readdirSync(dir)
+      .filter((name: string): boolean => SPOOL_NAME.test(name))
+      .sort();
+    if (names.length === 0) return result("empty");
+    const header = exactHeader(target, request.auditRoot);
+    if (
+      !header ||
+      !matchesAuditHeaderIdentity(header, request.host, request.rootSessionId, request.repo)
+    )
+      return result("unavailable");
+
+    const now = Date.now();
+    const young = (path: string): boolean => {
+      try {
+        return now - lstatSync(path).mtimeMs < SPOOL_GRACE_MS;
+      } catch {
+        return false;
+      }
+    };
+    const valid: Array<{ name: string; canonical: string; id: string; tsMs: number }> = [];
+    const invalid: string[] = [];
+    let retained = 0;
+    for (const name of names) {
+      const path = join(dir, name);
+      const read = readPrivateAuditFile(path, { ...options, maxBytes: SPOOL_FILE_MAX_BYTES });
+      if (!read.ok && read.reason === "missing") continue;
+      const record = read.ok ? spoolRecord(read.value, name, request) : null;
+      if (record) valid.push({ name, ...record });
+      else if (young(path)) retained++;
+      else invalid.push(name);
+    }
+
+    let present = new Set<string>();
+    const log = readPrivateAuditFile(target, { ...options, maxBytes: SPOOL_LOG_SCAN_MAX_BYTES });
+    if (log.ok)
+      present = new Set(
+        [...log.value.toString("utf-8").matchAll(/"eventId":"([^"]+)"/g)].map((m) => m[1]!),
+      );
+    const fresh = valid
+      .filter((entry) => !present.has(entry.id))
+      .sort((a, b) => a.tsMs - b.tsMs || (a.name < b.name ? -1 : 1));
+    if (fresh.length > 0) {
+      const appended = appendPrivateAuditFile(
+        target,
+        (fd: number): string => {
+          const current = readAuditHeaderFromFd(fd);
+          if (
+            !current ||
+            !matchesAuditHeaderIdentity(current, request.host, request.rootSessionId, request.repo)
+          )
+            throw new Error("identity-conflict");
+          return fresh.map((entry) => `${entry.canonical}\n`).join("");
+        },
+        options,
+      );
+      if (!appended.ok) return result("unavailable", 0, 0, retained + valid.length);
+    }
+    let dropped = 0;
+    for (const name of [...valid.map((entry) => entry.name), ...invalid]) {
+      const removed = removePrivateAuditFile(join(dir, name), options);
+      if (removed.ok) dropped++;
+      else retained++;
+    }
+    return result("consolidated", fresh.length, dropped - fresh.length, retained);
+  } catch {
+    return result("unavailable");
+  }
+}
+
+/** Consolidates one session's spool, taking the host from the session's own log header. */
+export function consolidateSessionSpool(
+  auditRoot: string,
+  repo: string,
+  rootSessionId: string,
+): SpoolConsolidation {
+  try {
+    const header = exactHeader(join(auditRoot, repo, `session-${rootSessionId}.log`), auditRoot);
+    const host = header?.host ?? "claude";
+    if (host !== "claude" && host !== "codex")
+      return { status: "unavailable", recorded: 0, dropped: 0, retained: 0 };
+    return consolidateSpool({ host, rootSessionId, repo, auditRoot });
+  } catch {
+    return { status: "unavailable", recorded: 0, dropped: 0, retained: 0 };
+  }
+}
+
+/** Consolidates every `spool-<session>` of a repo's audit directory (the read-time pass). */
+export function consolidateRepoSpools(auditRoot: string, repo: string): void {
+  try {
+    for (const name of readdirSync(join(auditRoot, repo))) {
+      const match = /^spool-([A-Za-z0-9_-]{1,256})$/.exec(name);
+      if (match) consolidateSessionSpool(auditRoot, repo, match[1]!);
+    }
+  } catch {
+    /* A missing or unreadable repo directory has nothing to consolidate. */
   }
 }

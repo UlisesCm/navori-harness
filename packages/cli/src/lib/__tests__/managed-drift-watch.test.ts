@@ -7,7 +7,9 @@ import {
   readFileSync,
   existsSync,
   realpathSync,
+  statSync,
   symlinkSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -391,5 +393,121 @@ describe.runIf(runsBash)("managed-drift-watch.sh — where the stamp lives (#102
 
     expect(runHook()).toEqual({ code: 0, stderr: "" });
     expect(readFileSync(outside, "utf-8")).toBe("outside-content\n");
+  });
+});
+
+describe.runIf(runsBash)("managed-drift-watch.sh mtime seal (spec 0054 R23, D7)", () => {
+  /** A `shasum`/`sha1sum` shim that counts how many hash passes the hook starts. */
+  function shim(): { bin: string; passes: () => number } {
+    const dir = mkdtempSync(join(tmpdir(), "navori-drift-shim-"));
+    const log = join(dir, "passes");
+    for (const name of ["shasum", "sha1sum"]) {
+      writeFileSync(
+        join(dir, name),
+        // Only the batch pass names files; the per-block hashes read stdin.
+        `#!/bin/sh\nfor a; do case "$a" in -*|1) ;; *) echo x >> '${log}'; break ;; esac; done\nexec /usr/bin/${name === "shasum" ? "shasum" : "env sha1sum"} "$@"\n`,
+        { mode: 0o755 },
+      );
+    }
+    return {
+      bin: dir,
+      passes: () => (existsSync(log) ? readFileSync(log, "utf-8").trim().split("\n").length : 0),
+    };
+  }
+
+  function run(bin: string): { code: number; stderr: string } {
+    try {
+      execFileSync("bash", [hookPath], {
+        env: { ...process.env, CLAUDE_PROJECT_DIR: cwd, PATH: `${bin}:${process.env.PATH ?? ""}` },
+        input: JSON.stringify({ session_id: "s", tool_name: "Bash", tool_input: {} }),
+        stdio: ["pipe", "pipe", "pipe"],
+        encoding: "utf-8",
+      });
+      return { code: 0, stderr: "" };
+    } catch (err) {
+      const e = err as { status?: number; stderr?: string };
+      return { code: e.status ?? -1, stderr: e.stderr ?? "" };
+    }
+  }
+
+  // Covers: R23
+  it("camino limpio no hashea y un archivo nuevo o editado sí", () => {
+    writeManagedClaudeMd("Managed body.");
+    const { bin, passes } = shim();
+    // First pass: no mark, no baseline → hashes and adopts the baseline.
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(1);
+    // Clean path: nothing newer than the mark → exit without a hash pass.
+    expect(run(bin).code).toBe(0);
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(1);
+
+    // A NEW file under a managed root (the directory's mtime moves too) is hashed.
+    // The mark is backdated instead of the edit being future-dated: coarse clocks are
+    // the declared limit, not what this case measures.
+    const mark = join(cwd, ".navori", "state", "hooks", "managed-drift-mark");
+    const backdate = (): void => {
+      const past = new Date(Date.now() - 10_000);
+      utimesSync(mark, past, past);
+    };
+    backdate();
+    writeFileSync(join(cwd, ".claude", "agents", "new.md"), "new\n");
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(2);
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(2);
+
+    // An EDITED managed block is hashed AND reported against the stored baseline.
+    writeManagedClaudeMd("Managed body.", computeManagedHash("Other body."));
+    backdate();
+    const drifted = run(bin);
+    expect(drifted.code).toBe(2);
+    expect(drifted.stderr).toContain("block 'demo'");
+    expect(passes()).toBe(3);
+    // Reported once: the baseline moved, and the seal holds again.
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(3);
+  });
+
+  // Covers: R23
+  it("una pasada de hash fallida no sella: el siguiente llamado vuelve a revisar", () => {
+    writeManagedClaudeMd("Managed body.");
+    const { bin, passes } = shim();
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(1);
+    const mark = join(cwd, ".navori", "state", "hooks", "managed-drift-mark");
+    const past = new Date(Date.now() - 10_000);
+    utimesSync(mark, past, past);
+    writeFileSync(join(cwd, ".claude", "agents", "new.md"), "new\n");
+    // A hash tool that dies without output stands in for a hook killed mid-hash.
+    const broken = mkdtempSync(join(tmpdir(), "navori-drift-broken-"));
+    for (const name of ["shasum", "sha1sum"]) {
+      writeFileSync(join(broken, name), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    }
+    expect(run(broken).code).toBe(0);
+    // The real mark did not move, so the change is still newer than it.
+    expect(statSync(mark).mtimeMs).toBeLessThan(Date.now() - 5_000);
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(2);
+    // The successful pass promoted the mark: sealed again.
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(2);
+  });
+
+  // Covers: R23
+  it("un error de find en el sello cuenta como cambio, no como limpio", () => {
+    writeManagedClaudeMd("Managed body.");
+    const { bin, passes } = shim();
+    expect(run(bin).code).toBe(0);
+    expect(run(bin).code).toBe(0);
+    expect(passes()).toBe(1);
+    const failing = mkdtempSync(join(tmpdir(), "navori-drift-find-"));
+    writeFileSync(
+      join(failing, "find"),
+      '#!/bin/sh\ncase " $* " in *" -newer "*) exit 1 ;; esac\nexec /usr/bin/find "$@"\n',
+      { mode: 0o755 },
+    );
+    expect(run(`${failing}:${bin}`).code).toBe(0);
+    expect(passes()).toBe(2);
   });
 });

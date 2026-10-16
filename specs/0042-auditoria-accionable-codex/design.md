@@ -125,6 +125,8 @@ Aceptación = review APPROVED correlacionado + receipt ok/fresh del **mismo diff
 
 Unidad tarea `{repo identity,feature}` con revisiones de diff; reuso del slug después de aceptación inicia episodio nuevo identificable, o ambiguo si faltan boundaries. Eventos de trabajo/etapa proceden de plan/handoff explícitos con sesión+feature; una sesión puede tener varias features y su usage no se reparte por porcentaje inventado. Tokens por tarea únicamente para intervalos atribuibles; tiempos hasta aceptación usan inicio observado, abiertas son censuradas. Esperas humanas/CI solo cuando están identificadas; restante es tiempo sin clasificar, no tiempo activo. Persistir outcomes mínimos en el log existente protege contra consumo/limpieza de fuentes efímeras sin crear un board.
 
+**Enmienda (T28, 0054 R19/R20).** Los runners puros de evidencia no atan `HEAD` (`PURE_EVIDENCE_RUNNERS`), y `FINGERPRINT_EXCLUDES` se deriva de `IDENTITY_EXCLUDES`, que incluye `progress/`. Ver [0054 design.md, D5](../0054-dx-ciclo-desarrollo/design.md).
+
 #### Addendum D5 — decisiones de T9a (evidencia del productor)
 
 - **Verbos**: viven bajo `navori receipt review begin|seal <feature>`; `begin` sella antes de leer el diff y `seal` valida al terminar, antes de emitir el sidecar.

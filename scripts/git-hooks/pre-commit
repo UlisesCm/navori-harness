@@ -15,14 +15,33 @@ fi
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
+SCRUB_GIT=(
+  -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS
+  -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE
+  -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE
+  -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX
+  -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR
+)
+
+# Spec 0054 D1: a green `navori gate fast` recorded for exactly the bytes in this
+# commit's index makes the run redundant. `GIT_INDEX_FILE` (git may point it at a
+# temporary index, e.g. `git commit <path>`) is the only GIT_* the probe keeps, made
+# absolute. Any exit but 0 (miss, crash, bun missing, an older CLI) runs the gate.
+probe_index=()
+if [[ -n "${GIT_INDEX_FILE:-}" ]]; then
+  case "$GIT_INDEX_FILE" in
+    /*) probe_index=("GIT_INDEX_FILE=$GIT_INDEX_FILE") ;;
+    *) probe_index=("GIT_INDEX_FILE=$ROOT/$GIT_INDEX_FILE") ;;
+  esac
+fi
+if env "${SCRUB_GIT[@]}" ${probe_index[@]+"${probe_index[@]}"} \
+  bun packages/cli/src/index.ts gate probe --index >/dev/null 2>&1; then
+  echo "▶ pre-commit: check:fast already green for these exact bytes (navori gate cache); skipped."
+  exit 0
+fi
+
 echo "▶ pre-commit: running check:fast (no tests)…"
 export NAVORI_PRE_COMMIT_RUNNING=1
 # No check:fast step may read or write the commit's index: scrub the GIT_*
 # variables a hook inherits so any git call a step makes targets the repo, not it.
-env \
-  -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
-  -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
-  -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE \
-  -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
-  -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
-  bun run check:fast
+env "${SCRUB_GIT[@]}" bun run check:fast

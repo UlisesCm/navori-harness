@@ -13,6 +13,7 @@ import { readConfig } from "../lib/config/config.ts";
 import { emitReviewOutcome } from "../lib/handoff/review-evidence.ts";
 import { checkReviewHandoff } from "../lib/handoff/review-check.ts";
 import { resolveReceiptOptions } from "./receipt.ts";
+import { renderHandoff } from "../lib/handoff/render.ts";
 import { attestHandoff } from "../lib/handoff/actor-provenance.ts";
 import { readFileSync } from "node:fs";
 import {
@@ -179,6 +180,30 @@ const logReviewSubCommand = defineCommand({
   },
 });
 
+const renderSubCommand = defineCommand({
+  meta: {
+    name: "render",
+    description:
+      "Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true)",
+  },
+  args: {
+    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    dir: { type: "string" as const, description: "State directory" },
+    cwd: { type: "string" as const, description: "Checkout to operate on" },
+    json: { type: "boolean" as const, description: "Output as JSON" },
+  },
+  run({ args }) {
+    const result = renderHandoff({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const text = result.status === "ok" ? `OK: ${result.path}` : `FAIL: ${result.message}`;
+    process.stdout.write(`${args.json ? JSON.stringify(result) : text}\n`);
+    process.exitCode = result.status === "ok" ? 0 : 1;
+  },
+});
+
 export const handoffCommand = defineCommand({
   meta: { name: "handoff", description: "Validate the implementer's handoff before dispatch" },
   subCommands: {
@@ -293,5 +318,6 @@ export const handoffCommand = defineCommand({
     }),
     check: checkSubCommand,
     "log-review": logReviewSubCommand,
+    render: renderSubCommand,
   },
 });

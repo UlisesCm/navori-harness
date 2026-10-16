@@ -382,6 +382,43 @@ const classifySubCommand = defineCommand({
   },
 });
 
+/** Pass-2 review depth published by `classify --diff` (R29, 0045 D9). */
+interface ReviewDepth {
+  reviewDepth: "light" | "full";
+  /** Only on `full`: why the light review does not apply. */
+  depthReason?:
+    | "workplan"
+    | "level"
+    | "floor"
+    | "criticalPaths-undeclared"
+    | "critical-path-matched";
+}
+
+/**
+ * `light` only when there is no workplan, the level is 0, no floor signal fired,
+ * `project.criticalPaths` is declared and none of its globs matched the diff;
+ * `full` otherwise. Without declared paths a critical file cannot be told apart
+ * (`matchesCriticalPaths` is always false), so the absence itself forces `full`.
+ */
+function reviewDepth(
+  hasWorkplan: boolean,
+  result: { level: number; signals: string[] },
+  criticalPaths: string[] | undefined,
+): ReviewDepth {
+  if (hasWorkplan) return { reviewDepth: "full", depthReason: "workplan" };
+  if (result.level !== 0) return { reviewDepth: "full", depthReason: "level" };
+  if (result.signals.some((signal) => signal.startsWith("floor:"))) {
+    return { reviewDepth: "full", depthReason: "floor" };
+  }
+  if ((criticalPaths ?? []).length === 0) {
+    return { reviewDepth: "full", depthReason: "criticalPaths-undeclared" };
+  }
+  if (result.signals.some((signal) => signal.startsWith("critical-area:"))) {
+    return { reviewDepth: "full", depthReason: "critical-path-matched" };
+  }
+  return { reviewDepth: "light" };
+}
+
 /**
  * `navori plan classify <feature> --diff [<base>]` (R21) — classifies the
  * REAL diff (`git diff --name-only <merge-base>` plus untracked files) with the feature's
@@ -401,8 +438,12 @@ function classifyDiff(
   },
 ): void {
   const cwd = root.cwd;
-  const plan = readWorkplanOrExit(jsonPath(root, feature));
-  if (!plan) return;
+  // No workplan (a `nivel-0:` delivery) is classified as declared level 0 with
+  // no declared signals (0045 D9); an invalid one still fails.
+  const hasWorkplan = existsSync(jsonPath(root, feature));
+  const plan = hasWorkplan ? readWorkplanOrExit(jsonPath(root, feature)) : undefined;
+  if (hasWorkplan && !plan) return;
+  const declaredLevel = plan?.level ?? 0;
 
   let files: string[];
   try {
@@ -419,22 +460,24 @@ function classifyDiff(
     files,
     criticalPaths: project.criticalPaths,
     localSkillIds: project.localSkillIds,
-    ...declaredFlagsFromSignals(plan.classification.signals),
+    ...(plan ? declaredFlagsFromSignals(plan.classification.signals) : {}),
   };
   const result = classify(input);
-  const exceedsDeclared = result.level > plan.level;
+  const exceedsDeclared = result.level > declaredLevel;
+  const depth = reviewDepth(hasWorkplan, result, project.criticalPaths);
 
   if (json) {
     process.stdout.write(
-      `${JSON.stringify({ ...result, base, files, declaredLevel: plan.level, exceedsDeclared })}\n`,
+      `${JSON.stringify({ ...result, base, files, declaredLevel, exceedsDeclared, workplan: hasWorkplan, ...depth })}\n`,
     );
   } else {
     process.stdout.write(
-      `Diff vs ${base}: Complexity: ${result.score}/10 · Level: ${result.level} (declared: ${plan.level})\n` +
+      `Diff vs ${base}: Complexity: ${result.score}/10 · Level: ${result.level} (declared: ${declaredLevel})\n` +
         `Signals: ${result.signals.join(", ") || "(none)"}\n` +
         (exceedsDeclared
-          ? `Exceeds declared level: yes — the diff outgrew the workplan (level ${result.level} > ${plan.level}).\n`
-          : `Exceeds declared level: no.\n`),
+          ? `Exceeds declared level: yes — the diff outgrew the workplan (level ${result.level} > ${declaredLevel}).\n`
+          : `Exceeds declared level: no.\n`) +
+        `Review depth: ${depth.reviewDepth}${depth.depthReason ? ` (${depth.depthReason})` : ""}\n`,
     );
   }
   // Always sets a definitive value (never leaves the exit code whatever a

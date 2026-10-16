@@ -1580,3 +1580,72 @@ navori_audit_log allow ${JSON.stringify(reason)}
     expect(readFileSync(logFile(), "utf-8")).toBe(before);
   });
 });
+
+/** Spool lane (spec 0054 R26, D8): events become files, never a CLI start. */
+describe.each(SHELLS)("event spool under %s", (shell) => {
+  const spool = (): string => join(root, REPO, "spool-sess1");
+  const transport = (): string => join(root, "transport-calls.jsonl");
+
+  // Covers: R26
+  it("el trigger registra sin arrancar el CLI y rechaza symlink o directorio ajeno", () => {
+    activate();
+    mkdirSync(spool(), { mode: 0o700 });
+    const before = readFileSync(logFile(), "utf-8");
+    expect(run(shell, TRIGGER, payload("secret-prompt"))).toEqual({ out: "", code: 0 });
+    // No CLI start, log untouched, exactly one private event file.
+    expect(existsSync(transport())).toBe(false);
+    expect(readFileSync(logFile(), "utf-8")).toBe(before);
+    const files = readdirSync(spool());
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^[0-9]*-\d+-\d+\.json$/);
+    expect(statSync(join(spool(), files[0]!)).mode & 0o077).toBe(0);
+    const text = readFileSync(join(spool(), files[0]!), "utf-8");
+    expect(text).not.toContain("secret-prompt");
+    expect(JSON.parse(text)).toMatchObject({
+      v: 1,
+      host: "claude",
+      metadata: { event: "prompt", kind: "user", length: "secret-prompt".length },
+    });
+
+    // A symlinked spool dir is never written through: the event takes the CLI bridge.
+    const elsewhere = join(root, "elsewhere");
+    mkdirSync(elsewhere);
+    rmSync(spool(), { recursive: true });
+    symlinkSync(elsewhere, spool());
+    run(shell, TRIGGER, payload("again"));
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(existsSync(transport())).toBe(true);
+
+    // So is anything that is not a directory.
+    rmSync(transport());
+    unlinkSync(spool());
+    writeFileSync(spool(), "not a dir");
+    run(shell, TRIGGER, payload("again"));
+    expect(readFileSync(spool(), "utf-8")).toBe("not a dir");
+    expect(existsSync(transport())).toBe(true);
+  });
+
+  // Covers: R26
+  it("audit-mode-close usa el CLI aunque exista el spool, para que consolide", () => {
+    activate();
+    mkdirSync(spool(), { mode: 0o700 });
+    const closed = run(shell, CLOSE, JSON.stringify({ session_id: "sess1", cwd, reason: "clear" }));
+    expect(closed).toEqual({ out: "", code: 0 });
+    expect(readdirSync(spool())).toEqual([]);
+    expect(readFileSync(transport(), "utf-8")).toContain("session-end");
+  });
+
+  // Covers: R26
+  it("el encabezado del invariante del escritor declara la excepción del spool", () => {
+    const header = readFileSync(join(HOOKS, "_partials", "audit-log.sh"), "utf-8")
+      .split("\n")
+      .slice(0, 6)
+      .join("\n");
+    expect(header).toContain("The CLI is the single writer of the session log.");
+    expect(header).toContain(
+      "The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.",
+    );
+    expect(header).toContain("The CLI re-validates every file before it reaches the log.");
+    expect(header).not.toContain("single private-FD writer");
+  });
+});

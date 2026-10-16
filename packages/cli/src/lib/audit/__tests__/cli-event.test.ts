@@ -20,6 +20,10 @@ import {
   captureCodexChild,
   recordAuditMetadata,
   absorbAuditMetadataSpool,
+  consolidateSessionSpool,
+  consolidateSpool,
+  ensureAuditSpoolDir,
+  uuidFromSha256,
   readAuditHeaderFromFd,
   matchesAuditHeaderIdentity,
 } from "../cli-event.ts";
@@ -1192,5 +1196,149 @@ describe("private metadata recorder and replay", () => {
     vi.resetAllMocks();
     expect(absorbAuditMetadataSpool(request(undefined)).fullyAbsorbed).toBe(false);
     expect(readFileSync(log)).toEqual(partial);
+  });
+});
+
+describe("event spool consolidation (spec 0054 R26, D8)", () => {
+  const spoolRequest = (): Parameters<typeof consolidateSpool>[0] => ({
+    host: "claude",
+    rootSessionId: "sess-1",
+    repo: "myrepo",
+    auditRoot: process.env.NAVORI_AUDITS_ROOT ?? "",
+  });
+  const hookEvent = (tsMs: number): Record<string, unknown> => ({
+    event: "hook",
+    name: "guard-destructive",
+    phase: "PreToolUse",
+    verdict: "allow",
+    source: "core",
+    ms: 2,
+    tsMs,
+    agentId: "orchestrator",
+  });
+  const file = (host: string, metadata: unknown): string =>
+    `${JSON.stringify({ v: 1, host, metadata })}\n`;
+  function spoolDir(): string {
+    const dir = join(spoolRequest().auditRoot, "myrepo", "spool-sess-1");
+    expect(ensureAuditSpoolDir(spoolRequest())).toBe(true);
+    return dir;
+  }
+  const put = (dir: string, name: string, text: string, ageMs = 60_000): void => {
+    writeFileSync(join(dir, name), text, { mode: 0o600 });
+    const when = new Date(Date.now() - ageMs);
+    fs.utimesSync(join(dir, name), when, when);
+  };
+  const logLines = (log: string): Array<Record<string, unknown>> =>
+    readFileSync(log, "utf-8")
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line: string) => JSON.parse(line) as Record<string, unknown>);
+
+  // Covers: R26
+  it("crea el directorio 0700 y es idempotente", () => {
+    const dir = spoolDir();
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+    expect(ensureAuditSpoolDir(spoolRequest())).toBe(true);
+  });
+
+  // Covers: R26
+  it("consolidar dos veces no duplica y un evento inválido se descarta", () => {
+    const log = markSession();
+    const dir = spoolDir();
+    put(dir, "300-1-1.json", file("claude", hookEvent(300)));
+    put(dir, "100-1-2.json", file("claude", hookEvent(100)));
+    // Invalid, one by one: wrong host, open category, extra key, wrong version, not JSON.
+    put(dir, "1-1-1.json", file("codex", hookEvent(1)));
+    put(dir, "2-1-1.json", file("claude", { ...hookEvent(2), verdict: "made-up" }));
+    put(dir, "3-1-1.json", file("claude", { ...hookEvent(3), prompt: "secret text" }));
+    put(dir, "4-1-1.json", JSON.stringify({ v: 2, host: "claude", metadata: hookEvent(4) }));
+    put(dir, "5-1-1.json", "{ not json");
+    put(dir, "ignored.txt", "not a spool file");
+
+    const first = consolidateSpool(spoolRequest());
+    expect(first).toMatchObject({ status: "consolidated", recorded: 2, retained: 0 });
+    const lines = logLines(log);
+    // Ordered by tsMs, deterministic ids from the file names, host stamped by the CLI.
+    expect(lines.map((line) => line.tsMs)).toEqual([100, 300]);
+    expect(lines[0]).toMatchObject({
+      wireVersion: 1,
+      host: "claude",
+      rootSessionId: "sess-1",
+      eventId: uuidFromSha256("sess-1", "100-1-2.json"),
+    });
+    expect(readFileSync(log, "utf-8")).not.toContain("secret text");
+    expect(fs.readdirSync(dir)).toEqual(["ignored.txt"]);
+
+    // Second pass: nothing left, nothing appended.
+    const after = readFileSync(log, "utf-8");
+    expect(consolidateSpool(spoolRequest()).status).toBe("empty");
+    expect(readFileSync(log, "utf-8")).toBe(after);
+
+    // A crash between append and delete leaves the SAME file behind: its id is already
+    // in the log, so it is deleted without a second line.
+    put(dir, "100-1-2.json", file("claude", hookEvent(100)));
+    expect(consolidateSpool(spoolRequest())).toMatchObject({ status: "consolidated", recorded: 0 });
+    expect(readFileSync(log, "utf-8")).toBe(after);
+    expect(fs.readdirSync(dir)).toEqual(["ignored.txt"]);
+  });
+
+  // Covers: R26
+  it("deja un archivo joven ilegible (puede estar a medio escribir) y descarta el viejo", () => {
+    const log = markSession();
+    const dir = spoolDir();
+    put(dir, "9-1-1.json", '{"v":1,"host":"cla', 100);
+    expect(consolidateSpool(spoolRequest())).toMatchObject({ recorded: 0, retained: 1 });
+    expect(fs.readdirSync(dir)).toEqual(["9-1-1.json"]);
+    const when = new Date(Date.now() - 60_000);
+    fs.utimesSync(join(dir, "9-1-1.json"), when, when);
+    expect(consolidateSpool(spoolRequest())).toMatchObject({ recorded: 0, retained: 0 });
+    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(logLines(log)).toEqual([]);
+  });
+
+  // Covers: R26
+  it("no toca el spool si el log no existe, es de otro host o el directorio no es seguro", () => {
+    const dir = spoolDir();
+    put(dir, "1-1-1.json", file("claude", hookEvent(1)));
+    // No session log yet.
+    expect(consolidateSpool(spoolRequest()).status).toBe("unavailable");
+    expect(fs.readdirSync(dir)).toEqual(["1-1-1.json"]);
+    // A log whose header names another host.
+    const log = markSession();
+    expect(consolidateSpool({ ...spoolRequest(), host: "codex" }).status).toBe("unavailable");
+    expect(fs.readdirSync(dir)).toEqual(["1-1-1.json"]);
+    // A group-readable spool dir is refused outright.
+    chmodSync(dir, 0o750);
+    expect(consolidateSpool(spoolRequest()).status).toBe("unavailable");
+    expect(fs.readdirSync(dir)).toEqual(["1-1-1.json"]);
+    chmodSync(dir, 0o700);
+    // A symlinked spool dir is refused.
+    const moved = `${dir}-real`;
+    renameSync(dir, moved);
+    symlinkSync(moved, dir);
+    expect(consolidateSpool(spoolRequest()).status).toBe("unavailable");
+    expect(fs.readdirSync(moved)).toEqual(["1-1-1.json"]);
+    expect(logLines(log)).toEqual([]);
+  });
+
+  // Covers: R26
+  it("consolidateSessionSpool toma el host de la cabecera y el evento session-end consolida", () => {
+    const log = markSession();
+    const dir = spoolDir();
+    put(dir, "7-1-1.json", file("claude", hookEvent(7)));
+    expect(consolidateSessionSpool(spoolRequest().auditRoot, "myrepo", "sess-1")).toMatchObject({
+      status: "consolidated",
+      recorded: 1,
+    });
+    put(dir, "8-1-1.json", file("claude", hookEvent(8)));
+    const closing = recordAuditMetadata({
+      ...spoolRequest(),
+      event: { event: "session-end", reason: "clear", tsMs: 9 },
+    });
+    expect(closing).toMatchObject({ status: "recorded" });
+    // The spooled event precedes the session-end line.
+    expect(logLines(log).map((line) => line.tsMs)).toEqual([7, 8, 9]);
+    expect(fs.readdirSync(dir)).toEqual([]);
   });
 });

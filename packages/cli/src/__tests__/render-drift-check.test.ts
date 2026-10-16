@@ -321,7 +321,8 @@ describe("the documented re-render command always carries its build (#421 follow
     expect((renderApply as string).indexOf("build")).toBeLessThan(
       (renderApply as string).indexOf("render --apply"),
     );
-    expect(pkg.scripts?.["check:render"]).toContain("bun run --filter navori build");
+    // check:render ensures a fresh dist/ itself (sealed build, spec 0054 R6).
+    expect(pkg.scripts?.["check:render"]).toContain("check-render-locked.ts");
   });
 
   it("never documents the build-less binary invocation", () => {

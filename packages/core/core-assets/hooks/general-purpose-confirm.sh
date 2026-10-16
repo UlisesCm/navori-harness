@@ -45,8 +45,8 @@ navori_audit_on_exit() {
 trap navori_audit_on_exit EXIT
 
 # Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
-navori_gp_type=$(payload_field tool_input.subagent_type)
-[ -n "$navori_gp_type" ] || navori_gp_type=$(payload_field tool_input.agent_type)
+payload_fields navori_gp_type=tool_input.subagent_type navori_gp_codex_type=tool_input.agent_type
+[ -n "$navori_gp_type" ] || navori_gp_type=$navori_gp_codex_type
 [ "$navori_gp_type" = "general-purpose" ] || exit 0
 
 # Codex hooks cannot emit `ask`, and a `prompt` rule does not confirm inside
