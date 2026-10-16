@@ -382,24 +382,6 @@ describe("CLI e2e — happy paths", () => {
     });
   });
 
-  it("init --recommended: a runner WITH a suite derives always (#529)", () => {
-    const repo = makeTmpRepo({
-      "package.json": JSON.stringify({
-        name: "vitest-app",
-        dependencies: { vitest: "^4" },
-      }),
-      // Flat on purpose: `makeTmpRepo` does not create intermediate dirs.
-      "sum.test.js": "test('sums', () => {});",
-    });
-    dirs.push(repo);
-
-    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
-    expect(r.status).toBe(0);
-
-    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
-    expect(config.project.testsForNewCode).toBe("always");
-  });
-
   it("init --recommended: no runner means no policy at all (#529)", () => {
     // Silence is an answer: navori does not invent a testing rule for a repo
     // that shows no sign of testing.
@@ -1089,27 +1071,6 @@ describe("CLI e2e — happy paths", () => {
   });
 
   // Covers: A3
-  it("doctor does not report drift for an agent marker older than the CLI", () => {
-    const repo = makeTmpRepo();
-    dirs.push(repo);
-    runCli(["init", "--recommended", "--cwd", repo]);
-
-    // A marker's version is the release that last CHANGED the block: an older
-    // one with unchanged content is expected after any release that skipped it.
-    const leaderPath = join(repo, ".claude/agents/orchestrator.md");
-    const older = readFileSync(leaderPath, "utf-8").replace(
-      /version="\d+\.\d+\.\d+"/,
-      'version="0.0.0"',
-    );
-    writeFileSync(leaderPath, older, "utf-8");
-
-    const r = runCli(["doctor", "--json", "--cwd", repo]);
-    expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout).drifts).toEqual([]);
-    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
-  });
-
-  // Covers: A3
   it("doctor reports a harnessVersion newer than the CLI and --strict fails on it", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -1627,41 +1588,6 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(config.monorepo).toBeUndefined();
   });
 
-  it("scan --yes is a no-op when init already populated workspaces", () => {
-    const repo = seedMonorepo();
-    dirs.push(repo);
-    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
-
-    const before = readFileSync(join(repo, "navori.config.json"), "utf-8");
-    const r = runCli(["scan", "--yes", "--cwd", repo]);
-    expect(r.status).toBe(0);
-    const after = readFileSync(join(repo, "navori.config.json"), "utf-8");
-    expect(after).toBe(before);
-  });
-
-  it("scan --yes adds a new workspace when one is created after init", () => {
-    const repo = seedMonorepo();
-    dirs.push(repo);
-    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
-
-    // Add a new workspace after init
-    const fs = require("node:fs");
-    fs.mkdirSync(join(repo, "apps/admin"), { recursive: true });
-    writeFileSync(
-      join(repo, "apps/admin/package.json"),
-      JSON.stringify({ name: "admin", dependencies: { astro: "^5.0.0" } }),
-    );
-
-    const r = runCli(["scan", "--yes", "--cwd", repo]);
-    expect(r.status).toBe(0);
-
-    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
-    expect(config.monorepo.workspaces).toHaveLength(3);
-    const admin = config.monorepo.workspaces.find((w: { name: string }) => w.name === "admin");
-    expect(admin.path).toBe("apps/admin");
-    expect(admin.preset).toBe("astro");
-  });
-
   it("scan fails with helpful message when navori.config.json is missing", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -1682,31 +1608,6 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     const r = runCli(["scan", "--yes", "--cwd", repo]);
     expect(r.status).not.toBe(0);
     expect(r.combined).toContain("no declara 'monorepo'");
-  });
-
-  it("render --workspace acota la operación a un solo workspace", () => {
-    const repo = seedMonorepo();
-    dirs.push(repo);
-    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
-
-    const r = runCli(["render", "--workspace", "backend", "--apply", "--cwd", repo]);
-    expect(r.status).toBe(0);
-
-    // Only backend was rendered
-    expect(existsSync(join(repo, "apps/backend/CLAUDE.md"))).toBe(true);
-    expect(existsSync(join(repo, "apps/storefront/CLAUDE.md"))).toBe(false);
-    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
-  });
-
-  it("render --workspace falla con mensaje claro cuando el nombre no matchea", () => {
-    const repo = seedMonorepo();
-    dirs.push(repo);
-    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
-
-    const r = runCli(["render", "--workspace", "ghost", "--cwd", repo]);
-    expect(r.status).not.toBe(0);
-    expect(r.combined).toContain("ghost");
-    expect(r.combined).toContain("backend");
   });
 
   it("sync default itera root + workspaces en un monorepo", () => {
@@ -2366,6 +2267,40 @@ describe("CLI e2e — init mode axis: --yes vs --recommended vs --full (#989)", 
       } else {
         expect(result.combined).not.toMatch(warning);
       }
+    }
+  });
+});
+
+describe("CLI e2e — exit-code coverage after the R9 dedupe", () => {
+  // Spec 0054 R9: deleted cases had a unit counterpart; each subcommand this file spawns keeps one
+  // case that asserts the real process exit code. Pairs are [subcommand, kept case title].
+  const KEPT: ReadonlyArray<readonly [string, string]> = [
+    ["init", "init aborts if navori.config.json already exists"],
+    ["add", "add --suggest recommends available external providers when none are enabled (#981)"],
+    ["backup", "'backup list --limit abc' errors instead of silently emptying the list"],
+    ["bench", "bench reports percentiles over N runs (spec 0003 §3.5.4)"],
+    ["configure", "configure language changes the config field"],
+    ["doctor", "doctor exits 2 on hard issues (corrupted settings.json) regardless of --strict"],
+    ["migrations", "'migrations list --limit abc' errors instead of silently emptying the list"],
+    ["preset", "preset init refuses to overwrite an existing local preset"],
+    ["registry", "'registry scan <dir> --depth abc' errors instead of scanning unlimited"],
+    ["render", "render --json on a repo with no config emits reason:config-missing (#84)"],
+    ["scan", "scan fails with helpful message when navori.config.json is missing"],
+    ["status", "status --json agrees with doctor on a hard issue (spec 0003 §3.5.3, #244)"],
+    ["sync", "sync --apply --yes fails with exit 1 when user modified a managed block"],
+    ["update", "update --dry-run reports drift without writing"],
+  ];
+
+  it("cada subcomando conserva un caso de código de salida real", () => {
+    const lines = readFileSync(fileURLToPath(import.meta.url), "utf-8").split("\n");
+    for (const [sub, title] of KEPT) {
+      const start = lines.findIndex((l) => l.startsWith(`  it(${JSON.stringify(title)}`));
+      expect(start, `case "${title}" for \`${sub}\``).toBeGreaterThanOrEqual(0);
+      let end = start;
+      while (lines[end] !== "  });") end++;
+      const body = lines.slice(start, end).join("\n");
+      expect(body, `${sub} case spawns the CLI`).toContain(`runCli(["${sub}"`);
+      expect(body, `${sub} case asserts the exit code`).toMatch(/\.status\)?\.(toBe|not\.toBe)\(/);
     }
   });
 });

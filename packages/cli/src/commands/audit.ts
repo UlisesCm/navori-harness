@@ -65,6 +65,9 @@ import {
   captureCodexChild,
   recordAuditMetadata,
   absorbAuditMetadataSpool,
+  consolidateRepoSpools,
+  consolidateSessionSpool,
+  ensureAuditSpoolDir,
   readAuditHeaderFromFd,
   matchesAuditHeaderIdentity,
 } from "../lib/audit/cli-event.ts";
@@ -885,11 +888,24 @@ export const auditCommand = defineCommand({
       }
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);
       privateResultOrExit(ensurePrivateAuditDirectory(auditDir), json);
+      // Spec 0054 R26: the hooks drop one file per event here instead of starting this
+      // CLI. Best effort and idempotent: without the dir they use the metadata bridge.
+      // Pi has no metadata bridge (spec 0047 R12), so it gets no spool either.
+      const openSpool = (): void => {
+        if (hostArg === "pi") return;
+        ensureAuditSpoolDir({
+          host: hostArg ?? "claude",
+          rootSessionId: startId,
+          repo,
+          auditRoot: auditsRoot(),
+        });
+      };
       if (existsSync(logFile)) {
         privateResultOrExit(
           lifecycleAppend(logFile, startId, repo, cwd, hostArg ?? "claude", ""),
           json,
         );
+        openSpool();
         p.outro(isEs ? "audit-mode ya estaba activo" : "audit-mode was already active");
         return;
       }
@@ -928,6 +944,7 @@ export const auditCommand = defineCommand({
               auditRoot: auditsRoot(),
             });
       if (!absorbed.fullyAbsorbed) p.log.warn("audit-observation-gap: startup-spool-retained");
+      openSpool();
       // #675: the id is only checked for SHAPE (`SESSION_ID_RE`, which exists
       // to stop traversal and does that well). Nothing checked that it names a
       // real session, so a typo — `--start p` — answered "audit-mode active"
@@ -979,6 +996,8 @@ export const auditCommand = defineCommand({
         stopHost !== "pi"
       )
         flagError("invalid-host", "Host inválido.", "Invalid host.");
+      // Fold the hooks' event files into the log BEFORE the seal, so they precede it.
+      consolidateSessionSpool(auditsRoot(), repo, target.sessionId);
       privateResultOrExit(
         lifecycleAppend(
           target.logFile,
@@ -1015,9 +1034,15 @@ export const auditCommand = defineCommand({
     // Which repo each marked session belongs to matters only for `--all-repos`,
     // where it picks the catalog the session is judged against.
     const readContext = createAuditDiscoveryContext();
+    // Read time: consolidate any spool files left by sessions that never reached --stop.
+    // Best effort; consolidation is idempotent and drops invalid files individually.
+    if (!allRepos) consolidateRepoSpools(auditsRoot(), repo);
     const audited = allRepos ? listAuditedRepos(periodFilters, readContext) : undefined;
     const marked: MarkedSession[] = audited
-      ? audited.repos.flatMap((r) => findMarkedSessions(r.repo, periodFilters, true, readContext))
+      ? audited.repos.flatMap((r) => {
+          consolidateRepoSpools(auditsRoot(), r.repo);
+          return findMarkedSessions(r.repo, periodFilters, true, readContext);
+        })
       : findMarkedSessions(repo, filters, true, readContext);
     const scopeLabel = allRepos ? "--all-repos" : repo;
     if (!json) for (const w of audited?.warnings ?? []) p.log.warn(w);

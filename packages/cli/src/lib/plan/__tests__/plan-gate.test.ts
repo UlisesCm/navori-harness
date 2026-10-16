@@ -14,7 +14,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -29,6 +29,10 @@ import * as escalation from "../escalation.ts";
 import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
+import { expandHookIncludes } from "../../render/hook-includes.ts";
+import { interpolate } from "../../render/interpolate.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../../engines/shared/roster.ts";
+import type { NavoriConfig } from "../../config/config.ts";
 
 /**
  * `navori plan gate` — the TypeScript half of the `PreToolUse(Agent)` hook
@@ -43,6 +47,8 @@ const actualEscalation =
   await vi.importActual<typeof import("../escalation.ts")>("../escalation.ts");
 
 let cwd: string;
+/** A well-formed nivel-0 `verify:` clause (R28). */
+const VERIFY = "| verify: `true` → exit 0";
 
 function writeConfig(planTiers: boolean): void {
   writeFileSync(
@@ -411,7 +417,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const nonGitResult = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
+      tool_input: { subagent_type: "implementer", prompt: `nivel-0: README.md demo ${VERIFY}` },
     });
     expect(nonGitResult.decision).toBe("deny");
     const alias = join(cwd, "alias");
@@ -419,7 +425,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     writeConfig(true);
     const aliasResult = evaluatePlanGate({
       cwd: alias,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
+      tool_input: { subagent_type: "implementer", prompt: `nivel-0: README.md demo ${VERIFY}` },
     });
     expect(aliasResult.decision).toBe("deny");
     rmSync(nonGit, { recursive: true, force: true });
@@ -439,7 +445,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const result = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
+      tool_input: { subagent_type: "implementer", prompt: `nivel-0: README.md demo ${VERIFY}` },
     });
     expect(result.decision).toBe("allow");
     rmSync(nonGit, { recursive: true, force: true });
@@ -517,7 +523,9 @@ describe("evaluatePlanGate — shared check rules (R5)", () => {
 describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
   it("allows nivel-0 when classify confirms level 0", () => {
     writeConfig(true);
-    const result = evaluatePlanGate(payload("implementer", "nivel-0: README.md demo\nfix a typo"));
+    const result = evaluatePlanGate(
+      payload("implementer", `nivel-0: README.md demo ${VERIFY}\nfix a typo`),
+    );
     expect(result.decision).toBe("allow");
   });
 
@@ -527,10 +535,43 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
     // spaces) — 8 non-trivial files crosses R4's "at most one" bound.
     const manyFiles = Array.from({ length: 8 }, (_, i) => `src/module-${i}/file.ts`).join(",");
     const result = evaluatePlanGate(
-      payload("implementer", `nivel-0: ${manyFiles} demo\ntweak several modules`),
+      payload("implementer", `nivel-0: ${manyFiles} demo ${VERIFY}\ntweak several modules`),
     );
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("not confirmed by classify");
+  });
+
+  // Covers: R28
+  it("nivel-0 con y sin verify", () => {
+    writeConfig(true);
+    const open = (line: string) => evaluatePlanGate(payload("implementer", `${line}\nfix it`));
+    const open0 = (clause: string) => open(`nivel-0: README.md demo${clause}`);
+
+    // Accepted spellings: `->`, a longer code span, `|` and `→` inside the command.
+    expect(open0(" | verify: `true` → exit 0").decision).toBe("allow");
+    expect(open0(" | verify: `true` -> exit 0").decision).toBe("allow");
+    expect(open0(" | verify: ``a | b → c`` → contains: x").decision).toBe("allow");
+
+    // Missing, empty or malformed: denied with the full grammar in the reason.
+    for (const clause of [
+      "",
+      " | verify:",
+      " | verify: `` → exit 0",
+      " | verify: `true`",
+      " | verify: `true` →",
+      " | verify: `true` →   ",
+      " | verify: true → exit 0",
+      " | check: `true` → exit 0",
+    ]) {
+      const result = open0(clause);
+      expect(result.decision, clause).toBe("deny");
+      expect(result.reason, clause).toContain("verify:");
+      expect(result.reason, clause).toContain("<expected>");
+    }
+    // No feature and no verify keeps the feature message.
+    expect(open("nivel-0: README.md | verify: `true` → exit 0").reason).toContain(
+      "needs a feature",
+    );
   });
 
   // Covers: R6
@@ -545,7 +586,8 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
         project: { criticalPaths: ["src/payments/**"] },
       }),
     );
-    const open = (line: string) => evaluatePlanGate(payload("implementer", `${line}\nfix it`));
+    const open = (line: string) =>
+      evaluatePlanGate(payload("implementer", `${line} ${VERIFY}\nfix it`));
 
     // Without a feature: the new form is named; a stale doctrine asks for a render.
     let result = open("nivel-0: README.md");
@@ -734,7 +776,7 @@ describe("evaluatePlanGate — pairwise cap and reset (spec 0052 R8, R9)", () =>
     }
   }
   const openNivel0 = (): ReturnType<typeof evaluatePlanGate> =>
-    evaluatePlanGate(payload("implementer", "nivel-0: README.md demo\nfix it"));
+    evaluatePlanGate(payload("implementer", `nivel-0: README.md demo ${VERIFY}\nfix it`));
 
   // Covers: R8
   it("tras dos, cuatro y seis rechazos exige solution nuevos y acepta los posteriores al último par", () => {
@@ -1611,7 +1653,9 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
   // Covers: R17
   it("emits nothing for a nivel-0 allow", () => {
     const log = startAudit();
-    expect(observe(spawnPayload("nivel-0: README.md typo\nfix a typo")).exitCode).toBeUndefined();
+    expect(
+      observe(spawnPayload(`nivel-0: README.md typo ${VERIFY}\nfix a typo`)).exitCode,
+    ).toBeUndefined();
     expect(lines(log)).toHaveLength(1);
   });
 
@@ -1708,5 +1752,217 @@ describe("evaluatePlanGate — implementer role recognition (spec 0052 R3)", () 
     }
     // Without the env flag and without agent_type this is a Claude spawn: general-purpose.
     expect(evaluatePlanGate(codex(undefined)).decision).toBe("allow");
+  });
+});
+
+describe("plan-gate.sh — stale CLI hint on denial (R34)", () => {
+  const SRC = join(import.meta.dirname, "../../../../../core/core-assets/hooks/plan-gate.sh");
+
+  /**
+   * Runs the real hook (includes expanded) with a fake `navori` whose `plan gate`
+   * exits `gateExit`, whose `--version` prints `cliVersion` and appends to a marker file.
+   */
+  function runHook(
+    gateExit: number,
+    cliVersion: string,
+    harnessVersion: string | undefined,
+    relPath = "hook.sh",
+  ): { status: number | null; stderr: string; versionCalls: number } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-sh-")));
+    try {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      const marker = join(dir, "version-calls");
+      writeFileSync(
+        join(bin, "navori"),
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then echo x >> '${marker}'; echo '${cliVersion}'; exit 0; fi
+cat >/dev/null
+[ ${gateExit} -eq 2 ] && echo '[navori] BLOCKED by plan-gate: some reason' >&2
+exit ${gateExit}
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(dir, "navori.config.json"),
+        JSON.stringify({ name: "x", ...(harnessVersion ? { harnessVersion } : {}) }),
+      );
+      const script = join(dir, relPath);
+      mkdirSync(join(script, ".."), { recursive: true });
+      writeFileSync(script, expandHookIncludes(readFileSync(SRC, "utf-8")), { mode: 0o755 });
+      const r = spawnSync("bash", [script], {
+        cwd: dir,
+        input: JSON.stringify({ session_id: "s1", cwd: dir, tool_input: {} }),
+        encoding: "utf8",
+        env: {
+          PATH: `${bin}:/usr/bin:/bin`,
+          CLAUDE_PROJECT_DIR: dir,
+          NAVORI_AUDITS_ROOT: join(dir, "audits"),
+        },
+      });
+      return {
+        status: r.status,
+        stderr: r.stderr,
+        versionCalls: existsSync(marker)
+          ? readFileSync(marker, "utf8").trim().split("\n").length
+          : 0,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // Covers: R34
+  it("negación con CLI más viejo que harnessVersion nombra ambas versiones y allow no consulta la versión", () => {
+    const stale = runHook(2, "0.12.0", "0.12.1");
+    expect(stale.status).toBe(2);
+    expect(stale.stderr).toContain("BLOCKED by plan-gate: some reason");
+    expect(stale.stderr).toContain("outdated");
+    expect(stale.stderr).toContain("0.12.0");
+    expect(stale.stderr).toContain("0.12.1");
+    expect(stale.stderr).toContain("navori update");
+    // The Codex copy takes the same path.
+    expect(runHook(2, "0.12.0", "0.12.1", ".codex/hooks/plan-gate.sh").stderr).toContain(
+      "outdated",
+    );
+    // Numeric, not lexical: 0.9.0 < 0.12.1; 0.100.0 is not older than 0.12.1.
+    expect(runHook(2, "0.9.0", "0.12.1").stderr).toContain("outdated");
+    expect(runHook(2, "0.100.0", "0.12.1").stderr).not.toContain("outdated");
+
+    // Equal, newer, missing harnessVersion or garbage: the denial stays as is.
+    for (const [cli, harness] of [
+      ["0.12.1", "0.12.1"],
+      ["1.0.0", "0.12.1"],
+      ["0.12.0", undefined],
+      ["not-a-version", "0.12.1"],
+    ] as const) {
+      const same = runHook(2, cli, harness);
+      expect(same.status).toBe(2);
+      expect(same.stderr).not.toContain("outdated");
+      expect(same.stderr).toContain("BLOCKED by plan-gate");
+    }
+
+    // An allow never asks the CLI for its version.
+    const allow = runHook(0, "0.12.0", "0.12.1");
+    expect(allow.status).toBe(0);
+    expect(allow.versionCalls).toBe(0);
+    expect(allow.stderr).toBe("");
+  });
+});
+
+describe("plan-gate.sh — shell fast path (R24)", () => {
+  const SRC = join(import.meta.dirname, "../../../../../core/core-assets/hooks/plan-gate.sh");
+
+  /** Runs the rendered hook with a fake `navori`; reports the exit code and CLI calls. */
+  function runHook(
+    input: string,
+    relPath = "hook.sh",
+  ): { status: number | null; cliCalls: number; stderr: string } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-fast-")));
+    try {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      const marker = join(dir, "cli-calls");
+      writeFileSync(
+        join(bin, "navori"),
+        `#!/bin/sh\ncat >/dev/null\necho x >> '${marker}'\n[ "$FAKE_DENY" = 1 ] && { echo denied >&2; exit 2; }\nexit 0\n`,
+        { mode: 0o755 },
+      );
+      const script = join(dir, relPath);
+      mkdirSync(join(script, ".."), { recursive: true });
+      writeFileSync(
+        script,
+        expandHookIncludes(readFileSync(SRC, "utf-8")).replace(
+          "{{navori.nonImplementerRoles}}",
+          NON_IMPLEMENTER_ROLES.join(" "),
+        ),
+        { mode: 0o755 },
+      );
+      const r = spawnSync("bash", [script], {
+        cwd: dir,
+        input,
+        encoding: "utf8",
+        env: {
+          PATH: `${bin}:/usr/bin:/bin`,
+          CLAUDE_PROJECT_DIR: dir,
+          NAVORI_AUDITS_ROOT: join(dir, "audits"),
+          FAKE_DENY: "1",
+        },
+      });
+      return {
+        status: r.status,
+        stderr: r.stderr,
+        cliCalls: existsSync(marker) ? readFileSync(marker, "utf8").trim().split("\n").length : 0,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const claude = (type: string): string =>
+    JSON.stringify({ cwd: "/x", tool_input: { subagent_type: type, prompt: "p" } });
+  const codex = (type: string): string =>
+    JSON.stringify({ cwd: "/x", tool_input: { agent_type: type, message: "m" } });
+  const CODEX = ".codex/hooks/plan-gate.sh";
+
+  // Covers: R24
+  it("rol no implementer decide en shell; clave duplicada o escapada va al CLI; Claude y Codex", () => {
+    // The rendered list is the single `NON_IMPLEMENTER_ROLES` constant.
+    expect(
+      interpolate("{{navori.nonImplementerRoles}}", { name: "x" } as unknown as NavoriConfig),
+    ).toBe(NON_IMPLEMENTER_ROLES.join(" "));
+
+    // Known non-implementer roles: allow with no CLI process (the fake CLI would deny).
+    for (const role of NON_IMPLEMENTER_ROLES) {
+      expect(runHook(claude(role))).toMatchObject({ status: 0, cliCalls: 0 });
+      expect(runHook(codex(role), CODEX)).toMatchObject({ status: 0, cliCalls: 0 });
+    }
+    expect(runHook(claude("navori:reviewer"))).toMatchObject({ status: 0, cliCalls: 0 });
+    expect(runHook(`{"tool_input": { "agent_type" : "scout" }}`, CODEX)).toMatchObject({
+      status: 0,
+      cliCalls: 0,
+    });
+
+    // Anything else is the CLI's decision: implementer, unknown roles, mixed case, no role.
+    for (const input of [
+      claude("implementer"),
+      claude("general-purpose"),
+      claude("Reviewer"),
+      claude("two words"),
+      JSON.stringify({ cwd: "/x", tool_input: { prompt: "p" } }),
+    ]) {
+      expect(runHook(input)).toMatchObject({ status: 2, cliCalls: 1 });
+    }
+    expect(runHook(codex("worker"), CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    expect(runHook(codex("default"), CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+
+    // A duplicated key (a JSON parser keeps the LAST one) goes to the CLI.
+    const duplicated = `{"tool_input":{"subagent_type":"reviewer","subagent_type":"implementer"}}`;
+    expect(runHook(duplicated)).toMatchObject({ status: 2, cliCalls: 1 });
+    // The key also appearing inside the prompt text is a second occurrence.
+    const quoted = JSON.stringify({
+      tool_input: { subagent_type: "scout", prompt: 'say "subagent_type": "implementer"' },
+    });
+    expect(runHook(quoted)).toMatchObject({ status: 2, cliCalls: 1 });
+
+    // Any `\u` escape (in the key or the value) goes to the CLI.
+    const escape = (hex: string): string => `${"\\"}u${hex}`;
+    expect(runHook(`{"tool_input":{"subagent_type":"${escape("0072")}eviewer"}}`)).toMatchObject({
+      status: 2,
+      cliCalls: 1,
+    });
+    expect(runHook(`{"tool_input":{"subagent_${escape("0074")}ype":"reviewer"}}`)).toMatchObject({
+      status: 2,
+      cliCalls: 1,
+    });
+
+    // A top-level `agent_type` is the CALLER's role, never the spawn target (Codex).
+    const callerFirst = `{"agent_type":"reviewer","tool_input":{"message":"m"}}`;
+    const callerLast = `{"tool_input":{"message":"m"},"agent_type":"reviewer"}`;
+    expect(runHook(callerFirst, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    expect(runHook(callerLast, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    // A nested object between `tool_input` and the key is not "directly inside".
+    const nested = `{"tool_input":{"meta":{"agent_type":"scout"}}}`;
+    expect(runHook(nested, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
   });
 });

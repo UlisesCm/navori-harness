@@ -200,6 +200,25 @@ completa.
 o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3
 (espejo y golden) aunque su extensión diga lo contrario.
 
+## Ciclo de desarrollo local
+
+- **`bun run test:affected`** corre solo los tests que alcanza el cambio frente al merge-base con
+  `dev` (incluye cambios sin commitear y borrados). Es un atajo de iteración, no un sello: el cierre
+  (`bun check`) y CI corren la suite completa. Un cambio en config de Vitest, `tsconfig*`,
+  `package.json`, lockfile o `bunfig.toml`, o la falta de merge-base, corre todo.
+- **`bun run bench:tests`** y **`bun run bench:hooks`** escriben en `.navori/state/bench/` la
+  duración por archivo y el costo de cada hook (mediana de `--runs`, 3 por defecto), con
+  `loadavg` registrado. Una medición bajo carga no sirve para comparar.
+- **Presupuesto por archivo**: `packages/cli/test-budget.json` fija `defaultMs` (20 s) para
+  cada test y `exceptions[]` lo sube para un archivo concreto. Cada excepción lleva `reason`
+  obligatorio. `check-test-budget.mjs --report` falla un archivo que exceda su presupuesto, y CI lo
+  aplica en el job `quality` con `NAVORI_TEST_BUDGET_FACTOR=2`.
+- **`navori gate probe`** responde 0 si hay un verde cacheado para exactamente estos bytes, y 1
+  si no. Nunca corre la cadena. El pre-commit lo usa (`navori gate probe --clean`) para omitir
+  `qualityGate.fast` ante un acierto; un acierto nunca reemplaza un veredicto.
+- **`NAVORI_TEST_WORKERS`** (entero positivo) fija los workers de Vitest. Sin él, el número es
+  `min(CPUs - 1, 4, presupuesto de file descriptors)`.
+
 ## Presupuesto de prosa: qué se capea y qué solo se reporta
 
 Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por

@@ -126,6 +126,10 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
     `/bonum` el harness va gitignored por convención.)
+11. **La caché del gate es atajo de tiempo, nunca evidencia de review** — un verde cacheado
+    solo evita re-correr el gate sobre los mismos bytes; no sustituye la verificación del
+    `reviewer` en contexto fresco. *Por qué*: una caché que se leyera como aprobación ahorraría
+    minutos a costa de la calidad, que es la meta de mayor prioridad.
 
 ## Unidad de PR y de verificación
 

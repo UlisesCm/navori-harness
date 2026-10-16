@@ -297,6 +297,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "tgrep serve",
     "named only to explain the freshness mechanism (a disk index refreshes under it); the same block already forbids agents from starting servers during ordinary discovery, so pre-approving it would contradict that rule",
   ],
+  [
+    "navori update",
+    "installs a new CLI version globally; plan-gate's outdated-CLI notice addresses the human, and the update stays behind the prompt",
+  ],
   ["navori configure", "writes navori.config.json — a config mutation stays behind the prompt"],
   ["navori dominio reindex", "rewrites DOMINIO.md in the workspace — a write, not a read"],
   [

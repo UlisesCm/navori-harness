@@ -5,10 +5,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__mem_
 model: sonnet
 effort: medium
 maxTurns: 160
-maxWords: 2695
+maxWords: 2707
 ---
 
-<!-- navori:managed id="implementer-base" hash="302de180" version="0.12.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="47420f36" version="0.12.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -24,7 +24,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    navori gate fast
    ```
 
-   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `bun run check:fast`. Open the log only on a red.
+   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `bun run check:fast`. Open the log only on a red. Its green feeds the pre-commit probe, so don't rerun it by hand.
 
    If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.claude/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).

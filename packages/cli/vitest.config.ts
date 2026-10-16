@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { resolveMaxWorkers } from "./vitest.workers.ts";
 
 export default defineConfig({
   test: {
@@ -7,8 +8,9 @@ export default defineConfig({
     // Vitest 5 changes this default to true. Keep the Vitest 4 behavior so
     // existing specs retain control of mock lifecycle explicitly.
     clearMocks: false,
-    // Build the CLI once before the suite: the e2e specs spawn dist/index.js,
-    // so a stale/missing dist would fail them for environmental reasons.
+    // Build the CLI before the suite only when its inputs changed (sealed by
+    // scripts/ensure-dist.ts): the e2e specs spawn dist/index.js, so a stale/missing
+    // dist would fail them for environmental reasons.
     globalSetup: ["./vitest.globalSetup.ts"],
     // Per-spec-file backup store, so no test writes to (or purges from) the
     // developer's real ~/.navori/backups (#404).
@@ -22,7 +24,8 @@ export default defineConfig({
     // missing plugin → doctor exit 2). A bounded fork count keeps fd usage in
     // check without meaningfully slowing the (fast) unit tests (#281).
     pool: "forks",
-    maxWorkers: 4,
+    // NAVORI_TEST_WORKERS, else min(CPUs - 1, CAP, ulimit -n budget); see vitest.workers.ts.
+    maxWorkers: resolveMaxWorkers(),
     coverage: {
       provider: "v8",
       // `test:coverage` sets NAVORI_COVERAGE_DIR before Vitest loads this config,

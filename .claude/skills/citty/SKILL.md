@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="citty" hash="9270b534" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="citty" hash="9270b534" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Citty — command definitions
 
 ## When to use this skill
@@ -78,3 +78,12 @@ runMain(main);
 - No side effects at import time; `cleanup` is idempotent.
 - `bun run check:fast` green.
 <!-- /navori:managed id="citty" -->
+
+## This repo's CLI (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The commands that exist and their hierarchy.
+     - The shared-flag convention (--cwd, --json, --dry-run) and what each means.
+     - Exit codes and what each one signals to a CI pipeline.
+     - The output format: what goes to stdout (pipeable) vs. stderr.
+-->
