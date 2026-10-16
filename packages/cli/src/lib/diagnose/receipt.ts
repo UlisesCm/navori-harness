@@ -49,8 +49,14 @@ export interface ReceiptOptions {
   includeConsumed?: boolean;
   /** `sign` only: the recomputed `decideGate` result (spec 0044 R25). */
   gateDecision?: { gateKind: "scoped" | "full"; reason: string };
-  /** `sign` only: the gate the reviewer declares to have run. */
-  gateRan?: "scoped" | "full";
+  /**
+   * `sign` only: the gate the reviewer declares to have run. `docs` re-signs a
+   * delta of Markdown under `specs/` or `docs/` over a current `full` receipt
+   * after `qualityGate.docs` (spec 0054 R21, D6); the CLI refuses anything else.
+   */
+  gateRan?: "scoped" | "full" | "docs";
+  /** The resolved `qualityGate.docs`; `--gate-ran docs` is refused when unset. */
+  docsGate?: string;
   /**
    * Audit observation (spec 0042 T9b). Absent unless an exact audit context
    * exists, so a command outside one computes no identity at all. It only
@@ -323,8 +329,12 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
     const scoped = options.gateRan === "scoped";
     const state = inspect(options);
     const identity = evidenceIdentity(options.cwd, options.gate);
+    const signed =
+      options.gateRan === "docs"
+        ? docsResignHeader(root, options, state, identity)
+        : { gate: scoped ? SCOPED_GATE : identity.gate, inputs: identity.inputs };
     const lines = [
-      `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${scoped ? SCOPED_GATE : identity.gate} inputs=${identity.inputs}`,
+      `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${signed.gate} inputs=${signed.inputs}`,
     ];
     for (const path of state.paths) {
       const absolute = resolve(options.cwd, path);
@@ -415,6 +425,70 @@ function resolveReceiptSource(
   throw new Error("receipt is absent");
 }
 
+/** Paths of the publish set not in the receipt, and recorded paths whose bytes or presence changed. */
+function receiptDelta(
+  options: ReceiptOptions,
+  paths: readonly string[],
+  records: ReadonlyMap<string, string>,
+): Pick<ReceiptResult, "uncovered" | "drift"> {
+  const uncovered = paths.filter((path) => !records.has(path));
+  const drift: ReceiptResult["drift"] = [];
+  for (const [path, blob] of records) {
+    validatePath(options.cwd, path);
+    const present = existsSync(resolve(options.cwd, path));
+    if (blob === "deleted") {
+      if (present) drift.push({ path, blob: null, kind: "reappeared" });
+    } else if (!present) drift.push({ path, blob, kind: "missing" });
+    else if (liveBlob(options.cwd, path, options) !== blob)
+      drift.push({ path, blob, kind: "changed" });
+  }
+  return { uncovered, drift };
+}
+
+/** Case-sensitive: only Markdown under `specs/` or `docs/` (spec 0054 R21, D6). */
+const DOCS_RESIGN_PATH = /^(specs|docs)\/.*\.md$/; // git paths never hold NUL; newlines are rejected by `validatePath`
+
+/**
+ * Spec 0054 R21 / D6, challenge B1: `--gate-ran docs` keeps the signed `gate=`/
+ * `inputs=` of a current `full` receipt, so it is only allowed when EVERY change
+ * since that receipt is Markdown under `specs/` or `docs/`. The CLI computes the
+ * union of `uncovered` (new files), every `drift` kind (changed, missing,
+ * reappeared) and deletions; one path outside the set, a symlink or a non-regular
+ * file refuses. Returns the header values to preserve; throws a refusal otherwise.
+ */
+function docsResignHeader(
+  root: StateRoot,
+  options: ReceiptOptions,
+  state: { targetSha: string; paths: string[] },
+  identity: EvidenceIdentity,
+): { gate: string; inputs: string } {
+  const refuse = (why: string): never => {
+    throw new Error(
+      `--gate-ran docs refused: ${why}\nWHY:   the docs re-sign only covers Markdown under specs/ or docs/ on top of a current full-gate receipt\nFIX:   run qualityGate.full and sign again with --gate-ran full`,
+    );
+  };
+  if (!options.docsGate?.trim()) refuse("qualityGate.docs is not declared in navori.config.json");
+  const path = receiptPath(root);
+  if (!existsSync(path)) refuse("there is no receipt to extend");
+  const { header, records } = readReceiptFile(path);
+  if (header.feature !== options.feature) refuse("the receipt belongs to another feature");
+  if (header.version !== 2 || header.gate === null || header.inputs === null)
+    refuse("the receipt predates v2");
+  if (header.gate === SCOPED_GATE || header.gate !== identity.gate)
+    refuse("the receipt was not signed after the current full gate");
+  if (header.inputs !== identity.inputs) refuse("the lockfiles changed since the receipt");
+  if (header.base !== state.targetSha) refuse("the base moved since the receipt");
+  const { uncovered, drift } = receiptDelta(options, state.paths, records);
+  for (const changed of new Set([...uncovered, ...drift.map((d) => d.path)])) {
+    if (!DOCS_RESIGN_PATH.test(changed) || changed.split("/").includes(".."))
+      refuse(`${changed} is not Markdown under specs/ or docs/`);
+    if (!existsSync(resolve(options.cwd, changed))) continue; // a deleted Markdown file
+    if (!lstatSync(resolve(options.cwd, changed)).isFile())
+      refuse(`${changed} is not a regular file`);
+  }
+  return { gate: header.gate!, inputs: header.inputs! };
+}
+
 /** Checks coverage and byte drift without mutating the signed receipt. */
 export function checkReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
@@ -428,17 +502,7 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
     if (header.feature !== options.feature) {
       throw new Error(`receipt belongs to feature "${header.feature}", not "${options.feature}"`);
     }
-    const uncovered = state.paths.filter((path) => !records.has(path));
-    const drift: ReceiptResult["drift"] = [];
-    for (const [path, blob] of records) {
-      validatePath(options.cwd, path);
-      const present = existsSync(resolve(options.cwd, path));
-      if (blob === "deleted") {
-        if (present) drift.push({ path, blob: null, kind: "reappeared" });
-      } else if (!present) drift.push({ path, blob, kind: "missing" });
-      else if (liveBlob(options.cwd, path, options) !== blob)
-        drift.push({ path, blob, kind: "changed" });
-    }
+    const { uncovered, drift } = receiptDelta(options, state.paths, records);
     const stale: StaleReason[] = [];
     if (header.version !== 2) {
       stale.push("format");

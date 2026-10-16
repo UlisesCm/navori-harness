@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="3dd80900" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="vitest" hash="3dd80900" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -69,3 +69,12 @@ describe('getUser', () => {
 - No sprawling snapshots; assertions target real values.
 - `bun run check:fast` green.
 <!-- /navori:managed id="vitest" -->
+
+## This repo's tests (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where tests live and the naming convention.
+     - Setup files and what they preload (providers, matchers, polyfills).
+     - What is mocked by convention (network, clock, storage) and what is never mocked.
+     - Coverage the repo requires and which areas are exempt.
+-->

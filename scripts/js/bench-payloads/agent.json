@@ -1,0 +1,14 @@
+{
+  "session_id": "bench-session",
+  "transcript_path": "__CWD__/transcript.jsonl",
+  "cwd": "__CWD__",
+  "hook_event_name": "__EVENT__",
+  "tool_name": "__TOOL__",
+  "tool_input": {
+    "subagent_type": "scout",
+    "description": "Locate the retry helper",
+    "prompt": "Find where the retry helper is defined and report file:line."
+  },
+  "tool_response": { "status": "completed", "content": [{ "type": "text", "text": "src/retry.ts:12" }] },
+  "tool_use_id": "toolu_bench_agent"
+}

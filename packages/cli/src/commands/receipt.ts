@@ -40,13 +40,14 @@ export function resolveReceiptOptions(args: {
     target: args.target ?? config.prTarget ?? config.branchBase,
     dir: root.dir,
     gate: config.qualityGate?.full ?? "",
+    docsGate: config.qualityGate?.docs,
     includeConsumed: args.includeConsumed,
   };
 }
 /** Scoped-sign flags: a spec milestone, or a workplan phase (spec 0045 D7). */
 type SignScope =
-  | { spec: string; milestone: string; gateRan: "scoped" | "full" }
-  | { spec?: undefined; phase?: string; gateRan: "scoped" | "full" };
+  | { spec: string; milestone: string; gateRan: "scoped" | "full" | "docs" }
+  | { spec?: undefined; phase?: string; gateRan: "scoped" | "full" | "docs" };
 
 /**
  * Validates the scoped `sign` flags: `--spec --milestone --gate-ran` (spec),
@@ -66,8 +67,8 @@ function signSpecFlags(
         ? "--gate-ran is required, and --spec and --milestone must be given together"
         : args.spec && args.phase
           ? "--phase applies to workplans, not to --spec"
-          : args.gateRan !== "scoped" && args.gateRan !== "full"
-            ? `--gate-ran must be "scoped" or "full", got "${args.gateRan}"`
+          : args.gateRan !== "scoped" && args.gateRan !== "full" && args.gateRan !== "docs"
+            ? `--gate-ran must be "scoped", "full" or "docs", got "${args.gateRan}"`
             : undefined;
   if (problem || !args.gateRan) {
     process.stderr.write(
@@ -76,7 +77,7 @@ function signSpecFlags(
     process.exitCode = 1;
     return "invalid";
   }
-  const gateRan = args.gateRan as "scoped" | "full";
+  const gateRan = args.gateRan as "scoped" | "full" | "docs";
   return args.spec && args.milestone
     ? { spec: args.spec, milestone: args.milestone, gateRan }
     : { phase: args.phase, gateRan };
@@ -236,7 +237,8 @@ export const receiptCommand = defineCommand({
         phase: { type: "string" as const, description: "Workplan phase (name or 1-based index)" },
         "gate-ran": {
           type: "string" as const,
-          description: "Gate the cycle ran: scoped or full",
+          description:
+            "Gate the cycle ran: scoped, full, or docs (Markdown under specs/ or docs/ over a current full receipt)",
         },
       },
       run: ({ args }) => executeReceipt("sign", { ...args, gateRan: args["gate-ran"] }),

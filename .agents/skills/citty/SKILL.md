@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="citty" hash="9270b534" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="citty" hash="9270b534" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Citty — command definitions
 
 ## When to use this skill

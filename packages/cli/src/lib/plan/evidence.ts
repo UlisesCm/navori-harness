@@ -13,17 +13,57 @@ import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 
 import { join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { createHash } from "node:crypto";
+import { IDENTITY_EXCLUDES } from "../primitives/content-identity.ts";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
 import type { RecordedEvidence } from "./schema.ts";
 
 /** Paths excluded from the tree fingerprint so the evidence log, state files
- * and sibling worktrees never change the hash they are recorded against. */
-const FINGERPRINT_EXCLUDES = [
+ * and sibling worktrees never change the hash they are recorded against.
+ * Derived from `IDENTITY_EXCLUDES` (spec 0054 R20): `progress/` is now part of
+ * it. The shell hook (`navori_tree_fingerprint`) must list the same paths. */
+const FINGERPRINT_EXCLUDES: readonly string[] = IDENTITY_EXCLUDES;
+
+/** Fingerprint version stamped as `fp: 2` on lines recorded with `FINGERPRINT_EXCLUDES`. */
+export const FINGERPRINT_VERSION = 2;
+
+/** Excludes of the fingerprint recorded before spec 0054 (no `progress/`). A line
+ * without `fp` is validated against this set so existing evidence never expires. */
+const LEGACY_FINGERPRINT_EXCLUDES: readonly string[] = [
   ".navori/state",
   ".claude/progress",
   ".codex/progress",
   ".claude/worktrees",
-] as const;
+];
+
+/**
+ * Commands that read nothing from Git history: only these keep valid evidence
+ * when `HEAD` moves but the tree fingerprint is unchanged (spec 0054 R19, D5).
+ * Matched on whole tokens after stripping `cd <relative-dir> &&` prefixes; any
+ * other chaining, redirection, substitution or quoting leaves the command bound
+ * to `HEAD` (`classify --diff`, `check:blame-ignore`, `receipt check` read it).
+ */
+export const PURE_EVIDENCE_RUNNERS: readonly (readonly string[])[] = [
+  ["bun", "run", "test"],
+  ["bun", "run", "test:golden"],
+  ["bun", "x", "vitest", "run"],
+];
+const PURE_ARG = /^[\w@.:/=,+%-]+$/;
+const PURE_CD_DIR = /^cd[ \t]+([^\s&;|<>$`"'\\*?[\]{}()~]+)$/;
+
+/** True when `command` is a pure runner of `PURE_EVIDENCE_RUNNERS` (tokenized, never substring). */
+export function isPureEvidenceRunner(command: string): boolean {
+  if (/[;|$`<>()\n\r\\'"]/.test(command) || command.replace(/&&/g, "").includes("&")) return false;
+  const segments = command.split("&&").map((s) => s.trim());
+  const runner = segments.pop() ?? "";
+  for (const segment of segments) {
+    const dir = PURE_CD_DIR.exec(segment)?.[1];
+    if (dir === undefined || dir.startsWith("/")) return false;
+    if (dir.split("/").some((part) => part === "" || part === "." || part === "..")) return false;
+  }
+  const tokens = runner.split(/\s+/);
+  if (!tokens.every((token) => PURE_ARG.test(token))) return false;
+  return PURE_EVIDENCE_RUNNERS.some((prefix) => prefix.every((word, i) => tokens[i] === word));
+}
 
 /** Producer-captured authority, qualified definition and exact lifecycle directory. */
 export const DeliveryEvidenceBindingSchema = z.strictObject({
@@ -55,6 +95,8 @@ const EvidenceLineSchema = z.object({
   cwd: z.string(),
   head: z.string(),
   worktreeTree: z.string(),
+  /** Fingerprint version (`2` = `FINGERPRINT_EXCLUDES`); absent on lines recorded before spec 0054. */
+  fp: z.literal(FINGERPRINT_VERSION).optional(),
   dirty: z.boolean(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
@@ -101,22 +143,27 @@ export type Fingerprint = { ok: true; tree: string } | { ok: false; reason: stri
 
 /**
  * Content hash of the whole working tree (uncommitted edits and new
- * non-ignored files included). Built WITHOUT `git add`, which would run
- * `clean`/`process` filters and fsmonitor from the repo's own config:
- * file list from `ls-files --cached --others --exclude-standard`, raw blobs
- * from `hash-object -w --no-filters`, assembled into a scratch index
- * (`read-tree --empty` + `update-index --index-info`) and `write-tree`d.
- * The real index, refs and working tree are never modified; only loose
- * objects (and one scratch index inside the git dir) are written. Symlinks
- * hash their target; gitlinks/directories are skipped. Same procedure the
- * recording hook must use (0038 D1 step 4).
+ * non-ignored files included), computed with a bounded number of git processes
+ * (spec 0054 R35): `rev-parse --show-object-format` plus one
+ * `ls-files --cached --others --exclude-standard`, whatever the file count.
+ * Blobs are hashed in process over the raw bytes (`blob <size>\0<bytes>`, the
+ * same as `hash-object --no-filters`) and the tree objects are assembled in
+ * memory, so no filter, fsmonitor or hook the repo configures can run and
+ * nothing is written to the object store or the index. Symlinks hash their
+ * target; gitlinks/directories are skipped. The result equals what the previous
+ * implementation (`hash-object` + scratch index + `write-tree`) produced, and
+ * what the recording hook still computes (0038 D1 step 4).
+ * `options.legacy` uses the pre-0054 excludes to validate old evidence lines;
+ * `options.readOnly` is kept for callers and is now always the behaviour.
  */
 export function fingerprintTree(
   tree: string,
   binding?: Pick<DeliveryEvidenceBinding, "stagePath">,
-  options: { readOnly?: boolean; deadline?: number } = {},
+  options: { readOnly?: boolean; deadline?: number; legacy?: boolean } = {},
 ): Fingerprint {
-  const excludes: string[] = [...FINGERPRINT_EXCLUDES];
+  const excludes: string[] = [
+    ...(options.legacy ? LEGACY_FINGERPRINT_EXCLUDES : FINGERPRINT_EXCLUDES),
+  ];
   if (binding) {
     const parsed = DeliveryEvidenceBindingSchema.shape.stagePath.safeParse(binding.stagePath);
     if (!parsed.success) return { ok: false, reason: "invalid delivery binding" };
@@ -131,100 +178,74 @@ export function fingerprintTree(
       excludes.push(`${binding.stagePath}/${name}`);
     }
   }
-  const run = (args: string[], input?: string): string | undefined =>
-    Date.now() >= (options.deadline ?? Infinity)
-      ? undefined
-      : git(tree, args, { input, deadline: options.deadline });
-  const scratch = run([
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-path",
-    "navori-fp-index",
-  ])?.trim();
-  if (!scratch) return { ok: false, reason: "not a readable git checkout" };
-  if (existsSync(`${scratch}.lock`)) {
-    return {
-      ok: false,
-      reason: `stale lock file ${scratch}.lock (remove it if no git process is running)`,
-    };
-  }
-  const listed = run([
-    "ls-files",
-    "-z",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-    "--deduplicate",
-    "--",
-    ".",
-    ...excludes.map((p) => `:(exclude,literal)${p}`),
-  ]);
+  const deadline = options.deadline ?? Infinity;
+  const format = git(tree, ["rev-parse", "--show-object-format"], {
+    deadline: options.deadline,
+  })?.trim();
+  if (format !== "sha1" && format !== "sha256")
+    return { ok: false, reason: "not a readable git checkout" };
+  const listed = git(
+    tree,
+    [
+      "ls-files",
+      "-z",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--deduplicate",
+      "--",
+      ".",
+      ...excludes.map((p) => `:(exclude,literal)${p}`),
+    ],
+    { deadline: options.deadline },
+  );
   if (listed === undefined) return { ok: false, reason: "git ls-files failed" };
-  const files: Array<{ path: string; mode: string }> = [];
-  const links: Array<{ path: string; target: string }> = [];
+  const blob = (bytes: Buffer | string): string =>
+    createHash(format)
+      .update(`blob ${Buffer.byteLength(bytes)}\0`)
+      .update(bytes)
+      .digest("hex");
+  const entries: TreeEntry[] = [];
   for (const path of listed.split("\0").filter(Boolean)) {
-    if (Date.now() >= (options.deadline ?? Infinity)) return { ok: false, reason: "timeout" };
+    if (Date.now() >= deadline) return { ok: false, reason: "timeout" };
     if (path.includes("\n")) return { ok: false, reason: "a tracked path contains a newline" };
+    const absolute = join(tree, path);
     let stat;
     try {
-      stat = lstatSync(join(tree, path));
+      stat = lstatSync(absolute);
     } catch {
       continue; // tracked but deleted from the working tree
     }
-    if (stat.isSymbolicLink()) links.push({ path, target: readlinkSync(join(tree, path)) });
-    else if (stat.isFile()) files.push({ path, mode: stat.mode & 0o111 ? "100755" : "100644" });
-  }
-  const entries: string[] = [];
-  if (files.length > 0) {
-    const shas = run(
-      ["hash-object", ...(options.readOnly ? [] : ["-w"]), "--no-filters", "--stdin-paths"],
-      `${files.map((f) => f.path).join("\n")}\n`,
-    )
-      ?.split("\n")
-      .filter(Boolean);
-    if (!shas || shas.length !== files.length) {
-      return { ok: false, reason: "git hash-object failed" };
+    try {
+      if (stat.isSymbolicLink()) {
+        entries.push({ mode: "120000", hash: blob(readlinkSync(absolute)), path });
+      } else if (stat.isFile()) {
+        const mode = stat.mode & 0o111 ? "100755" : "100644";
+        entries.push({ mode, hash: blob(readFileSync(absolute)), path });
+      }
+    } catch {
+      return { ok: false, reason: `cannot hash ${path}` };
     }
-    files.forEach((f, i) => entries.push(`${f.mode} ${shas[i]}\t${f.path}\0`));
   }
-  for (const link of links) {
-    const sha = run(
-      ["hash-object", ...(options.readOnly ? [] : ["-w"]), "--no-filters", "--stdin"],
-      link.target,
-    )?.trim();
-    if (!sha) return { ok: false, reason: "git hash-object failed" };
-    entries.push(`120000 ${sha}\t${link.path}\0`);
-  }
-  if (options.readOnly) return memoryTree(entries, tree, options.deadline);
-  const env = { ...process.env, GIT_INDEX_FILE: scratch };
-  if (git(tree, ["read-tree", "--empty"], { env }) === undefined) {
-    return { ok: false, reason: `cannot write ${scratch} (read-only git dir?)` };
-  }
-  if (
-    entries.length > 0 &&
-    git(tree, ["update-index", "--add", "-z", "--index-info"], { env, input: entries.join("") }) ===
-      undefined
-  ) {
-    return { ok: false, reason: `git update-index failed on ${scratch}` };
-  }
-  const written = git(tree, ["write-tree"], { env })?.trim();
-  return written ? { ok: true, tree: written } : { ok: false, reason: "git write-tree failed" };
+  return memoryTree(entries, format, deadline);
 }
 
-/** Builds Git tree object IDs in memory without objects or a scratch index. */
-function memoryTree(entries: string[], cwd: string, deadline: number = Infinity): Fingerprint {
-  const format = git(cwd, ["rev-parse", "--show-object-format"], {
-    deadline: Number.isFinite(deadline) ? deadline : undefined,
-  })?.trim();
-  if (format !== "sha1" && format !== "sha256")
-    return { ok: false, reason: "unknown object format" };
+interface TreeEntry {
+  mode: string;
+  hash: string;
+  path: string;
+}
+
+/** Builds the Git tree object id of `entries` in memory (no objects, no index). */
+function memoryTree(
+  entries: TreeEntry[],
+  format: "sha1" | "sha256",
+  deadline: number = Infinity,
+): Fingerprint {
   type Node = Map<string, { mode: string; hash: string } | Node>;
   const root: Node = new Map();
-  for (const entry of entries) {
+  for (const { mode, hash, path } of entries) {
     if (Date.now() >= deadline) return { ok: false, reason: "timeout" };
-    const [metadata, path] = entry.slice(0, -1).split("\t");
-    const [mode, hash] = (metadata ?? "").split(" ");
-    if (!path || !mode || !hash) return { ok: false, reason: "invalid tree entry" };
     const parts = path.split("/");
     let node = root;
     for (const part of parts.slice(0, -1)) {
@@ -365,8 +386,9 @@ function candidateProblem(
   line: EvidenceLine,
   accepted: readonly string[],
   command: string,
-  binding?: DeliveryEvidenceBinding,
-  current?: ValidateEvidenceInput["current"],
+  binding: DeliveryEvidenceBinding | undefined,
+  current: ValidateEvidenceInput["current"],
+  memo: Map<string, Fingerprint>,
 ): Problem | undefined {
   const tree = real(line.tree);
   if (tree === undefined) return { why: `tree ${line.tree} no longer exists`, tree: line.tree };
@@ -379,10 +401,23 @@ function candidateProblem(
   }
   const head = current?.cwd === tree ? current.head : readHead(tree);
   const headMoved = `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`;
-  if (head !== line.head && !binding) return { why: headMoved, tree };
+  // Spec 0054 R19: only a pure runner (reads no Git history) survives a moved HEAD.
+  const headBound = !binding && !isPureEvidenceRunner(command);
+  if (head !== line.head && headBound) return { why: headMoved, tree };
   if (!sameBinding(line.deliveryBinding, binding))
     return { why: "producer delivery authority or criterion definition changed", tree };
-  const fingerprint = current?.cwd === tree ? current.fingerprint : fingerprintTree(tree, binding);
+  // A line without `fp` was recorded with the pre-0054 excludes. Each version is
+  // computed at most once per tree per validation (R19, D5).
+  const legacy = line.fp === undefined;
+  const memoKey = `${tree}\0${legacy ? "legacy" : FINGERPRINT_VERSION}`;
+  let fingerprint = memo.get(memoKey);
+  if (!fingerprint) {
+    fingerprint =
+      !legacy && current?.cwd === tree
+        ? current.fingerprint
+        : fingerprintTree(tree, binding, { legacy });
+    memo.set(memoKey, fingerprint);
+  }
   if (!fingerprint.ok) {
     return { why: `cannot compute the tree fingerprint: ${fingerprint.reason}`, tree };
   }
@@ -410,7 +445,8 @@ function indexHasFeature(root: StateRoot, feature: string): boolean {
 /**
  * Finds the newest evidence line that still holds for `id`: same command as
  * the criterion today, run at the root of this feature's checkout/worktree,
- * on the same HEAD and the same content fingerprint. Never runs `command`.
+ * on the same content fingerprint (v2, or legacy for a line without `fp`) and,
+ * unless `command` is a pure runner, on the same HEAD. Never runs `command`.
  */
 export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict {
   const { root, feature, id, command } = input;
@@ -449,8 +485,16 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
     return { ok: false, why: "recorded for a different command", fix: rerun(treeRoot) };
   }
   let firstProblem: Problem | undefined;
+  const memo = new Map<string, Fingerprint>();
   for (const line of sameCommand) {
-    const problem = candidateProblem(line, accepted, command, input.deliveryBinding, input.current);
+    const problem = candidateProblem(
+      line,
+      accepted,
+      command,
+      input.deliveryBinding,
+      input.current,
+      memo,
+    );
     if (problem === undefined) {
       return {
         ok: true,

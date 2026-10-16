@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -6,6 +6,7 @@ import {
   rmSync,
   chmodSync,
   mkdirSync,
+  readdirSync,
   realpathSync,
   symlinkSync,
 } from "node:fs";
@@ -14,7 +15,12 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
-import { acrossShells } from "./helpers/shells.ts";
+import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
+import {
+  createHookBatch,
+  type HookBatch,
+  type HookCase,
+} from "../../__tests__/helpers/hook-batch.ts";
 
 /**
  * Behavioral tests for `implementer-no-markdown.sh` (spec 0030, #985 — R3/R4).
@@ -39,16 +45,58 @@ interface Payload {
   cwd?: string;
 }
 
-/** Install the rendered hook and run it under every available shell (#391). */
-function runHook(
-  payload: Payload,
-  nodePath = dirname(process.execPath),
-  includeParentPath = true,
-  engine: "claude" | "codex" = "claude",
-  prelude: string = "",
-): { status: number; stderr: string } {
+type Engine = "claude" | "codex";
+
+/** A primed table runs dozens of hook invocations in one process per shell. */
+const PRIME_TIMEOUT_MS = 120_000;
+const DEFAULT_NODE_PATH = dirname(process.execPath);
+const hookPathEnv = (nodePath: string, includeParentPath: boolean): string =>
+  `${nodePath}:/usr/bin:/bin${includeParentPath ? `:${process.env.PATH ?? ""}` : ""}`;
+
+/**
+ * Shared, EMPTY directory the primed tables run in (spec 0054 D4). Only tables
+ * whose verdict depends on the payload alone are primed; a test that writes
+ * fixtures into its own `dir` before calling `runHook` keeps a real spawn.
+ * The hook only ever inspects payload text, so the sentinel check below also
+ * proves nothing a payload mentions was executed.
+ */
+const batchDir = mkdtempSync(join(tmpdir(), "navori-no-md-batch-"));
+const batchHooks = new Map<Engine, { path: string; batch: HookBatch }>();
+
+function batchHookFor(engine: Engine): { path: string; batch: HookBatch } {
+  let entry = batchHooks.get(engine);
+  if (entry === undefined) {
+    const path = installHook(batchDir, engine, "");
+    entry = { path, batch: createHookBatch(path) };
+    batchHooks.set(engine, entry);
+  }
+  return entry;
+}
+
+function batchCase(payload: Payload, nodePath: string, includeParentPath: boolean): HookCase {
+  return {
+    input: JSON.stringify(payload),
+    cwd: batchDir,
+    env: { PATH: hookPathEnv(nodePath, includeParentPath) },
+  };
+}
+
+/** Runs payload-only cases in one process per shell; later `runHook` calls read them back. */
+function primeHook(payloads: readonly Payload[], engine: Engine = "claude"): void {
+  const { batch } = batchHookFor(engine);
+  batch.prime(
+    HOOK_SHELLS,
+    payloads.map((p) => batchCase(p, DEFAULT_NODE_PATH, true)),
+  );
+  const stray = readdirSync(batchDir).filter((f) => f !== SCRIPT && f !== ".codex");
+  expect(stray, "a primed payload must never be executed (stray files in the batch dir)").toEqual(
+    [],
+  );
+}
+
+function installHook(root: string, engine: Engine, prelude: string): string {
   const raw = expandHookIncludes(readFileSync(join(HOOKS_DIR, SCRIPT), "utf-8"));
-  const path = engine === "codex" ? join(dir, ".codex", "hooks", SCRIPT) : join(dir, SCRIPT);
+  const path = engine === "codex" ? join(root, ".codex", "hooks", SCRIPT) : join(root, SCRIPT);
   mkdirSync(dirname(path), { recursive: true });
   const firstNewline = raw.indexOf("\n") + 1;
   writeFileSync(
@@ -56,6 +104,28 @@ function runHook(
     prelude ? `${raw.slice(0, firstNewline)}${prelude}\n${raw.slice(firstNewline)}` : raw,
   );
   chmodSync(path, 0o755);
+  return path;
+}
+
+/** Install the rendered hook and run it under every available shell (#391). */
+function runHook(
+  payload: Payload,
+  nodePath = DEFAULT_NODE_PATH,
+  includeParentPath = true,
+  engine: Engine = "claude",
+  prelude: string = "",
+): { status: number; stderr: string } {
+  if (prelude === "" && batchHooks.has(engine)) {
+    const { batch } = batchHooks.get(engine) as { batch: HookBatch };
+    const c = batchCase(payload, nodePath, includeParentPath);
+    if (batch.cached(HOOK_SHELLS[0], c) !== undefined) {
+      return acrossShells((shell) => {
+        const r = batch.cached(shell, c) as NonNullable<ReturnType<HookBatch["cached"]>>;
+        return { status: r.status, stderr: r.stderr };
+      });
+    }
+  }
+  const path = installHook(dir, engine, prelude);
   return acrossShells((shell) => {
     const r = spawnSync(shell, [path], {
       cwd: dir,
@@ -63,7 +133,7 @@ function runHook(
       encoding: "utf-8",
       env: {
         ...process.env,
-        PATH: `${nodePath}:/usr/bin:/bin${includeParentPath ? `:${process.env.PATH ?? ""}` : ""}`,
+        PATH: hookPathEnv(nodePath, includeParentPath),
       },
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
@@ -118,7 +188,7 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
   // #1330: destination-based rule; no Markdown write. These programs only write
   // a literal non-Markdown path, so deviations from the old template shape are fine.
   // Covers: #1330
-  it.each([
+  const TABLE_121 = [
     {
       name: "extra call",
       source: PATH_SOURCE.replace("text = text.replace", 'print("hostile")\ntext = text.replace'),
@@ -133,12 +203,17 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
     },
     { name: "nonUTF8 read", source: PATH_SOURCE.replace('encoding="utf-8"', 'encoding="latin1"') },
     { name: "additional write", source: PATH_SOURCE + '\np.write_text(text, encoding="utf-8")' },
-  ])("allows $name (#1330)", ({ source }: { name: string; source: string }) => {
+  ];
+  beforeAll(
+    () => primeHook(TABLE_121.map(({ source }) => bash(pathCommand(source)))),
+    PRIME_TIMEOUT_MS,
+  );
+  it.each(TABLE_121)("allows $name (#1330)", ({ source }: { name: string; source: string }) => {
     expect(runHook(bash(pathCommand(source))).status).toBe(0);
   });
 
   // Covers: R3, R4
-  it.each([
+  const TABLE_141 = [
     { name: "Markdown destination", source: PATH_SOURCE.replace('"fixture.ts"', '"notes.md"') },
     { name: "mixed case mdx", source: PATH_SOURCE.replace('"fixture.ts"', '"NOTES.MdX"') },
     {
@@ -206,7 +281,12 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
       source: PATH_SOURCE.replace('"fixture.ts"', "[".repeat(17) + '"fixture.ts"' + "]".repeat(17)),
     },
     { name: "malformed Python", source: PATH_SOURCE + "\ninvalid Python(" },
-  ])("retains denial for $name", ({ source }: { name: string; source: string }) => {
+  ];
+  beforeAll(
+    () => primeHook(TABLE_141.map(({ source }) => bash(pathCommand(source)))),
+    PRIME_TIMEOUT_MS,
+  );
+  it.each(TABLE_141)("retains denial for $name", ({ source }: { name: string; source: string }) => {
     const result = runHook(bash(pathCommand(source)));
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("markdownRequests");
@@ -214,7 +294,7 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
   });
 
   // Covers: R3, R4
-  it.each([
+  const TABLE_217 = [
     { name: "prefix", command: `echo prefix; ${pathCommand()}` },
     { name: "newline suffix", command: `${pathCommand()}\necho suffix` },
     { name: "shell chain", command: `${pathCommand()} && echo suffix` },
@@ -224,9 +304,14 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
       name: "shell expansion",
       command: `python3 -c "${PATH_SOURCE.replaceAll('"', "'")}; text = '$HOME'"`,
     },
-  ])("retains denial for $name", ({ command }: { name: string; command: string }) => {
-    expect(runHook(bash(command)).status).toBe(2);
-  });
+  ];
+  beforeAll(() => primeHook(TABLE_217.map(({ command }) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_217)(
+    "retains denial for $name",
+    ({ command }: { name: string; command: string }) => {
+      expect(runHook(bash(command)).status).toBe(2);
+    },
+  );
 
   // Covers: R3, R4
   it("fails closed for malformed, failed and unavailable analyzer outcomes", () => {
@@ -289,7 +374,7 @@ describe("implementer-no-markdown hook — allow (#985 R3, R4)", () => {
 
 // Regression: #1129. Interpreter command strings are inspected, never executed.
 describe("implementer-no-markdown hook — interpreter writes", () => {
-  it.each([
+  const TABLE_292 = [
     "python3 - <<'EOF'\np = 'notes.md'\nopen(p, 'w').write('x')\nEOF",
     `python -c "open('notes.md', 'a').write('x')"`,
     `python3 -c "from pathlib import Path; Path('NOTES.MDX').write_text('x')"`,
@@ -301,13 +386,15 @@ describe("implementer-no-markdown hook — interpreter writes", () => {
     `deno eval "Deno.writeTextFileSync('notes.md', 'x')"`,
     `bun -e "Bun.write('notes.md', 'x')"`,
     `/usr/bin/python3 -c "open('notes.md', mode='w').write('x')"`,
-  ])("blocks an interpreter write: %s", (command: string): void => {
+  ];
+  beforeAll(() => primeHook(TABLE_292.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_292)("blocks an interpreter write: %s", (command: string): void => {
     const result = runHook(bash(command));
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("markdownRequests");
   });
 
-  it.each([
+  const TABLE_310 = [
     `python3 -c "print(open('notes.md').read())"`,
     `python3 -c "print(open('notes.md', 'r').read())"`,
     `python3 -c "from pathlib import Path; print(Path('notes.md').read_text())"`,
@@ -318,7 +405,9 @@ describe("implementer-no-markdown hook — interpreter writes", () => {
     `bun -e "console.log(await Bun.file('notes.md').text())"`,
     `python3 -c "open('notes.ts', 'w').write('x')"`,
     `node -e "require('fs').writeFileSync('notes.ts', 'x')"`,
-  ])("allows a read or non-Markdown write: %s", (command: string): void => {
+  ];
+  beforeAll(() => primeHook(TABLE_310.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_310)("allows a read or non-Markdown write: %s", (command: string): void => {
     expect(runHook(bash(command)).status).toBe(0);
   });
 
@@ -372,7 +461,7 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
 
   // #1330: destination-based rule; no Markdown write.
   // Covers: #1330
-  it.each([
+  const TABLE_375 = [
     PYTHON_PROGRAM.replace(
       "print('handoff written')",
       "(root / 'other.json').write_text('{}')\nprint('handoff written')",
@@ -381,20 +470,38 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
     PYTHON_PROGRAM.replace("str(root)", "str(root, 'utf8')"),
     PYTHON_PROGRAM.replace("'docs/task.md'", "[x for x in ['docs/task.md']]"),
     PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'status', '--short']"),
-  ])("allows a destination-safe variant %#", (command: string): void => {
+  ];
+  beforeAll(
+    () =>
+      primeHook(
+        TABLE_375.map((command) => bash(command)),
+        engine,
+      ),
+    PRIME_TIMEOUT_MS,
+  );
+  it.each(TABLE_375)("allows a destination-safe variant %#", (command: string): void => {
     expect(runHook(bash(command), undefined, true, engine).status).toBe(0);
   });
 
   // Covers: #1330
-  it.each([
+  const TABLE_389 = [
     PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'checkout', 'HEAD']"),
     PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'diff', '--output=x.json']"),
     PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['rm', '-rf', 'x']"),
-  ])("denies subprocess outside read-only git %#", (command: string): void => {
+  ];
+  beforeAll(
+    () =>
+      primeHook(
+        TABLE_389.map((command) => bash(command)),
+        engine,
+      ),
+    PRIME_TIMEOUT_MS,
+  );
+  it.each(TABLE_389)("denies subprocess outside read-only git %#", (command: string): void => {
     expect(runHook(bash(command), undefined, true, engine).status).toBe(2);
   });
 
-  it.each([
+  const TABLE_397 = [
     PYTHON_PROGRAM.replace("'impl.json'", "'notes.md'"),
     PYTHON_PROGRAM.replace("'impl.json'", "'NOTES.MDX'"),
     PYTHON_PROGRAM.replace("'impl.json'", "'notes\\u002emd'"),
@@ -434,7 +541,16 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
     ),
     PYTHON_PROGRAM.replace("'docs/task.md'", `[${"0,".repeat(4100)}'docs/task.md']`),
     PYTHON_PROGRAM.replace("'docs/task.md'", `${"[".repeat(17)}'docs/task.md'${"]".repeat(17)}`),
-  ])("denies unsupported complete programs: %s", (command: string): void => {
+  ];
+  beforeAll(
+    () =>
+      primeHook(
+        TABLE_397.map((command) => bash(command)),
+        engine,
+      ),
+    PRIME_TIMEOUT_MS,
+  );
+  it.each(TABLE_397)("denies unsupported complete programs: %s", (command: string): void => {
     const result = runHook(bash(command), undefined, true, engine);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("markdownRequests");
@@ -459,7 +575,7 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
 });
 
 describe("implementer-no-markdown hook — bounded JSON metadata exception", () => {
-  it.each([
+  const TABLE_462 = [
     INCIDENT_PROGRAM,
     METADATA_PROGRAM,
     METADATA_PROGRAM.replaceAll("const fs", "const io")
@@ -470,15 +586,20 @@ describe("implementer-no-markdown hook — bounded JSON metadata exception", () 
       .replaceAll("x.", "record.")
       .replaceAll("(x,", "(record,")
       .replace("state/impl.json", "other/record.JSON"),
-  ])("recognizes a complete JSON-only program as inert payload data", (command: string): void => {
-    const marker = join(dir, "should-not-exist");
-    const result = runHook(bash(command));
-    expect(result.status).toBe(0);
-    expect(() => readFileSync(marker)).toThrow();
-    expect(() => readFileSync(join(dir, "state/impl.json"))).toThrow();
-  });
+  ];
+  beforeAll(() => primeHook(TABLE_462.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_462)(
+    "recognizes a complete JSON-only program as inert payload data",
+    (command: string): void => {
+      const marker = join(dir, "should-not-exist");
+      const result = runHook(bash(command));
+      expect(result.status).toBe(0);
+      expect(() => readFileSync(marker)).toThrow();
+      expect(() => readFileSync(join(dir, "state/impl.json"))).toThrow();
+    },
+  );
 
-  it.each([
+  const TABLE_481 = [
     METADATA_PROGRAM.replace('"state/impl.json"', '"notes.md"'),
     METADATA_PROGRAM.replace('"state/impl.json"', '"notes\\u002emd"'),
     METADATA_PROGRAM.replace('"state/impl.json"', '"NOTES.MDX"'),
@@ -538,7 +659,9 @@ describe("implementer-no-markdown hook — bounded JSON metadata exception", () 
     METADATA_PROGRAM.replace('"Markdown metadata only"', `[${"0,".repeat(2100)}"notes.md"]`),
     `node -e 'const fs=require("node:fs");const p="state/impl.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));x.data=${"[".repeat(17)}"notes.md"${"]".repeat(17)};fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`,
     `node -e 'const fs=require("node:fs");const p="state/impl.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));x.${"part.".repeat(8)}leaf="notes.md";fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`,
-  ])("denies unsupported or hostile mixed program %s", (command: string): void => {
+  ];
+  beforeAll(() => primeHook(TABLE_481.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_481)("denies unsupported or hostile mixed program %s", (command: string): void => {
     const result = runHook(bash(command));
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("markdownRequests");
@@ -961,7 +1084,7 @@ describe("implementer-no-markdown hook — destination-based interpreter rule (#
   const risky = (source: string): string =>
     heredoc(`NOTE = "docs/a.md"\nopen("keep.json", "w")\n${source}`);
 
-  it.each([
+  const TABLE_964 = [
     heredoc(
       `import json\nfrom pathlib import Path\nd = ${DATA}\nPath(".navori/state/handoffs/impl_x.json").write_text(json.dumps(d))`,
     ),
@@ -970,12 +1093,17 @@ describe("implementer-no-markdown hook — destination-based interpreter rule (#
     heredoc(`import json\nd = ${DATA}\nwith open("x.json", "w") as f:\n    json.dump(d, f)`),
     `node -e 'require("fs").writeFileSync("out/impl_x.json", JSON.stringify({f:["docs/a.md"]}))'`,
     `node -e 'const d={f:["docs/a.md"]};const p="x.json";require("node:fs").writeFileSync(p, JSON.stringify(d, null, 2) + "\\n");'`,
-  ])("allows a JSON write whose data mentions Markdown: %#", (command: string): void => {
-    expect(runHook(bash(command)).status).toBe(0);
-  });
+  ];
+  beforeAll(() => primeHook(TABLE_964.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_964)(
+    "allows a JSON write whose data mentions Markdown: %#",
+    (command: string): void => {
+      expect(runHook(bash(command)).status).toBe(0);
+    },
+  );
 
   // Covers: #1330
-  it.each([
+  const TABLE_978 = [
     heredoc(`import shutil\nshutil.copy("x.json", "y.md")`),
     heredoc(`import shutil\nshutil.move("x.json", "y.md")`),
     heredoc(`import os\nos.rename("x.json", "y.md")`),
@@ -984,13 +1112,18 @@ describe("implementer-no-markdown hook — destination-based interpreter rule (#
     heredoc(`from pathlib import Path\nPath("x.json").replace("y.md")`),
     `node -e 'require("fs").copyFileSync("x.json", "y.md")'`,
     `node -e 'require("fs").renameSync("x.json", "y.md")'`,
-  ])("denies copy/move onto Markdown without a write clue: %#", (command: string): void => {
-    const result = runHook(bash(command));
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain("markdownRequests");
-  });
+  ];
+  beforeAll(() => primeHook(TABLE_978.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_978)(
+    "denies copy/move onto Markdown without a write clue: %#",
+    (command: string): void => {
+      const result = runHook(bash(command));
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("markdownRequests");
+    },
+  );
 
-  it.each([
+  const TABLE_993 = [
     risky(`open("notes.md", "w").write("x")`),
     risky(`from pathlib import Path\nPath("a.md").write_text("x")`),
     risky(`open(sys.argv[1], "w").write("x")`),
@@ -1018,7 +1151,9 @@ describe("implementer-no-markdown hook — destination-based interpreter rule (#
     `node -e 'const p="notes.md";require("fs").writeFileSync(p, JSON.stringify({}))'`,
     `node -e 'require("fs").writeFileSync("x.json", JSON.stringify({}));require("fs").writeFileSync("n.md", "x")'`,
     `node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({f:["a.md"]}))'`,
-  ])(
+  ];
+  beforeAll(() => primeHook(TABLE_993.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  it.each(TABLE_993)(
     "denies a program that can write Markdown or is not analyzable: %#",
     (command: string): void => {
       const result = runHook(bash(command));
@@ -1026,4 +1161,37 @@ describe("implementer-no-markdown hook — destination-based interpreter rule (#
       expect(result.stderr).toContain("markdownRequests");
     },
   );
+});
+
+// Mutation smoke (spec 0054 D4): a batch that cannot see a verdict change would
+// pass vacuously, so invert every block exit in a temp copy and require the
+// batched verdict to follow.
+// Covers: R3, R4
+describe("implementer-no-markdown hook — batch harness smoke", () => {
+  it("a hook with its block exit inverted flips the batched verdict", () => {
+    const root = mkdtempSync(join(tmpdir(), "navori-no-md-mut-"));
+    const original = installHook(root, "claude", "");
+    const mutated = join(root, "mutated.sh");
+    writeFileSync(mutated, readFileSync(original, "utf-8").replace(/exit 2/g, "exit 0"));
+    chmodSync(mutated, 0o755);
+    const blocked: Payload = {
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "notes.md", content: "x" },
+      agent_type: "implementer",
+    };
+    const c = { ...batchCase(blocked, DEFAULT_NODE_PATH, true), cwd: root };
+    try {
+      for (const shell of HOOK_SHELLS) {
+        const real = createHookBatch(original);
+        const flipped = createHookBatch(mutated);
+        real.prime([shell], [c]);
+        flipped.prime([shell], [c]);
+        expect(real.run(shell, c).status).toBe(2);
+        expect(flipped.run(shell, c).status).toBe(0);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
