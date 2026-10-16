@@ -729,7 +729,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 | 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
-| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh verification evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
+| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
 | 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
 
@@ -1721,7 +1721,7 @@ developer_instructions = "# Auditor Agent\n\nYou are a senior auditor. Your job 
 # navori:managed start id="implementer-codex-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 name = "implementer"
 description = "Implements ONE scoped task with its tests, respects AGENTS.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
-developer_instructions = "# Implementer Agent\n\nYou execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.\n\n## Protocol\n\n1. **Ground yourself in** `AGENTS.md` — it is already in your context when your host injects it; identify the repo's conventions and the \"Project rules\" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.navori/state/handoffs/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.\n2. **Note** in `.navori/state/handoffs/impl_<feature>.md` (your working file; on close it becomes the report):\n   - `Task: <brief description>`\n   - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).\n   - `Plan:` — atomic tasks with checkboxes, one 2–5 min action each. Mark `[x]` as you go so your `impl_<feature>.md` reflects real progress. Example:\n\n     ```\n     - [ ] Define interface in <path>\n     - [ ] Implement logic in <path>\n     - [ ] Cover with a test\n     - [ ] Run `navori gate fast`\n     ```\n\n   - `Expected files: <list>`\n3. **Implement** following the repo's flow (the orchestrator's \"Project rules\" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.agents/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.\n4. **Quality gate** (mandatory before returning):\n\n   ```bash\n   navori gate fast\n   ```\n\n   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `pnpm lint`. Open the log only on a red. Its green feeds the pre-commit probe, so don't rerun it by hand.\n\n   If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.agents/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (no shell `&`, no background execution). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.agents/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.\n5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).\n6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.\n\n7. **Native producer attestation:** after the final structured handoff is written, run `bun packages/cli/src/index.ts handoff attest <feature> --target main --json` from the actual target checkout. This records the designated producer through the supported native runtime. If the native role or ownership is missing, leave it pending and report the blocker; never accept caller-supplied actor IDs or claim forensic authorship of every write.\n\n\n## Hard rules (generic, always apply)\n\n- **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.\n- **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.\n- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.\n- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.md`.\n- **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.\n- **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).\n- **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).\n- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.\n- **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.\n- **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.\n- **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.\n- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.\n- **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.\n- If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.\n- Iterate with area tests only (filter by runner path). Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.\n- Keep intermediate runs quiet; use verbose output only to diagnose a concrete failure. Record this turn's gate command, exit code, and summary before reporting green.\n\n## Restraint (YAGNI)\n\nBefore writing code, walk the ladder and stop at the first rung that holds:\n\n1. **Does it need to exist?** Speculative need → omit it and say so in one line.\n2. **Does the language's stdlib cover it?** Use it.\n3. **Is there a native platform feature?** (CSS over JS, `<input type=\"date\">` over a lib, a DB constraint over app code).\n4. **Does an already-installed dependency solve it?** Use it; don't add a new one for what a few lines do.\n5. **Does it fit in one line?** One line.\n6. **Only then:** the minimal code that works.\n\nNo speculative abstractions: no interface / layer / flag with a single \"just in case\" caller. The shortest diff wins; delete before adding. Mark each deliberate shortcut with a comment naming its **ceiling** and its **upgrade trigger** — e.g. `// TODO(perf): global lock; shard by account if it exceeds ~100 rps`. A shortcut without a trigger is silent debt; the `reviewer` flags it.\n\n**YAGNI ≠ incomplete or lower-quality code.** It applies to *speculative scope* (building for a hypothetical future), NOT to the *completeness of the current requirement*: the edge cases, error states, and validations of what you ARE building are part of the work, not \"extra code\". The ladder picks the simplest solution that **covers the case**, never the one that covers fewer cases. **Never** simplify away (always ships): input validation at trust boundaries, error handling that avoids data loss, security, accessibility, or anything explicitly requested. Non-trivial logic leaves at least ONE executable check.\n\n**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply (\"I did X; it covers Y. Do you need Z? say so\") instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.\n\n## Evidence-based completion (gate before the report)\n\nBefore returning `done -> .navori/state/handoffs/impl_<feature>.md`, apply `.agents/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:\n\n| Claim you're going to make | Required output | Not sufficient |\n|---|---|---|\n| `pnpm lint` green | Full command run **this turn** with exit 0 | \"ran it before\", \"should be green\" |\n| UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | \"looks fine in the code\" |\n| Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | \"code changed, assumed fixed\" |\n| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `main` | \"lint said OK\" with no baseline |\n\nIf any claim can't be backed with evidence you ran this turn, declare it EXPLICITLY in the report. Never infer success.\n\n## Closing report\n\nWrite `.navori/state/handoffs/impl_<feature>.md`:\n\n```markdown\n# Implementation — <task>\n\n**Status:** DONE | BLOCKED\n**Files touched:**\n- <path>\n\n**Quality gate:** ✅ pnpm lint green | ❌ <reason>\n**UI (browser) validated:** n/a — not requested | yes (on user request) | no (requested, couldn't — reason)\n\n## Non-obvious decisions\n- ...\n\n## Suggested commit\n`<configured commit style>` (atomic, language/style per `conventional-es`)\n```\n\n## Communication with the orchestrator\n\nYour chat reply is **a single line**:\n\n```\ndone -> .navori/state/handoffs/impl_<feature>.md\n```\n\nor\n\n```\nblocked -> .navori/state/handoffs/impl_<feature>.md\n```\n\n(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)\n\n`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.\n\nNever return the diff in chat. The orchestrator reads it from disk if it needs it.\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
+developer_instructions = "# Implementer Agent\n\nYou execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.\n\n## Protocol\n\n1. **Ground yourself in** `AGENTS.md` — it is already in your context when your host injects it; identify the repo's conventions and the \"Project rules\" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it. Then read whatever prior artifact your scope names — `.navori/state/handoffs/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.\n2. **Note** in `.navori/state/handoffs/impl_<feature>.md` (your working file; on close it becomes the report):\n   - `Task: <brief description>`\n   - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).\n   - `Plan:` — atomic tasks with checkboxes, one 2–5 min action each. Mark `[x]` as you go so your `impl_<feature>.md` reflects real progress. Example:\n\n     ```\n     - [ ] Define interface in <path>\n     - [ ] Implement logic in <path>\n     - [ ] Cover with a test\n     - [ ] Run `navori gate fast`\n     ```\n\n   - `Expected files: <list>`\n3. **Implement** following the repo's flow (the orchestrator's \"Project rules\" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.agents/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span.\n\n4. **Quality gate** (mandatory before returning):\n\n   ```bash\n   navori gate fast\n   ```\n\n   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `pnpm lint`. Open the log only on a red. Its green feeds the pre-commit probe, so don't rerun it by hand.\n\n   If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.agents/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (no shell `&`, no background execution). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.agents/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.\n5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up.\n6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.\n\n7. **Native producer attestation:** after the final structured handoff is written, run `bun packages/cli/src/index.ts handoff attest <feature> --target main --json` from the actual target checkout. This records the designated producer through the supported native runtime. If the native role or ownership is missing, leave it pending and report the blocker; never accept caller-supplied actor IDs or claim forensic authorship of every write.\n\n\n## Hard rules (generic, always apply)\n\n- **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.\n- **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.\n- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus uncommitted changes) — every file outside the encargo's scope is either justified in the report or reverted before you close.\n- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.md`.\n- **Strong typing, `any` forbidden in new code.** Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.\n- **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).\n- **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).\n- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.\n- **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.\n- **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.\n- **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.\n- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.\n- **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.\n- If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.\n- Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.\n- Keep intermediate runs quiet; use verbose output only to diagnose a concrete failure. Record this turn's gate command, exit code, and summary before reporting green.\n\n## Restraint (YAGNI)\n\nBefore writing code, walk the ladder and stop at the first rung that holds:\n\n1. **Does it need to exist?** Speculative need → omit it and say so in one line.\n2. **Does the language's stdlib cover it?** Use it.\n3. **Is there a native platform feature?** (CSS over JS, `<input type=\"date\">` over a lib, a DB constraint over app code).\n4. **Does an already-installed dependency solve it?** Use it; don't add a new one for what a few lines do.\n5. **Does it fit in one line?** One line.\n6. **Only then:** the minimal code that works.\n\nNo speculative abstractions: no interface / layer / flag with a single \"just in case\" caller. The shortest diff wins; delete before adding. Mark each deliberate shortcut with a comment naming its **ceiling** and its **upgrade trigger** — e.g. `// TODO(perf): global lock; shard by account if it exceeds ~100 rps`. A shortcut without a trigger is silent debt; the `reviewer` flags it.\n\n**YAGNI ≠ incomplete or lower-quality code.** It applies to *speculative scope* (building for a hypothetical future), NOT to the *completeness of the current requirement*: the edge cases, error states, and validations of what you ARE building are part of the work, not \"extra code\". The ladder picks the simplest solution that **covers the case**, never the one that covers fewer cases. **Never** simplify away (always ships): input validation at trust boundaries, error handling that avoids data loss, security, accessibility, or anything explicitly requested. Non-trivial logic leaves at least ONE executable check.\n\n**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.\n\n## Evidence-based completion (gate before the report)\n\nBefore returning `done -> .navori/state/handoffs/impl_<feature>.md`, apply `.agents/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:\n\n| Claim you're going to make | Required output | Not sufficient |\n|---|---|---|\n| `pnpm lint` green | Full command run **this turn** with exit 0 | \"ran it before\", \"should be green\" |\n| UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | \"looks fine in the code\" |\n| Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | \"code changed, assumed fixed\" |\n| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `main` | \"lint said OK\" with no baseline |\n\nIf any claim can't be backed with evidence you ran this turn, declare it EXPLICITLY in the report. Never infer success.\n\n## Closing report\n\nWrite `.navori/state/handoffs/impl_<feature>.md`:\n\n```markdown\n# Implementation — <task>\n\n**Status:** DONE | BLOCKED\n**Files touched:**\n- <path>\n\n**Quality gate:** ✅ pnpm lint green | ❌ <reason>\n**UI (browser) validated:** n/a — not requested | yes (on user request) | no (requested, couldn't — reason)\n\n## Non-obvious decisions\n- ...\n\n## Suggested commit\n`<configured commit style>` (atomic, language/style per `conventional-es`)\n```\n\n## Communication with the orchestrator\n\nYour chat reply is **a single line**:\n\n```\ndone -> .navori/state/handoffs/impl_<feature>.md\n```\n\nor\n\n```\nblocked -> .navori/state/handoffs/impl_<feature>.md\n```\n\n(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)\n\n`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.\n\nNever return the diff in chat. The orchestrator reads it from disk if it needs it.\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
 # navori:managed end id="implementer-codex-base"
 
 
@@ -5493,6 +5493,792 @@ navori_inert_segments
 # can't trip it.
 segments_unquoted=$(printf '%s' "$segments" | sed -E -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g")
 
+# Worktree resolver and session-state ratchet (#1266), shared with
+# `quality-gate-pre-commit`. Both only define functions; nothing runs until the
+# commit lane below calls them.
+# The landing classifier (`navori_commit_landing`, below) counts commits with the shared trigger
+# detector. The guard gates commits only here, whatever the engine.
+TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+TRIGGER_TOKENS='commit'
+# Heredoc bodies fed to `cat` are data, not commands (#1095).
+TRIGGER_STRIP_HEREDOC_BODIES=1
+# Shared gate detector — inlined into each hook at render time (see the include
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
+# $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
+# gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
+# copy this body into a hook by hand.
+#
+# Detect whether $1 (a possibly-compound command) invokes a gated operation.
+# Splits $1 on the shell separators && || ; | and newlines, strips leading
+# whitespace plus wrapper words (`(`, `\`, `command `) and `VAR=value` env
+# prefixes from each segment, and returns 0 if ANY segment STARTS with a gated
+# `git …` invocation on a word boundary (matched by $TRIGGER_RE). Replaces
+# literal-prefix `case` matching, which silently skipped the gate for
+# `cd x && git commit`, `echo y; git push`, or a leading space (#88: NEVER skip
+# the gate silently). Matching a segment START means a quoted `echo "git commit"`
+# does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
+# or obfuscation — a seatbelt, not a sandbox.
+#
+# Heredoc bodies (#1095): when the caller sets TRIGGER_STRIP_HEREDOC_BODIES=1,
+# the body of a `cat <<TAG … TAG` heredoc is DATA, not commands, so a
+# `git commit` line inside e.g. a `gh issue create --body "$(cat <<'EOF' …`
+# no longer counts. It is an ALLOW-list on purpose: only a `cat` heredoc (bare,
+# or inside `$(…)` of gh/git/echo/printf) with nothing chained after it is
+# stripped; anything else — `bash <<EOF`, `while read c; do $c; done <<EOF`,
+# `cat <<EOF | sh`, `python - <<EOF` — keeps its body, because a shell or
+# interpreter may execute it. Opt-in because master-accept-confirm matches
+# unanchored and must keep seeing bodies fed to a non-shell interpreter.
+# The fast path on its own, so a caller can apply it EARLIER than the segment
+# scan — before it has even paid to extract the command from the payload.
+#
+# Returns 0 when $1 may contain a gated operation, 1 when it provably cannot.
+# The argument is the one the block below spells out: no $TRIGGER_RE can match
+# without one of the caller's literal TOKENS appearing in the segment it
+# matches, and every segment is a substring of the input. So the absence of
+# every token is proof that no segment can match — and the same proof holds one
+# level up, over the raw PAYLOAD the command was extracted from: JSON escaping
+# touches `"`, `\` and control characters, never the letters of a token.
+#
+# Disarms when $TRIGGER_TOKENS is unset: with no tokens declared there is
+# nothing to prove absent, so it answers "maybe" and the caller does the work.
+# Fail-open to the SLOW path, never to a skip.
+has_trigger_token() {
+  [ -n "${TRIGGER_TOKENS:-}" ] || return 0
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite.
+  local _input="$1" _tok _nl=$'\n'
+  local _toks="${TRIGGER_TOKENS// /$_nl}"
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    case "$_input" in *"$_tok"*) return 0 ;; esac
+  done <<< "$_toks"
+  return 1
+}
+
+# Words that let a later part of a command re-enter git, the cwd or a shell.
+# Text is reduced to alphanumeric words first, so `/usr/bin/git` and `(cd` match.
+navori_mentions_shellish() {
+  local t=" ${1//[!A-Za-z0-9_]/ } "
+  case "$t" in
+    *" git "*|*" cd "*|*" pushd "*|*" popd "*|*" sh "*|*" bash "*|*" zsh "*|*" dash "*|*" ksh "*) return 0 ;;
+    *" env "*|*" eval "*|*" exec "*|*" command "*|*" builtin "*|*" source "*|*" xargs "*) return 0 ;;
+  esac
+  return 1
+}
+
+# Sets `navori_heredoc_stripped` to $1 minus the bodies (and terminators) of
+# heredocs this hook may safely treat as data; the introducing line is KEPT, so
+# `git commit -F - <<'EOF'` still triggers. Any doubt (second heredoc on the
+# line, unterminated body, empty tag) leaves the text untouched: fail closed.
+# All locals are declared once at the top: zsh prints a re-declared `local`.
+navori_strip_heredoc_bodies() {
+  local input="$1" line before rest seg pre pfirst tag after cmp="" out="" r=""
+  local dash=0 inbody=0 tab=$'\t' nl=$'\n'
+  navori_heredoc_stripped="$input"
+  case "$input" in *'<<'*) ;; *) return 0 ;; esac
+  while IFS= read -r line; do
+    if [ "$inbody" = 1 ]; then
+      cmp="$line"
+      if [ "$dash" = 1 ]; then cmp="${cmp#"${cmp%%[!$tab]*}"}"; fi
+      if [ "$cmp" = "$tag" ]; then inbody=0; fi
+      continue
+    fi
+    out="$out$line$nl"
+    case "$line" in *'<<'*) ;; *) continue ;; esac
+    before="${line%%<<*}"
+    rest="${line#*<<}"
+    case "$rest" in '<'*) continue ;; esac                  # here-string: no body
+    dash=0
+    case "$rest" in -*) dash=1; rest="${rest#-}" ;; esac
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    tag=""; after=""
+    case "$rest" in
+      \'*) r="${rest#\'}"; case "$r" in *\'*) tag="${r%%\'*}"; after="${r#*\'}" ;; esac ;;
+      \"*) r="${rest#\"}"; case "$r" in *\"*) tag="${r%%\"*}"; after="${r#*\"}" ;; esac ;;
+      \\*) r="${rest#\\}"; tag="${r%%[!A-Za-z0-9_.-]*}"; after="${r#"$tag"}" ;;
+      *) tag="${rest%%[!A-Za-z0-9_.-]*}"; after="${rest#"$tag"}" ;;
+    esac
+    [ -n "$tag" ] || continue
+    # Nothing chained after the tag, and no second heredoc on the line.
+    case "$after" in *'|'*|*';'*|*'&'*|*'<<'*) continue ;; esac
+    # The word before `<<` must be `cat`. Inside `$(…)`/backticks the command
+    # that receives cat's output must be a known data consumer, not an
+    # interpreter (`bash -c "$(cat <<EOF`, `eval "$(cat <<EOF`).
+    seg="$before"
+    case "$before" in
+      *'$('*) seg="${before##*\$\(}"; pre="${before%\$\(*}" ;;
+      *'`'*) seg="${before##*\`}"; pre="${before%\`*}" ;;
+      *) pre="" ;;
+    esac
+    if [ -n "$pre" ]; then
+      pre="${pre##*&&}"; pre="${pre##*;}"; pre="${pre##*|}"
+      pre="${pre#"${pre%%[![:space:]]*}"}"
+      pfirst="${pre%%[[:space:]]*}"
+      case "$pfirst" in gh|git|echo|printf) ;; *) continue ;; esac
+    fi
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    case "$seg" in *'|'*|*';'*|*'&'*) continue ;; esac
+    case "$seg" in cat|cat[[:space:]]*) ;; *) continue ;; esac
+    inbody=1
+  done <<< "$input"
+  [ "$inbody" = 0 ] || return 0                             # unterminated: keep all
+  navori_heredoc_stripped="$out"
+  return 0
+}
+
+# Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
+# global `navori_trigger_hits`. `$2` = 1 stops at the first hit (is_scan_trigger
+# only needs "any"). The single home of the segment normalisation, shared with
+# navori_commit_landing so the two can never disagree about what a segment is.
+navori_count_triggers() {
+  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
+  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
+  # left compound commands unsplit there and the gate silently skipped
+  # `cd x && git commit` (#391). A plain variable expands identically in
+  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
+  local input="$1" stop="${2:-0}" segment nl=$'\n'
+  navori_trigger_hits=0
+  if [ "${TRIGGER_STRIP_HEREDOC_BODIES:-}" = 1 ]; then
+    case "$input" in *'<<'*) navori_strip_heredoc_bodies "$input"; input="$navori_heredoc_stripped" ;; esac
+  fi
+  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
+  # split across lines with a trailing backslash stays ONE logical segment
+  # (otherwise the subcommand/flag lands in a segment not starting with git).
+  input="${input//\\$'\n'/ }"
+  input="${input//&&/$nl}"
+  input="${input//||/$nl}"
+  input="${input//;/$nl}"
+  input="${input//|/$nl}"
+  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
+  # command that contains backticks/$() is inspected, never executed.
+  while IFS= read -r segment; do
+    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
+    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
+    # `VAR=val git …` all reduce to a plain `git …` before matching.
+    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
+      segment="${segment#\(}"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    done
+    segment="${segment#\\}"                                 # strip a leading backslash (\git)
+    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      case "$segment" in
+        *[[:space:]]*)
+          segment="${segment#*[[:space:]]}"
+          segment="${segment#"${segment%%[![:space:]]*}"}"
+          ;;
+        *) segment=""; break ;;
+      esac
+    done
+    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
+      segment="${segment#command }"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    fi
+    # FIX C: allow git global options between `git` and the subcommand
+    # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
+    # keeps `git commitgraph` / `git config …` from matching.
+    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
+      navori_trigger_hits=$((navori_trigger_hits + 1))
+      if [ "$stop" = 1 ]; then return 0; fi
+    fi
+  done <<< "$input"
+  return 0
+}
+
+is_scan_trigger() {
+  # ─── Fast path (spec 0016 T3.2, second pass): the segment loop pays one
+  # `grep -qE` FORK per segment — and a heredoc body or a 40-step compound
+  # is 40 segments, so the field cost scaled with command length (measured:
+  # 2.8 ms trivial, 14.8 ms for a 199-char heredoc, 95.8 ms for 40 segments;
+  # p50 across one real session's commands was 40 ms per hook, not the
+  # trivial floor). No $TRIGGER_RE can match without one of the caller's
+  # literal TOKENS appearing in the segment it matches — and every segment is
+  # a substring of the input, transformed only by insertions (`\<NL>` → space,
+  # separators → newline) and prefix-peeling, none of which can CREATE a
+  # token. So a single in-process substring scan of the raw input is a strict
+  # superset of the segment matches: if no token is present, no segment can
+  # match, and the gate answers "not for me" without a single fork. Same
+  # argument, same safe direction, as the guard's own fast path.
+  #
+  # $TRIGGER_TOKENS is set by the including hook NEXT TO its $TRIGGER_RE, so
+  # the pair travels together; when unset the fast path disarms and the loop
+  # runs exactly as before (fail-open to the SLOW path, never to a skip).
+  has_trigger_token "$1" || return 1
+  navori_count_triggers "$1" 1
+  [ "$navori_trigger_hits" -gt 0 ]
+}
+# Shared worktree resolver — inlined into each gate hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). Requires the
+# `extract-cmd` partial to have run first ($payload and $cmd in scope).
+#
+# WHY (#454): settings.json invokes these hooks as
+# `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"`, so the hook
+# PROCESS starts in the MAIN repo even when the commit happens inside an agent
+# worktree under `.claude/worktrees/`. The old `cd "$(git rev-parse
+# --show-toplevel)"` therefore resolved the main repo — whose tree is clean — so
+# `git diff --name-only main` returned 0 files and the gate exited 0. Not a false
+# negative from the scanner: the scanner never ran. A `cd` to an arbitrary tree
+# is exactly the bug, so nothing below ever guesses: every candidate must prove
+# it is a git working tree, or the next one is tried — and the one the COMMAND
+# names must additionally prove it is part of the repository being protected
+# (see the same-repository constraint in `navori_worktree`).
+#
+# `navori_worktree` prints the absolute root of the working tree the gated git
+# command will act on, or nothing when none resolves. It is a FUNCTION, not a
+# top-level assignment, because `quality-gate-pre-commit` inlines this partial on
+# a path that runs on EVERY Bash tool call: callers pay the git/jq probes only
+# after their own trigger matched.
+
+# First shell token of $1: a leading single/double-quoted string (so a path with
+# spaces survives) or an unquoted run of non-space characters.
+navori_first_token() {
+  local s="$1"
+  case "$s" in
+    \"*) s="${s#\"}"; printf '%s' "${s%%\"*}" ;;
+    \'*) s="${s#\'}"; printf '%s' "${s%%\'*}" ;;
+    *) printf '%s' "${s%%[[:space:]]*}" ;;
+  esac
+}
+
+# Directory named by the command itself, if any. Two shapes, both real in this
+# harness: `git -C <dir> commit …` (git names its own tree) and
+# `cd <dir> && git commit …` (how an agent commits into its worktree from a
+# session anchored elsewhere). Prints the raw token; the caller resolves it.
+#
+# TODO(scope): only the FIRST segment is inspected for `cd`. A `cd` buried
+# mid-chain (`pnpm build && cd sub && git commit`) falls through to the payload
+# cwd, which is right whenever that `cd` stays inside the same repo. Walk the
+# segments if a real command shows up where it does not.
+navori_cmd_dir() {
+  local text="$1" rest="" head=""
+  case "$text" in
+    *"git -C "*)
+      rest="${text#*git -C }"
+      ;;
+    *)
+      head="${text%%&&*}"
+      head="${head#"${head%%[![:space:]]*}"}"
+      case "$head" in
+        "cd "*) rest="${head#cd }" ;;
+      esac
+      ;;
+  esac
+  [ -n "$rest" ] || return 1
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  # A token that needs the shell to expand it ($VAR, `sub`, ~, globs) is NOT
+  # resolved here: guessing wrong points the scan at the wrong tree, which is
+  # the very failure this partial exists to kill. Ignoring it just falls through
+  # to the next candidate.
+  case "$rest" in
+    ""|*'$'*|*'`'*|*'*'*|*'?'*|"~"*) return 1 ;;
+  esac
+  navori_first_token "$rest"
+}
+
+# Absolute, symlink-resolved path of a working tree's SHARED git dir, or nothing
+# when $1 is not inside a git working tree. `--git-common-dir` names the `.git`
+# of the MAIN checkout, so every linked worktree of one repository — and every
+# subdirectory of it — reports the SAME value, while a different repository
+# reports its own and a submodule reports `<main>/.git/modules/<name>`. That
+# makes it an identity test for "same repository", which `--show-toplevel` (one
+# per working tree) and `--git-dir` (one per worktree) are not.
+navori_repo_id() {
+  local dir="$1" common=""
+  common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] || return 1
+  # `git -C <dir>` chdirs to <dir> first, so a relative answer (`.git`,
+  # `../../.git`) is relative to <dir>. `pwd -P` canonicalises both sides the
+  # same way, which also settles macOS's /var vs /private/var symlink.
+  (cd "$dir" && cd "$common" && pwd -P) 2>/dev/null
+}
+
+# First argument that resolves to a git working tree; prints its root.
+navori_first_tree() {
+  local candidate toplevel
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    [ -d "$candidate" ] || continue
+    toplevel=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null) || continue
+    [ -n "$toplevel" ] || continue
+    printf '%s' "$toplevel"
+    return 0
+  done
+  return 1
+}
+
+# Hook's own path, captured HERE at the partial's top level (every consumer inlines
+# it at script top level). NEVER read `$0` inside a `navori_*` function: zsh sets it
+# to the function's name there (FUNCTION_ARGZERO). Used only as a string, never
+# resolved. A relative path is anchored on the hook's cwd, where the shell found it.
+navori_hook_path="$0"
+case "$navori_hook_path" in /*) ;; *) navori_hook_path="$PWD/$navori_hook_path" ;; esac
+navori_home_id=""
+navori_home_done=0
+
+# HOME repository (#1099): the repo this hook protects, as a repo id in
+# `navori_home_id` (empty = unknown). Known only if ALL hold:
+#   - `CLAUDE_PROJECT_DIR` is non-empty;
+#   - the hook's own path is exactly `${CLAUDE_PROJECT_DIR%/}/.claude/hooks/<file>`
+#     or `.../.claude/scripts/<file>` (how settings.json registers it). A bare
+#     prefix is not enough: a leaked variable plus a hook of a repo NESTED under it
+#     would make the outer repo "home" and skip every gate of the inner one. `.codex/`
+#     never qualifies, so a Codex hook is always home-unknown;
+#   - that directory resolves to a repo id.
+# Any doubt means unknown, and unknown never produces `foreign` without a `cd`/`-C`
+# in the command. Memoised: the callers pay the git fork once. Sets a global (no
+# subshell); declares locals once at the top (zsh prints a re-declared `local`).
+navori_home_resolve() {
+  local cpd rest file
+  [ "$navori_home_done" = 0 ] || return 0
+  navori_home_done=1
+  cpd="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$cpd" ] || return 0
+  cpd="${cpd%/}"
+  case "$navori_hook_path" in
+    "$cpd"/*) rest="${navori_hook_path#"$cpd"/}" ;;
+    *) return 0 ;;
+  esac
+  case "$rest" in
+    .claude/hooks/*|.claude/scripts/*) file="${rest#.claude/*/}" ;;
+    *) return 0 ;;
+  esac
+  case "$file" in ""|.|..|*/*) return 0 ;; esac
+  navori_home_id=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  return 0
+}
+
+# Resolution, most specific first:
+#   1. the directory the command names (`git -C` / a leading `cd`), ONLY when it
+#      belongs to the same repository as the anchor (see the constraint below);
+#   2. the payload's `.cwd` — Claude Code sends the CURRENT working directory of
+#      the tool call, a documented field distinct from $CLAUDE_PROJECT_DIR (the
+#      project root). In an agent worktree these differ; that gap IS #454;
+#   3. the hook process's own cwd — the pre-#454 behaviour, still correct for a
+#      plain terminal or git-hook invocation.
+navori_worktree() {
+  local payload_cwd anchor named anchor_repo="" named_repo=""
+  payload_cwd=$(payload_field cwd)
+  # A relative `cd sub` resolves against the shell's cwd, which is the payload's
+  # when Claude Code sends one and the hook process's otherwise.
+  anchor="$payload_cwd"
+  [ -d "$anchor" ] || anchor="$PWD"
+  named=$(navori_cmd_dir "$cmd" || true)
+  case "$named" in
+    "") ;;
+    /*) ;;
+    *) named="$anchor/$named" ;;
+  esac
+  # SAME-REPOSITORY CONSTRAINT — DO NOT REMOVE (#454, review finding).
+  # Candidate 1 is the only one the COMMAND controls, and it is tried first, so
+  # accepting any git tree it happens to name lets that command OVERRIDE the
+  # trustworthy candidates below it: `git -C <other-repo> log && git commit`,
+  # `cd <other> && cd <wt> && git commit`, `cd <sub> && cd .. && git commit`, or
+  # merely the bytes `git -C <path>` inside a commit MESSAGE, all aimed the scan
+  # at a foreign tree with nothing to scan — exit 0 with the scanner never run,
+  # which is the very failure #454 is about (and, for a commit in the main repo,
+  # strictly worse than not resolving worktrees at all).
+  # So a directory the command names is accepted only when it is part of the
+  # repository the hook is protecting, i.e. the anchor's. Linked worktrees share
+  # the main checkout's git dir, so every legitimate agent worktree passes; a
+  # different repository and a submodule (its own git dir under
+  # `<main>/.git/modules/`) do not, and fall through to the payload cwd — the
+  # stricter direction. An unresolvable anchor drops candidate 1 for the same
+  # reason: nothing to check it against — unless the named dir IS the hook's home
+  # repo (#1099: the session sits in another repo but the command names the
+  # protected one), which only ever moves the scan toward the protected repo.
+  # Ceiling: two linked worktrees of the SAME repository are indistinguishable
+  # this way, so naming a sibling worktree still beats the payload cwd. Both are
+  # trees of the repo being protected, so the scan stays inside it. Walk the
+  # segments to the one that actually carries the `git commit` if a real command
+  # shows up where that is not enough.
+  if [ -n "$named" ]; then
+    anchor_repo=$(navori_repo_id "$anchor" || true)
+    named_repo=$(navori_repo_id "$named" || true)
+    navori_home_resolve
+    if [ -z "$named_repo" ] || { [ "$named_repo" != "$anchor_repo" ] && [ "$named_repo" != "$navori_home_id" ]; }; then
+      named=""
+    fi
+  fi
+  navori_first_tree "$named" "$payload_cwd" "$PWD" || true
+}
+
+# ─── Where does the commit LAND? (#1095) ────────────────────────────────────────
+# `navori_worktree` above answers "which tree do I scan"; this answers "is the
+# commit even for the repository this gate protects". A commit that provably
+# lands in ANOTHER repository (`cd <other> && git commit`, `git -C <other>
+# commit`) must not be gated against the anchor's tree: that tree holds none of
+# the diff. Classification is a POSITIVE grammar with a deny-list of ambiguity —
+# `foreign` only when every step to the commit has a certain cwd effect and the
+# resolved repository really differs; the commit message is never read (#454:
+# `git commit -m "use git -C <other>"` lands in the anchor). Anything unsure is
+# `ambiguous`, which callers treat exactly like `same-repo`: run the gate.
+#
+# Requires the `gate-trigger` partial (navori_count_triggers, $TRIGGER_RE) and
+# `extract-cmd` (payload_field). Always returns 0 and sets, without a subshell:
+#   navori_landing       same-repo | foreign | ambiguous
+#   navori_landing_root  landing toplevel (foreign only)
+# "foreign" means the command's landing repo differs from the repository this hook
+# protects (#1099). With no `cd`/`-C` the landing dir IS the payload cwd, so a
+# session anchored in another repo is foreign too. The protected repo is the HOME
+# id (`navori_home_resolve`); when home is unknown the comparison degrades to the
+# #1095 rule (payload-cwd repo, widened by the raw `CLAUDE_PROJECT_DIR` repo, which
+# can only turn `foreign` into `same-repo`) and a command without `cd`/`-C` is
+# `same-repo` with no fork. "commit" below means the one gated op.
+#
+# The gated op (#1098) is whatever the caller's $TRIGGER_RE counts: `git commit`
+# for QG; a gate that also counts `git push` and `gh pr create` sets its own
+# regex. The walk
+# matches that same regex, so there is no second copy to drift. `gh pr create`
+# lands in the cwd's repo unless it names another one (`-R`/`--repo`/`GH_REPO`),
+# which is `ambiguous` (the scan runs).
+#
+# A chain of gated ops joined by `&&` (#1115) is classified per op, each with its
+# own `-C` (and the one leading `cd`): `foreign` only when EVERY op lands in the
+# same foreign toplevel and the walk saw every op the counter did (a hidden op
+# behind `;`, `|`, `||` or a wrapper makes hits > found). One op in the home repo,
+# two toplevels (even two worktrees of one repo) or an unproven op is `ambiguous`.
+# After the first gated op only read-only `git` segments (status|diff|log|show|
+# rev-parse|push, no global options) and echo|printf|true|:|ls|pwd may follow: the
+# counter cannot see a `-C "dir with spaces"` value, an alias or an exec-capable
+# subcommand, so any other tail (an `export GIT_DIR`, a later `cd`, a shell) is
+# `ambiguous`. QG does not gate `push`, so `commit(F) && git push` is foreign;
+# a gate whose regex counts both ops decides on both.
+
+# Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
+# Returns 1 for anything the shell would expand or that is malformed, so the
+# caller falls back to `ambiguous`.
+navori_take_token() {
+  local s="$1" nl=$'\n'
+  navori_tok=""; navori_rest=""
+  s="${s#"${s%%[![:space:]]*}"}"
+  case "$s" in
+    \'*)
+      s="${s#\'}"
+      case "$s" in *\'*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\'*}"; navori_rest="${s#*\'}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    \"*)
+      s="${s#\"}"
+      case "$s" in *\"*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\"*}"; navori_rest="${s#*\"}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    *)
+      navori_tok="${s%%[[:space:]]*}"; navori_rest="${s#"$navori_tok"}"
+      case "$navori_tok" in
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*"'"*|*'"'*) return 1 ;;
+      esac
+      ;;
+  esac
+  case "$navori_tok" in
+    ""|'~'*|*'$'*|*'`'*|*'\'*|*'*'*|*'?'*|*'['*|*'{'*|*"$nl"*) return 1 ;;
+  esac
+  return 0
+}
+
+# Where does ONE gated op land? Takes the op's `cd` target and `-C` target (either
+# may be empty) and sets, without a subshell:
+#   navori_op_kind  same | foreign | "" (unproven)
+#   navori_op_top   landing toplevel (foreign only)
+# Every unproven path returns with the empty kind.
+navori_op_landing() {
+  local cd_dir="$1" c_dir="$2" pcwd base dir rel=0 top sub id_l id_a id_h nl=$'\n'
+  navori_op_kind=""; navori_op_top=""
+
+  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
+  # nothing to compare it with, so today's answer (and zero forks) stands.
+  if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
+    navori_home_resolve
+    if [ -z "$navori_home_id" ]; then navori_op_kind="same"; return 0; fi
+  else
+    navori_home_resolve
+  fi
+
+  pcwd=$(payload_field cwd)
+  base="$pcwd"
+  [ -d "$base" ] || base="$PWD"
+  dir="$base"
+  if [ -n "$cd_dir" ]; then
+    case "$cd_dir" in
+      /*) dir="$cd_dir" ;;
+      *)
+        rel=1; dir="$base/$cd_dir"
+        # A non-empty CDPATH can make `cd <relative>` land somewhere else.
+        [ -z "${CDPATH:-}" ] || return 0
+        ;;
+    esac
+  fi
+  if [ -n "$c_dir" ]; then
+    case "$c_dir" in
+      /*) dir="$c_dir"; rel=0 ;;
+      *) rel=1; dir="$dir/$c_dir" ;;
+    esac
+  fi
+  # `..` in a relative path resolves logically in the shell but physically in
+  # the kernel; they differ when the base itself sits behind a symlink.
+  if [ "$rel" = 1 ]; then
+    case "$cd_dir$nl$c_dir" in
+      *'..'*) [ "$(cd "$base" 2>/dev/null && pwd -P)" = "$base" ] || return 0 ;;
+    esac
+  fi
+
+  [ -d "$dir" ] || return 0
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$top" ] || return 0
+  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
+  # of the superproject's work): the anchor's gate runs.
+  sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
+  [ -z "$sub" ] || return 0
+  id_l=$(navori_repo_id "$dir" || true)
+  [ -n "$id_l" ] || return 0
+  if [ -n "$navori_home_id" ]; then
+    # Proven home: the one definition of foreign.
+    if [ "$id_l" = "$navori_home_id" ]; then
+      navori_op_kind="same"
+    else
+      navori_op_kind="foreign"; navori_op_top="$top"
+    fi
+    return 0
+  fi
+  # Home unknown: the #1095 rule.
+  id_a=$(navori_repo_id "$base" || true)
+  [ -n "$id_a" ] || return 0
+  id_h=""
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  fi
+  if [ "$id_l" = "$id_a" ] || { [ -n "$id_h" ] && [ "$id_l" = "$id_h" ]; }; then
+    navori_op_kind="same"
+  else
+    navori_op_kind="foreign"; navori_op_top="$top"
+  fi
+  return 0
+}
+
+# Parses the target of ONE gated segment ($1 = its first line, $2 = the whole
+# segment) and sets `navori_op_cdir` to the op's `-C` target ("" when none).
+# Returns 1 for anything the parser will not follow.
+navori_op_target() {
+  local first="$1" seg="$2" p arg nc=0
+  navori_op_cdir=""
+  case "$first" in
+  gh[[:space:]]*)
+    # `gh pr create`: no global -C, so it lands where the cwd (or the `cd`) is —
+    # unless it names another repo, which the parser will not follow. Any `-R` or
+    # `--repo` anywhere in the segment (message text included) reads as ambiguous.
+    p="${first#gh}"
+    navori_take_token "$p" || return 1
+    [ "$navori_tok" = pr ] || return 1
+    navori_take_token "$navori_rest" || return 1
+    [ "$navori_tok" = create ] || return 1
+    case "$seg" in *'-R'*|*'--repo'*) return 1 ;; esac
+    [ -z "${GH_REPO:-}" ] || return 1
+    return 0
+    ;;
+  esac
+  # The segment's own git global options, positionally. Text after `commit`/
+  # `push` (the message) is never read.
+  p="${first#git}"
+  while :; do
+    navori_take_token "$p" || return 1
+    arg="$navori_tok"; p="$navori_rest"
+    case "$arg" in
+      commit|push) return 0 ;;
+      -C)
+        [ "$nc" = 0 ] || return 1
+        nc=1
+        navori_take_token "$p" || return 1
+        navori_op_cdir="$navori_tok"; p="$navori_rest"
+        ;;
+      -c) navori_take_token "$p" || return 1; p="$navori_rest" ;;
+      --no-pager|-p|--paginate|-P|--no-optional-locks|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-replace-objects) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+navori_commit_landing() {
+  local c rest seg first tailtxt gated w sub line ops="" acc="" acc_top="" prev_c="" n_done=0
+  local cd_dir="" found=0 more=1 cdcount=0 nl=$'\n' tab=$'\t'
+  navori_landing="ambiguous"; navori_landing_root=""
+
+  navori_count_triggers "$1" 0
+  [ "$navori_trigger_hits" -ge 1 ] || return 0
+
+  navori_strip_heredoc_bodies "$1"
+  c="$navori_heredoc_stripped"
+  c="${c//\\$'\n'/ }"
+  # The heredoc strip leaves a trailing newline on the last segment.
+  c="${c%"${c##*[![:space:]]}"}"
+
+  # Phase 1 — walk the `&&` chain without forking git. Before the first gated op:
+  # at most one `cd <literal>` and neutral `git …` segments. Each gated op is
+  # recorded with its own `-C`. After it, only a fixed allowlist of segments that
+  # can neither move the cwd or env nor commit; anything else is ambiguous.
+  rest="$c"
+  while [ "$more" = 1 ]; do
+    case "$rest" in
+      *'&&'*) seg="${rest%%&&*}"; rest="${rest#*&&}" ;;
+      *) seg="$rest"; rest=""; more=0 ;;
+    esac
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    first="${seg%%"$nl"*}"
+    gated=0
+    case "$first" in
+      git[[:space:]]*|gh[[:space:]]*)
+        if printf '%s' "$first" | grep -qE "$TRIGGER_RE"; then gated=1; fi
+        ;;
+    esac
+    if [ "$gated" = 1 ]; then
+      navori_op_target "$first" "$seg" || return 0
+      ops="${ops}o${navori_op_cdir}${nl}"
+      found=$((found + 1))
+      # Anything on this op's own line after `;`/`|`/`&`, or on later lines, could
+      # re-enter git, cd or a shell (a second, uncounted commit landing elsewhere).
+      tailtxt="${seg#"$first"}$nl"
+      case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
+      if navori_mentions_shellish "$tailtxt"; then return 0; fi
+      continue
+    fi
+    case "$seg" in *"$nl"*) return 0 ;; esac
+    seg="${seg%"${seg##*[![:space:]]}"}"
+    if [ "$found" = 0 ]; then
+      case "$seg" in
+        cd[[:space:]]*)
+          [ "$cdcount" = 0 ] || return 0
+          cdcount=1
+          navori_take_token "${seg#cd}" || return 0
+          case "$navori_rest" in *[![:space:]]*) return 0 ;; esac
+          cd_dir="$navori_tok"
+          case "$cd_dir" in -*) return 0 ;; esac
+          ;;
+        git[[:space:]]*)
+          case "$seg" in
+            *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*'$'*|*'`'*) return 0 ;;
+          esac
+          ;;
+        *) return 0 ;;
+      esac
+      continue
+    fi
+    # After a gated op. No metacharacter, expansion or escape in any tail segment.
+    case "$seg" in
+      *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*'$'*|*'`'*|*'\'*|*"$tab"*) return 0 ;;
+    esac
+    case "$seg" in
+      git\ *)
+        # Read-only subcommands, single spaces, no global options (`-C`, `-c`,
+        # `--git-dir` …): an alias, an exec-capable subcommand or another repo
+        # target is invisible to the counter, so it is ambiguous.
+        case "$seg" in *'--exec'*|*'--receive-pack'*|*'--upload-pack'*|*'--config-env'*) return 0 ;; esac
+        sub="${seg#git }"; sub="${sub%% *}"
+        case "$sub" in status|diff|log|show|rev-parse|push) ;; *) return 0 ;; esac
+        ;;
+      *)
+        w="${seg%%[[:space:]]*}"
+        case "$w" in echo|printf|true|:|ls|pwd) ;; *) return 0 ;; esac
+        ;;
+    esac
+  done
+  # Every gated op the counter saw must be an op the walk parsed (INV: a hidden
+  # op behind `;`, `|`, `||`, a subshell or a wrapper makes hits > found).
+  [ "$found" -ge 1 ] || return 0
+  [ "$found" = "$navori_trigger_hits" ] || return 0
+
+  # Phase 2 — resolve each op with its own `-C` and fold unanimously: `foreign`
+  # only when every op lands in the SAME foreign toplevel; any op in the home
+  # repo, in a different toplevel or unproven leaves the verdict ambiguous.
+  while IFS= read -r line; do
+    case "$line" in o*) ;; *) continue ;; esac
+    if [ "$n_done" = 0 ] || [ "${line#o}" != "$prev_c" ]; then
+      navori_op_landing "$cd_dir" "${line#o}"
+      prev_c="${line#o}"; n_done=1
+    fi
+    case "$navori_op_kind" in
+      same) [ "$acc" != foreign ] || return 0; acc="same" ;;
+      foreign)
+        [ "$acc" != same ] || return 0
+        if [ "$acc" = foreign ] && [ "$navori_op_top" != "$acc_top" ]; then return 0; fi
+        acc="foreign"; acc_top="$navori_op_top"
+        ;;
+      *) return 0 ;;
+    esac
+  done <<< "$ops"
+  case "$acc" in
+    same) navori_landing="same-repo" ;;
+    foreign) navori_landing="foreign"; navori_landing_root="$acc_top" ;;
+  esac
+  return 0
+}
+# Session-state ratchet (#1263, #1266) — inlined into each hook that enforces it at
+# render time (see the include directive in the source scripts +
+# lib/render/hook-includes.ts), and sourced as-is by the repo's own git pre-commit.
+# Two consumers, ONE body: `quality-gate-pre-commit` (qualityGate.fast declared)
+# and `guard-destructive` (qualityGate.fast absent), so the check never has a
+# second copy to drift.
+#
+# The session-state file is meant to hold the CURRENT state and the next step;
+# past the delivery budget it falls out of startup context. RATCHET, not a plain
+# cap: blocks only when the file is over the ceiling AND larger than at HEAD, so a
+# trim that is still big passes and an untouched legacy file never blocks an
+# unrelated commit. The size is the max of the index (what a plain `git commit`
+# lands) and the worktree (what `-a`, a pathspec or `add && commit` in one call
+# lands). Bytes via `wc -c` / `git cat-file -s`: locale-independent, unlike
+# `${#var}`. Every git call is guarded: an unborn HEAD or an unmerged index exits
+# non-zero under `set -e`.
+#
+# Requires: `$navori_progress_hard_cap` (digits) set by the caller. Never exits: a
+# block is `return 2`, so each host decides how to stop (and how to record it).
+# Plain functions, quoted expansions, no word-splitting: they run under bash and zsh.
+
+# Ratchet check for ONE session-state path. Returns 0 (ok) or 2 (blocked).
+navori_progress_ratchet() {
+  navori_pr_path=$1
+  # A gitignored file is never committed, so its size is not this gate's business.
+  if git check-ignore -q -- "$navori_pr_path" 2>/dev/null; then return 0; fi
+  navori_pr_wt=0
+  navori_pr_idx=0
+  navori_pr_head=0
+  if [ -f "$navori_pr_path" ]; then
+    navori_pr_wt=$(wc -c <"$navori_pr_path" 2>/dev/null | tr -d '[:space:]') || navori_pr_wt=0
+  fi
+  navori_pr_idx=$(git cat-file -s ":$navori_pr_path" 2>/dev/null) || navori_pr_idx=0
+  navori_pr_head=$(git cat-file -s "HEAD:$navori_pr_path" 2>/dev/null) || navori_pr_head=0
+  case "$navori_pr_wt" in ''|*[!0-9]*) navori_pr_wt=0 ;; esac
+  case "$navori_pr_idx" in ''|*[!0-9]*) navori_pr_idx=0 ;; esac
+  case "$navori_pr_head" in ''|*[!0-9]*) navori_pr_head=0 ;; esac
+  navori_pr_size=$navori_pr_wt
+  if [ "$navori_pr_idx" -gt "$navori_pr_size" ]; then navori_pr_size=$navori_pr_idx; fi
+  if [ "$navori_pr_size" -gt "$navori_progress_hard_cap" ] && [ "$navori_pr_size" -gt "$navori_pr_head" ]; then
+    navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
+    echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
+    echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
+    return 2
+  fi
+  return 0
+}
+
+# The whole lane for the hooks: the ceiling plus the loop over the session-state
+# paths, run from the root of the tree being committed. Returns 0 or 2.
+# The ceiling is injected from the single TS constant (a raw, unrendered copy
+# leaves the placeholder text, which is not numeric: the lane then stays off
+# rather than guess a number).
+# Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) the lane would run on EVERY
+# Bash call and block the very command that fixes the file.
+navori_progress_ratchet_lane() {
+  navori_progress_hard_cap=8000
+  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
+  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf" || return 2
+    done
+  fi
+  return 0
+}
+
 # Git commit/push detector shared by rule 1. The leading boundary accepts ; & |
 # so `true;git commit …` (no space after the separator) is caught; the
 # `git(… -opt …)*` middle allows git global options between `git` and the
@@ -5512,6 +6298,37 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
   || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
   block "git commit/push with --no-verify (skipping hooks/gates)" no-verify "commit without --no-verify and fix what the hook reports."
+fi
+
+# 1b. Session-state ceiling on a commit when no quality-gate hook enforces it (#1266).
+#     The ratchet (#1263) lives in `quality-gate-pre-commit`, which is registered
+#     only with `qualityGate.fast`; without it nothing measured the file. This lane
+#     runs the SAME shared body, and only when the render says `fast` is NOT
+#     declared (otherwise the gate hook already measures, and doing it twice is
+#     waste). The flag is injected at render time: a raw, unrendered copy keeps the
+#     placeholder text, which is not `1`, so the lane stays off (fail safe, like the
+#     ceiling itself). Cheap by construction: it evaluates only for a `git commit`
+#     segment, and `$cmd` is non-empty here (the empty-command exit above, #511).
+#     The tree measured is the one being committed (`navori_worktree`, #454); the
+#     detector's limits (sh -c, eval, GIT_DIR, a `cd` mid-chain) are inherited, and
+#     the repo's own git pre-commit covers the commits that bypass the agent.
+#     The lane runs in a subshell so its `cd` never leaks into the rules below.
+navori_pg_lane=0
+if [ "$navori_pg_lane" = 1 ] \
+  && printf '%s' "$segments" | grep -qE "${git_cp%\(commit\|push\)}commit([[:space:]]|\$)"; then
+  # A commit that provably lands in ANOTHER repository (#1095) is not this repo's business: its
+  # session-state file is not in the diff. Same rule as the gate hook: only `foreign` skips;
+  # `ambiguous` and `same-repo` measure (fail closed).
+  navori_commit_landing "$cmd"
+  navori_pg_root=""
+  if [ "$navori_landing" != foreign ]; then navori_pg_root=$(navori_worktree); fi
+  if [ "$navori_landing" != foreign ] && ! ( cd "${navori_pg_root:-${nv_project_dir:-.}}" && navori_progress_ratchet_lane ); then
+    # The lane already printed the verdict text; only the recording is left, and it
+    # happens in the EXIT trap.
+    navori_audit_verdict="block"
+    navori_audit_reason="unspecified"
+    exit 2
+  fi
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
@@ -9599,8 +10416,29 @@ if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   fi
 fi
 
-# Ratchet check for ONE session-state path (#1263); blocks via `exit 2`. Plain
-# function, quoted expansions, no word-splitting: it runs under bash and zsh.
+# Session-state ratchet function + lane (#1263, #1266). Shared body, single source of truth.
+# Session-state ratchet (#1263, #1266) — inlined into each hook that enforces it at
+# render time (see the include directive in the source scripts +
+# lib/render/hook-includes.ts), and sourced as-is by the repo's own git pre-commit.
+# Two consumers, ONE body: `quality-gate-pre-commit` (qualityGate.fast declared)
+# and `guard-destructive` (qualityGate.fast absent), so the check never has a
+# second copy to drift.
+#
+# The session-state file is meant to hold the CURRENT state and the next step;
+# past the delivery budget it falls out of startup context. RATCHET, not a plain
+# cap: blocks only when the file is over the ceiling AND larger than at HEAD, so a
+# trim that is still big passes and an untouched legacy file never blocks an
+# unrelated commit. The size is the max of the index (what a plain `git commit`
+# lands) and the worktree (what `-a`, a pathspec or `add && commit` in one call
+# lands). Bytes via `wc -c` / `git cat-file -s`: locale-independent, unlike
+# `${#var}`. Every git call is guarded: an unborn HEAD or an unmerged index exits
+# non-zero under `set -e`.
+#
+# Requires: `$navori_progress_hard_cap` (digits) set by the caller. Never exits: a
+# block is `return 2`, so each host decides how to stop (and how to record it).
+# Plain functions, quoted expansions, no word-splitting: they run under bash and zsh.
+
+# Ratchet check for ONE session-state path. Returns 0 (ok) or 2 (blocked).
 navori_progress_ratchet() {
   navori_pr_path=$1
   # A gitignored file is never committed, so its size is not this gate's business.
@@ -9622,7 +10460,25 @@ navori_progress_ratchet() {
     navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
     echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
     echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
-    exit 2
+    return 2
+  fi
+  return 0
+}
+
+# The whole lane for the hooks: the ceiling plus the loop over the session-state
+# paths, run from the root of the tree being committed. Returns 0 or 2.
+# The ceiling is injected from the single TS constant (a raw, unrendered copy
+# leaves the placeholder text, which is not numeric: the lane then stays off
+# rather than guess a number).
+# Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) the lane would run on EVERY
+# Bash call and block the very command that fixes the file.
+navori_progress_ratchet_lane() {
+  navori_progress_hard_cap=8000
+  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
+  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf" || return 2
+    done
   fi
   return 0
 }
@@ -9643,27 +10499,10 @@ if [ "$run_needed" = 1 ]; then
     navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
     exit 2
   }
-  # Session-state ratchet (#1263). The session-state file is meant to hold the
-  # CURRENT state and the next step; past the delivery budget it falls out of
-  # startup context. The ceiling is injected from the single TS constant (a raw,
-  # unrendered copy leaves the placeholder text, which is not numeric: the check
-  # then stays off rather than guess a number).
-  # Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) this block would run on
-  # EVERY Bash call and block the very command that fixes the file.
-  # RATCHET, not a plain cap: blocks only when the file is over the ceiling AND
-  # larger than at HEAD, so a trim that is still big passes and an untouched
-  # legacy file never blocks an unrelated commit. The size is the max of the
-  # index (what a plain `git commit` lands) and the worktree (what `-a`, a
-  # pathspec or `add && commit` in one call lands). Bytes via `wc -c` / `git
-  # cat-file -s`: locale-independent, unlike `${#var}`. Every git call is
-  # guarded: an unborn HEAD or an unmerged index exits non-zero under `set -e`.
-  navori_progress_hard_cap=8000
-  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
-  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
-    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
-      navori_progress_ratchet "$navori_pf"
-    done
-  fi
+  # Session-state ratchet (#1263): see the `progress-ratchet` partial for the rule,
+  # the byte measure and the fail-safe on an unrendered ceiling. A blocked commit
+  # is `exit 2` here; the lane never exits by itself.
+  navori_progress_ratchet_lane || exit 2
   # qualityGate.nativeHooks (spec 0045 D1): the project's native git pre-commit
   # already runs `fast`, so ONLY the gate step below is skipped. The ratchet
   # above and the user-section below still run. The value comes from
@@ -10459,6 +11298,42 @@ nv_in_temp() {
   return 1
 }
 
+# Root of the nested LINKED worktree of the session repo that really contains
+# the canonical path $1 (under session root $2), e.g. `.navori/state/fixtures/*`
+# or `.claude/worktrees/*` (#1022). Accepted only when git reports a toplevel
+# strictly under $2 that is registered in `git worktree list`, shares the
+# session's --git-common-dir and is linked (its --git-dir differs from the common
+# dir). Anything else (independent nested repo, other repo's worktree, forged
+# `.git`) falls back to $2. $1 is canonical, so symlinks and `..` cannot move
+# it into another tree. Same identity primitives as #1330's nv_sibling_rel.
+nv_containing_root() {
+  local d=${1%/*} top common gitdir sessioncommon list
+  while [ -n "$d" ] && [ ! -d "$d" ]; do d=${d%/*}; done
+  if [ -n "$d" ]; then
+    top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) &&
+      top=$(cd -P "$top" 2>/dev/null && pwd -P) || top=""
+    case "$top" in
+      "$2"/?*)
+        case "$1" in
+          "$top"/?*)
+            common=$(git -c core.fsmonitor=false -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+              gitdir=$(git -c core.fsmonitor=false -C "$top" rev-parse --path-format=absolute --git-dir 2>/dev/null) &&
+              sessioncommon=$(git -c core.fsmonitor=false -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+              common=$(cd -P "$common" 2>/dev/null && pwd -P) &&
+              gitdir=$(cd -P "$gitdir" 2>/dev/null && pwd -P) &&
+              sessioncommon=$(cd -P "$sessioncommon" 2>/dev/null && pwd -P) &&
+              [ "$common" = "$sessioncommon" ] && [ "$gitdir" != "$common" ] &&
+              list=$(git -c core.fsmonitor=false -C "$2" worktree list --porcelain 2>/dev/null) &&
+              printf '%s\n' "$list" | grep -Fxq "worktree $top" &&
+              { printf '%s' "$top"; return 0; }
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  printf '%s' "$2"
+}
+
 navori_cwd=$(payload_field cwd)
 navori_cwd=${navori_cwd:-${nv_project_dir:-.}}
 navori_root=$(cd -P "${nv_project_dir:-$navori_cwd}" 2>/dev/null && pwd -P) || navori_root=""
@@ -10485,7 +11360,8 @@ while IFS= read -r navori_path; do
   fi
   case "$navori_real" in
     "$navori_root"/*)
-      navori_rel=${navori_real#"$navori_root"/}
+      navori_tree=$(nv_containing_root "$navori_real" "$navori_root")
+      navori_rel=${navori_real#"$navori_tree"/}
       navori_ok=0
       while IFS= read -r navori_prefix; do
         [ -n "$navori_prefix" ] || continue
@@ -15499,23 +16375,22 @@ You are the main agent. **Every change to source goes through `implementer` → 
 ### The mechanics
 
 - **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
-- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs/ --json`; require `"status":"ok"`.
+- **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
 - Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
 - **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review each output.
+
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
 - **The quality gate named in "Session closeout" green** is Pass 2 on the shipping diff of the PR, once per PR.
-- **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.
+- **A verification brief names the probe criterion**, never an open "verify X"; track agents by artifact.
 
 ### Claude agent turn limits
 
-Continue a foreground `spawn_agent` at cap via `send_input`; fresh bounded redispatch only for remaining work needing another agent. Missing markers or handoffs do not prove a cap. Codex: with `harness.planTiers`, write `.navori/state/handoffs/dispatch_<feature>.json` (`feature`, `opening`, `createdAt`, `sessionId` = `printf %s "${CODEX_SESSION_ID:-$CODEX_THREAD_ID}"`, never hand-composed, omitted only if empty) before spawning `implementer` (spawn `message` is encrypted); one fresh file (TTL 10 min) per spawn, consumed on use. The plan-gate denies (printing the expected id), allows one implementer at a time per session, and never reads, claims or deletes other sessions' markers. Residuals: a lone unstamped marker is consumable by any session, unstamped beside stamped relaxes the limit, a corrupt marker without recoverable `sessionId` blocks all. Name a listed role on every analysis spawn. `gh pr create` and `general-purpose` are denied as confirmation: the user runs or confirms.
+Continue a foreground `spawn_agent` at cap via `send_input`; fresh bounded redispatch only for work needing another agent. Missing markers or handoffs do not prove a cap. Codex: with `harness.planTiers`, write `.navori/state/handoffs/dispatch_<feature>.json` (`feature`, `opening`, `createdAt`, `sessionId` = `printf %s "${CODEX_SESSION_ID:-$CODEX_THREAD_ID}"`, never hand-composed, omitted only if empty) before spawning `implementer` (spawn `message` is encrypted); one fresh file (TTL 10 min) per spawn, consumed on use. The plan-gate denies (printing the expected id), allows one implementer at a time per session, and never reads, claims or deletes other sessions' markers. Residuals: a lone unstamped marker is consumable by any session, unstamped beside stamped relaxes the limit, a corrupt marker without recoverable `sessionId` blocks all. Name a listed role on every analysis spawn. `gh pr create` and `general-purpose` are denied as confirmation: the user runs or confirms.
 
 ### How much analysis does this task deserve (signal → mechanism)
-
-Reading depth:
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
@@ -15523,7 +16398,7 @@ Reading depth:
 | …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose SDD (scaffolds once accepted, via prose or `$spec-bootstrap`) — opt-in, never self-assigned; don't duplicate its criteria |
+| Real scope, by the threshold the **SDD** block owns | propose SDD (`$spec-bootstrap` scaffolds once accepted) — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
 | A scoped question (does Y happen? what consumes X?) or a broad map (where does X live?) | `scout` |
 | Independent sub-questions or sub-bugs (no shared state) | N `scout` in PARALLEL (same turn) → your synthesis |
@@ -15534,7 +16409,7 @@ Reading depth:
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `spawn_agent` calls in a SINGLE turn** — Codex serializes by default. **Independent** sub-tasks (no shared state or output dependency) go in the same turn; serialize only on a real dependency. Scope first; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check.
+Emit **ALL `spawn_agent` calls in a SINGLE turn** — Codex serializes by default. **Independent** sub-tasks go in the same turn; serialize only on a real dependency. Scope first; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check.
 
 ### Nested dispatch unavailable
 
@@ -15542,11 +16417,11 @@ Without nested dispatch (Codex), run `scout` before `architect`.
 
 ### When delegation is genuinely impossible
 
-Rare, and it leaves a trace: the operator forbade subagents or `spawn_agent` is unavailable. Do the work and **say why in your reply**; the `publisher` will require the quality gate named in "Session closeout" green in pre-flight, since no review exists. An undeclared inline change is a deviation.
+Rare: the operator forbade subagents or `spawn_agent` is unavailable. Do the work and **say why in your reply**; the `publisher` will require the quality gate named in "Session closeout" green in pre-flight, since no review exists. An undeclared inline change is a deviation.
 
-### Where the depth lives (read it when the moment asks)
+### Where the depth lives
 
-Open when the moment asks: **`.codex/orchestrator.md`** (decomposing, frugal delegation, anti-broken-telephone, per-agent output files, continuous execution and caps, closing the cycle, second opinion, reclaiming a worktree) · **`.agents/skills/resolve-ticket/SKILL.md`** (a ticket: the pipeline) · **`.agents/skills/solution-design/SKILL.md`** (an architectural signal: the design pass).
+Open when the moment asks: **`.codex/orchestrator.md`** (decomposing, delegation, caps, closing the cycle, second opinion, worktree reclaim) · **`.agents/skills/resolve-ticket/SKILL.md`** · **`.agents/skills/solution-design/SKILL.md`** (the design pass).
 
 ## Idioma y rol
 

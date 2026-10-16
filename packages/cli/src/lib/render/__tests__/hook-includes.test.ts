@@ -191,6 +191,11 @@ describe("every shared partial is consumed and covered by a core hook", () => {
       file: "lib/__tests__/guard-destructive.test.ts",
       title: "inert content — written text vs executed text (#462)",
     },
+    "progress-ratchet": {
+      hook: "guard-destructive",
+      file: "lib/__tests__/guard-destructive-progress.test.ts",
+      title: "passes a trim that is still over the ceiling",
+    },
     "resolve-worktree": {
       hook: "quality-gate-pre-commit",
       file: "lib/__tests__/quality-gate-worktree-resolve.test.ts",

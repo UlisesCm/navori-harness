@@ -127,10 +127,6 @@ const KNOWN_WIRING_DEFECTS = new Map<string, string>();
  */
 const CLAIMLESS_HOOKS = new Map<string, string>([
   [
-    "guard-destructive.sh",
-    "decide por la FORMA del comando (`tool_input.command`), no por la herramienta: un payload de Edit/Write ni siquiera trae campo `command`, así que ampliar su matcher no le daría nada que analizar — `Bash` en PreToolUse es la registración correcta y completa",
-  ],
-  [
     "general-purpose-confirm.sh",
     "decide por `tool_input.subagent_type`, no por la herramienta: su registración `PreToolUse(Agent)` es el claim completo (spec 0039 R40) y no lleva `if`: `Agent(<name>)` no matchea por nombre en 2.1.287, así que el script filtra `subagent_type`",
   ],
@@ -375,6 +371,7 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
     const gates = hooks.filter((h) => h.triggers !== null);
     expect(gates.map((h) => h.script).sort()).toEqual([
       "comment-draft-confirm.sh",
+      "guard-destructive.sh",
       "pr-publisher-confirm.sh",
       "quality-gate-pre-commit.sh",
     ]);
