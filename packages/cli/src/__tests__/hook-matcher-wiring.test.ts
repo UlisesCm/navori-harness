@@ -162,6 +162,8 @@ const TOOL_MATCHED_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 function acceptedTools(script: string): Set<string> {
   const varName =
     /(\w+)=\$\(payload_field tool_name\)/.exec(script)?.[1] ??
+    // Spec 0054 R22: the multi-field form, `payload_fields VAR=tool_name …`.
+    /^payload_fields\b.*?\b(\w+)=tool_name\b/m.exec(script)?.[1] ??
     /(\w+)=\$\(nv_tool\)/.exec(script)?.[1];
   const tools = new Set<string>();
   if (!varName) return tools;

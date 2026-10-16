@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSafeGateChain } from "../../engines/shared/permission-rules.ts";
 import { safeRelPath } from "../primitives/zod-helpers.ts";
 
 // Exported: the single source of truth for valid engine ids, reused by
@@ -43,12 +44,25 @@ function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallb
   );
 }
 
+/** A non-empty gate chain that `navori gate` would run: every step is `<pm> …` or `cd <dir>`. */
+function safeGateChain(): z.ZodString {
+  return z
+    .string()
+    .min(1)
+    .refine(isSafeGateChain, "must be a plain command chain (`<pm> …` / `cd <dir>` joined by &&)");
+}
+
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
   full: z.string().min(1),
   /** Cheap checks of `full` plus tests related to the diff; the reviewer's
    * lane for rounds that end in CHANGES_REQUESTED. Falls back to `fast`. */
   scoped: z.string().min(1).optional(),
+  /** Tests related to the diff (spec 0054 R11); an iteration shortcut, never a gate. */
+  affected: safeGateChain().optional(),
+  /** Gate of a Markdown-only re-sign (`receipt sign --gate-ran docs`, spec 0054 R21):
+   * link and doc-budget checks plus the tests that read `docs/` or `specs/`. */
+  docs: safeGateChain().optional(),
   /** Declares that the project's native git pre-commit already runs `fast`, so
    * the `quality-gate-pre-commit` hook skips only its gate step (spec 0045 R1-R3). */
   nativeHooks: z.boolean().optional(),

@@ -13,7 +13,12 @@ import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
-import { acrossShells } from "./helpers/shells.ts";
+import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
+import {
+  createHookBatch,
+  type HookBatch,
+  type HookCase,
+} from "../../__tests__/helpers/hook-batch.ts";
 
 /**
  * Behavioral guard tests for core-assets/hooks/guard-destructive.sh.
@@ -73,9 +78,60 @@ function runGuard(command: string, env?: NodeJS.ProcessEnv): number {
   return runGuardScript(guardPath, command, env);
 }
 
+/** A primed table runs hundreds of hook invocations in one process per shell. */
+const PRIME_TIMEOUT_MS = 120_000;
+
+const batches = new Map<string, HookBatch>();
+const batchFor = (scriptPath: string): HookBatch => {
+  let b = batches.get(scriptPath);
+  if (b === undefined) batches.set(scriptPath, (b = createHookBatch(scriptPath)));
+  return b;
+};
+
+/**
+ * Env that only ADDS or CHANGES variables over `process.env` can ride a batch
+ * (spec 0054 D4); one that drops variables (a restricted PATH) needs its own
+ * process and returns `undefined`.
+ */
+function envOverrides(env: NodeJS.ProcessEnv | undefined): Record<string, string> | undefined {
+  if (env === undefined) return {};
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(process.env)) if (!(k in env)) return undefined;
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) return undefined;
+    if (process.env[k] !== v) out[k] = v;
+  }
+  return out;
+}
+
+function guardCase(command: string, env?: NodeJS.ProcessEnv): HookCase | undefined {
+  const overrides = envOverrides(env);
+  if (overrides === undefined) return undefined;
+  return { input: JSON.stringify({ tool_input: { command } }), env: overrides };
+}
+
+/**
+ * Runs a whole table in ONE shell process per shell; each later `runGuard*`
+ * call with the same (script, command, env) reads the cached verdict. An
+ * unprimed call still does a real spawn, so priming is purely an optimization.
+ */
+function primeGuard(
+  scriptPath: string,
+  commands: readonly (string | { cmd: string; env: NodeJS.ProcessEnv })[],
+): void {
+  const cases = commands.flatMap((c) =>
+    typeof c === "string" ? (guardCase(c) ?? []) : (guardCase(c.cmd, c.env) ?? []),
+  );
+  batchFor(scriptPath).prime(HOOK_SHELLS, cases);
+}
+
 /** Runs under every available shell (bash AND zsh, #391); the verdicts must agree. */
 function runGuardScript(scriptPath: string, command: string, env?: NodeJS.ProcessEnv): number {
   const payload = JSON.stringify({ tool_input: { command } });
+  const batchable = guardCase(command, env);
+  if (batchable !== undefined) {
+    return acrossShells((shell) => batchFor(scriptPath).run(shell, batchable).status);
+  }
   return acrossShells((shell) => {
     try {
       execFileSync(resolveBin(shell), [scriptPath], {
@@ -115,7 +171,17 @@ function runGuardVerbose(
  * the placeholder substituted the same way so force-push-to-base assertions have
  * a concrete base.
  */
+const renderedGuards = new Map<string, string>();
 function renderGuard(base: string): string {
+  // One rendered copy per base, so a primed table and its tests share a path.
+  const cached = renderedGuards.get(base);
+  if (cached !== undefined) return cached;
+  const p = renderGuardUncached(base);
+  renderedGuards.set(base, p);
+  return p;
+}
+
+function renderGuardUncached(base: string): string {
   const raw = readFileSync(guardPath, "utf-8").replace(
     /\{\{shq:branchBase\}\}/g,
     shellSingleQuote(base),
@@ -128,6 +194,22 @@ function renderGuard(base: string): string {
 }
 
 describe.runIf(runsBash)("guard-destructive.sh", () => {
+  // Mutation smoke (spec 0054 D4): a batch that cannot see a verdict change would
+  // pass vacuously, so flip every block exit in a temp copy and require the primed
+  // table to follow it. Covers: R7, R9
+  describe("batch harness smoke", () => {
+    it("a guard with its block exit inverted flips the batched verdict", () => {
+      const mutated = join(mkdtempSync(join(tmpdir(), "navori-guard-mut-")), "guard.sh");
+      writeFileSync(mutated, readFileSync(guardPath, "utf-8").replace(/exit 2/g, "exit 0"));
+      chmodSync(mutated, 0o755);
+      const cmds = ["rm -rf /", "git commit --no-verify -m x", "ls -la"];
+      primeGuard(mutated, cmds);
+      primeGuard(guardPath, cmds);
+      expect(cmds.map((c) => runGuardScript(guardPath, c))).toEqual([2, 2, 0]);
+      expect(cmds.map((c) => runGuardScript(mutated, c))).toEqual([0, 0, 0]);
+    });
+  });
+
   describe("with a JSON parser on PATH (jq/node)", () => {
     it("blocks `rm -rf /` (exit 2)", () => {
       expect(runGuard("rm -rf /")).toBe(2);
@@ -359,6 +441,17 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   ];
 
   describe("verdict table (segment scoping, #A1/#A2 regressions)", () => {
+    beforeAll(() => {
+      primeGuard(
+        guardPath,
+        VERDICTS.map((r) => r.cmd),
+      );
+      primeGuard(
+        renderGuard("main"),
+        BASE_VERDICTS.map((r) => r.cmd),
+      );
+    }, PRIME_TIMEOUT_MS);
+
     it.each(VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
       expect(runGuard(cmd)).toBe(blocked ? 2 : 0);
     });
@@ -460,6 +553,15 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   ];
 
   describe("rule 6 — shell rewrites of managed files (#530)", () => {
+    beforeAll(
+      () =>
+        primeGuard(
+          guardPath,
+          MANAGED_WRITE_VERDICTS.map((r) => r.cmd),
+        ),
+      PRIME_TIMEOUT_MS,
+    );
+
     it.each(MANAGED_WRITE_VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
       expect(runGuard(cmd)).toBe(blocked ? 2 : 0);
     });
@@ -581,6 +683,15 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       },
     ];
 
+    beforeAll(
+      () =>
+        primeGuard(
+          guardPath,
+          ROWS.map(({ cmd, cwd }) => ({ cmd, env: { ...process.env, CLAUDE_PROJECT_DIR: cwd } })),
+        ),
+      PRIME_TIMEOUT_MS,
+    );
+
     it.each(ROWS)("$why: `$cmd` → $blocked", ({ cmd, cwd, blocked }) => {
       expect(runGuard(cmd, { ...process.env, CLAUDE_PROJECT_DIR: cwd })).toBe(blocked ? 2 : 0);
     });
@@ -619,6 +730,16 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * limitation. A new attempt that lands belongs here as a row.
    */
   describe("inert content — written text vs executed text (#462)", () => {
+    beforeAll(
+      () =>
+        primeGuard(renderGuard("main"), [
+          ...WRITES.map((r) => r.cmd),
+          ...BYPASS_ATTEMPTS.map((r) => r.cmd),
+          ...BYPASS_ATTEMPTS_BASE.map((r) => r.cmd),
+        ]),
+      PRIME_TIMEOUT_MS,
+    );
+
     // 1. Writing a file whose CONTENT quotes a destructive command: passes.
     const WRITES: ReadonlyArray<{ cmd: string; why: string }> = [
       {
@@ -889,6 +1010,19 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * this red.
    */
   describe("rm flag equivalences × targets (#509)", () => {
+    beforeAll(
+      () =>
+        primeGuard(guardPath, [
+          ...BLOCKED.map((r) => r.cmd),
+          ...ALLOWED.map((r) => r.cmd),
+          ...NO_PRESERVE_ROOT,
+          ...RM_FLAGS.filter(({ flags }) => isForceOnly(flags)).map(
+            ({ flags }) => `rm ${flags} "$BUILD_DIR"`,
+          ),
+        ]),
+      PRIME_TIMEOUT_MS,
+    );
+
     const RM_FLAGS: ReadonlyArray<{ flags: string; why: string }> = [
       { flags: "-rf", why: "canonical" },
       { flags: "-fr", why: "combined, reversed" },
@@ -1013,6 +1147,16 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * a bypass for a false positive that fires daily.
    */
   describe("rm operand LISTS — every operand counts, not just the first (#509)", () => {
+    beforeAll(
+      () =>
+        primeGuard(guardPath, [
+          ...LIST_BLOCKED.map((r) => r.cmd),
+          ...PERMUTED,
+          ...LIST_ALLOWED.map((r) => r.cmd),
+        ]),
+      PRIME_TIMEOUT_MS,
+    );
+
     /** The axis here is position, so the flag axis stays at one row per family. */
     const LIST_FLAGS = ["-rf", "-R", "--recursive"];
     /** Harmless operands that sit BEFORE the sensitive one. */
@@ -1125,6 +1269,17 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * match is only half the trade if the other half fires daily.
    */
   describe("rm target QUOTING — a quoted target is the same target", () => {
+    beforeAll(
+      () =>
+        primeGuard(guardPath, [
+          ...QUOTED_BLOCKED.map((r) => r.cmd),
+          ...QUOTED_FLAGS.map((r) => r.cmd),
+          ...QUOTED_LISTS,
+          ...QUOTED_ALLOWED.map((r) => r.cmd),
+        ]),
+      PRIME_TIMEOUT_MS,
+    );
+
     const QUOTES: ReadonlyArray<{ open: string; close: string; why: string }> = [
       { open: "", close: "", why: "bare" },
       { open: '"', close: '"', why: "double-quoted" },
@@ -1248,6 +1403,15 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * of naming it, and the negative rows are the bound that makes it acceptable.
    */
   describe("bounded false positives of the operand run", () => {
+    beforeAll(
+      () =>
+        primeGuard(
+          renderGuard("main"),
+          FALSE_POSITIVES.map((r) => r.cmd),
+        ),
+      PRIME_TIMEOUT_MS,
+    );
+
     const FALSE_POSITIVES: ReadonlyArray<{ cmd: string; blocked: boolean; why: string }> = [
       { cmd: "echo rm -rf build /usr", blocked: true, why: "a mention plus a later path" },
       {

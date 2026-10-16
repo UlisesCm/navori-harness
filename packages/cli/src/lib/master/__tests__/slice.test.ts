@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { runCommand } from "citty";
+import { createRepoTemplate, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
 import { planCommand } from "../../../commands/plan.ts";
 import { masterCommand } from "../../../commands/master.ts";
 import type { Workplan } from "../../plan/schema.ts";
@@ -75,10 +76,23 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** Derive projection membership and coverage from one source and one slice. */
+/** Built once; only state created before any absolute-path-recording call lives in it. */
+let template: RepoTemplate;
+beforeAll(() => {
+  template = createRepoTemplate("navori-d3-slice-", buildFixture);
+});
+afterAll(() => template.dispose());
+
+/** Copy the prebuilt repo; `parts` is read back from the copied contract so it stays independent. */
 function fixture(): { cwd: string; stage: string; parts: DeliveryParts } {
-  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-d3-slice-")));
-  dirs.push(cwd);
+  const cwd = template.copy();
+  const stage = join(cwd, "specs", "_master", "01-demo");
+  const parts = JSON.parse(readFileSync(join(stage, "parts.json"), "utf8")) as DeliveryParts;
+  return { cwd, stage, parts };
+}
+
+/** Derive projection membership and coverage from one source and one slice. */
+function buildFixture(cwd: string): void {
   execFileSync("git", ["init", "-q", cwd]);
   execFileSync("git", ["switch", "-q", "-c", "feat/one"], { cwd });
   const entry = {
@@ -180,7 +194,6 @@ function fixture(): { cwd: string; stage: string; parts: DeliveryParts } {
   };
   parts.digest = contractDigest(parts);
   writeFileSync(join(stage, "parts.json"), JSON.stringify(parts));
-  return { cwd, stage, parts };
 }
 
 describe("delivery slice projection", () => {

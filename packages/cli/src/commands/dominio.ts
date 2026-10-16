@@ -156,19 +156,28 @@ const injectSubCommand = defineCommand({
   },
   async run() {
     try {
-      const names = resolveWorkspacesForCwd(process.cwd());
-      const blocks: string[] = [];
-      for (const ws of names) {
-        const entries = listEntries(ws).filter((e) => e.status !== "superseded");
-        if (entries.length === 0) continue;
-        blocks.push(renderInjectBlock(ws, entries, workspaceLang(ws)));
-      }
-      if (blocks.length > 0) process.stdout.write(blocks.join("\n\n") + "\n");
+      const text = dominioInjectText();
+      if (text !== "") process.stdout.write(text);
     } catch {
       // Fail silent: a broken store must not disturb session startup.
     }
   },
 });
+
+/**
+ * What `dominio inject` prints: the Dominio index of the workspace(s) the cwd belongs
+ * to, newline-terminated, or `""` when there is nothing to say. Throws on a broken
+ * store: `inject` swallows it, `tools session-context` treats it as "no output at all".
+ */
+export function dominioInjectText(): string {
+  const blocks: string[] = [];
+  for (const ws of resolveWorkspacesForCwd(process.cwd())) {
+    const entries = listEntries(ws).filter((e) => e.status !== "superseded");
+    if (entries.length === 0) continue;
+    blocks.push(renderInjectBlock(ws, entries, workspaceLang(ws)));
+  }
+  return blocks.length > 0 ? blocks.join("\n\n") + "\n" : "";
+}
 
 function renderInjectBlock(ws: string, entries: DominioEntry[], lang: Lang): string {
   const dl = tc(lang).dominio;

@@ -6,7 +6,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="6bcd004e" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="zod-validation" hash="6bcd004e" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
@@ -95,3 +95,12 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 - APIs match the installed major — no `z.nativeEnum` on v4, no `z.prettifyError` on v3.
 - `bun run check:fast` green.
 <!-- /navori:managed id="zod-validation" -->
+
+## This repo's schemas (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where the schemas live and how they are named.
+     - Schemas shared between layers (or with the frontend) and who owns them.
+     - The validation middleware in use and which routes bypass it (and why).
+     - How a ZodError is turned into the API's error response.
+-->

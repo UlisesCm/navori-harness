@@ -1,4 +1,4 @@
-# navori:managed start id="master-plan-context-base" hash="ebc02be4" version="0.12.1" source="@navori/core"
+# navori:managed start id="master-plan-context-base" hash="4f28f89e" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.
@@ -26,8 +26,10 @@ navori_audit_repo_from_cwd() {
   esac
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
-# Shared advisory metadata recorder. The CLI is the single private-FD writer.
-# No shell redirects, human content, or fallback writes are permitted here.
+# Shared advisory metadata recorder. The CLI is the single writer of the session log.
+# The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.
+# The CLI re-validates every file before it reaches the log. No human content, no other
+# redirects and no fallback writes are permitted here (spec 0054 D8; pinned by a drift test).
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
@@ -49,6 +51,19 @@ navori_audit_now() {
   fi
   perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
     || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# One spool file per event: `{"v":1,"host":…,"metadata":{…}}`, built by a single jq so the
+# JSON is well-formed whatever the payload held. Args: metadata JSON. Needs
+# navori_audit_spool and navori_audit_host. Returns non-zero when nothing was written.
+navori_audit_spool_write() {
+  navori_audit_event=$(jq -cn --arg host "$navori_audit_host" --argjson m "$1" \
+    '{v:1,host:$host,metadata:$m}' 2>/dev/null) || return 1
+  [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
+  navori_audit_stamp=${EPOCHREALTIME:-0}
+  navori_audit_stamp=${navori_audit_stamp//[.,]/}
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  return 0
 }
 
 # Resolve one exact marker before invoking the metadata writer. Startup may
@@ -84,11 +99,23 @@ navori_audit_record_metadata() {
     navori_audit_arm=$navori_audit_root/$navori_audit_repo/.armed
     [ -f "$navori_audit_arm" ] && [ ! -L "$navori_audit_arm" ] || return 0
   fi
-  command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
+  # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
+  # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
+  # real directory we own (not a symlink); the file is created with noclobber (O_EXCL:
+  # never overwrites, never follows a symlink planted at that name) under umask 077.
+  # The CLI re-validates host, categories and size when it consolidates. Anything
+  # unusual — no dir, wrong owner, failed write — falls through to the CLI bridge below.
+  navori_audit_spool=$navori_audit_root/$navori_audit_repo/spool-$navori_audit_session
+  # `navori_audit_no_spool` (set by audit-mode-close) forces the CLI: the session-end
+  # event is what makes the CLI consolidate the spool.
+  if [ -z "${navori_audit_no_spool:-}" ] && [ -d "$navori_audit_spool" ] && [ ! -L "$navori_audit_spool" ] && [ -O "$navori_audit_spool" ]; then
+    navori_audit_spool_write "$1" && return 0
+  fi
+  command -v navori >/dev/null 2>&1 || return 0
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
   printf '%s' "$1" | navori audit --record-metadata --host "$navori_audit_host" \

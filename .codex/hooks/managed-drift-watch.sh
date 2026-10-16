@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="acdc6fb3" version="0.12.1" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="3fdad3ab" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -77,17 +77,24 @@
 # a block broken INSIDE a worktree is not seen here. It surfaces when that branch
 # is rendered or reviewed.
 #
-# COST, and why this compares CONTENT rather than mtimes. The obvious cheap
-# check is `find -newer <stamp>`, and it is wrong here: `find` compares mtimes at
-# whatever resolution the filesystem stores, which on several (ext4 under the CI
-# runner among them) is ONE SECOND. Two writes inside the same second as the
-# stamp are invisible — the watcher would report the first and silently miss the
-# second, which is precisely the failure it exists to prevent. It passed on APFS
-# and failed in CI, so the clock was never a sound basis.
+# COST, mtime seal in front of the content check (spec 0054 R23, D7). Content
+# hashing stays the authority: it is exact and clock-free. But one `shasum` pass
+# over ~60 files (~35ms) on EVERY tool call is most of this hook's cost, so a
+# SEAL sits in front of it: `find <roots> -newer <mark>` (files AND directories,
+# so a created or deleted file counts) prints nothing → nothing changed since the
+# last hash pass → exit `clean` without hashing. A `find` error counts as "changed"
+# (hash), never as clean. The pending mark is touched BEFORE the hash pass, so a write
+# that lands while hashing is newer than the mark, but it only replaces the real mark
+# AFTER the pass succeeded: a hook killed mid-hash leaves the old mark and re-checks.
 #
-# So the common case costs one `shasum` pass over the managed files (~35ms) and
-# compares that list against the previous one. It is exact, it depends on no
-# clock, and per-block hashing — the expensive part, ~3.5s for 53 blocks — runs
+# DECLARED LIMIT (challenge C8): a write that preserves mtime (`touch -r`,
+# `cp -p`, `rsync -t`, a same-tick edit on a coarse-granularity filesystem) is
+# invisible to the seal. The hook is advisory, and the first pass that does hash
+# compares against the stored BASELINE (the stamp file, not the previous run's
+# result), so the change shows up at the next hash pass instead of never.
+#
+# When the seal does not hold, the cost is one `shasum` pass (~35ms) compared
+# against that baseline. Per-block hashing — the expensive part, ~3.5s for 53 blocks — runs
 # ONLY for the files whose content actually changed, which in a normal session
 # is none and in a bad one is one. That ~35ms is the MEDIAN of 13,692 recorded
 # runs in `~/.navori/audits` (mean 43.7ms, p95 78ms); the "~25ms measured over
@@ -156,6 +163,61 @@ payload_field() {
 }
 extract_cmd() {
   payload_field tool_input.command
+}
+
+# payload_fields VAR=path… — several fields, ONE process (spec 0054 R22, D10).
+# Each `payload_field` call forks a subshell plus jq/node; a hook that needs two
+# or more fields up front pays that per field. Here a single jq (or node) emits
+# every field followed by a NUL and closes with the sentinel `END` NUL.
+#
+# NEVER SHIFTS A FIELD (challenge B3). `tool_input.command` is model-controlled,
+# and JSON `\u0000` decodes to a NUL byte, which would end that field early and
+# slide the next value (`cwd`, `session_id`, a role) into the wrong variable. So
+# the producer REFUSES to emit anything when any value holds a NUL, and the shell
+# reads exactly N fields plus the sentinel with nothing after it. Any anomaly —
+# a NUL, a missing or extra field, empty output for a non-empty payload, a
+# producer that failed — discards the whole read and repeats it field by field
+# with `payload_field`, i.e. exactly today's behaviour. A variable is never left
+# empty "because the read went wrong" (that would read as "allowed").
+#
+# Values match `$(payload_field …)`: trailing newlines stripped, `null` and
+# `false` empty, non-strings as compact JSON. Paths are dotted and written HERE,
+# never user input. Works under bash 3.2 and zsh: no arrays, `printf -v` to assign.
+_payload_fields_read() {
+  local _pf_spec _pf_val _pf_end _pf_extra
+  for _pf_spec in "$@"; do
+    IFS= read -r -d '' _pf_val || return 1
+    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
+  done
+  IFS= read -r -d '' _pf_end || return 1
+  [ "$_pf_end" = END ] || return 1
+  if IFS= read -r -d '' _pf_extra; then return 1; fi
+  [ -z "$_pf_extra" ] || return 1
+  return 0
+}
+payload_fields() {
+  local _pf_spec _pf_filter="" _pf_paths=""
+  [ "$#" -gt 0 ] || return 0
+  if [ -z "$payload" ]; then
+    for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
+    return 0
+  fi
+  for _pf_spec in "$@"; do
+    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_paths="$_pf_paths ${_pf_spec#*=}"
+  done
+  _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
+  if command -v jq >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | jq -j "$_pf_filter" 2>/dev/null) && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{const j=JSON.parse(s);let o="";for(const p of process.argv[1].trim().split(" ")){let v=j;for(const k of p.split("."))v=v?.[k];const t=v==null||v===false?"":typeof v==="string"?v:JSON.stringify(v);if(t.includes("\0"))return;o+=t+"\0"}process.stdout.write(o+"END\0")}catch{}})' "$_pf_paths" 2>/dev/null) && return 0
+  fi
+  for _pf_spec in "$@"; do
+    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+  done
+  return 0
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -350,8 +412,10 @@ navori_audit_repo_from_cwd() {
   esac
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
-# Shared advisory metadata recorder. The CLI is the single private-FD writer.
-# No shell redirects, human content, or fallback writes are permitted here.
+# Shared advisory metadata recorder. The CLI is the single writer of the session log.
+# The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.
+# The CLI re-validates every file before it reaches the log. No human content, no other
+# redirects and no fallback writes are permitted here (spec 0054 D8; pinned by a drift test).
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
@@ -373,6 +437,19 @@ navori_audit_now() {
   fi
   perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
     || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# One spool file per event: `{"v":1,"host":…,"metadata":{…}}`, built by a single jq so the
+# JSON is well-formed whatever the payload held. Args: metadata JSON. Needs
+# navori_audit_spool and navori_audit_host. Returns non-zero when nothing was written.
+navori_audit_spool_write() {
+  navori_audit_event=$(jq -cn --arg host "$navori_audit_host" --argjson m "$1" \
+    '{v:1,host:$host,metadata:$m}' 2>/dev/null) || return 1
+  [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
+  navori_audit_stamp=${EPOCHREALTIME:-0}
+  navori_audit_stamp=${navori_audit_stamp//[.,]/}
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  return 0
 }
 
 # Resolve one exact marker before invoking the metadata writer. Startup may
@@ -408,11 +485,23 @@ navori_audit_record_metadata() {
     navori_audit_arm=$navori_audit_root/$navori_audit_repo/.armed
     [ -f "$navori_audit_arm" ] && [ ! -L "$navori_audit_arm" ] || return 0
   fi
-  command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
+  # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
+  # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
+  # real directory we own (not a symlink); the file is created with noclobber (O_EXCL:
+  # never overwrites, never follows a symlink planted at that name) under umask 077.
+  # The CLI re-validates host, categories and size when it consolidates. Anything
+  # unusual — no dir, wrong owner, failed write — falls through to the CLI bridge below.
+  navori_audit_spool=$navori_audit_root/$navori_audit_repo/spool-$navori_audit_session
+  # `navori_audit_no_spool` (set by audit-mode-close) forces the CLI: the session-end
+  # event is what makes the CLI consolidate the spool.
+  if [ -z "${navori_audit_no_spool:-}" ] && [ -d "$navori_audit_spool" ] && [ ! -L "$navori_audit_spool" ] && [ -O "$navori_audit_spool" ]; then
+    navori_audit_spool_write "$1" && return 0
+  fi
+  command -v navori >/dev/null 2>&1 || return 0
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
   printf '%s' "$1" | navori audit --record-metadata --host "$navori_audit_host" \
@@ -539,6 +628,25 @@ if [ "$nv_engine" = pi ] && [ -e .pi/navori ]; then
 fi
 [ -z "$roots" ] && exit 0
 
+# Seal (R23). Needs both the mark and the baseline: either missing means "never
+# hashed", so fall through. `-print -quit` stops at the first newer entry.
+mark="$state_dir/managed-drift-mark"
+[ "$nv_engine" != pi ] || mark="$state_dir/managed-drift-mark-pi"
+[ ! -L "$mark" ] || exit 0
+if [ -f "$mark" ] && [ -f "$stamp" ]; then
+  # shellcheck disable=SC2086 — word splitting is how the root list is passed.
+  if newer=$(find $roots -newer "$mark" -print -quit 2>/dev/null) && [ -z "$newer" ]; then
+    navori_audit_reached_check=1
+    exit 0
+  fi
+fi
+# Pending mark, touched BEFORE hashing and promoted only after a successful pass (see
+# COST above). A failed touch or move only disables the seal.
+mark_pending="$mark.pending"
+[ ! -L "$mark_pending" ] || exit 0
+touch "$mark_pending" 2>/dev/null || true
+promote_mark() { mv -f "$mark_pending" "$mark" 2>/dev/null || true; }
+
 # shellcheck disable=SC2086 — word splitting is how the root list is passed.
 current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
 [ -z "$current" ] && exit 0
@@ -548,7 +656,7 @@ current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
 # first command would train the reader to ignore this hook by lunchtime.
 if [ ! -f "$stamp" ]; then
   mkdir -p "$state_dir" 2>/dev/null || exit 0
-  printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
+  printf '%s\n' "$current" > "$stamp" 2>/dev/null && promote_mark
   exit 0
 fi
 
@@ -559,7 +667,7 @@ changed=$(printf '%s\n' "$current" | grep -F -x -v -f "$stamp" 2>/dev/null | sed
 # Re-baseline BEFORE reporting, so one write is reported once instead of on
 # every command for the rest of the session. A second write does change the
 # content again, and does get its own report.
-printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
+printf '%s\n' "$current" > "$stamp" 2>/dev/null && promote_mark
 [ -z "$changed" ] && exit 0
 
 # From here on the work is per-CHANGED-file only. `$(…)` strips the trailing

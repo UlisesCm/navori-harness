@@ -24,12 +24,21 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { isSafeGateChain } from "../../engines/shared/permission-rules.ts";
 import { readConfig } from "../config/config.ts";
+import { contentIdentity } from "../primitives/content-identity.ts";
 import { gitOut, isRegisteredCheckout } from "../workspace/workspace.ts";
 import {
   ensureStateDirectory,
   resolveStateRoot,
   stateArtifactPath,
 } from "../primitives/state-root.ts";
+import {
+  gateCacheKey,
+  lookupSatisfying,
+  passSentinel,
+  recordGreen,
+  toolchainKey,
+  type GateCacheEntry,
+} from "./cache.ts";
 import { renderVerdict, sentinelLine } from "./summary.ts";
 
 export type GateKind = "fast" | "full";
@@ -192,6 +201,11 @@ function isDirectory(path: string): boolean {
   }
 }
 
+/** First stdout line of a cache hit (spec 0054 Contracts). */
+function cachedVerdict(kind: GateKind, hit: GateCacheEntry): string {
+  return `navori gate ${kind}: PASS (cached ${hit.ts} · from ${hit.kind} · log ${hit.log} · sha256 ${hit.logSha256})`;
+}
+
 /**
  * Runs the configured gate. Refuses (exit 2, no sentinel) when the config is
  * missing/empty or the string fails the same predicate that decides whether the
@@ -201,6 +215,8 @@ export async function runGate(options: {
   cwd: string;
   kind: GateKind;
   now?: Date;
+  /** Skip the cache lookup (the green result is still recorded). */
+  force?: boolean;
 }): Promise<GateResult> {
   const { kind } = options;
   const root = resolveStateRoot({
@@ -210,8 +226,10 @@ export async function runGate(options: {
   });
   const repo = root.cwd;
   let gate: string | undefined;
+  let commands: { fast?: string; full?: string } = {};
   try {
-    gate = readConfig(resolve(repo, "navori.config.json")).qualityGate?.[kind];
+    commands = readConfig(resolve(repo, "navori.config.json")).qualityGate ?? {};
+    gate = commands[kind];
   } catch (err) {
     return refuse(kind, `cannot read navori.config.json (${(err as Error).message})`);
   }
@@ -221,6 +239,15 @@ export async function runGate(options: {
       kind,
       `qualityGate.${kind} is not a plain command chain; run it by hand: ${gate.trim()}`,
     );
+  }
+
+  // Spec 0054 D1: the identity before the chain keys the lookup and, with the one
+  // taken after, guards the record. An identity that cannot be computed disables the cache.
+  const before = contentIdentity(repo);
+  const tools = before.ok ? toolchainKey(repo) : undefined;
+  if (before.ok && !options.force) {
+    const hit = lookupSatisfying(root, { kind, fingerprint: before.fingerprint, commands, tools });
+    if (hit) return { exitCode: 0, stdout: cachedVerdict(kind, hit), stderr: "" };
   }
 
   ensureStateDirectory(root);
@@ -239,6 +266,21 @@ export async function runGate(options: {
     const note = `killed by ${result.signal}`;
     appendFileSync(logPath, `\n[navori gate] ${note}\n`);
     return { exitCode, stdout: `${sentinelLine(kind, exitCode, shown)}\n${note}`, stderr: "" };
+  }
+  if (result.code === 0 && before.ok) {
+    const after = contentIdentity(repo);
+    // An edit during the run means the green was earned on other bytes: do not record it.
+    if (after.ok && after.fingerprint === before.fingerprint) {
+      appendFileSync(logPath, `${passSentinel(kind, before.fingerprint)}\n`);
+      const key = gateCacheKey({
+        repo,
+        kind,
+        command: gate,
+        fingerprint: before.fingerprint,
+        tools,
+      });
+      recordGreen(root, key, logPath, options.now);
+    }
   }
   const log = readFileSync(logPath, "utf8");
   return {

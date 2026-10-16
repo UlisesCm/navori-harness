@@ -1,0 +1,210 @@
+{
+  "defaultMs": 20000,
+  "exceptions": [
+    {
+      "file": "src/lib/master/__tests__/slice.test.ts",
+      "ms": 360000,
+      "reason": "R35 en M5: 76 cases, 358 s in the M1 bench under loadavg 9-21; cost is ~80 fingerprintTree calls (7 git spawns each), memoized in M5"
+    },
+    {
+      "file": "src/lib/__tests__/implementer-no-markdown.test.ts",
+      "ms": 260000,
+      "reason": "263 cases, 257 s in the M1 bench under loadavg 9-21; hook subprocess per case (~100 ms each, batched in lanes); M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/guard-destructive.test.ts",
+      "ms": 195000,
+      "reason": "612 cases, 192 s in the M1 bench under loadavg 9-21; hook subprocess per case (~100 ms each, batched in lanes); M8 (T43) re-measures"
+    },
+    {
+      "file": "src/__tests__/cli.e2e.test.ts",
+      "ms": 175000,
+      "reason": "100 cases, 173 s in the M1 bench under loadavg 9-21; spawns the real built CLI per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/__tests__/audit-hooks.test.ts",
+      "ms": 140000,
+      "reason": "240 cases, 140 s in the M1 bench under loadavg 9-21; stateful multi-step scenarios against the real CLI, not batchable; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/plan/__tests__/escalation.test.ts",
+      "ms": 115000,
+      "reason": "R35 en M5: 111 cases, 113 s in the M1 bench under loadavg 9-21; cost is ~80 fingerprintTree calls (7 git spawns each), memoized in M5"
+    },
+    {
+      "file": "src/commands/__tests__/audit.test.ts",
+      "ms": 90000,
+      "reason": "177 cases, 86 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/__tests__/doctor-json-checks.e2e.test.ts",
+      "ms": 80000,
+      "reason": "18 cases, 77 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/master/__tests__/status.test.ts",
+      "ms": 75000,
+      "reason": "29 cases, 72 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/pi/__tests__/first-class-guards.test.ts",
+      "ms": 65000,
+      "reason": "12 cases, 64 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/shared/__tests__/pi-policy-parity.test.ts",
+      "ms": 65000,
+      "reason": "4 cases, 64 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/handoff/__tests__/review-edit-binding.test.ts",
+      "ms": 65000,
+      "reason": "25 cases, 63 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/diagnose/__tests__/receipt.test.ts",
+      "ms": 60000,
+      "reason": "46 cases, 59 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/routing-watch.test.ts",
+      "ms": 55000,
+      "reason": "50 cases, 54 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/role-guard.test.ts",
+      "ms": 50000,
+      "reason": "26 cases, 49 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/plan/__tests__/plan-gate.test.ts",
+      "ms": 45000,
+      "reason": "124 cases, 43 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/master/__tests__/init.test.ts",
+      "ms": 55000,
+      "reason": "43 cases, 48 s in the CAP 4 bench under loadavg 12-16 (M1: 43 s); spawns git/CLI subprocesses per case; loaded measurement, re-medir en M8"
+    },
+    {
+      "file": "src/engines/claude/__tests__/preset-extras.test.ts",
+      "ms": 25000,
+      "reason": "20.5 s in the CAP 4 bench under loadavg 12-16 (default 20 s); loaded measurement, re-medir en M8"
+    },
+    {
+      "file": "src/lib/__tests__/guard-search-routing.test.ts",
+      "ms": 45000,
+      "reason": "69 cases, 41 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/render-workspace-harness.test.ts",
+      "ms": 40000,
+      "reason": "22 cases, 40 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/master-first-use.test.ts",
+      "ms": 40000,
+      "reason": "15 cases, 40 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/__tests__/temp-lifecycle.integration.test.ts",
+      "ms": 40000,
+      "reason": "15 cases, 39 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/pi/__tests__/first-class-e2e.test.ts",
+      "ms": 40000,
+      "reason": "4 cases, 37 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/master/__tests__/delivery.test.ts",
+      "ms": 40000,
+      "reason": "11 cases, 36 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/plan/__tests__/evidence.test.ts",
+      "ms": 40000,
+      "reason": "38 cases, 35 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/gate-hook-kill.test.ts",
+      "ms": 40000,
+      "reason": "11 cases, 35 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/codex-approval-route.test.ts",
+      "ms": 35000,
+      "reason": "38 cases, 34 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/master-delivery.test.ts",
+      "ms": 35000,
+      "reason": "19 cases, 34 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/codex/__tests__/render-codex.test.ts",
+      "ms": 35000,
+      "reason": "70 cases, 33 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/claude/__tests__/render-engine.test.ts",
+      "ms": 35000,
+      "reason": "76 cases, 33 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/quality-gate-hook.test.ts",
+      "ms": 35000,
+      "reason": "47 cases, 32 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/master/__tests__/checks.test.ts",
+      "ms": 35000,
+      "reason": "71 cases, 32 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/sync-bulk-resolve.test.ts",
+      "ms": 35000,
+      "reason": "42 cases, 30 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/diagnose/__tests__/distribution.test.ts",
+      "ms": 30000,
+      "reason": "19 cases, 26 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/plan.test.ts",
+      "ms": 25000,
+      "reason": "51 cases, 25 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/pi/__tests__/first-class-approvals.test.ts",
+      "ms": 25000,
+      "reason": "13 cases, 25 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/engines/claude/__tests__/search-v2-render.test.ts",
+      "ms": 25000,
+      "reason": "43 cases, 22 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/session-start-hook.test.ts",
+      "ms": 25000,
+      "reason": "36 cases, 22 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/commands/__tests__/render-provenance.test.ts",
+      "ms": 25000,
+      "reason": "6 cases, 21 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/lib/__tests__/quality-gate-worktree-resolve.test.ts",
+      "ms": 25000,
+      "reason": "9 cases, 21 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    },
+    {
+      "file": "src/__tests__/render-drift-check.test.ts",
+      "ms": 25000,
+      "reason": "16 cases, 20 s in the M1 bench under loadavg 9-21; spawns git/CLI subprocesses per case; M8 (T43) re-measures"
+    }
+  ]
+}

@@ -30,7 +30,11 @@ export function runCoverage(dependencies = {}) {
   const childEnv = { ...env, NAVORI_COVERAGE_DIR: coverageDir };
   let interrupted = false;
   try {
-    const vitest = run("bun", ["x", "vitest", "run", "--coverage"], {
+    // NAVORI_TEST_REPORT: also write Vitest's JSON report there (input of check-test-budget).
+    const reportArgs = env.NAVORI_TEST_REPORT
+      ? ["--reporter=default", "--reporter=json", `--outputFile.json=${env.NAVORI_TEST_REPORT}`]
+      : [];
+    const vitest = run("bun", ["x", "vitest", "run", "--coverage", ...reportArgs], {
       cwd: packageRoot,
       env: childEnv,
       stdio: "inherit",

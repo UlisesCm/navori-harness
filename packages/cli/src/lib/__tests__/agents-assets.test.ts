@@ -172,7 +172,7 @@ describe("each agent declares its own handoff contract (#573)", () => {
  * Spec 0032 lote 3 (#1011), T10 — the implementer's `acceptance` report and
  * the reviewer's workplan-evidence rule, gated behind `<!-- navori:if
  * planTiers -->` in the raw asset (the rendered on/off behavior is covered
- * by `plan-tiers-contracts.test.ts`).
+ * by `doctrine-contracts.test.ts`).
  *
  * Covers: R20, R21
  */

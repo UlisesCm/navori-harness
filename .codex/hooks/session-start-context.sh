@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="39c34136" version="0.12.1" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="6accea05" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -105,6 +105,61 @@ payload_field() {
 }
 extract_cmd() {
   payload_field tool_input.command
+}
+
+# payload_fields VAR=path… — several fields, ONE process (spec 0054 R22, D10).
+# Each `payload_field` call forks a subshell plus jq/node; a hook that needs two
+# or more fields up front pays that per field. Here a single jq (or node) emits
+# every field followed by a NUL and closes with the sentinel `END` NUL.
+#
+# NEVER SHIFTS A FIELD (challenge B3). `tool_input.command` is model-controlled,
+# and JSON `\u0000` decodes to a NUL byte, which would end that field early and
+# slide the next value (`cwd`, `session_id`, a role) into the wrong variable. So
+# the producer REFUSES to emit anything when any value holds a NUL, and the shell
+# reads exactly N fields plus the sentinel with nothing after it. Any anomaly —
+# a NUL, a missing or extra field, empty output for a non-empty payload, a
+# producer that failed — discards the whole read and repeats it field by field
+# with `payload_field`, i.e. exactly today's behaviour. A variable is never left
+# empty "because the read went wrong" (that would read as "allowed").
+#
+# Values match `$(payload_field …)`: trailing newlines stripped, `null` and
+# `false` empty, non-strings as compact JSON. Paths are dotted and written HERE,
+# never user input. Works under bash 3.2 and zsh: no arrays, `printf -v` to assign.
+_payload_fields_read() {
+  local _pf_spec _pf_val _pf_end _pf_extra
+  for _pf_spec in "$@"; do
+    IFS= read -r -d '' _pf_val || return 1
+    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
+  done
+  IFS= read -r -d '' _pf_end || return 1
+  [ "$_pf_end" = END ] || return 1
+  if IFS= read -r -d '' _pf_extra; then return 1; fi
+  [ -z "$_pf_extra" ] || return 1
+  return 0
+}
+payload_fields() {
+  local _pf_spec _pf_filter="" _pf_paths=""
+  [ "$#" -gt 0 ] || return 0
+  if [ -z "$payload" ]; then
+    for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
+    return 0
+  fi
+  for _pf_spec in "$@"; do
+    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_paths="$_pf_paths ${_pf_spec#*=}"
+  done
+  _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
+  if command -v jq >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | jq -j "$_pf_filter" 2>/dev/null) && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{const j=JSON.parse(s);let o="";for(const p of process.argv[1].trim().split(" ")){let v=j;for(const k of p.split("."))v=v?.[k];const t=v==null||v===false?"":typeof v==="string"?v:JSON.stringify(v);if(t.includes("\0"))return;o+=t+"\0"}process.stdout.write(o+"END\0")}catch{}})' "$_pf_paths" 2>/dev/null) && return 0
+  fi
+  for _pf_spec in "$@"; do
+    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+  done
+  return 0
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -284,8 +339,10 @@ navori_audit_repo_from_cwd() {
   esac
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
-# Shared advisory metadata recorder. The CLI is the single private-FD writer.
-# No shell redirects, human content, or fallback writes are permitted here.
+# Shared advisory metadata recorder. The CLI is the single writer of the session log.
+# The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.
+# The CLI re-validates every file before it reaches the log. No human content, no other
+# redirects and no fallback writes are permitted here (spec 0054 D8; pinned by a drift test).
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
@@ -307,6 +364,19 @@ navori_audit_now() {
   fi
   perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
     || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# One spool file per event: `{"v":1,"host":…,"metadata":{…}}`, built by a single jq so the
+# JSON is well-formed whatever the payload held. Args: metadata JSON. Needs
+# navori_audit_spool and navori_audit_host. Returns non-zero when nothing was written.
+navori_audit_spool_write() {
+  navori_audit_event=$(jq -cn --arg host "$navori_audit_host" --argjson m "$1" \
+    '{v:1,host:$host,metadata:$m}' 2>/dev/null) || return 1
+  [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
+  navori_audit_stamp=${EPOCHREALTIME:-0}
+  navori_audit_stamp=${navori_audit_stamp//[.,]/}
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  return 0
 }
 
 # Resolve one exact marker before invoking the metadata writer. Startup may
@@ -342,11 +412,23 @@ navori_audit_record_metadata() {
     navori_audit_arm=$navori_audit_root/$navori_audit_repo/.armed
     [ -f "$navori_audit_arm" ] && [ ! -L "$navori_audit_arm" ] || return 0
   fi
-  command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
+  # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
+  # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
+  # real directory we own (not a symlink); the file is created with noclobber (O_EXCL:
+  # never overwrites, never follows a symlink planted at that name) under umask 077.
+  # The CLI re-validates host, categories and size when it consolidates. Anything
+  # unusual — no dir, wrong owner, failed write — falls through to the CLI bridge below.
+  navori_audit_spool=$navori_audit_root/$navori_audit_repo/spool-$navori_audit_session
+  # `navori_audit_no_spool` (set by audit-mode-close) forces the CLI: the session-end
+  # event is what makes the CLI consolidate the spool.
+  if [ -z "${navori_audit_no_spool:-}" ] && [ -d "$navori_audit_spool" ] && [ ! -L "$navori_audit_spool" ] && [ -O "$navori_audit_spool" ]; then
+    navori_audit_spool_write "$1" && return 0
+  fi
+  command -v navori >/dev/null 2>&1 || return 0
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
   printf '%s' "$1" | navori audit --record-metadata --host "$navori_audit_host" \
@@ -462,10 +544,88 @@ navori_notice_ack=""
 navori_notice_ack_pending=""
 navori_notice_body=""
 navori_notice_reserve=0
+#
+# ONE CLI call for both this block and the Dominio block below (spec 0054 R25, D12):
+# `navori tools session-context` prints the two sections between sentinels, all or
+# nothing. The sections are validated here before use; ANY deviation — a non-zero exit,
+# an older CLI that does not know the subcommand (usage banner on stdout), a missing or
+# repeated marker — discards the output whole and falls back to the two calls this hook
+# always made. The Dominio text is kept for its own block, which is where it is emitted.
+navori_notice_ok=0
 if [ "${NAVORI_NO_UPDATE_NOTIFIER:-}" != 1 ] \
-  && { command -v node >/dev/null 2>&1 || command -v jq >/dev/null 2>&1; } \
-  && command -v navori >/dev/null 2>&1; then
-  notice=$(navori tools notice 2>/dev/null || true)
+  && { command -v node >/dev/null 2>&1 || command -v jq >/dev/null 2>&1; }; then
+  navori_notice_ok=1
+fi
+navori_dominio_ok=0
+[ -d "$HOME/.navori/workspaces" ] && navori_dominio_ok=1
+navori_sc_done=0
+navori_sc_dominio=""
+notice=""
+if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -v navori >/dev/null 2>&1; then
+  navori_sc_nl=$'\n'
+  # Capability memo: an older CLI does not know the subcommand, and probing it every session
+  # would add a failing call to the fallback. The memo is written ONLY when the CLI clearly
+  # says so (non-zero exit AND an "Unknown command" message, stderr included), never on
+  # truncated or malformed output from a CLI that knows the subcommand. It stores the
+  # `navori --version` string captured at write time; the probe is skipped while the
+  # installed version still matches, so an upgrade re-probes whatever the binary's mtime says.
+  # Ceiling: stderr noise before the frame (a runtime warning) fails the framing and falls
+  # back to the two calls; revisit with a stdout-only probe if that shows up in practice.
+  # Only written when `~/.navori` already exists; a hook never creates it.
+  navori_sc_memo="$HOME/.navori/.no-session-context"
+  navori_sc_out=""
+  navori_sc_rc=0
+  navori_sc_skip=0
+  if [ -f "$navori_sc_memo" ] && [ ! -L "$navori_sc_memo" ]; then
+    navori_sc_ver=$(navori --version 2>/dev/null || true)
+    navori_sc_saved=$(head -n 1 "$navori_sc_memo" 2>/dev/null || true)
+    if [ -n "$navori_sc_ver" ] && [ "$navori_sc_ver" = "$navori_sc_saved" ]; then
+      navori_sc_skip=1
+    fi
+  fi
+  if [ "$navori_sc_skip" = 0 ]; then
+    navori_sc_out=$(navori tools session-context 2>&1) || navori_sc_rc=$?
+  fi
+  navori_sc_rest=${navori_sc_out#"#navori-session-context v1${navori_sc_nl}#section notice${navori_sc_nl}"}
+  if [ "$navori_sc_rc" = 0 ] && [ "$navori_sc_rest" != "$navori_sc_out" ]; then
+    navori_sc_rest="${navori_sc_rest}${navori_sc_nl}"
+    navori_sc_notice=${navori_sc_rest%%"#section dominio${navori_sc_nl}"*}
+    navori_sc_dom=${navori_sc_rest#*"#section dominio${navori_sc_nl}"}
+    # Both markers present exactly once and in order, and the end marker closes the output.
+    case "$navori_sc_dom" in
+      *"#section "* | *"#end navori-session-context${navori_sc_nl}"?*) : ;;
+      *"#end navori-session-context${navori_sc_nl}")
+        if [ "$navori_sc_dom" != "$navori_sc_rest" ] && [ "${navori_sc_notice}" != "$navori_sc_rest" ]; then
+          case "$navori_sc_notice" in
+            *"#section "* | *"#end navori-session-context"*) : ;;
+            *)
+              navori_sc_done=1
+              navori_sc_dominio=${navori_sc_dom%"#end navori-session-context${navori_sc_nl}"}
+              navori_sc_dominio=${navori_sc_dominio%"$navori_sc_nl"}
+              [ "$navori_notice_ok" = 1 ] && notice=${navori_sc_notice%"$navori_sc_nl"}
+              ;;
+          esac
+        fi
+        ;;
+    esac
+  fi
+  # The CLI clearly does not know the subcommand: remember it, keyed on its version.
+  if [ "$navori_sc_done" = 0 ] && [ "$navori_sc_skip" = 0 ] && [ "$navori_sc_rc" != 0 ] \
+    && [ -d "$HOME/.navori" ] && [ ! -L "$navori_sc_memo" ]; then
+    case "$navori_sc_out" in
+      *"Unknown command"*)
+        navori_sc_ver=$(navori --version 2>/dev/null || true)
+        if [ -n "$navori_sc_ver" ]; then
+          printf '%s\n' "$navori_sc_ver" > "$navori_sc_memo" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  fi
+  if [ "$navori_sc_done" = 0 ] && [ "$navori_notice_ok" = 1 ]; then
+    notice=$(navori tools notice 2>/dev/null || true)
+  fi
+fi
+if [ -n "$notice" ]; then
   notice_head=${notice%%$'\n'*}
   case "$notice_head" in
     "#navori-tool-notice v1 ack="*)
@@ -536,15 +696,10 @@ _armed_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
 # The authoritative repo comes from the payload's `cwd`, same as the recorder
 # partial (#454): the hook process can start somewhere other than the session's
 # repo, and `--arm` wrote the flag under the name `basename(cwd)` resolves to.
-_armed_cwd=""
-if command -v jq >/dev/null 2>&1; then
-  _armed_cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null || true)
-fi
+# One extraction for the three payload fields this hook reads (spec 0054 R22):
+# `cwd`, `session_id` and `source` used to cost a jq each.
+payload_fields _armed_cwd=cwd _armed_sid=session_id _ss_source=source
 [ -n "$_armed_cwd" ] || _armed_cwd=${CLAUDE_PROJECT_DIR:-$PWD}
-_armed_sid=""
-if command -v jq >/dev/null 2>&1; then
-  _armed_sid=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null || true)
-fi
 # Same charset guard the CLI and the recorder apply (#503): a path-shaped id
 # means the payload is not what we think it is — do nothing rather than guess.
 case "$_armed_sid" in
@@ -561,7 +716,7 @@ esac
 # A hook export cannot reach later Codex tool shells. Deliver the exact pair
 # through the session context so an agent-initiated CLI command can pass it.
 if [ "$nv_engine" = codex ]; then
-  _audit_runtime_id=$(payload_field session_id)
+  _audit_runtime_id=$_armed_sid
   case "$_audit_runtime_id" in
     "" | *[!A-Za-z0-9_-]*) : ;;
     *) add "Audit CLI context for this session: NAVORI_AUDIT_HOST=codex NAVORI_AUDIT_SESSION_ID=${_audit_runtime_id}. Pass both variables to agent-initiated navori commands when audit correlation is needed." ;;
@@ -575,10 +730,6 @@ fi
 # preinstalled on macOS, and the one line this decides (the post-compaction
 # reminder, below) must not be the kind of thing that silently stops shipping on
 # half the machines.
-_ss_source=""
-if command -v jq >/dev/null 2>&1; then
-  _ss_source=$(printf '%s' "$payload" | jq -r '.source // ""' 2>/dev/null || true)
-fi
 if [ -z "$_ss_source" ]; then
   case "$payload" in
     *'"source"'*)
@@ -820,12 +971,15 @@ fi
 # read the index); the hook stays dumb. Cheap pre-check first so the common
 # no-workspace case never spawns the binary, and `|| true` so a missing/broken
 # `navori` never blocks session startup. (spec 0011 §6.1)
-if [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
+dominio=""
+if [ "$navori_sc_done" = 1 ]; then
+  dominio=$navori_sc_dominio
+elif [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
   dominio=$(navori dominio inject 2>/dev/null || true)
-  if [ -n "$dominio" ]; then
-    add ""
-    add "$dominio"
-  fi
+fi
+if [ -n "$dominio" ]; then
+  add ""
+  add "$dominio"
 fi
 
 # Tool update notice (#1244), emission: last in the output on purpose (volatile and

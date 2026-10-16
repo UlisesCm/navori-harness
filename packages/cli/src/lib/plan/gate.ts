@@ -519,7 +519,14 @@ function evaluateEscalation(
   return null;
 }
 
-const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature>`";
+const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature> | verify: `<cmd>` → <expected>`";
+
+/**
+ * The `verify:` clause of a `nivel-0:` line (R28): a code span of N backticks
+ * (a `|` or `→` inside does not break it), a `→`/`->` separator and a non-empty,
+ * free-text `<expected>`. It requires the criterion to exist, not to be good.
+ */
+const VERIFY_CLAUSE = /^verify:\s+(`+)(.+?)\1\s+(?:→|->)\s+(\S.*)$/;
 
 /** Whether the rendered doctrine still shows the old one-token `nivel-0:` form. */
 function doctrineIsStale(cwd: string): boolean {
@@ -533,7 +540,7 @@ function doctrineIsStale(cwd: string): boolean {
 }
 
 /**
- * `nivel-0: <path>[,<path>] <feature>` (R6, R8). The path list is one
+ * `nivel-0: <path>[,<path>] <feature> | verify: `<cmd>` → <expected>` (R6, R8, R28). The path list is one
  * comma-separated token; `<feature>` indexes the rejection count. The gate only
  * verifies the declared paths, not the real diff.
  */
@@ -544,7 +551,10 @@ function evaluateNivel0(
   rawFeature: string | undefined,
   dispatchFeature: string | undefined,
 ): PlanGateResult {
-  const feature = rawFeature?.trim() ?? "";
+  const tail = rawFeature ?? "";
+  const bar = tail.indexOf("|");
+  const feature = (bar === -1 ? tail : tail.slice(0, bar)).trim();
+  const verifyClause = bar === -1 ? undefined : tail.slice(bar + 1).trim();
   if (!FEATURE_SLUG.test(feature)) {
     return deny(
       `\`nivel-0:\` needs a feature — open with ${NIVEL0_FORM}.` +
@@ -556,6 +566,13 @@ function evaluateNivel0(
   if (dispatchFeature !== undefined && dispatchFeature !== feature) {
     return deny(
       `dispatch feature "${dispatchFeature}" does not match nivel-0 feature "${feature}".`,
+    );
+  }
+  const verify = verifyClause === undefined ? null : VERIFY_CLAUSE.exec(verifyClause);
+  if (verify === null || verify[2]!.trim() === "") {
+    return deny(
+      `\`nivel-0:\` needs a verification criterion (R28) — open with ${NIVEL0_FORM}; ` +
+        "`<expected>` is free text and must not be empty.",
     );
   }
   let root: StateRoot;
