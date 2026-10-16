@@ -58,7 +58,9 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   (`--outputFile.json`) y escribe `.navori/state/bench/tests-<ts>.json`. Registra pared, duración por
   archivo, top 25, `loadavg`, CPUs y `ulimit -n`. — R1, R4
 - `packages/cli/test-budget.json`. Define `{ defaultMs, exceptions: [{ file, ms, reason }] }`, con
-  un esquema zod en el script de abajo. — R2
+  un esquema zod en el script de abajo. — R2. Desviación de M3: las 40 excepciones llevan `ms` = duración
+  medida en M1 bajo carga (loadavg 9–21), redondeada hacia arriba a 5 s. Están infladas por la carga; M8
+  (T43) las re-mide y aprieta. Las razones de `slice` y `escalation` dicen «R35 en M5».
 - `packages/cli/scripts/check-test-budget.mjs`. Lee el JSON del reporter y aplica
   `ms × NAVORI_TEST_BUDGET_FACTOR` (default 1; CI declara su factor). Falla nombrando archivo,
   duración y presupuesto. Corre en `quality` después de `test:coverage`, que suma el reporter `json`
@@ -77,7 +79,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   PURPOSE": la huella cubre `core-assets` y `packages/plugins`. — R3, R18
 - `packages/cli/vitest.config.ts`. `maxWorkers` vale `NAVORI_TEST_WORKERS` o
   `min(availableParallelism() - 1, CAP, ⌊ulimit -n / FDS_PER_WORKER⌋)`. `ulimit -n` se lee una vez
-  con `sh -c 'ulimit -n'`, y `CAP` y `FDS_PER_WORKER` se fijan en M2. — R10. **Medido en M2:** `CAP`=8 y `FDS_PER_WORKER`=64 con `NAVORI_TEST_WORKERS=8` en `bench:tests`, `ulimit -n 1048576`, 10 CPU; loadavg antes 15.26/10.32/8.74 y después 14.35/21.63/16.39 (máquina muy cargada). Resultado: 441 archivos, 9 227 tests, 473.8 s, 0 `EMFILE`, `vitestExit` 1 por tres archivos (`render-drift-check` y `repo-config-gate` fallaron por cambios de scripts de este milestone, corregidos después; `role-guard` falló bajo carga y pasa aislado). Es **una** corrida, no tres, y no es línea base válida para R4. Evidencia: `.navori/state/bench/tests-2026-10-16T01-53-26-608Z.json`.
+  con `sh -c 'ulimit -n'`, y `CAP` y `FDS_PER_WORKER` se fijan en M2. — R10. **Enmienda (CAP=4):** `WORKER_CAP` vale 4 en `packages/cli/vitest.workers.ts`, no 8. Con CAP=8 bajo carga, la pared fue 545–568 s frente a 495–574 s con 4 workers; el tiempo por archivo fue 1.3–1.8× (suma 3 833–4 072 s frente a 1 822 s), hubo timeouts en `slice`, `escalation` y `role-guard`, y 28 archivos superaron su presupuesto. Se revalida en M8 con la máquina libre. **Medido en M2 (CAP=8, ya superado por la enmienda):** `CAP`=8 y `FDS_PER_WORKER`=64 con `NAVORI_TEST_WORKERS=8` en `bench:tests`, `ulimit -n 1048576`, 10 CPU; loadavg antes 15.26/10.32/8.74 y después 14.35/21.63/16.39 (máquina muy cargada). Resultado: 441 archivos, 9 227 tests, 473.8 s, 0 `EMFILE`, `vitestExit` 1 por tres archivos (`render-drift-check` y `repo-config-gate` fallaron por cambios de scripts de este milestone, corregidos después; `role-guard` falló bajo carga y pasa aislado). Es **una** corrida, no tres, y no es línea base válida para R4. Evidencia: `.navori/state/bench/tests-2026-10-16T01-53-26-608Z.json`.
 - `packages/cli/scripts/test-affected.mjs` + `test:affected` (D3). — R11
 - Reescrituras (D4):
   - `lib/master/__tests__/slice.test.ts` y `lib/plan/__tests__/escalation.test.ts`;
@@ -85,9 +87,26 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   - `cli.e2e`;
   - helpers `src/__tests__/helpers/{repo-template,hook-batch}.ts`.
 
-  — R7, R9
+  — R7, R9.
+
+  Desviaciones de M3:
+  - `repo-template` ahorra ~10 de ~700 spawns de git por test pesado. El costo dominante es
+    `fingerprintTree` (82 llamadas × 7 spawns en un solo test), código de producto en `evidence.ts`,
+    fuera de alcance. El presupuesto de 20 s por archivo no se cumple bajo carga: `slice` ~130 s
+    (loadavg 9–16), `escalation` 28–72 s y `cli.e2e` ~118 s. `escalation` agotó 15 s en una corrida
+    con loadavg ~20 (4.4 s sin carga). Cumplirlo requiere un memo o menos llamadas a `fingerprintTree`
+    en producto.
+  - `hook-batch` ejecuta hasta 4 casos (`LANES`) en subshells concurrentes dentro de un solo `bash`. Un
+    lote serial midió igual que spawns aislados: el costo (~100 ms por caso) es del hook, no del spawn.
+  - `audit-hooks` no se migró. Sus escenarios tienen estado (consumo de arm, raíz por test, CLI real) y
+    no son batchables; solo su tabla de entrada hostil lo sería, y no ahorra nada medible. Por eso T12
+    queda sin marcar.
+
 - `src/__tests__/doctrine-contracts.test.ts`, que fusiona los cuatro tests de prosa, y
-  `scripts/js/doctrine-literal-diff.mjs`, la prueba de equivalencia de D4. — R8
+  `scripts/js/doctrine-literal-diff.mjs`, la prueba de equivalencia de D4. — R8. Desviación de M3:
+  `doctrine-literal-diff.mjs` no se creó. La equivalencia la cubre el último caso de
+  `doctrine-contracts` más el fixture `packages/cli/src/__tests__/fixtures/doctrine-literals.baseline.json`,
+  capturado instrumentando `expect` en los cuatro archivos viejos (114 literales positivos, 43 negativos).
 - **Sección "Casos e2e borrados"** de este documento. — R9
 - `lib/gate/cache.ts` (nuevo): `gateCacheKey`, `lookupGreen`, `recordGreen` y `fastCoveredByFull`
   (D1). — R12, R13, R14, R15
@@ -108,6 +127,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
 - `navori.config.json` y `package.json` raíz. `check:fast` pasa a los mismos pasos raíz que `full`
   (`bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run
   check:ast`), para que `fastCoveredByFull` sea verdadero en este repo. Es nota de tarea para M4.
+  Desviación de M4: la regla de permiso `bun run check:fast:*` sale de `settings.json` tras el render.
   — R13, R17
 - `lib/plan/evidence.ts`. Cambian `candidateProblem`, `PURE_EVIDENCE_RUNNERS`, `FINGERPRINT_EXCLUDES`
   (que pasa a ser `IDENTITY_EXCLUDES`) y `EvidenceLineSchema` (gana `fp`) (D5). — R19, R20
@@ -147,6 +167,11 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   `navori --version` con `harnessVersion` (lectura de `navori.config.json` en shell) y agrega al
   motivo `CLI <v> < harness <v>: actualiza navori`. El `allow` no paga la consulta. — R34
 
+- `lib/plan/evidence.ts`, `fingerprintTree`: deja de lanzar un proceso de git por archivo; lee el
+  índice y la lista de archivos en una o dos llamadas y hashea en proceso, con una prueba de
+  equivalencia de huella contra la versión previa. Es la causa dominante del tiempo de
+  `slice.test.ts` y de `plan update` en uso real (medido en M3). — R35
+
 ## Decisions
 
 ### D1 — Caché del gate y probe del pre-commit (R12–R15, R17)
@@ -169,7 +194,11 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   línea tiene que ser el centinela de éxito. Cualquier otra cosa es miss (R14).
 - **`full` satisface `fast` (R13).** Lo decide `fastCoveredByFull`: se parten las dos cadenas por
   `&&` y se lleva el `cwd` efectivo de cada paso (los `cd X`). Vale solo si cada par `(cwd, paso)` de
-  `fast` aparece literal en `full`. Por eso este repo alinea `check:fast` con los pasos raíz.
+  `fast` aparece literal en `full`. Enmienda de T19: `qualityGate.fast` queda como `bun run check:fast`,
+  porque escribir la cadena en línea rompió `agent-prompt-bytes` y `doc-budgets`. `fastCoveredByFull`
+  expande **un solo nivel**: cada paso `bun|npm run <script>` con `cwd` raíz se sustituye por el script
+  de `package.json` raíz, y `full` se compara literal. `check:fast` de la raíz es la cadena alineada con
+  `full`. Los scripts desconocidos, anidados o que no son cadena no quedan cubiertos.
 - **Probe (R17)** es `navori gate probe [--index | --clean]`. Es el positional `probe` del comando
   `gate`, y un CLI viejo responde `unknown kind` con exit 2, así que el hook corre el gate. Responde 0
   si hay hit para `fast` y 1 si no; nunca corre la cadena.
@@ -411,6 +440,9 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   `audit-log.sh`, con su drift test.
 - **Hooks renderizados.** Llegan con `navori render --apply`. Combinaciones de binarios: ver
   Failure modes.
+  Desviación de M4: el render regeneró, además del hook de M4, `.claude/agents/reviewer.md`,
+  `.claude/context/10-orquestacion.md` y `.claude/skills/resolve-ticket/SKILL.md`, y revirtió
+  `.pi/extensions/navori.ts` a la fuente. Los cuatro estaban desfasados respecto a `core-assets`.
 - **Config.** Claves nuevas opcionales; sin ellas, todo queda como hoy (la re-firma docs pide full).
   `check:fast` de este repo cambia a pasos raíz.
 - **Recibos.** La cabecera no cambia.
@@ -451,6 +483,9 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   - `session-context` con una sección fallida ⇒ nada impreso;
   - `managed-drift` limpio sin hashear.
 - Reescrituras: conteo e ids de casos, smoke de mutación y `doctrine-literal-diff` (D4).
+  Desviación de M3: el smoke de mutación existe solo en `implementer-no-markdown` (M3b). El script
+  `check-test-preservation.mjs` no lo implementa por archivo. Su conteo de casos es estático (`it`/`test`;
+  filas de tabla por `id:`), así que un `it.each` cuenta una vez.
 - `bench:hooks` verifica R23, R24 y R27, y `bench:tests` contra la línea base verifica R4. Son
   criterios `A<n>`, no tests de la suite.
 
@@ -473,7 +508,7 @@ vuelve a medir en M1. La única cifra no preliminar es el probe (~150 ms, medido
 | Bash sin audit (Codex, 7 hooks) | — | 395 ms proceso (corrida B; 398 ms en una corrida previa); presupuesto excedido | ≤ 300 ms proceso (R27) |
 | Eventos Claude/Codex (corrida B) | — | Edit 208 / 327 ms; Agent 347 / 351 ms; SessionStart 411 / 746 ms; UserPromptSubmit 273 / 291 ms | — |
 | `plan-gate` | 349 ms Claude / 526 ms Codex | por hook en `.navori/state/bench/hooks-latest.json` (`measurements[]`) | < 60 ms en la vía rápida (R24) |
-| Probe `bun …/src/index.ts` (arranque) | ~150 ms | *M4*: identidad por commit y tasa de hits | — |
+| Probe `bun …/src/index.ts` (arranque) | ~150 ms | M4: 112 ms miss / 119 ms hit (ver «Medición M4») | — |
 | `ensureDist` con hit, 1 archivo | — | M2: hit ~65 ms pared vía bun (0.03 s user); corrida de un archivo con `dist/` sellado ~0.6–0.9 s total; primera compilación: ~1.1 s de overhead de `ensure-dist` aparte del build | — |
 
 M1 llena la tabla con `bench:tests` y `bench:hooks`, y registra `loadavg` y `ulimit -n`.
@@ -482,6 +517,24 @@ M1 llena la tabla con `bench:tests` y `bench:hooks`, y registra `loadavg` y `uli
 exit 1 porque cuatro archivos de render del engine superaron el timeout de 15 s bajo carga; pasan
 aislados. Las cifras son mediana de 2 corridas, no de 3, y no se midieron con la máquina libre. R4 no
 se cierra con estos números.
+
+**Medición M3 (bajo carga, tras la reescritura; no comparable con la columna M1).** `slice.test.ts`
+~130 s (loadavg 9–16); `escalation.test.ts` 28–72 s; `cli.e2e.test.ts` ~118 s. Antes y después no se
+midieron con la misma carga, así que esta revisión no tiene un par válido antes/después. T43 lo mide
+en reposo.
+
+**Medición M4 (2026-10-15, loadavg 3.5, clon scratch, 1 436 archivos trackeados).**
+`indexContentIdentity` mediana 13 ms (7 corridas); huella del árbol de trabajo mediana 104 ms;
+`gate probe --index` 112 ms miss y 119 ms hit (incluye los spawns de `bun --version` y
+`node --version`); gate rápido ~1.2–1.6 s en caliente. Commit con hit 0.1–0.2 s frente a miss
+1.4–1.9 s. Tasa de hits del probe: 6 de 9 ciclos reales (gate→add→commit 3/3, `commit -a` 1/1,
+`add -A` 1/1 y un ciclo extra, todos hit). Los 3 misses: commit sin gate previo, archivo sin trackear
+presente y `git commit <path>` con otro archivo editado. Con HEAD sin nacer (unborn) la caché queda
+deshabilitada.
+
+**Nota de carga (wave 1).** `bench:tests` con `maxWorkers` 8, bajo loadavg 6–9, dio pared 568 s y suma
+por archivo 3 833 s, frente a 1 822 s con 4 workers. No hubo ganancia neta de pared. `CAP` se revalida
+en M8 con la máquina libre. Enmienda: `WORKER_CAP` queda en 4 (`packages/cli/vitest.workers.ts`). Con CAP=8 bajo carga, la pared fue 545–568 s frente a 495–574 s con 4 workers; el tiempo por archivo fue 1.3–1.8× (suma 3 833–4 072 s), con timeouts en `slice`, `escalation` y `role-guard` y 28 archivos sobre presupuesto.
 
 **`defaultMs` = 20000 ms** (ya escrito en `packages/cli/test-budget.json`). Se justifica con la
 distribución por archivo de la corrida de 495 s, bajo carga: p50 215 ms, p90 10.2 s, p95 16.9 s,
@@ -500,7 +553,20 @@ condiciones de máquina libre para evaluar R4 (T43).
 
 ## Casos e2e borrados (R9)
 
-La llena M3. Cada fila: caso borrado → caso unit que afirma lo mismo. Hoy está vacía.
+Cada fila: caso borrado → caso unit que afirma lo mismo. Total: 100 casos antes; 94 existentes tras el
+borrado, más 1 caso nuevo (95).
+
+| Caso e2e borrado | Contraparte unit (`archivo::caso`) |
+|---|---|
+| `render --workspace acota la operación a un solo workspace` | `packages/cli/src/commands/__tests__/render-monorepo.test.ts`::"renders only the matched workspace, skips root" |
+| `render --workspace falla con mensaje claro cuando el nombre no matchea` | `render-monorepo.test.ts`::"returns ok:false when the workspace name does not match" (afirma el nombre y la lista de workspaces conocidos) |
+| `scan --yes agrega un workspace nuevo creado tras init` | `packages/cli/src/commands/__tests__/scan.test.ts`::"detects new workspaces and writes them to config when yes=true" |
+| `scan --yes no hace nada si init ya pobló los workspaces` | `scan.test.ts`::"classifies existing workspaces and skips them" (afirma `wrote=false`) |
+| `init --recommended: un runner CON suite deriva always (#529)` | `packages/cli/src/lib/diagnose/__tests__/tests-policy.test.ts`::"derives always when the runner has a suite behind it" |
+| `doctor no reporta drift por un marker de agente anterior al CLI` (con `// Covers: A3`) | `packages/cli/src/lib/__tests__/health.test.ts`::"does not report a marker older than the CLI: its version is the last change, not staleness" (también `// Covers: A3`; A3 sigue en `cli.e2e` en otros dos casos) |
+
+Se conservan los casos e2e «sin suite» y «sin runner» de `init --recommended`, que afirman el cableado
+de init. El caso nuevo es `cli.e2e.test.ts`::"cada subcomando conserva un caso de código de salida real" (T13).
 
 ## Orden de implementación
 

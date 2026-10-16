@@ -132,6 +132,12 @@ Decisiones del usuario (2026-10-15):
   que leen `docs/` o `specs/`) en lugar del gate full. IF `qualityGate.docs` no está declarado o algún
   cambio sale de ese conjunto THEN SHALL exigir el gate full.
 
+- **R35** — The `fingerprintTree` de la evidencia SHALL calcular la huella con un número de procesos
+  de git acotado e independiente del número de archivos (una lectura del índice y del árbol, hash en
+  proceso), y SHALL producir exactamente la misma huella que la implementación previa para el mismo
+  árbol. Evidencia: 2026-10-15, ~700 spawns de git por llamada en los tests pesados de
+  `slice.test.ts`, el mismo costo que paga `plan update` en uso real.
+
 ### E — Hooks instalados
 
 - **R22** — WHEN un hook necesita varios campos del payload, the system SHALL extraerlos con una sola
