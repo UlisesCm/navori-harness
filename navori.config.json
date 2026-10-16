@@ -18,6 +18,8 @@
   "qualityGate": {
     "fast": "bun run check:fast",
     "scoped": "bun run check:scoped",
+    "affected": "bun run test:affected",
+    "docs": "bun run check:links && bun run check:doc-budgets && cd packages/cli && bun run test src/lib/__tests__/direction-doc.test.ts src/__tests__/direction-claude-first.test.ts src/__tests__/command-docs-inventory.test.ts",
     "nativeHooks": true,
     "full": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage"
   },
