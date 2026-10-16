@@ -476,3 +476,16 @@ describe("reviewer re-reads (#1274)", () => {
     expect(reviewer).toMatch(/Coverage[^\n]*signing round/);
   });
 });
+
+describe("#1022 — prior authority and the joint review barrier", () => {
+  it("keeps the parallel lifecycle canonical in orchestration with explicit serial operations", () => {
+    const orchestration = read("managed/orquestacion.md");
+    for (const operation of ["stage", "commit", "checkout", "render"]) {
+      expect(orchestration).toContain(operation);
+    }
+    expect(orchestration).toMatch(/both producers|both completions/i);
+    expect(orchestration).toMatch(/independent.*review|review.*independent/i);
+    expect(read("agents/orchestrator.md")).toContain("prepare-parallel");
+    expect(read("skills/resolve-ticket.md")).toContain("parallel");
+  });
+});

@@ -22,6 +22,7 @@ import {
 import { ImplHandoffSchema } from "./schema.ts";
 import { WorkplanSchema } from "../plan/schema.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
+import { hasParallelAuthority, isDerivedHandoffPath, parallelOwnershipValid } from "./parallel.ts";
 
 const id = z.string().regex(/^[0-9a-f-]{36}$/);
 /** Context and native source bindings; binding changes never establish independence. */
@@ -187,12 +188,18 @@ export function currentOwnership(
     !ownership ||
     ownership.cwd !== realpathSync(cwd) ||
     ownership.target !== target ||
-    ownership.fingerprint !== fingerprint ||
     !head ||
     ownership.base !== base
   )
     return undefined;
   try {
+    const parallel = hasParallelAuthority(cwd, feature, dir);
+    if (
+      parallel
+        ? !parallelOwnershipValid({ cwd, feature, target, dir }, ownership)
+        : ownership.fingerprint !== fingerprint
+    )
+      return undefined;
     const root = resolveStateRoot({ cwd, feature, dir });
     return digest(readFileSync(stateArtifactPath(root, `impl_${feature}.json`))) ===
       ownership.handoff
@@ -217,6 +224,10 @@ export function attestHandoff(options: {
     if (!actor || !["implementer", "scribe"].includes(actor.role))
       throw new Error("native designated producer identity unavailable");
     const root = resolveStateRoot(options);
+    if (hasParallelAuthority(root.cwd, options.feature, root.dir))
+      throw new Error(
+        "parallel authority requires finalize-parallel; serial attestation is unavailable",
+      );
     const raw = readFileSync(stateArtifactPath(root, `impl_${options.feature}.json`));
     const handoff = ImplHandoffSchema.parse(JSON.parse(raw.toString()));
     const plan = WorkplanSchema.parse(
@@ -268,14 +279,7 @@ export function attestHandoff(options: {
         throw new Error("scribe requires the designated implementer ownership");
       const prose = new Set(handoff.markdownRequests.map((r) => r.path));
       for (const [path, hash] of Object.entries(files)) {
-        const derived =
-          path.startsWith(".claude/agents/") ||
-          path.startsWith(".codex/agents/") ||
-          path.startsWith(".pi/agents/") ||
-          path.startsWith(".claude/hooks/") ||
-          path.startsWith(".codex/hooks/") ||
-          path.includes("/__golden__/");
-        if (hash !== prior.files[path] && !prose.has(path) && !derived)
+        if (hash !== prior.files[path] && !prose.has(path) && !isDerivedHandoffPath(path))
           throw new Error(`scribe changed non-prose ownership: ${path}`);
       }
       actors = [...prior.actors.filter((p) => p.role !== "scribe"), actor];

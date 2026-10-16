@@ -17,6 +17,7 @@ import { ImplHandoffSchema, type MarkdownRequest } from "./schema.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
 import { reviewEvidenceWarning, type EvidenceOptions } from "./review-evidence.ts";
+import { checkParallel } from "./parallel.ts";
 
 export type HandoffConsumer = "orchestrator" | "scribe" | "publisher" | "reviewer";
 export type HandoffStatus = "ok" | "findings" | "error";
@@ -62,6 +63,8 @@ export interface HandoffCheckOptions {
    * only by the file name; R16 (worktree/branch/path) does not apply. */
   legacyMarkdown?: boolean;
   evidenceOptions?: EvidenceOptions;
+  /** Opt-in prior authorization, usable only by the parallel scribe. */
+  parallel?: boolean;
 }
 
 function empty(feature: string, consumer: HandoffConsumer): HandoffCheckResult {
@@ -155,6 +158,24 @@ function checkLegacyMarkdown(options: HandoffCheckOptions): HandoffCheckResult {
  * into `failures` — validation failures and infrastructure failures are
  * different exit codes (0/2 vs 1, design.md Contracts). */
 export function checkHandoff(options: HandoffCheckOptions): HandoffCheckResult {
+  if (options.parallel) {
+    const result = empty(options.feature, options.consumer);
+    const checked =
+      options.consumer === "scribe" && !options.legacyMarkdown && options.evidenceOptions
+        ? checkParallel({ ...options, target: options.evidenceOptions.target })
+        : {
+            status: "error",
+            message: "parallel check requires --for scribe, target and scribeOwnsMarkdown",
+          };
+    if (checked.status !== "ok") {
+      result.failures.push({
+        check: "evidence",
+        detail: checked.message ?? "parallel preflight failed",
+      });
+      result.status = "findings";
+    }
+    return result;
+  }
   // Intent: the publisher always follows an implementer, so the base impl check stays for it.
   const result = checkHandoffBase(options);
   if (options.consumer !== "publisher" || !FEATURE_SLUG.test(options.feature)) return result;
