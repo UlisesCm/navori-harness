@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -114,5 +116,31 @@ describe("check-test-preservation", () => {
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("preserved");
+  });
+
+  // Covers: R8
+  it("una fuente ausente en el merge-base (fusión ya aterrizada) no rompe el guard", () => {
+    const real = JSON.parse(
+      readFileSync(resolve(SCRIPT, "..", "test-preservation.config.json"), "utf8"),
+    );
+    const dir = mkdtempSync(resolve(tmpdir(), "preservation-"));
+    try {
+      const config = resolve(dir, "config.json");
+      writeFileSync(
+        config,
+        JSON.stringify({
+          baseRef: real.baseRef,
+          files: [],
+          merges: [
+            { ...real.merges[0], from: ["packages/cli/src/__tests__/ya-no-existe.test.ts"] },
+          ],
+        }),
+      );
+      const run = spawnSync("node", [SCRIPT, "--config", config], { encoding: "utf8" });
+      expect(run.stderr).toBe("");
+      expect(run.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

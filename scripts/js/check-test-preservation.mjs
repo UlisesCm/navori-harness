@@ -119,13 +119,25 @@ export function compareLiteralBaseline({ baseline, expected, nowText }) {
   return violations;
 }
 
-/** @param {string} baseRef @param {string} path @param {string} mergeBase */
-function readBase(mergeBase, path) {
-  return execFileSync("git", ["show", `${mergeBase}:${path}`], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+/**
+ * Text of `path` at the merge-base, or null when the path does not exist there.
+ * A path absent at the base means the change already landed on it (e.g. the 0054
+ * fusion deleted the merged-from files): there is nothing to compare, not a crash.
+ *
+ * @param {string} mergeBase @param {string} path
+ * @returns {string | null}
+ */
+export function readBase(mergeBase, path) {
+  try {
+    return execFileSync("git", ["show", `${mergeBase}:${path}`], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    // `git show` fails for a missing path; a bad merge-base was already rejected by main().
+    return null;
+  }
 }
 
 /** @param {string[]} argv */
@@ -160,10 +172,12 @@ function main(argv) {
       violations.push(`${file.path}: file is gone`);
       continue;
     }
+    const baseText = readBase(mergeBase, file.path);
+    if (baseText === null) continue; // new at the base's successor: nothing to preserve
     violations.push(
       ...compareFile({
         label: file.path,
-        baseTexts: [readBase(mergeBase, file.path)],
+        baseTexts: [baseText],
         nowText,
         removedCases: file.removedCases,
       }),
@@ -175,14 +189,18 @@ function main(argv) {
       violations.push(`${merge.into}: file is gone`);
       continue;
     }
-    violations.push(
-      ...compareFile({
-        label: merge.into,
-        baseTexts: merge.from.map((path) => readBase(mergeBase, path)),
-        nowText,
-        rowIds: merge.countRowIds,
-      }),
-    );
+    // Sources already gone at the merge-base: the fusion landed there, only the literal baseline remains.
+    const baseTexts = merge.from.map((path) => readBase(mergeBase, path)).filter((t) => t !== null);
+    if (baseTexts.length > 0) {
+      violations.push(
+        ...compareFile({
+          label: merge.into,
+          baseTexts,
+          nowText,
+          rowIds: merge.countRowIds,
+        }),
+      );
+    }
     const literalText = read(merge.literalBaseline.path);
     if (literalText === null) {
       violations.push(`${merge.literalBaseline.path}: baseline is gone`);

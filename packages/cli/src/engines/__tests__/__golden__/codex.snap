@@ -16368,7 +16368,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 | You are about to… | Route |
 |---|---|
 | change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
-| **answer, explain, investigate, review, or plan** | do it yourself; nothing is written, so there is nothing to review. Delegate only for scale (signal table) |
+| **answer, explain, investigate, review, or plan** | do it yourself; nothing written, nothing to review. Delegate only for scale (signal table) |
 | write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
 | run commands, read files, inspect state | you do it |
 
@@ -16378,7 +16378,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
-- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers, verification). Artifacts supplement it; approval gates unchanged.
 - **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review each output.
 
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
@@ -16394,7 +16394,7 @@ Continue a foreground `spawn_agent` at cap via `send_input`; fresh bounded redis
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
-| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — the pipeline that chains the rest |
+| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — chains the rest |
 | …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
