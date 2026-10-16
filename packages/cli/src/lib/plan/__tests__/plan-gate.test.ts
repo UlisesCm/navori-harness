@@ -30,6 +30,9 @@ import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
 import { expandHookIncludes } from "../../render/hook-includes.ts";
+import { interpolate } from "../../render/interpolate.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../../engines/shared/roster.ts";
+import type { NavoriConfig } from "../../config/config.ts";
 
 /**
  * `navori plan gate` — the TypeScript half of the `PreToolUse(Agent)` hook
@@ -1844,5 +1847,122 @@ exit ${gateExit}
     expect(allow.status).toBe(0);
     expect(allow.versionCalls).toBe(0);
     expect(allow.stderr).toBe("");
+  });
+});
+
+describe("plan-gate.sh — shell fast path (R24)", () => {
+  const SRC = join(import.meta.dirname, "../../../../../core/core-assets/hooks/plan-gate.sh");
+
+  /** Runs the rendered hook with a fake `navori`; reports the exit code and CLI calls. */
+  function runHook(
+    input: string,
+    relPath = "hook.sh",
+  ): { status: number | null; cliCalls: number; stderr: string } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-fast-")));
+    try {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      const marker = join(dir, "cli-calls");
+      writeFileSync(
+        join(bin, "navori"),
+        `#!/bin/sh\ncat >/dev/null\necho x >> '${marker}'\n[ "$FAKE_DENY" = 1 ] && { echo denied >&2; exit 2; }\nexit 0\n`,
+        { mode: 0o755 },
+      );
+      const script = join(dir, relPath);
+      mkdirSync(join(script, ".."), { recursive: true });
+      writeFileSync(
+        script,
+        expandHookIncludes(readFileSync(SRC, "utf-8")).replace(
+          "{{navori.nonImplementerRoles}}",
+          NON_IMPLEMENTER_ROLES.join(" "),
+        ),
+        { mode: 0o755 },
+      );
+      const r = spawnSync("bash", [script], {
+        cwd: dir,
+        input,
+        encoding: "utf8",
+        env: {
+          PATH: `${bin}:/usr/bin:/bin`,
+          CLAUDE_PROJECT_DIR: dir,
+          NAVORI_AUDITS_ROOT: join(dir, "audits"),
+          FAKE_DENY: "1",
+        },
+      });
+      return {
+        status: r.status,
+        stderr: r.stderr,
+        cliCalls: existsSync(marker) ? readFileSync(marker, "utf8").trim().split("\n").length : 0,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const claude = (type: string): string =>
+    JSON.stringify({ cwd: "/x", tool_input: { subagent_type: type, prompt: "p" } });
+  const codex = (type: string): string =>
+    JSON.stringify({ cwd: "/x", tool_input: { agent_type: type, message: "m" } });
+  const CODEX = ".codex/hooks/plan-gate.sh";
+
+  // Covers: R24
+  it("rol no implementer decide en shell; clave duplicada o escapada va al CLI; Claude y Codex", () => {
+    // The rendered list is the single `NON_IMPLEMENTER_ROLES` constant.
+    expect(
+      interpolate("{{navori.nonImplementerRoles}}", { name: "x" } as unknown as NavoriConfig),
+    ).toBe(NON_IMPLEMENTER_ROLES.join(" "));
+
+    // Known non-implementer roles: allow with no CLI process (the fake CLI would deny).
+    for (const role of NON_IMPLEMENTER_ROLES) {
+      expect(runHook(claude(role))).toMatchObject({ status: 0, cliCalls: 0 });
+      expect(runHook(codex(role), CODEX)).toMatchObject({ status: 0, cliCalls: 0 });
+    }
+    expect(runHook(claude("navori:reviewer"))).toMatchObject({ status: 0, cliCalls: 0 });
+    expect(runHook(`{"tool_input": { "agent_type" : "scout" }}`, CODEX)).toMatchObject({
+      status: 0,
+      cliCalls: 0,
+    });
+
+    // Anything else is the CLI's decision: implementer, unknown roles, mixed case, no role.
+    for (const input of [
+      claude("implementer"),
+      claude("general-purpose"),
+      claude("Reviewer"),
+      claude("two words"),
+      JSON.stringify({ cwd: "/x", tool_input: { prompt: "p" } }),
+    ]) {
+      expect(runHook(input)).toMatchObject({ status: 2, cliCalls: 1 });
+    }
+    expect(runHook(codex("worker"), CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    expect(runHook(codex("default"), CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+
+    // A duplicated key (a JSON parser keeps the LAST one) goes to the CLI.
+    const duplicated = `{"tool_input":{"subagent_type":"reviewer","subagent_type":"implementer"}}`;
+    expect(runHook(duplicated)).toMatchObject({ status: 2, cliCalls: 1 });
+    // The key also appearing inside the prompt text is a second occurrence.
+    const quoted = JSON.stringify({
+      tool_input: { subagent_type: "scout", prompt: 'say "subagent_type": "implementer"' },
+    });
+    expect(runHook(quoted)).toMatchObject({ status: 2, cliCalls: 1 });
+
+    // Any `\u` escape (in the key or the value) goes to the CLI.
+    const escape = (hex: string): string => `${"\\"}u${hex}`;
+    expect(runHook(`{"tool_input":{"subagent_type":"${escape("0072")}eviewer"}}`)).toMatchObject({
+      status: 2,
+      cliCalls: 1,
+    });
+    expect(runHook(`{"tool_input":{"subagent_${escape("0074")}ype":"reviewer"}}`)).toMatchObject({
+      status: 2,
+      cliCalls: 1,
+    });
+
+    // A top-level `agent_type` is the CALLER's role, never the spawn target (Codex).
+    const callerFirst = `{"agent_type":"reviewer","tool_input":{"message":"m"}}`;
+    const callerLast = `{"tool_input":{"message":"m"},"agent_type":"reviewer"}`;
+    expect(runHook(callerFirst, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    expect(runHook(callerLast, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
+    // A nested object between `tool_input` and the key is not "directly inside".
+    const nested = `{"tool_input":{"meta":{"agent_type":"scout"}}}`;
+    expect(runHook(nested, CODEX)).toMatchObject({ status: 2, cliCalls: 1 });
   });
 });

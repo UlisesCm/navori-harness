@@ -81,6 +81,62 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+# SHELL FAST PATH (spec 0054 R24, D11, challenge C7). Most spawns are not the
+# implementer (scout, reviewer, scribe…), and the CLI round trip costs ~150 ms to
+# say "allow". This decides `allow` with shell builtins only — no process — and
+# ONLY when the answer is unambiguous; anything else, including every doubt, goes
+# to `navori plan gate` exactly as before:
+#   - no `\u` anywhere in the payload (a JSON escape could rename the key);
+#   - the substring `agent_type` (which also covers `subagent_type`) appears ONCE,
+#     so no duplicate key can make a parser pick another value than this scan;
+#   - that key sits directly inside the single `"tool_input"` object (nothing but
+#     one `{` between them), never top-level — a Codex subagent's own top-level
+#     `agent_type` is the CALLER's role, not the spawn target;
+#   - its value is a plain string of [A-Za-z0-9:_.-] already in the non-implementer
+#     list rendered from NON_IMPLEMENTER_ROLES, after the CLI's `<plugin>:` strip.
+# The comparison is case-sensitive (no `nocasematch` in bash 3.2/zsh): a mixed-case
+# role the CLI would normalize and allow just takes the CLI path. The `role` key is
+# not read — the CLI does not read it either. An unrendered placeholder never
+# matches, so a raw copy of this asset always defers to the CLI.
+navori_plan_gate_roles=" {{navori.nonImplementerRoles}} "
+plan_gate_fast_allow() {
+  case "$payload" in *'\u'*) return 1 ;; esac
+  pg_after=${payload#*agent_type}
+  [ "$pg_after" != "$payload" ] || return 1
+  case "$pg_after" in *agent_type*) return 1 ;; esac
+  pg_head=${payload%%agent_type*}
+  case "$pg_head" in
+    *'"sub') pg_head=${pg_head%'"sub'} ;;
+    *'"') pg_head=${pg_head%'"'} ;;
+    *) return 1 ;;
+  esac
+  case "$pg_head" in *'\') return 1 ;; esac
+  pg_t=${payload#*'"tool_input"'}
+  [ "$pg_t" != "$payload" ] || return 1
+  case "$pg_t" in *'"tool_input"'*) return 1 ;; esac
+  case "$pg_head" in *'"tool_input"'*) ;; *) return 1 ;; esac
+  pg_seg=${pg_head##*'"tool_input"'}
+  case "$pg_seg" in *'}'* | *'['* | *']'*) return 1 ;; esac
+  pg_seg=${pg_seg#*'{'}
+  case "$pg_seg" in *'{'*) return 1 ;; esac
+  case "$pg_after" in '"'*) pg_after=${pg_after#'"'} ;; *) return 1 ;; esac
+  pg_after=${pg_after#"${pg_after%%[![:space:]]*}"}
+  case "$pg_after" in ':'*) pg_after=${pg_after#:} ;; *) return 1 ;; esac
+  pg_after=${pg_after#"${pg_after%%[![:space:]]*}"}
+  case "$pg_after" in '"'*) pg_after=${pg_after#'"'} ;; *) return 1 ;; esac
+  pg_val=${pg_after%%'"'*}
+  [ "$pg_val" != "$pg_after" ] || return 1
+  case "$pg_val" in '' | *[!A-Za-z0-9:_.-]*) return 1 ;; esac
+  pg_val=${pg_val#*:}
+  [ -n "$pg_val" ] || return 1
+  case "$navori_plan_gate_roles" in *" $pg_val "*) return 0 ;; esac
+  return 1
+}
+if plan_gate_fast_allow; then
+  navori_audit_reason="rol no implementer"
+  exit 0
+fi
+
 # No verdict (navori missing or unusable). $1 = audit reason code, $2 = hard-block
 # message, $3 = text shown to the human when asking. Never returns.
 plan_gate_no_verdict() {
