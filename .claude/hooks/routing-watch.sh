@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="915465f3" version="0.12.0" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="2df1fd70" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -330,9 +330,11 @@ navori_tree_fingerprint() {
     trap 'rm -f "$work"/list "$work"/files "$work"/links "$work"/paths "$work"/shas; rmdir "$work" 2>/dev/null' EXIT
     local exclusions=()
     [ -z "$stage" ] || exclusions=(":(exclude,literal)$stage/state.json" ":(exclude,literal)$stage/STATUS.md")
+    # Same set as `IDENTITY_EXCLUDES` (`PROGRESS_DIRS` + `.claude/worktrees`) in
+    # `lib/primitives/content-identity.ts`; the line is stamped `"fp":2` (R20).
     navori_git ls-files -z --cached --others --exclude-standard --deduplicate -- . \
-      ':(exclude).navori/state' ':(exclude).claude/progress' ':(exclude).codex/progress' \
-      ':(exclude).claude/worktrees' ${exclusions[@]+"${exclusions[@]}"} > "$work/list" 2>/dev/null || exit 1
+      ':(exclude).claude/progress' ':(exclude).codex/progress' ':(exclude).navori/state' \
+      ':(exclude)progress' ':(exclude).claude/worktrees' ${exclusions[@]+"${exclusions[@]}"} > "$work/list" 2>/dev/null || exit 1
     : > "$work/links"
     while IFS= read -r -d '' p; do
       case "$p" in *$'\n'*) exit 1 ;; esac
@@ -671,7 +673,7 @@ navori_bash_success_lane() {
     [ -z "$sid" ] || extra=$extra',"sessionId":"'$sid'"'
     [ -z "$agent" ] || extra=$extra',"agentId":"'$agent'"'
     [ -z "$binding" ] || extra=$extra',"deliveryBinding":'$binding
-    line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","dirty":'$dirty$extra'}'
+    line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","fp":2,"dirty":'$dirty$extra'}'
     printf '%s\n' "$line" >> "$file" 2>/dev/null || true
   done <<NAVORI_HITS
 $hits
