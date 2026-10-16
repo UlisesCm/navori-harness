@@ -1,16 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { chmodSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { cleanupTempDirs, git, mkTemp } from "./helpers/tmp-git.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
@@ -34,33 +26,7 @@ const runsBash = process.platform !== "win32";
 const BASE_PATH = "/usr/bin:/bin";
 const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh");
 
-const tempDirs: string[] = [];
-function mkTemp(prefix: string): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
-  tempDirs.push(dir);
-  return dir;
-}
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(
-    "git",
-    [
-      "-c",
-      "user.email=t@navori.test",
-      "-c",
-      "user.name=navori",
-      "-c",
-      "commit.gpgsign=false",
-      "-c",
-      "protocol.file.allow=always",
-      ...args,
-    ],
-    { cwd, stdio: "pipe", encoding: "utf-8" },
-  );
-}
+afterEach(cleanupTempDirs);
 
 /** A repo on `main` whose `tree.txt` holds `name`, one commit deep. */
 function makeRepo(prefix: string, name: string): string {

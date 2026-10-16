@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  utimesSync,
+  readdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -12,7 +14,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSpawnSpec, runGate } from "../run.ts";
+import { linkRepoToWorkspace } from "../../workspace/workspace.ts";
+import {
+  FOREIGN_LOG_PREFIX,
+  FOREIGN_REFUSED_EXIT,
+  buildSpawnSpec,
+  pruneForeignLogs,
+  runForeignGate,
+  runGate,
+} from "../run.ts";
 
 let cwd: string;
 
@@ -211,5 +221,179 @@ describe("buildSpawnSpec", () => {
       options: { windowsVerbatimArguments: true },
     });
     expect(buildSpawnSpec("npm test", "win32", {}).file).toBe("cmd.exe");
+  });
+});
+
+describe("runForeignGate", () => {
+  let home: string;
+  let savedHome: string | undefined;
+  const mkRepo = (gate: string, extra: Record<string, unknown> = {}): string => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-foreign-repo-")));
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "f",
+        version: "1.0.0",
+        scripts: { ok: "echo foreign-ok", bad: "echo FAIL && exit 3" },
+      }),
+    );
+    writeFileSync(
+      join(dir, "navori.config.json"),
+      JSON.stringify({
+        name: "f",
+        engines: ["claude"],
+        preset: "custom",
+        qualityGate: { fast: gate, full: gate, ...extra },
+      }),
+    );
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
+    return dir;
+  };
+  const repos: string[] = [];
+  const repo = (gate: string, extra?: Record<string, unknown>): string => {
+    const dir = mkRepo(gate, extra);
+    repos.push(dir);
+    return dir;
+  };
+  const register = (dir: string, name = "foo"): void => {
+    linkRepoToWorkspace("ws", { name, path: dir });
+  };
+
+  beforeEach(() => {
+    savedHome = process.env.HOME;
+    home = realpathSync(mkdtempSync(join(tmpdir(), "navori-foreign-home-")));
+    process.env.HOME = home;
+  });
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+    for (const r of repos.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
+
+  // Covers: #1097
+  it("runs a registered repo's plain chain, logs outside the tree and leads with the sentinel", async () => {
+    const dir = repo("npm run ok");
+    register(dir);
+    const r = await runForeignGate({ cwd: dir });
+    expect(r.exitCode).toBe(0);
+    const first = r.stdout.split("\n")[0]!;
+    expect(first).toMatch(/^navori gate foreign: exit 0 — log \//);
+    const logPath = first.split(" — log ")[1]!;
+    expect(logPath.startsWith(dir)).toBe(false);
+    expect(readFileSync(logPath, "utf8")).toContain("foreign-ok");
+    expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString()).toBe("");
+  });
+
+  // Covers: #1097
+  it("passes a red chain's code through with the sentinel", async () => {
+    const dir = repo("npm run bad");
+    register(dir);
+    const r = await runForeignGate({ cwd: dir });
+    expect(r.exitCode).toBe(3);
+    expect(r.stdout.split("\n")[0]).toMatch(/^navori gate foreign: exit 3 — log /);
+  });
+
+  // Covers: #1097
+  it("refuses an unregistered repo BEFORE parsing its config", async () => {
+    const dir = repo("npm run ok");
+    writeFileSync(join(dir, "navori.config.json"), "{ not json");
+    const r = await runForeignGate({ cwd: dir });
+    expect(r.exitCode).toBe(FOREIGN_REFUSED_EXIT);
+    expect(r.stdout).toBe("");
+    expect(r.stderr.split("\n")[0]).toMatch(/^navori gate foreign: refused — .*not registered/);
+    expect(r.stderr).toContain("navori workspace link");
+    expect(r.stderr).not.toContain("cannot read");
+  });
+
+  // Covers: #1097
+  it("matches a registry entry through a symlinked path", async () => {
+    const dir = repo("npm run ok");
+    const link = join(home, "link-to-repo");
+    symlinkSync(dir, link);
+    register(link);
+    expect((await runForeignGate({ cwd: dir })).exitCode).toBe(0);
+  });
+
+  // Covers: #1097
+  it("refuses nativeHooks, an unsafe chain and a missing gate with the refusal code", async () => {
+    const native = repo("npm run ok", { nativeHooks: true });
+    register(native, "native");
+    const nr = await runForeignGate({ cwd: native });
+    expect([nr.exitCode, nr.stderr]).toEqual([
+      FOREIGN_REFUSED_EXIT,
+      expect.stringContaining("nativeHooks"),
+    ]);
+    const unsafe = repo("npm run ok | tee x");
+    register(unsafe, "unsafe");
+    const ur = await runForeignGate({ cwd: unsafe });
+    expect(ur.exitCode).toBe(FOREIGN_REFUSED_EXIT);
+    expect(ur.stderr).toContain("not a plain command chain");
+    const none = repo("npm run ok");
+    writeFileSync(
+      join(none, "navori.config.json"),
+      JSON.stringify({ name: "f", engines: ["claude"], preset: "custom" }),
+    );
+    register(none, "none");
+    const mr = await runForeignGate({ cwd: none });
+    expect(mr.exitCode).toBe(FOREIGN_REFUSED_EXIT);
+    expect(mr.stderr).toContain("qualityGate.fast is not set");
+  });
+
+  // Covers: #1097
+  it("refuses a --cwd outside git cleanly instead of throwing", async () => {
+    const plain = realpathSync(mkdtempSync(join(tmpdir(), "navori-foreign-plain-")));
+    try {
+      const r = await runForeignGate({ cwd: plain });
+      expect(r.exitCode).toBe(FOREIGN_REFUSED_EXIT);
+      expect(r.stderr).toMatch(/^navori gate foreign: refused — .*not a Git checkout/);
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: #1097
+  it("trusts a linked worktree only through the registered main's worktree list", async () => {
+    const main = repo("npm run ok");
+    register(main);
+    const wt = join(realpathSync(tmpdir()), `navori-foreign-wt-${process.pid}`);
+    execFileSync("git", ["worktree", "add", "-q", "-b", "feat", wt], { cwd: main });
+    try {
+      expect((await runForeignGate({ cwd: wt })).exitCode).toBe(0);
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: #1097
+  it("does not lend trust through a forged .git/commondir", async () => {
+    const main = repo("npm run ok");
+    register(main);
+    const evil = repo("npm run ok");
+    writeFileSync(join(evil, ".git", "commondir"), join(main, ".git"));
+    const r = await runForeignGate({ cwd: evil });
+    expect(r.exitCode).toBe(FOREIGN_REFUSED_EXIT);
+    expect(r.stderr).toContain("not registered");
+  });
+
+  // Covers: #1097
+  it("prunes own-prefix log dirs beyond the retention and leaves the rest", () => {
+    const root = join(home, "tmp");
+    mkdirSync(root);
+    for (let i = 0; i < 5; i++) {
+      const d = join(root, `${FOREIGN_LOG_PREFIX}${i}`);
+      mkdirSync(d);
+      utimesSync(d, new Date(2026, 0, 1 + i), new Date(2026, 0, 1 + i));
+    }
+    mkdirSync(join(root, "unrelated"));
+    pruneForeignLogs(root, 2);
+    expect(readdirSync(root).sort()).toEqual([
+      `${FOREIGN_LOG_PREFIX}3`,
+      `${FOREIGN_LOG_PREFIX}4`,
+      "unrelated",
+    ]);
   });
 });

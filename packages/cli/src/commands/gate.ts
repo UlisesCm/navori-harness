@@ -6,7 +6,7 @@ import { defineCommand } from "citty";
 import { resolve } from "node:path";
 import { readConfig } from "../lib/config/config.ts";
 import { probeGreen, type ProbeMode } from "../lib/gate/cache.ts";
-import { runGate, type GateKind } from "../lib/gate/run.ts";
+import { runForeignGate, runGate, type GateKind } from "../lib/gate/run.ts";
 import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 
 /**
@@ -32,10 +32,11 @@ function probe(cwd: string, mode: ProbeMode): number {
 export const gateCommand = defineCommand({
   meta: {
     name: "gate",
-    description: "Run qualityGate.<fast|full>; full output goes to a log, stdout gets a verdict",
+    description:
+      "Run qualityGate.<fast|full>, or `foreign` for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict",
   },
   args: {
-    kind: { type: "positional", required: true, description: "fast | full | probe" },
+    kind: { type: "positional", required: true, description: "fast | full | probe | foreign" },
     force: { type: "boolean", description: "Run even when a cached green matches" },
     index: { type: "boolean", description: "probe: key on the index (git pre-commit)" },
     clean: { type: "boolean", description: "probe: index, working tree and record must agree" },
@@ -48,8 +49,19 @@ export const gateCommand = defineCommand({
       process.exitCode = probe(String(args.cwd), mode);
       return;
     }
+    if (kind === "foreign") {
+      // A positional kind, not a flag: citty ignores unknown flags, so an older CLI
+      // would run a plain gate; an unknown kind refuses instead (#1097).
+      const result = await runForeignGate({ cwd: String(args.cwd) });
+      if (result.stdout) process.stdout.write(`${result.stdout}\n`);
+      if (result.stderr) process.stderr.write(`${result.stderr}\n`);
+      process.exitCode = result.exitCode;
+      return;
+    }
     if (kind !== "fast" && kind !== "full") {
-      process.stderr.write(`navori gate: unknown kind "${kind}" (expected fast | full | probe)\n`);
+      process.stderr.write(
+        `navori gate: unknown kind "${kind}" (expected fast | full | probe | foreign)\n`,
+      );
       process.exitCode = 2;
       return;
     }

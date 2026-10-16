@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="ccd8acb6" version="0.12.1" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="e6f671db" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -439,7 +439,7 @@ navori_audit_log() {
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -655,7 +655,10 @@ ask navori master delivery-review
 ask navori master delivery-decision
 ask navori master delivery-publication
 ask navori master delivery-revoke
-ask navori plan escalation-reset'
+ask navori plan escalation-reset
+ask navori workspace link
+ask navori workspace add-repo
+ask navori workspace init'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
