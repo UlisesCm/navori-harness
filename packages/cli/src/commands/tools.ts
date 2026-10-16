@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { readConfig } from "../lib/config/config.ts";
 import { resolveLang, toolNoticeText } from "../lib/i18n.ts";
 import { ackToolNotices, prepareToolNotices } from "../lib/primitives/tool-version-notice.ts";
-import { dominioInjectText } from "./dominio.ts";
+import { dominioInjectText } from "../lib/workspace/dominio-inject.ts";
 
 /**
  * Output contract v1, read by the SessionStart hook: the FIRST line is exactly

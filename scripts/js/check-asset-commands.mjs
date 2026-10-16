@@ -46,7 +46,10 @@ import { dirname, join, relative, resolve } from "node:path";
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const INDEX_TS = "packages/cli/src/index.ts";
+// Spec 0055 R14: the command list lives in `cli.ts` (lazy entries); a release tag from before the
+// split still has it in `index.ts`, so the old path stays as the fallback.
+const SOURCES = ["packages/cli/src/cli.ts", "packages/cli/src/index.ts"];
+const INDEX_TS = SOURCES[0];
 const ASSET_DIRS = ["packages/core/core-assets", "packages/plugins"];
 /** Turns "could not run" into a failure. CI passes it; a local clone does not. */
 const STRICT = process.argv.includes("--strict");
@@ -75,7 +78,20 @@ function cannotRun(reason, hint) {
   process.exit(STRICT ? 1 : 0);
 }
 
-const known = parseSubCommands(readFileSync(join(REPO_ROOT, INDEX_TS), "utf-8"));
+/** First of {@link SOURCES} whose `subCommands` block parses, read through `read(path)`. */
+function firstParsed(read) {
+  for (const path of SOURCES) {
+    try {
+      const parsed = parseSubCommands(read(path));
+      if (parsed && parsed.size > 0) return parsed;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
+const known = firstParsed((path) => readFileSync(join(REPO_ROOT, path), "utf-8"));
 // A check that cannot run must be loud, never a silent pass — the blind spot
 // #421 is about.
 if (!known || known.size === 0) fail(`could not parse subCommands from ${INDEX_TS}`);
@@ -95,15 +111,13 @@ function latestTag() {
 
 /** Subcommands the CLI had at that tag — i.e. what users actually installed. */
 function publishedSubCommands(tag) {
-  try {
-    const source = execFileSync("git", ["show", `${tag}:${INDEX_TS}`], {
+  return firstParsed((path) =>
+    execFileSync("git", ["show", `${tag}:${path}`], {
       cwd: REPO_ROOT,
       encoding: "utf-8",
-    });
-    return parseSubCommands(source);
-  } catch {
-    return null;
-  }
+      stdio: ["ignore", "pipe", "ignore"],
+    }),
+  );
 }
 
 function* walk(dir) {

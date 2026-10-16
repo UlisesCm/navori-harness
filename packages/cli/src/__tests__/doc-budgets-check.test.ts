@@ -464,7 +464,12 @@ describe("doc-budgets module (#917)", () => {
    * of every installed navori.
    */
   it("ships the ceilings inside the published bundle", () => {
-    const bundle = readFileSync(join(REPO_ROOT, "packages/cli/dist/index.js"), "utf-8");
+    // The build is split into chunks at the root of dist/ (spec 0055): search all of them.
+    const dist = join(REPO_ROOT, "packages/cli/dist");
+    const bundle = readdirSync(dist)
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => readFileSync(join(dist, name), "utf-8"))
+      .join("\n");
     expect(bundle).toContain("packages/core/core-assets/presets/medusa/managed/stack.md");
   });
 
