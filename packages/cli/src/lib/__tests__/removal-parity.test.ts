@@ -437,7 +437,7 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "publication retains the destination on success or uncertainty. Existing private paths " +
       "are never acquired or cleaned, and published grants and burns are never removed",
     "lib/plan/gate.ts":
-      "consumes (one dispatch per spawn) the single `.navori/state/handoffs/dispatch_<feature>.json` " +
+      "consumes (one dispatch per spawn) the selected (own-session) `.navori/state/handoffs/dispatch_<feature>.json` " +
       "the orchestrator wrote for the allowed spawn; a navori state artifact, non-recursive, and the " +
       "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/remote-version-cache.ts":

@@ -12,6 +12,7 @@ import {
   realpathSync,
   utimesSync,
   readdirSync,
+  statSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -328,9 +329,15 @@ describe("exclusive private dispatch claims", () => {
       }).decision,
     ).toBe("deny");
     expect(readFileSync(marker, "utf8")).toBe("replacement");
-    expect(
-      readdirSync(join(cwd, ".navori/state/handoffs")).filter((name) => name.includes(".claim-")),
-    ).toEqual([]);
+    // #1331: a claim whose bytes are not the selected marker's is never deleted; the
+    // public name is taken, so it cannot be restored and stays as a private claim.
+    const claims = readdirSync(join(cwd, ".navori/state/handoffs")).filter((name) =>
+      name.includes(".claim-"),
+    );
+    expect(claims).toHaveLength(1);
+    expect(readFileSync(join(cwd, ".navori/state/handoffs", claims[0]!), "utf8")).toBe(
+      moment === "pre-burn" ? "drift" : "post-burn drift",
+    );
     const status = acknowledgePlanEscalation(cwd, info.feature, info.opening, "", {
       inspect: true,
     });
@@ -1120,7 +1127,9 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
     expect(claimDispatch(raced, raw, NOW)).toContain("already claimed");
     writeFileSync(raced, raw + " ");
     expect(claimDispatch(raced, raw, NOW)).toContain("changed during evaluation");
-    expect(existsSync(raced)).toBe(false);
+    // #1331: bytes that were not the selected marker's are restored, never deleted.
+    expect(readFileSync(raced, "utf-8")).toBe(raw + " ");
+    rmSync(raced);
 
     // Within the 60 s skew a future createdAt is still fresh; beyond it, stale.
     for (const offset of [59_000, 60_000]) {
@@ -1220,6 +1229,240 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
     );
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("no dispatch file");
+  });
+});
+
+describe("evaluatePlanGate — Codex dispatch scoped by session (#1331)", () => {
+  const NOW = Date.parse("2026-10-03T12:00:00.000Z");
+  const FERNET = "gAAAAABp_encrypted-token_0123456789abcdef==";
+  const dir = (): string => join(cwd, ".navori/state/handoffs");
+
+  function spawn(session?: string | null): unknown {
+    return {
+      cwd,
+      ...(session === undefined ? {} : { session_id: session }),
+      tool_input: { agent_type: "implementer", task_name: "t", message: FERNET },
+    };
+  }
+
+  function marker(
+    feature: string,
+    sessionId: string | undefined,
+    ageMs = 60_000,
+    overrides: Record<string, unknown> = {},
+  ): string {
+    mkdirSync(dir(), { recursive: true });
+    const file = join(dir(), `dispatch_${feature}.json`);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        feature,
+        opening: `workplan: ${feature}`,
+        createdAt: new Date(NOW - ageMs).toISOString(),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...overrides,
+      }),
+    );
+    return file;
+  }
+
+  function plans(...features: string[]): void {
+    writeConfig(true);
+    for (const f of features) writeWorkplan(f, { ...VALID_LEVEL1, feature: f });
+  }
+
+  // Covers: #1331
+  it("two sessions each consume only their own marker, which the other never touches", () => {
+    plans("feat-a", "feat-b");
+    const a = marker("feat-a", "sess-A");
+    const b = marker("feat-b", "sess-B");
+    const bBytes = readFileSync(b, "utf-8");
+    const bMtime = statSync(b).mtimeMs;
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("allow");
+    expect(existsSync(a)).toBe(false);
+    expect(readFileSync(b, "utf-8")).toBe(bBytes);
+    expect(statSync(b).mtimeMs).toBe(bMtime);
+    // A's second spawn finds no marker of its own and must not take B's.
+    const denied = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(denied.decision).toBe("deny");
+    expect(readFileSync(b, "utf-8")).toBe(bBytes);
+    expect(statSync(b).mtimeMs).toBe(bMtime);
+    expect(evaluatePlanGate(spawn("sess-B"), NOW).decision).toBe("allow");
+    expect(existsSync(b)).toBe(false);
+  });
+
+  // Covers: #1331
+  it.each([
+    [354_000, 48_000],
+    [48_000, 354_000],
+  ])("is independent of marker age order (A %i ms, B %i ms)", (ageA, ageB) => {
+    plans("feat-a", "feat-b");
+    marker("feat-a", "sess-A", ageA);
+    marker("feat-b", "sess-B", ageB);
+    expect(evaluatePlanGate(spawn("sess-B"), NOW).dispatch?.feature).toBe("feat-b");
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).dispatch?.feature).toBe("feat-a");
+  });
+
+  // Covers: #1331
+  it("keeps the one-implementer limit inside a session (two own markers, none consumed)", () => {
+    plans("feat-a", "feat-c");
+    const a = marker("feat-a", "sess-A");
+    const c = marker("feat-c", "sess-A");
+    const result = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("will not guess");
+    expect(existsSync(a) && existsSync(c)).toBe(true);
+  });
+
+  // Covers: #1331
+  it("does not weaken TTL: own stale or future marker denies, other session's stale or future is ignored", () => {
+    plans("feat-a", "feat-b");
+    const own = marker("feat-a", "sess-A", 11 * 60_000);
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).reason).toContain("stale");
+    rmSync(own);
+    marker("feat-a", "sess-A", -61_000);
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).reason).toContain("stale");
+    rmSync(join(dir(), "dispatch_feat-a.json"));
+    marker("feat-a", "sess-A");
+    marker("feat-b", "sess-B", 11 * 60_000);
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("allow");
+    marker("feat-a", "sess-A");
+    marker("feat-b", "sess-B", -61_000);
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("allow");
+  });
+
+  // Covers: #1331
+  it("keeps the approval check: an own marker without an approved workplan is denied and retained", () => {
+    plans("feat-b");
+    const own = marker("feat-a", "sess-A");
+    const other = marker("feat-b", "sess-B");
+    const otherBytes = readFileSync(other, "utf-8");
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("deny");
+    expect(existsSync(own)).toBe(true);
+    expect(readFileSync(other, "utf-8")).toBe(otherBytes);
+  });
+
+  // Covers: #1331
+  it("transition: a lone unstamped marker is accepted; unstamped next to another session's fresh marker is not", () => {
+    plans("feat-a", "feat-b");
+    const lone = marker("feat-a", undefined);
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("allow");
+    expect(existsSync(lone)).toBe(false);
+    const unstamped = marker("feat-a", undefined);
+    marker("feat-b", "sess-B");
+    const result = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("`sess-A`");
+    expect(result.reason).toContain("dispatch_feat-b.json");
+    expect(existsSync(unstamped)).toBe(true);
+  });
+
+  // Covers: #1331
+  it("denies with the session id the gate expects and the skipped other-session marker names", () => {
+    plans("feat-b");
+    marker("feat-b", "sess-B");
+    const result = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("this session's id is `sess-A`");
+    expect(result.reason).toContain("`sessionId`");
+    expect(result.reason).toContain("skipped other-session markers: dispatch_feat-b.json");
+    expect(result.reason).not.toContain("sess-B");
+  });
+
+  // Covers: #1331
+  it.each([undefined, "", "x".repeat(300), "bad id!"])(
+    "payload session_id %j (absent or unbounded) falls to the legacy rule even with stamped markers",
+    (session) => {
+      plans("feat-a", "feat-b");
+      marker("feat-a", "sess-A");
+      marker("feat-b", "sess-B");
+      const result = evaluatePlanGate(spawn(session), NOW);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("will not guess");
+      expect(result.reason).not.toContain("this session's id is");
+    },
+  );
+
+  // Covers: #1331
+  it("a legacy payload with one stamped marker still allows it", () => {
+    plans("feat-a");
+    marker("feat-a", "sess-A");
+    expect(evaluatePlanGate(spawn(), NOW).decision).toBe("allow");
+  });
+
+  // Covers: #1331
+  it("malformed markers: attributable to another session are ignored, unattributable still deny", () => {
+    plans("feat-a");
+    marker("feat-a", "sess-A");
+    writeFileSync(join(dir(), "dispatch_feat-b.json"), JSON.stringify({ sessionId: "sess-B" }));
+    marker("feat-c", "sess-C", 60_000, { feature: "other-name" });
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).decision).toBe("allow");
+
+    marker("feat-a", "sess-A");
+    writeFileSync(join(dir(), "dispatch_feat-d.json"), "{truncated");
+    const broken = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(broken.decision).toBe("deny");
+    expect(broken.reason).toContain("dispatch_feat-d.json is malformed");
+    rmSync(join(dir(), "dispatch_feat-d.json"));
+
+    // Own-session malformed marker denies; an invalid sessionId format is unattributable.
+    writeFileSync(join(dir(), "dispatch_feat-e.json"), JSON.stringify({ sessionId: "sess-A" }));
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).reason).toContain("malformed");
+    rmSync(join(dir(), "dispatch_feat-e.json"));
+    marker("feat-f", "bad id!");
+    expect(evaluatePlanGate(spawn("sess-A"), NOW).reason).toContain(
+      "dispatch_feat-f.json is malformed",
+    );
+  });
+
+  // Covers: #1331
+  it("own stamped + unstamped: the stamped one is selected in either file order, unstamped is untouched", () => {
+    for (const [stamped, unstamped] of [
+      ["feat-a", "feat-z"],
+      ["feat-z", "feat-a"],
+    ] as const) {
+      plans("feat-a", "feat-z");
+      const s = marker(stamped, "sess-A");
+      const u = marker(unstamped, undefined);
+      expect(evaluatePlanGate(spawn("sess-A"), NOW).dispatch?.feature).toBe(stamped);
+      expect(existsSync(s)).toBe(false);
+      expect(existsSync(u)).toBe(true);
+      rmSync(u);
+    }
+  });
+
+  // Covers: #1331
+  it("own stamped + unstamped, parallel spawns: residual is documented, the unstamped one is then accepted", () => {
+    plans("feat-a", "feat-z");
+    marker("feat-a", "sess-A");
+    marker("feat-z", undefined);
+    const first = evaluatePlanGate(spawn("sess-A"), NOW);
+    const second = evaluatePlanGate(spawn("sess-A"), NOW);
+    expect(first.dispatch?.feature).toBe("feat-a");
+    // Residual (#1331, C4): mixed stamping relaxes "one at a time" once the stamped marker is gone.
+    expect(second.dispatch?.feature).toBe("feat-z");
+  });
+
+  // Covers: #1331
+  it("two sessions spawning in parallel are both allowed", () => {
+    plans("feat-a", "feat-b");
+    marker("feat-a", "sess-A");
+    marker("feat-b", "sess-B");
+    const results = [spawn("sess-B"), spawn("sess-A")].map((p) => evaluatePlanGate(p, NOW));
+    expect(results.map((r) => r.decision)).toEqual(["allow", "allow"]);
+  });
+
+  // Covers: #1331
+  it("claim restores a file whose bytes differ from the selected marker instead of deleting it", () => {
+    mkdirSync(dir(), { recursive: true });
+    const file = join(dir(), "dispatch_feat-a.json");
+    const selected = '{"selected":true}';
+    const rewritten = '{"another":"session"}';
+    // Another session replaces the public name after readDispatch read `selected`.
+    writeFileSync(file, rewritten);
+    expect(claimDispatch(file, selected, NOW)).toContain("changed during evaluation");
+    expect(readFileSync(file, "utf-8")).toBe(rewritten);
+    expect(readdirSync(dir()).filter((n) => n.includes(".claim-"))).toEqual([]);
   });
 });
 

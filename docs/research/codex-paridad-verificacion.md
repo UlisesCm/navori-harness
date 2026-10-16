@@ -238,3 +238,8 @@ Todas las corridas: Codex CLI **0.160.0**, fecha **2026-10-03**. Los prompts fue
   `~/.navori/backups/codex-config-...toml`), o borrar el bloque
   `[projects."<scratchpad>/codex-probe-0041"]` y sus entradas `hooks.state` con las herramientas
   de `navori codex trust`. El repo desechable vive solo en el scratchpad de la sesión.
+- **OQ1 (issue 1331, sessionId del dispatch):** fuente de Codex rust-v0.162.1, consultada el
+  2026-10-15, sin smoke en vivo (decisión del usuario). El `session_id` del payload de PreToolUse
+  es `sess.session_id()` (`hook_runtime.rs:196-197`); la variable `CODEX_SESSION_ID` del shell usa
+  el mismo accesor (`unified_exec/process_manager.rs:1450`); `CODEX_THREAD_ID` solo coincide en el
+  hilo raíz; el hook de `spawn_agent` se dispara con la sesión del padre.
