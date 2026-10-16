@@ -92,6 +92,7 @@ import {
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanProgressSize } from "../lib/diagnose/progress-size.ts";
+import { scanGlobalClaudeMd } from "../lib/diagnose/global-claude-md.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
@@ -294,6 +295,9 @@ export const doctorCommand = defineCommand({
     // #1263: advisory only — a fat session-state file falls out of startup
     // context; never part of the health verdict.
     const progressSize = scanProgressSize(cwd);
+    // #1270: advisory only — the user-level memory file loads in every Claude
+    // Code session; read-only, never part of the health verdict.
+    const globalClaudeMd = config.engines.includes("claude") ? scanGlobalClaudeMd() : null;
     // Advisory: hooks/doctrine rendered by an older binary (e.g. a `plan-gate.sh`
     // without `NAVORI_HOOK_ENGINE`) surface as pending render changes. A dry run.
     const renderPending = computeRenderPending(cwd, existsSync(claudeMdPath));
@@ -482,6 +486,7 @@ export const doctorCommand = defineCommand({
       // this payload already carries an absolute `configPath`.
       diskUsage,
       progressSize,
+      globalClaudeMd,
       renderPending,
       masterPlan,
       codegraphWiring,
@@ -1044,6 +1049,15 @@ export const doctorCommand = defineCommand({
       const row = td.progressSizeRow(progressSize.bytes, progressSize.thresholdBytes);
       p.log.warn(
         td.progressSize(`  ${color.yellow(sym.update)} ${accent(progressSize.path)}  ${grey(row)}`),
+      );
+    }
+
+    if (globalClaudeMd) {
+      const row = td.globalClaudeMdRow(globalClaudeMd.chars, globalClaudeMd.thresholdChars);
+      p.log.warn(
+        td.globalClaudeMd(
+          `  ${color.yellow(sym.update)} ${accent(globalClaudeMd.path)}  ${grey(row)}`,
+        ),
       );
     }
 

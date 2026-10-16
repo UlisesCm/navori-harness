@@ -951,6 +951,9 @@ interface DoctorCmdStrings {
   /** #1263 — the session-state file grew past the session-start cap. */
   progressSize: (lines: string) => string;
   progressSizeRow: (bytes: number, cap: number) => string;
+  /** #1270 — the user-level Claude Code memory file grew past its soft cap. */
+  globalClaudeMd: (lines: string) => string;
+  globalClaudeMdRow: (chars: number, cap: number) => string;
   /** Hooks or doctrine rendered by an older binary: a render would still change files. */
   renderPending: (n: number) => string;
   /** #522 — nested agent worktrees with their own install break eslint's
@@ -2227,6 +2230,11 @@ const CMD_ES: CmdStrings = {
     progressSizeRow: (bytes, cap) =>
       `— ${bytes} bytes (tope ${cap}); mueve los checkpoints a progress/history.md y deja ` +
       `solo el estado actual y el siguiente paso`,
+    globalClaudeMd: (lines) =>
+      `Tu CLAUDE.md global es demasiado grande — se carga en cada sesión y le quita espacio al contexto del repo:\n${lines}`,
+    globalClaudeMdRow: (chars, cap) =>
+      `— ${chars} caracteres (tope ${cap}); mueve lo específico de un workspace a su Dominio ` +
+      `y quita lo que el repo ya declara (navori nunca edita este archivo)`,
     renderPending: (n) =>
       `Render pendiente: ${n} archivo(s) o bloque(s) cambiarían (hooks o doctrina de una ` +
       `versión anterior de navori) — corre 'navori render --apply'`,
@@ -3601,6 +3609,11 @@ const CMD_EN: CmdStrings = {
     progressSizeRow: (bytes, cap) =>
       `— ${bytes} bytes (cap ${cap}); move checkpoints to progress/history.md and keep ` +
       `only the current state and next step`,
+    globalClaudeMd: (lines) =>
+      `Your global CLAUDE.md is too large — it loads in every session and crowds out the repo's context:\n${lines}`,
+    globalClaudeMdRow: (chars, cap) =>
+      `— ${chars} characters (cap ${cap}); move workspace-specific content to its Dominio ` +
+      `and drop what the repo already declares (navori never edits this file)`,
     renderPending: (n) =>
       `Render pending: ${n} file(s) or block(s) would change (hooks or doctrine from an ` +
       `older navori version) — run 'navori render --apply'`,
