@@ -153,7 +153,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   `nivel-0: <paths> <feature> | verify: \`<cmd>\` → <expected>`: 0045 D8 sobre la forma de 0052.
   `<expected>` es texto libre no vacío porque E3 queda diferida. — R28
 - `lib/plan/classify.ts` + `commands/plan.ts`. `classify --diff` publica `reviewDepth: light|full`,
-  según 0045 D9. — R29
+  según 0045 D9. — R29. Desviación de M7: `classify --diff` sin workplan clasifica como `declaredLevel` 0 (0045 D9) en vez de fallar; un workplan inválido sigue fallando. El test «fails when no workplan» se reemplazó.
 - `lib/handoff/render.ts` (nuevo) y `navori handoff render <feature>`, según 0045 D13, con la
   contención restablecida en Contracts. El permiso `Bash(navori handoff render:*)` va en
   `settings-base`. — R30
@@ -302,6 +302,9 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
 - **Compatibilidad de huella.** Una línea con `fp: 2` se compara con la huella v2, y una sin `fp`
   con la legacy (sin `progress/`). El validador calcula cada una a lo sumo una vez por árbol
   (`current` pasa a ser un mapa por versión).
+- Desviación de M5: `fingerprintTree` en TS ya no usa índice scratch ni escribe objetos git; el hook shell (`_partials/bash-outcome.sh`) sigue usando el índice scratch. La extensión de Pi (`engines/pi/extension-source.ts`) conserva las exclusiones legacy y no escribe `fp`, así que sus líneas validan con la huella legacy (válido por R19); no se cambió para no salir del alcance. Dos tests atados al índice scratch se reemplazaron por uno que afirma independencia del git dir.
+
+Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado por el gate full vigente (gate/inputs/base coinciden) y la misma feature. La regex de rutas es `/^(specs|docs)\/.*\.md$/`, sin `[^\0]`, porque oxlint marca `no-control-regex`; NUL no puede aparecer en rutas git.
 
 ### D6 — Re-firma con docs (R21)
 
@@ -446,6 +449,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
 - **Config.** Claves nuevas opcionales; sin ellas, todo queda como hoy (la re-firma docs pide full).
   `check:fast` de este repo cambia a pasos raíz.
 - **Recibos.** La cabecera no cambia.
+- **Hecho observado (M5, 2026-10-15).** En este repo auto-hospedado, tras renderizar el nuevo `bash-outcome.sh`, el navori global 0.12.0 rechaza evidencia `fp: 2`. El CLI local (`bun packages/cli/src/index.ts plan update …`) la valida. Se resuelve cuando ≥0.12.2 esté publicado.
 
 ## Testing strategy
 
@@ -531,6 +535,8 @@ en reposo.
 `add -A` 1/1 y un ciclo extra, todos hit). Los 3 misses: commit sin gate previo, archivo sin trackear
 presente y `git commit <path>` con otro archivo editado. Con HEAD sin nacer (unborn) la caché queda
 deshabilitada.
+
+**Medición M5 (T45, R35; bajo carga ~8–10 con un implementer en paralelo; no comparable con la tabla M1).** `slice.test.ts` antes de la reescritura de `fingerprintTree`: 172 s y 231 s (dos corridas; la segunda con shim de git); después: 135 s. Spawns de git en la suite: total 9 585 → 6 079; los de huella (`hash-object`, `read-tree`, `update-index`, `write-tree`, `ls-files`, `object-format`, `path-format`) 5 618 → 2 112. Por llamada a `fingerprintTree`: de 7 o más spawns a 2 (`rev-parse --show-object-format`, `ls-files`), independiente del número de archivos. Fuente: logs de spawns del implementer (`spawns.before.log`, `spawns.after.log`, en su scratchpad).
 
 **Nota de carga (wave 1).** `bench:tests` con `maxWorkers` 8, bajo loadavg 6–9, dio pared 568 s y suma
 por archivo 3 833 s, frente a 1 822 s con 4 workers. No hubo ganancia neta de pared. `CAP` se revalida

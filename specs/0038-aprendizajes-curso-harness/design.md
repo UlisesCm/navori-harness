@@ -171,6 +171,8 @@ Con `--json`: `{ updated: false, id, error: { what, why, fix, command } }`.
 Consecuencia deseada: un commit posterior (por ejemplo el del scribe) invalida la evidencia. Hay
 que volver a correr el criterio sobre el árbol final.
 
+**Enmienda (T28, 0054 R19/R20).** `head` ata la evidencia solo si el `command` no está en `PURE_EVIDENCE_RUNNERS`. Para los runners puros, la identidad es `worktreeTree`, que coincide con la huella v2 o la legacy según `fp`. Ver [0054 design.md, D5](../0054-dx-ciclo-desarrollo/design.md).
+
 ### D3 — Engines sin señal de éxito (R5)
 
 `plan update` exige evidencia solo si `CLAUDE_CODE_CHILD_SESSION=1` y `claude` ∈
