@@ -1037,3 +1037,35 @@ describe("gateKind", () => {
     }
   });
 });
+
+describe("gate cache independence (spec 0054 R15)", () => {
+  // Covers: R15
+  it("firmar y verificar no dependen de la caché del gate", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    const withoutCache = signReceipt(options);
+    expect(withoutCache.exitCode).toBe(0);
+    const bare = readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8");
+
+    // A hostile record claiming a green gate, and an unreadable one, change nothing.
+    const gateDir = join(options.cwd, ".navori/state/gate");
+    mkdirSync(gateDir, { recursive: true });
+    writeFileSync(
+      join(gateDir, "results.json"),
+      JSON.stringify({ v: 1, entries: [{ kind: "full", fingerprint: "x", ts: "now" }] }),
+    );
+    expect(signReceipt(options).result.status).toBe("ok");
+    expect(readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8")).toBe(bare);
+    expect(checkReceipt(options).exitCode).toBe(0);
+    rmSync(join(gateDir, "results.json"));
+    mkdirSync(join(gateDir, "results.json"));
+    expect(signReceipt(options).exitCode).toBe(0);
+    expect(checkReceipt(options).exitCode).toBe(0);
+
+    for (const file of ["../receipt.ts", "../../../commands/receipt.ts"]) {
+      expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(
+        /results\.json|gate\/cache/,
+      );
+    }
+  });
+});

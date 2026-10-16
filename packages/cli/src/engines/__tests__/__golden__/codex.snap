@@ -7888,6 +7888,26 @@ is_pm() {
   case "$1" in pnpm|npm|yarn|bun) return 0 ;; *) return 1 ;; esac
 }
 
+# Spec 0054 D1 (R17): true when `navori gate probe --clean` finds a cached green `fast`
+# for the bytes a commit would record. `--clean` because this hook runs BEFORE
+# `git commit` and cannot see the final index (`-a`, pathspecs): it demands index ==
+# working tree == record. Every GIT_* is scrubbed except GIT_INDEX_FILE, made absolute.
+# Any failure (no navori on PATH, an older CLI answering exit 2, a crash) means "run
+# the gate", so the probe can only ever skip work, never a verdict.
+navori_gate_probe_hit() {
+  command -v navori >/dev/null 2>&1 || return 1
+  navori_probe_index=${GIT_INDEX_FILE:-}
+  case "$navori_probe_index" in ''|/*) ;; *) navori_probe_index="$PWD/$navori_probe_index" ;; esac
+  env \
+    -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
+    -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
+    -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE \
+    -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
+    -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
+    ${navori_probe_index:+"GIT_INDEX_FILE=$navori_probe_index"} \
+    navori gate probe --clean >/dev/null 2>&1
+}
+
 run_gate() {
   navori_audit_ran_gate=1
   # The host can kill this process at its hook timeout, before our EXIT trap
@@ -8745,7 +8765,10 @@ if [ "$run_needed" = 1 ]; then
   # navori.config.json at render time; a raw, unrendered copy keeps the
   # placeholder, which is not `1`, so the gate runs (fail closed).
   navori_native_fast=0
-  if [ "$navori_native_fast" != 1 ]; then
+  if [ "$navori_native_fast" != 1 ] && navori_gate_probe_hit; then
+    navori_audit_skip_reason="gate omitido: resultado verde en cache para estos bytes (navori gate probe)"
+    echo "[navori] quality-gate skipped: a green fast result is cached for exactly these bytes (navori gate probe --clean)." >&2
+  elif [ "$navori_native_fast" != 1 ]; then
     # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
     # The gate string is still `eval`'d by run_gate below (running the gate is the
     # feature), but quoting it here means a hostile qualityGate.fast survives as one
