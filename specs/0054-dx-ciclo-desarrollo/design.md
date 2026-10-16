@@ -327,6 +327,10 @@ Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado po
 - Cuando sí hashea, compara contra el baseline de hashes guardado, no contra la corrida previa. Un
   cambio perdido por `mtime` aparece en el siguiente hasheo.
 - Límite declarado: una edición que preserva `mtime`.
+- **Desviación M6 (orden).** El orden queda invertido. Primero `find $roots -newer "$mark"` contra el sello
+  del hasheo anterior; solo si imprime algo se hace `touch "$mark"` y después se hashea. El texto original
+  ("touch y después find") devolvería siempre `clean`, porque el sello recién tocado nunca es más viejo
+  que los archivos. Evidencia: `managed-drift-watch.sh` (sello).
 
 ### D8 — Spool de auditoría, un archivo por evento (R26)
 
@@ -348,7 +352,12 @@ Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado po
   - un crash entre el append y el borrado re-agrega los mismos `eventId`, y el lector deduplica
     (`lib/audit/model.ts`). No hay rename-claim, así que no hay carrera con un escritor en vuelo.
 - **Huérfanos.** Archivos de una sesión cerrada sin consolidar: los consolida el próximo `--stop` o
-  lector de esa sesión. Los lectores fusionan el spool en memoria sin borrar.
+  lector de esa sesión.
+- **Desviación M6 (consolidación).** En lugar de que los lectores fusionen el spool en memoria, `audit`
+  consolida (append y después borrado) al leer el repo y en `--stop`. `audit-mode-close` envía el
+  session-end por el CLI (`navori_audit_no_spool=1`), y `recordAuditMetadata` consolida el spool antes de
+  un session-end. Evidencia: `lib/audit/cli-event.ts` (`consolidateSpool`, `consolidateRepoSpools`),
+  `commands/audit.ts` (`--start`, `--stop`, lectura).
 - **Invariante enmendado.** El encabezado de `audit-log.sh` pasa de "The CLI is the single
   private-FD writer… No shell redirects" a: "The CLI is the single writer of the session log. The
   only shell write is one noclobber event file inside the CLI-created 0700 spool dir. The CLI
@@ -369,6 +378,11 @@ Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado po
   salida está vacía con un payload no vacío, descarta todo y repite con la extracción campo por campo
   de hoy. Nunca deja variables vacías que se lean como "permitido".
 - **Fallback a `node`.** Usa la misma regla.
+- **Desviación M6 (migración parcial).** Migran cinco hooks: `subagent-no-background` (3 campos),
+  `general-purpose-confirm` (2), `audit-mode-trigger` (2), `audit-mode-close` (4) y `session-start-context`
+  (3). Quedan fuera `implementer-no-markdown`, `routing-watch`, `role-guard`, `pr-publisher-confirm` y
+  `bash-outcome-watch`: leen sus campos en puntos distintos, tras compuertas que evitan el fork. Evidencia:
+  `_partials/extract-cmd.sh` y los cinco hooks migrados.
 
 ### D11 — Vía rápida de `plan-gate` (R24)
 
@@ -378,12 +392,19 @@ Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado po
   `${v#*:}` y `nocasematch`, coherente con el `toLowerCase` del CLI. Un valor con espacios no entra.
 - **Decisión.** Si el valor está en la lista renderizada, decide `allow`. En cualquier otro caso
   sigue el camino actual, al CLI.
+- **Desviación M6.** (a) Se conserva `$(cat)` en lugar de `IFS= read -r -d ''`: un `read` builtin sobre
+  pipe hace un syscall por byte. (b) La comparación del rol es sensible a mayúsculas: bash 3.2 y zsh no
+  tienen `nocasematch` coherente, así que un rol con mayúsculas va al CLI. (c) El rol debe ir directamente
+  dentro de `tool_input` (ni en el nivel superior ni anidado). La clave `role` no se lee, porque el CLI
+  tampoco la lee.
 
 ### D12 — `session-context` todo o nada (R25)
 
 - El subcomando calcula las dos secciones en memoria y las imprime solo si las dos salieron bien.
   Si no, sale con ≠ 0 y no imprime nada.
 - El hook, ante ≠ 0 o un comando desconocido, cae a las dos llamadas de hoy.
+- **Desviación M6.** El hook llama a `session-context` solo si hay aviso o workspaces, y valida los
+  marcadores en shell.
 
 ## Contracts
 
@@ -498,9 +519,9 @@ Desviación de M5 (R21): la re-firma docs exige además un receipt v2 firmado po
 **Preliminar.** Se midió con la máquina bajo carga (load ~2.5–3.5, 10 cores, `maxWorkers: 4`) y se
 vuelve a medir en M1. La única cifra no preliminar es el probe (~150 ms, medido el 2026-10-15).
 
-| Métrica | Preliminar | Medida M1 (bajo carga; loadavg ~9-17 en 10 cores; `ulimit -n 1048576`; mediana de 2, NO de 3, NO con máquina libre) | Objetivo |
+| Métrica | Preliminar | Medida M1 (bajo carga; loadavg ~9-17 en 10 cores; `ulimit -n 1048576`; mediana de 2, NO de 3, NO con máquina libre; **no comparable para R4**, ver «Medición comparable (T43)») | Objetivo |
 |---|---|---|---|
-| Suite completa, pared | ~490 s | 534 s (mediana de 2: A 573.8 s con loadavg 8.57 al inicio, exit 1; B 494.7 s con loadavg 4.78, exit 0, 437 archivos, 9 146 tests) | ≤ 50 % de M1 (R4) |
+| Suite completa, pared | ~490 s | 534 s (mediana de 2: A 573.8 s con loadavg 8.57 al inicio, exit 1; B 494.7 s con loadavg 4.78, exit 0, 437 archivos, 9 146 tests) | ≤ 50 % de la base comparable (R4; **no cumplido**: 380 s frente a 380 s, ver «Medición comparable (T43)») |
 | Suma por archivo | 1 822 s (433 archivos, 8 928 tests) | A 2 138 s (9 201 tests); B 1 856 s | — |
 | `slice.test.ts` | 171 s | A 146.9 s / B 176.4 s | presupuesto R2 |
 | `guard-destructive` | 99 s | A 90.4 s / B 109.0 s | presupuesto R2 |
@@ -516,6 +537,36 @@ vuelve a medir en M1. La única cifra no preliminar es el probe (~150 ms, medido
 | `ensureDist` con hit, 1 archivo | — | M2: hit ~65 ms pared vía bun (0.03 s user); corrida de un archivo con `dist/` sellado ~0.6–0.9 s total; primera compilación: ~1.1 s de overhead de `ensure-dist` aparte del build | — |
 
 M1 llena la tabla con `bench:tests` y `bench:hooks`, y registra `loadavg` y `ulimit -n`.
+
+**Medición comparable (T43, 2026-10-16): base frente a rama.** Esta es la única medición válida para
+R4. La columna M1 se conserva como registro, no como base.
+
+Método: máquina libre al inicio de cada corrida (loadavg de 1 min entre 3.35 y 3.97 en 10 CPUs, sin
+`vitest` en curso); corridas alternadas base y rama; `bun x vitest run --reporter=json` en
+`packages/cli`; variables `GIT_*` eliminadas del entorno. Base: merge-base `c9028472` en un worktree
+temporal con `bun install --frozen-lockfile --ignore-scripts`, eliminado al terminar. Rama:
+`feat/0054-dx-ciclo-desarrollo`. Tres corridas por lado.
+
+| Lado | Pared por corrida (s) | Mediana pared (s) | Suma por archivo por corrida (s) | Mediana suma (s) | Archivos | Pasados / fallidos por corrida |
+|---|---|---|---|---|---|---|
+| Base (`c9028472`) | 376 / 402 / 380 | **380** | 1 428 / 1 530 / 1 445 | 1 445 | 436 | 9 222 / 1 · 9 222 / 1 · 9 222 / 1 |
+| Rama | 380 / 380 / 356 | **380** | 1 438 / 1 441 / 1 346 | 1 438 | 447 | 9 317 / 0 · 9 317 / 0 · 9 317 / 0 |
+
+El fallo de la base es siempre el mismo: `role-guard.test.ts`, «authorizes registered linked-worktree
+review outputs through the binding branch». Es un artefacto del entorno (el worktree vive bajo
+`/private/tmp`), no un efecto del tiempo. La rama no lo reproduce en ninguna corrida. La rama suma 11
+archivos de prueba nuevos (447 frente a 436).
+
+Corrida extra de la rama con `NAVORI_TEST_WORKERS=8`, máquina libre: pared 328 s (−14 %), suma por
+archivo 2 472 s (cada archivo ~1.7× más lento por contención), 9 317 pasados y 0 fallidos.
+
+**Conclusión.** R4 no se cumple: la rama tarda 380 s y la base 380 s (100 %, con meta ≤ 50 %). La suite
+está limitada por el trabajo de CPU total (spawns de bash y git en los archivos pesados), no por el
+número de workers, así que `WORKER_CAP` queda en 4: con 8 la pared baja poco y el tiempo por archivo
+sube. Los ahorros de esta entrega están en el ciclo: caché del gate y probe de pre-commit (R12–R17),
+`test:affected` (R11), evidencia sin re-firma por `HEAD` (R19–R21) y hooks más baratos (R22–R27). Bajar
+el trabajo de CPU de la suite completa queda como trabajo futuro fuera de 0054. La enmienda de R4 está
+en [requirements.md](requirements.md).
 
 **Cifras de M1 bajo carga, no válidas para R4.** La corrida A no es línea base válida: vitest salió con
 exit 1 porque cuatro archivos de render del engine superaron el timeout de 15 s bajo carga; pasan
@@ -542,6 +593,33 @@ deshabilitada.
 por archivo 3 833 s, frente a 1 822 s con 4 workers. No hubo ganancia neta de pared. `CAP` se revalida
 en M8 con la máquina libre. Enmienda: `WORKER_CAP` queda en 4 (`packages/cli/vitest.workers.ts`). Con CAP=8 bajo carga, la pared fue 545–568 s frente a 495–574 s con 4 workers; el tiempo por archivo fue 1.3–1.8× (suma 3 833–4 072 s), con timeouts en `slice`, `escalation` y `role-guard` y 28 archivos sobre presupuesto.
 
+**Medición M6 (hooks, mismo scratch, loadavg ~3.2; mediana de 3 salvo donde se indica).** Evento por evento, antes (espejos sin cambios) frente a después (fuentes renderizadas sobre copia scratch):
+
+| Evento | Claude antes | Claude después | Codex antes | Codex después |
+|---|---|---|---|---|
+| Bash (sin audit) | 159 ms | 141–144 ms | 203 ms | 185–186 ms |
+| Edit | 112 ms | 87–92 ms | 161 ms | 141–142 ms |
+| Agent | 166 ms | 78–82 ms | 175 ms | 88–103 ms |
+| SessionStart | 221 ms | 309–320 ms | 297 ms | 373–376 ms |
+| UserPromptSubmit | 101 ms | 93–95 ms | 113 ms | 102 ms |
+
+- **SessionStart sube.** El navori global instalado (0.12.1) no conoce `tools session-context`. El hook paga la llamada fallida más la caída a las dos llamadas viejas. Con un CLI que sí tenga el subcomando, la ruta es una sola llamada; con workspaces ahorra una. Esa cifra con CLI nuevo no está en la tabla.
+- **Objetivos.** Bash sin audit ≤ 300 ms en ambos motores: OK. Drift limpio < 60 ms: OK. `plan-gate` por la vía rápida < 60 ms: OK.
+
+Por hook, medido a loadavg ~11 antes y ~3 después. **No comparable entre columnas**; se cita como referencia:
+
+| Hook | Antes (loadavg ~11) | Después (loadavg ~3) |
+|---|---|---|
+| `managed-drift-watch` (camino limpio) | 59 / 67 ms | 30 / 39 ms |
+| `plan-gate` (rol scout) | 173 / 155 ms | 21 / 22 ms |
+| `audit-mode-trigger` | 155 / 160 ms | 93 / 102 ms |
+| `subagent-no-background` | 26 ms | 21 ms |
+| `general-purpose-confirm` | 8 / 6 ms | 4 / 4 ms |
+
+Artefactos: `.navori/state/bench/hooks-latest.json` (scratchpad benchrepo).
+
+**Corrida A6 (`bench:hooks` sobre espejos del repo, loadavg 3.45).** Claude Bash 218 ms, Codex Bash 259 ms, Agent 82 / 100 ms, SessionStart 404 / 421 ms. El SessionStart alto es el costo de la caída con el CLI global anterior (sin `tools session-context`).
+
 **`defaultMs` = 20000 ms** (ya escrito en `packages/cli/test-budget.json`). Se justifica con la
 distribución por archivo de la corrida de 495 s, bajo carga: p50 215 ms, p90 10.2 s, p95 16.9 s,
 p99 50.1 s; 79 archivos > 5 s, 45 > 10 s, 20 > 20 s. 20 s queda justo arriba del p95. Los ~20
@@ -556,6 +634,8 @@ proceso.
 
 **M8 re-mide.** M8 mide la línea base (checkout del merge-base) y la final bajo las mismas
 condiciones de máquina libre para evaluar R4 (T43).
+
+**Desviaciones M8.** (a) `reviewer.md` se recorta en prosa preexistente (frase de reporte cacheado, redacción de reglas duras, frase de gate duplicada) para quedar bajo 21300 B; renderizado 21261 B; la semántica se conserva. (b) Techos de palabras en `lib/assets/doc-budgets.ts`, con justificación: `orquestacion` 1228 → 1250; `planificacion` 403 → 424; AGENTS.md (archivo completo) 4071 → 4120, con 3916 palabras y 5.2 % de holgura.
 
 ## Casos e2e borrados (R9)
 

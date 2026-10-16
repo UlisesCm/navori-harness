@@ -98,8 +98,10 @@ Estimated LOC: 1150
   skills de semgrep y jscpd documentan la invocación desde un hook nativo · effect: docs · test:
   `engines/shared/__tests__/native-overlap.test.ts`::"native-git-hooks"
 
-## E3 — La aceptación compara contra lo esperado
+## E3 — La aceptación compara contra lo esperado — diferida (0054)
 Estimated LOC: 1000
+
+> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/). No se implementa en esta spec.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
@@ -135,8 +137,10 @@ Estimated LOC: 1000
   Claude y Codex · effect: docs · test: `lib/render/__tests__/interpolate.test.ts`::"reviewer
   request claude y codex"
 
-## E4 — El ciclo de un cambio chico es proporcional
+## E4 — El ciclo de un cambio chico es proporcional (absorbida por 0054)
 Estimated LOC: 450
+
+> Absorbida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/). No se implementa en esta spec.
 
 ### M10 — Nivel 0 y profundidad del review
 - **A13** — plan-gate y `classify --diff` en verde ·

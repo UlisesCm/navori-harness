@@ -62,6 +62,14 @@ Decisiones del usuario (2026-10-15):
   no está en la lista de excepciones, nombrando el archivo, su duración y el presupuesto.
 - **R4** — The suite completa SHALL tardar, en pared y con la máquina libre, como máximo el 50 % de
   la línea base medida al inicio de esta entrega con `bench:tests` y registrada en `design.md`.
+  - *Enmienda 2026-10-16 (decisión del usuario).* R4 **no se cumplió**: la suite de la rama tarda
+    380 s y la base comparable 380 s (mediana de 3 corridas por lado, máquina libre), frente a la
+    meta de ≤ 190 s. La línea base de M1 (534 s) se tomó bajo carga y no es comparable. La suite está
+    limitada por el trabajo de CPU total, no por el número de workers. Reducir ese trabajo queda como
+    trabajo futuro fuera de 0054. El criterio se reformula así: **la suite completa no regresa en pared
+    respecto a la base** (≤ base, medido con la máquina libre), y los ahorros del ciclo quedan cubiertos
+    por R11, R12–R17 y R19–R27. Evidencia y método en
+    [design.md § Línea base](design.md#línea-base).
 
 ### B — Suite de tests
 
@@ -146,11 +154,14 @@ Decisiones del usuario (2026-10-15):
 - **R23** — The `managed-drift-watch` SHALL omitir el hasheo cuando ningún archivo ni directorio de
   las raíces gestionadas tiene un `mtime` más nuevo que su sello. En el camino limpio SHALL terminar
   en menos de 60 ms medianos. Una edición que preserva el `mtime` queda como límite declarado (el hook
-  es advisory).
+  es advisory). *Nota M6 (C8):* el sello es solo por `mtime`, sobre archivos y directorios de las raíces
+  gestionadas; una edición que preserva el `mtime` queda como límite declarado y se detecta en el
+  siguiente hasheo contra el baseline guardado (design.md D7).
 - **R24** — WHEN el `subagent_type` o el rol del spawn aparece una sola vez, sin escapes `\u`, y es
   un rol conocido que no es implementer, the `plan-gate` SHALL decidir `allow` antes de cualquier
   proceso que no sea el shell, en menos de 60 ms medianos. En cualquier otro caso decide el CLI, como
-  hoy.
+  hoy. *Nota M6:* la comparación del rol es sensible a mayúsculas (un rol con mayúsculas va al CLI) y el
+  payload se lee con `$(cat)` en lugar de `read -d ''` (design.md D11).
 - **R25** — The `session-start-context` SHALL invocar el CLI `navori` una sola vez, con un
   subcomando que entrega en una sola salida, todo o nada, lo que hoy entregan `tools notice` y
   `dominio inject`. IF el subcomando falla o no existe THEN el hook SHALL caer a las dos llamadas de
