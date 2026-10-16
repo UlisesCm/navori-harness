@@ -3,9 +3,12 @@ import { availableParallelism } from "node:os";
 
 /**
  * Upper bound on forks. The e2e specs each `spawnSync(dist/index.js)`, so too
- * many workers exhaust file descriptors (EMFILE, #281). Measured in spec 0054 M2.
+ * many workers exhaust file descriptors (EMFILE, #281). Measured in spec 0054 M2:
+ * under load, CAP=8 gave wall 545-568 s vs 495-574 s at 4 workers, while per-file
+ * time rose 1.3-1.8x (sumFiles 3833-4072 s vs 1822 s), causing timeouts and 28
+ * files over budget. Revalidate on an idle machine (M8).
  */
-export const WORKER_CAP = 8;
+export const WORKER_CAP = 4;
 
 /** File descriptors budgeted per worker (its fork plus the CLI children it spawns). */
 export const FDS_PER_WORKER = 64;

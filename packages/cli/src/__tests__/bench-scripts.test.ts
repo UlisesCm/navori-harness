@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { summarizeReport } from "../../scripts/bench-tests.mjs";
-import { validateBudget } from "../../scripts/check-test-budget.mjs";
+import { budgetViolations, validateBudget } from "../../scripts/check-test-budget.mjs";
 
 /**
  * Spec 0054 M1 — the measurement scripts. Fixed fixtures only: no test here
@@ -83,6 +83,55 @@ describe("bench scripts", () => {
     expect(() => summarizeReport({ nope: true }, 1, ROOT)).toThrow(/testResults/);
   });
 
+  // Covers: R3
+  it("check-test-budget falla sobre el presupuesto por el factor y respeta excepciones", () => {
+    const budget = {
+      defaultMs: 1000,
+      exceptions: [{ file: "src/slow.test.ts", ms: 5000, reason: "spawns the CLI" }],
+    };
+    const files = [
+      { file: "src/fast.test.ts", ms: 900 },
+      { file: "src/over.test.ts", ms: 1500 },
+      { file: "src/slow.test.ts", ms: 4000 },
+      { file: "src/slow-over.test.ts", ms: 6000 },
+    ];
+    const at1 = budgetViolations(budget, files, 1);
+    expect(at1).toHaveLength(2);
+    expect(at1[0]).toContain("src/over.test.ts: 1500 ms exceeds its budget of 1000 ms");
+    expect(at1.join("\n")).not.toContain("src/slow.test.ts");
+    expect(budgetViolations(budget, files, 2)).toEqual([
+      "src/slow-over.test.ts: 6000 ms exceeds its budget of 2000 ms",
+    ]);
+
+    const dir = mkdtempSync(join(tmpdir(), "navori-budget-"));
+    try {
+      const budgetPath = join(dir, "budget.json");
+      writeFileSync(budgetPath, JSON.stringify(budget));
+      const root = resolve(here, "..", "..");
+      const reportPath = join(dir, "vitest.json");
+      writeFileSync(
+        reportPath,
+        JSON.stringify({
+          testResults: [
+            { name: join(root, "src/over.test.ts"), startTime: 0, endTime: 1500, status: "passed" },
+          ],
+        }),
+      );
+      const run = (factor?: string) =>
+        spawnSync("node", [BUDGET_SCRIPT, "--budget", budgetPath, "--report", reportPath], {
+          encoding: "utf8",
+          env: { ...process.env, NAVORI_TEST_BUDGET_FACTOR: factor ?? "" },
+        });
+      const failed = run();
+      expect(failed.status).toBe(1);
+      expect(failed.stderr).toContain("src/over.test.ts: 1500 ms exceeds its budget of 1000 ms");
+      expect(run("2").status).toBe(0);
+      expect(run("0").status).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // Covers: R2
   it("test-budget rechaza excepción sin razón o ms no entero", () => {
     const ok = {
@@ -119,7 +168,7 @@ describe("bench scripts", () => {
       const good = join(dir, "good.json");
       writeFileSync(good, JSON.stringify({ defaultMs: 5000, exceptions: [] }));
       const report = join(dir, "latest.json");
-      writeFileSync(report, "{}");
+      writeFileSync(report, JSON.stringify({ files: [] }));
       expect(spawnSync("node", [BUDGET_SCRIPT, "--budget", good, "--report", report]).status).toBe(
         0,
       );

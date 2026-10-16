@@ -9,6 +9,9 @@ describe("resolveMaxWorkers", () => {
     expect(resolveMaxWorkers({ ...free, cpus: 4 })).toBe(3);
     // CAP bound on a big machine.
     expect(resolveMaxWorkers({ ...free, cpus: 64 })).toBe(WORKER_CAP);
+    expect(WORKER_CAP).toBe(4);
+    expect(resolveMaxWorkers({ ...free, cpus: 5 })).toBe(4);
+    expect(resolveMaxWorkers({ ...free, cpus: 6 })).toBe(4);
     // ulimit bound: a 256-fd shell gets fewer workers than the CPUs allow.
     expect(resolveMaxWorkers({ env: {}, cpus: 64, ulimit: FDS_PER_WORKER * 2 + 1 })).toBe(2);
     // Never below one worker, even with a tiny ulimit or a single CPU.

@@ -168,6 +168,16 @@ jobs:
       # instrumentation costs seconds.
       - name: Test + coverage gate
         run: bun run --filter navori test:coverage
+        env:
+          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-report.json
+
+      # Per-file time budget (spec 0054 R3). Factor 2: the budget is set on a
+      # local run; shared 2-4 vCPU runners are slower, and 2 absorbs that noise
+      # without hiding a file that doubles. Revisit with CI timings in M8.
+      - name: Test time budget
+        run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-report.json"
+        env:
+          NAVORI_TEST_BUDGET_FACTOR: "2"
 
   # Format check, lint, typecheck, duplication and ast-grep on every other ref
   # and base. No tests (they run on `main` and `dev`) and no semgrep (`main`-only job).

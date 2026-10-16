@@ -1,0 +1,38 @@
+{
+  "baseRef": "origin/dev",
+  "files": [
+    { "path": "packages/cli/src/lib/master/__tests__/slice.test.ts" },
+    { "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts" },
+    {
+      "path": "packages/cli/src/__tests__/cli.e2e.test.ts",
+      "removedCases": [
+        "init --recommended: a runner WITH a suite derives always (#529)",
+        "doctor does not report drift for an agent marker older than the CLI",
+        "scan --yes is a no-op when init already populated workspaces",
+        "scan --yes adds a new workspace when one is created after init",
+        "render --workspace acota la operación a un solo workspace",
+        "render --workspace falla con mensaje claro cuando el nombre no matchea"
+      ]
+    },
+    { "path": "packages/cli/src/lib/__tests__/guard-destructive.test.ts" },
+    { "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts" }
+  ],
+  "merges": [
+    {
+      "into": "packages/cli/src/__tests__/doctrine-contracts.test.ts",
+      "countRowIds": true,
+      "from": [
+        "packages/cli/src/__tests__/orquestacion-doctrina.test.ts",
+        "packages/cli/src/__tests__/plan-tiers-contracts.test.ts",
+        "packages/cli/src/__tests__/scribe-owns-markdown-contracts.test.ts",
+        "packages/cli/src/engines/__tests__/claude-md-diet.test.ts"
+      ],
+      "literalBaseline": {
+        "path": "packages/cli/src/__tests__/fixtures/doctrine-literals.baseline.json",
+        "positive": 114,
+        "negative": 43,
+        "equivalenceCase": "cada token afirmado antes de la fusión sigue afirmado"
+      }
+    }
+  ]
+}
