@@ -1,0 +1,21 @@
+id: no-real-home-in-tests
+valid:
+  - |
+    const home = homedir();
+  - |
+    const p = join(tmpdir(), "x");
+  - |
+    const s = "see /usr/local/bin";
+invalid:
+  - |
+    const home = userInfo().homedir;
+  - |
+    const home = os.userInfo().homedir;
+  - |
+    const p = "/Users/someone/project";
+  - |
+    const p = "/home/someone/project";
+  - |
+    const p = `/Users/someone/${name}`;
+  - |
+    const p = `/home/someone/project`;
