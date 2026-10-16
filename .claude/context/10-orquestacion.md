@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="e59bb02f" version="0.12.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="da804891" version="0.12.1" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator: **you decompose, you coordinate, you synthesize**, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
@@ -23,7 +23,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
 - Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers, verification). Artifacts supplement it; approval gates unchanged.
 - **1 focused `implementer`**, then **1 `scribe`** only when `markdownRequests` is non-empty (else `navori handoff render <feature>`; `sonnet` for shipped prose, R8), then **1 fresh `reviewer`**. Run serially; review each output.
-- **Parallel scribe (opt-in):** level-3 specs, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
+- **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `bun run check:fast` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
 - **`bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` green** is Pass 2 on the shipping diff of the PR, once per PR.
@@ -31,7 +31,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs prove no cap.
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
 
 ### How much analysis does this task deserve (signal → mechanism)
 

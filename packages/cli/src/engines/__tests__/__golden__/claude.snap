@@ -1499,7 +1499,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs prove no cap.
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
