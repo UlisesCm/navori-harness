@@ -18,13 +18,13 @@ If you didn't run the command THIS TURN, you can't make the claim. "Should work"
 
 ## Gate function
 
-BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it → RUN it this turn → READ output, exit code, failure count → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH the evidence visible). Skipping a step is a lie, not verification.
-
+BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it → RUN it this turn → READ output, exit code, failure count → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH the evidence visible).
 ## Table: claim → required output → not sufficient
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `{{qualityGate.fast}}` / `{{qualityGate.full}}` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
+| Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a run this turn |
 | Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `{{branchBase}}` | "outside the diff" / "inside the diff" alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
@@ -36,7 +36,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 
 ## Failure attribution
 
-A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only {{branchBase}}` (inside or outside the diff) only orients — it never proves origin.
+A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only {{branchBase}}` only orients — it never proves origin.
 
 Only the **same command**, run over the comparable base and over the change, demonstrates a state: the two runs disagree → introduced (demonstrated); they agree → pre-existing (demonstrated); no comparable run exists → origin not determined.
 
@@ -52,7 +52,6 @@ Never `git stash` to measure it — it empties the shared tree while another age
 | Excuse | Reality |
 |---|---|
 | "Confident" / "passed 10 min ago" | Confidence ≠ evidence. Re-run, fresh. |
-| "If it compiles, it runs" | `strict: false` misses runtime undefined. |
 | "Trivial" / "the subagent said done" | Doesn't exempt verification. |
 
 ## When invoked
@@ -61,7 +60,7 @@ Never `git stash` to measure it — it empties the shared tree while another age
 
 ## Closing
 
-Always active, no explicit invocation. Include the claim, the fresh evidence, and any sub-claim that COULD NOT be verified — stated explicitly, never inferred.
+State the claim, the fresh evidence, and any sub-claim you COULD NOT verify — never inferred.
 
 <!-- navori:user-section -->
 ## Project-specific checks

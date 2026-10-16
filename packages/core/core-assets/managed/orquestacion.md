@@ -21,9 +21,8 @@ You are the main agent. **Every change to source goes through `implementer` → 
 <!-- /navori:if -->
 - **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
 - Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
-- **1 focused `implementer`**, then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** for `markdownRequests` (default model for handoff-only; `sonnet` for shipped prose, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Run serially; review the implementer's<!-- navori:if scribeOwnsMarkdown --> and scribe's<!-- /navori:if --> output.
-- **Review after implementation.**
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `{{qualityGate.fast}}` plus its `A<n>` commands; `navori receipt gate` decides the gate; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
+- **1 focused `implementer`**, then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** only when `markdownRequests` is non-empty (else `navori handoff render <feature>`; `sonnet` for shipped prose, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Run serially; review each output.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `{{qualityGate.fast}}` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
 - **<!-- navori:if-not onCodex -->`{{qualityGate.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->The quality gate named in "Session closeout"<!-- /navori:if --> green** is Pass 2 on the shipping diff of the PR, once per PR.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.

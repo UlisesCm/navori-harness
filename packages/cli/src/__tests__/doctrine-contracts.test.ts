@@ -10,6 +10,7 @@ import { renderClaudeEngine } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
+import { renderCodexEngine } from "../engines/codex/index.ts";
 import {
   simulateContextDelivery,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
@@ -101,14 +102,19 @@ const DIET = {
 const RENDER_CONFIGS = {
   base: PLAN_BASE,
   tiers: { ...PLAN_BASE, harness: { planTiers: true } } as unknown as NavoriConfig,
+  scribeOn: {
+    ...PLAN_BASE,
+    harness: { planTiers: true, scribeOwnsMarkdown: true },
+  } as unknown as NavoriConfig,
   diet: DIET,
   dietGh: { ...DIET, plugins: { gh: { enabled: true } } } as NavoriConfig,
 } as const;
 type RenderConfig = keyof typeof RENDER_CONFIGS;
-type Engine = "claude" | "agents-md" | "cursor" | "copilot";
+type Engine = "claude" | "codex" | "agents-md" | "cursor" | "copilot";
 
 const RENDERERS: Record<Engine, (cwd: string, config: NavoriConfig) => unknown> = {
   claude: renderClaudeEngine,
+  codex: renderCodexEngine,
   "agents-md": renderAgentsMdEngine,
   cursor: renderCursorEngine,
   copilot: renderCopilotEngine,
@@ -569,6 +575,89 @@ const ROWS: readonly ContractRow[] = [
     file: claude("tiers", ".claude/agents/reviewer.md"),
     squash: true,
     tokens: ["`navori receipt gate --feature <feature> --phase <phase>`"],
+  },
+  // Covers: R15, R16, R21
+  ...(
+    [
+      ["claude", ".claude/agents/reviewer.md"],
+      ["codex", ".codex/agents/reviewer.toml"],
+    ] as const
+  ).map(([engine, file]): ContractRow => ({
+    id: `${engine}: reviewer lanes by milestone, cached PASS reported as cached, reviewDepth, docs re-sign`,
+    file: rendered(engine, "tiers", file),
+    squash: true,
+    tokens: [
+      "(non-closing milestone), run",
+      "`qualityGate.affected` when declared",
+      "(closing milestone or a workplan PR)",
+      "it may answer from cache",
+      "PASS (cached <date> … sha256 <hash>)",
+      "with date and log hash",
+      "never review evidence",
+      "`reviewDepth`",
+      "`--gate-ran docs`",
+      "`qualityGate.docs`",
+    ],
+  })),
+  // Covers: R15
+  {
+    id: "publisher never reruns a gate the cache already covers",
+    file: claude("tiers", ".claude/agents/publisher.md"),
+    squash: true,
+    tokens: ["never rerun a gate the cache already covers"],
+  },
+  {
+    id: "implementer: su verde de navori gate fast alimenta la sonda de pre-commit",
+    file: claude("tiers", ".claude/agents/implementer.md"),
+    squash: true,
+    tokens: ["Its green feeds the pre-commit probe"],
+  },
+  // Covers: R16
+  {
+    id: "verify-before-done: la caché es un atajo de tiempo, nunca evidencia de revisión",
+    file: claude("tiers", ".claude/skills/verify-before-done/SKILL.md"),
+    squash: true,
+    tokens: ["`PASS (cached <date> … sha256 <hash>)`", "time shortcut, never review evidence"],
+  },
+  // Covers: R28
+  {
+    id: "planificacion: nivel 0 exige verify con comando y resultado esperado",
+    file: claude("tiers", `${CONTEXT_DIR}/05-planificacion.md`),
+    squash: true,
+    tokens: ["verify: \\`<cmd>\\` → <expected>", "no `verify:`, no dispatch"],
+  },
+  // Covers: R30, R31
+  ...(
+    [
+      ["claude", ".claude/agents/scribe.md"],
+      ["codex", ".codex/agents/scribe.toml"],
+    ] as const
+  ).map(([engine, file]): ContractRow => ({
+    id: `${engine}: scribe se despacha solo con markdownRequests no vacío`,
+    file: rendered(engine, "scribeOn", file),
+    squash: true,
+    tokens: ["only when `markdownRequests` is non-empty", "navori handoff render <feature>"],
+  })),
+  // Covers: R29, R30, R31, R32
+  {
+    id: "orchestrator: scribe condicionado, observación informativa al PR, A<n> desde el hilo principal",
+    file: claude("scribeOn", ".claude/agents/orchestrator.md"),
+    squash: true,
+    tokens: [
+      "Dispatch the `scribe` only when `markdownRequests` is non-empty; otherwise run `navori handoff render <feature>` yourself",
+      "goes to the PR body and doesn't reopen the cycle",
+      "Run each `A<n>` yourself, from the main thread",
+      "never runs the full suite",
+    ],
+  },
+  {
+    id: "orquestacion: scribe condicionado y A<n> desde el hilo principal",
+    file: asset(BLOCK),
+    squash: true,
+    tokens: [
+      "only when `markdownRequests` is non-empty (else `navori handoff render <feature>`",
+      "you run each `A<n>` from the main thread, foreground;",
+    ],
   },
   // Covers: R47
   ...[".claude/agents/reviewer.md", ".claude/skills/plan-advanced/SKILL.md"].map(
