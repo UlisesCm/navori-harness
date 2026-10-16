@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}
 maxTurns: 160
-maxWords: 2707
+maxWords: 2705
 ---
 
 # Implementer Agent
