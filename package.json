@@ -24,6 +24,8 @@
     "gen:schemas": "bun run --filter navori gen:schemas",
     "format": "oxfmt \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
+    "bench:tests": "node packages/cli/scripts/bench-tests.mjs",
+    "bench:hooks": "node scripts/js/bench-hooks.mjs",
     "check:links": "node scripts/js/check-links.mjs",
     "check:render": "bun run --filter navori build && node scripts/js/check-render.mjs",
     "check:assets": "node scripts/js/check-asset-commands.mjs",
