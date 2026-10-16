@@ -109,17 +109,57 @@ fi
 # binary ignores it; without it the binary falls back to "agent_type is present".
 codex_copy=0
 case "$0" in *".codex/hooks/"*) codex_copy=1 ;; esac
+# stderr is captured (merged) so a denial can carry the stale-CLI hint below; it is
+# replayed untouched right after, so every path keeps the text it printed before.
 if [ "$codex_copy" = 1 ]; then
-  printf '%s' "$payload" | NAVORI_HOOK_ENGINE=codex navori plan gate
+  navori_out=$(printf '%s' "$payload" | NAVORI_HOOK_ENGINE=codex navori plan gate 2>&1)
 else
-  printf '%s' "$payload" | navori plan gate
+  navori_out=$(printf '%s' "$payload" | navori plan gate 2>&1)
 fi
 navori_exit=$?
+
+# Numeric value of a dotted x[.y[.z]] version (pre-release suffix ignored), or
+# nothing when it is not plain numeric.
+plan_gate_version_num() {
+  pg_v=${1%%[-+]*}
+  pg_major=${pg_v%%.*}
+  pg_rest=${pg_v#"$pg_major"}
+  pg_rest=${pg_rest#.}
+  pg_minor=${pg_rest%%.*}
+  pg_patch=${pg_rest#"$pg_minor"}
+  pg_patch=${pg_patch#.}
+  pg_patch=${pg_patch%%.*}
+  for pg_n in "$pg_major" "${pg_minor:-0}" "${pg_patch:-0}"; do
+    case "$pg_n" in '' | *[!0-9]*) return 1 ;; esac
+  done
+  echo $((10#$pg_major * 1000000 + 10#${pg_minor:-0} * 1000 + 10#${pg_patch:-0}))
+}
+
+# R34 (spec 0054): ONLY on a denial, when the running CLI is older than the
+# `harnessVersion` the repo was rendered with, say so — an old CLI denies an
+# opening it does not know (e.g. `spec:`) with a reason that hides the cause.
+# Costs nothing on an allow: the version is queried here and nowhere else.
+plan_gate_stale_cli_hint() {
+  pg_cfg="${CLAUDE_PROJECT_DIR:-$PWD}/navori.config.json"
+  [ -r "$pg_cfg" ] || return 0
+  pg_harness=$(sed -n 's/.*"harnessVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pg_cfg" 2>/dev/null | head -n 1)
+  [ -n "$pg_harness" ] || return 0
+  pg_cli=$(navori --version 2>/dev/null </dev/null | head -n 1)
+  pg_cli=${pg_cli##* }
+  pg_cli_num=$(plan_gate_version_num "$pg_cli") || return 0
+  pg_harness_num=$(plan_gate_version_num "$pg_harness") || return 0
+  if [ "$pg_cli_num" -lt "$pg_harness_num" ]; then
+    printf '%s\n' "[navori] the navori CLI is outdated: it is $pg_cli but this repo was rendered with harnessVersion $pg_harness, so it may not know the opening you used. Update it with 'navori update' (or 'npm i -g navori@latest'), then run 'navori render --apply'." >&2
+  fi
+}
+
+[ -n "$navori_out" ] && printf '%s\n' "$navori_out" >&2
 case "$navori_exit" in
   0) exit 0 ;;
   2)
     navori_audit_verdict="block"
     navori_audit_reason="plan-denied"
+    plan_gate_stale_cli_hint
     exit 2
     ;;
   *)

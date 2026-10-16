@@ -351,12 +351,73 @@ describe("navori plan classify --diff", () => {
     expect(parsed.files).toEqual(expect.arrayContaining(["src/a.ts", "README.md", "untracked.ts"]));
   });
 
-  it("fails when the feature has no workplan", async () => {
+  it("fails when the workplan exists but is invalid", async () => {
     gitRepoWithDiff(["src/a.ts"]);
+    writePlan("absent", { feature: "absent" });
     await runCommand(planCommand, {
       rawArgs: ["classify", "absent", "--diff", "main", "--cwd", cwd],
     });
     expect(process.exitCode).toBe(1);
+  });
+
+  // Covers: R29
+  it("reviewDepth con área crítica, sin declaración y light", async () => {
+    const run = async (
+      files: string[],
+      criticalPaths: string[] | undefined,
+      feature = "nolevel",
+    ): Promise<{ reviewDepth: string; depthReason?: string; workplan: boolean }> => {
+      gitRepoWithDiff(files);
+      writeFileSync(
+        join(cwd, "navori.config.json"),
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          ...(criticalPaths ? { project: { criticalPaths } } : {}),
+        }),
+      );
+      const logs: string[] = [];
+      const spy = vi_spyConsole(logs);
+      await runCommand(planCommand, {
+        rawArgs: ["classify", feature, "--diff", "main", "--json", "--cwd", cwd],
+      });
+      spy.restore();
+      return JSON.parse(logs.join(""));
+    };
+
+    // Declared critical paths, untouched: light, and no workplan is not an error.
+    const light = await run(["src/a.ts"], ["hooks/**"]);
+    expect(light).toMatchObject({ reviewDepth: "light", workplan: false });
+    expect(light.depthReason).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
+
+    // No declaration: a critical file is indistinguishable, so full.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    expect(await run(["src/a.ts"], undefined)).toMatchObject({
+      reviewDepth: "full",
+      depthReason: "criticalPaths-undeclared",
+    });
+
+    // Touching a declared critical path: full, whatever the level.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    expect(await run(["hooks/guard.sh"], ["hooks/**"])).toMatchObject({
+      reviewDepth: "full",
+      depthReason: expect.stringMatching(/^(critical-path-matched|level)$/),
+    });
+
+    // A workplan always means the full review.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    process.exitCode = undefined;
+    writePlan("demo", validPlan);
+    expect(await run(["src/a.ts"], ["hooks/**"], "demo")).toMatchObject({
+      reviewDepth: "full",
+      depthReason: "workplan",
+      workplan: true,
+    });
   });
 });
 
