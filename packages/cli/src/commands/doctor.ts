@@ -74,7 +74,12 @@ import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 import { DEFAULT_PORT as OTEL_RECEIVER_PORT, probeReceiver } from "../lib/audit/collect.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/diagnose/scan.ts";
-import { loadWorkspace, canonicalPath } from "../lib/workspace/workspace.ts";
+import {
+  loadWorkspace,
+  listWorkspaces,
+  canonicalPath,
+  type WorkspaceConfig,
+} from "../lib/workspace/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";
 import { scanForeignSkillIndexes } from "../lib/assets/foreign-skill-index.ts";
 import { scanFlatSkills } from "../lib/assets/flat-skills.ts";
@@ -92,6 +97,7 @@ import {
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanProgressSize } from "../lib/diagnose/progress-size.ts";
+import { scanGlobalClaudeMd } from "../lib/diagnose/global-claude-md.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
@@ -261,6 +267,7 @@ export const doctorCommand = defineCommand({
     const codegraphIndexDrift = operationalTools.codegraph?.indexDrift ?? null;
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
+    const workspaceDeadRepos = scanWorkspaceDeadRepos(cwd, config);
     // #368: the gate the whole pipeline leans on, checked statically — a gate
     // that can't run makes three phases of the intake unreachable, and today
     // nothing notices until an implementer hits it mid-task.
@@ -294,6 +301,9 @@ export const doctorCommand = defineCommand({
     // #1263: advisory only — a fat session-state file falls out of startup
     // context; never part of the health verdict.
     const progressSize = scanProgressSize(cwd);
+    // #1270: advisory only — the user-level memory file loads in every Claude
+    // Code session; read-only, never part of the health verdict.
+    const globalClaudeMd = config.engines.includes("claude") ? scanGlobalClaudeMd() : null;
     // Advisory: hooks/doctrine rendered by an older binary (e.g. a `plan-gate.sh`
     // without `NAVORI_HOOK_ENGINE`) surface as pending render changes. A dry run.
     const renderPending = computeRenderPending(cwd, existsSync(claudeMdPath));
@@ -482,6 +492,7 @@ export const doctorCommand = defineCommand({
       // this payload already carries an absolute `configPath`.
       diskUsage,
       progressSize,
+      globalClaudeMd,
       renderPending,
       masterPlan,
       codegraphWiring,
@@ -492,6 +503,7 @@ export const doctorCommand = defineCommand({
       nestedWorktrees,
       monorepoDrift,
       workspaceLink,
+      workspaceDeadRepos,
       missingPreset,
       presetOverride,
       missingPresetFiles,
@@ -1047,6 +1059,15 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (globalClaudeMd) {
+      const row = td.globalClaudeMdRow(globalClaudeMd.chars, globalClaudeMd.thresholdChars);
+      p.log.warn(
+        td.globalClaudeMd(
+          `  ${color.yellow(sym.update)} ${accent(globalClaudeMd.path)}  ${grey(row)}`,
+        ),
+      );
+    }
+
     if (renderPending !== null && renderPending > 0) {
       p.log.warn(td.renderPending(renderPending));
     }
@@ -1132,6 +1153,14 @@ export const doctorCommand = defineCommand({
 
     if (workspaceLink) {
       p.log.warn(formatWorkspaceLinkWarning(workspaceLink, lang));
+    }
+    for (const dead of workspaceDeadRepos) {
+      p.log.warn(
+        td.wsDeadRepos(
+          dead.workspace,
+          dead.repos.map((r) => `  - ${r.name}: ${r.path}`).join("\n"),
+        ),
+      );
     }
 
     if (orderReport) {
@@ -2679,7 +2708,27 @@ export function scanMonorepoDrift(cwd: string, config: NavoriConfig): MonorepoDr
 export type WorkspaceLinkIssue =
   | { kind: "workspace-missing"; workspace: string }
   | { kind: "repo-not-registered"; workspace: string }
-  | { kind: "path-mismatch"; workspace: string; repoName: string; registeredPath: string };
+  | { kind: "path-mismatch"; workspace: string; repoName: string; registeredPath: string }
+  | {
+      kind: "undeclared-path-mismatch";
+      workspace: string;
+      repoName: string;
+      registeredPath: string;
+    };
+
+export interface WorkspaceDeadReposIssue {
+  workspace: string;
+  repos: { name: string; path: string }[];
+}
+
+/** Loads a manifest, treating a missing or invalid one as absent (doctor never throws on it). */
+function loadWorkspaceTolerant(name: string): WorkspaceConfig | null {
+  try {
+    return loadWorkspace(name);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The workspace registry (~/.navori/workspaces/) is machine-local: it never
@@ -2691,7 +2740,7 @@ export type WorkspaceLinkIssue =
  */
 export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceLinkIssue | null {
   const name = config.workspace;
-  if (!name) return null;
+  if (!name) return scanUndeclaredWorkspaceLink(cwd, config);
   let ws;
   try {
     ws = loadWorkspace(name);
@@ -2714,6 +2763,57 @@ export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceL
   return { kind: "repo-not-registered", workspace: name };
 }
 
+/**
+ * #1269: the config declares no `workspace`, yet the repo's name is registered
+ * in a workspace under a path that is not this checkout (typically after the
+ * parent directory was renamed or moved). Without this, `resolveWorkspacesForCwd`
+ * returns [] and `dominio inject` prints nothing, with no hint why.
+ */
+function scanUndeclaredWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceLinkIssue | null {
+  const here = canonicalPath(cwd);
+  for (const wsName of listWorkspaces()) {
+    const ws = loadWorkspaceTolerant(wsName);
+    if (!ws || ws.repos.some((r) => canonicalPath(r.path) === here)) continue;
+    const byName = ws.repos.find((r) => r.name === config.name);
+    if (byName) {
+      return {
+        kind: "undeclared-path-mismatch",
+        workspace: wsName,
+        repoName: byName.name,
+        registeredPath: byName.path,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * #1269: for every workspace this repo belongs to (declared, registered by
+ * path, or registered by name), the OTHER repos whose registered path no
+ * longer exists on disk. A healthy workspace yields nothing. This repo's own
+ * entry is excluded — {@link scanWorkspaceLink} already reports it.
+ */
+export function scanWorkspaceDeadRepos(
+  cwd: string,
+  config: NavoriConfig,
+): WorkspaceDeadReposIssue[] {
+  const here = canonicalPath(cwd);
+  const issues: WorkspaceDeadReposIssue[] = [];
+  for (const wsName of listWorkspaces()) {
+    const ws = loadWorkspaceTolerant(wsName);
+    if (!ws) continue;
+    const member =
+      wsName === config.workspace ||
+      ws.repos.some((r) => r.name === config.name || canonicalPath(r.path) === here);
+    if (!member) continue;
+    const repos = ws.repos.filter(
+      (r) => r.name !== config.name && canonicalPath(r.path) !== here && !existsSync(r.path),
+    );
+    if (repos.length > 0) issues.push({ workspace: wsName, repos });
+  }
+  return issues;
+}
+
 function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LANG): string {
   const td = tc(lang).doctor;
   switch (issue.kind) {
@@ -2723,6 +2823,8 @@ function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LA
       return td.wsLinkNotRegistered(issue.workspace);
     case "path-mismatch":
       return td.wsLinkPathMismatch(issue.repoName, issue.workspace, issue.registeredPath);
+    case "undeclared-path-mismatch":
+      return td.wsLinkUndeclaredMismatch(issue.repoName, issue.workspace, issue.registeredPath);
   }
 }
 
