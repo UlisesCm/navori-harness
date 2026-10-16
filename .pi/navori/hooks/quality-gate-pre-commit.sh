@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="93f7bc9c" version="0.12.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="5d333d86" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -1389,8 +1389,29 @@ if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   fi
 fi
 
-# Ratchet check for ONE session-state path (#1263); blocks via `exit 2`. Plain
-# function, quoted expansions, no word-splitting: it runs under bash and zsh.
+# Session-state ratchet function + lane (#1263, #1266). Shared body, single source of truth.
+# Session-state ratchet (#1263, #1266) — inlined into each hook that enforces it at
+# render time (see the include directive in the source scripts +
+# lib/render/hook-includes.ts), and sourced as-is by the repo's own git pre-commit.
+# Two consumers, ONE body: `quality-gate-pre-commit` (qualityGate.fast declared)
+# and `guard-destructive` (qualityGate.fast absent), so the check never has a
+# second copy to drift.
+#
+# The session-state file is meant to hold the CURRENT state and the next step;
+# past the delivery budget it falls out of startup context. RATCHET, not a plain
+# cap: blocks only when the file is over the ceiling AND larger than at HEAD, so a
+# trim that is still big passes and an untouched legacy file never blocks an
+# unrelated commit. The size is the max of the index (what a plain `git commit`
+# lands) and the worktree (what `-a`, a pathspec or `add && commit` in one call
+# lands). Bytes via `wc -c` / `git cat-file -s`: locale-independent, unlike
+# `${#var}`. Every git call is guarded: an unborn HEAD or an unmerged index exits
+# non-zero under `set -e`.
+#
+# Requires: `$navori_progress_hard_cap` (digits) set by the caller. Never exits: a
+# block is `return 2`, so each host decides how to stop (and how to record it).
+# Plain functions, quoted expansions, no word-splitting: they run under bash and zsh.
+
+# Ratchet check for ONE session-state path. Returns 0 (ok) or 2 (blocked).
 navori_progress_ratchet() {
   navori_pr_path=$1
   # A gitignored file is never committed, so its size is not this gate's business.
@@ -1412,7 +1433,25 @@ navori_progress_ratchet() {
     navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
     echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
     echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
-    exit 2
+    return 2
+  fi
+  return 0
+}
+
+# The whole lane for the hooks: the ceiling plus the loop over the session-state
+# paths, run from the root of the tree being committed. Returns 0 or 2.
+# The ceiling is injected from the single TS constant (a raw, unrendered copy
+# leaves the placeholder text, which is not numeric: the lane then stays off
+# rather than guess a number).
+# Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) the lane would run on EVERY
+# Bash call and block the very command that fixes the file.
+navori_progress_ratchet_lane() {
+  navori_progress_hard_cap=8000
+  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
+  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf" || return 2
+    done
   fi
   return 0
 }
@@ -1433,27 +1472,10 @@ if [ "$run_needed" = 1 ]; then
     navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
     exit 2
   }
-  # Session-state ratchet (#1263). The session-state file is meant to hold the
-  # CURRENT state and the next step; past the delivery budget it falls out of
-  # startup context. The ceiling is injected from the single TS constant (a raw,
-  # unrendered copy leaves the placeholder text, which is not numeric: the check
-  # then stays off rather than guess a number).
-  # Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) this block would run on
-  # EVERY Bash call and block the very command that fixes the file.
-  # RATCHET, not a plain cap: blocks only when the file is over the ceiling AND
-  # larger than at HEAD, so a trim that is still big passes and an untouched
-  # legacy file never blocks an unrelated commit. The size is the max of the
-  # index (what a plain `git commit` lands) and the worktree (what `-a`, a
-  # pathspec or `add && commit` in one call lands). Bytes via `wc -c` / `git
-  # cat-file -s`: locale-independent, unlike `${#var}`. Every git call is
-  # guarded: an unborn HEAD or an unmerged index exits non-zero under `set -e`.
-  navori_progress_hard_cap=8000
-  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
-  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
-    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
-      navori_progress_ratchet "$navori_pf"
-    done
-  fi
+  # Session-state ratchet (#1263): see the `progress-ratchet` partial for the rule,
+  # the byte measure and the fail-safe on an unrendered ceiling. A blocked commit
+  # is `exit 2` here; the lane never exits by itself.
+  navori_progress_ratchet_lane || exit 2
   # qualityGate.nativeHooks (spec 0045 D1): the project's native git pre-commit
   # already runs `fast`, so ONLY the gate step below is skipped. The ratchet
   # above and the user-section below still run. The value comes from

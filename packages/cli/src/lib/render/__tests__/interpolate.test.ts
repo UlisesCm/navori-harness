@@ -280,6 +280,33 @@ describe("interpolate — progress caps (#1263)", () => {
   });
 });
 
+describe("interpolate — progress guard lane flag (#1266)", () => {
+  // Covers: #1266
+  const withFast = (fast?: unknown): NavoriConfig =>
+    ({
+      ...CONFIG,
+      qualityGate: fast === undefined ? undefined : { fast },
+    }) as unknown as NavoriConfig;
+  const lane = (config: NavoriConfig) => interpolate("{{navori.progressGuardLane}}", config);
+
+  it("is 1 (lane on) when qualityGate.fast is absent", () => {
+    expect(lane(withFast())).toBe("1");
+  });
+
+  it.each(["", "   ", 7, null])("is 1 for an undeclared fast (%j)", (fast) => {
+    expect(lane(withFast(fast))).toBe("1");
+  });
+
+  it("is 0 (lane off, the gate hook measures) when qualityGate.fast is declared", () => {
+    expect(lane(withFast("pnpm lint"))).toBe("0");
+  });
+
+  it("a raw, unrendered placeholder is not the digit 1", () => {
+    // The escape marker keeps the token verbatim, like a copy that was never rendered.
+    expect(interpolate("{{raw:navori.progressGuardLane}}", CONFIG)).not.toBe("1");
+  });
+});
+
 describe("interpolate — gate runner placeholders (#1272)", () => {
   const withGate = (qualityGate?: Record<string, string>): NavoriConfig =>
     ({ ...CONFIG, qualityGate }) as unknown as NavoriConfig;
