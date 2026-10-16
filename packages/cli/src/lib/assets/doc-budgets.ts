@@ -204,6 +204,15 @@ export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
 export const PROGRESS_SOFT_CAP_BYTES = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 2;
 
 /**
+ * Soft cap, in CHARACTERS, of the user-level `~/.claude/CLAUDE.md` (#1270): a
+ * quarter of the delivery budget. Claude Code loads that file into EVERY
+ * session on top of the repo's context, so a fat one eats the room the repo's
+ * own context needs. Past it `doctor` nudges; nothing blocks and the file is
+ * never touched.
+ */
+export const GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 4;
+
+/**
  * Hard ceiling, in BYTES, of the same file: the delivery budget itself, where
  * the file demonstrably stops fitting startup context. The pre-commit hook
  * blocks a commit that leaves the file above it AND larger than at HEAD.
