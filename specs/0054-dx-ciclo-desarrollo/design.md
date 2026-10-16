@@ -63,7 +63,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   `ms × NAVORI_TEST_BUDGET_FACTOR` (default 1; CI declara su factor). Falla nombrando archivo,
   duración y presupuesto. Corre en `quality` después de `test:coverage`, que suma el reporter `json`
   con `NAVORI_TEST_REPORT`. — R3
-- `packages/cli/scripts/ensure-dist.ts`, ejecutado con `bun` (D2). — R5, R6, R18
+- `packages/cli/scripts/ensure-dist.ts`, ejecutado con `bun` (D2). — R5, R6, R18. Desviación de M2: se añadió el script raíz `ensure-dist` y CI lo llama con `bun run ensure-dist`.
 - `packages/cli/vitest.distLock.ts`. `LockOwner` gana `pid` y `host`. Un esperador reclama el lock
   solo si el host coincide y `kill(pid, 0)` da `ESRCH`; enmienda el comentario "never reclaimed".
   — R5, R6
@@ -77,7 +77,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   PURPOSE": la huella cubre `core-assets` y `packages/plugins`. — R3, R18
 - `packages/cli/vitest.config.ts`. `maxWorkers` vale `NAVORI_TEST_WORKERS` o
   `min(availableParallelism() - 1, CAP, ⌊ulimit -n / FDS_PER_WORKER⌋)`. `ulimit -n` se lee una vez
-  con `sh -c 'ulimit -n'`, y `CAP` y `FDS_PER_WORKER` se fijan en M2. — R10
+  con `sh -c 'ulimit -n'`, y `CAP` y `FDS_PER_WORKER` se fijan en M2. — R10. **Medido en M2:** `CAP`=8 y `FDS_PER_WORKER`=64 con `NAVORI_TEST_WORKERS=8` en `bench:tests`, `ulimit -n 1048576`, 10 CPU; loadavg antes 15.26/10.32/8.74 y después 14.35/21.63/16.39 (máquina muy cargada). Resultado: 441 archivos, 9 227 tests, 473.8 s, 0 `EMFILE`, `vitestExit` 1 por tres archivos (`render-drift-check` y `repo-config-gate` fallaron por cambios de scripts de este milestone, corregidos después; `role-guard` falló bajo carga y pasa aislado). Es **una** corrida, no tres, y no es línea base válida para R4. Evidencia: `.navori/state/bench/tests-2026-10-16T01-53-26-608Z.json`.
 - `packages/cli/scripts/test-affected.mjs` + `test:affected` (D3). — R11
 - Reescrituras (D4):
   - `lib/master/__tests__/slice.test.ts` y `lib/plan/__tests__/escalation.test.ts`;
@@ -156,7 +156,7 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   - `kind` y `commandHash` (sha256 de `qualityGate[kind]`);
   - `lockHash`: sha256 de los lockfiles presentes en la raíz (`bun.lock`, `bun.lockb`,
     `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`);
-  - `navoriVersion`, `bunVersion` (`bun --version`) y `nodeVersion` (`process.version`). Es el mismo
+  - `navoriVersion`, `bunVersion` (`bun --version`) y `nodeVersion` (`node --version`, spawned; desviación de M2: no `process.version`, para que bun y vitest coincidan). Es el mismo
     conjunto de versiones que la huella de `dist/` (D2).
 - **Registro.** Vive en `.navori/state/gate/results.json`, en el state root de cada checkout
   (`resolveStateRoot`). Guarda 16 entradas. Se escribe con `withFileLock` más
@@ -201,12 +201,12 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
 - **Entradas:**
   - `git ls-files -z --cached --others --exclude-standard` sobre `packages/cli/src` (sin
     `__tests__`), `packages/core` y `packages/plugins`;
-  - `packages/cli/{package.json,tsconfig*.json,tsdown.config.ts,scripts/copy-assets.mjs,scripts/bundle-comments.ts}`;
+  - `packages/cli/{package.json,tsconfig*.json,tsdown.config.ts,scripts/copy-assets.mjs,scripts/bundle-comments.ts,scripts/bundle-render-data.ts}`; (`bundle-render-data.ts` añadido en M2);
   - en la raíz: `package.json`, `tsconfig*.json`, `bunfig.toml` y el lockfile;
   - las versiones de bun y node, y la de `tsdown` declarada.
 
   Un archivo listado pero borrado entra al hash como `deleted\t<path>`, y no rompe el hasheo. Se
-  hashea con `git hash-object --no-filters --stdin-paths`, que no escribe objetos. `tsdown.config.ts`
+  hashea con `git hash-object --no-filters --stdin-paths`, que no escribe objetos. Desviación de M2: el contenido se hashea en proceso con sha256. `tsdown.config.ts`
   no inyecta `define` ni variables de entorno (verificado).
 - **Sello.** La huella se calcula **antes** del build. Después de un build con exit 0 y
   `dist/index.js` presente, se recalcula: solo si coincide se escribe `dist/.build-fingerprint`. Si
@@ -474,7 +474,7 @@ vuelve a medir en M1. La única cifra no preliminar es el probe (~150 ms, medido
 | Eventos Claude/Codex (corrida B) | — | Edit 208 / 327 ms; Agent 347 / 351 ms; SessionStart 411 / 746 ms; UserPromptSubmit 273 / 291 ms | — |
 | `plan-gate` | 349 ms Claude / 526 ms Codex | por hook en `.navori/state/bench/hooks-latest.json` (`measurements[]`) | < 60 ms en la vía rápida (R24) |
 | Probe `bun …/src/index.ts` (arranque) | ~150 ms | *M4*: identidad por commit y tasa de hits | — |
-| `ensureDist` con hit, 1 archivo | — | *M2* | — |
+| `ensureDist` con hit, 1 archivo | — | M2: hit ~65 ms pared vía bun (0.03 s user); corrida de un archivo con `dist/` sellado ~0.6–0.9 s total; primera compilación: ~1.1 s de overhead de `ensure-dist` aparte del build | — |
 
 M1 llena la tabla con `bench:tests` y `bench:hooks`, y registra `loadavg` y `ulimit -n`.
 

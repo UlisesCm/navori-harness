@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -14,6 +14,8 @@ interface DistLockFileSystem {
   writeFile(path: string, contents: string): void;
   remove(path: string): void;
   readFile(path: string): string;
+  /** Atomic move used to reclaim a dead owner's lock; absent in seams that never reclaim. */
+  rename?(from: string, to: string): void;
 }
 
 const nodeFileSystem: DistLockFileSystem = {
@@ -21,6 +23,7 @@ const nodeFileSystem: DistLockFileSystem = {
   writeFile: (path, contents) => writeFileSync(path, contents),
   remove: (path) => rmSync(path, { recursive: true, force: true }),
   readFile: (path) => readFileSync(path, "utf-8"),
+  rename: (from, to) => renameSync(from, to),
 };
 
 export interface DistLockOptions {
@@ -39,6 +42,52 @@ export interface DistLockOptions {
 interface LockOwner {
   token: string;
   packageRoot: string;
+  /** Absent in locks written before reclamation existed; those are never reclaimed. */
+  pid?: number;
+  host?: string;
+}
+
+/** True only when the kernel proves the pid is gone (ESRCH); EPERM and anything else mean alive. */
+function isDeadPid(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+/**
+ * Moves a dead owner's lock aside and deletes it. The rename is atomic, so only
+ * one waiter wins; if what was moved turns out to belong to someone else (a
+ * waiter reclaimed and re-acquired between our read and our rename), it is put
+ * back best-effort. Pid reuse leaves a lock held, which is the safe direction.
+ */
+function reclaimDeadLock(
+  lockPath: string,
+  observed: LockOwner,
+  fileSystem: DistLockFileSystem,
+): boolean {
+  if (observed.pid === undefined || observed.host !== hostname() || !isDeadPid(observed.pid)) {
+    return false;
+  }
+  if (fileSystem.rename === undefined) return false;
+  const aside = `${lockPath}.stale-${randomUUID()}`;
+  try {
+    fileSystem.rename(lockPath, aside);
+  } catch {
+    return false;
+  }
+  if (readOwner(aside, fileSystem)?.token !== observed.token) {
+    try {
+      fileSystem.rename(aside, lockPath);
+    } catch {
+      // Someone re-created the lock meanwhile; the displaced one is already gone.
+    }
+    return false;
+  }
+  fileSystem.remove(aside);
+  return true;
 }
 
 export interface DistLockHandle {
@@ -71,10 +120,10 @@ function readOwner(lockPath: string, fileSystem: DistLockFileSystem): LockOwner 
 /**
  * Acquires a checkout-scoped lock for the full lifetime of a Vitest suite.
  *
- * Locks are intentionally never reclaimed automatically: elapsed time and a
- * PID cannot prove that a holder is dead, and deleting a live holder reopens
- * the dist/ race. A timed-out waiter reports the exact path for verified
- * operator cleanup after a crashed process.
+ * Elapsed time never reclaims a lock: a long suite is safer than deleting dist/
+ * below it. The one exception is proof of death: an owner on this host whose
+ * pid answers `ESRCH` (a SIGKILLed suite) is reclaimed. Otherwise a timed-out
+ * waiter reports the exact path for verified operator cleanup.
  */
 export async function acquireDistLock(options: DistLockOptions): Promise<DistLockHandle> {
   const lockPath = distLockPath(options.packageRoot);
@@ -95,7 +144,12 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
       acquiredDirectory = true;
       fileSystem.writeFile(
         join(lockPath, "owner.json"),
-        JSON.stringify({ token, packageRoot: resolve(options.packageRoot) }),
+        JSON.stringify({
+          token,
+          packageRoot: resolve(options.packageRoot),
+          pid: process.pid,
+          host: hostname(),
+        }),
       );
       break;
     } catch (error) {
@@ -110,6 +164,8 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
         throw error;
       }
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const holder = readOwner(lockPath, fileSystem);
+      if (holder !== undefined && reclaimDeadLock(lockPath, holder, fileSystem)) continue;
       if (now() >= deadline) {
         const owner = readOwner(lockPath, fileSystem);
         const ownerHint = owner ? ` Current owner: ${owner.packageRoot}.` : "";
@@ -134,8 +190,8 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
   return {
     path: lockPath,
     release(): void {
-      // No automatic reclamation means a matching token is enough to ensure a
-      // handle cannot erase another owner's lock after an operator intervention.
+      // A matching token is enough to ensure a handle cannot erase another
+      // owner's lock after a reclamation or an operator intervention.
       if (readOwner(lockPath, fileSystem)?.token === token) fileSystem.remove(lockPath);
     },
   };
