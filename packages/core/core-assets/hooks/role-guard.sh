@@ -205,6 +205,42 @@ nv_in_temp() {
   return 1
 }
 
+# Root of the nested LINKED worktree of the session repo that really contains
+# the canonical path $1 (under session root $2), e.g. `.navori/state/fixtures/*`
+# or `.claude/worktrees/*` (#1022). Accepted only when git reports a toplevel
+# strictly under $2 that is registered in `git worktree list`, shares the
+# session's --git-common-dir and is linked (its --git-dir differs from the common
+# dir). Anything else (independent nested repo, other repo's worktree, forged
+# `.git`) falls back to $2. $1 is canonical, so symlinks and `..` cannot move
+# it into another tree. Same identity primitives as #1330's nv_sibling_rel.
+nv_containing_root() {
+  local d=${1%/*} top common gitdir sessioncommon list
+  while [ -n "$d" ] && [ ! -d "$d" ]; do d=${d%/*}; done
+  if [ -n "$d" ]; then
+    top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) &&
+      top=$(cd -P "$top" 2>/dev/null && pwd -P) || top=""
+    case "$top" in
+      "$2"/?*)
+        case "$1" in
+          "$top"/?*)
+            common=$(git -c core.fsmonitor=false -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+              gitdir=$(git -c core.fsmonitor=false -C "$top" rev-parse --path-format=absolute --git-dir 2>/dev/null) &&
+              sessioncommon=$(git -c core.fsmonitor=false -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+              common=$(cd -P "$common" 2>/dev/null && pwd -P) &&
+              gitdir=$(cd -P "$gitdir" 2>/dev/null && pwd -P) &&
+              sessioncommon=$(cd -P "$sessioncommon" 2>/dev/null && pwd -P) &&
+              [ "$common" = "$sessioncommon" ] && [ "$gitdir" != "$common" ] &&
+              list=$(git -c core.fsmonitor=false -C "$2" worktree list --porcelain 2>/dev/null) &&
+              printf '%s\n' "$list" | grep -Fxq "worktree $top" &&
+              { printf '%s' "$top"; return 0; }
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  printf '%s' "$2"
+}
+
 navori_cwd=$(payload_field cwd)
 navori_cwd=${navori_cwd:-${nv_project_dir:-.}}
 navori_root=$(cd -P "${nv_project_dir:-$navori_cwd}" 2>/dev/null && pwd -P) || navori_root=""
@@ -231,7 +267,8 @@ while IFS= read -r navori_path; do
   fi
   case "$navori_real" in
     "$navori_root"/*)
-      navori_rel=${navori_real#"$navori_root"/}
+      navori_tree=$(nv_containing_root "$navori_real" "$navori_root")
+      navori_rel=${navori_real#"$navori_tree"/}
       navori_ok=0
       while IFS= read -r navori_prefix; do
         [ -n "$navori_prefix" ] || continue

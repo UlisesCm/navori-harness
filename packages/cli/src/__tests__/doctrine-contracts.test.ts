@@ -791,6 +791,37 @@ const ROWS: readonly ContractRow[] = [
     tokens: [...INTAKE_BULLETS, "**Structure:**", "Covers: R"],
     absent: [SKILL_POINTER, "navori:if"],
   })),
+
+  /* ---- #1022: opt-in parallel scribe from an accepted spec ---------------- */
+  {
+    id: "orquestacion ON: parallel scribe is opt-in, level 3, serial default",
+    file: conditioned(BLOCK, ON),
+    tokens: ["prepare-parallel", "finalize-parallel"],
+    match: [/serial.{0,30}default|default.{0,30}serial/i, /level.?3/i],
+  },
+  {
+    id: "orquestacion OFF: no parallel scribe authority",
+    file: conditioned(BLOCK, OFF),
+    absent: ["prepare-parallel"],
+  },
+  ...(["implementer", "scribe"] as const).flatMap((role): ContractRow[] => [
+    {
+      id: `${role} ON: native run-bound completion and a no-commit parallel mode`,
+      file: conditioned(`agents/${role}.md`, ON),
+      tokens: ["begin-parallel", "complete-parallel", "--run"],
+      match: [/no commits?|do not commit|never commit/i],
+    },
+    {
+      id: `${role} OFF: no parallel mode`,
+      file: conditioned(`agents/${role}.md`, OFF),
+      absent: ["begin-parallel"],
+    },
+  ]),
+  {
+    id: "scribe ON: has a --parallel mode",
+    file: conditioned("agents/scribe.md", ON),
+    tokens: ["--parallel"],
+  },
 ];
 
 describe("doctrine contracts — text tables", () => {
