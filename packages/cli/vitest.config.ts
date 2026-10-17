@@ -17,7 +17,8 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     // Drop console output of passing tests; failing tests still print theirs (#1272).
     silent: "passed-only",
-    testTimeout: 15_000, // e2e specs spawn the CLI several times
+    // Hang detector only: slowness is policed by the per-file budget (test-budget.json, spec 0055 R30); 15 s flaked under suite load.
+    testTimeout: 60_000,
     // Cap worker forks: the e2e specs each `spawnSync(dist/index.js)`, so at full
     // core count ~200 child processes run at once and exhaust file descriptors
     // (EMFILE/ENFILE), making the suite flaky (a manifest read then mis-reads as a

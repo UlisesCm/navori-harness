@@ -1,10 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { summarizeReport } from "../../scripts/bench-tests.mjs";
+import { isComparable, readSpawnCounts, summarizeReport } from "../../scripts/bench-tests.mjs";
 import { budgetViolations, validateBudget } from "../../scripts/check-test-budget.mjs";
 
 /**
@@ -17,13 +25,24 @@ const BUDGET_SCRIPT = resolve(here, "..", "..", "scripts", "check-test-budget.mj
 const ROOT = "/repo/packages/cli";
 
 interface Registration {
-  engine: "claude" | "codex";
+  engine: "claude" | "codex" | "pi";
   event: string;
   matcher: string | null;
   command: string;
 }
 type Sums = Record<string, Record<string, { totalMs: number; hooks: number }>>;
+interface Sandbox {
+  root: string;
+  project: string;
+  execLog: string;
+  env: (audit: "absent" | "root" | "active", counting?: boolean) => NodeJS.ProcessEnv;
+  cleanup: () => void;
+}
 interface BenchHooks {
+  countExecs: (log: string) => Record<string, number>;
+  createSandbox: () => Sandbox;
+  isComparable: (loadavgBefore: number[], cpus: number) => boolean;
+  parsePiRegistrations: (source: string, exists?: (script: string) => boolean) => Registration[];
   BASH_BUDGET_MS: number;
   evaluateBudget: (sums: Sums) => { ok: boolean; violations: string[] };
   median: (values: number[]) => number;
@@ -32,18 +51,22 @@ interface BenchHooks {
   selectHooks: (
     regs: Registration[],
     scenario: string,
-    engine: "claude" | "codex",
+    engine: "claude" | "codex" | "pi",
   ) => Registration[];
   sumByEvent: (rows: { engine: string; scenario: string; medianMs: number }[]) => Sums;
 }
 // Loaded by computed URL: a static import would pull the root script under this package's rootDir.
-const hooksModule = (await import(
-  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "bench-hooks.mjs")).href
-)) as BenchHooks;
+const scriptUrl = (name: string): string =>
+  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", name)).href;
+const hooksModule = (await import(scriptUrl("bench-hooks.mjs"))) as BenchHooks;
 const {
   BASH_BUDGET_MS,
+  countExecs,
+  createSandbox,
   evaluateBudget,
+  isComparable: hooksComparable,
   median,
+  parsePiRegistrations,
   parseClaudeRegistrations,
   parseCodexRegistrations,
   selectHooks,
@@ -77,6 +100,7 @@ describe("bench scripts", () => {
       ms: 312,
       status: "passed",
       tests: 1,
+      spawns: 0,
     });
     expect(summary.files.at(-1)?.file).toBe("src/__tests__/f0.test.ts");
     expect(summary.sumFilesMs).toBe(summary.files.reduce((sum, f) => sum + f.ms, 0));
@@ -242,5 +266,266 @@ describe("bench scripts", () => {
     const over = evaluateBudget(sums);
     expect(over.ok).toBe(false);
     expect(over.violations).toEqual([expect.stringContaining("codex Bash")]);
+  });
+
+  // Covers: R1
+  it("el wrapper cuenta spawns por archivo sin romper promisify", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-wrapper-"));
+    try {
+      const procDir = join(dir, "procs");
+      const setup = resolve(here, "..", "..", "vitest.setup.ts");
+      writeFileSync(
+        join(dir, "global.mjs"),
+        'import { mkdtempSync } from "node:fs";\nimport { tmpdir } from "node:os";\nimport { join } from "node:path";\n' +
+          'export default function setup(project) {\n  project.provide("navoriTempRunRoot", mkdtempSync(join(tmpdir(), "navori-wrapper-run-")));\n}\n',
+      );
+      writeFileSync(
+        join(dir, "vitest.config.mjs"),
+        `export default { test: { include: ["*.test.mjs"], globals: true, pool: "forks", globalSetup: [${JSON.stringify(join(dir, "global.mjs"))}], setupFiles: [${JSON.stringify(setup)}] } };\n`,
+      );
+      writeFileSync(join(dir, "child.mjs"), "process.exit(0);\n");
+      writeFileSync(join(dir, "idle.test.mjs"), 'test("idle", () => {});\n');
+      writeFileSync(
+        join(dir, "busy.test.mjs"),
+        [
+          'import { exec, execFile, execFileSync, execSync, fork, spawn, spawnSync } from "node:child_process";',
+          'import { promisify } from "node:util";',
+          `test("eight children, seven APIs", async () => {`,
+          '  spawnSync("true");',
+          '  execFileSync("true");',
+          '  execSync("true");',
+          '  await new Promise((done) => spawn("true").on("close", done));',
+          '  await new Promise((done) => execFile("true", done));',
+          '  await new Promise((done) => fork(new URL("./child.mjs", import.meta.url).pathname).on("exit", done));',
+          '  const viaExec = await promisify(exec)("echo hi");',
+          '  const viaFile = await promisify(execFile)("echo", ["hi"]);',
+          '  expect(viaExec.stdout).toBe("hi\\n");',
+          '  expect(viaFile.stdout).toBe("hi\\n");',
+          "});",
+          "",
+        ].join("\n"),
+      );
+      const env: NodeJS.ProcessEnv = { ...process.env, NAVORI_BENCH_PROC_DIR: procDir };
+      for (const key of Object.keys(env)) {
+        if (key.startsWith("VITEST") || key === "NAVORI_HOOK_CORPUS") delete env[key];
+      }
+      const run = spawnSync(
+        join(here, "..", "..", "node_modules", ".bin", "vitest"),
+        ["run", "--config", join(dir, "vitest.config.mjs"), "--root", dir],
+        { cwd: dir, env, encoding: "utf8" },
+      );
+      expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
+      const counts = readSpawnCounts(procDir);
+      const byName = Object.fromEntries(
+        Object.entries(counts).map(([f, n]) => [f.split("/").pop(), n]),
+      );
+      expect(Object.keys(byName).sort()).toEqual(["busy.test.mjs", "idle.test.mjs"]);
+      // The idle file measures what the setup itself spawns; the busy one adds exactly its eight.
+      expect((byName["busy.test.mjs"] as number) - (byName["idle.test.mjs"] as number)).toBe(8);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R2
+  it("bench:tests marca no comparable con carga inicial mayor que los workers", () => {
+    expect(isComparable([3.9, 40, 40], 4)).toBe(true);
+    expect(isComparable([4, 0, 0], 4)).toBe(true);
+    expect(isComparable([4.01, 0, 0], 4)).toBe(false);
+    // Only the load at the START counts: a busy 5-minute average does not matter.
+    expect(isComparable([1, 90, 90], 4)).toBe(true);
+    expect(isComparable([], 4)).toBe(false);
+
+    const dir = mkdtempSync(join(tmpdir(), "navori-spawn-counts-"));
+    try {
+      writeFileSync(join(dir, "a.json"), JSON.stringify({ file: "src/a.test.ts", spawns: 3 }));
+      writeFileSync(join(dir, "b.json"), JSON.stringify({ file: "src/a.test.ts", spawns: 5 }));
+      writeFileSync(join(dir, "c.json"), JSON.stringify({ file: "src/c.test.ts", spawns: 2 }));
+      writeFileSync(join(dir, "junk.json"), JSON.stringify({ nope: true }));
+      expect(readSpawnCounts(dir)).toEqual({ "src/a.test.ts": 5, "src/c.test.ts": 2 });
+      expect(readSpawnCounts(join(dir, "missing"))).toEqual({});
+      const report = {
+        success: true,
+        testResults: ["src/a.test.ts", "src/c.test.ts", "src/d.test.ts"].map((name) => ({
+          name: `${ROOT}/${name}`,
+          startTime: 0,
+          endTime: 10,
+          status: "passed",
+          assertionResults: [],
+        })),
+      };
+      const summary = summarizeReport(report, 100, ROOT, readSpawnCounts(dir));
+      expect(summary.files.map((f) => [f.file, f.spawns])).toEqual([
+        ["src/a.test.ts", 5],
+        ["src/c.test.ts", 2],
+        ["src/d.test.ts", 0],
+      ]);
+      expect(summary.sumSpawns).toBe(7);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R3
+  it("bench:hooks reporta execs por programa y escenario de auditoria", () => {
+    const pi = parsePiRegistrations(
+      [
+        '{ script: "guard-destructive", on: "tool_call", tools: ["bash"], scope: "all" },',
+        '{ script: "role-guard", on: "tool_call", scope: "all" },',
+        '{ script: "post-watch", on: "tool_result", tools: ["edit", "write"], scope: "all" },',
+        '{ script: "stop-hook", on: "agent_before_settle", scope: "all" },',
+        '{ script: "gone", on: "tool_call", tools: ["bash"], scope: "all" },',
+      ].join("\n"),
+      (script) => script !== "gone",
+    );
+    expect(pi).toEqual([
+      {
+        engine: "pi",
+        event: "PreToolUse",
+        matcher: "Bash",
+        command: 'bash ".pi/navori/hooks/guard-destructive.sh"',
+      },
+      {
+        engine: "pi",
+        event: "PreToolUse",
+        matcher: null,
+        command: 'bash ".pi/navori/hooks/role-guard.sh"',
+      },
+      {
+        engine: "pi",
+        event: "PostToolUse",
+        matcher: "Edit|Write",
+        command: 'bash ".pi/navori/hooks/post-watch.sh"',
+      },
+    ]);
+    expect(selectHooks(pi, "Bash", "pi").map((r) => r.command)).toEqual([
+      'bash ".pi/navori/hooks/guard-destructive.sh"',
+      'bash ".pi/navori/hooks/role-guard.sh"',
+    ]);
+
+    expect(countExecs("jq\njq\ndate\nnot-a-shim\nperl\n")).toMatchObject({
+      jq: 2,
+      date: 1,
+      perl: 1,
+      node: 0,
+    });
+    expect(hooksComparable([4.9, 0, 0], 10)).toBe(true);
+    expect(hooksComparable([5.1, 0, 0], 10)).toBe(false);
+
+    const sandbox = createSandbox();
+    try {
+      const absent = sandbox.env("absent");
+      expect(existsSync(absent.NAVORI_AUDITS_ROOT as string)).toBe(false);
+      const root = sandbox.env("root");
+      expect(existsSync(root.NAVORI_AUDITS_ROOT as string)).toBe(true);
+      expect(readdirSync(root.NAVORI_AUDITS_ROOT as string)).toEqual([]);
+      const active = sandbox.env("active", true);
+      const repoDir = join(active.NAVORI_AUDITS_ROOT as string, "project");
+      expect(readdirSync(repoDir).sort()).toEqual([
+        "session-bench-session.log",
+        "spool-bench-session",
+      ]);
+      // The counting PATH puts the exec-logging shims first; the plain one does not.
+      expect((active.PATH as string).startsWith(join(sandbox.root, "shims"))).toBe(true);
+      expect((absent.PATH as string).includes(join(sandbox.root, "shims"))).toBe(false);
+
+      writeFileSync(sandbox.execLog, "");
+      mkdirSync(join(sandbox.project, ".navori"), { recursive: true });
+      spawnSync(
+        "bash",
+        ["-c", "date >/dev/null; basename a/b >/dev/null; basename c/d >/dev/null"],
+        {
+          cwd: sandbox.project,
+          env: active,
+        },
+      );
+      expect(countExecs(readFileSync(sandbox.execLog, "utf8"))).toMatchObject({
+        date: 1,
+        basename: 2,
+        jq: 0,
+      });
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  // Covers: R4
+  it("bench:context mide bytes por fuente", async () => {
+    const context = (await import(scriptUrl("bench-context.mjs"))) as {
+      bytesOf: (text: string | null | undefined) => number;
+      injectsContext: (stdout: string) => boolean;
+    };
+    expect(context.bytesOf("abc")).toBe(3);
+    expect(context.bytesOf("ñ€")).toBe(5);
+    expect(context.bytesOf(null)).toBe(0);
+    const emitted = (additionalContext: string): string =>
+      JSON.stringify({ hookSpecificOutput: { hookEventName: "X", additionalContext } });
+    expect(context.injectsContext(emitted("something to say"))).toBe(true);
+    expect(context.injectsContext(emitted("   "))).toBe(false);
+    expect(context.injectsContext(JSON.stringify({ systemMessage: "heads up" }))).toBe(true);
+    expect(
+      context.injectsContext(
+        JSON.stringify({ hookSpecificOutput: { permissionDecision: "allow" } }),
+      ),
+    ).toBe(false);
+    expect(context.injectsContext("")).toBe(false);
+    expect(context.injectsContext("plain text context")).toBe(true);
+  });
+
+  // Covers: R14, R24
+  it("probe de carga perezosa y grafo de imports sobre fixtures", async () => {
+    const probe = (await import(scriptUrl("probe-lazy-load.mjs"))) as {
+      belowThreshold: (
+        subs: { sub: string; savingMsMedian: number }[],
+        thresholdMs?: number,
+      ) => string[];
+      summarizeSub: (
+        sub: string,
+        bundleMs: number[],
+        isolatedMs: number[],
+      ) => { sub: string; savingMsMedian: number };
+      THRESHOLD_MS: number;
+    };
+    const tools = probe.summarizeSub("tools", [120, 100, 110], [80, 70, 75]);
+    expect(tools.savingMsMedian).toBe(35);
+    const plan = probe.summarizeSub("plan", [100, 100, 100], [90, 85, 95]);
+    expect(plan.savingMsMedian).toBe(10);
+    expect(probe.THRESHOLD_MS).toBe(20);
+    expect(probe.belowThreshold([tools, plan])).toEqual(["plan: 10 ms < 20 ms"]);
+    expect(probe.belowThreshold([tools])).toEqual([]);
+
+    const graph = (await import(scriptUrl("test-import-graph.mjs"))) as {
+      buildGraph: (sources: Record<string, string>) => Map<string, string[]>;
+      fanIn: (
+        graph: Map<string, string[]>,
+        tests: string[],
+      ) => { totalTests: number; modules: { module: string; fanIn: number; pct: number }[] };
+      hubs: (result: ReturnType<typeof graph.fanIn>, fraction?: number) => string[];
+      parseSpecifiers: (source: string) => string[];
+    };
+    expect(
+      graph.parseSpecifiers(
+        'import { a } from "./a.ts";\nexport * from "../b.ts";\nconst c = await import("./c.ts");\nimport "pkg";\nimport x from "node:fs";',
+      ),
+    ).toEqual(["./a.ts", "../b.ts", "./c.ts"]);
+    const sources = {
+      "src/lib/config.ts": "",
+      "src/lib/leaf.ts": 'import { c } from "./config.ts";',
+      "src/lib/alone.ts": "",
+      "src/__tests__/one.test.ts": 'import { l } from "../lib/leaf.ts";',
+      "src/__tests__/two.test.ts": 'import { c } from "../lib/config.ts";',
+      "src/__tests__/three.test.ts":
+        'import { l } from "../lib/leaf.ts";\nimport { c } from "../lib/config.js";',
+      "src/__tests__/four.test.ts": "",
+    };
+    const tests = Object.keys(sources).filter((f) => f.endsWith(".test.ts"));
+    const result = graph.fanIn(graph.buildGraph(sources), tests);
+    expect(result.totalTests).toBe(4);
+    expect(result.modules).toEqual([
+      { module: "src/lib/config.ts", fanIn: 3, pct: 75 },
+      { module: "src/lib/leaf.ts", fanIn: 2, pct: 50 },
+    ]);
+    expect(graph.hubs(result)).toEqual(["src/lib/config.ts", "src/lib/leaf.ts"]);
+    expect(graph.hubs(result, 0.6)).toEqual(["src/lib/config.ts"]);
   });
 });

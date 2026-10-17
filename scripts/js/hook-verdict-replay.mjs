@@ -1,0 +1,451 @@
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+/**
+ * Spec 0055 R13 / D2 — hook verdict corpus: generation, replay and coverage.
+ *
+ *   node scripts/js/hook-verdict-replay.mjs                  replay; exit 1 at the FIRST case whose
+ *                                                            exit, stdout, stderr (or audit event) differs
+ *   node scripts/js/hook-verdict-replay.mjs --coverage       per-hook cases and % of the invocations the tests make
+ *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
+ *                                                            `NAVORI_HOOK_CORPUS=<dir> vitest run`
+ *
+ * A case is `{ hook, engine, shell, input, envDelta, cwdKind, expected: { off, active } }`. The hook
+ * is a core asset name, re-expanded from `packages/core/core-assets/hooks` and installed under the
+ * engine's directory of a scratch project, so an edit to a hook or a partial is what gets replayed.
+ * `cwdKind: "repo"` runs in the scratch project (the checkout stand-in); `"none"` in an empty,
+ * non-git directory. `expected.off` is the run with no audit root; `expected.active` has the
+ * session log and spool dir of the payload's `session_id` (a fixed one is added when the payload
+ * has none, see {@link withActiveSession}), and carries the audit events written (`tsMs` and
+ * `ms` masked). Cases are replayed with `runHookBatch`; each has its own copy of the project and its
+ * own audit root, so lanes can run in parallel without one case's state or events reaching another.
+ * Only regenerate with a spec that changes verdicts on purpose.
+ */
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const CLI_SRC = join(REPO_ROOT, "packages", "cli", "src");
+export const CORPUS_DIR = join(CLI_SRC, "__tests__", "fixtures", "hook-verdict-corpus");
+const HOOKS_SOURCE = join(REPO_ROOT, "packages", "core", "core-assets", "hooks");
+const ENGINE_DIRS = { claude: ".claude/hooks", codex: ".codex/hooks", pi: ".pi/navori/hooks" };
+const MIN_COVERAGE_PCT = 60;
+const MODES = ["off", "active"];
+
+/**
+ * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
+ * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo" }} CaseKey
+ * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
+ */
+
+/** Stable identity of a case: the same invocation recorded twice is one case. */
+export function caseKey(c) {
+  return JSON.stringify([c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()]);
+}
+
+/**
+ * Folds raw capture lines into unique cases plus the per-hook coverage denominator.
+ *
+ * @param {Array<CaseKey & { status: "included" | "excluded", reason?: string }>} lines
+ * @returns {{ cases: CaseKey[], observed: Record<string, { observed: number, included: number, excluded: Record<string, number> }> }}
+ */
+export function mergeRaw(lines) {
+  /** @type {Map<string, CaseKey>} */
+  const included = new Map();
+  /** @type {Set<string>} */
+  const seen = new Set();
+  /** @type {Record<string, { observed: number, included: number, excluded: Record<string, number> }>} */
+  const observed = {};
+  for (const line of lines) {
+    const key = `${line.status}:${caseKey(line)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const slot = (observed[line.hook] ??= { observed: 0, included: 0, excluded: {} });
+    slot.observed += 1;
+    if (line.status === "included") {
+      slot.included += 1;
+      const { hook, engine, shell, input, envDelta, cwdKind } = line;
+      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind });
+    } else {
+      const reason = line.reason ?? "unknown";
+      slot.excluded[reason] = (slot.excluded[reason] ?? 0) + 1;
+    }
+  }
+  const cases = [...included.values()].sort((a, b) => caseKey(a).localeCompare(caseKey(b)));
+  return { cases, observed };
+}
+
+/**
+ * Masks what changes per run in an audit event: `tsMs` (13-digit epoch) and `ms` (duration).
+ *
+ * @param {unknown} event parsed spool file
+ * @returns {unknown}
+ */
+export function normalizeEvent(event) {
+  const metadata = event?.metadata;
+  if (typeof metadata !== "object" || metadata === null) return event;
+  const tsMs = /^\d{13}$/.test(String(metadata.tsMs)) ? "<int13>" : metadata.tsMs;
+  const ms = Number.isInteger(metadata.ms) && metadata.ms >= 0 ? "<int>=0" : metadata.ms;
+  return { ...event, metadata: { ...metadata, tsMs, ms } };
+}
+
+/**
+ * First field in which `actual` differs from `expected`, or `null` when they are identical.
+ *
+ * @param {Verdict | ActiveVerdict} expected
+ * @param {Verdict | ActiveVerdict} actual
+ * @returns {{ field: string, expected: unknown, actual: unknown } | null}
+ */
+export function firstDifference(expected, actual) {
+  for (const field of ["status", "stdout", "stderr", "event"]) {
+    if (!(field in expected) && !(field in actual)) continue;
+    if (JSON.stringify(expected[field]) !== JSON.stringify(actual[field])) {
+      return { field, expected: expected[field], actual: actual[field] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Per-hook coverage rows: unique corpus cases, and their share of the invocations the tests make.
+ *
+ * @param {CaseKey[]} cases
+ * @param {Record<string, { observed: number }>} observed
+ * @returns {Array<{ hook: string, cases: number, observed: number, pct: number }>}
+ */
+export function coverageRows(cases, observed) {
+  const counts = new Map();
+  for (const c of cases) counts.set(c.hook, (counts.get(c.hook) ?? 0) + 1);
+  const hooks = new Set([...counts.keys(), ...Object.keys(observed)]);
+  return [...hooks].sort().map((hook) => {
+    const total = observed[hook]?.observed ?? 0;
+    const n = counts.get(hook) ?? 0;
+    return { hook, cases: n, observed: total, pct: total === 0 ? 0 : Math.round((n / total) * 1000) / 10 };
+  });
+}
+
+const sh = (text, token, value) => text.replaceAll(token, value);
+
+/** Scratch project, tmp, home, empty cwd and local `navori` bin shared by every replay run. */
+function createScratch() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-replay-")));
+  const dirs = { root, project: join(root, "project"), tmp: join(root, "tmp"), home: join(root, "home"), none: join(root, "none"), bin: join(root, "bin"), audits: join(root, "audits") };
+  for (const dir of [dirs.project, dirs.tmp, dirs.home, dirs.none, dirs.bin]) mkdirSync(dir, { recursive: true });
+  dirs.cases = join(root, "cases");
+  if (existsSync(join(REPO_ROOT, "navori.config.json"))) copyFileSync(join(REPO_ROOT, "navori.config.json"), join(dirs.project, "navori.config.json"));
+  spawnSync("git", ["init", "-q"], { cwd: dirs.project, env: { PATH: process.env.PATH ?? "", HOME: dirs.home } });
+  const dist = join(REPO_ROOT, "packages", "cli", "dist", "index.js");
+  if (existsSync(dist)) symlinkSync(dist, join(dirs.bin, "navori"));
+  // `project` is the template every "repo" case copies: a case never sees another's state files.
+  return { ...dirs, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+/**
+ * The active mode needs a session to log against: a JSON object payload without a valid
+ * `session_id` gets the fixed one below, so the audit path of every hook is exercised. The
+ * transform is part of the replay definition, so base and branch see the same bytes.
+ */
+export const ACTIVE_SESSION = "corpus-active";
+export function withActiveSession(input) {
+  try {
+    const payload = JSON.parse(input);
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return input;
+    if (typeof payload.session_id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(payload.session_id)) return input;
+    return JSON.stringify({ ...payload, session_id: ACTIVE_SESSION });
+  } catch {
+    return input;
+  }
+}
+
+/** Audit-repo name the hooks derive from a cwd (mirrors `navori_audit_repo_from_cwd`). */
+function auditRepoOf(cwd) {
+  const cut = cwd.replace(/\/\.claude\/worktrees(\/.*)?$/, "");
+  return basename(cut);
+}
+
+/** Creates the session log and spool dir the payload's `session_id` needs; returns the spool dir or null. */
+function armAudit(root, input, fallbackCwd) {
+  let payload;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    return null;
+  }
+  const id = payload?.session_id;
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(id)) return null;
+  const repo = auditRepoOf(typeof payload.cwd === "string" && payload.cwd !== "" ? payload.cwd : fallbackCwd);
+  if (repo === "" || repo === "." || repo === ".." || /[^A-Za-z0-9_.-]/.test(repo)) return null;
+  const spool = join(root, repo, `spool-${id}`);
+  mkdirSync(spool, { recursive: true, mode: 0o700 });
+  chmodSync(spool, 0o700);
+  writeFileSync(join(root, repo, `session-${id}.log`), "");
+  return spool;
+}
+
+/** Spool files of one case as normalized events. */
+function readEvents(spool) {
+  if (spool === null || !existsSync(spool)) return [];
+  return readdirSync(spool)
+    .sort()
+    .map((name) => normalizeEvent(JSON.parse(readFileSync(join(spool, name), "utf8"))));
+}
+
+/**
+ * Runs `cases` in one mode and returns one verdict per case, in order.
+ *
+ * @param {CaseKey[]} cases
+ * @param {"off" | "active"} mode
+ * @param {{ resolveHook: (hook: string, engine: string, scratch: ReturnType<typeof createScratch>) => string, runHookBatch: Function, scratch: ReturnType<typeof createScratch> }} deps
+ * @returns {Array<Verdict | ActiveVerdict>}
+ */
+export function runMode(cases, mode, { resolveHook, runHookBatch, scratch }) {
+  const results = new Array(cases.length);
+  const baseline = { PATH: [scratch.bin, process.env.PATH ?? ""].join(":"), HOME: scratch.home, TMPDIR: scratch.tmp };
+  for (const key of ["LANG", "LC_ALL", "LC_CTYPE", "TERM"]) if (process.env[key] !== undefined) baseline[key] = process.env[key];
+  const saved = { ...process.env };
+  for (const key of Object.keys(process.env)) delete process.env[key];
+  Object.assign(process.env, baseline);
+  // Audit root and working dir are per case: events and state files are never mixed between cases,
+  // which is why the batch can run its lanes in parallel in both modes.
+  rmSync(scratch.audits, { recursive: true, force: true });
+  rmSync(scratch.cases, { recursive: true, force: true });
+  /** @type {Array<{ project: string, root: string }>} */
+  const paths = new Array(cases.length);
+  const spools = new Array(cases.length).fill(null);
+  /** @type {Map<string, number[]>} */
+  const groups = new Map();
+  cases.forEach((c, i) => {
+    const group = `${c.hook}\0${c.engine}\0${c.shell}`;
+    groups.set(group, [...(groups.get(group) ?? []), i]);
+  });
+  const hostPaths = (text, project, cwd) =>
+    sh(sh(sh(sh(text, "@CWD@", cwd), "@REPO@", project), "@TMP@", scratch.tmp), "@R@", "XXXXXX");
+  const normalize = (text, i) =>
+    text
+      .replaceAll(paths[i].project, "@REPO@")
+      .replaceAll(paths[i].root, "@CASE@")
+      .replaceAll(scratch.tmp, "@TMP@")
+      .replaceAll(scratch.home, "@HOME@")
+      .replaceAll(scratch.root, "@SCRATCH@");
+  try {
+    for (const indexes of groups.values()) {
+      const first = cases[indexes[0]];
+      const hookPath = resolveHook(first.hook, first.engine, scratch);
+      const batchCases = indexes.map((i) => {
+        const c = cases[i];
+        const caseRoot = join(scratch.cases, String(i));
+        const project = join(caseRoot, "project");
+        if (c.cwdKind === "repo") cpSync(scratch.project, project, { recursive: true });
+        else mkdirSync(join(caseRoot, "none"), { recursive: true });
+        paths[i] = { project, root: caseRoot };
+        const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
+        const auditsRoot = join(scratch.audits, String(i));
+        const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(v, project, cwd)]));
+        const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);
+        if (mode === "active") {
+          mkdirSync(auditsRoot, { recursive: true });
+          spools[i] = armAudit(auditsRoot, input, cwd);
+        }
+        env.NAVORI_AUDITS_ROOT = mode === "active" ? auditsRoot : join(scratch.root, "no-audits");
+        return { input, env, cwd };
+      });
+      const outputs = runHookBatch(hookPath, first.shell, batchCases);
+      indexes.forEach((i, n) => {
+        const out = outputs[n];
+        const verdict = { status: out.status, stdout: normalize(out.stdout, i), stderr: normalize(out.stderr, i) };
+        results[i] = mode === "active" ? { ...verdict, event: readEvents(spools[i]) } : verdict;
+      });
+    }
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, saved);
+    rmSync(scratch.cases, { recursive: true, force: true });
+  }
+  return results;
+}
+
+/** Loads the TS helpers and the hook expander (Node strips the types). */
+async function loadDeps() {
+  const batch = await import(pathToFileURL(join(CLI_SRC, "__tests__", "helpers", "hook-batch.ts")).href);
+  const includes = await import(pathToFileURL(join(CLI_SRC, "lib", "render", "hook-includes.ts")).href);
+  const resolveHook = (hook, engine, scratch) => {
+    // Outside the project (cases copy it); hooks only read `$0` to tell the engines apart.
+    const target = join(scratch.root, "installed", ENGINE_DIRS[engine], hook);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, includes.expandHookIncludes(readFileSync(join(HOOKS_SOURCE, hook), "utf8")));
+    chmodSync(target, 0o755);
+    return target;
+  };
+  return { runHookBatch: batch.runHookBatch, resolveHook };
+}
+
+/** Reads every `raw-*.jsonl` of a capture directory. */
+function readRaw(dir) {
+  return readdirSync(dir)
+    .filter((name) => /^raw-.*\.jsonl$/.test(name))
+    .flatMap((name) =>
+      readFileSync(join(dir, name), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
+    );
+}
+
+/**
+ * Builds the corpus from a raw capture: expected output with the audit off and active, one
+ * `<hook>.jsonl` per hook plus `coverage.json`. A case whose two runs differ (a clock, a random id
+ * in the output) is dropped and counted as unstable. `only` limits the run to some hooks (their
+ * files and coverage entries are replaced, the others kept), so a long generation can be split.
+ *
+ * @param {string} rawDir
+ * @param {string} [outDir]
+ * @param {string[]} [only] hook file names
+ * @param {boolean} [stable] run each mode twice and drop unstable cases
+ */
+export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable = false) {
+  const merged = mergeRaw(readRaw(rawDir));
+  const wanted = (hook) => only === undefined || only.includes(hook);
+  const cases = merged.cases.filter((c) => wanted(c.hook));
+  const observed = merged.observed;
+  const deps = await loadDeps();
+  const scratch = createScratch();
+  try {
+    const run = (mode) => runMode(cases, mode, { ...deps, scratch });
+    // One pass per mode by default (the replay is the second run and fails on an unstable case);
+    // `stable: true` runs each mode twice and drops cases whose runs differ.
+    const off1 = run("off");
+    const active1 = run("active");
+    const [off2, active2] = stable ? [run("off"), run("active")] : [off1, active1];
+    /** @type {Map<string, CorpusCase[]>} */
+    const byHook = new Map();
+    cases.forEach((c, i) => {
+      const stable = !firstDifference(off1[i], off2[i]) && !firstDifference(active1[i], active2[i]);
+      if (stable) byHook.set(c.hook, [...(byHook.get(c.hook) ?? []), { ...c, expected: { off: off1[i], active: active1[i] } }]);
+      else (observed[c.hook].unstable = (observed[c.hook].unstable ?? 0) + 1);
+    });
+    mkdirSync(outDir, { recursive: true });
+    const coveragePath = join(outDir, "coverage.json");
+    const coverage = existsSync(coveragePath) ? JSON.parse(readFileSync(coveragePath, "utf8")) : {};
+    const hooks = new Set([...readdirSync(HOOKS_SOURCE).filter((n) => n.endsWith(".sh")), ...Object.keys(observed)]);
+    for (const hook of [...hooks].sort().filter(wanted)) {
+      const kept = byHook.get(hook) ?? [];
+      const entry = observed[hook] ?? { observed: 0, included: 0, excluded: {} };
+      // A hook with no case says why: the reasons its invocations were excluded, or that no test runs it.
+      if (kept.length === 0) entry.note = Object.keys(entry.excluded).join(", ") || "never invoked by a test";
+      coverage[hook] = entry;
+      const file = join(outDir, `${hook}.jsonl`);
+      if (kept.length > 0) writeFileSync(file, kept.map((c) => JSON.stringify(c)).join("\n") + "\n");
+      else rmSync(file, { force: true });
+    }
+    writeFileSync(coveragePath, `${JSON.stringify(coverage, null, 2)}\n`);
+    return { cases: [...byHook.values()].flat().length, candidates: cases.length };
+  } finally {
+    scratch.cleanup();
+  }
+}
+
+/**
+ * Replays the corpus; stops at the first case that differs.
+ *
+ * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
+ * @returns {Promise<{ ok: boolean, cases: number, failure?: string }>}
+ */
+export async function replayCorpus({ corpus, modes = MODES, deps, only } = {}) {
+  const cases = (corpus ?? readCorpus()).filter((c) => only === undefined || only.includes(c.hook));
+  const resolved = deps ?? (await loadDeps());
+  const scratch = createScratch();
+  try {
+    for (const mode of modes) {
+      const actual = runMode(cases, mode, { ...resolved, scratch });
+      for (let i = 0; i < cases.length; i += 1) {
+        const diff = firstDifference(cases[i].expected[mode], actual[i]);
+        if (diff === null) continue;
+        const c = cases[i];
+        const clip = (v) => JSON.stringify(v)?.slice(0, 400);
+        return {
+          ok: false,
+          cases: cases.length,
+          failure:
+            `case ${i + 1}/${cases.length} (${c.hook}, ${c.engine}, ${c.shell}, audit ${mode}) differs in ${diff.field}\n` +
+            `  input:    ${clip(c.input)}\n  expected: ${clip(diff.expected)}\n  actual:   ${clip(diff.actual)}`,
+        };
+      }
+    }
+    return { ok: true, cases: cases.length };
+  } finally {
+    scratch.cleanup();
+  }
+}
+
+/** The committed corpus: every `<hook>.jsonl` of the directory. */
+export function readCorpus(dir = CORPUS_DIR) {
+  const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".jsonl")).sort() : [];
+  if (files.length === 0) throw new Error(`no hook corpus in ${dir}; capture it with --generate`);
+  return files.flatMap((name) => readFileSync(join(dir, name), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)));
+}
+
+/** Prints the per-hook coverage of the committed corpus. */
+function printCoverage() {
+  const cases = readCorpus();
+  const observed = JSON.parse(readFileSync(join(CORPUS_DIR, "coverage.json"), "utf8"));
+  /** @type {Record<string, number>} */
+  const engines = { claude: 0, codex: 0, pi: 0 };
+  for (const c of cases) engines[c.engine] = (engines[c.engine] ?? 0) + 1;
+  process.stdout.write(
+    `hook-verdict-replay coverage: ${cases.length} cases (${Object.entries(engines).map(([e, n]) => `${e}=${n}`).join(" ")})\n`,
+  );
+  const perEngine = (hook) =>
+    ["claude", "codex", "pi"].map((e) => `${e}=${cases.filter((c) => c.hook === hook && c.engine === e).length}`).join(" ");
+  for (const row of coverageRows(cases, observed)) {
+    const note = observed[row.hook]?.note;
+    const low = row.pct < MIN_COVERAGE_PCT ? `  < 60%: no test rewrite that cuts cases before replay passes (D2)${note ? ` [${note}]` : ""}` : "";
+    process.stdout.write(`  ${row.hook.padEnd(32)} cases=${String(row.cases).padStart(5)} observed=${String(row.observed).padStart(5)} ${row.pct.toFixed(1).padStart(5)}%  ${perEngine(row.hook)}${low}\n`);
+  }
+}
+
+/** `--hook a.sh,b.sh`: limits generation or replay to those hooks. */
+function hookFilter(argv) {
+  const at = argv.indexOf("--hook");
+  return at === -1 ? undefined : (argv[at + 1] ?? "").split(",").filter(Boolean);
+}
+
+async function main(argv) {
+  const generateAt = argv.indexOf("--generate");
+  if (generateAt !== -1) {
+    const rawDir = argv[generateAt + 1];
+    if (rawDir === undefined) throw new Error("--generate needs the raw capture directory");
+    const result = await generateCorpus(resolve(rawDir), CORPUS_DIR, hookFilter(argv), argv.includes("--check-stable"));
+    process.stdout.write(`hook-verdict-replay: wrote ${result.cases} cases (${result.candidates} candidates)\n`);
+    return 0;
+  }
+  if (argv.includes("--coverage")) {
+    printCoverage();
+    return 0;
+  }
+  const result = await replayCorpus({ only: hookFilter(argv) });
+  if (!result.ok) {
+    process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
+    return 1;
+  }
+  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (audit off and active)\n`);
+  return 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(await main(process.argv.slice(2)));
+}

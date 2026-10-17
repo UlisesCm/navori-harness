@@ -4,6 +4,7 @@ import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import type { HookShell } from "../../lib/__tests__/helpers/shells.ts";
+import { recordHookCase } from "./hook-corpus.ts";
 
 /**
  * Batched hook runner (spec 0054 D4). One shell process runs N cases, each in
@@ -66,6 +67,7 @@ const LANES = Math.max(1, Math.min(4, availableParallelism() - 1));
 
 /** Real spawn of one case: the reference behavior a batch must reproduce. */
 export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase): HookCaseResult {
+  recordHookCase(hookPath, shell, c);
   const r = spawnSync(shell, [hookPath], {
     input: c.input,
     cwd: c.cwd,
@@ -73,6 +75,12 @@ export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase)
     encoding: "utf-8",
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/** Options of {@link runHookBatch}. */
+export interface HookBatchOptions {
+  /** Concurrent lanes; defaults to {@link LANES}. `1` keeps cases strictly sequential. */
+  lanes?: number;
 }
 
 /**
@@ -83,8 +91,10 @@ export function runHookBatch(
   hookPath: string,
   shell: HookShell,
   cases: readonly HookCase[],
+  options: HookBatchOptions = {},
 ): HookCaseResult[] {
   if (cases.length === 0) return [];
+  for (const c of cases) recordHookCase(hookPath, shell, c);
   const dir = mkdtempSync(join(tmpdir(), "navori-hook-batch-"));
   try {
     cases.forEach((c, i) => {
@@ -101,7 +111,7 @@ export function runHookBatch(
     });
     const r = spawnSync(
       shell,
-      ["-c", DRIVER, hookPath, dir, String(Math.min(LANES, cases.length))],
+      ["-c", DRIVER, hookPath, dir, String(Math.min(options.lanes ?? LANES, cases.length))],
       {
         encoding: "utf-8",
       },
