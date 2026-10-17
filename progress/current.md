@@ -1,11 +1,13 @@
 # Sesión actual
 
-**Estado:** PR draft #1328 en `release/0.12.1`; integración revisada y aprobada, pendiente del publisher. Integra el fix #1329 de `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1.
+**Estado:** entrega parcial T11 en PR [#1346](https://github.com/UlisesCm/navori-harness/pull/1346), rama `feat/0050-t11-perfiles-efectivos`, destino `dev` por instrucción explícita del usuario. T11/A9 y E4 siguen pendientes.
 
-El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos.
+Integración de dev94047c0f resuelta: único conflicto en espejo model-advisor Claude, regenerado desde fuentes; sin correcciones manuales en código fuente. Render, typecheck, assets, presupuestos, links, cinco goldens y149pruebas focales pasaron. Fast integrado exit0.
 
-T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes.
+Gate full del árbol integrado terminó exit0 el2026-10-17 08:47 UTC:452archivos,9,549pruebas aprobadas,2omitidas,0fallidas; cobertura84.54% statements,79.30% branches,89.62% functions,86.09% lines. La revisión del código no encontró bloqueantes. El sellado final y la publicación se verifican en el PR; no inferirlos de este checkpoint. El workflow integrado de dev también ejecuta el job completo quality; su resultado se verifica en el PR.
 
 ## Siguiente paso
 
-Publisher: crear el commit, hacer push y actualizar el draft #1328. Todavía no hay commit ni push de esta integración; no hacer merge, publicación npm ni tag.
+Completar sellado y publicación de la integración en el PR existente; después, revisión humana para integrar a dev. No hacer merge ni release automáticamente. Usuario autorizó revisar el merge preparado antes del commit comprobando MERGE_HEAD==origin/dev y cero conflictos; excepción sólo a la comprobación estática HEADbehind del reviewer.
+
+No tocar el checkout original, usado por otra sesión. No ejecutar inferencia adicional: queda una ejecución nativa <=180s reservada y sin usar; la aceptación de perfiles/cierre nativo permanece abierta. T6/T12/A10/A13 pendientes. El problema de desvíos de orquestación queda en issue#1314, fuera de este PR.

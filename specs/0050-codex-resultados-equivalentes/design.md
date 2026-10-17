@@ -218,7 +218,7 @@ La evidencia A17 es determinista (33/33), al igual que A15 (51/51); no se ejecut
 
 La revisión de la primera iteración encontró que el supervisor podía fallar sin respuesta nativa y que `Object.keys` trataba arreglos/primitivas vacíos como opt-out. La corrección captura stdout antes de reenviarlo: si falta el CLI o termina con fallo, señal o salida parcial errónea mientras la shell continúa, descarta esa salida y emite un único deny nativo. Si el supervisor ya emitió un deny válido, la shell lo reenvía una sola vez. Solo un objeto JSON plano no nulo, no arreglo y sin claves propias permite opt-out; arrays, booleanos, números, null, strings y JSON inválido se niegan. El header ahora diferencia los modos advisory de lifecycle del modo fijo de rewrite/deny. A17 pasa 45/45; A15 51/51; `navori gate fast` está verde; el bundle sigue en 1,510,082 bytes (1,474.689453125 KiB) con 25,918 bytes de margen.
 
-Este resultado valida rutas deterministas de error del supervisor, no el manejo de fallos externos del hook nativo: timeout, crash, skip o hook invalid/untrusted del host aún puede dejar pasar argumentos originales. El preview normal inicial de CLI fuente y dist produjo tres deltas: los dos mirrors `model-advisor` autorizados y un mirror Pi fuera de alcance. La propuesta Pi solo reflejaba hash managed y serialización de formato de dos helpers. El renderer normal corrigió después los mirrors autorizados y alineó Pi; la sección siguiente registra ese estado final. El hook no se activó y la revisión fresca sigue pendiente.
+Este resultado valida rutas deterministas de error del supervisor, no el manejo de fallos externos del hook nativo: timeout, crash, skip o hook invalid/untrusted del host aún puede dejar pasar argumentos originales. El preview normal inicial de CLI fuente y dist produjo tres deltas: los dos mirrors `model-advisor` autorizados y un mirror Pi fuera de alcance. La propuesta Pi solo reflejaba hash managed y serialización de formato de dos helpers. El renderer normal corrigió después los mirrors autorizados y alineó Pi; la sección siguiente registra ese estado final. En ese estado el hook aún no se había activado y la revisión fresca seguía pendiente; la activación posterior se registra en la actualización de checkpoint.
 
 ### Alineación de configuración y salidas generadas
 
@@ -231,3 +231,156 @@ Este resultado valida rutas deterministas de error del supervisor, no el manejo 
 El comando no expone thread/turn start, thread/read/history, command/exec, respuesta de permiso ni creación de child. Si no puede verificar el conjunto de controles nativos, debe quedar pending y detenerse antes de inferencia. El preflight real de la fixture verificó únicamente configuración cargada/confinamiento declarado y salida de procesos reconocida: cero turnos, claim consumido, siete nombres de rol y par actual no soportado/no renderizado, por lo que la selección quedó pending. Esto no demuestra confinamiento de shell a nivel kernel, herencia efectiva en children, trust del hook ni selección por todos los roles. En el checkout actual el comando terminó exit 1 con opt-in requerido, cero procesos y cero turnos; el startup-only default sigue igual.
 
 La corrección pasó A17/A15 52/52 cada una; fast/scoped y render terminaron sin findings/pendientes, y el bundle midió 1,514,590 bytes (1,479.091796875 KiB), con 21,410 bytes bajo el límite. No se habilitó admisión, turnos, UI, autorización humana ni efecto. T6/T11/T12, los ocho outcomes y la review final continúan pendientes.
+
+## Enmienda M7 — consumidor enfocado T11/A9
+
+El comando `codex profile probe --live` autoriza únicamente una fixture propia y aislada.
+Antes de inicializar el host en esa fixture, elimina todas las definiciones MCP heredadas
+del target y exige configuración MCP efectiva vacía. La proyección del target se lee sin
+opt-in y permanece opt-out; los roots, snapshots e identidades del target y de ejecución
+se mantienen separados. La identidad de intento liga checkout canónico, snapshot relevante
+y escenario; una repetición del mismo snapshot se rechaza, y un cambio relevante constituye
+una identidad distinta. La fase baseline observa el inventario y la fase refresh realiza un
+dispatch adicional del perfil seleccionado tras el cambio controlado, dentro del mismo
+intento.
+
+El presupuesto agregado de preparación, catálogo, dispatch y cierre es 180 segundos, hasta
+12 roles, 2 MiB de salida y 2048 frames, con cero retries automáticos y tiempo reservado
+para cleanup. Admission exige restricciones nativas reconocidas y cargadas; claves
+desconocidas reflejadas por el host no bastan. Todo evento aceptado requiere joins exactos
+de identidad de target/fixture, parent, child, role, call, receiver/activity y fuente del
+hook. Los candidates se derivan de llamadas nativas reales y del contexto del hook
+autenticado; caller JSON, nombres, pares solicitados o timing no sustituyen esa evidencia.
+
+La intención del hook usa anotación interna versionada por campo (`set` con valor o
+`inherit`), derivada de la proyección única vigente y revalidada tras refresh. `inherit` solo
+es válido cuando la proyección lo declara explícitamente, sin override o diagnóstico
+conflictivo; null ambiguo no autoriza herencia. El supervisor real valida el esquema exacto,
+rol y correspondencia entre anotación y campos nativos, elimina la anotación antes de
+reenviar la respuesta y mantiene la comparación de argumentos opacos. La intención autoriza
+resolución del host, pero nunca prueba el valor efectivo.
+
+La selección observada del principal al inicio puede servir como origen para la herencia
+solo porque el owner de esta ejecución fija las solicitudes de turno del principal y no
+puede cambiar ese par durante la sonda. El hijo debe aportar su selección observada propia y
+catálogo soportado. Los perfiles mixtos `set`/`inherit` quedan pendientes cuando no se ha
+demostrado la precedencia nativa pertinente. El allowlist de procedencia acepta exactamente
+headers 0.162.1 y 0.163.0, conservando invariantes de rol, parent, sesión, path y git
+directory.
+
+Esta extensión añade un owner live enfocado sobre el precursor, que ya dejaba explícito que
+no cubría T11 ni selección efectiva all-role. El owner conserva `pending` cuando la
+admisión, selección, refresh o cleanup no están demostrados; el flujo continúa opt-in y
+fail-closed. No cambia `outcome-evaluation.ts`, T6, T12 ni las obligaciones de A10/A13.
+
+La admisión del owner exige que el host refleje `agents.enabled: true` desde la
+configuración privada cargada. La lectura nativa usa el wire normalizado nullable de siete
+campos: `enabled`, `max_concurrent_threads_per_session`, `max_depth`,
+`job_max_runtime_seconds`, `default_subagent_model`,
+`default_subagent_reasoning_effort` e `interrupt_message`. Los defaults de modelo/esfuerzo
+solo se admiten ausentes o `null`; claves desconocidas, aliases no verificados y tipos
+incorrectos mantienen la ejecución pendiente o la detienen antes del turno.
+
+La aceptación requiere cobertura uno-a-uno de cada rol configurado y candidato autenticado,
+incluidos locales, además de call/context únicos para baseline y refresh. Repetir un rol
+válido con IDs nuevos no satisface el inventario. Cada fase produce además un reporte
+estructurado de outcome/reason con esquema cerrado; solo se considera el mensaje completo
+del agente ligado al parent y turno nativos actuales. Reports ausentes/malformados quedan
+unavailable y conflictos ambiguous; nunca sustituyen hooks, selección, refresh o cleanup
+nativos. Un reporte del modelo `blocked/tool_unavailable` es diagnóstico no autoritativo.
+
+Al 2026-10-16 queda una ejecución de inferencia autorizada disponible, con presupuesto de
+hasta 180 segundos; la sonda vigente no consume esa siguiente ejecución mediante cambios de
+documentación. Un nuevo intento requiere que root establezca una causa concreta; cambiar
+el hash documental no autoriza repetir el mismo estado semántico. El límite agregado de
+180 segundos, 12 roles, 2 MiB, 2048 frames y cero retries se mantiene, sin límite duro de
+tokens/costo.
+
+### Lector de edición/review y barrera de envío
+
+Se autorizó ampliar el lector `review-edit-binding.sh`, su prueba y las salidas generadas
+aprobadas para reconocer headers 0.162.1 y 0.163.0 sin relajar identidad, rol, parent,
+ownership o ruta. La implementación focal pasó 47/47 (38 del lector y 9 de procedencia),
+actualizó un golden Codex y el renderer Node cambió solo el mirror
+`.codex/hooks/role-guard.sh` (90 archivos sin cambios). El hook del checkout
+en ese momento el hook original seguía fijado a 0.162.1; la activación posterior, autorizada
+por el usuario, se documenta en la actualización de checkpoint al final de esta sección.
+
+A20 exacto fue completado por root con 47/47 pruebas y 5/5 goldens, exit 0. El full gate
+completo sigue sin aprobación. El full run `44919` fue interrumpido con SIGINT propio,
+exit 130, y su log conserva fallas anteriores a la interrupción; no es un gate verde ni un
+receipt. El foco de inventario root `97331` falló en 55 ms: esperaba 18
+paths y halló 19 por un elemento extra `packages/cli/src/lib/codex/native-integration.ts`.
+Después de ese diagnóstico, root completó A21 con la suite removal-parity: 29/29, exit 0,
+8.45s, registrada mediante el CLI original compatible. Esto acredita A21; no afirma que se
+retirara o excluyera la ruta adicional del inventario. La extensión lectora no es review
+aprobada ni readiness de envío.
+
+### A21 removal-parity y diagnóstico separado de metadata sin turno
+
+Root registró A21 cumplida: la ejecución `69571` pasó la suite removal-parity 29/29 en
+8.45s y el CLI original compatible registró el resultado. Por separado, el artefacto
+`.navori/state/handoffs/t11-model-metadata-no-turn-result.json` observa metadata sin turno.
+En Codex 0.162.1, `initialize` y `model/list` devolvieron principal `gpt-6.1-sol`,
+`multiAgentVersion: v2`, `toolMode: code_mode_only`; el catálogo contiene el principal, hubo
+cero notificaciones de thread/turn y el proceso nativo cerró con salida reconocida. Esto
+solo acredita metadata sin turno.
+
+La admisión de la sonda A9 espera metadata `V1`/`close_agent`; la observación `V2`/
+`code_mode_only` no satisface ese requisito. Root tiene un pase de diseño en curso para
+entender la diferencia, sin solución elegida ni causa establecida. A9/T11 permanece
+pendiente. No usar la metadata observada para rebajar el contrato ni para consumir la
+ejecución nativa restante.
+
+## Checkpoint parcial autorizado y límite de T11
+
+El usuario autorizó activar el lector del checkout original y preparar un checkpoint parcial
+dirigido a `main`, conservando A9/T11 pendiente. La activación aplicó la lista exacta
+0.162.1/0.163.0 al lector fuente y su mirror renderizado. El preview/apply oficial actualizó
+solo `.codex/hooks/role-guard.sh` (90 archivos sin cambios y ningún archivo Pi); se preservaron
+las reglas 0054 y los tres archivos sucios preexistentes. El build Node, preview, apply,
+`bash -n`, `git diff --check` y fast gate del checkout original pasaron. Esto no equivale a
+una revisión nativa ni a aceptación T11.
+
+El full gate que pasó exit 0 cubrió 436 archivos, 9,227 pruebas aprobadas, 2 omitidas y 0
+fallidas; cinco chequeos AST y piso de cobertura en 154 módulos (statements 84.37%, branches
+79.1%, functions 89.37%, lines 85.91%). Esa corrida precede al guard de refresh y es
+histórica, no una verificación fresca del árbol actual; la fresh full y la review
+independiente están pendientes. A18 se renovó tras el guard: 137 pruebas + 5 goldens, root
+sesión `51893`, exit 0 y registrada. A19 (9/9), A20 (47 + 5 goldens) y A21 (29/29) están
+registradas. Ninguno acredita selección native all-role ni sustituye receipt, review de
+envío, commit o PR.
+
+### Diagnóstico de ciclo de vida V2
+
+La metadata privada observada en el host original es Codex 0.162.1, catálogo
+`gpt-6.1-sol`, `multiAgentVersion: v2` y `toolMode: code_mode_only`; el escenario aprobado de
+A9 espera V1 con `close_agent`. En las fuentes oficiales del tag
+[`rust-v0.162.1`](https://github.com/openai/codex/tree/rust-v0.162.1), V2 no registra
+`CloseAgent` ([spec_plan.rs](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/core/src/tools/spec_plan.rs#L1300-L1428));
+un estado terminal puede seguir residente y eviction tiene su propio cierre
+([residency.rs](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/core/src/agent/control/residency.rs#L174-L228)).
+El unload por defecto es 60 segundos
+([config/mod.rs](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/core/src/config/mod.rs#L3930-L3931));
+ocho cierres secuenciales requieren al menos 480 segundos antes de contar inferencia o
+refresh, sobre el límite agregado autorizado de 180 segundos.
+
+La alternativa residente no resuelve el contrato demostrado: la capacidad V2 por defecto es
+tres hijos, y la traducción examinada no ofrece para eviction el evento de cierre aceptado.
+`Completed`, `NotLoaded`, archive y salida del proceso no prueban cierre de runtime ni
+ausencia de trabajo latente. La unión de un hijo efímero exacto con el hook sigue unknown,
+no está demostrada imposible. No se implementó una aceptación V2 viable ni se eligió un
+cambio de contrato. No hubo inferencia adicional: queda una ejecución de hasta 180 segundos,
+sin aumentar presupuesto, retries ni aceptar sustitutos de cierre. T11/A9 permanece
+pendiente hasta evidencia que satisfaga el contrato vigente o una decisión explícita futura
+que lo enmiende.
+
+### Guard de refresh para snapshots obsoletos
+
+Antes de iniciar el refresh, el owner vuelve a comparar la identidad de
+`liveProfileSnapshot` con la admitida tras baseline. Si cambió la identidad del target,
+rechaza con `target-profile-inputs-changed` antes de otro turno. El control determinista
+confirma un solo `principalTurnRequests`, un `turn/start` y cleanup reconocido. La regresión
+roja de 15 segundos pasó 1/1 después del guard; el grupo de target cambiado, caso paralelo
+pending y positivo baseline+refresh pasó 3/3. El guard evita consumir evidencia obsoleta;
+no determina la causa del A9 live pendiente ni modifica sus requisitos.

@@ -87,8 +87,19 @@ function patch(role: string | undefined, ...files: string[]): Record<string, unk
 
 const HANDOFF = ".navori/state/handoffs/impl_x.json";
 
+interface LinkedReviewFixture {
+  host: string;
+  target: string;
+  state: string;
+  thread: string;
+  index: string;
+  md: string;
+  json: string;
+}
+
 describe("role-guard linked review outputs", () => {
-  it("authorizes registered linked-worktree review outputs through the binding branch", () => {
+  /** Creates an owned linked-worktree binding outside OS temp for each independent control. */
+  function linkedReviewFixture(): LinkedReviewFixture {
     // Outside OS temp: removing the exact binding must deny this same physical destination.
     rmSync(repo, { recursive: true, force: true });
     const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
@@ -172,7 +183,13 @@ describe("role-guard linked review outputs", () => {
     writeFileSync(index, JSON.stringify({ v: 1, feature: "demo", thread, nonce }));
     const md = join(state, "review_demo.md");
     const json = join(state, "review_demo.json");
-    for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
+    return { host, target, state, thread, index, md, json };
+  }
+
+  it.each(["Add File", "Update File", "Delete File", "Move to"])(
+    "authorizes registered linked-worktree review outputs through the binding branch with %s headers",
+    (header: string) => {
+      const { host, thread, md, json } = linkedReviewFixture();
       const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
       const result = run({
         cwd: host,
@@ -183,38 +200,65 @@ describe("role-guard linked review outputs", () => {
       });
       expect(result.status).toBe(0);
       expect(result.stderr).toContain("bound-review-output");
-    }
-    const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
-    for (const files of [
-      [md, scratch],
-      [scratch, md],
-    ]) {
+    },
+  );
+
+  it.each(["review-first", "scratch-first"])(
+    "authorizes registered review output mixed with scratch in %s order",
+    (order: string) => {
+      const { host, thread, md } = linkedReviewFixture();
+      const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
+      const files = order === "review-first" ? [md, scratch] : [scratch, md];
       const mixed = run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread });
       expect(mixed.status, JSON.stringify(mixed)).toBe(0);
       expect(mixed.stderr).toContain("bound-review-output");
-    }
-    for (const files of [
-      [md, scratch, join(target, "source.ts")],
-      [join(target, "source.ts"), scratch, md],
-    ]) {
+    },
+  );
+
+  it.each(["review-first", "source-first"])(
+    "denies source mixed with review output and scratch in %s order",
+    (order: string) => {
+      const { host, target, thread, md } = linkedReviewFixture();
+      const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
+      const source = join(target, "source.ts");
+      const files = order === "review-first" ? [md, scratch, source] : [source, scratch, md];
       expect(run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread }).status).toBe(2);
-    }
+    },
+  );
+
+  it("denies traversal into the registered linked-worktree review output", () => {
+    const { host, thread } = linkedReviewFixture();
     const traversal = run({
       ...patch("reviewer", "../target/.navori/state/handoffs/review_demo.md"),
       cwd: host,
       agent_id: thread,
     });
     expect(traversal.status, JSON.stringify(traversal)).toBe(2);
-    expect(run({ ...patch("reviewer", md), cwd: host, agent_id: "" }).status).toBe(2);
-    expect(
-      run({ ...patch("reviewer", md), cwd: host, agent_id: "20000000-0000-0000-0000-000000000009" })
-        .status,
-    ).toBe(2);
+  });
+
+  it.each(["", "20000000-0000-0000-0000-000000000009"])(
+    "denies review output for an unbound identity %j",
+    (agentId: string) => {
+      const { host, md } = linkedReviewFixture();
+      expect(run({ ...patch("reviewer", md), cwd: host, agent_id: agentId }).status).toBe(2);
+    },
+  );
+
+  it("denies registered review output to an auditor", () => {
+    const { host, thread, md } = linkedReviewFixture();
     expect(run({ ...patch("auditor", md), cwd: host, agent_id: thread }).status).toBe(2);
+  });
+
+  it("denies a registered review output mixed with source", () => {
+    const { host, target, thread, md } = linkedReviewFixture();
     expect(
       run({ ...patch("reviewer", md, join(target, "source.ts")), cwd: host, agent_id: thread })
         .status,
     ).toBe(2);
+  });
+
+  it("denies a registered review output mixed with another feature output", () => {
+    const { host, state, thread, md } = linkedReviewFixture();
     expect(
       run({
         ...patch("reviewer", md, join(state, "review_other.json")),
@@ -222,6 +266,10 @@ describe("role-guard linked review outputs", () => {
         agent_id: thread,
       }).status,
     ).toBe(2);
+  });
+
+  it("denies moving a registered review output into source", () => {
+    const { host, target, thread, md } = linkedReviewFixture();
     const move = `*** Begin Patch\n*** Update File: ${md}\n*** Move to: ${join(target, "source.ts")}\n*** End Patch`;
     expect(
       run({
@@ -232,6 +280,10 @@ describe("role-guard linked review outputs", () => {
         tool_input: { command: move },
       }).status,
     ).toBe(2);
+  });
+
+  it("fails closed without Node for linked output and preserves ordinary handoffs", () => {
+    const { host, thread, md } = linkedReviewFixture();
     const bin = join(repo, "bin");
     mkdirSync(bin);
     for (const command of [
@@ -258,6 +310,13 @@ describe("role-guard linked review outputs", () => {
     expect(
       run({ ...patch("reviewer", HANDOFF), cwd: host }, { ...process.env, PATH: bin }).status,
     ).toBe(0);
+  });
+
+  it("revokes the same physical review destination when its binding index is removed", () => {
+    const { host, target, thread, index, md } = linkedReviewFixture();
+    const bound = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(bound.status).toBe(0);
+    expect(bound.stderr).toContain("bound-review-output");
     expect(
       checkReviewEditOutputs({ hostCwd: host, thread, outputs: [md, join(target, "source.ts")] })
         .status,

@@ -424,6 +424,13 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "finally unlinks the per-call catalog-${randomUUID()}.json projection input, " +
       "at stateArtifactPath(root, name), after projection succeeds or throws. " +
       "The final path is installed by atomic rename; deletion does not check inode identity",
+    "lib/codex/native-integration.ts":
+      "fixed live probe unlinks only `${path}.lock` after this invocation acquired it with wx; " +
+      "finally removes only its own mkdtemp-created navori-profile-live-* root after bounded " +
+      "owned-process shutdown/drain (uncertain cleanup stays pending). Hook accounting requires " +
+      "a canonical private root and matching probe nonce; target/global homes are preserved. " +
+      "Behavioral coverage: native-integration.test.ts owner interruption, fixture cleanup, " +
+      "target/auth preservation and aggregate-budget cases",
     "lib/audit/paths.ts":
       "cleans only its exclusively created, identity-checked atomic-write temporary; " +
       "removes consumed spool files after successful absorption and identity checks, or the " +
