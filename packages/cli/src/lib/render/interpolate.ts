@@ -5,6 +5,7 @@ import { resolveLang } from "../i18n.ts";
 import { placeholderFallback } from "./placeholders.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { gateRunnerCommand } from "../../engines/shared/permission-rules.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../engines/shared/roster.ts";
 
 /**
  * The single `{{path.to.value}}` interpolator for the whole render pipeline
@@ -114,6 +115,16 @@ export function interpolate(
     // Never blank, so no engine renders `<not configured>`.
     "navori.scopedGate":
       config.qualityGate?.scoped ?? config.qualityGate?.fast ?? "the repo's fast quality gate",
+    // "1" only when `qualityGate.fast` is NOT declared (absent, blank or non-string): the commit
+    // lane of `guard-destructive` then enforces the session-state ceiling that the gate hook would
+    // otherwise measure (#1266). A raw, unrendered copy keeps the placeholder, which is not "1".
+    "navori.progressGuardLane":
+      typeof config.qualityGate?.fast === "string" && config.qualityGate.fast.trim() !== ""
+        ? "0"
+        : "1",
+    // Roles the plan gate lets through without a workplan, for the shell fast path of
+    // `plan-gate.sh` (spec 0054 R24). Single source: `NON_IMPLEMENTER_ROLES`.
+    "navori.nonImplementerRoles": NON_IMPLEMENTER_ROLES.join(" "),
     // "1" only when declared true; absent or false stays "0" (spec 0045 D1).
     "navori.nativeHooks": config.qualityGate?.nativeHooks === true ? "1" : "0",
     // Spec 0048 D15: the shared `deny` rules only the Pi copy of `guard-destructive.sh` embeds

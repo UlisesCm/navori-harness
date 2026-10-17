@@ -15,11 +15,13 @@ set +e
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+# navori:include extract-cmd
 
-session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
-cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
+# One extraction for the three fields (spec 0054 R22).
+payload_fields session_id=session_id cwd=cwd reason=reason matcher=matcher
 # reason is categorized below, never transported as caller free text.
-reason=$(printf '%s' "$payload" | jq -r '.reason // .matcher // "other"' 2>/dev/null) || reason="other"
+[ -n "$reason" ] || reason=$matcher
+[ -n "$reason" ] || reason="other"
 [ -n "$session_id" ] || exit 0
 case "$session_id" in *[!A-Za-z0-9_-]*) exit 0 ;; esac
 [ -n "$cwd" ] || cwd=$PWD
@@ -39,6 +41,9 @@ log_file=$audits_root/$repo/session-$session_id.log
 
 # navori:include audit-log
 navori_audit_phase=SessionEnd
+# The CLI consolidates the event spool when it receives the session-end event (spec 0054
+# R26), so this one event always goes through the CLI, never into the spool.
+navori_audit_no_spool=1
 case "$reason" in clear | logout | prompt_input_exit | bypass_permissions_disabled) : ;; *) reason=other ;; esac
 now_ms=$(navori_audit_now)
 [ "$now_ms" -ge 0 ] 2>/dev/null || now_ms=0

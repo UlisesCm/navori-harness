@@ -700,7 +700,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; the gate denies a " +
           "nonconforming implementer dispatch, with the role from tool_input.agent_type and, when the " +
           "message is encrypted (probe V2), the opening line from the orchestrator's dispatch_<feature>.json " +
-          "(spec 0041 R9). Implementers are dispatched one at a time (two or more fresh dispatch files deny) " +
+          "(spec 0041 R9). Implementers are dispatched one at a time per session (two or more fresh dispatch files of the same session deny; other sessions' are ignored) " +
           "and every analysis spawn names a listed role (spec 0052 R41). This unversioned render declaration is advisory; codexControlCapability reports S4 enforcement only for its verified version and surface.",
         evidence: {
           kind: "hook",

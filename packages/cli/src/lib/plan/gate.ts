@@ -6,7 +6,15 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import {
@@ -222,13 +230,35 @@ export const DispatchSchema = z.object({
    * file (smoke S4d: `2026-10-03T20:27:54.004865+00:00`), not only `...Z`.
    */
   createdAt: z.string().datetime({ offset: true }),
+  /**
+   * The Codex session that wrote the marker (`$CODEX_SESSION_ID`, else
+   * `$CODEX_THREAD_ID`; #1331). Optional: an unstamped marker keeps the legacy,
+   * directory-wide rule. Other sessions' stamped markers are never consumed.
+   */
+  sessionId: z.string().regex(SPAWN_ID).optional(),
 });
 export type Dispatch = z.infer<typeof DispatchSchema>;
 
-const DISPATCH_FIX =
-  "the orchestrator must write `.navori/state/handoffs/dispatch_<feature>.json` " +
-  '({"feature","opening":"workplan: <feature>","createdAt":<ISO now>}) right before ' +
-  "spawning the implementer, and keep exactly one fresh dispatch (TTL 10 min)";
+/**
+ * The payload session id when it is a bounded id, else `undefined` (legacy,
+ * unscoped dispatch rule). The single source for the marker selection and the
+ * audit context, so both always agree on what counts as "this session" (#1331).
+ */
+function boundedSessionId(sessionId: string | undefined): string | undefined {
+  return sessionId !== undefined && SPAWN_ID.test(sessionId) ? sessionId : undefined;
+}
+
+/** In-band instruction on a dispatch deny; prints the id the gate expects so the orchestrator can self-correct. */
+function dispatchFix(sessionId?: string): string {
+  return (
+    "the orchestrator must write `.navori/state/handoffs/dispatch_<feature>.json` " +
+    '({"feature","opening":"workplan: <feature>","createdAt":<ISO now>,"sessionId":<this session\'s id>}) right before ' +
+    "spawning the implementer, and keep exactly one fresh dispatch per session (TTL 10 min)" +
+    (sessionId
+      ? `; this session's id is \`${sessionId}\`: write it as \`sessionId\` in dispatch_<feature>.json`
+      : "")
+  );
+}
 
 /**
  * One dispatch per spawn (R7): claims `file` by renaming it to a dot-prefixed name
@@ -266,8 +296,20 @@ export function claimDispatch(
     consume(unchanged);
     return unchanged() ? undefined : "dispatch changed during consumption; attempt stays spent.";
   } finally {
-    // The public path may now belong to another dispatch; only clean up our private claim.
-    rmSync(claimPath, { force: true });
+    // Only the selected marker's bytes may be deleted. Anything else (another
+    // session rewrote the public name between read and claim, #1331) goes back to
+    // its public name when free (link fails on EEXIST, never overwrites); if the
+    // name is taken, the dot-prefixed claim stays on disk rather than being lost.
+    if (unchanged()) {
+      rmSync(claimPath, { force: true });
+    } else {
+      try {
+        linkSync(claimPath, file);
+        rmSync(claimPath, { force: true });
+      } catch {
+        // Public name occupied or claim unreadable: keep the claim file.
+      }
+    }
   }
 }
 
@@ -276,26 +318,64 @@ export function claimDispatch(
  * be taken from the (encrypted) message, so the rule is: exactly ONE valid,
  * non-stale dispatch file may exist; zero, several or any malformed one denies
  * rather than guessing. Returns the opening line plus the file to consume.
+ *
+ * With a bounded payload `sessionId` (#1331) selection is per session: the one
+ * fresh marker stamped with it; other sessions' stamped markers are skipped and
+ * never touched. Residuals, same as before the fix: a lone unstamped marker may
+ * be consumed by any session (transition), an unstamped marker is ignored when
+ * one stamped marker exists (mixed stamping relaxes "one at a time"), and a
+ * corrupt marker with no recoverable session id still blocks every session.
  */
-function readDispatch(cwd: string, now: number): DispatchHit | { reason: string } {
+function readDispatch(
+  cwd: string,
+  now: number,
+  sessionId?: string,
+): DispatchHit | { reason: string } {
+  const fix = dispatchFix(sessionId);
   const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
   const names = existsSync(root.path)
     ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
     : [];
   const fresh: DispatchHit[] = [];
+  const own: DispatchHit[] = [];
+  const unscoped: DispatchHit[] = [];
+  /** Names of other sessions' markers that were skipped (never read for `opening`, never claimed). */
+  const skipped: string[] = [];
+  let otherFresh = 0;
   let stale = 0;
   for (const name of names) {
     const file = stateArtifactPath(root, name);
-    let parsed: Dispatch;
     const snapshot = readPlanSnapshot(file);
+    let json: unknown;
     try {
-      parsed = DispatchSchema.parse(JSON.parse(snapshot.content ?? ""));
+      json = JSON.parse(snapshot.content ?? "");
     } catch {
-      return { reason: `${file} is malformed — ${DISPATCH_FIX}.` };
+      json = undefined;
+    }
+    // With a payload session, a marker provably stamped by ANOTHER session is
+    // invisible: even if corrupt or stale it must not block this one (#1331).
+    // An unattributable corrupt marker still falls through to the deny below.
+    if (sessionId !== undefined && isRecord(json)) {
+      const stamp = json.sessionId;
+      if (typeof stamp === "string" && SPAWN_ID.test(stamp) && stamp !== sessionId) {
+        skipped.push(name);
+        const other = DispatchSchema.safeParse(json);
+        if (other.success) {
+          const otherAge = now - Date.parse(other.data.createdAt);
+          if (otherAge <= DISPATCH_TTL_MS && -otherAge <= DISPATCH_FUTURE_SKEW_MS) otherFresh++;
+        }
+        continue;
+      }
+    }
+    let parsed: Dispatch;
+    try {
+      parsed = DispatchSchema.parse(json);
+    } catch {
+      return { reason: `${file} is malformed — ${fix}.` };
     }
     if (parsed.feature !== DISPATCH_FILE.exec(name)![1]) {
       return {
-        reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.`,
+        reason: `${file}: "feature" does not match the file name — ${fix}.`,
       };
     }
     const age = now - Date.parse(parsed.createdAt);
@@ -303,24 +383,45 @@ function readDispatch(cwd: string, now: number): DispatchHit | { reason: string 
       stale++;
       continue;
     }
-    fresh.push({
+    const hit: DispatchHit = {
       opening: parsed.opening,
       file,
       feature: parsed.feature,
       raw: snapshot.content!,
-    });
-  }
-  if (fresh.length === 1) return fresh[0]!;
-  if (fresh.length > 1) {
-    return {
-      reason: `${fresh.length} fresh dispatch files exist, the gate will not guess which one — ${DISPATCH_FIX}.`,
     };
+    fresh.push(hit);
+    if (sessionId !== undefined) (parsed.sessionId === undefined ? unscoped : own).push(hit);
+  }
+  const ambiguous = (n: number, scope: string): { reason: string } => ({
+    reason: `${n} fresh dispatch files exist${scope}, the gate will not guess which one — ${fix}.`,
+  });
+  if (sessionId === undefined) {
+    // Legacy rule (payload without a bounded session id): every fresh marker counts.
+    if (fresh.length === 1) return fresh[0]!;
+    if (fresh.length > 1) return ambiguous(fresh.length, "");
+  } else {
+    if (own.length === 1) return own[0]!;
+    if (own.length > 1) return ambiguous(own.length, " for this session");
+    // Transitional fallback: no stamped marker of ours; accept only a lone,
+    // unstamped marker with nothing else fresh in the directory (never weaker than the legacy rule).
+    if (unscoped.length === 1 && otherFresh === 0) return unscoped[0]!;
+    if (unscoped.length > 0) {
+      return {
+        reason:
+          `no dispatch file for this session (${sessionId}) can be selected: ` +
+          `${unscoped.length} unstamped and ${otherFresh} other-session fresh dispatch files exist, the gate will not guess` +
+          (skipped.length > 0 ? ` (skipped other-session markers: ${skipped.join(", ")})` : "") +
+          ` — ${fix}.`,
+      };
+    }
   }
   return {
     reason:
       (stale > 0
         ? `the dispatch file is stale (older than 10 min) — `
-        : "the spawn message is encrypted and no dispatch file exists — ") + `${DISPATCH_FIX}.`,
+        : `the spawn message is encrypted and no dispatch file exists${sessionId ? " for this session" : ""}` +
+          (skipped.length > 0 ? ` (skipped other-session markers: ${skipped.join(", ")})` : "") +
+          " — ") + `${fix}.`,
   };
 }
 
@@ -418,7 +519,14 @@ function evaluateEscalation(
   return null;
 }
 
-const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature>`";
+const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature> | verify: `<cmd>` → <expected>`";
+
+/**
+ * The `verify:` clause of a `nivel-0:` line (R28): a code span of N backticks
+ * (a `|` or `→` inside does not break it), a `→`/`->` separator and a non-empty,
+ * free-text `<expected>`. It requires the criterion to exist, not to be good.
+ */
+const VERIFY_CLAUSE = /^verify:\s+(`+)(.+?)\1\s+(?:→|->)\s+(\S.*)$/;
 
 /** Whether the rendered doctrine still shows the old one-token `nivel-0:` form. */
 function doctrineIsStale(cwd: string): boolean {
@@ -432,7 +540,7 @@ function doctrineIsStale(cwd: string): boolean {
 }
 
 /**
- * `nivel-0: <path>[,<path>] <feature>` (R6, R8). The path list is one
+ * `nivel-0: <path>[,<path>] <feature> | verify: `<cmd>` → <expected>` (R6, R8, R28). The path list is one
  * comma-separated token; `<feature>` indexes the rejection count. The gate only
  * verifies the declared paths, not the real diff.
  */
@@ -443,7 +551,10 @@ function evaluateNivel0(
   rawFeature: string | undefined,
   dispatchFeature: string | undefined,
 ): PlanGateResult {
-  const feature = rawFeature?.trim() ?? "";
+  const tail = rawFeature ?? "";
+  const bar = tail.indexOf("|");
+  const feature = (bar === -1 ? tail : tail.slice(0, bar)).trim();
+  const verifyClause = bar === -1 ? undefined : tail.slice(bar + 1).trim();
   if (!FEATURE_SLUG.test(feature)) {
     return deny(
       `\`nivel-0:\` needs a feature — open with ${NIVEL0_FORM}.` +
@@ -455,6 +566,13 @@ function evaluateNivel0(
   if (dispatchFeature !== undefined && dispatchFeature !== feature) {
     return deny(
       `dispatch feature "${dispatchFeature}" does not match nivel-0 feature "${feature}".`,
+    );
+  }
+  const verify = verifyClause === undefined ? null : VERIFY_CLAUSE.exec(verifyClause);
+  if (verify === null || verify[2]!.trim() === "") {
+    return deny(
+      `\`nivel-0:\` needs a verification criterion (R28) — open with ${NIVEL0_FORM}; ` +
+        "`<expected>` is free text and must not be empty.",
     );
   }
   let root: StateRoot;
@@ -655,7 +773,7 @@ export function evaluatePlanGate(
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
   if (toolInput.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
     try {
-      const dispatch = readDispatch(cwd, now);
+      const dispatch = readDispatch(cwd, now, boundedSessionId(payload.sessionId));
       if ("reason" in dispatch) return deny(dispatch.reason);
       firstLine = dispatch.opening.split("\n")[0]!.trim();
       consume = { file: dispatch.file, raw: dispatch.raw };
@@ -778,10 +896,11 @@ export function acknowledgePlanEscalation(
  */
 export function emitDispatchOutcome(dispatch: GateDispatch): void {
   try {
-    const context = dispatch.sessionId
+    const sessionId = boundedSessionId(dispatch.sessionId);
+    const context = sessionId
       ? {
           host: dispatch.codex ? ("codex" as const) : ("claude" as const),
-          sessionId: dispatch.sessionId,
+          sessionId,
         }
       : undefined;
     if (!hasAuditTarget(dispatch.cwd, context)) return;

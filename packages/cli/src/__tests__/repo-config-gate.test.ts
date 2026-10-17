@@ -61,7 +61,7 @@ interface RootPackageJson {
  */
 const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
   ["install", "dependency install, not a check"],
-  ["build", "`check:render` rebuilds before rendering, so the gate builds anyway"],
+  ["ensure-dist", "`check:render` ensures dist/ through the same seal, so the gate builds anyway"],
   [
     "check:assets:ci",
     // The gate runs `check:assets`, the SAME check: `:ci` only adds `--strict`,

@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-no-background-base" hash="b8ee5c7f" version="0.11.3" source="@navori/core"
+# navori:managed start id="subagent-no-background-base" hash="a1d654ab" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash|Monitor) guard — the mechanical half of the "no backgrounding
@@ -107,6 +107,61 @@ payload_field() {
 extract_cmd() {
   payload_field tool_input.command
 }
+
+# payload_fields VAR=path… — several fields, ONE process (spec 0054 R22, D10).
+# Each `payload_field` call forks a subshell plus jq/node; a hook that needs two
+# or more fields up front pays that per field. Here a single jq (or node) emits
+# every field followed by a NUL and closes with the sentinel `END` NUL.
+#
+# NEVER SHIFTS A FIELD (challenge B3). `tool_input.command` is model-controlled,
+# and JSON `\u0000` decodes to a NUL byte, which would end that field early and
+# slide the next value (`cwd`, `session_id`, a role) into the wrong variable. So
+# the producer REFUSES to emit anything when any value holds a NUL, and the shell
+# reads exactly N fields plus the sentinel with nothing after it. Any anomaly —
+# a NUL, a missing or extra field, empty output for a non-empty payload, a
+# producer that failed — discards the whole read and repeats it field by field
+# with `payload_field`, i.e. exactly today's behaviour. A variable is never left
+# empty "because the read went wrong" (that would read as "allowed").
+#
+# Values match `$(payload_field …)`: trailing newlines stripped, `null` and
+# `false` empty, non-strings as compact JSON. Paths are dotted and written HERE,
+# never user input. Works under bash 3.2 and zsh: no arrays, `printf -v` to assign.
+_payload_fields_read() {
+  local _pf_spec _pf_val _pf_end _pf_extra
+  for _pf_spec in "$@"; do
+    IFS= read -r -d '' _pf_val || return 1
+    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
+  done
+  IFS= read -r -d '' _pf_end || return 1
+  [ "$_pf_end" = END ] || return 1
+  if IFS= read -r -d '' _pf_extra; then return 1; fi
+  [ -z "$_pf_extra" ] || return 1
+  return 0
+}
+payload_fields() {
+  local _pf_spec _pf_filter="" _pf_paths=""
+  [ "$#" -gt 0 ] || return 0
+  if [ -z "$payload" ]; then
+    for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
+    return 0
+  fi
+  for _pf_spec in "$@"; do
+    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_paths="$_pf_paths ${_pf_spec#*=}"
+  done
+  _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
+  if command -v jq >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | jq -j "$_pf_filter" 2>/dev/null) && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{const j=JSON.parse(s);let o="";for(const p of process.argv[1].trim().split(" ")){let v=j;for(const k of p.split("."))v=v?.[k];const t=v==null||v===false?"":typeof v==="string"?v:JSON.stringify(v);if(t.includes("\0"))return;o+=t+"\0"}process.stdout.write(o+"END\0")}catch{}})' "$_pf_paths" 2>/dev/null) && return 0
+  fi
+  for _pf_spec in "$@"; do
+    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+  done
+  return 0
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
@@ -137,8 +192,10 @@ navori_audit_repo_from_cwd() {
   esac
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
-# Shared advisory metadata recorder. The CLI is the single private-FD writer.
-# No shell redirects, human content, or fallback writes are permitted here.
+# Shared advisory metadata recorder. The CLI is the single writer of the session log.
+# The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.
+# The CLI re-validates every file before it reaches the log. No human content, no other
+# redirects and no fallback writes are permitted here (spec 0054 D8; pinned by a drift test).
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
@@ -160,6 +217,19 @@ navori_audit_now() {
   fi
   perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
     || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# One spool file per event: `{"v":1,"host":…,"metadata":{…}}`, built by a single jq so the
+# JSON is well-formed whatever the payload held. Args: metadata JSON. Needs
+# navori_audit_spool and navori_audit_host. Returns non-zero when nothing was written.
+navori_audit_spool_write() {
+  navori_audit_event=$(jq -cn --arg host "$navori_audit_host" --argjson m "$1" \
+    '{v:1,host:$host,metadata:$m}' 2>/dev/null) || return 1
+  [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
+  navori_audit_stamp=${EPOCHREALTIME:-0}
+  navori_audit_stamp=${navori_audit_stamp//[.,]/}
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  return 0
 }
 
 # Resolve one exact marker before invoking the metadata writer. Startup may
@@ -195,11 +265,23 @@ navori_audit_record_metadata() {
     navori_audit_arm=$navori_audit_root/$navori_audit_repo/.armed
     [ -f "$navori_audit_arm" ] && [ ! -L "$navori_audit_arm" ] || return 0
   fi
-  command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
+  # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
+  # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
+  # real directory we own (not a symlink); the file is created with noclobber (O_EXCL:
+  # never overwrites, never follows a symlink planted at that name) under umask 077.
+  # The CLI re-validates host, categories and size when it consolidates. Anything
+  # unusual — no dir, wrong owner, failed write — falls through to the CLI bridge below.
+  navori_audit_spool=$navori_audit_root/$navori_audit_repo/spool-$navori_audit_session
+  # `navori_audit_no_spool` (set by audit-mode-close) forces the CLI: the session-end
+  # event is what makes the CLI consolidate the spool.
+  if [ -z "${navori_audit_no_spool:-}" ] && [ -d "$navori_audit_spool" ] && [ ! -L "$navori_audit_spool" ] && [ -O "$navori_audit_spool" ]; then
+    navori_audit_spool_write "$1" && return 0
+  fi
+  command -v navori >/dev/null 2>&1 || return 0
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
   printf '%s' "$1" | navori audit --record-metadata --host "$navori_audit_host" \
@@ -238,7 +320,7 @@ navori_audit_log() {
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -621,7 +703,8 @@ case "$payload" in
     ;;
 esac
 
-navori_tool=$(payload_field tool_name)
+# One extraction for the three fields the shell lane reads (spec 0054 R22).
+payload_fields navori_tool=tool_name navori_bg=tool_input.run_in_background cmd=tool_input.command
 
 block() {
   echo "[navori] BLOCKED by subagent-no-background: $1" >&2
@@ -643,7 +726,6 @@ case "$navori_tool" in
     ;;
 esac
 
-navori_bg=$(payload_field tool_input.run_in_background)
 if [ "$navori_bg" = "true" ]; then
   block "Bash run_in_background dentro de un subagente"
 fi
@@ -651,7 +733,6 @@ fi
 # SHELL LANE. `cmd` is read only here, past the cheap gates above: a payload
 # with no command (or a jq/node-less host that cannot extract it) has nothing to
 # inspect and falls through to allow, the same fail-open posture as the rest.
-cmd=$(extract_cmd)
 if [ -n "$cmd" ]; then
   if [ "${#cmd}" -gt "$CMD_MAX" ]; then
     block "comando demasiado grande para inspeccionarlo (${#cmd} > ${CMD_MAX})"

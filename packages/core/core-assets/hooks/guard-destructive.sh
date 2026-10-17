@@ -287,6 +287,19 @@ navori_inert_segments
 # can't trip it.
 segments_unquoted=$(printf '%s' "$segments" | sed -E -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g")
 
+# Worktree resolver and session-state ratchet (#1266), shared with
+# `quality-gate-pre-commit`. Both only define functions; nothing runs until the
+# commit lane below calls them.
+# The landing classifier (`navori_commit_landing`, below) counts commits with the shared trigger
+# detector. The guard gates commits only here, whatever the engine.
+TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+TRIGGER_TOKENS='commit'
+# Heredoc bodies fed to `cat` are data, not commands (#1095).
+TRIGGER_STRIP_HEREDOC_BODIES=1
+# navori:include gate-trigger
+# navori:include resolve-worktree
+# navori:include progress-ratchet
+
 # Git commit/push detector shared by rule 1. The leading boundary accepts ; & |
 # so `true;git commit …` (no space after the separator) is caught; the
 # `git(… -opt …)*` middle allows git global options between `git` and the
@@ -306,6 +319,37 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
   || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
   block "git commit/push with --no-verify (skipping hooks/gates)" no-verify "commit without --no-verify and fix what the hook reports."
+fi
+
+# 1b. Session-state ceiling on a commit when no quality-gate hook enforces it (#1266).
+#     The ratchet (#1263) lives in `quality-gate-pre-commit`, which is registered
+#     only with `qualityGate.fast`; without it nothing measured the file. This lane
+#     runs the SAME shared body, and only when the render says `fast` is NOT
+#     declared (otherwise the gate hook already measures, and doing it twice is
+#     waste). The flag is injected at render time: a raw, unrendered copy keeps the
+#     placeholder text, which is not `1`, so the lane stays off (fail safe, like the
+#     ceiling itself). Cheap by construction: it evaluates only for a `git commit`
+#     segment, and `$cmd` is non-empty here (the empty-command exit above, #511).
+#     The tree measured is the one being committed (`navori_worktree`, #454); the
+#     detector's limits (sh -c, eval, GIT_DIR, a `cd` mid-chain) are inherited, and
+#     the repo's own git pre-commit covers the commits that bypass the agent.
+#     The lane runs in a subshell so its `cd` never leaks into the rules below.
+navori_pg_lane={{navori.progressGuardLane}}
+if [ "$navori_pg_lane" = 1 ] \
+  && printf '%s' "$segments" | grep -qE "${git_cp%\(commit\|push\)}commit([[:space:]]|\$)"; then
+  # A commit that provably lands in ANOTHER repository (#1095) is not this repo's business: its
+  # session-state file is not in the diff. Same rule as the gate hook: only `foreign` skips;
+  # `ambiguous` and `same-repo` measure (fail closed).
+  navori_commit_landing "$cmd"
+  navori_pg_root=""
+  if [ "$navori_landing" != foreign ]; then navori_pg_root=$(navori_worktree); fi
+  if [ "$navori_landing" != foreign ] && ! ( cd "${navori_pg_root:-${nv_project_dir:-.}}" && navori_progress_ratchet_lane ); then
+    # The lane already printed the verdict text; only the recording is left, and it
+    # happens in the EXIT trap.
+    navori_audit_verdict="block"
+    navori_audit_reason="unspecified"
+    exit 2
+  fi
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase

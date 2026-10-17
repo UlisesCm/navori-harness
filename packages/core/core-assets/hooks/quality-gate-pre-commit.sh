@@ -59,6 +59,8 @@ navori_audit_ask_reason=""
 # Set right before each deliberate `exit 2`, so every block path records its own
 # cause (#1117). Empty means the exit came from somewhere unforeseen.
 navori_audit_block_reason=""
+# Reason code of an allow that ran the DESTINATION repo's gate (#1097); empty = own gate.
+navori_audit_allow_reason=""
 navori_audit_on_exit() {
   navori_audit_code=$?
   # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
@@ -73,7 +75,7 @@ navori_audit_on_exit() {
   elif [ -n "$navori_audit_ask_reason" ]; then
     navori_audit_log "ask" "$navori_audit_ask_reason" ask || true
   elif [ "$navori_audit_ran_gate" -eq 1 ]; then
-    navori_audit_log "allow" "gate ejecutado y verde" || true
+    navori_audit_log "allow" "${navori_audit_allow_reason:-gate ejecutado y verde}" || true
   else
     navori_audit_log "skip" "$navori_audit_skip_reason" || true
   fi
@@ -107,6 +109,26 @@ detect_pm() {
 # leading token of the gate command when it's actually a PM, not `make`/`ruff`).
 is_pm() {
   case "$1" in pnpm|npm|yarn|bun) return 0 ;; *) return 1 ;; esac
+}
+
+# Spec 0054 D1 (R17): true when `navori gate probe --clean` finds a cached green `fast`
+# for the bytes a commit would record. `--clean` because this hook runs BEFORE
+# `git commit` and cannot see the final index (`-a`, pathspecs): it demands index ==
+# working tree == record. Every GIT_* is scrubbed except GIT_INDEX_FILE, made absolute.
+# Any failure (no navori on PATH, an older CLI answering exit 2, a crash) means "run
+# the gate", so the probe can only ever skip work, never a verdict.
+navori_gate_probe_hit() {
+  command -v navori >/dev/null 2>&1 || return 1
+  navori_probe_index=${GIT_INDEX_FILE:-}
+  case "$navori_probe_index" in ''|/*) ;; *) navori_probe_index="$PWD/$navori_probe_index" ;; esac
+  env \
+    -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
+    -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
+    -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE \
+    -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
+    -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
+    ${navori_probe_index:+"GIT_INDEX_FILE=$navori_probe_index"} \
+    navori gate probe --clean >/dev/null 2>&1
 }
 
 run_gate() {
@@ -172,47 +194,89 @@ fi
 if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
-    navori_audit_skip_reason="el commit va a otro repositorio ($navori_landing_root); el gate de este repo no aplica"
-    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this hook protects. That repository's own gate is not run from here." >&2
-    # Detect, never run: the destination's config is data. File existence plus a
-    # jq type check only; without jq (or on invalid JSON) this degrades to the
-    # message above, never to a failure.
-    if [ -f "$navori_landing_root/navori.config.json" ] && command -v jq >/dev/null 2>&1 \
-      && jq -e '(.qualityGate.fast | type) == "string" and (.qualityGate.fast | length) > 0' "$navori_landing_root/navori.config.json" >/dev/null 2>&1; then
-      navori_audit_skip_reason="el commit va a otro repositorio ($navori_landing_root); su qualityGate.fast propio NO se ejecuto"
-      echo "[navori] The destination repository declares its own qualityGate.fast in navori.config.json; it was NOT executed. Run it there before relying on this commit." >&2
+    navori_audit_skip_reason="foreign-repo"
+    echo "[navori] quality-gate NOT run on this repository: this commit lands in another repository ($navori_landing_root), not the one this hook protects." >&2
+    # The destination's gate (#1097) is the CLI's call, never an `eval` here: its
+    # config is data from ANOTHER repo. `navori gate foreign` runs it shell-free, and
+    # only when the user registered that repo (`navori workspace link`). Commits only:
+    # a Pi `git push` keeps today's warning.
+    navori_fr_commit=1
+    if [ "$nv_engine" = pi ]; then
+      navori_fr_saved_re=$TRIGGER_RE
+      navori_fr_saved_tokens=$TRIGGER_TOKENS
+      TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+      TRIGGER_TOKENS='commit'
+      is_scan_trigger "$cmd" || navori_fr_commit=0
+      TRIGGER_RE=$navori_fr_saved_re
+      TRIGGER_TOKENS=$navori_fr_saved_tokens
     fi
+    if [ "$navori_fr_commit" != 1 ] || [ ! -f "$navori_landing_root/navori.config.json" ]; then
+      echo "[navori] That repository's own gate is not run from here; run it there before relying on this commit." >&2
+      exit 0
+    fi
+    if ! command -v navori >/dev/null 2>&1; then
+      echo "[navori] The destination's gate was NOT run: navori is not on PATH, so its registration cannot be checked. Run its gate there before relying on this commit." >&2
+      exit 0
+    fi
+    navori_audit_log "gate-started" "inicio del quality gate" || true
+    echo "[navori] Evaluating the destination's qualityGate.fast: $navori_landing_root (it runs on the tree as it is BEFORE this command, so changes made by the same command are not covered)." >&2
+    navori_fr_rc=0
+    navori_fr_out=$(navori gate foreign --cwd "$navori_landing_root" 2>&1 </dev/null) || navori_fr_rc=$?
+    # Classify ONLY by the exit code and the FIRST output line: the first line is always
+    # the CLI's own, while the rest is the destination gate's log and can say anything.
+    navori_fr_first=${navori_fr_out%%$'\n'*}
+    navori_fr_kind=other
+    case "$navori_fr_rc:$navori_fr_first" in
+      0:"navori gate foreign: exit 0 "*) navori_fr_kind=green ;;
+      64:"navori gate foreign: refused "*) navori_fr_kind=refused ;;
+      2:'navori gate: unknown kind "foreign"'*) navori_fr_kind=old ;;
+      127:"navori gate foreign: exit 127 "*) navori_fr_kind=other ;;
+      *:"navori gate foreign: exit $navori_fr_rc "*) navori_fr_kind=red ;;
+      1:*) case "$navori_fr_out" in *"Unknown command gate"*) navori_fr_kind=old ;; esac ;;
+    esac
+    case "$navori_fr_kind" in
+      green)
+        navori_audit_ran_gate=1
+        navori_audit_allow_reason="foreign-gate"
+        echo "[navori] The destination's quality-gate fast passed: $navori_landing_root" >&2
+        exit 0
+        ;;
+      refused)
+        echo "[navori] The destination's gate was NOT run: ${navori_fr_first#navori gate foreign: refused }" >&2
+        echo "[navori] Run it there before relying on this commit." >&2
+        exit 0
+        ;;
+      old)
+        echo "[navori] The destination's gate was NOT run: the navori on PATH has no 'gate foreign' (older than this hook); update the navori CLI. Run the destination's gate there before relying on this commit." >&2
+        exit 0
+        ;;
+      red)
+        navori_audit_ran_gate=1
+        navori_audit_block_reason="foreign-gate"
+        echo "[navori] quality-gate fast failed in the destination repository $navori_landing_root. Commit aborted." >&2
+        printf '%s\n' "$navori_fr_out" >&2
+        echo "[navori] Stop and report the failure. Fix it in that repository through implementer -> reviewer. Do not edit files to make the gate pass, and do not use --no-verify." >&2
+        exit 2
+        ;;
+    esac
+    # No verdict: the gate could not be evaluated (crash, runner missing). Same route as
+    # a missing runner (#1117): ask where the host shows the prompt, otherwise block (#88).
+    navori_audit_ran_gate=1
+    printf '%s\n' "$navori_fr_out" >&2
+    echo "[navori] The destination's quality gate produced no verdict ($navori_landing_root)." >&2
+    if [ "$nv_engine" = codex ] || ! navori_can_ask; then
+      navori_audit_block_reason="quality gate del repo destino sin veredicto y sin forma de preguntar, commit bloqueado"
+      echo "[navori] Commit BLOCKED to avoid skipping the destination's gate silently. Fix the cause, or if you really want to skip it run the commit yourself outside the agent." >&2
+      exit 2
+    fi
+    navori_audit_ask_reason="quality gate del repo destino sin veredicto"
+    jq -cn --arg reason "[navori] The destination repository's quality gate gave no verdict ($navori_landing_root). Approve to commit WITHOUT that gate, or deny and fix the cause." '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
     exit 0
   fi
 fi
 
-# Ratchet check for ONE session-state path (#1263); blocks via `exit 2`. Plain
-# function, quoted expansions, no word-splitting: it runs under bash and zsh.
-navori_progress_ratchet() {
-  navori_pr_path=$1
-  # A gitignored file is never committed, so its size is not this gate's business.
-  if git check-ignore -q -- "$navori_pr_path" 2>/dev/null; then return 0; fi
-  navori_pr_wt=0
-  navori_pr_idx=0
-  navori_pr_head=0
-  if [ -f "$navori_pr_path" ]; then
-    navori_pr_wt=$(wc -c <"$navori_pr_path" 2>/dev/null | tr -d '[:space:]') || navori_pr_wt=0
-  fi
-  navori_pr_idx=$(git cat-file -s ":$navori_pr_path" 2>/dev/null) || navori_pr_idx=0
-  navori_pr_head=$(git cat-file -s "HEAD:$navori_pr_path" 2>/dev/null) || navori_pr_head=0
-  case "$navori_pr_wt" in ''|*[!0-9]*) navori_pr_wt=0 ;; esac
-  case "$navori_pr_idx" in ''|*[!0-9]*) navori_pr_idx=0 ;; esac
-  case "$navori_pr_head" in ''|*[!0-9]*) navori_pr_head=0 ;; esac
-  navori_pr_size=$navori_pr_wt
-  if [ "$navori_pr_idx" -gt "$navori_pr_size" ]; then navori_pr_size=$navori_pr_idx; fi
-  if [ "$navori_pr_size" -gt "$navori_progress_hard_cap" ] && [ "$navori_pr_size" -gt "$navori_pr_head" ]; then
-    navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
-    echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
-    echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
-    exit 2
-  fi
-  return 0
-}
+# Session-state ratchet function + lane (#1263, #1266). Shared body, single source of truth.
+# navori:include progress-ratchet
 
 if [ "$run_needed" = 1 ]; then
   # Pin the cwd to the root of the tree BEING COMMITTED before anything below
@@ -230,34 +294,20 @@ if [ "$run_needed" = 1 ]; then
     navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
     exit 2
   }
-  # Session-state ratchet (#1263). The session-state file is meant to hold the
-  # CURRENT state and the next step; past the delivery budget it falls out of
-  # startup context. The ceiling is injected from the single TS constant (a raw,
-  # unrendered copy leaves the placeholder text, which is not numeric: the check
-  # then stays off rather than guess a number).
-  # Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) this block would run on
-  # EVERY Bash call and block the very command that fixes the file.
-  # RATCHET, not a plain cap: blocks only when the file is over the ceiling AND
-  # larger than at HEAD, so a trim that is still big passes and an untouched
-  # legacy file never blocks an unrelated commit. The size is the max of the
-  # index (what a plain `git commit` lands) and the worktree (what `-a`, a
-  # pathspec or `add && commit` in one call lands). Bytes via `wc -c` / `git
-  # cat-file -s`: locale-independent, unlike `${#var}`. Every git call is
-  # guarded: an unborn HEAD or an unmerged index exits non-zero under `set -e`.
-  navori_progress_hard_cap={{navori.progressHardCapBytes}}
-  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
-  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
-    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
-      navori_progress_ratchet "$navori_pf"
-    done
-  fi
+  # Session-state ratchet (#1263): see the `progress-ratchet` partial for the rule,
+  # the byte measure and the fail-safe on an unrendered ceiling. A blocked commit
+  # is `exit 2` here; the lane never exits by itself.
+  navori_progress_ratchet_lane || exit 2
   # qualityGate.nativeHooks (spec 0045 D1): the project's native git pre-commit
   # already runs `fast`, so ONLY the gate step below is skipped. The ratchet
   # above and the user-section below still run. The value comes from
   # navori.config.json at render time; a raw, unrendered copy keeps the
   # placeholder, which is not `1`, so the gate runs (fail closed).
   navori_native_fast={{navori.nativeHooks}}
-  if [ "$navori_native_fast" != 1 ]; then
+  if [ "$navori_native_fast" != 1 ] && navori_gate_probe_hit; then
+    navori_audit_skip_reason="gate omitido: resultado verde en cache para estos bytes (navori gate probe)"
+    echo "[navori] quality-gate skipped: a green fast result is cached for exactly these bytes (navori gate probe --clean)." >&2
+  elif [ "$navori_native_fast" != 1 ]; then
     # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
     # The gate string is still `eval`'d by run_gate below (running the gate is the
     # feature), but quoting it here means a hostile qualityGate.fast survives as one

@@ -271,6 +271,27 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     ).toBe(false);
   });
 
+  // Covers: R21
+  it("affected y docs opcionales y validados como cadena segura", () => {
+    const gate = { fast: "bun lint", full: "bun test" };
+    const parse = (extra: object): ReturnType<typeof NavoriConfigSchema.safeParse> =>
+      NavoriConfigSchema.safeParse({ ...MINIMAL, qualityGate: { ...gate, ...extra } });
+    const bare = parse({});
+    expect(bare.success && bare.data.qualityGate?.affected).toBeUndefined();
+    expect(bare.success && bare.data.qualityGate?.docs).toBeUndefined();
+    const declared = parse({
+      affected: "bun run test:affected",
+      docs: "bun run check:links && cd packages/cli && bun run test src/a.test.ts",
+    });
+    expect(declared.success && declared.data.qualityGate?.affected).toBe("bun run test:affected");
+    expect(declared.success && declared.data.qualityGate?.docs).toContain("check:links");
+    for (const key of ["affected", "docs"]) {
+      for (const unsafe of ["", "bun run test; rm -rf x", "bun run test | tee x", "echo $(id)"]) {
+        expect(parse({ [key]: unsafe }).success, `${key}: ${unsafe}`).toBe(false);
+      }
+    }
+  });
+
   // Removed keys (#75): legacy configs still carrying checkpointsDir /
   // archiveAfterDays must keep validating — the keys are stripped, not rejected.
   it("tolerates removed progress keys from legacy configs (stripped, not rejected)", () => {

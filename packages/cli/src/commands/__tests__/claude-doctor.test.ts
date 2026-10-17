@@ -1,11 +1,135 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../render.ts";
 import { scanClaudeHookScripts, computeHealthVerdict, doctorCommand } from "../doctor.ts";
+
+// Fake home for the whole file: no test here may read or write the real `~`.
+const fakeHome = vi.hoisted(() => ({ dir: "" }));
+vi.mock("../../lib/primitives/home.ts", () => ({ safeHomedir: () => fakeHome.dir }));
+beforeEach(() => {
+  vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+  fakeHome.dir = mkdtempSync(join(tmpdir(), "navori-fake-home-"));
+});
+afterEach(() => vi.unstubAllEnvs());
+
+describe("doctor global CLAUDE.md size (#1270)", () => {
+  const GLOBAL_FILE = (): string => join(fakeHome.dir, ".claude", "CLAUDE.md");
+
+  function writeGlobal(chars: number): void {
+    mkdirSync(join(fakeHome.dir, ".claude"), { recursive: true });
+    writeFileSync(GLOBAL_FILE(), "a".repeat(chars));
+  }
+
+  /** Run `doctor` (json or text) on a repo with the given engines; returns output + exit code. */
+  async function run(
+    engines: string[],
+    json: boolean,
+  ): Promise<{
+    text: string;
+    report: { globalClaudeMd: unknown };
+    exitCode: number | string | undefined;
+  }> {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-global-doctor-"));
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "g", engines, preset: "custom", branchBase: "main" }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const before = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      await doctorCommand.run?.({
+        args: { _: [], cwd, json, strict: false },
+        rawArgs: [],
+        cmd: doctorCommand,
+      });
+      const text = [...log.mock.calls, ...stdout.mock.calls].flat().join("\n");
+      const last = String(log.mock.calls.at(-1)?.[0]);
+      const report = json ? JSON.parse(last) : { globalClaudeMd: undefined };
+      return { text, report, exitCode: process.exitCode };
+    } finally {
+      process.exitCode = before;
+      log.mockRestore();
+      stdout.mockRestore();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  }
+
+  // Covers: #1270
+  it("warns with size, cap and remedy when over the cap (text)", async () => {
+    writeGlobal(2500);
+    const { text } = await run(["claude"], false);
+    expect(text).toContain("2500");
+    expect(text).toContain("2000");
+    expect(text).toContain("Dominio");
+  });
+
+  // Covers: #1270
+  it("includes globalClaudeMd in --json when over the cap", async () => {
+    writeGlobal(2500);
+    const { report } = await run(["claude"], true);
+    expect(report.globalClaudeMd).toEqual({
+      path: "~/.claude/CLAUDE.md",
+      chars: 2500,
+      thresholdChars: 2000,
+    });
+  });
+
+  // Covers: #1270
+  it("does not warn under the cap or when the file is missing", async () => {
+    writeGlobal(100);
+    const under = await run(["claude"], true);
+    expect(under.report.globalClaudeMd).toBeNull();
+    rmSync(GLOBAL_FILE());
+    const missing = await run(["claude"], true);
+    expect(missing.report.globalClaudeMd).toBeNull();
+  });
+
+  // Covers: #1270
+  it("does not warn for a repo without the claude engine", async () => {
+    writeGlobal(2500);
+    const json = await run(["codex"], true);
+    expect(json.report.globalClaudeMd).toBeNull();
+    const text = await run(["codex"], false);
+    expect(text.text).not.toContain("2500");
+  });
+
+  // Covers: #1270
+  it("is advisory: same exit code with and without the oversized file", async () => {
+    writeGlobal(9000);
+    const fat = await run(["claude"], true);
+    rmSync(GLOBAL_FILE());
+    const slim = await run(["claude"], true);
+    expect(fat.exitCode).toBe(slim.exitCode);
+  });
+
+  // Covers: #1270
+  it("never writes the global file: bytes and mtime unchanged", async () => {
+    writeGlobal(2500);
+    const past = new Date("2020-01-01T00:00:00Z");
+    utimesSync(GLOBAL_FILE(), past, past);
+    const bytes = readFileSync(GLOBAL_FILE());
+    const mtime = statSync(GLOBAL_FILE()).mtimeMs;
+    await run(["claude"], false);
+    await run(["claude"], true);
+    expect(readFileSync(GLOBAL_FILE()).equals(bytes)).toBe(true);
+    expect(statSync(GLOBAL_FILE()).mtimeMs).toBe(mtime);
+  });
+});
 
 describe("doctor progressSize (#1263)", () => {
   /** Run `doctor --json` on a repo whose session-state file has `chars` bytes. */

@@ -547,3 +547,92 @@ describe("hook-input spawn helpers never confuse caller and child (H16)", () => 
     expect(probe({ tool_name: "apply_patch" }, "nv_is_spawn_tool || printf no")).toBe("no");
   });
 });
+
+// Covers: #1022 role-guard
+describe("role-guard nested worktrees (#1022)", () => {
+  const git = (cwd: string, ...args: string[]): void => {
+    const r = spawnSync(
+      "git",
+      ["-c", "user.name=Guard", "-c", "user.email=guard@example.test", ...args],
+      { cwd, encoding: "utf8" },
+    );
+    if (r.status !== 0) throw new Error(r.stderr);
+  };
+  let nested: string;
+
+  beforeEach(() => {
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "base");
+    nested = join(repo, ".navori/state/fixtures/live/native-dev");
+    mkdirSync(join(repo, ".navori/state/fixtures/live"), { recursive: true });
+    git(repo, "worktree", "add", "-q", "-b", "nested", nested);
+  });
+
+  it("lets the reviewer write the handoffs dir of a nested worktree", () => {
+    const file = join(nested, ".navori/state/handoffs/review_x.md");
+    expect(run(patch("reviewer", file)).status).toBe(0);
+  });
+
+  it("still blocks the reviewer outside its prefixes in the nested worktree and at the root", () => {
+    expect(run(patch("reviewer", join(nested, "src/x.mjs"))).status).toBe(2);
+    expect(run(patch("reviewer", join(repo, "src/x.mjs"))).status).toBe(2);
+    expect(run(patch("reviewer", join(nested, ".navori/state/fixtures/x.md"))).status).toBe(2);
+  });
+
+  it("keeps implementer and scribe exempt in the nested worktree like at the root", () => {
+    expect(run(patch("implementer", join(nested, "src/x.mjs"))).status).toBe(0);
+    expect(run(patch("scribe", join(nested, "docs/a.md"))).status).toBe(0);
+  });
+
+  it("does not treat a plain dir with a forged .git file or dir as a worktree", () => {
+    const fake = join(repo, "fake");
+    mkdirSync(fake);
+    writeFileSync(join(fake, ".git"), `gitdir: ${join(repo, ".git/worktrees/nope")}\n`);
+    expect(run(patch("reviewer", join(fake, ".navori/state/handoffs/review_x.md"))).status).toBe(2);
+    const fakeDir = join(repo, "fakedir");
+    mkdirSync(join(fakeDir, ".git"), { recursive: true });
+    expect(run(patch("reviewer", join(fakeDir, ".navori/state/handoffs/review_x.md"))).status).toBe(
+      2,
+    );
+  });
+
+  it("blocks a symlinked nested handoffs dir that points outside and `..` traversal", () => {
+    // Target is a non-prefix dir of the root (inside OS temp, so the temp grant cannot mask a miss).
+    const outside = join(repo, "src");
+    mkdirSync(outside);
+    {
+      rmSync(join(nested, ".navori"), { recursive: true, force: true });
+      mkdirSync(join(nested, ".navori/state"), { recursive: true });
+      symlinkSync(outside, join(nested, ".navori/state/handoffs"));
+      // Resolves outside the repo: external route, no binding -> blocked.
+      expect(
+        run(patch("reviewer", join(nested, ".navori/state/handoffs/review_x.md"))).status,
+      ).toBe(2);
+      expect(
+        run(patch("reviewer", join(nested, ".navori/state/handoffs/../../../src/x.mjs"))).status,
+      ).toBe(2);
+    }
+  });
+
+  it("blocks an independent nested git repo (role escape through `git init`)", () => {
+    const evil = join(repo, "packages/cli/src/evil");
+    mkdirSync(evil, { recursive: true });
+    git(evil, "init", "-q", "-b", "main");
+    git(evil, "commit", "-q", "--allow-empty", "-m", "base");
+    expect(run(patch("reviewer", join(evil, ".navori/state/handoffs/x.md"))).status).toBe(2);
+  });
+
+  it("blocks a nested linked worktree that belongs to a different repo", () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-role-other-")));
+    try {
+      git(other, "init", "-q", "-b", "main");
+      git(other, "commit", "-q", "--allow-empty", "-m", "base");
+      const foreign = join(repo, "packages/foreign");
+      mkdirSync(join(repo, "packages"), { recursive: true });
+      git(other, "worktree", "add", "-q", "-b", "foreign", foreign);
+      expect(run(patch("reviewer", join(foreign, ".navori/state/handoffs/x.md"))).status).toBe(2);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+});

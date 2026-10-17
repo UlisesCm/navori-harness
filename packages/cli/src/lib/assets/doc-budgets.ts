@@ -75,7 +75,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // used before: ceil(4471 × 1.10) = 4919.
   // #1273: Codex dropped `gh-protocol` (3805 → 3698 words measured); the old
   // ceiling had also drifted slack. ceil(3698 × 1.10) = 4068.
-  "AGENTS.md": 4068,
+  // #1331: Codex dispatch sessionId + residuals (3877 measured → ceil(3877 × 1.05) = 4071).
+  "AGENTS.md": 4120, // 3916 → 5.2%; +39 words: level-0 `verify:` clause, scribe only on non-empty markdownRequests, A<n> from the main thread (0054 R28-R32); the blocks were already minimal
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
@@ -94,7 +95,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // per-milestone cycle bullet; same floor recovered (1102 measured → 1161).
   // Spec 0052 E1 M15 (R41): Codex note names the denying gate and one-at-a-time dispatch
   // (1124 measured → ceil(1124 × 1.05) = 1181).
-  "packages/core/core-assets/managed/orquestacion.md": 1181, // 1124 → 5.1%
+  // #1331: Codex dispatch sessionId + residuals (1169 measured → ceil(1169 × 1.05) = 1228).
+  "packages/core/core-assets/managed/orquestacion.md": 1250, // 1188 → 5.2%; +19 words: scribe only on non-empty markdownRequests, A<n> from the main thread (0054 R30-R32)
   "packages/core/core-assets/managed/plan-maestro.md": 90,
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition
@@ -106,7 +108,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Spec 0052 E1 M15 (R6, R38, R40, R41): plan precondition, no-inline-route rule, `spec:`
   // opening, level-0 grammar with feature, the single two-rejections rule and the Codex
   // gate text (371 measured → ceil(371 × 1.05) = 390).
-  "packages/core/core-assets/managed/planificacion.md": 390, // 371 → 5.1%
+  // #1331: Codex dispatch sessionId + residuals (383 measured → ceil(383 × 1.05) = 403).
+  "packages/core/core-assets/managed/planificacion.md": 424, // 403 → 5.2%; +20 words: level-0 `verify:` clause (0054 R28)
 
   // Spec 0041 T14: the source carries both engine branches (`if-not onCodex` /
   // `if onCodex`), so it measures more than any single render; the text
@@ -199,6 +202,15 @@ export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
  * characters: the hooks measure with `wc -c`, which is locale-independent.
  */
 export const PROGRESS_SOFT_CAP_BYTES = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 2;
+
+/**
+ * Soft cap, in CHARACTERS, of the user-level `~/.claude/CLAUDE.md` (#1270): a
+ * quarter of the delivery budget. Claude Code loads that file into EVERY
+ * session on top of the repo's context, so a fat one eats the room the repo's
+ * own context needs. Past it `doctor` nudges; nothing blocks and the file is
+ * never touched.
+ */
+export const GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 4;
 
 /**
  * Hard ceiling, in BYTES, of the same file: the delivery budget itself, where

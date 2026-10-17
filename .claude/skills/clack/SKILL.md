@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="clack" hash="1417a320" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="clack" hash="1417a320" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Clack prompts — interactive CLI
 
 ## When to use this skill
@@ -85,3 +85,12 @@ p.outro("Done");
 - `select`/`multiselect` consume `value`, not label.
 - `bun run check:fast` green.
 <!-- /navori:managed id="clack" -->
+
+## This repo's prompts (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The interactive flows that exist and their steps.
+     - What every prompt defaults to when the user just presses enter.
+     - How a cancel is handled (isCancel) and what gets rolled back.
+     - Which flows have a non-interactive equivalent for CI.
+-->

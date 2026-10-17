@@ -1037,3 +1037,116 @@ describe("gateKind", () => {
     }
   });
 });
+
+describe("gate cache independence (spec 0054 R15)", () => {
+  // Covers: R15
+  it("firmar y verificar no dependen de la caché del gate", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    const withoutCache = signReceipt(options);
+    expect(withoutCache.exitCode).toBe(0);
+    const bare = readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8");
+
+    // A hostile record claiming a green gate, and an unreadable one, change nothing.
+    const gateDir = join(options.cwd, ".navori/state/gate");
+    mkdirSync(gateDir, { recursive: true });
+    writeFileSync(
+      join(gateDir, "results.json"),
+      JSON.stringify({ v: 1, entries: [{ kind: "full", fingerprint: "x", ts: "now" }] }),
+    );
+    expect(signReceipt(options).result.status).toBe("ok");
+    expect(readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8")).toBe(bare);
+    expect(checkReceipt(options).exitCode).toBe(0);
+    rmSync(join(gateDir, "results.json"));
+    mkdirSync(join(gateDir, "results.json"));
+    expect(signReceipt(options).exitCode).toBe(0);
+    expect(checkReceipt(options).exitCode).toBe(0);
+
+    for (const file of ["../receipt.ts", "../../../commands/receipt.ts"]) {
+      expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(
+        /results\.json|gate\/cache/,
+      );
+    }
+  });
+});
+
+describe("sign --gate-ran docs (spec 0054 R21, D6)", () => {
+  /** A repo with a full-gate receipt over a docs file, a code file and a docs gate declared. */
+  function signedFull(): ReceiptOptions {
+    const options = { ...fixture(), docsGate: "bun run check:links" };
+    mkdirSync(join(options.cwd, "docs"), { recursive: true });
+    mkdirSync(join(options.cwd, "specs/s"), { recursive: true });
+    writeFileSync(join(options.cwd, "docs/guide.md"), "one\n");
+    writeFileSync(join(options.cwd, "src.ts"), "export {};\n");
+    expect(signReceipt({ ...options, gateRan: "full" }).exitCode).toBe(0);
+    return options;
+  }
+  const docs = (options: ReceiptOptions) => signReceipt({ ...options, gateRan: "docs" });
+  const header = (options: ReceiptOptions): string =>
+    readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8").split("\n")[0] ?? "";
+
+  // Covers: R21
+  it("re-firma docs acepta solo Markdown de specs y docs, rechaza un .ts nuevo y exige qualityGate.docs", () => {
+    const options = signedFull();
+    const before = header(options);
+
+    // Markdown edits, a new Markdown file and a deleted one are accepted; gate=/inputs= are kept.
+    writeFileSync(join(options.cwd, "docs/guide.md"), "two\n");
+    writeFileSync(join(options.cwd, "specs/s/new.md"), "new\n");
+    const accepted = docs(options);
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.result.gateKind).toBe("full");
+    expect(header(options)).toBe(before);
+    expect(checkReceipt(options).result).toMatchObject({ status: "ok", fresh: true });
+    rmSync(join(options.cwd, "specs/s/new.md"));
+    expect(docs(options).exitCode).toBe(0);
+
+    // A new code file next to a Markdown edit is `uncovered`, not drift: still refused.
+    writeFileSync(join(options.cwd, "docs/guide.md"), "three\n");
+    writeFileSync(join(options.cwd, "extra.ts"), "export {};\n");
+    const refused = docs(options);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.result.error).toContain("extra.ts");
+    rmSync(join(options.cwd, "extra.ts"));
+
+    // Drift of a code file, a deleted code file and look-alike paths are refused.
+    for (const [mutate, offender] of [
+      [() => writeFileSync(join(options.cwd, "src.ts"), "changed\n"), "src.ts"],
+      [() => rmSync(join(options.cwd, "src.ts")), "src.ts"],
+    ] as const) {
+      mutate();
+      const result = docs(options);
+      expect(result.exitCode, offender).toBe(1);
+      expect(result.result.error).toContain(offender);
+      writeFileSync(join(options.cwd, "src.ts"), "export {};\n");
+    }
+    for (const path of ["docs/x.ts", "docs/UPPER.MD", "other/notes.md"]) {
+      mkdirSync(join(options.cwd, path.split("/")[0]!), { recursive: true });
+      writeFileSync(join(options.cwd, path), "x\n");
+      expect(docs(options).result.error, path).toContain(path);
+      rmSync(join(options.cwd, path));
+    }
+
+    // A symlink named like Markdown is not a regular file.
+    symlinkSync("src.ts", join(options.cwd, "docs/link.md"));
+    expect(docs(options).result.error).toContain("docs/link.md");
+    rmSync(join(options.cwd, "docs/link.md"));
+
+    // Without `qualityGate.docs` declared the CLI demands the full gate.
+    const undeclared = signReceipt({ ...options, docsGate: undefined, gateRan: "docs" });
+    expect(undeclared.exitCode).toBe(1);
+    expect(undeclared.result.error).toContain("qualityGate.docs");
+    expect(undeclared.result.error).toContain("--gate-ran full");
+
+    // A scoped receipt, a different full command or a missing receipt cannot be extended.
+    expect(docs({ ...options, gate: "another-full-gate" }).exitCode).toBe(1);
+    signReceipt({
+      ...options,
+      gateRan: "scoped",
+      gateDecision: { gateKind: "scoped", reason: "x" },
+    });
+    expect(docs(options).exitCode).toBe(1);
+    rmSync(join(options.cwd, options.dir, "receipt.txt"));
+    expect(docs(options).result.error).toContain("no receipt");
+  });
+});

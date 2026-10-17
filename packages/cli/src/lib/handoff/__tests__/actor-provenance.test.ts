@@ -170,19 +170,34 @@ describe("native delivery ownership", () => {
     const mirrors = [
       ".claude/agents/implementer.md",
       ".codex/agents/implementer.toml",
+      ".codex/orchestrator.md",
       ".pi/agents/implementer.md",
+      ".claude/context/10-orquestacion.md",
+      ".claude/skills/resolve-ticket/SKILL.md",
+      ".agents/skills/resolve-ticket/SKILL.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".pi/navori.json",
     ];
     const planPath = state("workplan_demo.json");
     const plan = JSON.parse(readFileSync(planPath, "utf8")) as {
       files: Array<{ path: string; new: boolean }>;
     };
-    plan.files.push(...[...mirrors, "arbitrary.md"].map((path) => ({ path, new: true })));
+    plan.files.push(
+      ...[...mirrors, "arbitrary.md", ".codex/arbitrario.md", "src/__golden__/escape.ts"].map(
+        (path) => ({
+          path,
+          new: true,
+        }),
+      ),
+    );
     writeFileSync(planPath, JSON.stringify(plan));
     const options = { cwd, feature: "demo", target: "main" };
     expect(attestHandoff(options)).toEqual({ status: "attested" });
     writeFileSync(join(cwd, "note.md"), "note\n");
     for (const path of mirrors) {
-      mkdirSync(join(cwd, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
+      if (path.includes("/"))
+        mkdirSync(join(cwd, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
       writeFileSync(join(cwd, path), "generated agent mirror\n");
     }
     actor(scribeId, "scribe");
@@ -190,6 +205,16 @@ describe("native delivery ownership", () => {
     expect(attestHandoff(options).status).toBe("error");
     rmSync(join(cwd, "arbitrary.md"));
     expect(attestHandoff(options)).toEqual({ status: "attested" });
+    writeFileSync(join(cwd, ".codex/arbitrario.md"), "unrequested Codex prose\n");
+    expect(attestHandoff(options).status).toBe("error");
+    rmSync(join(cwd, ".codex/arbitrario.md"));
+    writeFileSync(join(cwd, ".codex/agents/unapproved.toml"), "unapproved generated path\n");
+    expect(attestHandoff(options).status).toBe("error");
+    rmSync(join(cwd, ".codex/agents/unapproved.toml"));
+    mkdirSync(join(cwd, "src/__golden__"), { recursive: true });
+    writeFileSync(join(cwd, "src/__golden__/escape.ts"), "not a generated snapshot\n");
+    expect(attestHandoff(options).status).toBe("error");
+    rmSync(join(cwd, "src/__golden__/escape.ts"));
     actor(reviewerId, "reviewer");
     expect(beginReview({ ...options, gate: "" }).status).toBe("begun");
     actor(scribeId, "scribe");

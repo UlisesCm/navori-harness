@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="63efd39d" version="0.12.1" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="1cf2522f" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -76,6 +76,61 @@ payload_field() {
 }
 extract_cmd() {
   payload_field tool_input.command
+}
+
+# payload_fields VAR=path… — several fields, ONE process (spec 0054 R22, D10).
+# Each `payload_field` call forks a subshell plus jq/node; a hook that needs two
+# or more fields up front pays that per field. Here a single jq (or node) emits
+# every field followed by a NUL and closes with the sentinel `END` NUL.
+#
+# NEVER SHIFTS A FIELD (challenge B3). `tool_input.command` is model-controlled,
+# and JSON `\u0000` decodes to a NUL byte, which would end that field early and
+# slide the next value (`cwd`, `session_id`, a role) into the wrong variable. So
+# the producer REFUSES to emit anything when any value holds a NUL, and the shell
+# reads exactly N fields plus the sentinel with nothing after it. Any anomaly —
+# a NUL, a missing or extra field, empty output for a non-empty payload, a
+# producer that failed — discards the whole read and repeats it field by field
+# with `payload_field`, i.e. exactly today's behaviour. A variable is never left
+# empty "because the read went wrong" (that would read as "allowed").
+#
+# Values match `$(payload_field …)`: trailing newlines stripped, `null` and
+# `false` empty, non-strings as compact JSON. Paths are dotted and written HERE,
+# never user input. Works under bash 3.2 and zsh: no arrays, `printf -v` to assign.
+_payload_fields_read() {
+  local _pf_spec _pf_val _pf_end _pf_extra
+  for _pf_spec in "$@"; do
+    IFS= read -r -d '' _pf_val || return 1
+    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
+  done
+  IFS= read -r -d '' _pf_end || return 1
+  [ "$_pf_end" = END ] || return 1
+  if IFS= read -r -d '' _pf_extra; then return 1; fi
+  [ -z "$_pf_extra" ] || return 1
+  return 0
+}
+payload_fields() {
+  local _pf_spec _pf_filter="" _pf_paths=""
+  [ "$#" -gt 0 ] || return 0
+  if [ -z "$payload" ]; then
+    for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
+    return 0
+  fi
+  for _pf_spec in "$@"; do
+    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_paths="$_pf_paths ${_pf_spec#*=}"
+  done
+  _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
+  if command -v jq >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | jq -j "$_pf_filter" 2>/dev/null) && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{const j=JSON.parse(s);let o="";for(const p of process.argv[1].trim().split(" ")){let v=j;for(const k of p.split("."))v=v?.[k];const t=v==null||v===false?"":typeof v==="string"?v:JSON.stringify(v);if(t.includes("\0"))return;o+=t+"\0"}process.stdout.write(o+"END\0")}catch{}})' "$_pf_paths" 2>/dev/null) && return 0
+  fi
+  for _pf_spec in "$@"; do
+    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+  done
+  return 0
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -256,8 +311,10 @@ navori_audit_repo_from_cwd() {
   esac
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
-# Shared advisory metadata recorder. The CLI is the single private-FD writer.
-# No shell redirects, human content, or fallback writes are permitted here.
+# Shared advisory metadata recorder. The CLI is the single writer of the session log.
+# The only shell write is one noclobber event file inside the CLI-created 0700 spool dir.
+# The CLI re-validates every file before it reaches the log. No human content, no other
+# redirects and no fallback writes are permitted here (spec 0054 D8; pinned by a drift test).
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
@@ -279,6 +336,19 @@ navori_audit_now() {
   fi
   perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
     || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# One spool file per event: `{"v":1,"host":…,"metadata":{…}}`, built by a single jq so the
+# JSON is well-formed whatever the payload held. Args: metadata JSON. Needs
+# navori_audit_spool and navori_audit_host. Returns non-zero when nothing was written.
+navori_audit_spool_write() {
+  navori_audit_event=$(jq -cn --arg host "$navori_audit_host" --argjson m "$1" \
+    '{v:1,host:$host,metadata:$m}' 2>/dev/null) || return 1
+  [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
+  navori_audit_stamp=${EPOCHREALTIME:-0}
+  navori_audit_stamp=${navori_audit_stamp//[.,]/}
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  return 0
 }
 
 # Resolve one exact marker before invoking the metadata writer. Startup may
@@ -314,11 +384,23 @@ navori_audit_record_metadata() {
     navori_audit_arm=$navori_audit_root/$navori_audit_repo/.armed
     [ -f "$navori_audit_arm" ] && [ ! -L "$navori_audit_arm" ] || return 0
   fi
-  command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
+  # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
+  # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
+  # real directory we own (not a symlink); the file is created with noclobber (O_EXCL:
+  # never overwrites, never follows a symlink planted at that name) under umask 077.
+  # The CLI re-validates host, categories and size when it consolidates. Anything
+  # unusual — no dir, wrong owner, failed write — falls through to the CLI bridge below.
+  navori_audit_spool=$navori_audit_root/$navori_audit_repo/spool-$navori_audit_session
+  # `navori_audit_no_spool` (set by audit-mode-close) forces the CLI: the session-end
+  # event is what makes the CLI consolidate the spool.
+  if [ -z "${navori_audit_no_spool:-}" ] && [ -d "$navori_audit_spool" ] && [ ! -L "$navori_audit_spool" ] && [ -O "$navori_audit_spool" ]; then
+    navori_audit_spool_write "$1" && return 0
+  fi
+  command -v navori >/dev/null 2>&1 || return 0
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
   printf '%s' "$1" | navori audit --record-metadata --host "$navori_audit_host" \
@@ -357,7 +439,7 @@ navori_audit_log() {
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -944,6 +1026,792 @@ navori_inert_segments
 # can't trip it.
 segments_unquoted=$(printf '%s' "$segments" | sed -E -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g")
 
+# Worktree resolver and session-state ratchet (#1266), shared with
+# `quality-gate-pre-commit`. Both only define functions; nothing runs until the
+# commit lane below calls them.
+# The landing classifier (`navori_commit_landing`, below) counts commits with the shared trigger
+# detector. The guard gates commits only here, whatever the engine.
+TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+TRIGGER_TOKENS='commit'
+# Heredoc bodies fed to `cat` are data, not commands (#1095).
+TRIGGER_STRIP_HEREDOC_BODIES=1
+# Shared gate detector — inlined into each hook at render time (see the include
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
+# $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
+# gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
+# copy this body into a hook by hand.
+#
+# Detect whether $1 (a possibly-compound command) invokes a gated operation.
+# Splits $1 on the shell separators && || ; | and newlines, strips leading
+# whitespace plus wrapper words (`(`, `\`, `command `) and `VAR=value` env
+# prefixes from each segment, and returns 0 if ANY segment STARTS with a gated
+# `git …` invocation on a word boundary (matched by $TRIGGER_RE). Replaces
+# literal-prefix `case` matching, which silently skipped the gate for
+# `cd x && git commit`, `echo y; git push`, or a leading space (#88: NEVER skip
+# the gate silently). Matching a segment START means a quoted `echo "git commit"`
+# does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
+# or obfuscation — a seatbelt, not a sandbox.
+#
+# Heredoc bodies (#1095): when the caller sets TRIGGER_STRIP_HEREDOC_BODIES=1,
+# the body of a `cat <<TAG … TAG` heredoc is DATA, not commands, so a
+# `git commit` line inside e.g. a `gh issue create --body "$(cat <<'EOF' …`
+# no longer counts. It is an ALLOW-list on purpose: only a `cat` heredoc (bare,
+# or inside `$(…)` of gh/git/echo/printf) with nothing chained after it is
+# stripped; anything else — `bash <<EOF`, `while read c; do $c; done <<EOF`,
+# `cat <<EOF | sh`, `python - <<EOF` — keeps its body, because a shell or
+# interpreter may execute it. Opt-in because master-accept-confirm matches
+# unanchored and must keep seeing bodies fed to a non-shell interpreter.
+# The fast path on its own, so a caller can apply it EARLIER than the segment
+# scan — before it has even paid to extract the command from the payload.
+#
+# Returns 0 when $1 may contain a gated operation, 1 when it provably cannot.
+# The argument is the one the block below spells out: no $TRIGGER_RE can match
+# without one of the caller's literal TOKENS appearing in the segment it
+# matches, and every segment is a substring of the input. So the absence of
+# every token is proof that no segment can match — and the same proof holds one
+# level up, over the raw PAYLOAD the command was extracted from: JSON escaping
+# touches `"`, `\` and control characters, never the letters of a token.
+#
+# Disarms when $TRIGGER_TOKENS is unset: with no tokens declared there is
+# nothing to prove absent, so it answers "maybe" and the caller does the work.
+# Fail-open to the SLOW path, never to a skip.
+has_trigger_token() {
+  [ -n "${TRIGGER_TOKENS:-}" ] || return 0
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite.
+  local _input="$1" _tok _nl=$'\n'
+  local _toks="${TRIGGER_TOKENS// /$_nl}"
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    case "$_input" in *"$_tok"*) return 0 ;; esac
+  done <<< "$_toks"
+  return 1
+}
+
+# Words that let a later part of a command re-enter git, the cwd or a shell.
+# Text is reduced to alphanumeric words first, so `/usr/bin/git` and `(cd` match.
+navori_mentions_shellish() {
+  local t=" ${1//[!A-Za-z0-9_]/ } "
+  case "$t" in
+    *" git "*|*" cd "*|*" pushd "*|*" popd "*|*" sh "*|*" bash "*|*" zsh "*|*" dash "*|*" ksh "*) return 0 ;;
+    *" env "*|*" eval "*|*" exec "*|*" command "*|*" builtin "*|*" source "*|*" xargs "*) return 0 ;;
+  esac
+  return 1
+}
+
+# Sets `navori_heredoc_stripped` to $1 minus the bodies (and terminators) of
+# heredocs this hook may safely treat as data; the introducing line is KEPT, so
+# `git commit -F - <<'EOF'` still triggers. Any doubt (second heredoc on the
+# line, unterminated body, empty tag) leaves the text untouched: fail closed.
+# All locals are declared once at the top: zsh prints a re-declared `local`.
+navori_strip_heredoc_bodies() {
+  local input="$1" line before rest seg pre pfirst tag after cmp="" out="" r=""
+  local dash=0 inbody=0 tab=$'\t' nl=$'\n'
+  navori_heredoc_stripped="$input"
+  case "$input" in *'<<'*) ;; *) return 0 ;; esac
+  while IFS= read -r line; do
+    if [ "$inbody" = 1 ]; then
+      cmp="$line"
+      if [ "$dash" = 1 ]; then cmp="${cmp#"${cmp%%[!$tab]*}"}"; fi
+      if [ "$cmp" = "$tag" ]; then inbody=0; fi
+      continue
+    fi
+    out="$out$line$nl"
+    case "$line" in *'<<'*) ;; *) continue ;; esac
+    before="${line%%<<*}"
+    rest="${line#*<<}"
+    case "$rest" in '<'*) continue ;; esac                  # here-string: no body
+    dash=0
+    case "$rest" in -*) dash=1; rest="${rest#-}" ;; esac
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    tag=""; after=""
+    case "$rest" in
+      \'*) r="${rest#\'}"; case "$r" in *\'*) tag="${r%%\'*}"; after="${r#*\'}" ;; esac ;;
+      \"*) r="${rest#\"}"; case "$r" in *\"*) tag="${r%%\"*}"; after="${r#*\"}" ;; esac ;;
+      \\*) r="${rest#\\}"; tag="${r%%[!A-Za-z0-9_.-]*}"; after="${r#"$tag"}" ;;
+      *) tag="${rest%%[!A-Za-z0-9_.-]*}"; after="${rest#"$tag"}" ;;
+    esac
+    [ -n "$tag" ] || continue
+    # Nothing chained after the tag, and no second heredoc on the line.
+    case "$after" in *'|'*|*';'*|*'&'*|*'<<'*) continue ;; esac
+    # The word before `<<` must be `cat`. Inside `$(…)`/backticks the command
+    # that receives cat's output must be a known data consumer, not an
+    # interpreter (`bash -c "$(cat <<EOF`, `eval "$(cat <<EOF`).
+    seg="$before"
+    case "$before" in
+      *'$('*) seg="${before##*\$\(}"; pre="${before%\$\(*}" ;;
+      *'`'*) seg="${before##*\`}"; pre="${before%\`*}" ;;
+      *) pre="" ;;
+    esac
+    if [ -n "$pre" ]; then
+      pre="${pre##*&&}"; pre="${pre##*;}"; pre="${pre##*|}"
+      pre="${pre#"${pre%%[![:space:]]*}"}"
+      pfirst="${pre%%[[:space:]]*}"
+      case "$pfirst" in gh|git|echo|printf) ;; *) continue ;; esac
+    fi
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    case "$seg" in *'|'*|*';'*|*'&'*) continue ;; esac
+    case "$seg" in cat|cat[[:space:]]*) ;; *) continue ;; esac
+    inbody=1
+  done <<< "$input"
+  [ "$inbody" = 0 ] || return 0                             # unterminated: keep all
+  navori_heredoc_stripped="$out"
+  return 0
+}
+
+# Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
+# global `navori_trigger_hits`. `$2` = 1 stops at the first hit (is_scan_trigger
+# only needs "any"). The single home of the segment normalisation, shared with
+# navori_commit_landing so the two can never disagree about what a segment is.
+navori_count_triggers() {
+  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
+  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
+  # left compound commands unsplit there and the gate silently skipped
+  # `cd x && git commit` (#391). A plain variable expands identically in
+  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
+  local input="$1" stop="${2:-0}" segment nl=$'\n'
+  navori_trigger_hits=0
+  if [ "${TRIGGER_STRIP_HEREDOC_BODIES:-}" = 1 ]; then
+    case "$input" in *'<<'*) navori_strip_heredoc_bodies "$input"; input="$navori_heredoc_stripped" ;; esac
+  fi
+  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
+  # split across lines with a trailing backslash stays ONE logical segment
+  # (otherwise the subcommand/flag lands in a segment not starting with git).
+  input="${input//\\$'\n'/ }"
+  input="${input//&&/$nl}"
+  input="${input//||/$nl}"
+  input="${input//;/$nl}"
+  input="${input//|/$nl}"
+  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
+  # command that contains backticks/$() is inspected, never executed.
+  while IFS= read -r segment; do
+    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
+    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
+    # `VAR=val git …` all reduce to a plain `git …` before matching.
+    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
+      segment="${segment#\(}"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    done
+    segment="${segment#\\}"                                 # strip a leading backslash (\git)
+    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      case "$segment" in
+        *[[:space:]]*)
+          segment="${segment#*[[:space:]]}"
+          segment="${segment#"${segment%%[![:space:]]*}"}"
+          ;;
+        *) segment=""; break ;;
+      esac
+    done
+    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
+      segment="${segment#command }"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    fi
+    # FIX C: allow git global options between `git` and the subcommand
+    # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
+    # keeps `git commitgraph` / `git config …` from matching.
+    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
+      navori_trigger_hits=$((navori_trigger_hits + 1))
+      if [ "$stop" = 1 ]; then return 0; fi
+    fi
+  done <<< "$input"
+  return 0
+}
+
+is_scan_trigger() {
+  # ─── Fast path (spec 0016 T3.2, second pass): the segment loop pays one
+  # `grep -qE` FORK per segment — and a heredoc body or a 40-step compound
+  # is 40 segments, so the field cost scaled with command length (measured:
+  # 2.8 ms trivial, 14.8 ms for a 199-char heredoc, 95.8 ms for 40 segments;
+  # p50 across one real session's commands was 40 ms per hook, not the
+  # trivial floor). No $TRIGGER_RE can match without one of the caller's
+  # literal TOKENS appearing in the segment it matches — and every segment is
+  # a substring of the input, transformed only by insertions (`\<NL>` → space,
+  # separators → newline) and prefix-peeling, none of which can CREATE a
+  # token. So a single in-process substring scan of the raw input is a strict
+  # superset of the segment matches: if no token is present, no segment can
+  # match, and the gate answers "not for me" without a single fork. Same
+  # argument, same safe direction, as the guard's own fast path.
+  #
+  # $TRIGGER_TOKENS is set by the including hook NEXT TO its $TRIGGER_RE, so
+  # the pair travels together; when unset the fast path disarms and the loop
+  # runs exactly as before (fail-open to the SLOW path, never to a skip).
+  has_trigger_token "$1" || return 1
+  navori_count_triggers "$1" 1
+  [ "$navori_trigger_hits" -gt 0 ]
+}
+# Shared worktree resolver — inlined into each gate hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). Requires the
+# `extract-cmd` partial to have run first ($payload and $cmd in scope).
+#
+# WHY (#454): settings.json invokes these hooks as
+# `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"`, so the hook
+# PROCESS starts in the MAIN repo even when the commit happens inside an agent
+# worktree under `.claude/worktrees/`. The old `cd "$(git rev-parse
+# --show-toplevel)"` therefore resolved the main repo — whose tree is clean — so
+# `git diff --name-only main` returned 0 files and the gate exited 0. Not a false
+# negative from the scanner: the scanner never ran. A `cd` to an arbitrary tree
+# is exactly the bug, so nothing below ever guesses: every candidate must prove
+# it is a git working tree, or the next one is tried — and the one the COMMAND
+# names must additionally prove it is part of the repository being protected
+# (see the same-repository constraint in `navori_worktree`).
+#
+# `navori_worktree` prints the absolute root of the working tree the gated git
+# command will act on, or nothing when none resolves. It is a FUNCTION, not a
+# top-level assignment, because `quality-gate-pre-commit` inlines this partial on
+# a path that runs on EVERY Bash tool call: callers pay the git/jq probes only
+# after their own trigger matched.
+
+# First shell token of $1: a leading single/double-quoted string (so a path with
+# spaces survives) or an unquoted run of non-space characters.
+navori_first_token() {
+  local s="$1"
+  case "$s" in
+    \"*) s="${s#\"}"; printf '%s' "${s%%\"*}" ;;
+    \'*) s="${s#\'}"; printf '%s' "${s%%\'*}" ;;
+    *) printf '%s' "${s%%[[:space:]]*}" ;;
+  esac
+}
+
+# Directory named by the command itself, if any. Two shapes, both real in this
+# harness: `git -C <dir> commit …` (git names its own tree) and
+# `cd <dir> && git commit …` (how an agent commits into its worktree from a
+# session anchored elsewhere). Prints the raw token; the caller resolves it.
+#
+# TODO(scope): only the FIRST segment is inspected for `cd`. A `cd` buried
+# mid-chain (`pnpm build && cd sub && git commit`) falls through to the payload
+# cwd, which is right whenever that `cd` stays inside the same repo. Walk the
+# segments if a real command shows up where it does not.
+navori_cmd_dir() {
+  local text="$1" rest="" head=""
+  case "$text" in
+    *"git -C "*)
+      rest="${text#*git -C }"
+      ;;
+    *)
+      head="${text%%&&*}"
+      head="${head#"${head%%[![:space:]]*}"}"
+      case "$head" in
+        "cd "*) rest="${head#cd }" ;;
+      esac
+      ;;
+  esac
+  [ -n "$rest" ] || return 1
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  # A token that needs the shell to expand it ($VAR, `sub`, ~, globs) is NOT
+  # resolved here: guessing wrong points the scan at the wrong tree, which is
+  # the very failure this partial exists to kill. Ignoring it just falls through
+  # to the next candidate.
+  case "$rest" in
+    ""|*'$'*|*'`'*|*'*'*|*'?'*|"~"*) return 1 ;;
+  esac
+  navori_first_token "$rest"
+}
+
+# Absolute, symlink-resolved path of a working tree's SHARED git dir, or nothing
+# when $1 is not inside a git working tree. `--git-common-dir` names the `.git`
+# of the MAIN checkout, so every linked worktree of one repository — and every
+# subdirectory of it — reports the SAME value, while a different repository
+# reports its own and a submodule reports `<main>/.git/modules/<name>`. That
+# makes it an identity test for "same repository", which `--show-toplevel` (one
+# per working tree) and `--git-dir` (one per worktree) are not.
+navori_repo_id() {
+  local dir="$1" common=""
+  common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] || return 1
+  # `git -C <dir>` chdirs to <dir> first, so a relative answer (`.git`,
+  # `../../.git`) is relative to <dir>. `pwd -P` canonicalises both sides the
+  # same way, which also settles macOS's /var vs /private/var symlink.
+  (cd "$dir" && cd "$common" && pwd -P) 2>/dev/null
+}
+
+# First argument that resolves to a git working tree; prints its root.
+navori_first_tree() {
+  local candidate toplevel
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    [ -d "$candidate" ] || continue
+    toplevel=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null) || continue
+    [ -n "$toplevel" ] || continue
+    printf '%s' "$toplevel"
+    return 0
+  done
+  return 1
+}
+
+# Hook's own path, captured HERE at the partial's top level (every consumer inlines
+# it at script top level). NEVER read `$0` inside a `navori_*` function: zsh sets it
+# to the function's name there (FUNCTION_ARGZERO). Used only as a string, never
+# resolved. A relative path is anchored on the hook's cwd, where the shell found it.
+navori_hook_path="$0"
+case "$navori_hook_path" in /*) ;; *) navori_hook_path="$PWD/$navori_hook_path" ;; esac
+navori_home_id=""
+navori_home_done=0
+
+# HOME repository (#1099): the repo this hook protects, as a repo id in
+# `navori_home_id` (empty = unknown). Known only if ALL hold:
+#   - `CLAUDE_PROJECT_DIR` is non-empty;
+#   - the hook's own path is exactly `${CLAUDE_PROJECT_DIR%/}/.claude/hooks/<file>`
+#     or `.../.claude/scripts/<file>` (how settings.json registers it). A bare
+#     prefix is not enough: a leaked variable plus a hook of a repo NESTED under it
+#     would make the outer repo "home" and skip every gate of the inner one. `.codex/`
+#     never qualifies, so a Codex hook is always home-unknown;
+#   - that directory resolves to a repo id.
+# Any doubt means unknown, and unknown never produces `foreign` without a `cd`/`-C`
+# in the command. Memoised: the callers pay the git fork once. Sets a global (no
+# subshell); declares locals once at the top (zsh prints a re-declared `local`).
+navori_home_resolve() {
+  local cpd rest file
+  [ "$navori_home_done" = 0 ] || return 0
+  navori_home_done=1
+  cpd="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$cpd" ] || return 0
+  cpd="${cpd%/}"
+  case "$navori_hook_path" in
+    "$cpd"/*) rest="${navori_hook_path#"$cpd"/}" ;;
+    *) return 0 ;;
+  esac
+  case "$rest" in
+    .claude/hooks/*|.claude/scripts/*) file="${rest#.claude/*/}" ;;
+    *) return 0 ;;
+  esac
+  case "$file" in ""|.|..|*/*) return 0 ;; esac
+  navori_home_id=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  return 0
+}
+
+# Resolution, most specific first:
+#   1. the directory the command names (`git -C` / a leading `cd`), ONLY when it
+#      belongs to the same repository as the anchor (see the constraint below);
+#   2. the payload's `.cwd` — Claude Code sends the CURRENT working directory of
+#      the tool call, a documented field distinct from $CLAUDE_PROJECT_DIR (the
+#      project root). In an agent worktree these differ; that gap IS #454;
+#   3. the hook process's own cwd — the pre-#454 behaviour, still correct for a
+#      plain terminal or git-hook invocation.
+navori_worktree() {
+  local payload_cwd anchor named anchor_repo="" named_repo=""
+  payload_cwd=$(payload_field cwd)
+  # A relative `cd sub` resolves against the shell's cwd, which is the payload's
+  # when Claude Code sends one and the hook process's otherwise.
+  anchor="$payload_cwd"
+  [ -d "$anchor" ] || anchor="$PWD"
+  named=$(navori_cmd_dir "$cmd" || true)
+  case "$named" in
+    "") ;;
+    /*) ;;
+    *) named="$anchor/$named" ;;
+  esac
+  # SAME-REPOSITORY CONSTRAINT — DO NOT REMOVE (#454, review finding).
+  # Candidate 1 is the only one the COMMAND controls, and it is tried first, so
+  # accepting any git tree it happens to name lets that command OVERRIDE the
+  # trustworthy candidates below it: `git -C <other-repo> log && git commit`,
+  # `cd <other> && cd <wt> && git commit`, `cd <sub> && cd .. && git commit`, or
+  # merely the bytes `git -C <path>` inside a commit MESSAGE, all aimed the scan
+  # at a foreign tree with nothing to scan — exit 0 with the scanner never run,
+  # which is the very failure #454 is about (and, for a commit in the main repo,
+  # strictly worse than not resolving worktrees at all).
+  # So a directory the command names is accepted only when it is part of the
+  # repository the hook is protecting, i.e. the anchor's. Linked worktrees share
+  # the main checkout's git dir, so every legitimate agent worktree passes; a
+  # different repository and a submodule (its own git dir under
+  # `<main>/.git/modules/`) do not, and fall through to the payload cwd — the
+  # stricter direction. An unresolvable anchor drops candidate 1 for the same
+  # reason: nothing to check it against — unless the named dir IS the hook's home
+  # repo (#1099: the session sits in another repo but the command names the
+  # protected one), which only ever moves the scan toward the protected repo.
+  # Ceiling: two linked worktrees of the SAME repository are indistinguishable
+  # this way, so naming a sibling worktree still beats the payload cwd. Both are
+  # trees of the repo being protected, so the scan stays inside it. Walk the
+  # segments to the one that actually carries the `git commit` if a real command
+  # shows up where that is not enough.
+  if [ -n "$named" ]; then
+    anchor_repo=$(navori_repo_id "$anchor" || true)
+    named_repo=$(navori_repo_id "$named" || true)
+    navori_home_resolve
+    if [ -z "$named_repo" ] || { [ "$named_repo" != "$anchor_repo" ] && [ "$named_repo" != "$navori_home_id" ]; }; then
+      named=""
+    fi
+  fi
+  navori_first_tree "$named" "$payload_cwd" "$PWD" || true
+}
+
+# ─── Where does the commit LAND? (#1095) ────────────────────────────────────────
+# `navori_worktree` above answers "which tree do I scan"; this answers "is the
+# commit even for the repository this gate protects". A commit that provably
+# lands in ANOTHER repository (`cd <other> && git commit`, `git -C <other>
+# commit`) must not be gated against the anchor's tree: that tree holds none of
+# the diff. Classification is a POSITIVE grammar with a deny-list of ambiguity —
+# `foreign` only when every step to the commit has a certain cwd effect and the
+# resolved repository really differs; the commit message is never read (#454:
+# `git commit -m "use git -C <other>"` lands in the anchor). Anything unsure is
+# `ambiguous`, which callers treat exactly like `same-repo`: run the gate.
+#
+# Requires the `gate-trigger` partial (navori_count_triggers, $TRIGGER_RE) and
+# `extract-cmd` (payload_field). Always returns 0 and sets, without a subshell:
+#   navori_landing       same-repo | foreign | ambiguous
+#   navori_landing_root  landing toplevel (foreign only)
+# "foreign" means the command's landing repo differs from the repository this hook
+# protects (#1099). With no `cd`/`-C` the landing dir IS the payload cwd, so a
+# session anchored in another repo is foreign too. The protected repo is the HOME
+# id (`navori_home_resolve`); when home is unknown the comparison degrades to the
+# #1095 rule (payload-cwd repo, widened by the raw `CLAUDE_PROJECT_DIR` repo, which
+# can only turn `foreign` into `same-repo`) and a command without `cd`/`-C` is
+# `same-repo` with no fork. "commit" below means the one gated op.
+#
+# The gated op (#1098) is whatever the caller's $TRIGGER_RE counts: `git commit`
+# for QG; a gate that also counts `git push` and `gh pr create` sets its own
+# regex. The walk
+# matches that same regex, so there is no second copy to drift. `gh pr create`
+# lands in the cwd's repo unless it names another one (`-R`/`--repo`/`GH_REPO`),
+# which is `ambiguous` (the scan runs).
+#
+# A chain of gated ops joined by `&&` (#1115) is classified per op, each with its
+# own `-C` (and the one leading `cd`): `foreign` only when EVERY op lands in the
+# same foreign toplevel and the walk saw every op the counter did (a hidden op
+# behind `;`, `|`, `||` or a wrapper makes hits > found). One op in the home repo,
+# two toplevels (even two worktrees of one repo) or an unproven op is `ambiguous`.
+# After the first gated op only read-only `git` segments (status|diff|log|show|
+# rev-parse|push, no global options) and echo|printf|true|:|ls|pwd may follow: the
+# counter cannot see a `-C "dir with spaces"` value, an alias or an exec-capable
+# subcommand, so any other tail (an `export GIT_DIR`, a later `cd`, a shell) is
+# `ambiguous`. QG does not gate `push`, so `commit(F) && git push` is foreign;
+# a gate whose regex counts both ops decides on both.
+
+# Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
+# Returns 1 for anything the shell would expand or that is malformed, so the
+# caller falls back to `ambiguous`.
+navori_take_token() {
+  local s="$1" nl=$'\n'
+  navori_tok=""; navori_rest=""
+  s="${s#"${s%%[![:space:]]*}"}"
+  case "$s" in
+    \'*)
+      s="${s#\'}"
+      case "$s" in *\'*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\'*}"; navori_rest="${s#*\'}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    \"*)
+      s="${s#\"}"
+      case "$s" in *\"*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\"*}"; navori_rest="${s#*\"}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    *)
+      navori_tok="${s%%[[:space:]]*}"; navori_rest="${s#"$navori_tok"}"
+      case "$navori_tok" in
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*"'"*|*'"'*) return 1 ;;
+      esac
+      ;;
+  esac
+  case "$navori_tok" in
+    ""|'~'*|*'$'*|*'`'*|*'\'*|*'*'*|*'?'*|*'['*|*'{'*|*"$nl"*) return 1 ;;
+  esac
+  return 0
+}
+
+# Where does ONE gated op land? Takes the op's `cd` target and `-C` target (either
+# may be empty) and sets, without a subshell:
+#   navori_op_kind  same | foreign | "" (unproven)
+#   navori_op_top   landing toplevel (foreign only)
+# Every unproven path returns with the empty kind.
+navori_op_landing() {
+  local cd_dir="$1" c_dir="$2" pcwd base dir rel=0 top sub id_l id_a id_h nl=$'\n'
+  navori_op_kind=""; navori_op_top=""
+
+  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
+  # nothing to compare it with, so today's answer (and zero forks) stands.
+  if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
+    navori_home_resolve
+    if [ -z "$navori_home_id" ]; then navori_op_kind="same"; return 0; fi
+  else
+    navori_home_resolve
+  fi
+
+  pcwd=$(payload_field cwd)
+  base="$pcwd"
+  [ -d "$base" ] || base="$PWD"
+  dir="$base"
+  if [ -n "$cd_dir" ]; then
+    case "$cd_dir" in
+      /*) dir="$cd_dir" ;;
+      *)
+        rel=1; dir="$base/$cd_dir"
+        # A non-empty CDPATH can make `cd <relative>` land somewhere else.
+        [ -z "${CDPATH:-}" ] || return 0
+        ;;
+    esac
+  fi
+  if [ -n "$c_dir" ]; then
+    case "$c_dir" in
+      /*) dir="$c_dir"; rel=0 ;;
+      *) rel=1; dir="$dir/$c_dir" ;;
+    esac
+  fi
+  # `..` in a relative path resolves logically in the shell but physically in
+  # the kernel; they differ when the base itself sits behind a symlink.
+  if [ "$rel" = 1 ]; then
+    case "$cd_dir$nl$c_dir" in
+      *'..'*) [ "$(cd "$base" 2>/dev/null && pwd -P)" = "$base" ] || return 0 ;;
+    esac
+  fi
+
+  [ -d "$dir" ] || return 0
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$top" ] || return 0
+  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
+  # of the superproject's work): the anchor's gate runs.
+  sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
+  [ -z "$sub" ] || return 0
+  id_l=$(navori_repo_id "$dir" || true)
+  [ -n "$id_l" ] || return 0
+  if [ -n "$navori_home_id" ]; then
+    # Proven home: the one definition of foreign.
+    if [ "$id_l" = "$navori_home_id" ]; then
+      navori_op_kind="same"
+    else
+      navori_op_kind="foreign"; navori_op_top="$top"
+    fi
+    return 0
+  fi
+  # Home unknown: the #1095 rule.
+  id_a=$(navori_repo_id "$base" || true)
+  [ -n "$id_a" ] || return 0
+  id_h=""
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  fi
+  if [ "$id_l" = "$id_a" ] || { [ -n "$id_h" ] && [ "$id_l" = "$id_h" ]; }; then
+    navori_op_kind="same"
+  else
+    navori_op_kind="foreign"; navori_op_top="$top"
+  fi
+  return 0
+}
+
+# Parses the target of ONE gated segment ($1 = its first line, $2 = the whole
+# segment) and sets `navori_op_cdir` to the op's `-C` target ("" when none).
+# Returns 1 for anything the parser will not follow.
+navori_op_target() {
+  local first="$1" seg="$2" p arg nc=0
+  navori_op_cdir=""
+  case "$first" in
+  gh[[:space:]]*)
+    # `gh pr create`: no global -C, so it lands where the cwd (or the `cd`) is —
+    # unless it names another repo, which the parser will not follow. Any `-R` or
+    # `--repo` anywhere in the segment (message text included) reads as ambiguous.
+    p="${first#gh}"
+    navori_take_token "$p" || return 1
+    [ "$navori_tok" = pr ] || return 1
+    navori_take_token "$navori_rest" || return 1
+    [ "$navori_tok" = create ] || return 1
+    case "$seg" in *'-R'*|*'--repo'*) return 1 ;; esac
+    [ -z "${GH_REPO:-}" ] || return 1
+    return 0
+    ;;
+  esac
+  # The segment's own git global options, positionally. Text after `commit`/
+  # `push` (the message) is never read.
+  p="${first#git}"
+  while :; do
+    navori_take_token "$p" || return 1
+    arg="$navori_tok"; p="$navori_rest"
+    case "$arg" in
+      commit|push) return 0 ;;
+      -C)
+        [ "$nc" = 0 ] || return 1
+        nc=1
+        navori_take_token "$p" || return 1
+        navori_op_cdir="$navori_tok"; p="$navori_rest"
+        ;;
+      -c) navori_take_token "$p" || return 1; p="$navori_rest" ;;
+      --no-pager|-p|--paginate|-P|--no-optional-locks|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-replace-objects) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+navori_commit_landing() {
+  local c rest seg first tailtxt gated w sub line ops="" acc="" acc_top="" prev_c="" n_done=0
+  local cd_dir="" found=0 more=1 cdcount=0 nl=$'\n' tab=$'\t'
+  navori_landing="ambiguous"; navori_landing_root=""
+
+  navori_count_triggers "$1" 0
+  [ "$navori_trigger_hits" -ge 1 ] || return 0
+
+  navori_strip_heredoc_bodies "$1"
+  c="$navori_heredoc_stripped"
+  c="${c//\\$'\n'/ }"
+  # The heredoc strip leaves a trailing newline on the last segment.
+  c="${c%"${c##*[![:space:]]}"}"
+
+  # Phase 1 — walk the `&&` chain without forking git. Before the first gated op:
+  # at most one `cd <literal>` and neutral `git …` segments. Each gated op is
+  # recorded with its own `-C`. After it, only a fixed allowlist of segments that
+  # can neither move the cwd or env nor commit; anything else is ambiguous.
+  rest="$c"
+  while [ "$more" = 1 ]; do
+    case "$rest" in
+      *'&&'*) seg="${rest%%&&*}"; rest="${rest#*&&}" ;;
+      *) seg="$rest"; rest=""; more=0 ;;
+    esac
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    first="${seg%%"$nl"*}"
+    gated=0
+    case "$first" in
+      git[[:space:]]*|gh[[:space:]]*)
+        if printf '%s' "$first" | grep -qE "$TRIGGER_RE"; then gated=1; fi
+        ;;
+    esac
+    if [ "$gated" = 1 ]; then
+      navori_op_target "$first" "$seg" || return 0
+      ops="${ops}o${navori_op_cdir}${nl}"
+      found=$((found + 1))
+      # Anything on this op's own line after `;`/`|`/`&`, or on later lines, could
+      # re-enter git, cd or a shell (a second, uncounted commit landing elsewhere).
+      tailtxt="${seg#"$first"}$nl"
+      case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
+      if navori_mentions_shellish "$tailtxt"; then return 0; fi
+      continue
+    fi
+    case "$seg" in *"$nl"*) return 0 ;; esac
+    seg="${seg%"${seg##*[![:space:]]}"}"
+    if [ "$found" = 0 ]; then
+      case "$seg" in
+        cd[[:space:]]*)
+          [ "$cdcount" = 0 ] || return 0
+          cdcount=1
+          navori_take_token "${seg#cd}" || return 0
+          case "$navori_rest" in *[![:space:]]*) return 0 ;; esac
+          cd_dir="$navori_tok"
+          case "$cd_dir" in -*) return 0 ;; esac
+          ;;
+        git[[:space:]]*)
+          case "$seg" in
+            *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*'$'*|*'`'*) return 0 ;;
+          esac
+          ;;
+        *) return 0 ;;
+      esac
+      continue
+    fi
+    # After a gated op. No metacharacter, expansion or escape in any tail segment.
+    case "$seg" in
+      *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*'$'*|*'`'*|*'\'*|*"$tab"*) return 0 ;;
+    esac
+    case "$seg" in
+      git\ *)
+        # Read-only subcommands, single spaces, no global options (`-C`, `-c`,
+        # `--git-dir` …): an alias, an exec-capable subcommand or another repo
+        # target is invisible to the counter, so it is ambiguous.
+        case "$seg" in *'--exec'*|*'--receive-pack'*|*'--upload-pack'*|*'--config-env'*) return 0 ;; esac
+        sub="${seg#git }"; sub="${sub%% *}"
+        case "$sub" in status|diff|log|show|rev-parse|push) ;; *) return 0 ;; esac
+        ;;
+      *)
+        w="${seg%%[[:space:]]*}"
+        case "$w" in echo|printf|true|:|ls|pwd) ;; *) return 0 ;; esac
+        ;;
+    esac
+  done
+  # Every gated op the counter saw must be an op the walk parsed (INV: a hidden
+  # op behind `;`, `|`, `||`, a subshell or a wrapper makes hits > found).
+  [ "$found" -ge 1 ] || return 0
+  [ "$found" = "$navori_trigger_hits" ] || return 0
+
+  # Phase 2 — resolve each op with its own `-C` and fold unanimously: `foreign`
+  # only when every op lands in the SAME foreign toplevel; any op in the home
+  # repo, in a different toplevel or unproven leaves the verdict ambiguous.
+  while IFS= read -r line; do
+    case "$line" in o*) ;; *) continue ;; esac
+    if [ "$n_done" = 0 ] || [ "${line#o}" != "$prev_c" ]; then
+      navori_op_landing "$cd_dir" "${line#o}"
+      prev_c="${line#o}"; n_done=1
+    fi
+    case "$navori_op_kind" in
+      same) [ "$acc" != foreign ] || return 0; acc="same" ;;
+      foreign)
+        [ "$acc" != same ] || return 0
+        if [ "$acc" = foreign ] && [ "$navori_op_top" != "$acc_top" ]; then return 0; fi
+        acc="foreign"; acc_top="$navori_op_top"
+        ;;
+      *) return 0 ;;
+    esac
+  done <<< "$ops"
+  case "$acc" in
+    same) navori_landing="same-repo" ;;
+    foreign) navori_landing="foreign"; navori_landing_root="$acc_top" ;;
+  esac
+  return 0
+}
+# Session-state ratchet (#1263, #1266) — inlined into each hook that enforces it at
+# render time (see the include directive in the source scripts +
+# lib/render/hook-includes.ts), and sourced as-is by the repo's own git pre-commit.
+# Two consumers, ONE body: `quality-gate-pre-commit` (qualityGate.fast declared)
+# and `guard-destructive` (qualityGate.fast absent), so the check never has a
+# second copy to drift.
+#
+# The session-state file is meant to hold the CURRENT state and the next step;
+# past the delivery budget it falls out of startup context. RATCHET, not a plain
+# cap: blocks only when the file is over the ceiling AND larger than at HEAD, so a
+# trim that is still big passes and an untouched legacy file never blocks an
+# unrelated commit. The size is the max of the index (what a plain `git commit`
+# lands) and the worktree (what `-a`, a pathspec or `add && commit` in one call
+# lands). Bytes via `wc -c` / `git cat-file -s`: locale-independent, unlike
+# `${#var}`. Every git call is guarded: an unborn HEAD or an unmerged index exits
+# non-zero under `set -e`.
+#
+# Requires: `$navori_progress_hard_cap` (digits) set by the caller. Never exits: a
+# block is `return 2`, so each host decides how to stop (and how to record it).
+# Plain functions, quoted expansions, no word-splitting: they run under bash and zsh.
+
+# Ratchet check for ONE session-state path. Returns 0 (ok) or 2 (blocked).
+navori_progress_ratchet() {
+  navori_pr_path=$1
+  # A gitignored file is never committed, so its size is not this gate's business.
+  if git check-ignore -q -- "$navori_pr_path" 2>/dev/null; then return 0; fi
+  navori_pr_wt=0
+  navori_pr_idx=0
+  navori_pr_head=0
+  if [ -f "$navori_pr_path" ]; then
+    navori_pr_wt=$(wc -c <"$navori_pr_path" 2>/dev/null | tr -d '[:space:]') || navori_pr_wt=0
+  fi
+  navori_pr_idx=$(git cat-file -s ":$navori_pr_path" 2>/dev/null) || navori_pr_idx=0
+  navori_pr_head=$(git cat-file -s "HEAD:$navori_pr_path" 2>/dev/null) || navori_pr_head=0
+  case "$navori_pr_wt" in ''|*[!0-9]*) navori_pr_wt=0 ;; esac
+  case "$navori_pr_idx" in ''|*[!0-9]*) navori_pr_idx=0 ;; esac
+  case "$navori_pr_head" in ''|*[!0-9]*) navori_pr_head=0 ;; esac
+  navori_pr_size=$navori_pr_wt
+  if [ "$navori_pr_idx" -gt "$navori_pr_size" ]; then navori_pr_size=$navori_pr_idx; fi
+  if [ "$navori_pr_size" -gt "$navori_progress_hard_cap" ] && [ "$navori_pr_size" -gt "$navori_pr_head" ]; then
+    navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
+    echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
+    echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
+    return 2
+  fi
+  return 0
+}
+
+# The whole lane for the hooks: the ceiling plus the loop over the session-state
+# paths, run from the root of the tree being committed. Returns 0 or 2.
+# The ceiling is injected from the single TS constant (a raw, unrendered copy
+# leaves the placeholder text, which is not numeric: the lane then stays off
+# rather than guess a number).
+# Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) the lane would run on EVERY
+# Bash call and block the very command that fixes the file.
+navori_progress_ratchet_lane() {
+  navori_progress_hard_cap=8000
+  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
+  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf" || return 2
+    done
+  fi
+  return 0
+}
+
 # Git commit/push detector shared by rule 1. The leading boundary accepts ; & |
 # so `true;git commit …` (no space after the separator) is caught; the
 # `git(… -opt …)*` middle allows git global options between `git` and the
@@ -963,6 +1831,37 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
   || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
   block "git commit/push with --no-verify (skipping hooks/gates)" no-verify "commit without --no-verify and fix what the hook reports."
+fi
+
+# 1b. Session-state ceiling on a commit when no quality-gate hook enforces it (#1266).
+#     The ratchet (#1263) lives in `quality-gate-pre-commit`, which is registered
+#     only with `qualityGate.fast`; without it nothing measured the file. This lane
+#     runs the SAME shared body, and only when the render says `fast` is NOT
+#     declared (otherwise the gate hook already measures, and doing it twice is
+#     waste). The flag is injected at render time: a raw, unrendered copy keeps the
+#     placeholder text, which is not `1`, so the lane stays off (fail safe, like the
+#     ceiling itself). Cheap by construction: it evaluates only for a `git commit`
+#     segment, and `$cmd` is non-empty here (the empty-command exit above, #511).
+#     The tree measured is the one being committed (`navori_worktree`, #454); the
+#     detector's limits (sh -c, eval, GIT_DIR, a `cd` mid-chain) are inherited, and
+#     the repo's own git pre-commit covers the commits that bypass the agent.
+#     The lane runs in a subshell so its `cd` never leaks into the rules below.
+navori_pg_lane=0
+if [ "$navori_pg_lane" = 1 ] \
+  && printf '%s' "$segments" | grep -qE "${git_cp%\(commit\|push\)}commit([[:space:]]|\$)"; then
+  # A commit that provably lands in ANOTHER repository (#1095) is not this repo's business: its
+  # session-state file is not in the diff. Same rule as the gate hook: only `foreign` skips;
+  # `ambiguous` and `same-repo` measure (fail closed).
+  navori_commit_landing "$cmd"
+  navori_pg_root=""
+  if [ "$navori_landing" != foreign ]; then navori_pg_root=$(navori_worktree); fi
+  if [ "$navori_landing" != foreign ] && ! ( cd "${navori_pg_root:-${nv_project_dir:-.}}" && navori_progress_ratchet_lane ); then
+    # The lane already printed the verdict text; only the recording is left, and it
+    # happens in the EXIT trap.
+    navori_audit_verdict="block"
+    navori_audit_reason="unspecified"
+    exit 2
+  fi
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase

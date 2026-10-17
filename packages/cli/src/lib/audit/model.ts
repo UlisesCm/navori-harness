@@ -1065,6 +1065,8 @@ export const HOOK_REASON_CODES = [
   "plan-denied",
   "subcommand-unavailable",
   "native-hook",
+  "foreign-repo",
+  "foreign-gate",
 ] as const;
 
 /** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */
