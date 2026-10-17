@@ -321,6 +321,10 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   - Resultado en `dev` 94047c0f: 2 996 casos (claude 2 212, codex 588, pi 196), un `<hook>.jsonl`
     por hook (5.4 MB) y replay idéntico en apagado y activo. Todo hook tiene casos salvo
     `model-advisor`, que ningún test invoca.
+  - Excepción acotada para líneas de diagnóstico de shell: el replay normaliza números de línea
+    solo dentro de `stderr` en ambos lados de la comparación. Diferencias en `stdout`, estado de
+    salida, evento de auditoría o mensaje de diagnóstico siguen siendo estrictas. Se conserva la
+    paridad existente entre shells y el corpus comprometido no cambia.
 - **Lo que no cubre el corpus lo cubre la suite sin tocar.** M2 (hooks) va antes que M4 (reescritura
   de tests), así que cada commit de M2 se valida con:
   - el replay;

@@ -106,6 +106,18 @@ export function normalizeEvent(event) {
 }
 
 /**
+ * Masks the line number of shell diagnostics (bash `: line 12:`, zsh `file:12:`): it shifts whenever
+ * a partial grows and says nothing about the verdict. Applied only to stderr on both sides.
+ *
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function maskShellLines(value) {
+  if (typeof value !== "string") return value;
+  return value.replace(/: line \d+:/g, ": line N:").replace(/(\.sh):\d+:/g, "$1: line N:");
+}
+
+/**
  * First field in which `actual` differs from `expected`, or `null` when they are identical.
  *
  * @param {Verdict | ActiveVerdict} expected
@@ -115,7 +127,11 @@ export function normalizeEvent(event) {
 export function firstDifference(expected, actual) {
   for (const field of ["status", "stdout", "stderr", "event"]) {
     if (!(field in expected) && !(field in actual)) continue;
-    if (JSON.stringify(expected[field]) !== JSON.stringify(actual[field])) {
+    const text = field === "stderr";
+    const [e, a] = text
+      ? [maskShellLines(expected[field]), maskShellLines(actual[field])]
+      : [expected[field], actual[field]];
+    if (JSON.stringify(e) !== JSON.stringify(a)) {
       return { field, expected: expected[field], actual: actual[field] };
     }
   }

@@ -272,3 +272,10 @@ El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas ap
 - Compatibilidad Codex 0.162.1/0.163.0 conservada junto con las fixtures de 0055. Nombres de chunks internos sin hash: 79 archivos, 1,637,134 bytes (1598.8 KiB), bajo el límite sin cambios de 1600 KiB.
 - Verificación de la integración: 322 pruebas dirigidas, A12 desde el hilo principal (47 pruebas) y carga perezosa/superficie del CLI (3 pruebas), sin fallos. Gate scoped verde después del diseño; se verifica de nuevo antes de revisión.
 - El usuario autorizó finalmente el commit directo de integración, seguido de revisión independiente y receipt scoped, porque la política developer del reviewer impedía revisar con HEAD detrás. El commit y la revisión siguen pendientes al registrar esta entrada; sin push ni publicación. La spec 0055 sigue en curso.
+
+## 2026-10-17 14:02 Codex — Integra auditoría sin procesos cuando no hay log activo (0055 M3)
+
+- Portado M3 desde el worktree de hooks: decisión de auditoría mediante builtins y log de sesión, repos ocultos, fallback conservador y evento con ms0 si el log nace durante el hook. Espejos regenerados oficialmente (45), snapshots Claude/Codex conservados.
+- Replay normaliza sólo números de línea de diagnósticos en stderr; las regresiones mantienen estrictas las diferencias en stdout, estado y eventos. Corpus sin cambios.
+- A3 exacto desde root exit0: 264 pruebas y 2996 casos idénticos con auditoría apagada y activa. Targeted implementer269, golden5, sintaxis bash/zsh, fast, render y scoped verdes; bundle1598.8KiB/1600. Revisión nativa y commit pendientes al registrar esta entrada.
+- Registro automático de aceptación A3/A12 pendiente por limitación del host (exec_command anidado no emite Bash); evidencia real conservada, sin fabricar registros. Spec0055 en curso; sin push ni publicación.

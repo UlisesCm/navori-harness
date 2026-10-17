@@ -328,4 +328,43 @@ describe("hook verdict corpus", () => {
       ),
     ).toBeNull();
   });
+
+  // Covers: R13
+  it("ignora solo el número de línea de los diagnósticos del shell", () => {
+    const base = { status: 2, stdout: "" };
+    const bash = (n: number, msg = "command not found") => ({
+      ...base,
+      stderr: `/x/h.sh: line ${n}: {{p}}: ${msg}\n`,
+    });
+    const zsh = (n: number) => ({ ...base, stderr: `/x/h.sh:${n}: {{p}}: command not found\n` });
+    expect(replay.firstDifference(bash(485), bash(540))).toBeNull();
+    expect(replay.firstDifference(zsh(485), zsh(540))).toBeNull();
+    expect(replay.firstDifference(bash(485), bash(540, "other message"))).toMatchObject({
+      field: "stderr",
+    });
+  });
+
+  // Covers: R13
+  it("conserva diferencias de stdout, status y evento aunque sólo cambie una línea del stderr", () => {
+    const expected = { status: 2, stdout: "/x/h.sh: line 485: output\n", stderr: "" };
+    const stdout = "/x/h.sh: line 540: output\n";
+    expect(replay.firstDifference(expected, { ...expected, stdout })).toMatchObject({
+      field: "stdout",
+    });
+    const zsh = { ...expected, stdout: "/x/h.sh:485: output\n" };
+    expect(replay.firstDifference(zsh, { ...zsh, stdout: "/x/h.sh:540: output\n" })).toMatchObject({
+      field: "stdout",
+    });
+    const base = { ...expected, stderr: "/x/h.sh: line 485: command not found\n" };
+    const actual = { ...base, stderr: "/x/h.sh: line 540: command not found\n" };
+    expect(replay.firstDifference(base, { ...actual, status: 1 })).toMatchObject({
+      field: "status",
+    });
+    expect(
+      replay.firstDifference(
+        { ...base, event: { verdict: "allow" } },
+        { ...actual, event: { verdict: "deny" } },
+      ),
+    ).toMatchObject({ field: "event" });
+  });
 });

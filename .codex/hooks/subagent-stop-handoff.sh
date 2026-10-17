@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="e964ca07" version="0.12.1" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="f4a40a31" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
@@ -411,11 +411,58 @@ navori_audit_log() { :; }
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  navori_audit_sr=${payload#*'"session_id"'}
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -509,7 +556,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -518,6 +572,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
