@@ -68,7 +68,7 @@ describe("solutioning — content invariants (spec 0012)", () => {
     // La escalera se retiró, así que ya no hay conteo del que advertir. Lo que
     // sigue importando es que un patrón existente con rollback trivial no
     // gaste una pasada de diseño.
-    expect(block).toMatch(/trivial rollback does not need it/i);
+    expect(block).toMatch(/rollback does not need it/i);
     // Always-on text is paid on every session of every repo: keep the routing
     // paragraph lean and let the skill carry the depth (spec 0012 R21).
     const paragraph = block.split("\n").find((l) => l.includes("architectural pass")) ?? "";

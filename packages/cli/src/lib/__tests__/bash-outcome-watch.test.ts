@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -11,9 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
 import { HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
 import {
   fingerprintTree,
@@ -25,6 +26,13 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
+
+/** One empty repo per file, copied into each case's `dir` (spec 0055 D7). */
+let gitTemplate: RepoTemplate;
+beforeAll(() => {
+  gitTemplate = emptyRepo({ branch: "master" });
+});
+afterAll(() => gitTemplate.dispose());
 
 function setup(): { dir: string; failure: string; success: string } {
   const dir = mkdtempSync(join(tmpdir(), "navori-repeat-failure-"));
@@ -178,7 +186,7 @@ describe("producer-bound delivery success lane", () => {
     "preserves legacy and exact bound fingerprints under nounset in %s",
     (shell: HookShell) => {
       const { dir, success } = setup();
-      execFileSync("git", ["init", "-q", dir]);
+      gitTemplate.copyInto(dir);
       const stagePath = "stage";
       mkdirSync(join(dir, stagePath));
       writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
@@ -247,7 +255,7 @@ describe("producer-bound delivery success lane", () => {
   // Covers: R7, R8, R9
   it("carries CLI-captured binding and agrees with the reader on exact stage exclusions", () => {
     const { dir, success } = setup();
-    execFileSync("git", ["init", "-q", dir]);
+    gitTemplate.copyInto(dir);
     const stagePath = "specs/_master/01-proof";
     mkdirSync(join(dir, stagePath), { recursive: true });
     writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
@@ -291,7 +299,7 @@ describe("producer-bound delivery success lane", () => {
   // Covers: R7, R8, R9
   it("writes no bound success for redirected stages or unknown Codex correlation", () => {
     const { dir, success } = setup();
-    execFileSync("git", ["init", "-q", dir]);
+    gitTemplate.copyInto(dir);
     const stateDir = join(dir, ".navori/state/handoffs");
     mkdirSync(stateDir, { recursive: true });
     const binding = {

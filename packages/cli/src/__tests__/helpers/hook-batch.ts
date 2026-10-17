@@ -147,7 +147,7 @@ export function runHookBatch(
 /** Memoizing per-hook batch: `prime` runs a table in one process, `run` reads it back. */
 export interface HookBatch {
   /** Runs the not-yet-cached cases under every shell in one process each. */
-  prime(shells: readonly HookShell[], cases: readonly HookCase[]): void;
+  prime(shells: readonly HookShell[], cases: readonly HookCase[], options?: HookBatchOptions): void;
   /** Cached result, or a real isolated spawn when the case was never primed. */
   run(shell: HookShell, c: HookCase): HookCaseResult;
   /** Cached result only; `undefined` when the case was never primed (no spawn). */
@@ -161,7 +161,7 @@ const keyOf = (shell: HookShell, c: HookCase): string =>
 export function createHookBatch(hookPath: string): HookBatch {
   const cache = new Map<string, HookCaseResult>();
   return {
-    prime(shells, cases) {
+    prime(shells, cases, options) {
       for (const shell of shells) {
         const fresh = new Map<string, HookCase>();
         for (const c of cases) {
@@ -169,7 +169,7 @@ export function createHookBatch(hookPath: string): HookBatch {
           if (!cache.has(k)) fresh.set(k, c);
         }
         const keys = [...fresh.keys()];
-        const results = runHookBatch(hookPath, shell, [...fresh.values()]);
+        const results = runHookBatch(hookPath, shell, [...fresh.values()], options);
         keys.forEach((k, i) => cache.set(k, results[i] as HookCaseResult));
       }
     },

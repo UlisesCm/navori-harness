@@ -18,6 +18,13 @@ interface Preservation {
     removedCases?: string[];
     rowIds?: boolean;
   }) => string[];
+  checkPreservation: (input: {
+    config: Record<string, unknown>;
+    changes: { modified: string[]; deleted: string[] };
+    readBase: (path: string) => string | null;
+    readNow: (path: string) => string | null;
+  }) => string[];
+  parseNameStatus: (output: string) => { modified: string[]; deleted: string[] };
   compareLiteralBaseline: (input: {
     baseline: { positive?: unknown[]; negative?: unknown[] };
     expected: { positive: number; negative: number; equivalenceCase: string };
@@ -37,7 +44,7 @@ const SCRIPT = resolve(
   "check-test-preservation.mjs",
 );
 // Loaded by computed URL: a static import would pull the root script under this package's rootDir.
-const { compareFile, compareLiteralBaseline } = (await import(
+const { compareFile, compareLiteralBaseline, checkPreservation, parseNameStatus } = (await import(
   pathToFileURL(SCRIPT).href
 )) as Preservation;
 
@@ -130,7 +137,7 @@ describe("check-test-preservation", () => {
         config,
         JSON.stringify({
           baseRef: real.baseRef,
-          files: [],
+          files: real.files,
           merges: [
             { ...real.merges[0], from: ["packages/cli/src/__tests__/ya-no-existe.test.ts"] },
           ],
@@ -142,5 +149,67 @@ describe("check-test-preservation", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  const TWO = ["// Covers: R1", 'it("a", () => {});', 'it("b", () => {});'].join("\n");
+  const ONE = ["// Covers: R1", 'it("a", () => {});'].join("\n");
+  const files = (map: Record<string, string>) => (path: string) => map[path] ?? null;
+
+  // Covers: R21
+  it("descubre los .test.ts cambiados o borrados del diff contra el merge-base", () => {
+    const diff = ["M\ta.test.ts", "D\tb.test.ts", "A\tc.test.ts", "M\tnotes.txt", "M\td.mjs"];
+    expect(parseNameStatus(diff.join("\n"))).toEqual({
+      modified: ["a.test.ts"],
+      deleted: ["b.test.ts"],
+    });
+  });
+
+  // Covers: R21
+  it("un caso borrado sin removedCases falla nombrando el archivo", () => {
+    const run = (config: Record<string, unknown>) =>
+      checkPreservation({
+        config,
+        changes: { modified: ["x/y.test.ts"], deleted: [] },
+        readBase: files({ "x/y.test.ts": TWO }),
+        readNow: files({ "x/y.test.ts": ONE }),
+      });
+    expect(run({}).join("\n")).toContain("x/y.test.ts: 1 cases, baseline 2");
+    const declared = { path: "x/y.test.ts", removedCases: [{ title: "b", reason: "dup of a" }] };
+    expect(run({ files: [declared] })).toEqual([]);
+  });
+
+  // Covers: R21
+  it("un removedCases sin motivo falla", () => {
+    const out = checkPreservation({
+      config: {
+        files: [{ path: "x/y.test.ts", removedCases: [{ title: "b", reason: " " }, "a"] }],
+      },
+      changes: { modified: ["x/y.test.ts"], deleted: [] },
+      readBase: files({ "x/y.test.ts": TWO }),
+      readNow: files({ "x/y.test.ts": ONE }),
+    });
+    expect(out).toContain('x/y.test.ts: removed case "b" has no reason');
+    expect(out).toContain("x/y.test.ts: removedCases entries must be { title, reason }");
+  });
+
+  // Covers: R21
+  it("un archivo borrado exige removedCases o una fusión que lo absorba", () => {
+    const run = (config: Record<string, unknown>, now: string) =>
+      checkPreservation({
+        config,
+        changes: { modified: ["into.test.ts"], deleted: ["old.test.ts"] },
+        readBase: files({ "old.test.ts": TWO, "into.test.ts": ONE }),
+        readNow: files({ "into.test.ts": now }),
+      });
+    expect(run({}, ONE).join("\n")).toContain(
+      'old.test.ts: file deleted without removedCases for "a", "b"',
+    );
+    const merge = { into: "into.test.ts", from: ["old.test.ts"], reason: "same class" };
+    // 1 baseline case in `into` plus 2 absorbed need 3 cases (or declared removals) afterwards.
+    expect(run({ merges: [merge] }, ONE).join("\n")).toContain("into.test.ts: 1 cases, baseline 3");
+    const absorbed = `${TWO}\nit("c", () => {});`;
+    expect(run({ merges: [merge] }, absorbed)).toEqual([]);
+    const noReason = { into: "into.test.ts", from: ["old.test.ts"] };
+    expect(run({ merges: [noReason] }, absorbed)).toContain("into.test.ts: merge has no reason");
   });
 });

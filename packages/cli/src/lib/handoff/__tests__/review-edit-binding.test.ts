@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -24,6 +24,16 @@ import { ReviewSidecarSchema } from "../review-schema.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { renderCodexEngine } from "../../../engines/codex/index.ts";
 import { NavoriConfigSchema } from "../../config/schema.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 let dir: string;
 let host: string;
@@ -80,7 +90,7 @@ beforeEach(() => {
   host = join(dir, "host");
   target = join(dir, "delivery");
   mkdirSync(host);
-  git(host, "init", "-b", "main");
+  repoTpl.copyInto(host);
   git(host, "config", "user.email", "binding@example.test");
   git(host, "config", "user.name", "Binding");
   writeFileSync(join(host, "a.txt"), "base\n");
@@ -343,7 +353,7 @@ describe("native review edit binding", () => {
     expect(check([join(fake, ".navori/state/handoffs/review_demo.md")]).status).toBe("error");
     const foreign = join(dir, "foreign");
     mkdirSync(foreign);
-    git(foreign, "init", "-b", "main");
+    repoTpl.copyInto(foreign);
     expect(check([join(foreign, ".navori/state/handoffs/review_demo.md")]).reason).toBe(
       "unregistered-checkout",
     );

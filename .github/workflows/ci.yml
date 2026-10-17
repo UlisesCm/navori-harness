@@ -142,6 +142,13 @@ jobs:
       - name: Blame-ignore entries are ancestors with a mechanical diff
         run: bun run check:blame-ignore
 
+      # Spec 0055 R21 — a test case may not disappear unannounced: every `*.test.ts` changed or
+      # deleted against the merge-base with `origin/dev` keeps its cases and `// Covers:` tokens,
+      # or declares the removal (with a reason) in `scripts/js/test-preservation.config.json`.
+      # On a push to `dev` the merge-base is HEAD, so the step is trivial there.
+      - name: Test cases are preserved or their removal is declared
+        run: bun run check:tests-preserved
+
       # The hook suites run under bash AND zsh (#391) — the hooks execute with
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
       # The tests skip the zsh rows cleanly when the binary is missing, so this

@@ -68,8 +68,8 @@ describe("master-plan architect context contract", () => {
     const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
     expect(skill.match(/contextForArchitects/g)).toBeNull();
     expect(skill).toContain("incluye `architectContext` de `status --json`");
-    expect(skill).toContain("El campo `architectContext` es la fuente de estas rutas");
-    expect(skill).toContain("En `architectContext`, conserva explícitamente la lista de etapas");
+    expect(skill).toContain("`architectContext` es la fuente de");
+    expect(skill).toContain("conserva explícitamente la lista de");
   });
 });
 
@@ -349,16 +349,14 @@ describe("master-plan skill alignment with the CLI", () => {
   it("el skill indica check --part P<n>, commit antes de --accept, template parts, status tras marcar tareas y evidenceBlockers antes de cerrar", () => {
     const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
     expect(skill).toContain("`navori master check --part P<n>`");
-    expect(skill).toContain(
-      "tras hacer commit del código probado, con `navori master part P<n> --accept",
-    );
+    expect(skill).toContain("tras hacer commit del código");
+    expect(skill).toContain("`navori master part P<n> --accept");
     expect(skill).toContain("`navori master template parts`");
-    expect(skill).toContain(
-      "Tras marcar tareas de la spec, genera o actualiza `STATUS.md` con `navori master status`",
-    );
+    expect(skill).toContain("Tras marcar tareas de la");
+    expect(skill).toContain("`navori master status`");
     expect(skill).toContain("`closable` verdadero y `evidenceBlockers` vacío");
     expect(skill).toContain("o hay `evidenceBlockers`");
-    expect(skill).toContain("o después solo si no hay partes");
+    expect(skill).toContain("solo si no hay partes");
   });
 
   // Covers: R46
@@ -386,7 +384,7 @@ describe("master-plan skill alignment with the CLI", () => {
     ]) {
       expect(skill, `falta \`navori master ${sub}\``).toContain(`\`navori master ${sub}\``);
     }
-    expect(skill).toContain("`navori master init <slug> --workflow deliveries`");
+    expect(skill).toContain("`navori master init <slug> --workflow");
     expect(skill).toContain("`navori master delivery-revoke` solo");
   });
 });

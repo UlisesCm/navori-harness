@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,16 @@ import { beginReview, correlateReview, sealReview } from "../review-evidence.ts"
 import { ReviewSidecarSchema } from "../review-schema.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { signReceipt, checkReceipt } from "../../diagnose/receipt.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 let dir: string;
 let cwd: string;
@@ -41,7 +51,7 @@ beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-actor-")));
   cwd = join(dir, "repo");
   mkdirSync(cwd);
-  git("init", "-b", "main");
+  repoTpl.copyInto(cwd);
   git("config", "user.email", "t@t.test");
   git("config", "user.name", "T");
   writeFileSync(join(cwd, "a.txt"), "base\n");
@@ -149,7 +159,7 @@ describe("native delivery ownership", () => {
     expect(nativeActor(sibling)?.role).toBe("implementer");
     const other = join(dir, "other");
     mkdirSync(other);
-    execFileSync("git", ["init", "-b", "main"], { cwd: other });
+    repoTpl.copyInto(other);
     expect(nativeActor(other)).toBeUndefined();
     expect(nativeActor(original)?.role).toBe("implementer");
   });

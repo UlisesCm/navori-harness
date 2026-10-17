@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -20,6 +20,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
+import type { HookShell } from "../lib/__tests__/helpers/shells.ts";
+import { createHookBatch, type HookBatch } from "./helpers/hook-batch.ts";
 
 /**
  * The audit-mode hooks run on EVERY prompt of every repo that renders the
@@ -37,8 +39,9 @@ const CLOSE = join(HOOKS, "audit-mode-close.sh");
 const SHELLS = ["bash", "zsh"] as const;
 const REPO = "fixture-repo";
 
+/** Constant across cases: the payload `cwd` is data, so priming and tests build the same input. */
+const cwd = join(tmpdir(), REPO);
 let root: string;
-let cwd: string;
 let recorderBin: string;
 
 function run(
@@ -84,12 +87,17 @@ function logFile(sessionId = "sess1"): string {
  * would exercise something that exists in no repo.
  */
 function install(_shell: string, assetPath: string, auditMode = "opt-in"): string {
+  return installInto(root, assetPath, auditMode);
+}
+
+/** `install` into an explicit directory (the per-case root or the file-scoped batch root). */
+function installInto(dir: string, assetPath: string, auditMode: string): string {
   const raw = expandHookIncludes(readFileSync(assetPath, "utf-8"))
     .replace("{{shq:branchBase}}", "'main'")
     // The default mirrors the schema's: a repo that never declares `audit.mode`
     // must behave exactly as it did before the field existed.
     .replace("{{shq:audit.mode}}", `'${auditMode}'`);
-  const path = join(root, `installed-${assetPath.split("/").pop()}`);
+  const path = join(dir, `installed-${assetPath.split("/").pop()}`);
   writeFileSync(path, raw, "utf-8");
   chmodSync(path, 0o755);
   return path;
@@ -156,16 +164,11 @@ function activate(sessionId = "sess1"): void {
   );
 }
 
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "navori-hook-"));
-  cwd = join(tmpdir(), REPO);
-  mkdirSync(cwd, { recursive: true });
-  // Transparent transport stub only: FD/privacy authorization is tested by the
-  // real CLI writer, not claimed by these hook behavior fixtures.
-  recorderBin = join(root, "recorder-bin");
-  mkdirSync(recorderBin);
+/** Writes the transparent `navori` recorder stub into `binDir` (created here). */
+function writeRecorder(binDir: string): void {
+  mkdirSync(binDir);
   writeFileSync(
-    join(recorderBin, "navori"),
+    join(binDir, "navori"),
     `#!${process.execPath}
 const fs = require("node:fs"), path = require("node:path");
 const args = process.argv.slice(2);
@@ -180,12 +183,64 @@ else if (record.phase === "SessionStart" && fs.existsSync(path.join(dir, ".armed
 process.stdout.write("ignored recorder output");
 `,
   );
-  chmodSync(join(recorderBin, "navori"), 0o755);
+  chmodSync(join(binDir, "navori"), 0o755);
+}
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "navori-hook-"));
+  mkdirSync(cwd, { recursive: true });
+  // Transparent transport stub only: FD/privacy authorization is tested by the
+  // real CLI writer, not claimed by these hook behavior fixtures.
+  recorderBin = join(root, "recorder-bin");
+  writeRecorder(recorderBin);
 });
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
+
+/**
+ * File-scoped host for payload-only cases (spec 0055 R18): hooks run in ONE shell process per
+ * shell, against an audit root no case ever activates, so none of them can see a session log.
+ * Tests that seed `activate()`, files or per-case env keep a real spawn through `run`.
+ */
+const batchRoot = mkdtempSync(join(tmpdir(), "navori-hook-batch-"));
+const batchBin = join(batchRoot, "recorder-bin");
+const hookBatches = new Map<string, HookBatch>();
+afterAll(() => rmSync(batchRoot, { recursive: true, force: true }));
+
+function batchOf(hook: string): HookBatch {
+  let batch = hookBatches.get(hook);
+  if (batch === undefined) {
+    mkdirSync(cwd, { recursive: true });
+    if (!existsSync(batchBin)) writeRecorder(batchBin);
+    hookBatches.set(hook, (batch = createHookBatch(installInto(batchRoot, hook, "opt-in"))));
+  }
+  return batch;
+}
+
+const batchEnv = (): Record<string, string> => ({
+  NAVORI_AUDITS_ROOT: batchRoot,
+  PATH: `${batchBin}:${process.env.PATH ?? ""}`,
+});
+
+/** Runs `inputs` through `hook` under every shell, one process per shell. */
+function primeBatch(hook: string, inputs: readonly string[]): void {
+  batchOf(hook).prime(
+    SHELLS as readonly HookShell[],
+    inputs.map((input) => ({ input, env: batchEnv() })),
+  );
+}
+
+/** Same result shape as `run`, read from the primed batch (a real spawn when not primed). */
+function runBatched(shell: string, hook: string, input: string): { out: string; code: number } {
+  const r = batchOf(hook).run(shell as HookShell, { input, env: batchEnv() });
+  return { out: r.stdout, code: r.status };
+}
+
+/** The session log a case would have written under the batch root. */
+const batchLogFile = (sessionId = "sess1"): string =>
+  join(batchRoot, REPO, `session-${sessionId}.log`);
 
 describe.each(SHELLS)("native Codex child capture under %s", (shell) => {
   /** Execute the canonical expanded hook with a transparent capture CLI stub. */
@@ -327,9 +382,25 @@ describe.each(SHELLS)("native Codex child capture under %s", (shell) => {
   });
 });
 
+const MENTIONS: Array<[string, string]> = [
+  ["english", "audita el ticket en audit mode"],
+  ["spanish", "entra en modo audit por favor"],
+  ["hyphenated", "mi feature de audit-mode no funciona"],
+  ["off-intent", "apaga el audit mode"],
+];
+
 describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
+  beforeAll(
+    () =>
+      primeBatch(TRIGGER, [
+        payload("arregla el login"),
+        ...MENTIONS.map(([, text]) => payload(text)),
+      ]),
+    120_000,
+  );
+
   it("stays silent on an unrelated prompt", () => {
-    const { out, code } = run(shell, TRIGGER, payload("arregla el login"));
+    const { out, code } = runBatched(shell, TRIGGER, payload("arregla el login"));
     expect(code).toBe(0);
     expect(out.trim()).toBe("");
   });
@@ -342,18 +413,16 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
    * itself misread as an invocation. Activation is now `--start` only.
    */
   // Covers: R3
-  it.each([
-    ["english", "audita el ticket en audit mode"],
-    ["spanish", "entra en modo audit por favor"],
-    ["hyphenated", "mi feature de audit-mode no funciona"],
-    ["off-intent", "apaga el audit mode"],
-  ])("proposes nothing for a prompt that merely mentions audit-mode (%s)", (_label, text) => {
-    const { out, code } = run(shell, TRIGGER, payload(text));
-    expect(code).toBe(0);
-    expect(out.trim()).toBe("");
-    // Detection left nothing on disk before, and proposes nothing now.
-    expect(existsSync(logFile())).toBe(false);
-  });
+  it.each(MENTIONS)(
+    "proposes nothing for a prompt that merely mentions audit-mode (%s)",
+    (_label, text) => {
+      const { out, code } = runBatched(shell, TRIGGER, payload(text));
+      expect(code).toBe(0);
+      expect(out.trim()).toBe("");
+      // Detection left nothing on disk before, and proposes nothing now.
+      expect(existsSync(batchLogFile())).toBe(false);
+    },
+  );
 
   // Covers: R3
   it("proposes nothing about turning the mode off while it is active", () => {
@@ -489,9 +558,20 @@ describe.each(SHELLS)("audit-mode fail-open under %s", (shell) => {
     ],
   ];
 
+  beforeAll(() => {
+    primeBatch(
+      TRIGGER,
+      hostile.map(([, input]) => input),
+    );
+    primeBatch(
+      CLOSE,
+      hostile.map(([, input]) => input),
+    );
+  }, 120_000);
+
   it.each(hostile)("exits 0 on %s", (_label, input) => {
-    expect(run(shell, TRIGGER, input).code).toBe(0);
-    expect(run(shell, CLOSE, input).code).toBe(0);
+    expect(runBatched(shell, TRIGGER, input).code).toBe(0);
+    expect(runBatched(shell, CLOSE, input).code).toBe(0);
   });
 
   /**

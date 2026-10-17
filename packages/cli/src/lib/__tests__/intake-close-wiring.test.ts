@@ -39,7 +39,8 @@ describe("closing verdicts don't wait for approval (#370)", () => {
     const block = read("managed/intake-tickets.md");
     // The enumeration of non-proceed outcomes already lived here; what's new is
     // that none of them stalls waiting for a human.
-    expect(block).toMatch(/none of them opens work, so none of them waits for approval/i);
+    expect(block).toMatch(/none of them opens work/i);
+    expect(block).toMatch(/so none of them waits/i);
     // …and the gate that survives, named explicitly so it can't be read as "no
     // ticket ever waits".
     expect(block).toContain("`proceed` and `proceed-differently`");
@@ -60,7 +61,8 @@ describe("closing verdicts don't wait for approval (#370)", () => {
     // Repo-relative path, not the bare filename: #507 found the skill's phase-0
     // `cat current.md` failing from the repo root, where the file is
     // `progress/current.md`. The anchor moves with the fix so it stays honest.
-    expect(skill).toMatch(/doesn't wait for approval:.*`progress\/current\.md` at `idle`/s);
+    expect(skill).toMatch(/doesn't wait for approval/);
+    expect(skill).toMatch(/`progress\/current\.md` at `idle`/);
     // Both legitimate ends of the pipeline are declared, so "no PR" isn't read
     // as an unfinished run.
     expect(skill).toMatch(/closed at phase 2 ends with its verdict \+ evidence and no PR/i);

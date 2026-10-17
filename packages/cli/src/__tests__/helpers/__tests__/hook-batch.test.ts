@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOOK_SHELLS } from "../../../lib/__tests__/helpers/shells.ts";
@@ -77,6 +77,34 @@ describe("hook-batch", () => {
     for (const shell of HOOK_SHELLS) {
       expect(batch.run(shell, primed)).toEqual(runHookIsolated(echoHook, shell, primed));
       expect(batch.run(shell, other).status).toBe(5);
+    }
+  });
+
+  // Covers: R18
+  it("lanes: 1 serializa los casos que escriben el mismo log, sin pérdidas", () => {
+    // A read-modify-write counter: two concurrent lanes lose increments, one lane never does.
+    const counter = join(dir, "counter");
+    const log = join(dir, "events.log");
+    const writer = writeHook(
+      "append.sh",
+      [
+        `n=$(cat "${counter}" 2>/dev/null || echo 0)`,
+        `echo $((n + 1)) > "${counter}"`,
+        `echo "event $n" >> "${log}"`,
+      ].join("\n"),
+    );
+    const cases: HookCase[] = Array.from({ length: 12 }, () => ({ input: "" }));
+    for (const shell of HOOK_SHELLS) {
+      writeFileSync(counter, "0");
+      writeFileSync(log, "");
+      const batch = createHookBatch(writer);
+      batch.prime([shell], cases.slice(0, 1), { lanes: 1 });
+      const results = runHookBatch(writer, shell, cases, { lanes: 1 });
+      expect(results.every((r) => r.status === 0)).toBe(true);
+      expect(readFileSync(counter, "utf-8").trim()).toBe(String(1 + cases.length));
+      const lines = readFileSync(log, "utf-8").trim().split("\n");
+      expect(lines).toHaveLength(1 + cases.length);
+      expect(new Set(lines).size).toBe(lines.length);
     }
   });
 });

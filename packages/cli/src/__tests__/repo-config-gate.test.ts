@@ -11,10 +11,20 @@ import {
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { readConfig } from "../lib/config/config.ts";
 import { DEFAULT_LANG } from "../lib/i18n.ts";
 import { placeholderFallback } from "../lib/render/placeholders.ts";
+import { emptyRepo, type RepoTemplate } from "./helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 /**
  * This repo dogfoods navori: its own `navori.config.json` is what renders the
@@ -120,7 +130,7 @@ function cleanGitEnv(inject: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
  * env. Takes no env on purpose, so the leak regression exercises the real scrub.
  */
 function initAndInstallHook(repo: string): void {
-  execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+  repoTplMaster.copyInto(repo);
   execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
 }
 
@@ -281,7 +291,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
   it("installs the tracked pre-commit hook and drops the old navori pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+      repoTplMaster.copyInto(repo);
       const legacy = hookTarget(repo, "pre-push");
       writeFileSync(legacy, "#!/usr/bin/env bash\n# navori pre-push gate\nexec bun check\n");
       execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
@@ -324,7 +334,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     const parent = mkdtempSync(resolve(tmpdir(), "navori-parent-"));
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: parent, env: cleanGitEnv() });
+      repoTplMaster.copyInto(parent);
       const parentGit = resolve(parent, ".git");
       const parentHooks = resolve(parentGit, "hooks");
       const before = readdirSync(parentHooks).sort();
@@ -360,7 +370,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
   it("warns, exits 0 and keeps a non-navori pre-commit hook and a custom pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+      repoTplMaster.copyInto(repo);
       const target = hookTarget(repo, "pre-commit");
       writeFileSync(target, "#!/usr/bin/env bash\necho custom\n");
 

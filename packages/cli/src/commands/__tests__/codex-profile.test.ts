@@ -1,6 +1,6 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, beforeAll, afterAll } from "vitest";
 import { PassThrough } from "node:stream";
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
@@ -8,6 +8,16 @@ import { fileURLToPath } from "node:url";
 import { readProfileHookInput } from "../codex-profile.ts";
 import { resolveCodexHooks } from "../../engines/codex/hook-registrations.ts";
 import { NavoriConfigSchema } from "../../lib/config/schema.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 const script = fileURLToPath(
   new URL("../../../../core/core-assets/hooks/model-advisor.sh", import.meta.url),
@@ -23,7 +33,7 @@ describe("fixed Codex profile hook", () => {
   it("production fixed probe CLI reports pending opt-out without starting a native owner", () => {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), "navori-profile-probe-cli-")));
     directories.push(directory);
-    execFileSync("git", ["init", "-q"], { cwd: directory });
+    repoTplMaster.copyInto(directory);
     writeFileSync(
       join(directory, "navori.config.json"),
       JSON.stringify({ name: "fixture", preset: "custom", engines: ["codex"] }),

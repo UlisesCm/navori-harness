@@ -3,9 +3,19 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { planCommand } from "../../../commands/plan.ts";
 import { computeWorktreeTree, readHead } from "../../../lib/plan/evidence.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 const DIR = ".navori/state/handoffs";
 const COMMAND = "bun run --cwd packages/cli test first-class";
@@ -95,7 +105,7 @@ describe("Pi closure through the shared receipts", () => {
     const before = planBytes();
     const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-pi-other-")));
     try {
-      execFileSync("git", ["init", "-b", "main"], { cwd: other });
+      repoTpl.copyInto(other);
       // A failed run is never recorded by the extension, so "failed" and "missing" both leave an empty log.
       const cases: Array<[string, (() => void) | undefined]> = [
         ["no run recorded", undefined],

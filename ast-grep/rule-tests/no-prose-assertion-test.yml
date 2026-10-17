@@ -1,0 +1,30 @@
+id: no-prose-assertion
+valid:
+  - |
+    const text = readFileSync(join(root, "core-assets", "agents", "x.md"), "utf8");
+    expect(text).toContain("<!-- navori:managed");
+  - |
+    const text = readFileSync(join(root, "SKILL.md"), "utf8");
+    expect(text).toContain("two words");
+  - |
+    const out = run(args);
+    expect(out).toContain("this is a long cli error message for the user");
+  - |
+    const body = readFileSync(join(root, "core-assets", "agents", "x.md"), "utf8");
+    expect(body).toMatch(/<!-- navori:if planTiers -->\n([\s\S]*?)<!-- \/navori:if -->/);
+  - |
+    const text = readFileSync(join(root, "SKILL.md"), "utf8");
+    expect(other).toContain("the agent must always read the file first");
+invalid:
+  - |
+    const text = readFileSync(join(root, "SKILL.md"), "utf8");
+    expect(text).toContain("the agent must always read the file first");
+  - |
+    const text = readFileSync(join(root, "core-assets", "agents", "x.md"), "utf8");
+    expect(text).not.toContain("the agent must always read the file first");
+  - |
+    const text = readFileSync("docs/DIRECTION.md", "utf8");
+    expect(text).toMatch("one two three four five six seven");
+  - |
+    const text = readFileSync(join(root, "docs", "x.md"), "utf8");
+    expect(text).toMatch(/seis palabras o mas en regex/);

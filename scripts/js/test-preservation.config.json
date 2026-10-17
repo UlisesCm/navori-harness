@@ -6,20 +6,51 @@
     {
       "path": "packages/cli/src/__tests__/cli.e2e.test.ts",
       "removedCases": [
-        "init --recommended: a runner WITH a suite derives always (#529)",
-        "doctor does not report drift for an agent marker older than the CLI",
-        "scan --yes is a no-op when init already populated workspaces",
-        "scan --yes adds a new workspace when one is created after init",
-        "render --workspace acota la operación a un solo workspace",
-        "render --workspace falla con mensaje claro cuando el nombre no matchea"
+        {
+          "title": "init --recommended: a runner WITH a suite derives always (#529)",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "doctor does not report drift for an agent marker older than the CLI",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "scan --yes is a no-op when init already populated workspaces",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "scan --yes adds a new workspace when one is created after init",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "render --workspace acota la operación a un solo workspace",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "render --workspace falla con mensaje claro cuando el nombre no matchea",
+          "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        }
       ]
     },
-    { "path": "packages/cli/src/lib/__tests__/guard-destructive.test.ts" },
+    {
+      "path": "packages/cli/src/lib/__tests__/guard-destructive.test.ts",
+      "removedCases": [
+        {
+          "title": "still BLOCKS the destructive tail of a 2000-segment command, in budget",
+          "reason": "Merged into \"evaluates a 2000-segment command inside the time budget\" (now also asserts the destructive tail): same input class (2000 segments), both verdicts and both budgets still asserted. Spec 0055 R18, #511."
+        },
+        {
+          "title": "leaves ordinary commands — heredoc included — under both ceilings",
+          "reason": "Merged into \"ADMITS a 40k-char single-pass prose heredoc (it used to deny it)\" (now also asserts the ordinary heredoc): same class (a heredoc the ceilings must admit); the anti-false-green command and its empty-stderr assertion are kept. Spec 0055 R18, #511."
+        }
+      ]
+    },
     { "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts" }
   ],
   "merges": [
     {
       "into": "packages/cli/src/__tests__/doctrine-contracts.test.ts",
+      "reason": "spec 0054 doctrine fusion: four prose suites became contract tables",
       "countRowIds": true,
       "from": [
         "packages/cli/src/__tests__/orquestacion-doctrina.test.ts",

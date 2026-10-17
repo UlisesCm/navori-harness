@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -19,6 +19,19 @@ import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import type { HookShell } from "./helpers/shells.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+let repoTplFeat: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+  repoTplFeat = emptyRepo({ branch: "feat/x" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+  repoTplFeat.dispose();
+});
 
 /**
  * Behavioral tests for the SessionStart context hook (#169 / N1). We install
@@ -119,7 +132,7 @@ function parseCtx(stdout: string): string {
 
 describe("session-start context hook", () => {
   it("emits branch + recent commits + progress/current.md on a working branch", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -138,7 +151,7 @@ describe("session-start context hook", () => {
   });
 
   it("warns when the session starts on the base branch", () => {
-    git("init", "-q", "-b", "main");
+    repoTpl.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -227,7 +240,7 @@ describe("session-start context hook — untrusted content is fenced as DATA (#5
   const CLOSE = "END UNTRUSTED REPOSITORY DATA";
 
   function seedRepo(subject: string): void {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -376,7 +389,7 @@ describe("session-start context hook — aviso de worktrees conservados (#774)",
 describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
   // Covers: R1, R2
   it("codex payload yields additionalContext with branch, commits and progress", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -516,7 +529,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   });
 
   it("is the LAST section: it follows the repository state", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");

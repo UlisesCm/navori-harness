@@ -1,0 +1,61 @@
+id: no-git-init-per-case
+language: typescript
+severity: error
+message: "No `git init` inside `it`/`test` (spec 0055 R19): build the repo once per file with `createRepoTemplate` / `emptyRepo()` / `committedRepo(files)` (`src/__tests__/helpers/repo-template.ts`) in `beforeAll` and copy it per case. Tests that need a real init (worktrees, `.git` as a file, an external GIT_DIR, `init` itself) go in this rule's `ignores:` with a reason."
+files:
+  - "**/*.test.ts"
+ignores:
+  # Allowlist: each file needs a REAL `git init` per case (the case IS the init, or the layout
+  # under test cannot be copied). A new file must justify itself here.
+  - "packages/cli/src/__tests__/hermetic-env.test.ts" # the case IS `git init` under the hermetic env
+  - "packages/cli/src/lib/__tests__/role-guard.test.ts" # host checkout + linked worktree and foreign repos: the layout is the subject
+  - "packages/cli/src/lib/plan/__tests__/escalation.test.ts" # a second, foreign repo next to the template copy
+  - "packages/cli/src/lib/diagnose/__tests__/foreign-harness.test.ts" # foreign repos: the second repo is the subject
+  - "packages/cli/src/__tests__/cli.e2e.test.ts" # `navori init` flows over a bare git init; owned by the in-process e2e migration (T27)
+  # Ratchet baseline (spec 0055 T29): these still `git init` per case. Migrate each to
+  # `emptyRepo()`/`committedRepo()` when touched, then delete its line; never add a file here.
+rule:
+  all:
+    - kind: call_expression
+    # `git commit -m init` names "init" as a message, not as the subcommand.
+    - not:
+        has:
+          field: arguments
+          has:
+            stopBy: end
+            kind: string
+            regex: ^["']commit["']$
+    - any:
+        # git(dir, "init", ...) / git("init", ...)
+        - all:
+            - has:
+                field: function
+                regex: ^git$
+            - has:
+                field: arguments
+                has:
+                  kind: string
+                  regex: ^["']init["']$
+        # execFileSync("git", [..., "init", ...]) and the spawn family
+        - all:
+            - has:
+                field: function
+                regex: ^(execFileSync|spawnSync|execFile|spawn)$
+            - has:
+                field: arguments
+                has:
+                  kind: array
+                  has:
+                    kind: string
+                    regex: ^["']init["']$
+            - has:
+                field: arguments
+                has:
+                  kind: string
+                  regex: ^["']git["']$
+    - inside:
+        stopBy: end
+        any:
+          - pattern: it($$$)
+          - pattern: test($$$)
+          - pattern: it.each($$$)($$$)

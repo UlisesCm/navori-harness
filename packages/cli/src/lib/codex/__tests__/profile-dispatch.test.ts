@@ -253,8 +253,10 @@ describe("fresh metadata prepare/claim", () => {
     await expect(queryNativeCatalog(cwd, start + 500)).rejects.toThrow("unavailable-or-incomplete");
     expect(Date.now() - start).toBeLessThan(1200);
     const pid = Number(readFileSync(marker, "utf8"));
-    await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), {
+      timeout: 2_000,
+      interval: 10,
+    });
   });
   // Covers: R13, R14, R15
   it("catalog-refresh-next-session-and-dispatch retains query/source/time/context without future freshness", async () => {

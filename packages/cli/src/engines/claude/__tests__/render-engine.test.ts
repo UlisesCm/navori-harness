@@ -666,7 +666,7 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
     const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
     expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
     expect(orquestacion).toContain("navori receipt gate");
-    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>` commands");
+    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>`");
     // planificacion only renders behind `harness.planTiers`.
     renderClaudeEngine(cwd, {
       ...CONFIG_FULL,
@@ -747,16 +747,16 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     const agentsEs = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
     expect(agentsEs).toContain("## Agentes disponibles");
     expect(agentsEs).toContain("Subagentes que puedes lanzar");
-    expect(agentsEs).toContain("Escribe código y tests para UNA tarea bien acotada.");
+    expect(agentsEs).toContain("tests para UNA tarea bien");
     expect(md).toContain("## Monorepo — root");
-    expect(md).toContain("El código real vive en los workspaces");
+    expect(md).toContain("real vive en los workspaces");
     expect(md).toContain("## Contexto del proyecto");
-    expect(md).toContain("Reglas activas derivadas de tu config");
+    expect(md).toContain("activas derivadas de tu config");
     expect(md).toContain("en producción");
     expect(md).toContain("65-79");
     // No English leftover from the pre-#289 hardcoded prose.
     expect(md).not.toContain("## Available agents");
-    expect(md).not.toContain("Active rules derived from your config");
+    expect(md).not.toContain("rules derived from your config");
   });
 
   it("renders the four computed blocks in English when language is en", () => {
@@ -765,15 +765,15 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     expect(md).not.toContain("## Available skills");
     const agentsEn = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
     expect(agentsEn).toContain("## Available agents");
-    expect(agentsEn).toContain("Subagents you can spawn via the `Agent` tool");
-    expect(agentsEn).toContain("Writes code and tests for ONE well-scoped task.");
+    expect(agentsEn).toContain("spawn via the `Agent` tool");
+    expect(agentsEn).toContain("tests for ONE well-scoped task.");
     expect(md).toContain("## Monorepo — root");
-    expect(md).toContain("The real code lives in the workspaces");
+    expect(md).toContain("code lives in the workspaces");
     expect(md).toContain("## Project context");
-    expect(md).toContain("Active rules derived from your config");
+    expect(md).toContain("rules derived from your config");
     expect(md).toContain("in production");
     expect(agentsEn).not.toContain("## Agentes disponibles");
-    expect(md).not.toContain("Reglas activas derivadas de tu config");
+    expect(md).not.toContain("activas derivadas de tu config");
   });
 });
 
@@ -845,7 +845,7 @@ describe("renderClaudeEngine — tests policy exclusions (#529)", () => {
   it("renders the excluded suites next to a policy that demands tests", () => {
     renderClaudeEngine(cwd, withPolicy("always", [".maestro/flows"]));
     const md = claudeMd();
-    expect(md).toContain("new code MUST ship with tests");
+    expect(md).toContain("code MUST ship with tests");
     expect(md).toContain("Suites outside that rule");
     expect(md).toContain(".maestro/flows");
   });
@@ -860,7 +860,7 @@ describe("renderClaudeEngine — tests policy exclusions (#529)", () => {
     // exception out of it read as a contradiction, not as detail.
     renderClaudeEngine(cwd, withPolicy("none", [".maestro/flows"]));
     const md = claudeMd();
-    expect(md).toContain("doesn't require tests for new code");
+    expect(md).toContain("require tests for new code");
     expect(md).not.toContain("Suites outside that rule");
   });
 

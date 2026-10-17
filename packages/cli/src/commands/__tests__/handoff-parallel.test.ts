@@ -1,9 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), "../../index.ts");
 const temps: string[] = [];
@@ -32,7 +42,7 @@ describe("parallel handoff CLI boundary", () => {
   it("fails closed on malformed request JSON through the real command", () => {
     const cwd = mkdtempSync(join(tmpdir(), "navori-parallel-cli-"));
     temps.push(cwd);
-    expect(spawnSync("git", ["init", "-b", "main"], { cwd }).status).toBe(0);
+    repoTpl.copyInto(cwd);
     writeFileSync(
       join(cwd, "navori.config.json"),
       JSON.stringify({ name: "cli-test", engines: ["codex"], preset: "custom" }),
