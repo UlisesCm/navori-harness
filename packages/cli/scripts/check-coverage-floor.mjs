@@ -106,6 +106,8 @@ if (stale.length > 0) {
   ]);
 }
 
-console.log(
-  `✓ coverage floor: ${guarded.length} module(s) under ${GUARDED_PREFIX} exercised (${KNOWN_ZERO.size} documented exception(s))`,
+/** @param {"lines" | "statements" | "functions" | "branches"} metric */
+const pct = (metric) => `${summary.total[metric].pct}%`;
+process.stdout.write(
+  `Coverage: lines ${pct("lines")}, statements ${pct("statements")}, functions ${pct("functions")}, branches ${pct("branches")} (floor ok: ${guarded.length} modules, ${KNOWN_ZERO.size} exceptions)\n`,
 );

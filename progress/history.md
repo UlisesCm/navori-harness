@@ -279,3 +279,10 @@ El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas ap
 - Replay normaliza sólo números de línea de diagnósticos en stderr; las regresiones mantienen estrictas las diferencias en stdout, estado y eventos. Corpus sin cambios.
 - A3 exacto desde root exit0: 264 pruebas y 2996 casos idénticos con auditoría apagada y activa. Targeted implementer269, golden5, sintaxis bash/zsh, fast, render y scoped verdes; bundle1598.8KiB/1600. Revisión nativa y commit pendientes al registrar esta entrada.
 - Registro automático de aceptación A3/A12 pendiente por limitación del host (exec_command anidado no emite Bash); evidencia real conservada, sin fabricar registros. Spec0055 en curso; sin push ni publicación.
+
+## 2026-10-17 14:27 Codex — Integra salida compacta con evidencia de errores (0055 M9)
+
+- Portados diez archivos de M9: reporter compacto no TTY, cobertura JSON con resumen de una línea y selección de reporter conservada cuando se pide reporte JSON; resúmenes verdes del gate sin ruido cuando hay totales. Errores de carga, hooks y globales siguen visibles; hasta 50 nombres y 10 detalles acotados.
+- Configuración y umbrales actuales preservados. Productor: 29 pruebas dirigidas, fast, render y tamaño verdes (1598.8 KiB/1600).
+- A9 exacto desde root exit 0: 21 pruebas. Contexto: SessionStart Claude 108 B y Codex 297 B; gate verde 122 B; affected verde 127 B y rojo 536 B, modo emulado. No demuestra todavía la ruta nativa de affected ni criterios globales de rendimiento.
+- Documentación, revisión independiente y commit pendientes al registrar esta entrada. Aceptación formal A9 pendiente por la captura Bash ausente del host; sin registros fabricados, push ni publicación. E1 sigue abierta.

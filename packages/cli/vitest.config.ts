@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import CompactReporter from "./vitest.reporter.ts";
 import { resolveMaxWorkers } from "./vitest.workers.ts";
 
 export default defineConfig({
@@ -19,6 +20,10 @@ export default defineConfig({
     silent: "passed-only",
     // Hang detector only: slowness is policed by the per-file budget (test-budget.json, spec 0055 R30); 15 s flaked under suite load.
     testTimeout: 60_000,
+    // TTY keeps Vitest's live default; piped output (agents, CI) gets the compact
+    // reporter: one totals line when green, bounded evidence when red (spec 0055 D14).
+    // An explicit --reporter on the CLI replaces this (bench:tests, CI json report).
+    reporters: process.stdout.isTTY ? ["default"] : [new CompactReporter()],
     // Cap worker forks: the e2e specs each `spawnSync(dist/index.js)`, so at full
     // core count ~200 child processes run at once and exhaust file descriptors
     // (EMFILE/ENFILE), making the suite flaky (a manifest read then mis-reads as a
@@ -54,9 +59,9 @@ export default defineConfig({
       // `json-summary` feeds scripts/check-coverage-floor.mjs, which catches the
       // shape this aggregate cannot: a single module at 0% dilutes into ~3,300
       // statements and never moves the average.
-      // `text-summary` keeps the aggregate in the log; the per-file table (~14 KB)
-      // is recoverable from the json-summary report (#1272).
-      reporter: ["text-summary", "json-summary"],
+      // No text reporter: the floor script prints the one-line coverage totals
+      // from this report (spec 0055 R26).
+      reporter: ["json-summary"],
       thresholds: {
         // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
         // (marker, config/schema, presets, scan, skill-meta) are well covered;

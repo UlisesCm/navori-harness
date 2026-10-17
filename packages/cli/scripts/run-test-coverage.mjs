@@ -31,8 +31,10 @@ export function runCoverage(dependencies = {}) {
   let interrupted = false;
   try {
     // NAVORI_TEST_REPORT: also write Vitest's JSON report there (input of check-test-budget).
+    // The explicit --reporter replaces config's, so repeat the TTY-dependent console pick.
+    const consoleReporter = process.stdout.isTTY ? "default" : "./vitest.reporter.ts";
     const reportArgs = env.NAVORI_TEST_REPORT
-      ? ["--reporter=default", "--reporter=json", `--outputFile.json=${env.NAVORI_TEST_REPORT}`]
+      ? [`--reporter=${consoleReporter}`, "--reporter=json", `--outputFile.json=${env.NAVORI_TEST_REPORT}`]
       : [];
     const vitest = run("bun", ["x", "vitest", "run", "--coverage", ...reportArgs], {
       cwd: packageRoot,

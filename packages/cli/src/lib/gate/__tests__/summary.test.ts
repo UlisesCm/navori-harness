@@ -86,6 +86,17 @@ describe("summarizeGreen", () => {
     expect(out).toContain("Tests  5 passed (5)");
   });
 
+  // Covers: R26
+  it("verde con logs de vitest y cobertura da una línea por runner", () => {
+    const log = [
+      "Tests: 120 passed, 2 skipped (30 files) in 8.1s",
+      "Coverage: lines 80%, statements 79%, functions 81%, branches 70% (floor ok: 90 modules, 1 exceptions)",
+    ].join("\n");
+    expect(summarizeGreen(`\nnoise line\n${log}\nfinal chatter\n`).split("\n")).toEqual(
+      log.split("\n"),
+    );
+  });
+
   it("keeps jest and pytest totals", () => {
     expect(summarizeGreen(JEST_GREEN)).toContain("Tests:       0 failed, 4 passed, 4 total");
     expect(summarizeGreen(PYTEST_GREEN)).toContain("3 passed, 0 failed in 0.12s");
