@@ -114,7 +114,7 @@ receipt nativo fresco siguen pendientes.
 
 ### M7 — Perfiles efectivos y evaluación viva (T11, T12; procedencia: E4/M5)
 
-- **A9** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/plan/__tests__/plan-gate.test.ts src/lib/codex/__tests__/profile-dispatch.test.ts && cd ../.. && bun packages/cli/src/index.ts codex evaluation validate --records .navori/state/handoffs/0050-live-evaluation.json --cwd .` → el prefijo determinista debe pasar; el comando compuesto permanece pendiente hasta que el consumer de producción acepte evidencia viva actual. Coteja cada perfil requerido del inventario (principal y cada core, extra y local), modelo/esfuerzo efectivos o pending; ninguno unknown/pending pasa, la actualización aplica a trabajo nuevo y una preparación no admite dos consumidores ni cruce de rol/acción. `profile-dispatch.test.ts` existe como precursor determinista; T11 sigue exigiendo aplicación efectiva por rol y evidencia nativa actual.
+- **A9** [observable, T11] — Ejecutar exactamente `cd packages/cli && bun run test src/lib/plan/__tests__/plan-gate.test.ts src/lib/codex/__tests__/profile-dispatch.test.ts && cd ../.. && bun packages/cli/src/index.ts codex profile probe --live --cwd .` → exit 0 únicamente con evidencia nativa actual para principal y todos los roles requeridos, dispatch baseline, refresh en el siguiente dispatch y cleanup comprobado; cualquier admisión, identidad, perfil o cierre no verificable mantiene `pending` y T11 abierta. Este consumer enfocado no sustituye ni debilita R1–R18; la validación de outcomes que antes estaba acoplada al compuesto A9 se conserva en A10/T12.
 - **A10** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/codex/__tests__/outcome-evaluation.test.ts && cd ../.. && bun packages/cli/src/index.ts codex evaluation validate --records .navori/state/handoffs/0050-live-evaluation.json --cwd .` → el prefijo determinista debe pasar; el comando compuesto permanece pendiente hasta que el consumer de producción acepte los ocho outcomes vivos autenticados. Requiere protocolo por engine y escenario, con versión del host, modelo/effort efectivo o unknown, outcomes y evidencia para: (1) bugfix con regresión, (2) feature de dos módulos seguida por review, (3) resume tras cambio de evidencia/diff, (4) aprobación solicitada desde subagente. Mock/validator no prueba comportamiento vivo. Registrar fallas/reintentos y duración/consumo cuando disponibles; evidencia requerida ausente falla. `outcome-evaluation.test.ts` es futuro y lo crea T12.
 
 **Registro parcial M7 anterior a la corrección de separación:** La implementación acotada añadió consulta/inventario de perfiles, preparación metadata-only con claim exclusivo, observaciones de candidatos nativos y un evaluador diagnóstico. No hay dispatch activo de hijos ni ocho ejecuciones vivas autenticadas; preparar metadata no aplica un perfil. Esa ronda registró A9 89/89, A10 5/5, A15 47/47, A16 19/19 y tamaño de bundle 1,506,801 bytes. El A16/codec y el smoke aislado de Node 24.20.0/Bun 1.4.2 son evidencia histórica; no se volvieron a ejecutar en la corrección. Ver `evaluation.md` para límites y evidencia histórica.
@@ -137,3 +137,87 @@ receipt nativo fresco siguen pendientes.
 - [ ] **T12** (R17; transferido de E4/M5, sin cambiar su identidad) — Crear evaluación acotada y registrar outcomes comparables sin causalidad atribuida al modelo; revalidar R1–R18 mediante A10. Casos vivos: `bug-regression`, `two-module-feature-and-review`, `resume-after-state-change`, `subagent-approval-route`; suite existente `packages/cli/src/lib/codex/__tests__/outcome-evaluation.test.ts` y protocolo descrito en A10. La suite determinista no sustituye las ocho ejecuciones autenticadas. `effect: behavior`; `test: outcome-evaluation.test.ts::required-evidence-per-engine`.
 
 La revisión técnica de la corrección debe confirmar la restauración de los owners genéricos y la exactitud de los comandos de aceptación compuestos. El checkpoint borrador autorizado requiere una revisión E4 independiente del diff completo y un receipt correspondiente. La revisión de entrega debe conservar SPEC_MISS mientras falten T6/T11/T12 y los criterios vivos A9/A10/A13; no hay base para marcar esas tareas, declarar readiness final ni hacer merge.
+
+# Enmienda M7 — estado T11/A9
+
+Esta enmienda documenta la entrega parcial autorizada de T11/A9 y mantiene separados los
+trabajos T6 y T12. No cambia R1–R18 ni marca E4 cerrada.
+
+| Criterio | Estado | Evidencia actual |
+|---|---|---|
+| A18 — contrato determinista, supervisor, lifecycle, fixture MCP vacío y goldens | Cumplido (root) | Comando exacto: `cd packages/cli && bun run test src/lib/codex/__tests__/native-integration.test.ts src/lib/codex/__tests__/host-observation.test.ts src/commands/__tests__/codex-profile.test.ts && bun run test:golden`. Renovado después del guard: 137 pruebas + 5 goldens, sesión root `51893`, exit 0 y registrado por CLI source. |
+| A19 — procedencia nativa versionada | Cumplido | Comando exacto: `cd packages/cli && bun run test src/lib/handoff/__tests__/actor-provenance.test.ts` → root registró 9/9 antes de la extensión lectora; acepta headers 0.162.1 y 0.163.0 con invariantes intactas. |
+| A9 — dispatch nativo all-role más refresh y cleanup verificados | Pendiente | Comando exacto: `cd packages/cli && bun run test src/lib/plan/__tests__/plan-gate.test.ts src/lib/codex/__tests__/profile-dispatch.test.ts && cd ../.. && bun packages/cli/src/index.ts codex profile probe --live --cwd .`. Prefijo más reciente 121/121; el turno live produjo identidad `04c77226a2d6878732cbd7e6e48af08119956987aac0ff9c94856308f3225bc3` pending `native-profile-selection-or-hook-call-unverified`, un request del principal, cero children, refresh pendiente y cleanup no verificado. |
+| A20 — lector de binding review/edit con versiones nativas verificadas | Cumplido (root) | Comando exacto: `cd packages/cli && bun run test src/lib/handoff/__tests__/review-edit-binding.test.ts src/lib/handoff/__tests__/actor-provenance.test.ts && bun run test:golden` → 47/47 pruebas y 5/5 goldens, exit 0; root run sesión `13800`. La focal del implementer fue 47/47 y golden Codex 1/1. |
+| A21 — removal-parity | Cumplido (root) | Ejecución `69571`: suite removal-parity 29/29, exit 0, 8.45s; el resultado se registró mediante el CLI original compatible. No acredita la aceptación nativa A9/T11. |
+
+El artefacto `.navori/state/handoffs/t11-model-metadata-no-turn-result.json` es un diagnóstico
+separado de A21: observa en Codex 0.162.1 `gpt-6.1-sol`, `multiAgentVersion: v2` y
+`toolMode: code_mode_only`, con cero notificaciones de thread/turn y salida nativa reconocida.
+No satisface el requisito esperado V1 `close_agent`, ni prueba selección por rol o A9.
+
+**T11 permanece pendiente** hasta que una ejecución A9 propia, con baseline, refresh,
+cobertura exacta de todos los roles actuales, selección/hook nativos y cleanup verificados,
+termine sin pendientes. El reporte del modelo `blocked/tool_unavailable` no acredita causa
+ni disponibilidad. La autorización vigente deja una ejecución con turnos de hasta 180 s;
+la ejecución A9 ya consumió un turno y no se repetirá el mismo estado por un cambio de hash
+documental. T6, T12, A10 y A13 siguen pendientes; no se declara cierre de E4.
+
+La extensión del lector tiene aprobación de alcance; A20 está registrada por root y la
+revisión independiente sigue pendiente. El full run `44919` terminó por SIGINT propio, exit 130, con fallas
+anteriores conservadas; no se considera aprobado. El barrido de inventario `97331` falló
+en 55 ms (esperaba 18 rutas, encontró 19 por un extra
+`packages/cli/src/lib/codex/native-integration.ts`). Root completó A21 removal-parity 29/29
+después de ese diagnóstico; no se afirma que la ruta adicional se retirara o excluyera. No
+marcar shipping-ready, gate completo ni review aprobada por la focal del implementer o el auditor.
+
+### Estado del checkpoint parcial autorizado
+
+El usuario autorizó activar el lector original y preparar un checkpoint parcial dirigido a
+`main`, sin cerrar T11/A9. El lector exacto 0.162.1/0.163.0 se activó en el checkout
+original; build/preview/apply, validación de shell/diff y fast gate pasaron. La aplicación
+actualizó solo el mirror `.codex/hooks/role-guard.sh`, con 90 archivos sin cambios ni archivos
+Pi escritos, y preservó las reglas 0054 y los tres archivos sucios preexistentes. No hubo
+revisión nativa.
+
+El full gate que pasó exit 0 cubrió 436 archivos, 9,227 pruebas aprobadas, 2 omitidas,
+0 fallidas, cinco AST checks y piso de cobertura en 154 módulos (statements 84.37%, branches
+79.1%, functions 89.37%, lines 85.91%). Esa corrida precede al guard de refresh y es
+histórica; el full fresco del árbol actual y la review independiente siguen pendientes.
+A18 se renovó después del guard (137 pruebas + 5 goldens, sesión root `51893`, exit 0 y
+registrado); A19, A20 y A21 también constan cumplidas. El gate completo no sustituye la
+revisión independiente, receipt, commit o PR.
+
+La suite `role-guard.test.ts` particionó en 17 casos independientes el caso monolítico de
+18 payloads y dos comparaciones TypeScript. Conserva los 18 payloads y las dos comparaciones,
+añade un positivo de mismo destino antes de revocar el índice, usa el hook real fuera de
+temp y mantiene Bash/Zsh, la remoción del mismo índice físico, los otros 25 casos y el límite
+de 15 s. Los 19 payloads cruzan ambos shells: 38 invocaciones son un conteo estructural de
+fuente, no una medición nueva. El comando A22 fue `cd packages/cli && bun run test src/lib/__tests__/role-guard.test.ts src/lib/handoff/__tests__/review-edit-binding.test.ts`.
+Productor A22: 80/80 en dos archivos, ejecución `88165`, 120.35 s. Root A22: 80/80 en dos
+archivos, ejecución `68929`, 166.40 s; source CLI registró A22 cumplida (`updated: true`).
+Esto verifica la partición de pruebas, no A9/T11.
+
+El full reviewer `full-20261016T230611569Z.log` queda como rojo histórico: 9,226 aprobadas,
+1 fallida y 2 omitidas; el fallo fue timeout del caso agrupado de roles a 25,816 ms. El origen
+de ese tiempo excedido es desconocido; la instrumentación de diagnóstico no demuestra si
+fue introducido o preexistente. El nuevo resultado A22 no convierte ese full en verde. Fresh
+full, review independiente y receipt de fase 1 siguen pendientes antes del borrador de PR
+por publisher. El usuario difirió la orquestación del issue #1314; este checkpoint parcial
+no la incorpora. T11/A9, T6, T12, A10, A13 y E4 siguen pendientes.
+
+El guard vigente de refresh compara `liveProfileSnapshot.identity` inmediatamente antes del
+refresh. Si el target cambió tras baseline, devuelve `target-profile-inputs-changed` antes de
+iniciar otro turno; la prueba verifica `principalTurnRequests=1`, un único `turn/start` y
+cleanup reconocido. El caso cambiado, el paralelo pendiente y el positivo baseline+refresh
+pasaron juntos 3/3; el focal cambió de rojo a verde 1/1 sin alterar límites.
+
+T11/A9 permanece pendiente. El host mostró metadata V2 `code_mode_only`, mientras el
+escenario actual requiere V1 `close_agent`. El default de unload de 60 s hace que ocho
+cierres secuenciales requieran al menos 480 s, por encima de los 180 s autorizados; V2
+mantiene por defecto tres hijos residentes y la eviction revisada no ofrece evidencia de
+cierre aceptable. `Completed`, `NotLoaded`, archive o salida de proceso no son sustitutos.
+La unión de un hijo efímero exacto con su hook es unknown, no imposible demostrado. No hay
+implementación de aceptación V2 viable ni cambio aprobado de contrato/presupuesto. Una
+ejecución de inferencia de hasta 180 s permanece sin usar; no se hacen probes nuevos en esta
+enmienda. T6, T12, A10, A13 y E4 siguen pendientes.

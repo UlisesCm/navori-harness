@@ -1,5 +1,19 @@
 # History
 
+## 2026-10-16 17:00 codex — Prepara checkpoint parcial de perfiles efectivos T11
+
+El usuario autorizó el PR parcial de0050 E4/M7 a main y la activación del lector nativo exacto0.162.1/0.163.0 en dos archivos del checkout original. Se preservaron0054 y los hashes de tres archivos ajenos; render Node actualizó sólo role-guard,90archivos sin cambios y Pi sin escrituras. Fast original exit0 (`fast-20261016T223707004Z.log`). El diff del checkpoint añade observación y owner acotado de perfiles, herencia de architect, procedencia nativa compatible y el inventario de dos borrados privados con sus restricciones de propiedad.
+
+La renovación de A18 detectó que un cambio del target durante baseline iniciaba otro turno antes de revisar su snapshot. La corrección mínima verifica identidad antes del refresh; la regresión exige exactamente un turn/start y cleanup acknowledged. Reproducción roja antes, focal1/1 y conjunta3/3 verdes después, sin ampliar deadlines ni debilitar hooks. Root renovó A18 con137pruebas+5goldens, exit0 (sesión51893), y la registró cumplida; A19=9/9, A20=47+5goldens y A21=29/29 también están registradas. Fast del productor verde. Full anterior9227passed/2skipped/0failed (`full-20261016T210818650Z.log`) precede esta última corrección y se conserva sólo como antecedente; revisión y receipt sobre bytes finales son requisitos de publicación, no resultados anticipados de este registro.
+
+Revisión parcial independiente: SPEC_OK y preflight nativo real ok; gate full posterior `full-20261016T230611569Z.log` terminó exit1,9226passed/1failed/2skipped en1207.25s. Único fallo: timeout15000ms del caso linked-review de role-guard.test.ts,25816ms; origen no determinado. Root focal sin instrumentación pasó1/1; instrumentada repitió timeout y midió36hooks agregados. Usuario autorizó añadir ese archivo al alcance para partir el caso sin quitar controles, ambos shells ni ampliar15s. Workplan A22 agregado y render/check verdes; nueva implementación/revisión/full pendientes. Sin receipt, commit ni PR.
+
+La partición autorizada quedó en17casos, conservando18payloads previos y2checksTS; agregó un positivo sobre el mismo destino antes de retirar el índice (38hooks estructurales entre Bash/Zsh), sin alterar15s, producción ni los25casos restantes. Productor A22 pasó80/80 en120.35s y root68929 pasó80/80 en166.40s; root registró A22 cumplido. Fast fuente `fast-20261017T003515123Z.log` exit0 y diffcheck0; canónico20paths con attest nativo targetmain/checkok. Revisión/full/receipt sobre los bytes finales son requisitos de publicación, acreditados por sus propios artefactos, sin anticipar resultados en este registro. Usuario dejó la corrección de orquestación para después en issue#1314 y pidió concluir el PR parcial.
+
+El siguiente full local `full-20261017T004104079Z.log` reportó cinco fallos en CLI/escalation/doctor y seguía activo al preparar este checkpoint, sin exit/conteo final; no se atribuyó origen ni se declaró aprobado. El usuario autorizó explícitamente publicar el draft con gate local fallido y APPROVED/receipt pendientes, y aceptar el job completo quality de GitHub como gate de cierre. Es excepción de publicación a las precondiciones locales, sin omitir tests ni fabricar receipt. No hacer merge hasta CI verde y revisión final. Publisher verificó main actualizado/behind0, autenticación,26paths autorizados y diffcheck limpio.
+
+T11/A9 siguen pendientes: el catálogo privado observado usa V2/code_mode_only sin close_agent y unload60s por hijo, incompatible con cierre secuencial de ocho roles dentro180s; las alternativas estudiadas tampoco acreditaron el cierre exigido. No se modificó la aceptación ni se ejecutó inferencia real en esta continuación. Queda una ejecución <=180s reservada. T6/T12/A10/A13/E4 permanecen pendientes. El checkpoint se prepara como draft, sin merge, npm ni tag.
+
 ## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
 
 Cambios:
