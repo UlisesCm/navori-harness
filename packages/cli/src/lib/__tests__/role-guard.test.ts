@@ -187,7 +187,7 @@ describe("role-guard linked review outputs", () => {
   }
 
   it.each(["Add File", "Update File", "Delete File", "Move to"])(
-    "authorizes registered linked-worktree review outputs with %s headers",
+    "authorizes registered linked-worktree review outputs through the binding branch with %s headers",
     (header: string) => {
       const { host, thread, md, json } = linkedReviewFixture();
       const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
