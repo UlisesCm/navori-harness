@@ -1,5 +1,25 @@
 # History
 
+## 2026-10-16 17:00 codex — Prepara checkpoint parcial de perfiles efectivos T11
+
+El usuario autorizó el PR parcial de0050 E4/M7 a main y la activación del lector nativo exacto0.162.1/0.163.0 en dos archivos del checkout original. Se preservaron0054 y los hashes de tres archivos ajenos; render Node actualizó sólo role-guard,90archivos sin cambios y Pi sin escrituras. Fast original exit0 (`fast-20261016T223707004Z.log`). El diff del checkpoint añade observación y owner acotado de perfiles, herencia de architect, procedencia nativa compatible y el inventario de dos borrados privados con sus restricciones de propiedad.
+
+La renovación de A18 detectó que un cambio del target durante baseline iniciaba otro turno antes de revisar su snapshot. La corrección mínima verifica identidad antes del refresh; la regresión exige exactamente un turn/start y cleanup acknowledged. Reproducción roja antes, focal1/1 y conjunta3/3 verdes después, sin ampliar deadlines ni debilitar hooks. Root renovó A18 con137pruebas+5goldens, exit0 (sesión51893), y la registró cumplida; A19=9/9, A20=47+5goldens y A21=29/29 también están registradas. Fast del productor verde. Full anterior9227passed/2skipped/0failed (`full-20261016T210818650Z.log`) precede esta última corrección y se conserva sólo como antecedente; revisión y receipt sobre bytes finales son requisitos de publicación, no resultados anticipados de este registro.
+
+Revisión parcial independiente: SPEC_OK y preflight nativo real ok; gate full posterior `full-20261016T230611569Z.log` terminó exit1,9226passed/1failed/2skipped en1207.25s. Único fallo: timeout15000ms del caso linked-review de role-guard.test.ts,25816ms; origen no determinado. Root focal sin instrumentación pasó1/1; instrumentada repitió timeout y midió36hooks agregados. Usuario autorizó añadir ese archivo al alcance para partir el caso sin quitar controles, ambos shells ni ampliar15s. Workplan A22 agregado y render/check verdes; nueva implementación/revisión/full pendientes. Sin receipt, commit ni PR.
+
+La partición autorizada quedó en17casos, conservando18payloads previos y2checksTS; agregó un positivo sobre el mismo destino antes de retirar el índice (38hooks estructurales entre Bash/Zsh), sin alterar15s, producción ni los25casos restantes. Productor A22 pasó80/80 en120.35s y root68929 pasó80/80 en166.40s; root registró A22 cumplido. Fast fuente `fast-20261017T003515123Z.log` exit0 y diffcheck0; canónico20paths con attest nativo targetmain/checkok. Revisión/full/receipt sobre los bytes finales son requisitos de publicación, acreditados por sus propios artefactos, sin anticipar resultados en este registro. Usuario dejó la corrección de orquestación para después en issue#1314 y pidió concluir el PR parcial.
+
+El siguiente full local `full-20261017T004104079Z.log` reportó cinco fallos en CLI/escalation/doctor y seguía activo al preparar este checkpoint, sin exit/conteo final; no se atribuyó origen ni se declaró aprobado. El usuario autorizó explícitamente publicar el draft con gate local fallido y APPROVED/receipt pendientes, y aceptar el job completo quality de GitHub como gate de cierre. Es excepción de publicación a las precondiciones locales, sin omitir tests ni fabricar receipt. No hacer merge hasta CI verde y revisión final. Publisher verificó main actualizado/behind0, autenticación,26paths autorizados y diffcheck limpio.
+
+El checkpoint se commiteó como e8567865 con hooks normales y fast verde, y se verificó subido a origin/feat/0050-t11-perfiles-efectivos. El guard denegó ghprcreate por fuente de consentimiento humano autenticada ausente; la mediación quedó pending/source-unavailable, request5f8a39ae-5937-4b24-a964-0dd5069a02c0. No se reintentó la publicación ni se creó PR. Full004104079Z terminó exit1:9237passed/6failed/2skipped,1354.48s; cinco timeouts sin atribución y una regresión de título causada por la partición: hook-includes exige el prefijo antiguo. Usuario autorizó restaurar sólo esa línea y verificar consumidor/headers, manteniendo CIcomo cierre y sin full local adicional.
+
+La corrección de ancla quedó en una sola línea del título real. Consumidor reproducido rojo antes y23/23 verde después, más4/4headers; root67687 verificó23+4 y registróA23cumplido. Fast012210239Zexit0, diffcheck0 y nativeattestmain/handoffcheckok. Sin cambios a lógica, controles, timeout ni otrofull local; publicación humana y qualityCI/revisión final siguen como requisitos de cierre bajo la excepción autorizada.
+
+La revisión focal independiente confirmó SPEC_OK, ancla resuelta y sin bloqueantes de código; consumidor23/23 fresco y fast012640564Zexit0, diffcheck0. Mantiene pendientes CI completo y aprobación final, sin receipt; sello nativo validado. El ajuste se prepara como follow-up del checkpoint ya subido, conservando la ruta humana de creación del draft.
+
+T11/A9 siguen pendientes: el catálogo privado observado usa V2/code_mode_only sin close_agent y unload60s por hijo, incompatible con cierre secuencial de ocho roles dentro180s; las alternativas estudiadas tampoco acreditaron el cierre exigido. No se modificó la aceptación ni se ejecutó inferencia real en esta continuación. Queda una ejecución <=180s reservada. T6/T12/A10/A13/E4 permanecen pendientes. El checkpoint se prepara como draft, sin merge, npm ni tag.
+
 ## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
 
 Cambios:
@@ -237,3 +257,18 @@ packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.t
 ## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
 
 El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.
+
+## 2026-10-17 02:34 codex — Integra dev para desbloquear el draft parcial T11
+
+El usuario corrigió el destino del PR draft #1346 a dev. La integración de dev94047c0f conserva los cambios de T11 y resuelve el único conflicto, en un espejo model-advisor, mediante build y render; sin correcciones manuales en código fuente. Render, typecheck, assets, presupuestos, links, cinco goldens,149pruebas focales y gate fast integrado pasaron. El diff frente a dev conserva26archivos. El CI full anterior fue verde sobre6a660d72 con base main; no acredita este árbol integrado. Gate full nuevo, revisión independiente para dev y commit/push del merge siguen pendientes en este checkpoint. T11/A9 y E4 continúan abiertos; ninguna inferencia adicional.
+
+## 2026-10-17 02:48 codex — Verifica full de la integración T11 hacia dev
+
+El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas aprobadas,2omitidas y0fallidas; cobertura84.54% statements,79.30% branches,89.62% functions y86.09% lines, con piso por módulo satisfecho. El reviewer no encontró bloqueantes de código en el alcance parcial. El usuario autorizó revisar el merge preparado sin commit comprobando MERGE_HEAD==origin/dev y cero conflictos, resolviendo la contradicción entre HEADbehind y revisión previa al commit. Sellado y publicación se completan después de este registro; no se afirma merge del PR. T11/A9 y E4 permanecen pendientes.
+
+## 2026-10-17 12:11 Codex — Integra dev/T11 en 0055 y conserva las optimizaciones de la suite
+
+- Integración local de `origin/dev` (`a251417b`) en `feat/0055-suite-rapida`, con el conflicto de `profile-dispatch.test.ts` resuelto conservando validación de PID, `ESRCH` y `vi.waitFor`.
+- Compatibilidad Codex 0.162.1/0.163.0 conservada junto con las fixtures de 0055. Nombres de chunks internos sin hash: 79 archivos, 1,637,134 bytes (1598.8 KiB), bajo el límite sin cambios de 1600 KiB.
+- Verificación de la integración: 322 pruebas dirigidas, A12 desde el hilo principal (47 pruebas) y carga perezosa/superficie del CLI (3 pruebas), sin fallos. Gate scoped verde después del diseño; se verifica de nuevo antes de revisión.
+- El usuario autorizó finalmente el commit directo de integración, seguido de revisión independiente y receipt scoped, porque la política developer del reviewer impedía revisar con HEAD detrás. El commit y la revisión siguen pendientes al registrar esta entrada; sin push ni publicación. La spec 0055 sigue en curso.

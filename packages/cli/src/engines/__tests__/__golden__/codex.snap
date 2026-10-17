@@ -7884,16 +7884,25 @@ if (!finished) {
         if (result !== null && typeof result === "object" && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype && Object.keys(result).length === 0) return finish({}, 3);
         const output = result?.hookSpecificOutput;
         if (output?.hookEventName !== "PreToolUse") return finish(deny, 2);
-        if (output.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string") return finish(result, 2);
+        if (output.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string") return finish({ hookSpecificOutput: output }, 2);
         const updated = output.updatedInput;
         const input = original?.tool_input;
-        if (output.permissionDecision !== "allow" || !updated || !input || Array.isArray(updated) || Array.isArray(input) || typeof updated !== "object" || typeof input !== "object" || typeof updated.model !== "string" || !updated.model || typeof updated.reasoning_effort !== "string" || !updated.reasoning_effort) return finish(deny, 2);
+        const plain = value => value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+        const exact = (value, keys) => plain(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+        const profile = result.navoriProfile;
+        if (output.permissionDecision !== "allow" || !plain(output) || Object.keys(output).some(key => !["hookEventName", "permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"].includes(key)) || (output.additionalContext !== undefined && typeof output.additionalContext !== "string") || (output.permissionDecisionReason !== undefined && typeof output.permissionDecisionReason !== "string") || !plain(updated) || !plain(input) || !exact(result, ["hookSpecificOutput", "navoriProfile"]) || !exact(profile, ["version", "role", "model", "effort"]) || profile.version !== 1 || typeof profile.role !== "string" || !profile.role || profile.role !== input.agent_type) return finish(deny, 2);
+        for (const [field, key] of [["model", "model"], ["effort", "reasoning_effort"]]) {
+          const choice = profile[field];
+          if (choice?.kind === "set") {
+            if (!exact(choice, ["kind", "value"]) || typeof choice.value !== "string" || !choice.value || updated[key] !== choice.value) return finish(deny, 2);
+          } else if (!exact(choice, ["kind"]) || choice.kind !== "inherit" || Object.hasOwn(input, key) || Object.hasOwn(updated, key)) return finish(deny, 2);
+        }
         const keys = new Set([...Object.keys(input), ...Object.keys(updated)]);
         for (const key of keys) {
           if (key === "model" || key === "reasoning_effort") continue;
           if (JSON.stringify(input[key]) !== JSON.stringify(updated[key])) return finish(deny, 2);
         }
-        finish(result, 0);
+        finish({ hookSpecificOutput: output }, 0);
       } catch { finish(deny, 2); }
     });
     child.stdin.end(rawPayload);
@@ -10943,7 +10952,7 @@ function validate(host, output) {
       b.commonDir !== actual.commonDir || b.stateDir !== neutral || typeof b.target !== 'string' ||
       !b.target || stamp.v !== 1 || stamp.alg !== 'navori-content/v1' ||
       stamp.feature !== feature || stamp.nonce !== index.nonce) deny('invalid-binding');
-  if (!a || a.host !== 'codex' || a.version !== '0.162.1' || a.role !== 'reviewer' ||
+  if (!a || a.host !== 'codex' || !['0.162.1', '0.163.0'].includes(a.version) || a.role !== 'reviewer' ||
       a.thread !== thread || !uuid.test(a.root) || !uuid.test(a.parent) ||
       !hex.test(a.sourceHash) || checkout(a.sourceCwd) !== host.checkout) deny('wrong-native-actor');
   const owner = json(path.join(state, `ownership_${feature}.json`));
@@ -10951,7 +10960,7 @@ function validate(host, output) {
       owner.handoff !== stamp.ownership || !hex.test(stamp.ownership) ||
       owner.fingerprint !== stamp.fingerprint || owner.base !== stamp.base ||
       !Array.isArray(owner.actors) || !owner.actors.length ||
-      owner.actors.some((p) => p.host !== 'codex' || p.version !== '0.162.1' ||
+      owner.actors.some((p) => p.host !== 'codex' || !['0.162.1', '0.163.0'].includes(p.version) ||
         !['implementer', 'scribe'].includes(p.role) || !uuid.test(p.thread) ||
         p.root !== a.root || p.thread === thread)) deny('ownership-mismatch');
   const handoff = path.join(state, `impl_${feature}.json`);

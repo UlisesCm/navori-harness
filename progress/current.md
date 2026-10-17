@@ -1,11 +1,11 @@
 # Sesión actual
 
-**Estado:** PR draft #1328 en `release/0.12.1`; integración revisada y aprobada, pendiente del publisher. Integra el fix #1329 de `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1.
+**Estado:** cierre local de la integración de dev/T11 en 0055 sobre `a251417b`, preservando las optimizaciones de la suite. Rama `feat/0055-suite-rapida`.
 
-El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos.
+El conflicto de perfil conserva validación de PID, `ESRCH` y espera por condición. Compatibilidad Codex 0.162.1/0.163.0 y fixtures de 0055 preservadas. Bundle de 1598.8 KiB, 79 chunks, límite de 1600 KiB intacto. Verificación: 322 pruebas dirigidas, A12 (47), carga perezosa/superficie (3) y gate scoped verdes.
 
-T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes.
+El usuario autorizó expresamente este orden de cierre: commit directo de integración, revisión independiente y receipt scoped. No autoriza push, merge del PR ni publicación.
 
 ## Siguiente paso
 
-Publisher: crear el commit, hacer push y actualizar el draft #1328. Todavía no hay commit ni push de esta integración; no hacer merge, publicación npm ni tag.
+Verificar review/receipt de `0055-suite-rapida-e1` antes de retomar los milestones pendientes de 0055. La spec completa y la implementación M3 del worktree de hooks no se dan por concluidas con esta integración.

@@ -50,6 +50,103 @@ export interface NativeProfileCandidate {
   readonly model: string;
   readonly effort: string;
   readonly agentPath: string;
+  readonly intent: NativeProfileIntent;
+}
+
+const selectionIntent = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("set"), value: z.string().min(1) }),
+  z.strictObject({ kind: z.literal("inherit") }),
+]);
+/** Requested field intent preserves native inheritance without asserting an effective pair. */
+export const nativeProfileIntent = z.strictObject({
+  model: selectionIntent,
+  effort: selectionIntent,
+});
+/** Per-field requested selection, kept distinct from native resolved values. */
+export type NativeProfileIntent = z.infer<typeof nativeProfileIntent>;
+
+/** Only explicit diagnostic-free inheritance can omit a field; unresolved/null values alone never suffice. */
+export function profileSelectionIntent(row: CodexProfileProjection): NativeProfileIntent {
+  if (row.diagnostics.length) throw new Error("ambiguous-profile-selection-intent");
+  const field = (name: "model" | "effort"): z.infer<typeof selectionIntent> => {
+    const value = row[name];
+    if (value.wouldRender) return { kind: "set", value: value.wouldRender };
+    if (
+      value.origin === "inherited" &&
+      value.configured === null &&
+      value.wouldRender === null &&
+      row.rendered?.[name] === null
+    )
+      return { kind: "inherit" };
+    throw new Error("missing-or-ambiguous-profile-selection-intent");
+  };
+  return { model: field("model"), effort: field("effort") };
+}
+
+/** Fixed hook context is meaningful only inside a verified owned native hook completion. */
+export const profileProbeHookContext = z.strictObject({
+  probe: z.uuid(),
+  checkout: z.string().min(1),
+  session: z.string().min(1),
+  call: z.string().min(1),
+  role: z.string().min(1),
+  model: selectionIntent,
+  effort: selectionIntent,
+  catalog: z.string().regex(/^[a-f0-9]{64}$/),
+  configuration: z.string().regex(/^[a-f0-9]{64}$/),
+  inventory: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+/** Source-checked candidates; a caller/imported event array is never an owned observation. */
+export function nativeProfileHookCalls(
+  messages: readonly unknown[],
+  expected: { probe: string; checkout: string; sourcePath: string; principal: string },
+): z.infer<typeof profileProbeHookContext>[] {
+  const completion = z.object({
+    method: z.literal("hook/completed"),
+    params: z.object({
+      threadId: z.literal(expected.principal),
+      run: z.object({
+        id: z.string().min(1),
+        source: z.literal("project"),
+        sourcePath: z.literal(expected.sourcePath),
+        eventName: z.literal("preToolUse"),
+        handlerType: z.literal("command"),
+        executionMode: z.literal("sync"),
+        status: z.literal("completed"),
+        entries: z.array(z.object({ kind: z.string(), text: z.string() })),
+      }),
+    }),
+  });
+  const seen = new Set<string>();
+  const result: z.infer<typeof profileProbeHookContext>[] = [];
+  for (const message of messages) {
+    const parsed = completion.safeParse(message);
+    if (!parsed.success) continue;
+    const run = parsed.data.params.run;
+    for (const entry of run.entries) {
+      if (entry.kind !== "context" || !entry.text.startsWith("navori-profile-probe:")) continue;
+      try {
+        const context = profileProbeHookContext.parse(
+          JSON.parse(entry.text.slice("navori-profile-probe:".length)) as unknown,
+        );
+        if (
+          context.probe !== expected.probe ||
+          context.checkout !== expected.checkout ||
+          context.session !== expected.principal
+        )
+          continue;
+        // One native call has exactly one hook completion, including duplicate/conflicting runs.
+        if (seen.has(run.id) || seen.has(`call:${context.call}`)) return [];
+        seen.add(run.id);
+        seen.add(`call:${context.call}`);
+        result.push(context);
+      } catch {
+        // Other hook output cannot supply a profile identity.
+      }
+    }
+  }
+  return result;
 }
 
 const nativeItem = z.object({
@@ -69,8 +166,8 @@ const spawnItem = z.object({
   tool: z.literal("spawnAgent"),
   senderThreadId: z.string().min(1),
   receiverThreadIds: z.array(z.string().min(1)).min(1),
-  model: z.string().min(1),
-  reasoningEffort: z.string().min(1),
+  model: z.string().min(1).nullable().optional(),
+  reasoningEffort: z.string().min(1).nullable().optional(),
   status: z.literal("completed"),
 });
 const activityItem = z.object({
@@ -88,6 +185,13 @@ export function nativeProfileCandidates(
   rows: readonly CodexProfileProjection[],
   principal: string,
   messages: readonly unknown[],
+  parentSelection?: {
+    context: string;
+    model: string;
+    effort: string;
+    unchanged: boolean;
+    defaultsKnown: boolean;
+  },
 ): NativeProfileCandidate[] {
   const threads: z.infer<typeof childThread>["thread"][] = [];
   const calls: z.infer<typeof spawnItem>[] = [];
@@ -163,22 +267,34 @@ export function nativeProfileCandidates(
       const target = row.length === 1 ? row[0] : undefined;
       const call = uniqueCalls.length === 1 ? uniqueCalls[0] : undefined;
       const activity = uniqueActivities.length === 1 ? uniqueActivities[0] : undefined;
+      let intent: NativeProfileIntent | undefined;
+      try {
+        if (target) intent = profileSelectionIntent(target);
+      } catch {
+        /* Invalid projection stays pending. */
+      }
+      const inherited = intent?.model.kind === "inherit" && intent.effort.kind === "inherit";
+      const expectedModel =
+        intent?.model.kind === "set" ? intent.model.value : parentSelection?.model;
+      const expectedEffort =
+        intent?.effort.kind === "set" ? intent.effort.value : parentSelection?.effort;
       if (
         !target ||
         target.diagnostics.length ||
         !call ||
         !activity ||
-        activity.id !== call.id ||
+        !intent ||
+        (inherited &&
+          (!parentSelection?.unchanged ||
+            !parentSelection.defaultsKnown ||
+            parentSelection.context !== thread.parentThreadId)) ||
+        (!inherited && (intent.model.kind === "inherit" || intent.effort.kind === "inherit")) ||
         conflicts.has(`call:${call.id}`) ||
         conflicts.has(`activity:${activity.id}`) ||
-        call.model !==
-          (target.model.wouldRender ??
-            (target.origin === "local" ? target.rendered?.model : null)) ||
-        call.reasoningEffort !==
-          (target.effort.wouldRender ??
-            (target.origin === "local" ? target.rendered?.effort : null)) ||
-        activity.model !== call.model ||
-        activity.reasoningEffort !== call.reasoningEffort
+        (call.model != null && call.model !== expectedModel) ||
+        (call.reasoningEffort != null && call.reasoningEffort !== expectedEffort) ||
+        activity.model !== expectedModel ||
+        activity.reasoningEffort !== expectedEffort
       )
         continue;
       result.push(
@@ -191,6 +307,7 @@ export function nativeProfileCandidates(
           model: activity.model,
           effort: activity.reasoningEffort,
           agentPath: activity.agentPath,
+          intent,
         }),
       );
       known.add(thread.id);

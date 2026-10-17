@@ -158,9 +158,11 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   — R14
 - `packages/cli/src/index.ts`. Queda como entrada: workers de avisos, `runUpdateNotice` y
   `runMain(main)`. Ya no importa ningún `commands/*`. — R14, R15
-- `packages/cli/tsdown.config.ts`. `codeSplitting` pasa a activo con `chunkFileNames: "[name]-[hash].js"`
+- `packages/cli/tsdown.config.ts`. `codeSplitting` pasa a activo con `chunkFileNames: "[name].js"`
   en la raíz de `dist/`, para que `bundled-assets.ts` (`HERE`) siga resolviendo `dist/assets/` y
-  `dist/../package.json`. — R14
+  `dist/../package.json`. El build integrado conserva el límite de 1600 KiB, los 79 chunks, el
+  layout raíz y el grafo perezoso; eliminar los hashes repetidos ahorra 3326 bytes (de 1640460 a
+  1637134). — R14
 - `packages/cli/scripts/check-bundle-size.mjs`. Mide la suma de `dist/*.js`, no solo `index.js`. — R14
 - `packages/cli/src/__tests__/cli-lazy-load.test.ts` (nuevo). Lee `dist/`: `index.js` no importa
   estáticamente ningún chunk de `commands/*`, y la clausura estática de cada chunk de subcomando no

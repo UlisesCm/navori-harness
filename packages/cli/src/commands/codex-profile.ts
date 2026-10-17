@@ -11,6 +11,7 @@ import {
 import {
   observeNativeProfiles,
   preflightNativeProfileProbe,
+  runNativeProfileProbe,
 } from "../lib/codex/native-integration.ts";
 
 /** Bounded stdin JSON; the fixed hook entry point never accepts a command or an imported observation. */
@@ -58,16 +59,25 @@ export const codexProfileCommand = defineCommand({
     probe: defineCommand({
       meta: {
         description:
-          "Consume and preflight one fixed profile scenario; unsupported controls refuse before inference",
+          "Preflight a fixed profile scenario, or explicitly verify native dispatch in an isolated fixture",
       },
       args: {
         cwd: { type: "string", description: "Project checkout for fixed read-only preflight" },
+        live: {
+          type: "boolean",
+          description:
+            "Authorize the fixed native profile scenario in an isolated opted-in fixture",
+        },
       },
       async run({ args }) {
-        const input = z.object({ cwd: z.string().optional() }).parse(args);
-        const result = await preflightNativeProfileProbe(resolve(input.cwd ?? process.cwd()));
+        const input = z
+          .object({ cwd: z.string().optional(), live: z.boolean().optional() })
+          .parse(args);
+        const result = input.live
+          ? await runNativeProfileProbe(resolve(input.cwd ?? process.cwd()))
+          : await preflightNativeProfileProbe(resolve(input.cwd ?? process.cwd()));
         process.stdout.write(`${JSON.stringify(result)}\n`);
-        process.exitCode = 1;
+        if (result.status !== "completed") process.exitCode = 1;
       },
     }),
     hook: defineCommand({

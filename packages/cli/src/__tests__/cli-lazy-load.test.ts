@@ -43,8 +43,17 @@ const KNOWN_COUPLINGS = new Set([
   "master -> render",
 ]);
 
-/** `init-vjTQ220X.js` -> `init` (the hash is the last 8 characters before `.js`). */
-const chunkName = (file: string): string => file.replace(/-[\w-]{8}\.js$/, "");
+/** Prefer actual command names, then resolve the bundler's numeric collision suffixes. */
+function chunkName(file: string, commands: ReadonlySet<string>): string {
+  const name = file.replace(/\.js$/, "");
+  if (commands.has(name)) return name;
+  let base = name;
+  while (/\d$/.test(base)) {
+    base = base.slice(0, -1);
+    if (commands.has(base)) return base;
+  }
+  return name;
+}
 
 function matches(file: string, pattern: RegExp): string[] {
   return [...readFileSync(join(dist, file), "utf8").matchAll(pattern)].map((m) => m[1] as string);
@@ -73,6 +82,9 @@ describe("cli lazy load", () => {
       (m) => m[1] as string,
     );
     expect(lazyFiles.length).toBeGreaterThan(0);
+    const commandNames = new Set(
+      lazyFiles.map((file: string): string => file.replace(/\.ts$/, "")),
+    );
     for (const file of lazyFiles) expect(existsSync(join(src, "commands", file))).toBe(true);
     expect(cliSource).not.toMatch(/^import .* from "\.\/commands\//m);
 
@@ -95,7 +107,7 @@ describe("cli lazy load", () => {
     for (const target of targets) {
       for (const reached of staticClosure(target)) {
         if (reached === target || !targets.includes(reached)) continue;
-        const edge = `${chunkName(target)} -> ${chunkName(reached)}`;
+        const edge = `${chunkName(target, commandNames)} -> ${chunkName(reached, commandNames)}`;
         if (!KNOWN_COUPLINGS.has(edge)) coupled.push(edge);
       }
     }

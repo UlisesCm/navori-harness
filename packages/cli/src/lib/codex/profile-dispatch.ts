@@ -3,7 +3,12 @@ import { readFileSync, openSync, closeSync, writeSync, ftruncateSync, fsyncSync 
 import { join } from "node:path";
 import { z } from "zod";
 import { readConfig } from "../config/config.ts";
-import { readNativeProfileView, type NativeProfileView } from "./host-observation.ts";
+import {
+  readNativeProfileView,
+  profileSelectionIntent,
+  type NativeProfileView,
+  type NativeProfileIntent,
+} from "./host-observation.ts";
 import {
   ensureStateDirectory,
   resolveStateRoot,
@@ -137,11 +142,13 @@ export async function claimCodexProfile(
 export type ProfileHookOutput =
   | Record<string, never>
   | {
+      navoriProfile?: NativeProfileIntent & { version: 1; role: string };
       hookSpecificOutput: {
         hookEventName: "PreToolUse";
         permissionDecision: "allow" | "deny";
         permissionDecisionReason?: string;
         updatedInput?: Record<string, unknown>;
+        additionalContext?: string;
       };
     };
 
@@ -211,9 +218,30 @@ export async function consumeCodexProfileHook(
     const before = await readNativeProfileView(root.cwd, undefined, deadline);
     const target = before.rows.find((row) => row.nativeName === role);
     if (target?.scope !== "subagent") throw new Error("profile-child-role-required");
-    const pair = requestedPair(before, role);
+    if (before.rows.filter((row) => row.nativeName === role).length !== 1)
+      throw new Error("ambiguous-native-profile-role");
+    const intent = profileSelectionIntent(target);
+    for (const [field, native] of [
+      ["model", "model"],
+      ["effort", "reasoning_effort"],
+    ] as const) {
+      if (intent[field].kind === "inherit" && Object.hasOwn(input, native))
+        throw new Error("explicit-call-conflicts-with-profile-inheritance");
+    }
+    const { model, effort } = intent;
+    if (
+      !before.catalog.models.some(
+        (entry) =>
+          (model.kind === "inherit" || entry.model === model.value) &&
+          (effort.kind === "inherit" || entry.efforts.includes(effort.value)),
+      )
+    )
+      throw new Error("profile-selection-not-in-current-catalog");
     const current = await readNativeProfileView(root.cwd, undefined, deadline);
-    const next = requestedPair(current, role);
+    const nextRow = current.rows.find((row) => row.nativeName === role);
+    if (!nextRow || current.rows.filter((row) => row.nativeName === role).length !== 1)
+      throw new Error("ambiguous-native-profile-role");
+    const next = profileSelectionIntent(nextRow);
     const catalog = canonicalAction(before.catalog.models);
     if (
       Date.now() >= deadline ||
@@ -221,8 +249,7 @@ export async function consumeCodexProfileHook(
       before.configuration !== current.configuration ||
       before.inventory !== current.inventory ||
       catalog !== canonicalAction(current.catalog.models) ||
-      pair.model !== next.model ||
-      pair.effort !== next.effort
+      canonicalAction(intent) !== canonicalAction(next)
     )
       throw new Error("profile-hook-current-inputs-changed-or-deadline");
     const record = JSON.stringify({
@@ -235,17 +262,39 @@ export async function consumeCodexProfileHook(
       queries: current.catalog.queries,
       catalogContext: current.catalog.context,
       checkedAt: current.catalog.checkedAt,
-      ...pair,
+      selection: intent,
       status: "candidate-rewrite; effective-selection-pending",
     });
     ftruncateSync(fd, 0);
     writeSync(fd, record, 0, "utf8");
     fsyncSync(fd);
     return {
+      navoriProfile: { version: 1, role, ...intent },
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "allow",
-        updatedInput: { ...input, model: pair.model, reasoning_effort: pair.effort },
+        updatedInput: {
+          ...input,
+          ...(intent.model.kind === "set" ? { model: intent.model.value } : {}),
+          ...(intent.effort.kind === "set" ? { reasoning_effort: intent.effort.value } : {}),
+        },
+        ...(z.uuid().safeParse(process.env.NAVORI_CODEX_PROFILE_PROBE).success
+          ? {
+              additionalContext: `navori-profile-probe:${JSON.stringify({
+                probe: process.env.NAVORI_CODEX_PROFILE_PROBE,
+                checkout: root.cwd,
+                session: envelope.session_id,
+                call: envelope.tool_use_id,
+                role,
+                ...intent,
+                catalog: createHash("sha256")
+                  .update(JSON.stringify(current.catalog.models))
+                  .digest("hex"),
+                configuration: current.configuration,
+                inventory: current.inventory,
+              })}`,
+            }
+          : {}),
       },
     };
   } catch {

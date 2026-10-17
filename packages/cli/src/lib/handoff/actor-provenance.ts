@@ -32,7 +32,7 @@ export const NativeActorSchema = z.strictObject({
   root: id,
   parent: id,
   role: z.enum(["implementer", "scribe", "reviewer"]),
-  version: z.literal("0.162.1"),
+  version: z.enum(["0.162.1", "0.163.0"]),
   sourceCwd: z.string(),
   sourceHash: z.string(),
 });
@@ -43,7 +43,7 @@ const HeaderSchema = z.object({
     id,
     session_id: id,
     parent_thread_id: id,
-    cli_version: z.literal("0.162.1"),
+    cli_version: NativeActorSchema.shape.version,
     cwd: z.string(),
     agent_role: NativeActorSchema.shape.role,
     source: z.object({

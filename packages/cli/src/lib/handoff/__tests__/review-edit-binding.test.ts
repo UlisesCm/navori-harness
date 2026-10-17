@@ -43,6 +43,7 @@ const parent = "10000000-0000-0000-0000-000000000001";
 const producer = "10000000-0000-0000-0000-000000000002";
 const reviewer = "10000000-0000-0000-0000-000000000003";
 const otherReviewer = "10000000-0000-0000-0000-000000000004";
+const scribe = "10000000-0000-0000-0000-000000000005";
 const state = (name: string): string => join(target, ".navori/state/handoffs", name);
 const output = (ext = "md"): string => state(`review_demo.${ext}`);
 const options = () => ({ cwd: target, feature: "demo", target: "main", gate: "" });
@@ -55,7 +56,7 @@ function change(file: string, mutate: (body: Record<string, unknown>) => void): 
   mutate(body);
   writeFileSync(file, JSON.stringify(body));
 }
-function actor(thread: string, role: string): void {
+function actor(thread: string, role: string, version: string = "0.162.1"): void {
   vi.stubEnv("CODEX_THREAD_ID", thread);
   writeFileSync(
     join(dir, "sessions/2026/10/15", `${thread}.jsonl`),
@@ -65,7 +66,7 @@ function actor(thread: string, role: string): void {
         id: thread,
         session_id: parent,
         parent_thread_id: parent,
-        cli_version: "0.162.1",
+        cli_version: version,
         cwd: host,
         agent_role: role,
         source: { subagent: { thread_spawn: { parent_thread_id: parent, agent_role: role } } },
@@ -149,6 +150,53 @@ afterEach(() => {
 });
 
 describe("native review edit binding", () => {
+  // Covers: R18
+  it.each([
+    ["0.162.1", "0.162.1"],
+    ["0.162.1", "0.163.0"],
+    ["0.163.0", "0.162.1"],
+    ["0.163.0", "0.163.0"],
+  ])(
+    "binds reviewer %s with implementer %s and a mixed-version scribe",
+    (reviewerVersion: string, producerVersion: string) => {
+      actor(producer, "implementer", producerVersion);
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      const scribeVersion = producerVersion === "0.162.1" ? "0.163.0" : "0.162.1";
+      actor(scribe, "scribe", scribeVersion);
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor(reviewer, "reviewer", reviewerVersion);
+      nonce = begin();
+      expect(read(stamp()).reviewer).toMatchObject({ thread: reviewer, version: reviewerVersion });
+      expect(read(state("ownership_demo.json")).actors).toMatchObject([
+        { role: "implementer", version: producerVersion },
+        { role: "scribe", version: scribeVersion },
+      ]);
+      expect(check()).toEqual({ status: "ok", reason: "bound-review-output" });
+      expect(preflight()).toEqual(check());
+    },
+  );
+
+  // Covers: R18
+  it.each(
+    ["0.162.0", "0.163.1", "0.164.0"].flatMap((version: string) => [
+      ["reviewer", version],
+      ["producer", version],
+    ]),
+  )("denies unverified %s version %s through both readers", (kind: string, version: string) => {
+    if (kind === "reviewer")
+      change(stamp(), (body: Record<string, unknown>) => {
+        (body.reviewer as Record<string, unknown>).version = version;
+      });
+    else
+      change(state("ownership_demo.json"), (body: Record<string, unknown>) => {
+        (body.actors as Record<string, unknown>[])[0]!.version = version;
+      });
+    expect(check()).toEqual({
+      status: "error",
+      reason: kind === "reviewer" ? "wrong-native-actor" : "ownership-mismatch",
+    });
+    expect(preflight()).toEqual(check());
+  });
   it("publishes an exact thread pointer and shares decisions with the read-only preflight", () => {
     expect(read(index())).toEqual({ v: 1, thread: reviewer, feature: "demo", nonce });
     expect(read(stamp()).editBinding).toMatchObject({
@@ -265,10 +313,10 @@ describe("native review edit binding", () => {
       },
     ],
     [
-      "unsupported native version",
+      "invalid reviewer parent",
       "stamp",
       (b: Record<string, unknown>) => {
-        (b.reviewer as Record<string, unknown>).version = "0.163.0";
+        (b.reviewer as Record<string, unknown>).parent = "not-a-native-thread";
       },
     ],
     [
@@ -276,6 +324,27 @@ describe("native review edit binding", () => {
       "stamp",
       (b: Record<string, unknown>) => {
         (b.reviewer as Record<string, unknown>).sourceCwd = target;
+      },
+    ],
+    [
+      "producer role",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.role = "reviewer";
+      },
+    ],
+    [
+      "producer root",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.root = otherReviewer;
+      },
+    ],
+    [
+      "reviewer producer independence",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.thread = reviewer;
       },
     ],
     [

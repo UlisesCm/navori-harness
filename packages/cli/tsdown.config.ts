@@ -19,7 +19,7 @@ export default defineConfig({
   plugins: [bundleRenderDataPlugin(), bundleCommentsPlugin()],
   outputOptions: {
     entryFileNames: "index.js",
-    chunkFileNames: "[name]-[hash].js",
+    chunkFileNames: "[name].js",
     comments: { legal: true, annotation: false, jsdoc: false },
   },
 });

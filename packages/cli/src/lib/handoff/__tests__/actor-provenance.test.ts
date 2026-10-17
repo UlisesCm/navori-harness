@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attestHandoff, nativeActor } from "../actor-provenance.ts";
+import { attestHandoff, nativeActor, NativeActorSchema } from "../actor-provenance.ts";
 import { beginReview, correlateReview, sealReview } from "../review-evidence.ts";
 import { ReviewSidecarSchema } from "../review-schema.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
@@ -101,17 +101,29 @@ afterEach(() => {
 
 describe("native delivery ownership", () => {
   // Covers: R5
-  it("requires the own supported native role and rejects conflicts, missing and unsupported headers", () => {
-    expect(nativeActor(cwd)?.role).toBe("implementer");
-    actor(producerId, "implementer", { cli_version: "0.163.0" });
-    expect(nativeActor(cwd)).toBeUndefined();
-    actor(producerId, "implementer", { agent_role: "reviewer" });
-    expect(nativeActor(cwd)).toBeUndefined();
-    actor(producerId, "implementer", { parent_thread_id: reviewerId });
-    expect(nativeActor(cwd)).toBeUndefined();
-    vi.stubEnv("CODEX_THREAD_ID", reviewerId);
-    expect(nativeActor(cwd)).toBeUndefined();
-  });
+  it.each(["0.162.1", "0.163.0"])(
+    "requires the own supported %s native role and rejects conflicting/missing headers",
+    (version: string) => {
+      actor(producerId, "implementer", { cli_version: version });
+      expect(nativeActor(cwd)?.role).toBe("implementer");
+      expect(NativeActorSchema.parse(nativeActor(cwd)).version).toBe(version);
+      actor(producerId, "implementer", { cli_version: version, agent_role: "reviewer" });
+      expect(nativeActor(cwd)).toBeUndefined();
+      actor(producerId, "implementer", { cli_version: version, parent_thread_id: reviewerId });
+      expect(nativeActor(cwd)).toBeUndefined();
+      vi.stubEnv("CODEX_THREAD_ID", reviewerId);
+      expect(nativeActor(cwd)).toBeUndefined();
+    },
+  );
+  // Covers: R5
+  it.each(["0.162.0", "0.163.1", "0.164.0", "1.0.0"])(
+    "does not admit unverified native version %s",
+    (version: string) => {
+      actor(producerId, "implementer", { cli_version: version });
+      expect(nativeActor(cwd)).toBeUndefined();
+      expect(NativeActorSchema.shape.version.safeParse(version).success).toBe(false);
+    },
+  );
   // Covers: R5
   it("binds producer delivery, accepts a fresh independent reviewer and rejects handoff/diff drift at every consumer", () => {
     const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
