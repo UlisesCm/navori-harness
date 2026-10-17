@@ -4,7 +4,7 @@
 
 Integración de dev94047c0f resuelta: único conflicto en espejo model-advisor Claude, regenerado desde fuentes; sin correcciones manuales en código fuente. Render, typecheck, assets, presupuestos, links, cinco goldens y149pruebas focales pasaron. Fast integrado exit0.
 
-Gate full del árbol integrado terminó exit0 el2026-10-17 08:47 UTC:452archivos,9,549pruebas aprobadas,2omitidas,0fallidas; cobertura84.54% statements,79.30% branches,89.62% functions,86.09% lines. La revisión del código no encontró bloqueantes. El sellado final y la publicación se verifican en el PR; no inferirlos de este checkpoint. El CI hacia dev ejecuta sólo fast y no sustituye este full.
+Gate full del árbol integrado terminó exit0 el2026-10-17 08:47 UTC:452archivos,9,549pruebas aprobadas,2omitidas,0fallidas; cobertura84.54% statements,79.30% branches,89.62% functions,86.09% lines. La revisión del código no encontró bloqueantes. El sellado final y la publicación se verifican en el PR; no inferirlos de este checkpoint. El workflow integrado de dev también ejecuta el job completo quality; su resultado se verifica en el PR.
 
 ## Siguiente paso
 
