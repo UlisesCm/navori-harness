@@ -1,0 +1,99 @@
+# Suite rápida — Tasks
+
+**Estado:** borrador para aprobación. Una sola entrega (E1), un PR contra `dev` con un commit por
+milestone. El LOC es una estimación, no una medición.
+
+Correspondencia con `design.md` § "Milestone order": M1 = M0 (Medición), M2 = M1 (Hermético),
+M3–M6 = M2a–M2d (Hooks), M7 = M3 (CLI perezoso), M8 = M4 (Suite), M9 = M5 (Tokens), M10 = M6 (CI),
+M11 = M7 (Cierre).
+
+Reglas de ejecución:
+- Workplan de la entrega: `0055-suite-rapida-e1`; `tasks.md` es el tracking canónico.
+- Un `A<n>` nunca corre la suite completa en primer plano. `bench:tests` se corre aparte, con la
+  máquina libre (`pgrep -fl vitest` vacío), y el `A<n>` lee su `latest.json`. Una medición marcada
+  `comparable: false` no cierra un `A<n>`.
+- Cada prueba nueva lleva `// Covers: R<n>`. Los casos nombrados son planeados; los archivos nuevos se
+  crean en el milestone que los nombra.
+- Los hooks y `core-assets` se editan en la fuente (`packages/core/core-assets`) y los espejos se
+  regeneran con `navori render --apply`, nunca a mano. Los milestones que los tocan corren además
+  `bun run test:golden`, `bun run check:assets`, `bun run check:render` y `bun run check:doc-budgets`.
+- M3–M6 tocan un área crítica: un commit por mecanismo, con `hook-verdict-replay` verde en cada uno.
+- Los milestones intermedios corren `qualityGate.scoped` más sus `A<n>`; el cierre (M11) corre
+  `bun check` completo y un reviewer fresco.
+- M5 (R12) y M7 (R14) son condicionales: si su compuerta no se cumple, el milestone se retira de la
+  entrega, se registra en `design.md` y su `R<n>` queda marcado como diferido.
+
+## E1 — Tests herméticos, hooks y CLI más baratos, suite más rápida y menos tokens
+Estimated LOC: 6200
+
+### M1 — Medición y línea base
+- **A1** [observable] — los tres bench corren, el corpus y el golden de CLI quedan capturados desde la base y la línea base en reposo queda registrada · `bun run bench:hooks --report-only && bun run bench:context && node scripts/js/hook-verdict-replay.mjs --coverage` → exit 0; `design.md` § "Línea base y resultado" con la columna M0 llena desde un `latest.json` con `comparable: true`
+- [ ] **T1** (R1) — `packages/cli/vitest.setup.ts`: el wrapper de `child_process` envuelve `spawn`, `spawnSync`, `exec`, `execFile`, `execFileSync`, `execSync` y `fork`, conserva `util.promisify.custom` y, con `NAVORI_BENCH_PROC_DIR`, escribe `{ file, spawns }` en `afterAll` · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"el wrapper cuenta spawns por archivo sin romper promisify"
+- [ ] **T2** (R1, R2) — `packages/cli/scripts/bench-tests.mjs` (`summarizeReport`, `main`): une `files[].spawns` y `sumSpawns`, registra `workers` y calcula `comparable` con la carga de 1 minuto al inicio frente al número de workers · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench:tests marca no comparable con carga inicial mayor que los workers"
+- [ ] **T3** (R3) — `scripts/js/bench-hooks.mjs`: `navori` del PATH apunta al `dist/` local, escenarios de auditoría `absent`/`root`/`active`, pasada de conteo con shims separada de la de tiempo, resultado por engine (Claude, Codex, Pi) con mediana y `execs` por programa · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench:hooks reporta execs por programa y escenario de auditoría"
+- [ ] **T4** (R4) — `scripts/js/bench-context.mjs` y script `bench:context`: bytes de `SessionStart` (Claude y Codex), de la salida de cada hook con los payloads del bench, de `navori gate fast --force` en verde y de `test:affected --files` en verde y en rojo · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench:context mide bytes por fuente"
+- [ ] **T5** (R13) — captura del corpus de veredictos dentro de los helpers de hook (`hook-batch.ts`, `runHook`) con `NAVORI_HOOK_CORPUS=<dir>`, con salida esperada en auditoría apagada y activa, más `scripts/js/hook-verdict-replay.mjs` (replay y `--coverage` por hook) · effect: behavior · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"el replay falla en el primer caso cuyo exit, stdout o stderr difiere"
+- [ ] **T6** (R15) — `packages/cli/src/__tests__/fixtures/cli-surface.golden.json` capturado desde el `dist/` de la base (`--version`, `--help`, `<sub> --help`, comando desconocido) y `cli-surface.test.ts` que lo compara · effect: tests · test: `packages/cli/src/__tests__/cli-surface.test.ts`::"la superficie del CLI coincide con el golden de la base"
+- [ ] **T7** (R14, R24) — `scripts/js/probe-lazy-load.mjs` (ahorro de cargar solo el chunk de `tools` y de `plan` frente al bundle completo) y `scripts/js/test-import-graph.mjs` (fan-in de tests por módulo para la regla de hub) · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"probe de carga perezosa y grafo de imports sobre fixtures"
+- [ ] **T8** (R29) — tres corridas de `bench:tests` en reposo y una de `bench:hooks` y `bench:context`; llena la columna M0 de `design.md` § "Línea base y resultado" · effect: docs · test: `specs/0055-suite-rapida/design.md`::"Línea base y resultado"
+
+### M2 — Tests herméticos
+- **A2** [observable] — los hijos de la suite no ven auditoría ni configuración git del usuario, y la regla estática caza el home real · `cd packages/cli && bun run test src/__tests__/temp-lifecycle.test.ts src/__tests__/hermetic-env.test.ts && cd ../.. && bun run check:ast` → exit 0, 0 failed
+- [ ] **T9** (R5, R6) — `packages/cli/vitest.tempLifecycle.ts` (`createTempFile`, `environmentKeys`): `NAVORI_AUDITS_ROOT` inexistente, `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` vacío, `GIT_TEMPLATE_DIR` mínimo, `XDG_CONFIG_HOME`; borra `GIT_*` heredados y las claves de sesión de Claude y de auditoría; todo se restaura en `dispose` · effect: behavior · test: `packages/cli/src/__tests__/hermetic-env.test.ts`::"git config --list no muestra orígenes fuera del root temporal"
+- [ ] **T10** (R5) — `packages/cli/src/__tests__/helpers/hermetic-env.ts` (`auditsUnderHome`) y censo y arreglo de los tests que siembran `$HOME/.navori/audits` o esperan `.git/hooks/*.sample` · effect: tests · test: `packages/cli/src/__tests__/hermetic-env.test.ts`::"auditsUnderHome devuelve la raíz de auditoría bajo HOME"
+- [ ] **T11** (R7) — `ast-grep/rules/no-real-home-in-tests.yml` (ast-grep) con allowlist explícita y motivo, y sus tests de regla · effect: behavior · test: `ast-grep/rule-tests/no-real-home-in-tests-test.yml`::"userInfo y rutas literales bajo /Users o /home fuera de la allowlist"
+- [ ] **T12** (R29) — re-medición tras el entorno hermético (cambia la base) en `design.md` · effect: docs · test: `specs/0055-suite-rapida/design.md`::"Línea base y resultado"
+
+### M3 — Auditoría sin procesos cuando no hay log activo
+- **A3** [observable] — sin log activo ningún hook lanza `perl` ni `date`, con log activo el evento es idéntico, y los veredictos no cambian · `cd packages/cli && bun run test src/__tests__/audit-hooks.test.ts src/__tests__/audit-gating.test.ts && cd ../.. && node scripts/js/hook-verdict-replay.mjs` → exit 0, 0 failed, replay sin diferencias
+- [ ] **T13** (R8) — `packages/core/core-assets/hooks/_partials/audit-log.sh` (`navori_audit_begin`, `navori_audit_log`): decide auditar por existencia del log de la sesión con builtins y globs (directorios ocultos incluidos, `null_glob` local en zsh); ante duda, el camino de hoy · effect: behavior · test: `packages/cli/src/__tests__/audit-gating.test.ts`::"sin log activo y sin EPOCHREALTIME no hay execs de perl ni date en bash y zsh"
+- [ ] **T14** (R9) — evento con log activo igual a la base (campos y `tsMs` de 13 dígitos) y excepción `ms: 0` cuando el log nace durante el hook; repo con nombre que empieza por punto auditado · effect: behavior · test: `packages/cli/src/__tests__/audit-gating.test.ts`::"log activo escribe el mismo evento y el repo .foo se audita"
+- [ ] **T15** (R13) — espejos regenerados y replay del corpus en apagado y activo · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"el corpus reproduce los veredictos de la base"
+
+### M4 — Un solo jq por hook
+- **A4** [observable] — cada hook extrae su payload con a lo más un `jq` en los tres engines y la caché no se desincroniza · `cd packages/cli && bun run test src/__tests__/payload-cache.test.ts && cd ../.. && bun run bench:hooks --report-only && node scripts/js/hook-verdict-replay.mjs` → exit 0; `execs.jq ≤ 1` por hook en el reporte (sin contar auditoría activa); replay sin diferencias
+- [ ] **T16** (R10) — `_partials/extract-cmd.sh`: `payload_load` con caché válida solo mientras `payload` no cambie; `payload_field` lee la caché sin procesos; `payload_fields` se conserva como su implementación · effect: behavior · test: `packages/cli/src/__tests__/payload-cache.test.ts`::"reasignar payload invalida la caché"
+- [ ] **T17** (R10) — `nv_payload_fields` declarado antes de los includes en los 22 hooks que leen payload (incluido `hook-input.sh` de Codex y Pi) y drift test contra los `payload_field` literales · effect: behavior · test: `packages/cli/src/__tests__/payload-cache.test.ts`::"cada hook declara todos los campos que lee"
+- [ ] **T18** (R13) — espejos regenerados y replay del corpus · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"el corpus reproduce los veredictos de la base"
+
+### M5 — Carril de fallos sin Node (condicional)
+- **A5** [observable] — el reemplazo iguala al oráculo al 100 % o el milestone se retira · `cd packages/cli && bun run test src/__tests__/bash-outcome-oracle.test.ts` → exit 0, 0 failed
+- [ ] **T19** (R12) — `_partials/bash-outcome.sh` (`navori_bash_failure_state`) y `bash-outcome-watch.sh`: un programa `jq` con el payload por stdin reemplaza los dos `node -e`; jq ≥ 1.6 o el camino de hoy · effect: behavior · test: `packages/cli/src/__tests__/bash-outcome-oracle.test.ts`::"jq y el node anterior normalizan igual la tabla de errores"
+- [ ] **T20** (R13) — espejos regenerados y replay del corpus · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"el corpus reproduce los veredictos de la base"
+
+### M6 — Arranque de sesión con un solo CLI y contexto sin ruido
+- **A6** [observable] — el camino común de `SessionStart` invoca `navori` una vez y ningún hook inyecta contexto vacío · `cd packages/cli && bun run test src/__tests__/session-start-hook.test.ts && cd ../.. && bun run bench:context && node scripts/js/hook-verdict-replay.mjs` → exit 0; lista de hooks con contexto sin señal vacía en el reporte
+- [ ] **T21** (R11) — `session-start-context.sh` y `commands/tools.ts` (`navori tools session-context --notice-reserve`): aviso y ack en la misma llamada; arm de auditoría, resume de Codex y CLI sin el subcomando quedan en el camino de hoy · effect: behavior · test: `packages/cli/src/__tests__/session-start-hook.test.ts`::"camino común invoca navori una vez"
+- [ ] **T22** (R28) — hooks que inyectaban contexto sin nada que señalar (lista de `bench:context` en M1) salen vacíos · effect: behavior · test: `packages/cli/src/__tests__/hook-context-noise.test.ts`::"sin señal no hay additionalContext"
+- [ ] **T23** (R13) — espejos regenerados y replay final del corpus en los tres engines · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"el corpus reproduce los veredictos de la base"
+
+### M7 — CLI con subcomandos perezosos (condicional)
+- **A7** [observable] — el probe de M1 dio ≥ 20 ms; el arranque en frío de `tools session-context` y `plan gate` baja ≥ 20 % y ≥ 20 ms sin empeorar `--version`, y la superficie no cambia · `node scripts/js/probe-lazy-load.mjs --compare && cd packages/cli && bun run test src/__tests__/cli-lazy-load.test.ts src/__tests__/cli-surface.test.ts && bun run check:size` → exit 0, 0 failed
+- [ ] **T24** (R14) — `packages/cli/src/cli.ts` con `subCommands` perezosos; `index.ts` queda como entrada sin importar `commands/*`; `tsdown.config.ts` con chunks en la raíz de `dist/`; `check-bundle-size.mjs` suma `dist/*.js` · effect: behavior · test: `packages/cli/src/__tests__/cli-lazy-load.test.ts`::"index no importa chunks de subcomandos y ningún subcomando carga a otro"
+- [ ] **T25** (R15) — superficie del CLI igual al golden de la base · effect: tests · test: `packages/cli/src/__tests__/cli-surface.test.ts`::"la superficie del CLI coincide con el golden de la base"
+
+### M8 — Suite más barata y con más valor
+- **A8** [observable] — sin casos perdidos sin declarar, reglas nuevas verdes y los archivos tocados bajo su presupuesto · `node scripts/js/check-test-preservation.mjs && bun run check:ast && node packages/cli/scripts/check-test-budget.mjs --report .navori/state/bench/latest.json` → exit 0, con `latest.json` comparable posterior al último cambio de M8
+- [ ] **T26** (R16) — `lib/__tests__/helpers/shells.ts`: `HOOK_SHELLS = ["bash"]`, `shellSensitive(reason)` con motivo obligatorio, `NAVORI_TEST_ALL_SHELLS=1` para diagnóstico; `hooks-zsh-parity.test.ts` reproduce el corpus completo bajo zsh · effect: tests · test: `packages/cli/src/__tests__/hooks-zsh-parity.test.ts`::"el corpus da el mismo veredicto bajo zsh"
+- [ ] **T27** (R17) — `src/__tests__/helpers/cli-in-process.ts` (`runCliInProcess`) y `cli.e2e.test.ts`: flags numéricos (#283), despacho de `migrations` (#466), variantes `--json` y errores de config pasan a proceso; quedan los smoke con un exit real por subcomando · effect: tests · test: `packages/cli/src/__tests__/cli.e2e.test.ts`::"cada subcomando conserva un caso de código de salida real"
+- [ ] **T28** (R18) — lotes de hook en `pi-policy-parity`, `routing-watch`, singles de `implementer-no-markdown`, tabla hostil de `audit-hooks` y singles de `guard-destructive` que solapan `VERDICTS` · effect: tests · test: `packages/cli/src/__tests__/helpers/__tests__/hook-batch.test.ts`::"el lote reporta exit, stdout y stderr por caso igual que un spawn aislado"
+- [ ] **T29** (R19) — `helpers/repo-template.ts` gana `emptyRepo()` y `committedRepo(files)`; migran los archivos con `git init` por caso; regla `ast-grep/rules/no-git-init-per-case.yml` · effect: tests · test: `ast-grep/rule-tests/no-git-init-per-case-test.yml`::"git init dentro de it o test sin ignore con motivo"
+- [ ] **T30** (R20) — `ast-grep/rules/no-fixed-wait-in-tests.yml`; `temp-lifecycle.integration` y `lib/gate/__tests__/run.test.ts` pasan a `vi.waitFor` o barrera por archivo · effect: tests · test: `ast-grep/rule-tests/no-fixed-wait-in-tests-test.yml`::"Atomics.wait y setTimeout literal en Promise"
+- [ ] **T31** (R21) — `check-test-preservation.mjs` descubre todo `*.test.ts` cambiado contra el merge-base, exige `removedCases` con motivo y `merges` entre archivos, y se cablea como `check:tests-preserved` en `check`, `qualityGate.full` y CI · effect: behavior · test: `packages/cli/src/__tests__/check-test-preservation.test.ts`::"un caso borrado sin removedCases falla nombrando el archivo"
+- [ ] **T32** (R22) — `ast-grep/rules/no-prose-assertion.yml`; las aserciones de redacción pasan a marcadores, tokens contractuales o presupuestos · effect: tests · test: `ast-grep/rule-tests/no-prose-assertion-test.yml`::"toContain con literal de seis palabras sobre un .md"
+
+### M9 — Salida compacta para agentes
+- **A9** [observable] — en verde una línea de totales por paso; en rojo nombre, aserción y error acotados, sin ocultar errores de carga · `cd packages/cli && bun run test src/__tests__/compact-reporter.test.ts src/lib/gate/__tests__/summary.test.ts && cd ../.. && bun run bench:context` → exit 0, 0 failed; bytes verdes de `test:affected` y del gate por debajo de la línea base de M1
+- [ ] **T33** (R26) — `packages/cli/vitest.reporter.ts` (`compact`) elegido cuando stdout no es TTY; `coverage.reporter` solo `json-summary`; `check-coverage-floor.mjs` imprime una línea en verde; `summary.ts` (`summarizeGreen`) una línea de totales por runner · effect: behavior · test: `packages/cli/src/lib/gate/__tests__/summary.test.ts`::"verde con logs de vitest y cobertura da una línea por runner"
+- [ ] **T34** (R27) — en rojo: errores de módulo, de `afterAll` y globales siempre visibles; hasta 50 nombres de casos fallidos y 10 detalles recortados por el medio · effect: behavior · test: `packages/cli/src/__tests__/compact-reporter.test.ts`::"rojo muestra errores de carga, nombres y detalles acotados"
+
+### M10 — CI con shards en push y afectados en PR
+- **A10** [observable] — el workflow declara la matriz y los afectados, y `test:affected` elige base y regla de hub · `cd packages/cli && bun run test src/__tests__/ci-workflow.test.ts src/__tests__/test-affected.test.ts src/__tests__/run-test-coverage.test.ts` → exit 0, 0 failed; probe de merge de cobertura registrado en `design.md`
+- [ ] **T35** (R24) — `test-affected.mjs`: `--base <ref>` y `NAVORI_AFFECTED_BASE`, `--files`, `--plan-json`, una sola invocación de vitest y regla de hub con los módulos medidos en M1 y el umbral por salida · effect: behavior · test: `packages/cli/src/__tests__/test-affected.test.ts`::"base explícita, hub medido y umbral por salida disparan la suite completa"
+- [ ] **T36** (R25) — `run-test-coverage.mjs` (`runCoverage`) con `--shard i/N` (blob sin umbrales, `NAVORI_COVERAGE_SHARD=1`) y `--merge <dir>` (merge-reports, cobertura, piso, presupuesto); el merge falla si faltan blobs · effect: behavior · test: `packages/cli/src/__tests__/run-test-coverage.test.ts`::"merge falla con blobs faltantes y evalúa el piso una sola vez"
+- [ ] **T37** (R23, R24, R25) — `.github/workflows/ci.yml`: `checks` sin tests; `test` en matriz de 4 shards y `test-merge` en push a `dev`/`main` y en PR completo (hub o base `main`); `affected` en el resto de PRs hacia `dev`/`main` · effect: behavior · test: `packages/cli/src/__tests__/ci-workflow.test.ts`::"push corre shards y merge, PR corre afectados salvo hub o main"
+
+### M11 — Cierre y presupuesto
+- **A11** [observable] — tres corridas en reposo por lado, tabla final completa, presupuesto ajustado y gate completo verde · `node packages/cli/scripts/check-test-budget.mjs --report .navori/state/bench/latest.json && bun check` → exit 0; `design.md` § "Línea base y resultado" con la columna Final llena
+- [ ] **T38** (R30) — `check-test-budget.mjs --propose <bench.json…>` y `test-budget.json` con `defaultMs` y excepciones derivadas de mediciones en reposo · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"propose deriva presupuesto y excepciones de corridas comparables"
+- [ ] **T39** (R29) — tabla final de `design.md`: pared y suma local, pared de CI por shard, costo por hook, arranque del CLI y bytes de contexto, base contra rama · effect: docs · test: `specs/0055-suite-rapida/design.md`::"Línea base y resultado"
