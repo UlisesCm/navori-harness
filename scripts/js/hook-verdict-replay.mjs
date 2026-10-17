@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  *
  *   node scripts/js/hook-verdict-replay.mjs                  replay; exit 1 at the FIRST case whose
  *                                                            exit, stdout, stderr (or audit event) differs
+ *   node scripts/js/hook-verdict-replay.mjs --shell zsh      replay every case under that shell (D9 parity)
  *   node scripts/js/hook-verdict-replay.mjs --coverage       per-hook cases and % of the invocations the tests make
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
  *                                                            `NAVORI_HOOK_CORPUS=<dir> vitest run`
@@ -119,6 +120,45 @@ export function firstDifference(expected, actual) {
     }
   }
   return null;
+}
+
+/**
+ * Canonical form of the diagnostics a shell writes about itself, so a case captured under bash can be
+ * compared with its zsh run (D9): bash says `<script>: line 50: cat: command not found` and
+ * `<script>: line 9: <path>: No such file or directory`; zsh says `<script>:50: command not found: cat`
+ * and `<script>:9: no such file or directory: <path>`. Anything else is compared byte for byte.
+ *
+ * @param {string} text stderr
+ * @returns {string}
+ */
+export function normalizeShellDiagnostics(text) {
+  return text
+    .split("\n")
+    .map((line) => {
+      const bashNotFound = /^(.*?): line \d+: (.*): command not found$/.exec(line);
+      if (bashNotFound) return `${bashNotFound[1]}: <shell>: command not found: ${bashNotFound[2]}`;
+      const zshNotFound = /^(.*?):\d+: command not found: (.*)$/.exec(line);
+      if (zshNotFound) return `${zshNotFound[1]}: <shell>: command not found: ${zshNotFound[2]}`;
+      const bashMissing = /^(.*?): line \d+: (.*): No such file or directory$/.exec(line);
+      if (bashMissing) return `${bashMissing[1]}: <shell>: no such file or directory: ${bashMissing[2]}`;
+      const zshMissing = /^(.*?):\d+: no such file or directory: (.*)$/.exec(line);
+      if (zshMissing) return `${zshMissing[1]}: <shell>: no such file or directory: ${zshMissing[2]}`;
+      return line;
+    })
+    .join("\n");
+}
+
+/**
+ * Hooks whose source has an unrendered `{{placeholder}}` standing alone as a command line (the
+ * rendered hook gets policy code there). Replayed unrendered, bash only fails at that line when it
+ * runs it while zsh rejects the whole file at parse time, so a cross-shell comparison of them is
+ * parsing noise, not hook behavior.
+ *
+ * @param {string} hook core asset name
+ * @returns {boolean}
+ */
+export function hasPlaceholderCommand(hook) {
+  return /^\{\{[^}]+\}\}[ \t]*$/m.test(readFileSync(join(HOOKS_SOURCE, hook), "utf8"));
 }
 
 /**
@@ -362,35 +402,51 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
 /**
  * Replays the corpus; stops at the first case that differs.
  *
- * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
+ * `shell` replays every case under that shell instead of the one it was captured with, against the
+ * same expected output (spec 0055 D9: the zsh parity net); `all` reports every differing case
+ * instead of stopping at the first. Across shells, stderr is compared in shell-neutral form
+ * ({@link normalizeShellDiagnostics}) and hooks with a placeholder command are skipped.
+ *
+ * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
  * @returns {Promise<{ ok: boolean, cases: number, failure?: string }>}
  */
-export async function replayCorpus({ corpus, modes = MODES, deps, only } = {}) {
-  const cases = (corpus ?? readCorpus()).filter((c) => only === undefined || only.includes(c.hook));
+export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false } = {}) {
+  const cases = (corpus ?? readCorpus())
+    .filter((c) => only === undefined || only.includes(c.hook))
+    .filter((c) => shell === undefined || shell === c.shell || !hasPlaceholderCommand(c.hook))
+    .map((c) => (shell === undefined ? c : { ...c, shell, capturedShell: c.shell }));
+  /** @type {string[]} */
+  const failures = [];
   const resolved = deps ?? (await loadDeps());
   const scratch = createScratch();
   try {
     for (const mode of modes) {
       const actual = runMode(cases, mode, { ...resolved, scratch });
       for (let i = 0; i < cases.length; i += 1) {
-        const diff = firstDifference(cases[i].expected[mode], actual[i]);
+        const cross = cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
+        const diff = firstDifference(
+          cross ? withShellDiagnostics(cases[i].expected[mode]) : cases[i].expected[mode],
+          cross ? withShellDiagnostics(actual[i]) : actual[i],
+        );
         if (diff === null) continue;
         const c = cases[i];
         const clip = (v) => JSON.stringify(v)?.slice(0, 400);
-        return {
-          ok: false,
-          cases: cases.length,
-          failure:
-            `case ${i + 1}/${cases.length} (${c.hook}, ${c.engine}, ${c.shell}, audit ${mode}) differs in ${diff.field}\n` +
-            `  input:    ${clip(c.input)}\n  expected: ${clip(diff.expected)}\n  actual:   ${clip(diff.actual)}`,
-        };
+        const failure =
+          `case ${i + 1}/${cases.length} (${c.hook}, ${c.engine}, ${c.shell}, audit ${mode}) differs in ${diff.field}\n` +
+          `  input:    ${clip(c.input)}\n  expected: ${clip(diff.expected)}\n  actual:   ${clip(diff.actual)}`;
+        if (!all) return { ok: false, cases: cases.length, failure };
+        failures.push(failure);
       }
     }
+    if (failures.length > 0) return { ok: false, cases: cases.length, failure: failures.join("\n") };
     return { ok: true, cases: cases.length };
   } finally {
     scratch.cleanup();
   }
 }
+
+/** Verdict with its stderr in the shell-neutral form of {@link normalizeShellDiagnostics}. */
+const withShellDiagnostics = (verdict) => ({ ...verdict, stderr: normalizeShellDiagnostics(verdict.stderr) });
 
 /** The committed corpus: every `<hook>.jsonl` of the directory. */
 export function readCorpus(dir = CORPUS_DIR) {
@@ -437,7 +493,8 @@ async function main(argv) {
     printCoverage();
     return 0;
   }
-  const result = await replayCorpus({ only: hookFilter(argv) });
+  const shellAt = argv.indexOf("--shell");
+  const result = await replayCorpus({ only: hookFilter(argv), shell: shellAt === -1 ? undefined : argv[shellAt + 1] });
   if (!result.ok) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;

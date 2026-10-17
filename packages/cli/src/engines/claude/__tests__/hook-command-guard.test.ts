@@ -4,6 +4,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acrossShells, type HookShell } from "../../../lib/__tests__/helpers/shells.ts";
+
+/** The wrapper is a shell one-liner: `$0`, argv and stdin forwarding differ between bash and zsh (#391). */
+const WRAPPER_SENSITIVE = {
+  sensitive:
+    "hook wrapper one-liner: `$0`, argv and stdin forwarding and `exit` propagation are shell-specific",
+};
 import { buildClaudeSettings, claudeHookCommand } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
@@ -48,8 +54,9 @@ function run(shell: HookShell, dir: string, command: string) {
 describe("claudeHookCommand — unparseable hook scripts", () => {
   it("asks instead of blocking when a PreToolUse script cannot be parsed", () => {
     const dir = projectWith(CONFLICTED);
-    const result = acrossShells((shell) =>
-      run(shell, dir, claudeHookCommand("PreToolUse", SCRIPT)),
+    const result = acrossShells(
+      (shell) => run(shell, dir, claudeHookCommand("PreToolUse", SCRIPT)),
+      WRAPPER_SENSITIVE,
     );
     expect(result.status).toBe(0);
     const out = JSON.parse(result.stdout) as {
@@ -61,8 +68,9 @@ describe("claudeHookCommand — unparseable hook scripts", () => {
 
   it("exits 1 (non-blocking) with a notice for any other event, so Stop cannot loop", () => {
     const dir = projectWith(CONFLICTED);
-    const result = acrossShells((shell) =>
-      run(shell, dir, claudeHookCommand("Stop", SCRIPT, "claude-stop")),
+    const result = acrossShells(
+      (shell) => run(shell, dir, claudeHookCommand("Stop", SCRIPT, "claude-stop")),
+      WRAPPER_SENSITIVE,
     );
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
@@ -72,8 +80,9 @@ describe("claudeHookCommand — unparseable hook scripts", () => {
   it("runs a healthy script transparently: args, $0, stdin and exit code", () => {
     const dir = projectWith(HEALTHY);
     for (const event of ["PreToolUse", "Stop"]) {
-      const result = acrossShells((shell) =>
-        run(shell, dir, claudeHookCommand(event, SCRIPT, "claude-stop")),
+      const result = acrossShells(
+        (shell) => run(shell, dir, claudeHookCommand(event, SCRIPT, "claude-stop")),
+        WRAPPER_SENSITIVE,
       );
       expect(result.status).toBe(2);
       expect(result.stdout).toBe(

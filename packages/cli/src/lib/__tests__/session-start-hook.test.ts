@@ -16,9 +16,15 @@ import { spawnSync } from "node:child_process";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
-import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
+import { acrossShells, shellSensitive } from "./helpers/shells.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import type { HookShell } from "./helpers/shells.ts";
+
+/** The hook consumes state on disk and builds the context with shell `printf`/glob expansion (#391). */
+const NOTICE_SENSITIVE =
+  "notice consumption and context-dir glob expansion (NULL_GLOB) are shell-specific";
+const GIT_SENSITIVE =
+  "git-state fixture the corpus cannot reproduce; branch/log text goes through shell expansion";
 import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
 
 /** Repos built once per file and copied per case (spec 0055 D7). */
@@ -351,7 +357,7 @@ describe("session-start context hook — aviso de worktrees conservados (#774)",
   }
 
   it("re-emite el aviso y lo consume, en todos los shells", () => {
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of shellSensitive(NOTICE_SENSITIVE)) {
       const path = seedNotice(BODY);
 
       const first = parseCtx(runOnce(shell, "startup").stdout);
@@ -401,6 +407,7 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
     const stdout = acrossShells(
       (shell) => runOnce(shell, "startup", hookPath, { cwd: dir }).stdout,
+      { sensitive: GIT_SENSITIVE },
     );
     const ctx = parseCtx(stdout);
 
@@ -461,7 +468,9 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     // proving the Codex arm above is the one suppressing it, not a fluke of
     // the fixture (e.g. a missing dir).
     installHook("hook.sh");
-    const claudeCtx = parseCtx(acrossShells((shell) => runOnce(shell, "startup").stdout));
+    const claudeCtx = parseCtx(
+      acrossShells((shell) => runOnce(shell, "startup").stdout, { sensitive: NOTICE_SENSITIVE }),
+    );
     expect(claudeCtx).toContain("Doctrine only Claude needs repeated.");
   });
 });
@@ -502,7 +511,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   /** Run under every shell with a fresh call log each time; the outputs must agree. */
   function emit(env: Record<string, string>): { ctx: string; calls: string[] } {
     const seen: { ctx: string; calls: string[] }[] = [];
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of shellSensitive(NOTICE_SENSITIVE)) {
       rmSync(log, { force: true });
       const ctx = parseCtx(runOnce(shell, "startup", join(dir, "hook.sh"), {}, env).stdout);
       seen.push({ ctx, calls: calls() });

@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HOOK_SHELLS } from "../../../lib/__tests__/helpers/shells.ts";
+import { shellSensitive } from "../../../lib/__tests__/helpers/shells.ts";
+
+/** The batch driver is a shell script: subshell isolation, `$0` and `set -e` inheritance differ per shell. */
+const BATCH_SHELLS = shellSensitive(
+  "batch driver: subshell isolation, `$0` and `set -e`/`trap` inheritance are shell-specific",
+);
 import { createHookBatch, runHookBatch, runHookIsolated, type HookCase } from "../hook-batch.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "navori-hook-batch-test-"));
@@ -41,7 +46,7 @@ describe("hook-batch", () => {
       { input: "0\ncwd\n", cwd: dir },
       { input: "" },
     ];
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of BATCH_SHELLS) {
       const batch = runHookBatch(echoHook, shell, cases);
       const isolated = cases.map((c) => runHookIsolated(echoHook, shell, c));
       expect(batch).toEqual(isolated);
@@ -51,7 +56,7 @@ describe("hook-batch", () => {
 
   it("un hook que mata o reemplaza el driver hace fallar el lote", () => {
     const killer = writeHook("kill.sh", "kill -9 $$");
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of BATCH_SHELLS) {
       expect(() => runHookBatch(killer, shell, [{ input: "a" }, { input: "b" }])).toThrow(
         /driver did not finish|never reported its delimiter/,
       );
@@ -63,7 +68,7 @@ describe("hook-batch", () => {
       "exec.sh",
       "IFS= read -r l; if [ \"$l\" = x ]; then exec sh -c 'exit 7'; fi; exit 0",
     );
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of BATCH_SHELLS) {
       const r = runHookBatch(execer, shell, [{ input: "x\n" }, { input: "y\n" }]);
       expect(r.map((x) => x.status)).toEqual([7, 0]);
     }
@@ -73,8 +78,8 @@ describe("hook-batch", () => {
     const batch = createHookBatch(echoHook);
     const primed: HookCase = { input: "4\nprimed\n" };
     const other: HookCase = { input: "5\nother\n" };
-    batch.prime(HOOK_SHELLS, [primed]);
-    for (const shell of HOOK_SHELLS) {
+    batch.prime(BATCH_SHELLS, [primed]);
+    for (const shell of BATCH_SHELLS) {
       expect(batch.run(shell, primed)).toEqual(runHookIsolated(echoHook, shell, primed));
       expect(batch.run(shell, other).status).toBe(5);
     }
@@ -94,7 +99,7 @@ describe("hook-batch", () => {
       ].join("\n"),
     );
     const cases: HookCase[] = Array.from({ length: 12 }, () => ({ input: "" }));
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of BATCH_SHELLS) {
       writeFileSync(counter, "0");
       writeFileSync(log, "");
       const batch = createHookBatch(writer);

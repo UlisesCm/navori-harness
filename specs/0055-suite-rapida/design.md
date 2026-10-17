@@ -508,6 +508,19 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
 - **Antes de reducir la matriz (condición de M4):** una corrida con `NAVORI_TEST_ALL_SHELLS=1` en CI
   (`workflow_dispatch` con `all_shells`, ubuntu con zsh) y otra en macOS local, con la rama de M2 y sin
   divergencias. Ambas se citan en el commit de M4.
+- **Enmienda de implementación (2026-10-16).**
+  - La paridad reproduce bajo zsh los 1 610 casos capturados en bash; los 1 386 capturados en zsh ya
+    son salida de zsh y no agregan información de paridad.
+  - Normaliza la redacción propia de los diagnósticos de cada shell y omite los hooks cuyo corpus trae
+    un placeholder sin renderizar (`role-guard`, `engram-write-guard`). Sus tests con la política
+    compilada se marcan `shellSensitive`, así que su política generada sigue corriendo en bash y zsh.
+  - `KNOWN_DIVERGENCES` excluye un caso real: `plan-gate.sh` lee `$0` dentro de una función y bajo
+    zsh la copia de Codex pide confirmación en vez de bloquear sin `navori`. Se corrige en los
+    milestones de hooks; un test falla cuando el arreglo llega y obliga a quitar la entrada.
+  - Lectura de R21: `check-test-preservation` cuenta casos fuente (`it(`); el eje de shells es una
+    matriz, no casos. La garantía de zsh la dan la paridad del corpus y las marcas `shellSensitive`.
+  - La paridad previa corrió en macOS local (1 524 de 1 524 casos iguales con la matriz completa); la
+    corrida de CI con `all_shells` queda para M10.
 
 ### D10 — Mediciones: comparabilidad y presupuesto (R1–R3, R29, R30)
 

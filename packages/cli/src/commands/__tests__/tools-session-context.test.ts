@@ -15,7 +15,7 @@ import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../../lib/assets/doc-budgets.ts";
-import { HOOK_SHELLS, type HookShell } from "../../lib/__tests__/helpers/shells.ts";
+import { shellSensitive, type HookShell } from "../../lib/__tests__/helpers/shells.ts";
 import {
   SESSION_CONTEXT_BEGIN,
   SESSION_CONTEXT_DOMINIO,
@@ -101,7 +101,11 @@ describe("sessionContextOutput", () => {
   });
 });
 
-describe.each(HOOK_SHELLS)("session-start-context.sh and session-context under %s", (shell) => {
+describe.each(
+  shellSensitive(
+    "session-start-context.sh builds the context with shell glob expansion and `printf` (NULL_GLOB, #391)",
+  ),
+)("session-start-context.sh and session-context under %s", (shell) => {
   const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/session-start-context.sh");
   let dir: string;
   let home: string;
