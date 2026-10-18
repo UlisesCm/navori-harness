@@ -942,8 +942,8 @@ describe("implementer-no-markdown hook — registered worktrees (#1330)", () => 
   });
   const codex = (p: Payload): number => runHook(p, undefined, true, "codex").status;
 
-  it("allows every doctrine prefix in a registered sibling worktree", () => {
-    for (const rel of [
+  it.each(
+    [
       "packages/core/core-assets/agents/x.md",
       "packages/core/core-assets/skills/x.md",
       "packages/core/core-assets/managed/x.md",
@@ -957,9 +957,15 @@ describe("implementer-no-markdown hook — registered worktrees (#1330)", () => 
       ".codex/orchestrator.md",
       ".agents/skills/s/SKILL.md",
       ".pi/navori/x.md",
-    ]) {
-      for (const tool of ["Write", "Edit"]) expect(run(`${sibling}/${rel}`, tool), rel).toBe(0);
-    }
+    ].flatMap((rel: string) => ["Write", "Edit"].map((tool: string) => ({ rel, tool }))),
+  )(
+    "allows $tool for doctrine prefix $rel in a registered sibling worktree",
+    ({ rel, tool }: { rel: string; tool: string }) => {
+      expect(run(`${sibling}/${rel}`, tool), rel).toBe(0);
+    },
+  );
+
+  it("allows NotebookEdit doctrine in a registered sibling worktree", () => {
     expect(
       runHook(
         {
@@ -975,9 +981,17 @@ describe("implementer-no-markdown hook — registered worktrees (#1330)", () => 
         prelude(),
       ).status,
     ).toBe(0);
-    // Controls: host-relative, host-absolute, and a session sitting inside the sibling.
+  });
+
+  it("allows host-relative doctrine", () => {
     expect(run(".claude/agents/a.md")).toBe(0);
+  });
+
+  it("allows host-absolute doctrine", () => {
     expect(run(`${host}/.claude/agents/a.md`)).toBe(0);
+  });
+
+  it("allows doctrine from a session inside the sibling", () => {
     expect(
       runHook(
         { ...edit(`${sibling}/.claude/agents/a.md`), cwd: sibling },
