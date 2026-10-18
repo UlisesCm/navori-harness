@@ -19,6 +19,8 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_id subagent_id tool_input.command"
+payload_load() { :; }
 # navori:include extract-cmd
 
 # Gate to `gh pr create` only. $TRIGGER_RE is consumed by the shared detector
@@ -54,6 +56,7 @@ TRIGGER_TOKENS='create'
 # written below. Same trade as #696, for the same reason.
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-publisher-confirm"

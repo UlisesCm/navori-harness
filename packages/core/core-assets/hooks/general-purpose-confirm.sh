@@ -17,6 +17,8 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.agent_type tool_input.command tool_input.subagent_type"
+payload_load() { :; }
 # navori:include extract-cmd
 
 # Every dispatch this hook cares about carries this literal in the payload, so
@@ -44,6 +46,7 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+payload_load
 # Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
 payload_fields navori_gp_type=tool_input.subagent_type navori_gp_codex_type=tool_input.agent_type
 [ -n "$navori_gp_type" ] || navori_gp_type=$navori_gp_codex_type

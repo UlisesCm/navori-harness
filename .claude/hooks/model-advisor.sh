@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="3ee8f2a4" version="0.12.1" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="568f9bed" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Startup/lifecycle modes advise the main session; `/model` remains the user's
@@ -21,6 +21,7 @@ esac
 navori_audit_name="model-advisor"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.

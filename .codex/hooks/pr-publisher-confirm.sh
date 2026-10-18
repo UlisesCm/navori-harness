@@ -1,4 +1,4 @@
-# navori:managed start id="pr-publisher-confirm-base" hash="135257b0" version="0.12.1" source="@navori/core"
+# navori:managed start id="pr-publisher-confirm-base" hash="f1152fbd" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
@@ -20,6 +20,8 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_id subagent_id tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -47,6 +49,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -81,7 +94,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -91,14 +106,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -112,6 +136,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -357,6 +399,7 @@ is_scan_trigger() {
 # written below. Same trade as #696, for the same reason.
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-publisher-confirm"

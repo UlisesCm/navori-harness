@@ -24,7 +24,10 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_type cwd hook_event_name permission_mode tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 cmd=$(extract_cmd)
 # navori:include hook-input
 

@@ -1,4 +1,4 @@
-# navori:managed start id="master-plan-context-base" hash="ef7214ca" version="0.12.1" source="@navori/core"
+# navori:managed start id="master-plan-context-base" hash="ca9c3d24" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.
@@ -9,6 +9,7 @@ navori_audit_name="master-plan-context"
 navori_audit_phase="SessionStart"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.

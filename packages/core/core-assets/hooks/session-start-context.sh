@@ -67,7 +67,10 @@ set -euo pipefail
 # recorder reads `session_id`/`cwd` out of it. Draining is still the point: an
 # undrained stdin can leave the host writing into a closed pipe.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name session_id source tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2/D3: nv_engine decides whether the `.claude/context`/
 # `.codex/context` doctrine blocks below are emitted at all (D3: under Codex
 # that doctrine already ships whole inside AGENTS.md, so repeating it here

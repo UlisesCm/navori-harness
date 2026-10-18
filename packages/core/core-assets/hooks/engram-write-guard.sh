@@ -29,7 +29,10 @@
 #   - engram write from a role that may not write memory: hard — role containment; the message names the route.
 set -euo pipefail
 
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # navori:include hook-input
 
 navori_audit_name="engram-write-guard"

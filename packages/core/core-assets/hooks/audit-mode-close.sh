@@ -10,12 +10,15 @@
 
 set +e
 
+nv_payload_fields="cwd matcher reason session_id tool_input.command"
 # navori:include audit-repo
 
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 
 # One extraction for the three fields (spec 0054 R22).
 payload_fields session_id=session_id cwd=cwd reason=reason matcher=matcher

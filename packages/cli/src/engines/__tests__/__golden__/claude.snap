@@ -1599,6 +1599,7 @@ Before closing the session:
 
 set +e
 
+nv_payload_fields="cwd matcher reason session_id tool_input.command"
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -1620,6 +1621,7 @@ navori_audit_repo_from_cwd() {
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -1647,6 +1649,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -1681,7 +1694,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -1691,14 +1706,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -1713,10 +1737,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 
 # One extraction for the three fields (spec 0054 R22).
 payload_fields session_id=session_id cwd=cwd reason=reason matcher=matcher
@@ -1966,6 +2009,7 @@ exit 0
 
 set +e
 
+nv_payload_fields="agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -1987,6 +2031,7 @@ navori_audit_repo_from_cwd() {
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -2014,6 +2059,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -2048,7 +2104,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -2058,14 +2116,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -2080,10 +2147,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -2106,8 +2192,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -2543,6 +2630,8 @@ exit 0
 # PostToolUseFailure(Bash) advisory. The shared state helper also handles reset
 # from routing-watch on a successful PostToolUse(Bash).
 set -uo pipefail
+nv_payload_fields="agent_id agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -2570,6 +2659,17 @@ set -uo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -2604,7 +2704,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -2614,14 +2716,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -2636,10 +2747,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -2662,8 +2792,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -3438,6 +3569,8 @@ exit 0
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -3465,6 +3598,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -3499,7 +3643,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -3509,14 +3655,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -3530,6 +3685,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -3759,6 +3932,7 @@ is_scan_trigger() {
 # trade as `pr-publisher-confirm.sh` (#705).
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="comment-draft-confirm"
@@ -4362,6 +4536,8 @@ exit 0
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.agent_type tool_input.command tool_input.subagent_type"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -4389,6 +4565,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -4423,7 +4610,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -4433,14 +4622,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -4454,6 +4652,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -4690,6 +4906,7 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+payload_load
 # Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
 payload_fields navori_gp_type=tool_input.subagent_type navori_gp_codex_type=tool_input.agent_type
 [ -n "$navori_gp_type" ] || navori_gp_type=$navori_gp_codex_type
@@ -4759,6 +4976,8 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -4786,6 +5005,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -4820,7 +5050,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -4830,14 +5062,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -4852,10 +5093,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 cmd=$(extract_cmd)
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (byte-
 # identical to what this guard read before) and the git toplevel resolved
@@ -4882,8 +5142,9 @@ cmd=$(extract_cmd)
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -7298,6 +7559,8 @@ set -euo pipefail
 
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -7325,6 +7588,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -7359,7 +7633,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -7369,14 +7645,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -7391,10 +7676,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`
 # (one call can touch several files at once, unlike Claude's single-path
 # Write/Edit) to the same shape this script already handles.
@@ -7420,8 +7724,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -8610,6 +8915,8 @@ COVERED_TOOLS='Bash Edit Write NotebookEdit'
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -8637,6 +8944,17 @@ payload=$(cat 2>/dev/null) || payload=""
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -8671,7 +8989,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -8681,14 +9001,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -8703,10 +9032,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (unchanged)
 # and the payload cwd's git toplevel under Codex.
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
@@ -8731,8 +9079,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -9273,6 +9622,8 @@ exit 2
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -9300,6 +9651,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -9334,7 +9696,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -9344,14 +9708,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -9365,6 +9738,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -9584,6 +9975,7 @@ is_scan_trigger() {
 
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="master-accept-confirm"
@@ -9885,6 +10277,7 @@ navori_audit_name="master-plan-context"
 navori_audit_phase="SessionStart"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -10179,6 +10572,7 @@ esac
 navori_audit_name="model-advisor"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -10660,6 +11054,8 @@ NODE
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_id subagent_id tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -10687,6 +11083,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -10721,7 +11128,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -10731,14 +11140,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -10752,6 +11170,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -10997,6 +11433,7 @@ is_scan_trigger() {
 # written below. Same trade as #696, for the same reason.
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-publisher-confirm"
@@ -11611,6 +12048,8 @@ exit 0
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_type cwd hook_event_name permission_mode tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -11638,6 +12077,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -11672,7 +12122,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -11682,14 +12134,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -11704,10 +12165,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 cmd=$(extract_cmd)
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
@@ -11731,8 +12211,9 @@ cmd=$(extract_cmd)
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -13339,6 +13820,8 @@ set -uo pipefail
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
+nv_payload_fields="agent_id agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -13366,6 +13849,17 @@ set -uo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -13400,7 +13894,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -13410,14 +13906,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -13432,10 +13937,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`/
 # `spawn_agent` tool names and multi-file patches to the shapes this hook
 # already handles for Claude.
@@ -13461,8 +13985,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -14663,6 +15188,8 @@ set -euo pipefail
 # recorder reads `session_id`/`cwd` out of it. Draining is still the point: an
 # undrained stdin can leave the host writing into a closed pipe.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name session_id source tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -14690,6 +15217,17 @@ payload=$(cat 2>/dev/null) || payload=""
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -14724,7 +15262,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -14734,14 +15274,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -14756,10 +15305,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2/D3: nv_engine decides whether the `.claude/context`/
 # `.codex/context` doctrine blocks below are emitted at all (D3: under Codex
 # that doctrine already ships whole inside AGENTS.md, so repeating it here
@@ -14786,8 +15354,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -15752,6 +16321,8 @@ set -euo pipefail
 
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
+nv_payload_fields="tool_input.command tool_input.run_in_background tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -15779,6 +16350,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -15813,7 +16395,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -15823,14 +16407,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -15844,6 +16437,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -16441,6 +17052,7 @@ case "$payload" in
     ;;
 esac
 
+payload_load
 # One extraction for the three fields the shell lane reads (spec 0054 R22).
 payload_fields navori_tool=tool_name navori_bg=tool_input.run_in_background cmd=tool_input.command
 
@@ -16593,6 +17205,8 @@ navori_audit_phase="PostToolUse"
 # Rendered includes replace these no-ops with the shared Spec 0035 adapter.
 payload_field() { :; }
 nv_subagent_type() { :; }
+nv_payload_fields="agent_id agent_transcript_path agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name transcript_path"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -16620,6 +17234,17 @@ nv_subagent_type() { :; }
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -16654,7 +17279,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -16664,14 +17291,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -16686,10 +17322,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -16712,8 +17367,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -17505,6 +18161,8 @@ exit 0
 set +e
 
 payload=$(cat 2>/dev/null)
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -17532,6 +18190,17 @@ payload=$(cat 2>/dev/null)
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -17566,7 +18235,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -17576,14 +18247,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -17598,10 +18278,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2/D6: nv_project_dir is the Codex-aware fallback below ($PWD is
 # already correct when the payload's own `.cwd` resolves, which is the common
 # case on both engines).
@@ -17627,8 +18326,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -17984,7 +18684,7 @@ trap navori_audit_on_exit EXIT
 
 cwd=""
 if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
-  cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null)
+  cwd=$(payload_field cwd)
 fi
 [ -n "$cwd" ] || cwd=${nv_project_dir:-$PWD}
 cd "$cwd" 2>/dev/null || exit 0

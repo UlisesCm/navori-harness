@@ -286,3 +286,19 @@ El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas ap
 - Configuración y umbrales actuales preservados. Productor: 29 pruebas dirigidas, fast, render y tamaño verdes (1598.8 KiB/1600).
 - A9 exacto desde root exit 0: 21 pruebas. Contexto: SessionStart Claude 108 B y Codex 297 B; gate verde 122 B; affected verde 127 B y rojo 536 B, modo emulado. No demuestra todavía la ruta nativa de affected ni criterios globales de rendimiento.
 - Documentación, revisión independiente y commit pendientes al registrar esta entrada. Aceptación formal A9 pendiente por la captura Bash ausente del host; sin registros fabricados, push ni publicación. E1 sigue abierta.
+
+## 2026-10-17 14:55 Codex — Cachea campos de payload sin cambiar veredictos (0055 M4)
+
+- Carga en shell padre con identidad exacta del payload, invalidación/restauración, declaraciones en 22 hooks, guardas de fallback y 45 espejos regenerados oficialmente. Eval sólo lee variables de ruta validada, con excepción local permitida por la regla; pruebas confirman que valores con sintaxis de shell no se ejecutan.
+- Productor: 131 pruebas en seis archivos, fast (AST 9), render, tamaño (1598.8 KiB/1600) y sintaxis bash/zsh verdes. Corpus y normalizador sin cambios.
+- A4 exacto desde root exit 0: 31 pruebas, 135 mediciones comparables y 2996 casos idénticos off/active. Audit-trigger con jq4 equivale a una extracción y tres operaciones de auditoría: audit.mode=always inicia el log aun en el escenario inicialmente absent.
+- Documentación, revisión independiente y commit pendientes al registrar esta entrada; aceptación formal A4 pendiente por captura Bash ausente. Sin push/publicación, E1 abierta. Inventario M6 identificó que el aviso legítimo de activación de 85 B fue clasificado como sin señal por el benchmark; debe medirse un escenario neutral opt-in sin silenciar el aviso.
+
+### Seguimiento M4 — 2026-10-17
+
+- Primer reviewer CHANGES_REQUESTED por seis fallos temporales del full adicional. Perfil y pares old/new demostraron recorte de sufijo cuadrático en extract-cmd.sh antes del techo de tamaño; fix focalizado usa case y trim nativo sólo si hay NL final.137 pruebas focalizadas/golden, fast/render/size/sintaxis verdes; linealidad y guardas/Pi pasaron.
+- Paridad zsh aislada superó300s tanto en bytes corregidos (310.3s) como en base a4db3432 (394.1s), con cargas distintas/elevadas. Repro en base no acredita causa exclusiva de host ni rendimiento aceptado.
+- A4 fresco exacto72360 exit0:37 pruebas y2996casos idénticos off/active. Bench135 marcado no comparable por carga inicial10.77/10CPUs. Handoff se actualiza; sin receipt/commit M4 aún.
+- Usuario difirió M5/R12/T19–T20 fuera de E1; Node conservado, oráculo no ejecutado. Conciliación de spec prevista con M6. Sin push ni publicación.
+
+- Excepción posterior aprobada por el usuario: review/commit M4 con scoped, focalizadas y replay verde; medición comparable y validación temporal de afectados/paridad pasan a M11. E1 no cierra ni se publica sin full verde. Segunda captura74084:135 mediciones no comparables (load11.22/10), Codex Bash363ms>300 en esa corrida. No se aceptan tiempos ni se eleva el presupuesto.

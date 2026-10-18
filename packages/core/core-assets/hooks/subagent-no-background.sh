@@ -68,6 +68,8 @@ set -euo pipefail
 
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
+nv_payload_fields="tool_input.command tool_input.run_in_background tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
 
 navori_audit_name="subagent-no-background"
@@ -105,6 +107,7 @@ case "$payload" in
     ;;
 esac
 
+payload_load
 # One extraction for the three fields the shell lane reads (spec 0054 R22).
 payload_fields navori_tool=tool_name navori_bg=tool_input.run_in_background cmd=tool_input.command
 

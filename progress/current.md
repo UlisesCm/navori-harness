@@ -1,6 +1,6 @@
 # Sesión actual
 
-**Estado:** M3 cerrado en `e4c1ead3`, con revisión APPROVED y receipt scoped consumido válido. M9 integrado y A9 verificado desde root; documentación y revisión pendientes. Rama `feat/0055-suite-rapida`; workplan nivel 3 `0055-suite-rapida-e1`.
+**Estado:** M3 cerrado en `e4c1ead3` y M9 en `a4db3432`, ambos APPROVED con receipts scoped consumidos válidos. M4 recibió CHANGES_REQUESTED: full adicional falló seis pruebas temporales; no receipt/commit M4. Rama `feat/0055-suite-rapida`; workplan nivel 3 `0055-suite-rapida-e1`, 261 rutas.
 
 Auditoría decide por log con builtins; fallback conservador, repos ocultos y carrera ms0. Replay limita normalización de líneas a stderr; stdout, estado y eventos estrictos. Render oficial45espejos; fuente estable.
 
@@ -8,6 +8,8 @@ A3 pasó desde root y reviewer: 264 pruebas y 2996 casos idénticos off/active. 
 
 ## Siguiente paso
 
-Cerrar M9 con scribe/review/receipt y commit local; después continuar M4. A9 exacto exit 0: 21 pruebas; bench:context gate verde 122 B, affected verde 127 B y rojo 536 B en modo emulado (ruta nativa pendiente de M10). Productor: 29 pruebas, fast/render/size verdes. Inventarios M4 y M10 disponibles. Mantener sin push/publicación; no dar entrega E1 por terminada.
+M4 sigue abierto, sin receipt/commit. fix_m4_trim terminó BLOCKED: corrección causal en extract-cmd.sh:73 reemplaza el recorte de sufijo cuadrático por case y trimming nativo sólo si hay NL final. Comparación serial old/fixed: ratio3.43/3.73; oversized34/175ms frente a4541ms antes. 137 pruebas focalizadas/golden, fast/render/size/sintaxis verdes. Afectados624 aprobadas/1fallo: paridad zsh supera300s bajo carga18.85/10CPUs; origen del timeout aún no determinado. Paridad zsh sola26616 exit1:1/1,310.3s, carga inicial9.54/10CPUs. Base a4db3432 en copia temporal propia17107 también exit1:1/1,394.1s, mismo timeout300s, carga inicial11.10 y posterior14.02. Ambas seriales; carga distinta/elevada impide conclusión de rendimiento. Fallo reproducido antes de M4 bajo condiciones actuales; no atribuir sólo a carga. Sin más reintentos ciegos ni cambios de límites. Research research_m4_zsh_baseline.md/probe m4-zsh-baseline.json. A4 fresco exacto72360 exit0:37 pruebas y2996casos idénticos off/active sobre bytes corregidos. Bench135 no comparable (loadBefore10.77/10CPUs), archivo hooks-2026-10-18T01-46-10-728Z.json; no aceptación temporal. Productor refrescó handoff BLOCKED. Segundo bench aislado74084 exit0/report-only:135 mediciones, no comparable (loadBefore11.22/10CPUs), Codex Bash363ms>300 en esa corrida no comparable. Usuario APROBÓ la excepción: revisar/commitear M4 con scoped+focalizadas+replay; posponer medición comparable y validación temporal de afectados/paridad a M11, sin cerrar/publicar E1 antes de full verde. Aplicar sólo en M4; no cierre/publicación E1 sin full verde. Siguen scribe/reviewer una vez resuelta la decisión. M6 brief listo sin dispatch. Primer CR M4 por seis fallos temporales, sin hallazgos funcionales; no segunda revisión hasta aclarar validación.
 
-La captura automática A<n> requiere Bash, ausente en este host que usa exec_command anidado. Registro formal A3/A9/A12 pendiente; conservar pruebas reales y receipts sin fabricar evidencia.
+Usuario DIFIRIÓ M5 de E1 (mem7995, solución/challenge M5). Conciliar R12/T19–T20 y D5 en próximo ciclo M6: conservar Node actual, sin afirmar resultado de oráculo. M6:85B audit-trigger es aviso válido (always); medir opt-in sin arm y conservar control positivo. Inventarios M5/M6/M10 disponibles. Sin push/publicación; E1 abierta.
+
+La captura automática A<n> requiere Bash, ausente en este host que usa exec_command anidado. Registro formal A3/A4/A9/A12 pendiente; conservar pruebas reales y receipts sin fabricar evidencia.
