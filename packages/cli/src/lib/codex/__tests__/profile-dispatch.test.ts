@@ -245,9 +245,13 @@ describe("fresh metadata prepare/claim", () => {
   // Covers: R13, R15, R18
   it("total slow catalog deadline closes the owned native child", async () => {
     const marker = join(directory, "native-pid");
+    const script = join(commands, "rpc.cjs");
+    vi.stubEnv("NAVORI_TEST_NATIVE_PID", marker);
+    writeFileSync(script, "setInterval(()=>{},1000);");
     writeFileSync(
-      join(commands, "rpc.cjs"),
-      `require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`,
+      join(commands, "codex"),
+      `#!/bin/sh\nprintf '%s' "$$" > "$NAVORI_TEST_NATIVE_PID"\nexec '${process.execPath}' '${script}'\n`,
+      { mode: 0o755 },
     );
     const start = Date.now();
     await expect(queryNativeCatalog(cwd, start + 500)).rejects.toThrow("unavailable-or-incomplete");

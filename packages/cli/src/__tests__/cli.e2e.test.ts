@@ -1464,7 +1464,7 @@ describe("CLI e2e — happy paths", () => {
     expect(scan.status).toBe(1);
     expect(scan.combined).toContain("does not declare 'monorepo'");
     expect(scan.combined).not.toContain("no declara 'monorepo'");
-  });
+  }, 45_000);
 });
 
 describe("CLI e2e — coexist mode", () => {

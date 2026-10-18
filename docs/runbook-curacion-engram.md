@@ -1,46 +1,35 @@
-# Runbook — curación del corpus de engram (#761, decisión 1)
+> [English](runbook-curacion-engram.md) | [Español](runbook-curacion-engram.es.md) | [简体中文](runbook-curacion-engram.zh-CN.md)
 
-> **Este documento no muta nada.** Es el procedimiento escrito para una operación que sí muta:
-> `~/.engram/engram.db`, el store personal del usuario, que vive fuera de este repo, fuera de git,
-> sin diff y sin deshacer. Leerlo entero cuesta menos que restaurar un `export`.
+# Runbook — curating the engram corpus (#761, decision 1)
+
+> **This document does not mutate anything.** It is the written procedure for an operation that does mutate:
+> `~/.engram/engram.db`, the user's personal store, which lives outside this repository, outside git,
+> with no diff and no undo. Reading it all costs less than restoring an `export`.
 >
-> Todas las cifras se midieron el **2026-09-13 a las 21:04 CST** contra `engram v1.20.0`. El corpus
-> está vivo: **derivan**. Al final está cómo re-medirlas.
+> All figures were measured **2026-09-13 at 21:04 CST** against `engram v1.20.0`. The corpus is live:
+> **these figures drift**. The final section explains how to measure them again.
 
-## Por qué existe este documento
+## Why this document exists
 
-[#761](https://github.com/UlisesCm/navori-harness/issues/761) empaqueta dos decisiones del usuario.
-La **decisión 2** —`researcher` y `explorer` con memoria— **ya se tomó y se entregó** en `4dd7a78`
-(#768), cuyo cuerpo dice literal *"Decisión 2 de #761"*. Está cerrada con evidencia al final de este
-doc.
+[#761](https://github.com/UlisesCm/navori-harness/issues/761) packages two user decisions. **Decision 2** — `researcher` and `explorer` with memory — **was already made and delivered** in `4dd7a78` (#768), whose body literally says *"Decision 2 de #761"*. It is closed with evidence at the end of this document.
 
-La **decisión 1** —la pasada de curación del corpus— sigue abierta, y **no la puede tomar un PR**.
-No hay archivo del repo que tocar: es mutación de una base de datos que ningún revisor ve y que
-ningún `git revert` recupera.
+**Decision 1** — the corpus-curation pass — remains open, and **a PR cannot make it**. There is no repository file to change: it is a database mutation that no reviewer sees and no `git revert` can recover.
 
-Este runbook es el entregable que sí cabe en un PR: convierte una decisión abierta en un **sí/no
-informado**. Trae el estado medido, el procedimiento ordenado de menor a mayor riesgo, y las guardas
-escritas donde la evidencia dice que hacen falta.
+This runbook is the deliverable that can go in a PR: it turns an open decision into an **informed yes/no**. It includes the measured state, an ordered procedure from lowest to highest risk, and safeguards written where evidence says they are needed.
 
-**Y ya se había escrito una vez.** `specs/0005-search-efficiency-layer/design.md:137` rotuló esta misma
-operación **"Higiene one-time del store personal (acción, no feature de navori)"**, y `:206` la dejó
-como decisión abierta literal: *"¿Ejecutar la higiene one-time del store personal (§5.3) ahora,
-aparte del plan?"*. #761 decisión 1 **es esa misma pregunta, redescubierta por otro camino meses
-después**. Que este documento exista es lo que evita la tercera vez.
+**This had already been written once.** `specs/0005-search-efficiency-layer/design.md:137` labeled the same operation **"One-time personal-store hygiene (action, not a navori feature)"**, and `:206` left it as an explicit open decision: *"Run the one-time personal-store hygiene (§5.3) now, separately from the plan?"*. #761 decision 1 **is that same question, rediscovered by another path months later**. This document exists to prevent a third rediscovery.
 
 ---
 
-## ⛔ Lo que no puede correrse a ciegas
+## ⛔ What must not be run blindly
 
-Dos comandos de esta familia hacen daño con la sintaxis que uno teclearía por reflejo. Van primero
-porque el orden de lectura importa más que el orden lógico.
+Two commands in this family cause damage with syntax one might type reflexively. They come first because reading order matters more than logical order.
 
-### Trampa 1 — `engram projects consolidate --all` fusiona repos distintos
+### Trap 1 — `engram projects consolidate --all` merges different repositories
 
-Corrido el **2026-09-13 21:04 CST**, `engram projects consolidate --all --dry-run` propone **7
-grupos**. El **grupo 4 es destructivo**:
+Run on **2026-09-13 21:04 CST**, `engram projects consolidate --all --dry-run` proposed **7 groups**. **Group 4 is destructive**:
 
-| grupo 4 — se fusionaría dentro de `navori-harness` | obs |
+| group 4 — would be merged into `navori-harness` | obs |
 |---|---:|
 | `alertaciudadana` | 1 |
 | `alertaciudadana_app` | 237 |
@@ -50,118 +39,85 @@ grupos**. El **grupo 4 es destructivo**:
 | `navori-ab-smoke2` | 0 |
 | `navori-dashboard-template` | 96 |
 | `navori-health` | 104 |
-| **total absorbido** | **680** |
+| **total absorbed** | **680** |
 
-**680 observaciones de repos reales distintos colapsadas dentro de `navori-harness`** (que tiene
-681), con la memoria de dos productos ajenos mezclada en la de éste. El **grupo 5** mete
-`reports-server-bonum` (38 obs) dentro de `notifications-server` (60).
+**680 observations from genuinely different repositories would collapse into `navori-harness`** (which has 681), mixing the memory of two unrelated products into this one. **Group 5** puts `reports-server-bonum` (38 obs) into `notifications-server` (60).
 
-Y **el modo interactivo tampoco es seguro por default**: corrido sin `--all` desde la raíz del
-repo, el comando detecta `navori-harness` y ofrece fusionar `navori` (14 obs) y `navori-health`
-(104 obs) dentro de él. Las dos son bases de código distintas. La respuesta correcta a ese prompt
-era `none`, que es la que se dio.
+**Interactive mode is not safe by default either:** when run without `--all` from the repository root, the command detects `navori-harness` and offers to merge `navori` (14 obs) and `navori-health` (104 obs) into it. Both are different codebases. The correct answer to that prompt was `none`, and that is what was chosen.
 
-**Regla: `--all` está prohibido.** Solo por grupo verificado a mano, vía el prompt interactivo,
-seleccionando números explícitos. Los grupos legítimos del dry-run de hoy —todos de 0–3 obs en el
-lado que se absorbe— son:
+**Rule: `--all` is prohibited.** Use only manually verified groups, through the interactive prompt, selecting explicit numbers. The legitimate groups in today's dry run — all with 0–3 obs on the side being absorbed — are:
 
 - `bonum-services-sessions` (1) → `services-sessions` (12)
 - `poker-2` (3) → `poker` (3)
 - `codex-spike` (0) + `codex-spike2` (0)
 - `.g-p-683086de…-previous-dcdb38aa…` (1) → `g-p-683086de…` (3)
-- `alertaciudadana` (1) y `alertaciudadana_backend_audit` (1) → **a su repo real**
+- `alertaciudadana` (1) and `alertaciudadana_backend_audit` (1) → **their real repository**
 
-Ese último punto tiene una arruga que hay que ver: `alertaciudadana` y `alertaciudadana_backend_audit`
-sí deberían consolidarse, pero **el grupo 4 los manda a `navori-harness`, no a su repo**. Aceptar el
-grupo para llevarse lo legítimo se lleva también el desastre. Van por separado, desde el directorio
-del repo que debe quedar como canónico.
+That last item has a wrinkle to notice: `alertaciudadana` and `alertaciudadana_backend_audit` should be consolidated, but **group 4 sends them to `navori-harness`, not their repository**. Accepting the group to get the legitimate items also gets the disaster. Handle those separately, from the directory of the repository that should remain canonical.
 
-Y uno que el dry-run propone y **no hay que aceptar aunque sea chico**: el grupo 2 fusiona
-`con-harness` (4 obs) con `sin-harness` (0 obs). Los nombres son los dos brazos de una comparación;
-fusionarlos borra justo la distinción que los hace útiles. Verificar antes de tocarlo.
+One group is proposed by the dry run and **must not be accepted even though it is small**: group 2 merges `con-harness` (4 obs) with `sin-harness` (0 obs). Those names are the two arms of a comparison; merging them erases exactly the distinction that makes them useful. Verify before touching it.
 
-### Trampa 2 — `engram export --help` escribe el export a un archivo llamado `--help`
+### Trap 2 — `engram export --help` writes the export to a file named `--help`
 
-`engram export` toma el destino como **argumento posicional**, y no tiene bandera de ayuda. Así que
-`engram export --help` **no imprime nada de ayuda: escribe el export completo a un archivo llamado
-`--help`**. Medido: **9.9 MB**, en `-rw-r--r--` (644), con las **1,798** filas de `user_prompts` en
-claro adentro.
+`engram export` takes its destination as a **positional argument** and has no help flag. Therefore, `engram export --help` **does not print help: it writes the full export to a file named `--help`**. Measured size: **9.9 MB**, mode `-rw-r--r--` (644), containing all **1,798** `user_prompts` rows in plaintext.
 
-Corrido desde un repo, eso deja ese archivo **dentro de un working tree de git**, a un `git add -A`
-de quedar commiteado para siempre.
+Run from a repository, this leaves the file **inside a git working tree**, one `git add -A` away from being committed forever.
 
-Dos reglas que se derivan:
+Two rules follow:
 
-1. **El backup nunca se escribe dentro de un repo.** Destino fuera de todo working tree (`~/`,
-   por ejemplo), y `git status` después de correrlo para comprobar que no cayó nada.
-2. **Para descubrir banderas de `engram`, usa `engram help`** (o `engram --help`), que imprime la
-   ayuda completa de todos los subcomandos y **no escribe nada**. `engram help <subcomando>` también
-   es seguro, aunque ignora el argumento e imprime la misma ayuda global.
+1. **Never write the backup inside a repository.** Put it outside every working tree (for example, under `~/`) and run `git status` afterward to confirm nothing landed in a repository.
+2. **Use `engram help`** (or `engram --help`) to discover `engram` flags. It prints complete help for every subcommand and **writes nothing**. `engram help <subcommand>` is also safe, though it ignores the argument and prints the same global help.
 
-`engram <subcomando> -h` **no es una ruta confiable**: funciona en algunos (`engram doctor -h`
-imprime un usage real) y en otros no (`engram stats -h` ignora la bandera y simplemente corre
-`stats`). En los subcomandos cuyo primer argumento es posicional —`export`, `import`, `save`,
-`search`, `delete`— `-h` puede interpretarse como el argumento: el efecto depende del subcomando y
-solo `export` escribe un archivo, pero ninguno es una forma segura de pedir ayuda. **No lo pruebes
-ahí.**
+`engram <subcommand> -h` **is not a reliable route**: it works for some commands (`engram doctor -h` prints real usage) and not others (`engram stats -h` ignores the flag and simply runs `stats`). For subcommands whose first argument is positional — `export`, `import`, `save`, `search`, `delete` — `-h` may be interpreted as the argument: the effect depends on the subcommand and only `export` writes a file, but none of these is a safe way to ask for help. **Do not try it there.**
 
 ---
 
-## Estado del corpus, medido
+## Corpus state, measured
 
-Medición del **2026-09-13 21:04 CST**, `sqlite3 -readonly` sobre `~/.engram/engram.db`. Solo
-conteos y claves; ningún `observations.content` ni ningún `user_prompts.content` salió de la DB.
+Measurement from **2026-09-13 21:04 CST**, using `sqlite3 -readonly` on `~/.engram/engram.db`. Only counts and keys were read; no `observations.content` or `user_prompts.content` left the database.
 
-**La cifra deriva, y rápido.** Las observaciones vivas de `navori-harness` tomaron cinco valores
-durante el ciclo de #760: 670 → 674 → 675 → 676 → **681**. Cualquier número de abajo hay que
-re-medirlo antes de actuar sobre él.
+**The numbers drift, and quickly.** The live observations for `navori-harness` took five values during the #760 cycle: 670 → 674 → 675 → 676 → **681**. Re-measure every number below before acting on it.
 
-### `navori-harness` — 681 observaciones vivas
+### `navori-harness` — 681 live observations
 
-| tipo | obs | % |
+| type | obs | % |
 |---|---:|---:|
-| `manual` (sin tipo curado) | 217 | **32 %** |
-| `session_summary` | 132 | **19 %** |
-| `decision` | 96 | 14 % |
-| `project` | 60 | 9 % |
-| `discovery` | 48 | 7 % |
-| `architecture` | 39 | 6 % |
-| `bugfix` | 37 | 5 % |
-| `config` | 10 | 1 % |
-| `pattern` | 7 | 1 % |
-| `bug` | 6 | 1 % |
-| `learning` | 5 | <1 % |
-| `solution` · `bug_fix` | 4 c/u | <1 % |
-| `task` · `reference` · `convention` | 3 c/u | <1 % |
-| `preference` · `feedback` | 2 c/u | <1 % |
-| `research` · `progress` · `incident` | 1 c/u | <1 % |
+| `manual` (no curated type) | 217 | **32%** |
+| `session_summary` | 132 | **19%** |
+| `decision` | 96 | 14% |
+| `project` | 60 | 9% |
+| `discovery` | 48 | 7% |
+| `architecture` | 39 | 6% |
+| `bugfix` | 37 | 5% |
+| `config` | 10 | 1% |
+| `pattern` | 7 | 1% |
+| `bug` | 6 | 1% |
+| `learning` | 5 | <1% |
+| `solution` · `bug_fix` | 4 each | <1% |
+| `task` · `reference` · `convention` | 3 each | <1% |
+| `preference` · `feedback` | 2 each | <1% |
+| `research` · `progress` · `incident` | 1 each | <1% |
 
-Los **durables** (`decision` + `architecture` + `convention` + `pattern`) suman **145 = 21 %**. O
-sea: una de cada cinco escrituras es la que el protocolo describe como el objetivo, y casi un tercio
-del corpus quedó en `manual`, el tipo por default.
+The **durable** types (`decision` + `architecture` + `convention` + `pattern`) total **145 = 21%**. In other words, one in five writes is what the protocol describes as the goal, and nearly one third of the corpus is `manual`, the default type.
 
-### Los huecos
+### Gaps
 
-| señal | navori-harness | % del corpus vivo |
+| signal | navori-harness | % of live corpus |
 |---|---:|---:|
-| sin `title` | **352** | 52 % |
-| sin `topic_key` | **437** | 64 % |
-| `revision_count > 1` | 47 | 7 % |
+| missing `title` | **352** | 52% |
+| missing `topic_key` | **437** | 64% |
+| `revision_count > 1` | 47 | 7% |
 | soft-deleted | 0 | — |
-| con `review_after` | 99 | 15 % |
-| con `review_after` vencido | 0 | — |
+| has `review_after` | 99 | 15% |
+| overdue `review_after` | 0 | — |
 
-De las 352 sin `title`, **64 son de tipo durable** (`decision` 41, `architecture` 23). Ésa es la
-rebanada que rinde más en el paso 1: son las que alguien va a querer encontrar en seis meses y hoy
-solo se distinguen abriéndolas una por una.
+Of the 352 observations missing `title`, **64 are durable** (`decision` 41, `architecture` 23). That is the highest-value slice for step 1: those are the ones someone will want to find in six months, and today they can only be distinguished by opening them one by one.
 
-### El vocabulario de `type` está fragmentado
+### The `type` vocabulary is fragmented
 
-`bugfix` (37) + `bug` (6) + `bug_fix` (4) son **el mismo concepto en tres claves**. En toda la DB:
-`bugfix` 311, `bug` 45, `bug_fix` 9. Mientras dure, `mem_search --type bugfix` deja fuera **10 de 47
-en `navori-harness` (21 %)** y **54 de 365 en toda la DB (15 %)**.
+`bugfix` (37) + `bug` (6) + `bug_fix` (4) are **the same concept under three keys**. Across the entire database: `bugfix` 311, `bug` 45, `bug_fix` 9. While this persists, `mem_search --type bugfix` misses **10 of 47 in `navori-harness` (21%)** and **54 of 365 across the database (15%)**.
 
-### `engram doctor` sale `blocked`
+### `engram doctor` reports `blocked`
 
 ```
 engram doctor --json --project navori-harness
@@ -177,291 +133,194 @@ sync_mutation_required_fields — sync_mutation_payload_missing_required_fields
              "seq":15579,"target_key":"cloud"}
 ```
 
-Es la observación **#2756** (`discovery`, viva, sin título). El detalle se ve con
+This is observation **#2756** (`discovery`, live, without a title). Inspect it with
 `engram doctor --project navori-harness --check sync_mutation_required_fields`.
 
-Es el mismo síntoma que las 352 sin título, un nivel más abajo: una mutación de sync encolada con el
-campo faltante. **Ojo con la promesa**: titular el corpus elimina la *clase* de causa; que además
-limpie esta mutación concreta (`seq` 15579) no está verificado. El propio `doctor` nombra su
-siguiente paso como `engram cloud upgrade doctor --project navori-harness` — comando que **no
-aparece en `engram help`** (los subcomandos documentados de `cloud` son `status`, `enroll`, `config`
-y `serve`). Confirmarlo antes de correrlo.
+It is the same symptom as the 352 observations without titles, one level down: a queued sync mutation is missing a field. **Be careful with the promise:** titling the corpus removes the *class* of cause; whether it also clears this specific mutation (`seq` 15579) has not been verified. `doctor` itself names its next step as `engram cloud upgrade doctor --project navori-harness` — a command that **does not appear in `engram help`** (the documented `cloud` subcommands are `status`, `enroll`, `config`, and `serve`). Confirm it before running it.
 
-### `embedding IS NOT NULL` ⇒ **0 filas**, pero el scan semántico no depende de ellas
+### `embedding IS NOT NULL` ⇒ **0 rows**, but semantic scan does not depend on them
 
-Ni en `navori-harness` ni en toda la DB (2,964 observaciones vivas) hay un solo embedding. **Eso no
-inutiliza `engram conflicts scan --semantic`**: esa vía usa el runner LLM configurado mediante
-`ENGRAM_AGENT_CLI`, no la columna `embedding`.
+Neither `navori-harness` nor the entire database (2,964 live observations) has any embeddings. **That does not disable `engram conflicts scan --semantic`**: this path uses the LLM runner configured through `ENGRAM_AGENT_CLI`, not the `embedding` column.
 
-Verificado el **2026-09-14 14:05 CST** con `ENGRAM_AGENT_CLI=claude`, `--dry-run`,
-`--max-semantic 10`, concurrencia 1 y timeout de 20 segundos por llamada: inspeccionó 689
-observaciones, encontró 3 candidatos, juzgó 1, omitió 2 y reportó 0 errores semánticos; `inserted: 0`
-y `dry_run: true`. La corrida tardó varios minutos y el descubrimiento emitió tres errores FTS5 por
-contenido que el parser no pudo convertir a query, pero terminó con exit 0. Es una fuente real de
-candidatos, no una operación instantánea ni exhaustiva.
+Verified **2026-09-14 14:05 CST** with `ENGRAM_AGENT_CLI=claude`, `--dry-run`, `--max-semantic 10`, concurrency 1, and a 20-second timeout per call: it inspected 689 observations, found 3 candidates, judged 1, skipped 2, and reported 0 semantic errors; `inserted: 0` and `dry_run: true`. The run took several minutes, and discovery emitted three FTS5 errors for content the parser could not convert into a query, but it finished with exit 0. It is a real source of candidates, not an instant or exhaustive operation.
 
-Las relaciones persistidas antes de esa corrida vienen de juicio: `engram conflicts stats --project
-navori-harness` reportaba 9 relaciones juzgadas (6 `not_conflict`, 3 `related`) sobre 131 filas en
-`memory_relations` en toda la DB. El `--dry-run` no agregó ninguna.
+Relationships persisted before that run came from judgment: `engram conflicts stats --project navori-harness` reported 9 judged relationships (6 `not_conflict`, 3 `related`) among 131 rows in `memory_relations` across the whole database. The `--dry-run` added none.
 
-### Contexto global
+### Global context
 
-`engram stats` y `engram projects list`, misma corrida: **2,964** observaciones vivas · **1,162**
-sesiones · **1,798** prompts · **37** proyectos. En toda la DB hay **1,241** observaciones sin
-`title` (42 %).
+`engram stats` and `engram projects list`, in the same run: **2,964** live observations · **1,162** sessions · **1,798** prompts · **37** projects. Across the entire database, **1,241** observations have no `title` (42%).
 
 ---
 
-## El procedimiento
+## Procedure
 
-Ordenado de menor a mayor riesgo. **Los pasos se autorizan por separado**: 1 y 2 son baratos y
-reversibles; 3 y 4 son los que piden pulso. Un "sí al 1 y al 2, el resto después" es una respuesta
-completa y probablemente la mejor primera corrida.
+Ordered from lowest to highest risk. **Authorize each step separately**: steps 1 and 2 are inexpensive and reversible; steps 3 and 4 require care. “Yes to 1 and 2, the rest later” is a complete answer and probably the best first run.
 
-### Paso 0 — el backup, innegociable
+### Step 0 — backup, non-negotiable
 
 ```
 engram export ~/engram-backup-2026-09-13.json
 ```
 
-Verificado: exit 0, imprime `Exported to <ruta>` y los tres conteos (`Sessions` / `Observations` /
-`Prompts`). El artefacto trae `version`, `exported_at`, `sessions`, `observations` y **`prompts`**.
+Verified: exit 0; prints `Exported to <path>` and three counts (`Sessions` / `Observations` / `Prompts`). The artifact contains `version`, `exported_at`, `sessions`, `observations`, and **`prompts`**.
 
-Tres cosas que van juntas con este comando:
+Three things go with this command:
 
-- **Fuera de todo repo.** Ver la trampa 2. Después de correrlo, `git status` en cualquier working
-  tree donde estés parado.
-- **`chmod 600` inmediatamente.** El archivo nace en `-rw-r--r--` (644) y lleva los 1,798 prompts en
-  claro. Hereda la misma exposición que la DB original.
-- **Restaurar es `engram import <file>`**, documentado en `engram help`. No se probó en esta
-  corrida. Para ensayarlo, usa **`ENGRAM_DATA_DIR`**, que recibe un directorio y hace que el binario
-  abra `<directorio>/engram.db`; `ENGRAM_DB` no existe y se ignora silenciosamente. Antes del import,
-  crea un directorio temporal privado y exige que `stats` muestre esa ruta y cero observaciones:
+- **Outside every repository.** See trap 2. After running it, check `git status` in any working tree you are standing in.
+- **Immediately `chmod 600`.** The file is created as `-rw-r--r--` (644) and contains all 1,798 prompts in plaintext. It has the same exposure as the original database.
+- **Restore with `engram import <file>`**, documented by `engram help`. It was not tested in this run. To test it, use **`ENGRAM_DATA_DIR`**, which takes a directory and makes the binary open `<directory>/engram.db`; `ENGRAM_DB` does not exist and is silently ignored. Before importing, create a private temporary directory and require `stats` to show that path and zero observations:
 
-  ```sh
+
+
+```sh
   restore_dir="$(mktemp -d "${TMPDIR:-/tmp}/engram-restore.XXXXXX")"
   chmod 700 "$restore_dir"
   ENGRAM_DATA_DIR="$restore_dir" engram stats
-  # Solo si Database apunta a "$restore_dir/engram.db" y Observations es 0:
+  # Only if Database points to "$restore_dir/engram.db" and Observations is 0:
   ENGRAM_DATA_DIR="$restore_dir" engram import ~/engram-backup-2026-09-13.json
-  ```
 
-  No apuntes `ENGRAM_DATA_DIR` a `~/.engram` ni continúes si `stats` muestra el store real.
 
-### Paso 1 — titular las observaciones sin `title`
+```
 
-**Riesgo: ninguno.** Es puro añadido: `mem_update(id, title)` no toca `content`, `type` ni
-`topic_key`.
+  Do not point `ENGRAM_DATA_DIR` at `~/.engram` or continue if `stats` shows the real store.
 
-352 candidatas en `navori-harness`. Empezar por las **64 durables** (`decision` 41, `architecture`
-23), que son las que un `mem_search` futuro va a querer distinguir por el título.
+### Step 1 — title observations missing `title`
 
-Un título se escribe **como la afirmación misma, no como etiqueta del tema**: los resultados de
-búsqueda encabezan con él, así que un título vago obliga a abrir la observación completa solo para
-saber de qué trata.
+**Risk: none.** This only adds data: `mem_update(id, title)` does not change `content`, `type`, or `topic_key`.
 
-Además, es el paso que ataca la causa del `blocked` de `doctor`. Re-correr el doctor al terminar
-para ver si el finding se fue o si hace falta el paso que el propio doctor sugiere.
+There are 352 candidates in `navori-harness`. Start with the **64 durable** ones (`decision` 41, `architecture` 23), the ones a future `mem_search` will need to distinguish by title.
 
-### Paso 2 — normalizar el vocabulario de `type`
+Write a title **as the claim itself, not as a topic label**: search results lead with it, so a vague title forces someone to open the full observation just to learn what it is about.
 
-**Riesgo: bajo.** Reversible y mecánico: `bug` → `bugfix`, `bug_fix` → `bugfix`, vía `mem_update`.
-10 observaciones en `navori-harness`, 54 en toda la DB.
+This is also the step that addresses the cause of `doctor`'s `blocked` status. Run `doctor` again afterward to see whether the finding is gone or whether its own suggested next step is needed.
 
-Lo que gana: `mem_search --type bugfix` deja de mentir. Decidir antes si el alcance es solo
-`navori-harness` o los 37 proyectos — el criterio correcto es el mismo en los dos casos, pero el
-volumen no.
+### Step 2 — normalize the `type` vocabulary
 
-Los otros tipos huérfanos (`solution` 4, `task` 3, `progress` 1, `incident` 1, `project` 60) **no
-entran en este paso automáticamente**: `project` con 60 filas no es ruido de tecleo, es un uso
-deliberado que hay que entender antes de reescribir.
+**Risk: low.** Reversible and mechanical: use `mem_update` to change `bug` → `bugfix` and `bug_fix` → `bugfix`. There are 10 observations in `navori-harness` and 54 across the whole database.
 
-### Paso 3 — fusionar duplicados semánticos
+Benefit: `mem_search --type bugfix` stops lying. Decide first whether the scope is only `navori-harness` or all 37 projects. The criterion is the same either way; the volume is not.
 
-**Riesgo: medio. Juicio de agente, uno por uno.** No hay corrida masiva aquí.
+Other orphan types (`solution` 4, `task` 3, `progress` 1, `incident` 1, `project` 60) **are not automatically included in this step**: `project` with 60 rows is not a typo; it is deliberate usage that must be understood before rewriting.
 
-Empezar por los dos pares confirmados, verificados vivos en esta corrida:
+### Step 3 — merge semantic duplicates
+
+**Risk: medium. Agent judgment, one pair at a time.** No bulk run here.
+
+Start with the two confirmed pairs, verified live in this run:
 
 | ids | type | topic_key |
 |---|---|---|
 | **2901** / **2902** | `discovery` / `manual` | `routing/tool-routing-audit` / `navori-audit-tool-routing-2026-09` |
 | **2903** / **2904** | `discovery` / `manual` | `audit/skill-attribution` / `navori-skill-attribution-2026-09` |
 
-**Por qué SQL no los ve, y ésta es la parte importante del runbook:** en `navori-harness` hay **0
-`topic_key` con más de una fila viva** y **0 `normalized_hash` repetido**. Cero. Y aun así los cuatro
-de arriba son dos pares del mismo hecho. Cada par difiere en `type` *y* en `topic_key` —una clave con
-convención `<area>/<slug>`, la otra con el mes embebido—, así que ninguna regla determinista los
-agrupa. **Un script no puede encontrar esto; un agente leyendo título y contenido sí.**
-`specs/0005-search-efficiency-layer/design.md:129-130` ya lo había resuelto igual: *"Es juicio → agente, no
-hook mecánico (un script no sabe qué es 'importante')"*.
+**Why SQL does not find these, and this is the important part of the runbook:** `navori-harness` has **0 `topic_key` values with more than one live row** and **0 repeated `normalized_hash` values**. Zero. Yet the four observations above are two pairs about the same facts. Each pair differs in both `type` *and* `topic_key` — one key uses the `<area>/<slug>` convention, the other embeds the month — so no deterministic rule groups them. **A script cannot find this; an agent reading title and content can.** `specs/0005-search-efficiency-layer/design.md:129-130` had already decided the same thing: *"This requires judgment → agent, not a mechanical hook (a script does not know what is 'important')."*
 
-`engram conflicts scan --project navori-harness --dry-run --semantic` está documentado en
-`engram help` y **sí propone candidatos aunque haya 0 embeddings**: usa el runner indicado por
-`ENGRAM_AGENT_CLI`. La corrida medida arriba encontró 3 y juzgó 1. El resultado sigue siendo una
-propuesta que se revisa antes de aplicar. El resumen del comando no imprime los pares, así que esa
-corrida no permite afirmar si incluyó los dos confirmados de esta tabla.
+`engram conflicts scan --project navori-harness --dry-run --semantic` is documented by `engram help` and **does propose candidates even with 0 embeddings**: it uses the runner specified by `ENGRAM_AGENT_CLI`. The measured run above found 3 and judged 1. Its result remains a proposal to review before applying. The command summary does not print the pairs, so that run cannot establish whether it included the two confirmed pairs in this table.
 
-La fusión concreta es: consolidar el contenido bajo **una** observación con el `topic_key` que siga
-la convención, y soft-delete de la otra (paso 4).
+The actual merge is: consolidate the content under **one** observation with a `topic_key` that follows the convention, and soft-delete the other observation (step 4).
 
-### Paso 4 — podar snapshots volátiles
+### Step 4 — prune volatile snapshots
 
-**Riesgo: el más alto. Es el único paso que borra.**
+**Risk: highest. This is the only step that deletes.**
 
-- **Soft-delete, que es el default de `engram delete <obs_id>`. NUNCA `--hard`.** El `--hard` no
-  tiene deshacer, y el corpus tiene hoy **0 soft-deleted**, así que la papelera está vacía y sirve.
-- **Nunca sobre un `decision` ni un `architecture`.** No es preferencia: es lo que manda el propio
-  protocolo que este harness renderiza —`packages/plugins/engram/managed/engram-protocol.md:11`,
-  *"Never aggressive deletion, never delete a durable decision"*.
-- Candidatas legítimas: mediciones puntuales, estado de PRs, resultados de una corrida — lo que el
-  `session_summary` de esa sesión ya cubre. `mem_review(action: list)` lista lo que pasó su
-  `review_after`; hoy son **0 de 99**, así que esa vía no aporta candidatos todavía y la selección
-  es manual.
-- `engram delete <obs_id>` no se corrió en esta medición. Está documentado en `engram help`.
+- **Soft-delete, the default for `engram delete <obs_id>`. NEVER use `--hard`.** `--hard` has no undo, and the corpus currently has **0 soft-deleted** observations, so the trash is empty and available.
+- **Never delete a `decision` or `architecture`.** This is not a preference; it is required by the protocol rendered by this harness — `packages/plugins/engram/managed/engram-protocol.md:11`: *"Never aggressive deletion, never delete a durable decision"*.
+- Legitimate candidates: one-off measurements, PR status, run results — things already covered by that session's `session_summary`. `mem_review(action: list)` lists items past `review_after`; today that is **0 of 99**, so it supplies no candidates yet and selection is manual.
+- `engram delete <obs_id>` was not run in this measurement. It is documented by `engram help`.
 
-### Resumen de autorización
+### Authorization summary
 
-| paso | qué hace | reversible | se puede autorizar solo |
+| step | what it does | reversible | can be authorized alone |
 |---|---|---|---|
-| 0 | `engram export` | n/a | obligatorio, no es opcional |
-| 1 | titular 352 | sí (`mem_update`) | sí |
-| 2 | normalizar `type` | sí (`mem_update`) | sí |
-| 3 | fusionar duplicados | sí, si el borrado es soft | sí, pero exige juicio por par |
-| 4 | podar volátiles | sí, si es soft-delete | sí |
+| 0 | `engram export` | n/a | required, not optional |
+| 1 | title 352 observations | yes (`mem_update`) | yes |
+| 2 | normalize `type` | yes (`mem_update`) | yes |
+| 3 | merge duplicates | yes, if deletion is soft | yes, but requires judgment per pair |
+| 4 | prune volatile items | yes, if soft-deleted | yes |
 
 ---
 
-## Diagnóstico: siempre read-only, y sin texto
+## Diagnosis: always read-only, without text
 
-**El criterio**: `sqlite3 -readonly` con `COUNT` / `GROUP BY`, o `engram stats` / `engram doctor
---json`. **Nunca `SELECT content`. Nunca la tabla `user_prompts`.** Toda la medición de este
-documento cumple eso.
+**The rule:** `sqlite3 -readonly` with `COUNT` / `GROUP BY`, or `engram stats` / `engram doctor --json`. **Never `SELECT content`. Never query the `user_prompts` table.** All measurements in this document follow this rule.
 
-### Por qué el criterio existe
+### Why this rule exists
 
-`~/.engram/engram.db` guarda **~1,798 prompts del usuario en claro** y está en **`-rw-r--r--` (644),
-world-readable**. Verificado con `stat -f "%Sp %z %N" ~/.engram/engram.db` (20.5 MB) y un
-`COUNT(*)` sobre `user_prompts`. El `engram.db-wal` que lo acompaña son otros 4.3 MB con los mismos
-permisos.
+`~/.engram/engram.db` stores **about 1,798 user prompts in plaintext** and has permissions **`-rw-r--r--` (644, world-readable)**. Verified with `stat -f "%Sp %z %N" ~/.engram/engram.db` (20.5 MB) and a `COUNT(*)` on `user_prompts`. The accompanying `engram.db-wal` is another 4.3 MB with the same permissions.
 
-El `~` de esa cifra no es pereza: el `COUNT(*)` devolvió **1,797** y `engram stats`, un minuto
-después en la misma corrida, **1,798**. El corpus crece mientras lo mides — ésa es la razón por la
-que cada número de este documento lleva su hora al lado.
+The tilde in that count is not laziness: `COUNT(*)` returned **1,797**, and `engram stats`, one minute later in the same run, returned **1,798**. The corpus grows while you measure it — that is why each figure in this document includes its timestamp.
 
-Es **la misma clase de exposición que la decisión abierta B6** señala para `~/.navori/audits` —
-`.claude/progress/audit_deep_navori-audit.md:18`, rotulada en `progress/current.md:153-154` como
-*"B6 (los prompts viajan en claro en el log)"*— pero **un nivel más arriba y con más volumen**: B6
-habla de un log opt-in por sesión; esto es el store completo, siempre encendido.
+This is **the same kind of exposure that open decision B6 identifies for `~/.navori/audits`** — `.claude/progress/audit_deep_navori-audit.md:18`, labeled in `progress/current.md:153-154` as *"B6 (prompts travel in plaintext in the log)"* — but **one level higher and at greater volume**: B6 covers an opt-in per-session log; this is the entire always-on store.
 
-**B6 sigue sin responder** (*"¿nota de privacidad en el reporte, permisos 600, o nada?"*,
-`.claude/progress/audit_deep_navori-audit.md:126`). Este dato se le suma: cualquiera que sea la
-respuesta para `~/.navori/audits`, hay que decidir si aplica igual a `~/.engram/engram.db` y al
-`.json` que produce el paso 0.
+**B6 is still unanswered** (*"privacy note in the report, 600 permissions, or nothing?"*, `.claude/progress/audit_deep_navori-audit.md:126`). This finding adds another question: whatever the answer is for `~/.navori/audits`, decide whether it also applies to `~/.engram/engram.db` and the `.json` produced by step 0.
 
-### El precedente que ya respeta el criterio
+### The precedent that already follows the rule
 
-`scripts/py/mine-topic-keys.py` —entregado en la **PR
-[#784](https://github.com/UlisesCm/navori-harness/pull/784)**, mergeada el 2026-09-14— es el
-instrumento que ya lee esta misma DB bajo estas mismas reglas, y sirve de plantilla:
+`scripts/py/mine-topic-keys.py` — delivered in **PR [#784](https://github.com/UlisesCm/navori-harness/pull/784)**, merged 2026-09-14 — is the tool that already reads this same database under these same rules, and is a template:
 
-- Abre con URI **`mode=ro`**, no con una promesa en un comentario: *"que este script no emita un
-  INSERT es una propiedad del código, no del canal. La URI lo vuelve una propiedad del canal"*.
-- Declara **una sola tabla y cinco columnas** en constantes de las que se construye el `SELECT`:
-  `observations` × (`topic_key`, `type`, `revision_count`, `project`, `created_at`). Ninguna es
-  texto del usuario.
-- Su test (`packages/cli/src/lib/__tests__/mine-topic-keys.test.ts`) lo prueba en vez de afirmarlo:
-  *"no lee el cuerpo de la observación ni la tabla de prompts"* asserta que el fuente **no contiene**
-  `user_prompts` ni `content`, y *"abre la DB read-only de verdad: un INSERT rebota"* lo verifica
-  contra una DB real.
+- It opens the database with URI **`mode=ro`**, not a promise in a comment: *"that this script emits no INSERT is a property of the code, not the channel. The URI makes it a property of the channel"*.
+- It declares **one table and five columns** as constants used to construct the `SELECT`: `observations` × (`topic_key`, `type`, `revision_count`, `project`, `created_at`). None is user text.
+- Its test (`packages/cli/src/lib/__tests__/mine-topic-keys.test.ts`) verifies this instead of merely claiming it: *"does not read observation bodies or the prompts table"* asserts the source **does not contain** `user_prompts` or `content`, and *"really opens the DB read-only: an INSERT is rejected"* checks against a real database.
 
-Cualquier consulta nueva de diagnóstico se escribe con esa barra.
+Any new diagnostic query must meet this bar.
 
 ---
 
-## Qué NO hacer, y por qué
+## What NOT to do, and why
 
-Las dos ideas de abajo se re-derivan solas cada vez que alguien mira este problema de frente. Quedan
-escritas con su refutación para que la próxima vez cueste un párrafo y no una auditoría.
+The two ideas below reappear whenever someone looks at this problem directly. They are written down with their refutations so next time costs a paragraph, not an audit.
 
-### No: un script de curación versionado en navori
+### No: a versioned curation script in navori
 
-La forma tentadora es `scripts/curate-engram.py`, read-only por default, `--apply` como opt-in.
-Pierde por cuatro razones, cada una suficiente:
+The tempting shape is `scripts/curate-engram.py`, read-only by default, with `--apply` as opt-in. It loses for four reasons, each sufficient on its own:
 
-1. **Reimplementa tooling ajeno.** `engram v1.20.0` ya trae `delete [--hard]`, `delete project`,
-   `projects consolidate [--all] [--dry-run]`, `conflicts scan [--dry-run] [--apply] [--semantic]`,
-   `doctor --json`, `stats`, `export` e `import`. Una copia en este repo se desincroniza en la
-   siguiente versión del binario — y ya hay señal: `specs/0005` nombraba un `engram prune` que
-   **no existe** en la superficie de v1.20.0.
-2. **Cruzaría una frontera que hoy está limpia.** Navori tiene **0 accesos** a `~/.engram/engram.db`
-   desde `packages/cli/src/`, `packages/core/` y `scripts/`; el acoplamiento con engram termina en
-   `packages/plugins/engram/plugin.json`, que instala el binario, registra el MCP server y renderiza
-   doctrina. **El store es del plugin, no de navori.** Sería el primer código de navori que abre el
-   store de otro producto.
-3. **No puede hacer la parte que importa.** Los dos pares duplicados del paso 3 tienen `topic_key`
-   distinto y `normalized_hash` distinto — medido: 0 y 0. El duplicado semántico es **invisible a
-   cualquier regla determinista**.
-4. **Ya estaba resuelto.** `specs/0005-search-efficiency-layer/design.md:129-130`: *"Es juicio → agente, no
-   hook mecánico"*.
+1. **It reimplements another product's tooling.** `engram v1.20.0` already provides `delete [--hard]`, `delete project`, `projects consolidate [--all] [--dry-run]`, `conflicts scan [--dry-run] [--apply] [--semantic]`, `doctor --json`, `stats`, `export`, and `import`. A copy in this repository drifts at the next binary release — and there is already evidence: `specs/0005` named an `engram prune` command that **does not exist** in the v1.20.0 command surface.
+2. **It would cross a boundary that is clean today.** Navori has **0 accesses** to `~/.engram/engram.db` from `packages/cli/src/`, `packages/core/`, and `scripts/`; coupling to engram ends at `packages/plugins/engram/plugin.json`, which installs the binary, registers the MCP server, and renders doctrine. **The store belongs to the plugin, not navori.** This would be navori's first code that opens another product's store.
+3. **It cannot do the part that matters.** The two duplicate pairs in step 3 have different `topic_key` values and different `normalized_hash` values — measured: 0 and 0. A semantic duplicate is **invisible to every deterministic rule**.
+4. **It was already decided.** `specs/0005-search-efficiency-layer/design.md:129-130`: *"This requires judgment → agent, not a mechanical hook"*.
 
-Lo único que un script podría aportar —la lista de candidatos: sin título, tipo raro, `review_after`
-vencido— **ya lo cubren tres superficies existentes**: `engram doctor --json`, `engram conflicts
-scan --dry-run --semantic` y `mem_review(action: list)`. El scan semántico sí produjo candidatos en
-la medición, pero tardó varios minutos; es una herramienta de curación deliberada, no un chequeo
-barato para cada cierre.
+The only thing a script could contribute — a candidate list for missing titles, unusual types, and overdue `review_after` — **is already covered by three existing surfaces**: `engram doctor --json`, `engram conflicts scan --dry-run --semantic`, and `mem_review(action: list)`. The semantic scan did produce candidates in this measurement, but took several minutes; it is a deliberate curation tool, not a cheap check for every closeout.
 
-### No: un skill `/curate-memory`
+### No: a `/curate-memory` skill
 
-`specs/0005:171` lo dejó como opcional. Hoy pierde por dos razones:
+`specs/0005:171` left it optional. Today it loses for two reasons:
 
-1. **La doctrina ya está entregada.** `packages/plugins/engram/managed/engram-protocol.md:11` dice
-   exactamente qué es curar y cuándo: *"Curation at close: in the SAME turn as the summary…
-   Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile
-   observations…"*. Ese bloque es always-on: viaja en `CLAUDE.md` a todo agente y subagente.
-2. **La moratoria de doctrina muerde justo aquí.**
-   `specs/0025-disparadores-de-skill/design.md:234-239`: *"el mecanismo no agrega prosa nueva a
-   `CLAUDE.md`, pero **re-entrega prosa que ya está ahí**. Un mecanismo cuyo contenido es una copia
-   de un bloque always-on paga el cuerpo dos veces"*. Un skill de curación sería exactamente eso.
+1. **The doctrine has already shipped.** `packages/plugins/engram/managed/engram-protocol.md:11` says exactly what curation is and when to do it: *"Curation at close: in the SAME turn as the summary… Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations…"*. That block is always on: it travels in `CLAUDE.md` to every agent and subagent.
+2. **The doctrine moratorium applies here.** `specs/0025-disparadores-de-skill/design.md:234-239`: *"the mechanism does not add new prose to `CLAUDE.md`, but **re-delivers prose that is already there**. A mechanism whose content copies an always-on block pays for the body twice"*. A curation skill would be exactly that.
 
-**Si la curación no ocurre, no es por falta de texto: es por falta de una corrida.** Ése es el
-argumento entero, y es la razón por la que el entregable de #761 es este runbook y no un skill.
+**If curation does not happen, it is not because text is missing: it is because no run happened.** That is the whole argument, and why the #761 deliverable is this runbook, not a skill.
 
 ---
 
-## La decisión 2, cerrada con evidencia
+## Decision 2, closed with evidence
 
-`4dd7a78` (#768, 13 sep 2026) — *"feat(agents): researcher y explorer leen memoria, y solo la leen"*,
-9 archivos, +105/−11. Le dio a los dos agentes **`mem_search` + `mem_get_observation` y ningún
-writer**. Verificado en el árbol al 2026-09-13:
+`4dd7a78` (#768, 2026-09-13) — *"feat(agents): researcher and explorer read memory, and only read it"* — changed 9 files, +105/−11. It gave both agents **`mem_search` + `mem_get_observation` and no writer**. Verified in the tree on 2026-09-13:
 
-| qué | dónde |
+| what | where |
 |---|---|
-| Los 4 assets, `tools:` con las dos lecturas y cero writers | `.claude/agents/researcher.md:4` · `.claude/agents/explorer.md:4` · `packages/core/core-assets/agents/researcher.md:4` · `packages/core/core-assets/agents/explorer.md:4` |
-| La cláusula de toolset de solo lectura en el bloque always-on | `packages/plugins/engram/managed/engram-protocol.md:3` — *"If your `tools:` lists a reader (`mem_search`, `mem_get_observation`) and no writer, the pre-flight below is the whole block"* |
-| Anti-regresión | `packages/cli/src/lib/__tests__/mcp-capability-wiring.test.ts:298` — `describe("researcher and explorer read memory, and only read it (#761)")`, con `WRITE_TOOLS` en `:302` y el mensaje de falla *"reverses a deliberate decision — take it to the issue, not to this line"* en `:341` |
+| All 4 assets, `tools:` with the two readers and zero writers | `.claude/agents/researcher.md:4` · `.claude/agents/explorer.md:4` · `packages/core/core-assets/agents/researcher.md:4` · `packages/core/core-assets/agents/explorer.md:4` |
+| Read-only toolset clause in the always-on block | `packages/plugins/engram/managed/engram-protocol.md:3` — *"If your `tools:` lists a reader (`mem_search`, `mem_get_observation`) and no writer, the pre-flight below is the whole block"* |
+| Regression protection | `packages/cli/src/lib/__tests__/mcp-capability-wiring.test.ts:298` — `describe("researcher and explorer read memory, and only read it (#761)")`, with `WRITE_TOOLS` at `:302` and failure text *"reverses a deliberate decision — take it to the issue, not to this line"* at `:341` |
 
-Los dos assets de `.claude/` llevan además `mcp__codegraph__codegraph_explore` (tool exacta,
-no family wildcard, desde #838), que no es parte de esta decisión.
+The two `.claude/` assets also include `mcp__codegraph__codegraph_explore` (exact tool, not a family wildcard, since #838), which is not part of this decision.
 
-**No re-litigar.** Lo único pendiente del lado de la decisión 2 es housekeeping del issue: editar el
-cuerpo de #761 o cerrar esa mitad citando `4dd7a78`. Mientras siga como está, el próximo lector
-re-audita una decisión ya tomada — que es exactamente lo que pasó para producir este documento.
+**Do not relitigate it.** The only remaining work for decision 2 is issue housekeeping: edit #761's body or close that half citing `4dd7a78`. While it stays as it is, the next reader will re-audit a decision already made — exactly what happened to produce this document.
 
 ---
 
-## Cómo re-medir
+## How to measure again
 
-Todo lo de arriba sale de comandos read-only. Para refrescar las cifras antes de decidir:
+Everything above comes from read-only commands. Refresh the figures before deciding:
 
 ```
-# 1. Estado general — read-only, sin texto
+# 1. Overall state — read-only, no text
 engram stats
 engram projects list
 engram doctor --json --project navori-harness
 engram doctor --project navori-harness --check sync_mutation_required_fields
 engram conflicts stats --project navori-harness
 
-# 2. Conteos del corpus (sqlite3 -readonly, solo COUNT/GROUP BY)
+# 2. Corpus counts (sqlite3 -readonly, COUNT/GROUP BY only)
 sqlite3 -readonly ~/.engram/engram.db \
   "SELECT COUNT(*) FROM observations WHERE project='navori-harness' AND deleted_at IS NULL;"
 sqlite3 -readonly ~/.engram/engram.db \
@@ -473,22 +332,19 @@ sqlite3 -readonly ~/.engram/engram.db \
 sqlite3 -readonly ~/.engram/engram.db \
   "SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL AND embedding IS NOT NULL;"
 
-# 3. Los grupos de consolidación — dry-run, NUNCA sin --dry-run
+# 3. Consolidation groups — dry run, NEVER without --dry-run
 engram projects consolidate --all --dry-run
 
-# 4. Permisos del store
+# 4. Store permissions
 stat -f "%Sp %z %N" ~/.engram/engram.db ~/.engram/engram.db-wal
 ```
 
-Todos verificados el 2026-09-13 21:04 CST con `engram v1.20.0` y `sqlite3 3.50.6`. **Ninguno muta
-nada**, incluido el `--dry-run` del punto 3 — pero ese comando sin `--dry-run` sí, así que no se
-teclea a medias.
+All were verified on 2026-09-13 21:04 CST using `engram v1.20.0` and `sqlite3 3.50.6`. **None mutates anything**, including the `--dry-run` in step 3 — but that command without `--dry-run` does, so do not type it partially.
 
-## Referencias
+## References
 
-- `.claude/progress/audit_ticket_761.md` — la auditoría que produjo este runbook, con la evidencia
-  `file:line` completa.
+- `.claude/progress/audit_ticket_761.md` — the audit that produced this runbook, with full `file:line` evidence.
 - `specs/0005-search-efficiency-layer/design.md` §5.2 (`:116-135`), §5.3 (`:137-148`), §9 (`:199-206`).
-- `specs/0025-disparadores-de-skill/design.md:234-239` — la moratoria de doctrina.
-- `packages/plugins/engram/managed/engram-protocol.md` — el protocolo que se renderiza a `CLAUDE.md`.
+- `specs/0025-disparadores-de-skill/design.md:234-239` — the doctrine moratorium.
+- `packages/plugins/engram/managed/engram-protocol.md` — the protocol rendered into `CLAUDE.md`.
 - [#761](https://github.com/UlisesCm/navori-harness/issues/761) · [#728](https://github.com/UlisesCm/navori-harness/issues/728) · [#768](https://github.com/UlisesCm/navori-harness/pull/768) · [#784](https://github.com/UlisesCm/navori-harness/pull/784)

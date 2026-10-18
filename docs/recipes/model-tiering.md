@@ -1,66 +1,49 @@
-# Recipe — perfil de modelos y effort por agente en navori
+> [English](model-tiering.md) | [Español](model-tiering.es.md) | [简体中文](model-tiering.zh-CN.md)
 
-> Cómo elegir valores para `{{models.<agent>}}` / `{{effort.<agent>}}`, los placeholders
-> que el render interpola en el frontmatter de cada `.claude/agents/*.md`.
-> Defaults en `packages/cli/src/lib/config/recommended.ts` (`RECOMMENDED_MODELS`,
-> `RECOMMENDED_EFFORT`), sembrados en `navori.config.json` por `init --recommended` /
-> `--full`. Enforced por `packages/cli/src/lib/__tests__/recommended.test.ts`.
+# Recipe — model profiles and effort by agent in navori
 
-## Principio
+> How to choose values for `{{models.<agent>}}` / `{{effort.<agent>}}`, the placeholders
+> that render interpolates into each `.claude/agents/*.md` frontmatter.
+> Defaults live in `packages/cli/src/lib/config/recommended.ts` (`RECOMMENDED_MODELS`,
+> `RECOMMENDED_EFFORT`) and are seeded into `navori.config.json` by `init --recommended` /
+> `--full`. Enforced by `packages/cli/src/lib/__tests__/recommended.test.ts`.
 
-Elige el modelo por agente según lo que SU tarea necesita, no un tier único para todos:
+## Principle
 
-- **Mecánico** (mapear un directorio, redactar un commit): tier barato/rápido.
-- **Implementación estándar** (código ya planeado, síntesis textual): tier medio.
-- **Juicio** (revisar, auditar, decidir arquitectura): tier top.
+Choose a model for each agent based on what its task needs, not one tier for everyone:
 
-Sin perfil explícito, cada subagente hereda el modelo de la sesión (típicamente el
-más caro) — así que trabajo mecánico corre al mismo precio que trabajo de juicio.
+- **Mechanical** (map a directory, draft a commit): inexpensive, fast tier.
+- **Standard implementation** (code that is already planned, textual synthesis): mid-tier.
+- **Judgment** (review, audit, decide architecture): top tier.
 
-## Defaults recomendados
+Without an explicit profile, each subagent inherits the session model (typically the most expensive one), so mechanical work costs the same as judgment work.
 
-Claves reales de `ModelsSchema`/`EffortSchema` (`packages/cli/src/lib/config/schema.ts`), que
-coinciden con los ids de archivo en `core-assets/agents/` — el roster canónico vive en
-`engines/shared/roster.ts` (`ROSTER_AGENTS`).
+## Recommended defaults
 
-| Agente | `models.<agent>` | `effort.<agent>` | Por qué |
+These are real `ModelsSchema` / `EffortSchema` keys (`packages/cli/src/lib/config/schema.ts`) that match file IDs under `core-assets/agents/`. The canonical roster lives in `engines/shared/roster.ts` (`ROSTER_AGENTS`).
+
+| Agent | `models.<agent>` | `effort.<agent>` | Why |
 |---|---|---|---|
-| `orchestrator` | `opus` | `xhigh` | Orquesta, define scope y arbitra `CHANGES_REQUESTED` — el único rol de juicio puro, no se abarata. |
-| `architect` | `opus` | `xhigh` | Diseña en tareas de nivel 2/3 (`navori plan classify` decide el nivel, no el modelo): lee mucho código y pesa tradeoffs antes de que nadie escriba código, mantiene el tier del orchestrator (spec 0026 F) en vez de bajar al de síntesis. |
-| `implementer` | `sonnet` | `medium` | Código desde una tarea ya acotada; sonnet rinde casi como opus en coding a una fracción del costo. |
-| `reviewer` | `sonnet` | `medium` | Revisa contra spec/quality gate — síntesis contra un contrato, no arquitectura desde cero. |
-| `scout` | `sonnet` | `medium` | Mapea y/o investiga con preguntas acotadas; redacta hallazgos, no solo lista archivos. |
-| `auditor` | `sonnet` | `medium` | Auditoría arquitectural (SOLID, seguridad, performance, edge cases) — más cerca de juicio que de síntesis; el propio `auditor.md` lo señala explícito. |
-| `publisher` | `haiku` | `low` | Redacta commit/PR/comentarios desde un diff ya aprobado — mecánico. |
-| `scribe` | `haiku` | `low` | Serializa evidencia ya verificada a Markdown — mecánico, igual que publisher. |
+| `orchestrator` | `opus` | `xhigh` | Orchestrates, defines scope, and arbitrates `CHANGES_REQUESTED` — the only pure-judgment role, so it is not downgraded. |
+| `architect` | `opus` | `xhigh` | Designs level 2/3 tasks (`navori plan classify` chooses the level, not the model): reads a lot of code and weighs trade-offs before anyone writes code; keeps the orchestrator tier (spec 0026 F) instead of dropping to the synthesis tier. |
+| `implementer` | `sonnet` | `medium` | Writes code from an already scoped task; sonnet performs almost like opus for coding at a fraction of the cost. |
+| `reviewer` | `sonnet` | `medium` | Reviews against a spec/quality gate — synthesis against a contract, not architecture from scratch. |
+| `scout` | `sonnet` | `medium` | Maps and/or investigates bounded questions; writes findings, not just file lists. |
+| `auditor` | `sonnet` | `medium` | Architectural audit (SOLID, security, performance, edge cases) — closer to judgment than synthesis; `auditor.md` explicitly says so. |
+| `publisher` | `haiku` | `low` | Drafts commits, PRs, and comments from an already approved diff — mechanical work. |
+| `scribe` | `haiku` | `low` | Serializes verified evidence into Markdown — mechanical, like publisher. |
 
-## Effort sigue la misma lógica
+## Effort follows the same logic
 
-`effort.<agent>` es la otra palanca del mismo eje: modelo caro + effort alto significa
-más tokens de razonamiento y más tool calls por invocación. Un agente mecánico en
-`sonnet`/`low` sigue siendo más barato en agregado que el mismo agente en `opus`/`xhigh`
-corriendo N veces por sesión (ej. un `scout` por sub-mapa en un fan-out). El
-`effort` de `orchestrator` además siembra `effortLevel` de `settings.json`, porque ese rol
-es el agente principal — no se spawnea como subagente, así que no hay otro punto
-donde fijar su tier.
+`effort.<agent>` is the other control on the same axis: an expensive model plus high effort means more reasoning tokens and more tool calls per invocation. A mechanical agent on `sonnet`/`low` still costs less in aggregate than the same agent on `opus`/`xhigh` when run N times per session (for example, one `scout` per sub-map in a fan-out). The `orchestrator` effort also seeds `effortLevel` in `settings.json`, because that role is the main agent — it is not spawned as a subagent, so there is no other place to set its tier.
 
 ## Codex
 
-Codex resuelve modelo y esfuerzo de forma independiente. Los defaults por familia son
-Opus → Sol, Sonnet → Luna y Haiku → Luna; `models.codexMap` puede cambiar el valor de cada
-tier a otra familia o a un ID completo. Un ID completo, como `gpt-6-sol`, es un pin; una
-familia como `sol`, `luna` o `astra` busca la versión numérica más alta compatible del
-catálogo local de Codex, por ejemplo `gpt-6.1-sol`.
+Codex resolves model and effort independently. Family defaults are Opus → Sol, Sonnet → Luna, and Haiku → Luna; `models.codexMap` can map each tier to another family or a full ID. A full ID such as `gpt-6-sol` is pinned; a family such as `sol`, `luna`, or `astra` selects the highest compatible numbered version in Codex's local catalog, for example `gpt-6.1-sol`.
 
-El esfuerzo de Claude solo alimenta esta resolución de Codex: Sonnet con `medium` pasa a
-`high`, incluso cuando el modelo viene de un pin o de `codexMap`. Los demás esfuerzos se
-conservan (`Sonnet low` sigue en `low`, y `Sonnet high` en `high`). Un override explícito
-por agente prevalece en su campo correspondiente.
+Claude effort only feeds into Codex resolution: Sonnet with `medium` becomes `high`, even if the model comes from a pin or `codexMap`. Other effort values remain unchanged (`Sonnet low` stays `low`, and `Sonnet high` stays `high`). An explicit per-agent override takes precedence for its corresponding field.
 
-Se pueden definir overrides por nombre TOML nativo en `models.codexProfiles`. Las claves
-deben ser los nombres exactos, como `implementer`; `orchestrator` está reservado para el
-agente principal y usa `.codex/config.toml`. Cada registro puede fijar `model`, `effort` o
-ambos sin que uno sustituya al otro:
+Overrides can be defined by native TOML agent name in `models.codexProfiles`. Keys must be exact names such as `implementer`; `orchestrator` is reserved for the main agent and uses `.codex/config.toml`. Each record can set `model`, `effort`, or both, independently:
 
 ```json
 {
@@ -73,48 +56,25 @@ ambos sin que uno sustituya al otro:
 }
 ```
 
-El inventario considera el principal y los agentes Codex habilitados, además de los TOML
-nativos del proyecto que no administra navori. Esos archivos se leen dentro del checkout;
-los archivos locales del usuario no se reescriben. El render expresa intención administrada
-para futuros inicios y conserva campos del usuario, valores más nuevos de la misma familia
-y TOML de agentes que pertenecen al usuario.
+The inventory includes the main agent and enabled Codex agents, along with project-native TOML files that navori does not manage. Those files are read from the checkout; user-local files are not rewritten. Rendering expresses managed intent for future starts while preserving user fields, newer values from the same family, and agent TOML owned by the user.
 
-Una entrada de `models_cache.json` solo aporta candidatos. La frescura es `unknown` si no
-hay fuente, timestamp y contexto verificados externamente; si falta el catálogo, está
-malformado o no contiene entradas compatibles, el estado es `degraded`. El cache, su mtime
-y sus slugs no prueban disponibilidad actual. `configured`, candidato a render y `observed`
-son estados distintos: sin observación ligada al contexto iniciado, el resultado efectivo
-permanece desconocido y la aplicación queda `pending`, con el remedio de iniciar un contexto
-Codex nuevo y verificar ahí modelo y esfuerzo. No se afirma equivalencia de calidad entre
-modelos.
+An entry in `models_cache.json` only supplies candidates. Freshness is `unknown` when there is no externally verified source, timestamp, and context; if the catalog is missing, malformed, or has no compatible entries, status is `degraded`. The cache, its mtime, and its slugs do not prove current availability. `configured`, render candidate, and `observed` are distinct states: without an observation tied to the started context, the effective result remains unknown and application is `pending`, with the remedy to start a new Codex context and verify model and effort there. No quality equivalence between models is claimed.
 
-Pi conserva su consumidor explícito de `codexMap`, que solo resuelve el modelo; la
-transformación de esfuerzo y los overrides nombrados se limitan a Codex. Los perfiles de
-Claude permanecen sin cambios.
+Pi keeps its explicit `codexMap` consumer, which resolves only the model; effort transformation and named overrides are limited to Codex. Claude profiles remain unchanged.
 
-## No definas todo en el tier top
+## Do not put everything in the top tier
 
-El costo se multiplica por invocación, no por sesión: poner cada agente en
-`opus`/`xhigh` no mejora la calidad donde no hay juicio real que ejercer, solo quema
-presupuesto en cada llamada. `init --recommended` / `--full` siembran los defaults de
-la tabla; `init --yes` no siembra nada (cada subagente hereda el modelo de sesión).
+Cost multiplies per invocation, not per session. Putting every agent on `opus`/`xhigh` does not improve quality where no real judgment is needed; it only burns budget on every call. `init --recommended` / `--full` seed the table defaults; `init --yes` seeds nothing (each subagent inherits the session model).
 
-## Cuándo subir un tier
+## When to raise a tier
 
-Señal concreta, no intuición: 2+ ciclos `CHANGES_REQUESTED` seguidos sobre la misma
-tarea compleja (cap ya documentado en `orquestacion.md`) indica que el tier del
-`implementer` — o el del rol que está fallando — es insuficiente para esa
-complejidad, no que falte reintentar. Sube ese agente un tier antes de reintentar en
-loop.
+Use a concrete signal, not intuition: 2+ consecutive `CHANGES_REQUESTED` cycles on the same complex task (the cap is documented in `orquestacion.md`) indicate that the `implementer` tier — or the failing role's tier — is insufficient for that complexity, not that another retry is needed. Raise that agent by one tier before retrying the loop.
 
-## Tiering por fix, no por ronda
+## Tier by fix, not by review round
 
-Cuando una revisión produce N hallazgos, no mandes toda la ronda al mismo tier alto:
-clasifica cada fix por lo que exige, no por la ronda a la que pertenece. Es el mismo
-criterio del "Principio" de arriba, aplicado por fix en vez de por agente — dentro de
-una sola ronda coexisten sub-tareas de distinto tier.
+When a review produces N findings, do not send the whole round to the same high tier. Classify each fix by what it requires, not by the round it belongs to. This applies the principle above to each fix instead of each agent; sub-tasks of different tiers can coexist within one round.
 
-| Tipo de fix | Ejemplos | Tier |
+| Fix type | Examples | Tier |
 |---|---|---|
-| Mecánico | Tablas de strings, ediciones de JSON, notas de una línea, renombres | Bajo/medio |
-| Juicio | Decisiones de diseño, regex de seguridad, semántica de remoción | Alto |
+| Mechanical | String tables, JSON edits, one-line notes, renames | Low/mid |
+| Judgment | Design decisions, security regex, removal semantics | High |

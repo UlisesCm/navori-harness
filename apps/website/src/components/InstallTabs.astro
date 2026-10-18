@@ -1,4 +1,6 @@
 ---
+import { getLangFromUrl, useTranslations } from "../i18n/utils";
+const t = useTranslations(getLangFromUrl(Astro.url));
 const cmds = [
   { id: "npx", label: "npx", value: "npx navori init" },
   { id: "pnpm", label: "pnpm", value: "pnpm dlx navori init" },
@@ -9,6 +11,9 @@ const cmds = [
 <div
   class="rounded-lg border overflow-hidden font-mono text-sm"
   style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 40%);"
+  data-copy-idle={t("copy.action")}
+  data-copy-done={t("copy.done")}
+  data-copy-failed={t("copy.failed")}
   data-install-tabs
 >
   <div
@@ -38,9 +43,9 @@ const cmds = [
       type="button"
       class="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
       data-copy
-      aria-label="Copy command"
+      aria-label={t("copy.action")}
     >
-      <span data-copy-label>copy</span>
+      <span data-copy-label aria-live="polite">{t("copy.action")}</span>
     </button>
   </div>
 
@@ -96,13 +101,13 @@ const cmds = [
       try {
         await navigator.clipboard.writeText(value);
         if (copyLabel) {
-          copyLabel.textContent = "copied";
+          copyLabel.textContent = root.dataset.copyDone ?? "";
           setTimeout(() => {
-            if (copyLabel) copyLabel.textContent = "copy";
+            if (copyLabel) copyLabel.textContent = root.dataset.copyIdle ?? "";
           }, 1400);
         }
       } catch {
-        // noop
+        if (copyLabel) copyLabel.textContent = root.dataset.copyFailed ?? "";
       }
     });
   });

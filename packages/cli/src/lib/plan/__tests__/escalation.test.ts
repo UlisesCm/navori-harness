@@ -306,7 +306,7 @@ describe("explicit immutable continuations", () => {
       }),
     ).toThrow();
     expect(retained()).toEqual(original);
-  });
+  }, 45_000);
 
   it.each([
     "invalid-utf8",

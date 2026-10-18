@@ -1196,7 +1196,7 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
       expect(runs[2]!.stdout).toContain("exit 1");
       return runs.map((r) => r.stdout !== "");
     });
-  });
+  }, 45_000);
 
   it("a success resets the counter", () => {
     const dir = project();

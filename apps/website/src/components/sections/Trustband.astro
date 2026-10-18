@@ -18,24 +18,7 @@ interface Props {
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-const noun =
-  lang === "es"
-    ? {
-        commands: "comandos",
-        presets: "presets",
-        plugins: "plugins",
-        engines: "engines",
-        agents: "agentes",
-        skills: "skills",
-      }
-    : {
-        commands: "commands",
-        presets: "presets",
-        plugins: "plugins",
-        engines: "engines",
-        agents: "agents",
-        skills: "skills",
-      };
+const noun = {commands:t("inventory.commands"), presets:t("inventory.presets"), plugins:t("inventory.plugins"), engines:t("inventory.engines"), agents:t("inventory.agents"), skills:t("inventory.skills")};
 
 const stats = [
   { value: INVENTORY.commands, label: noun.commands },
@@ -46,7 +29,7 @@ const stats = [
   { value: INVENTORY.skills, label: noun.skills },
 ];
 
-const badges = ["MIT", "Node ≥ 22.12", lang === "es" ? "0 deps runtime" : "0 runtime deps"];
+const badges = ["MIT", "Node ≥ 22.12", t("inventory.dependencies")];
 ---
 
 <section

@@ -1,0 +1,31 @@
+---
+import { pagePath, type PageId } from "../content/pages";
+import type { Lang } from "../i18n/ui";
+interface Props { lang: Lang; page: PageId; }
+const { lang, page } = Astro.props;
+const destination = pagePath(lang, page, import.meta.env.BASE_URL);
+const canonical = new URL(destination, Astro.site).href;
+---
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, follow" />
+    <meta http-equiv="refresh" content={`0;url=${destination}`} />
+    <link rel="canonical" href={canonical} />
+    <title>navori</title>
+  </head>
+  <body>
+    <a id="destination" href={destination}>{lang === "es" ? "Esta página está en" : "This page is available at"} {destination}</a>
+    <script is:inline>
+      const link = document.getElementById("destination");
+      if (link instanceof HTMLAnchorElement) {
+        const target = new URL(link.href);
+        target.hash = window.location.hash;
+        link.href = target.href;
+        window.location.replace(target.href);
+      }
+    </script>
+  </body>
+</html>

@@ -28,7 +28,7 @@
     <g transform="translate(0, 132)">
       <circle cx="9" cy="-9" r="5" fill="#0ea5e9"/>
       <text x="26" y="-3" font-family="ui-monospace, monospace" font-size="18"
-            letter-spacing="3.4" fill="#64748b">OPEN SOURCE · 5 ENGINES</text>
+            letter-spacing="3.4" fill="#64748b">CÓDIGO ABIERTO · 6 ENGINES</text>
     </g>
 
     <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
@@ -51,22 +51,23 @@
     <circle cx="26" cy="21" r="6" fill="#ef4444" fill-opacity="0.7"/>
     <circle cx="48" cy="21" r="6" fill="#f59e0b" fill-opacity="0.7"/>
     <circle cx="70" cy="21" r="6" fill="#10b981" fill-opacity="0.7"/>
+    <text x="100" y="25" font-family="sans-serif" font-size="13" fill="#94a3b8">ejemplo</text>
     <g font-family="ui-monospace, monospace" font-size="17">
       <text x="26" y="86" fill="#e2e8f0">$ navori init --recommended</text>
       <text x="26" y="120" fill="#7dd3fc">✓ engines: claude · codex</text>
       <text x="26" y="154" fill="#7dd3fc">✓ plugins: engram · codegraph</text>
-      <text x="26" y="188" fill="#a78bfa">→ rendering managed assets</text>
-      <text x="26" y="222" fill="#6ee7b7">✓ Done — 34 created</text>
+      <text x="26" y="188" fill="#a78bfa">→ renderizando recursos managed</text>
+      <text x="26" y="222" fill="#6ee7b7">✓ Listo — 34 creados</text>
     </g>
   </g>
 
   <!-- stats: full width, below the terminal so nothing overlaps -->
   <g transform="translate(80, 502)" font-family="ui-monospace, monospace" font-size="21"
      fill="#64748b">
-    <text x="0" y="0">21 comandos</text><circle cx="154" cy="-6" r="2.5" fill="#a78bfa"/>
-    <text x="186" y="0">12 presets</text><circle cx="340" cy="-6" r="2.5" fill="#a78bfa"/>
-    <text x="372" y="0">7 plugins</text><circle cx="526" cy="-6" r="2.5" fill="#a78bfa"/>
-    <text x="558" y="0">5 engines</text>
+    <text x="0" y="0">29 comandos</text><circle cx="154" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="186" y="0">13 presets</text><circle cx="340" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="372" y="0">5 plugins</text><circle cx="526" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="558" y="0">6 engines</text>
   </g>
 
   <!-- footer rule + domain -->
@@ -75,5 +76,5 @@
     github.com/UlisesCm/navori-harness
   </text>
   <text x="1124" y="600" text-anchor="end" font-family="ui-monospace, monospace"
-        font-size="18" fill="#64748b">MIT · Node ≥ 20</text>
+        font-size="18" fill="#64748b">MIT · Node &gt;=22.12 · v0.12.1</text>
 </svg>

@@ -45,7 +45,7 @@ function change(file: string, mutate: (body: Record<string, unknown>) => void): 
   mutate(body);
   writeFileSync(file, JSON.stringify(body));
 }
-function actor(thread: string, role: string): void {
+function actor(thread: string, role: string, version: string = "0.162.1"): void {
   vi.stubEnv("CODEX_THREAD_ID", thread);
   writeFileSync(
     join(dir, "sessions/2026/10/15", `${thread}.jsonl`),
@@ -55,7 +55,7 @@ function actor(thread: string, role: string): void {
         id: thread,
         session_id: parent,
         parent_thread_id: parent,
-        cli_version: "0.162.1",
+        cli_version: version,
         cwd: host,
         agent_role: role,
         source: { subagent: { thread_spawn: { parent_thread_id: parent, agent_role: role } } },
@@ -139,6 +139,45 @@ afterEach(() => {
 });
 
 describe("native review edit binding", () => {
+  // Covers: R13
+  it.each([
+    ["0.162.1", "0.162.1"],
+    ["0.162.1", "0.163.0"],
+    ["0.163.0", "0.162.1"],
+    ["0.163.0", "0.163.0"],
+  ])(
+    "accepts reviewer %s with producer %s through native ownership and preflight",
+    (reviewerVersion: string, producerVersion: string) => {
+      actor(producer, "implementer", producerVersion);
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor("10000000-0000-0000-0000-000000000005", "scribe", reviewerVersion);
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor(reviewer, "reviewer", reviewerVersion);
+      nonce = begin();
+      expect(check()).toEqual({ status: "ok", reason: "bound-review-output" });
+      expect(preflight()).toEqual(check());
+    },
+  );
+
+  // Covers: R13
+  it.each([0, 1])(
+    "rejects unsupported persisted owner version at position %s",
+    (position: number) => {
+      actor("10000000-0000-0000-0000-000000000005", "scribe", "0.163.0");
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor(reviewer, "reviewer");
+      nonce = begin();
+      change(state("ownership_demo.json"), (body: Record<string, unknown>) => {
+        const owners = body.actors as Record<string, unknown>[];
+        const owner = owners[position];
+        if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
+        owner.version = "0.164.0";
+      });
+      expect(check()).toEqual({ status: "error", reason: "ownership-mismatch" });
+      expect(preflight()).toEqual(check());
+    },
+  );
+
   it("publishes an exact thread pointer and shares decisions with the read-only preflight", () => {
     expect(read(index())).toEqual({ v: 1, thread: reviewer, feature: "demo", nonce });
     expect(read(stamp()).editBinding).toMatchObject({
@@ -204,6 +243,7 @@ describe("native review edit binding", () => {
     expect(check().status).toBe("ok");
   });
 
+  // Covers: R13
   it.each([
     [
       "index nonce",
@@ -258,7 +298,7 @@ describe("native review edit binding", () => {
       "unsupported native version",
       "stamp",
       (b: Record<string, unknown>) => {
-        (b.reviewer as Record<string, unknown>).version = "0.163.0";
+        (b.reviewer as Record<string, unknown>).version = "0.164.0";
       },
     ],
     [
@@ -367,8 +407,16 @@ describe("native review edit binding", () => {
     );
   });
 
+  // Covers: R13
   it("detects old or marker-only hooks before requesting native identity", () => {
     const hook = join(host, ".codex/hooks/role-guard.sh");
+    const current = readFileSync(hook, "utf8");
+    const old = current
+      .replace("!['0.162.1', '0.163.0'].includes(a.version)", "a.version !== '0.162.1'")
+      .replace("!['0.162.1', '0.163.0'].includes(p.version)", "p.version !== '0.162.1'");
+    expect(old).not.toBe(current);
+    writeFileSync(hook, old);
+    expect(preflight().reason).toContain("unsupported-host-hook");
     writeFileSync(hook, "# navori:review-edit-binding/v1\n");
     expect(preflight().reason).toContain("unsupported-host-hook");
     expect(preflightReviewEdits({ cwd: target, hostCwd: host, feature: "../escape" }).status).toBe(

@@ -8,7 +8,7 @@ export function getStaticPaths() {
 }
 
 const { command } = Astro.params;
-const lang = "es" as const;
+const lang = "en" as const;
 const doc = commandDocs[lang][command as string];
 
 if (!doc) {

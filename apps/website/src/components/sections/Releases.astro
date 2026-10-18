@@ -14,8 +14,8 @@ interface Props {
 const { lang, limit, asPage } = Astro.props;
 const t = useTranslations(lang);
 const entries = limit ? RELEASES.slice(0, limit) : RELEASES;
-const fullPage = localizedPath(lang, lang === "es" ? "/versiones" : "/releases");
-const dateFmt = new Intl.DateTimeFormat(lang === "es" ? "es-MX" : "en-US", {
+const fullPage = localizedPath(lang, "/releases");
+const dateFmt = new Intl.DateTimeFormat(lang, {
   dateStyle: "long",
   timeZone: "UTC",
 });

@@ -155,6 +155,11 @@ const chipY = (st: Station): number => st.y + 52;
  * would trade the explanation for the layout.
  */
 const wrap = (text: string): [string, string] => {
+  if (!text.includes(" ") && /[\u3400-\u9fff]/.test(text)) {
+    const characters = Array.from(text);
+    const middle = Math.ceil(characters.length / 2);
+    return [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
+  }
   const words = text.split(" ");
   let best = 1;
   let bestDelta = Number.POSITIVE_INFINITY;
@@ -192,6 +197,7 @@ const labelsJson = JSON.stringify({
 ---
 
 <section
+  id="anatomy"
   class="relative py-24 sm:py-28 border-b overflow-hidden"
   style="border-color: var(--color-border-soft);"
 >

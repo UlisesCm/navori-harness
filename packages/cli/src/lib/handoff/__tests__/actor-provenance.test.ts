@@ -90,10 +90,36 @@ afterEach(() => {
 });
 
 describe("native delivery ownership", () => {
+  // Covers: R13
+  it.each(["0.162.1", "0.163.0"])(
+    "admits %s only with matching native identity and parent metadata",
+    (version) => {
+      actor(producerId, "implementer", { cli_version: version });
+      expect(nativeActor(cwd)).toMatchObject({
+        version,
+        thread: producerId,
+        root: rootId,
+        parent: rootId,
+        role: "implementer",
+      });
+      actor(producerId, "implementer", { cli_version: version, id: reviewerId });
+      expect(nativeActor(cwd)).toBeUndefined();
+      actor(producerId, "implementer", { cli_version: version, parent_thread_id: reviewerId });
+      expect(nativeActor(cwd)).toBeUndefined();
+    },
+  );
+  // Covers: R13
+  it.each(["0.164.0", "0.163", "0.163.0-preview", "", null])(
+    "rejects unsupported or malformed version %s",
+    (version) => {
+      actor(producerId, "implementer", { cli_version: version });
+      expect(nativeActor(cwd)).toBeUndefined();
+    },
+  );
   // Covers: R5
   it("requires the own supported native role and rejects conflicts, missing and unsupported headers", () => {
     expect(nativeActor(cwd)?.role).toBe("implementer");
-    actor(producerId, "implementer", { cli_version: "0.163.0" });
+    actor(producerId, "implementer", { cli_version: "0.164.0" });
     expect(nativeActor(cwd)).toBeUndefined();
     actor(producerId, "implementer", { agent_role: "reviewer" });
     expect(nativeActor(cwd)).toBeUndefined();
@@ -102,45 +128,50 @@ describe("native delivery ownership", () => {
     vi.stubEnv("CODEX_THREAD_ID", reviewerId);
     expect(nativeActor(cwd)).toBeUndefined();
   });
-  // Covers: R5
-  it("binds producer delivery, accepts a fresh independent reviewer and rejects handoff/diff drift at every consumer", () => {
-    const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
-    expect(attestHandoff(options)).toEqual({ status: "attested" });
-    expect(beginReview(options).status).toBe("error");
-    actor(producerId, "reviewer");
-    expect(beginReview(options).status).toBe("error");
-    actor(reviewerId, "reviewer");
-    const begun = beginReview(options);
-    expect(begun.status).toBe("begun");
-    if (begun.status !== "begun") throw new Error("begin failed");
-    writeFileSync(
-      state("review_demo.json"),
-      JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
-    );
-    expect(sealReview({ ...options, nonce: begun.nonce }).status).toBe("validated");
-    const sidecar = ReviewSidecarSchema.parse(
-      JSON.parse(readFileSync(state("review_demo.json"), "utf8")),
-    );
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "correlated",
-    );
-    expect(signReceipt(options).exitCode).toBe(0);
-    expect(checkReceipt(options).exitCode).toBe(0);
-    git("add", "a.txt");
-    git("commit", "-qm", "reviewed publication bytes");
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "correlated",
-    );
-    expect(checkReceipt(options).exitCode).toBe(0);
-    writeFileSync(state("impl_demo.json"), readFileSync(state("impl_demo.json"), "utf8") + " ");
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "unavailable",
-    );
-    expect(signReceipt(options).exitCode).toBe(1);
-    expect(checkReceipt(options).exitCode).toBe(1);
-    writeFileSync(join(cwd, "a.txt"), "drift\n");
-    expect(beginReview(options).status).toBe("error");
-  });
+  // Covers: R5, R13
+  it.each(["0.162.1", "0.163.0"])(
+    "binds producer delivery with %s, accepts an independent reviewer and rejects handoff/diff drift at every consumer",
+    (version) => {
+      actor(producerId, "implementer", { cli_version: version });
+      expect(nativeActor(cwd)?.version).toBe(version);
+      const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
+      expect(attestHandoff(options)).toEqual({ status: "attested" });
+      expect(beginReview(options).status).toBe("error");
+      actor(producerId, "reviewer", { cli_version: version });
+      expect(beginReview(options).status).toBe("error");
+      actor(reviewerId, "reviewer", { cli_version: version });
+      const begun = beginReview(options);
+      expect(begun.status).toBe("begun");
+      if (begun.status !== "begun") throw new Error("begin failed");
+      writeFileSync(
+        state("review_demo.json"),
+        JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
+      );
+      expect(sealReview({ ...options, nonce: begun.nonce }).status).toBe("validated");
+      const sidecar = ReviewSidecarSchema.parse(
+        JSON.parse(readFileSync(state("review_demo.json"), "utf8")),
+      );
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "correlated",
+      );
+      expect(signReceipt(options).exitCode).toBe(0);
+      expect(checkReceipt(options).exitCode).toBe(0);
+      git("add", "a.txt");
+      git("commit", "-qm", "reviewed publication bytes");
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "correlated",
+      );
+      expect(checkReceipt(options).exitCode).toBe(0);
+      writeFileSync(state("impl_demo.json"), readFileSync(state("impl_demo.json"), "utf8") + " ");
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "unavailable",
+      );
+      expect(signReceipt(options).exitCode).toBe(1);
+      expect(checkReceipt(options).exitCode).toBe(1);
+      writeFileSync(join(cwd, "a.txt"), "drift\n");
+      expect(beginReview(options).status).toBe("error");
+    },
+  );
   // Covers: R5
   it("permits linked checkout delivery with the same common-dir but rejects an unrelated repository", () => {
     const original = cwd;
