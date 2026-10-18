@@ -45,7 +45,7 @@ function change(file: string, mutate: (body: Record<string, unknown>) => void): 
   mutate(body);
   writeFileSync(file, JSON.stringify(body));
 }
-function actor(thread: string, role: string): void {
+function actor(thread: string, role: string, version = "0.162.1"): void {
   vi.stubEnv("CODEX_THREAD_ID", thread);
   writeFileSync(
     join(dir, "sessions/2026/10/15", `${thread}.jsonl`),
@@ -55,7 +55,7 @@ function actor(thread: string, role: string): void {
         id: thread,
         session_id: parent,
         parent_thread_id: parent,
-        cli_version: "0.162.1",
+        cli_version: version,
         cwd: host,
         agent_role: role,
         source: { subagent: { thread_spawn: { parent_thread_id: parent, agent_role: role } } },
@@ -139,6 +139,23 @@ afterEach(() => {
 });
 
 describe("native review edit binding", () => {
+  it.each([
+    ["0.162.1", "0.162.1"],
+    ["0.163.0", "0.163.0"],
+    ["0.162.1", "0.163.0"],
+    ["0.163.0", "0.162.1"],
+  ])(
+    "binds native producer %s and reviewer %s through the reader and preflight",
+    (producerVersion, reviewerVersion) => {
+      actor(producer, "implementer", producerVersion);
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor(reviewer, "reviewer", reviewerVersion);
+      nonce = begin();
+      expect(check()).toEqual({ status: "ok", reason: "bound-review-output" });
+      expect(preflight()).toEqual(check());
+    },
+  );
+
   it("publishes an exact thread pointer and shares decisions with the read-only preflight", () => {
     expect(read(index())).toEqual({ v: 1, thread: reviewer, feature: "demo", nonce });
     expect(read(stamp()).editBinding).toMatchObject({
@@ -258,7 +275,14 @@ describe("native review edit binding", () => {
       "unsupported native version",
       "stamp",
       (b: Record<string, unknown>) => {
-        (b.reviewer as Record<string, unknown>).version = "0.163.0";
+        (b.reviewer as Record<string, unknown>).version = "0.164.0";
+      },
+    ],
+    [
+      "unsupported producer version",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Array<Record<string, unknown>>)[0]!.version = "0.164.0";
       },
     ],
     [

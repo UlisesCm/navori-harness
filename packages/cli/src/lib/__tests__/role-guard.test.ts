@@ -172,6 +172,23 @@ describe("role-guard linked review outputs", () => {
     writeFileSync(index, JSON.stringify({ v: 1, feature: "demo", thread, nonce }));
     const md = join(state, "review_demo.md");
     const json = join(state, "review_demo.json");
+    const stampPath = join(state, `review_demo.${nonce}.begin.json`);
+    const ownerPath = join(state, "ownership_demo.json");
+    const originalStamp = readFileSync(stampPath, "utf8");
+    const originalOwner = readFileSync(ownerPath, "utf8");
+    for (const version of ["0.162.1", "0.163.0"]) {
+      const stamp = JSON.parse(originalStamp) as { reviewer: { version: string } };
+      const owner = JSON.parse(originalOwner) as { actors: Array<{ version: string }> };
+      stamp.reviewer.version = version;
+      owner.actors[0]!.version = version;
+      writeFileSync(stampPath, JSON.stringify(stamp));
+      writeFileSync(ownerPath, JSON.stringify(owner));
+      const result = run({ ...patch("reviewer", md, json), cwd: host, agent_id: thread });
+      expect(result.status, version).toBe(0);
+      expect(result.stderr).toContain("bound-review-output");
+    }
+    writeFileSync(stampPath, originalStamp);
+    writeFileSync(ownerPath, originalOwner);
     for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
       const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
       const result = run({
@@ -267,7 +284,7 @@ describe("role-guard linked review outputs", () => {
     const samePath = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
     expect(samePath.stderr).not.toContain("bound-review-output");
     expect(samePath.status).toBe(2);
-  });
+  }, 45_000);
 });
 
 // Covers: R6, R8

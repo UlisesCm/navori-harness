@@ -93,8 +93,10 @@ describe("native delivery ownership", () => {
   // Covers: R5
   it("requires the own supported native role and rejects conflicts, missing and unsupported headers", () => {
     expect(nativeActor(cwd)?.role).toBe("implementer");
-    actor(producerId, "implementer", { cli_version: "0.163.0" });
-    expect(nativeActor(cwd)).toBeUndefined();
+    for (const cli_version of ["0.162.0", "0.163.1", "0.164.0", "1.0.0", undefined]) {
+      actor(producerId, "implementer", { cli_version });
+      expect(nativeActor(cwd)).toBeUndefined();
+    }
     actor(producerId, "implementer", { agent_role: "reviewer" });
     expect(nativeActor(cwd)).toBeUndefined();
     actor(producerId, "implementer", { parent_thread_id: reviewerId });
@@ -103,44 +105,48 @@ describe("native delivery ownership", () => {
     expect(nativeActor(cwd)).toBeUndefined();
   });
   // Covers: R5
-  it("binds producer delivery, accepts a fresh independent reviewer and rejects handoff/diff drift at every consumer", () => {
-    const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
-    expect(attestHandoff(options)).toEqual({ status: "attested" });
-    expect(beginReview(options).status).toBe("error");
-    actor(producerId, "reviewer");
-    expect(beginReview(options).status).toBe("error");
-    actor(reviewerId, "reviewer");
-    const begun = beginReview(options);
-    expect(begun.status).toBe("begun");
-    if (begun.status !== "begun") throw new Error("begin failed");
-    writeFileSync(
-      state("review_demo.json"),
-      JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
-    );
-    expect(sealReview({ ...options, nonce: begun.nonce }).status).toBe("validated");
-    const sidecar = ReviewSidecarSchema.parse(
-      JSON.parse(readFileSync(state("review_demo.json"), "utf8")),
-    );
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "correlated",
-    );
-    expect(signReceipt(options).exitCode).toBe(0);
-    expect(checkReceipt(options).exitCode).toBe(0);
-    git("add", "a.txt");
-    git("commit", "-qm", "reviewed publication bytes");
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "correlated",
-    );
-    expect(checkReceipt(options).exitCode).toBe(0);
-    writeFileSync(state("impl_demo.json"), readFileSync(state("impl_demo.json"), "utf8") + " ");
-    expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
-      "unavailable",
-    );
-    expect(signReceipt(options).exitCode).toBe(1);
-    expect(checkReceipt(options).exitCode).toBe(1);
-    writeFileSync(join(cwd, "a.txt"), "drift\n");
-    expect(beginReview(options).status).toBe("error");
-  });
+  it.each(["0.162.1", "0.163.0"])(
+    "binds %s producer delivery, accepts a fresh independent reviewer and rejects handoff/diff drift at every consumer",
+    (cli_version) => {
+      actor(producerId, "implementer", { cli_version });
+      const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
+      expect(attestHandoff(options)).toEqual({ status: "attested" });
+      expect(beginReview(options).status).toBe("error");
+      actor(producerId, "reviewer");
+      expect(beginReview(options).status).toBe("error");
+      actor(reviewerId, "reviewer", { cli_version });
+      const begun = beginReview(options);
+      expect(begun.status).toBe("begun");
+      if (begun.status !== "begun") throw new Error("begin failed");
+      writeFileSync(
+        state("review_demo.json"),
+        JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
+      );
+      expect(sealReview({ ...options, nonce: begun.nonce }).status).toBe("validated");
+      const sidecar = ReviewSidecarSchema.parse(
+        JSON.parse(readFileSync(state("review_demo.json"), "utf8")),
+      );
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "correlated",
+      );
+      expect(signReceipt(options).exitCode).toBe(0);
+      expect(checkReceipt(options).exitCode).toBe(0);
+      git("add", "a.txt");
+      git("commit", "-qm", "reviewed publication bytes");
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "correlated",
+      );
+      expect(checkReceipt(options).exitCode).toBe(0);
+      writeFileSync(state("impl_demo.json"), readFileSync(state("impl_demo.json"), "utf8") + " ");
+      expect(correlateReview(resolveStateRoot(options), sidecar, options).correlation).toBe(
+        "unavailable",
+      );
+      expect(signReceipt(options).exitCode).toBe(1);
+      expect(checkReceipt(options).exitCode).toBe(1);
+      writeFileSync(join(cwd, "a.txt"), "drift\n");
+      expect(beginReview(options).status).toBe("error");
+    },
+  );
   // Covers: R5
   it("permits linked checkout delivery with the same common-dir but rejects an unrelated repository", () => {
     const original = cwd;
@@ -154,34 +160,38 @@ describe("native delivery ownership", () => {
     expect(nativeActor(original)?.role).toBe("implementer");
   });
   // Covers: R5
-  it("retains implementer ownership for approved engine mirrors and rejects unrequested prose or code", () => {
-    const mirrors = [
-      ".claude/agents/implementer.md",
-      ".codex/agents/implementer.toml",
-      ".pi/agents/implementer.md",
-    ];
-    const planPath = state("workplan_demo.json");
-    const plan = JSON.parse(readFileSync(planPath, "utf8")) as {
-      files: Array<{ path: string; new: boolean }>;
-    };
-    plan.files.push(...[...mirrors, "arbitrary.md"].map((path) => ({ path, new: true })));
-    writeFileSync(planPath, JSON.stringify(plan));
-    const options = { cwd, feature: "demo", target: "main" };
-    expect(attestHandoff(options)).toEqual({ status: "attested" });
-    writeFileSync(join(cwd, "note.md"), "note\n");
-    for (const path of mirrors) {
-      mkdirSync(join(cwd, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
-      writeFileSync(join(cwd, path), "generated agent mirror\n");
-    }
-    actor(scribeId, "scribe");
-    writeFileSync(join(cwd, "arbitrary.md"), "unrequested prose\n");
-    expect(attestHandoff(options).status).toBe("error");
-    rmSync(join(cwd, "arbitrary.md"));
-    expect(attestHandoff(options)).toEqual({ status: "attested" });
-    actor(reviewerId, "reviewer");
-    expect(beginReview({ ...options, gate: "" }).status).toBe("begun");
-    actor(scribeId, "scribe");
-    writeFileSync(join(cwd, "a.txt"), "unauthorized scribe code\n");
-    expect(attestHandoff(options).status).toBe("error");
-  });
+  it.each(["0.162.1", "0.163.0"])(
+    "retains %s implementer ownership for approved engine mirrors and rejects unrequested prose or code",
+    (cli_version) => {
+      actor(producerId, "implementer", { cli_version });
+      const mirrors = [
+        ".claude/agents/implementer.md",
+        ".codex/agents/implementer.toml",
+        ".pi/agents/implementer.md",
+      ];
+      const planPath = state("workplan_demo.json");
+      const plan = JSON.parse(readFileSync(planPath, "utf8")) as {
+        files: Array<{ path: string; new: boolean }>;
+      };
+      plan.files.push(...[...mirrors, "arbitrary.md"].map((path) => ({ path, new: true })));
+      writeFileSync(planPath, JSON.stringify(plan));
+      const options = { cwd, feature: "demo", target: "main" };
+      expect(attestHandoff(options)).toEqual({ status: "attested" });
+      writeFileSync(join(cwd, "note.md"), "note\n");
+      for (const path of mirrors) {
+        mkdirSync(join(cwd, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
+        writeFileSync(join(cwd, path), "generated agent mirror\n");
+      }
+      actor(scribeId, "scribe", { cli_version });
+      writeFileSync(join(cwd, "arbitrary.md"), "unrequested prose\n");
+      expect(attestHandoff(options).status).toBe("error");
+      rmSync(join(cwd, "arbitrary.md"));
+      expect(attestHandoff(options)).toEqual({ status: "attested" });
+      actor(reviewerId, "reviewer", { cli_version });
+      expect(beginReview({ ...options, gate: "" }).status).toBe("begun");
+      actor(scribeId, "scribe", { cli_version });
+      writeFileSync(join(cwd, "a.txt"), "unauthorized scribe code\n");
+      expect(attestHandoff(options).status).toBe("error");
+    },
+  );
 });

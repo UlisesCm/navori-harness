@@ -237,3 +237,15 @@ packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.t
 ## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
 
 El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.
+
+## 2026-10-17 22:35 codex — Cierra corrección de presupuesto y compatibilidad nativa
+
+**What**: El cierre de specs con todas sus tareas activas declaradas completas conserva T30 y el límite global: el exceso emite `completed-over-budget`, y reabrir tareas vuelve a bloquear. Se admite únicamente Codex 0.162.1/0.163.0 en schema y lector canónico; dos pruebas de integración conservan todas sus aserciones con presupuestos locales de 45000 ms.
+
+**Why**: El cap se aplicaba también a declaraciones completas; el runtime genuino 0.163.0 era rechazado por dos validadores fijados a 0.162.1; las 32 continuaciones durables y los 36 lanzamientos bash/zsh superaban 15000 ms bajo V8.
+
+**Where**: `packages/cli/src/lib/spec/{classify,check}.ts`, `packages/cli/src/lib/handoff/actor-provenance.ts`, lector canónico `packages/core/core-assets/hooks/_partials/review-edit-binding.sh`, pruebas/mirror/golden correspondientes y R7 de spec 0044.
+
+**Learned**: Los checkboxes no prueban aprobación histórica ni aceptación ejecutada. Schema y lector shell deben admitir el mismo conjunto finito. El ciclo nativo local de implementer, scribe y reviewer pasó con identidad real y target main; no acredita eventos live entre worktrees. Los fixtures bash/zsh cubren esa variante. Los timeouts globales, umbrales, algoritmo de escalaciones y checks de identidad permanecen iguales.
+
+Verificación final: 436 archivos y 9170 pruebas aprobadas, 2 omitidas, 0 fallidas; cobertura 84.28/79.04/89.3/85.81% y floor 154 módulos. Gate full `.navori/state/gate/full-20261018T041821759Z.log`; revisión APPROVED sellada y receipt full status ok/fresh true contra main. A1 60/60, A2 173/173 y golden 5/5. El registro de A3 no capturó el evento del host y permanece pendiente; no se fabricó evidencia ni se repitió full por tracking, y el sello/receipt nativos verificaron la evidencia real.
