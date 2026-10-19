@@ -424,6 +424,13 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "finally unlinks the per-call catalog-${randomUUID()}.json projection input, " +
       "at stateArtifactPath(root, name), after projection succeeds or throws. " +
       "The final path is installed by atomic rename; deletion does not check inode identity",
+    "lib/codex/native-integration.ts":
+      "fixed live probe unlinks only `${path}.lock` after this invocation acquired it with wx; " +
+      "finally removes only its own mkdtemp-created navori-profile-live-* root after bounded " +
+      "owned-process shutdown/drain (uncertain cleanup stays pending). Hook accounting requires " +
+      "a canonical private root and matching probe nonce; target/global homes are preserved. " +
+      "Behavioral coverage: native-integration.test.ts owner interruption, fixture cleanup, " +
+      "target/auth preservation and aggregate-budget cases",
     "lib/audit/paths.ts":
       "cleans only its exclusively created, identity-checked atomic-write temporary; " +
       "removes consumed spool files after successful absorption and identity checks, or the " +
@@ -431,13 +438,19 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "private ownership alone does not authorize deletion",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/gate/run.ts":
+      "pruneForeignLogs (#1097) retires navori's own `navori-gate-foreign-*` log directories: " +
+      "the only caller passes os.tmpdir(), never a repo path; it lists only names with that " +
+      "prefix, lstat-checks each (a symlink is never a directory, so never followed or removed) " +
+      "and keeps only directories owned by the current uid; it keeps the newest 20 by mtime and " +
+      "removes the rest; best effort, it never decides a verdict",
     "lib/plan/escalation.ts":
       "finally unlinks only this invocation's UUID-named escalation_private_*.tmp, " +
       "after exclusive wx creation in the contained state directory; no-replace hard-link " +
       "publication retains the destination on success or uncertainty. Existing private paths " +
       "are never acquired or cleaned, and published grants and burns are never removed",
     "lib/plan/gate.ts":
-      "consumes (one dispatch per spawn) the single `.navori/state/handoffs/dispatch_<feature>.json` " +
+      "consumes (one dispatch per spawn) the selected (own-session) `.navori/state/handoffs/dispatch_<feature>.json` " +
       "the orchestrator wrote for the allowed spawn; a navori state artifact, non-recursive, and the " +
       "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/remote-version-cache.ts":

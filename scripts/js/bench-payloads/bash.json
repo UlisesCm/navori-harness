@@ -1,0 +1,10 @@
+{
+  "session_id": "bench-session",
+  "transcript_path": "__CWD__/transcript.jsonl",
+  "cwd": "__CWD__",
+  "hook_event_name": "__EVENT__",
+  "tool_name": "__TOOL__",
+  "tool_input": { "command": "git status --short", "description": "Show working tree status" },
+  "tool_response": { "stdout": " M README.md\n", "stderr": "", "interrupted": false },
+  "tool_use_id": "toolu_bench_bash"
+}

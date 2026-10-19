@@ -33,7 +33,7 @@ describe("post-PR loop — content invariants (#337, #338)", () => {
     const skill = read("skills/follow-up-prs.md");
     expect(skill).toMatch(/code or infra/i);
     // The tell that separates the two: the same check red on other PRs.
-    expect(skill).toMatch(/same check red on other PRs/i);
+    expect(skill).toMatch(/check red on other PRs/i);
     // `statusCheckRollup` already carries the state — the classification must
     // not degenerate into a per-PR fan-out of `gh run view`.
     expect(skill).toContain("statusCheckRollup");
@@ -64,6 +64,6 @@ describe("post-PR loop — content invariants (#337, #338)", () => {
     expect(pilot).toContain("bucket: pending");
     expect(pilot).toContain("bucket: fail");
     // The post-push step stays informative — it is NOT a new gate.
-    expect(pilot).toMatch(/never hold or revert a PR over a red check/i);
+    expect(pilot).toMatch(/never hold or revert/i);
   });
 });

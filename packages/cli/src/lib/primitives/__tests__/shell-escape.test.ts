@@ -34,8 +34,12 @@ describe("shellSingleQuote", () => {
     for (const payload of payloads) {
       const script = `v=${shellSingleQuote(payload)}\nprintf '%s' "$v"`;
       // The quoting must hold under every shell a host may run (#391).
-      const out = acrossShells((shell) =>
-        execFileSync(shell, ["-c", script], { encoding: "utf-8" }),
+      const out = acrossShells(
+        (shell) => execFileSync(shell, ["-c", script], { encoding: "utf-8" }),
+        {
+          sensitive:
+            "single-quote escaping is parsed by the shell itself; bash and zsh quote differently (#391)",
+        },
       );
       expect(out).toBe(payload);
     }

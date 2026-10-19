@@ -118,6 +118,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
         cwd,
         head: readHead(cwd),
         worktreeTree: fp.tree,
+        fp: 2,
         dirty: true,
       }) + "\n",
     );

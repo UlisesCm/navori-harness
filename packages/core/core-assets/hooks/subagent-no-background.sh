@@ -68,6 +68,8 @@ set -euo pipefail
 
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
+nv_payload_fields="tool_input.command tool_input.run_in_background tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
 
 navori_audit_name="subagent-no-background"
@@ -105,7 +107,9 @@ case "$payload" in
     ;;
 esac
 
-navori_tool=$(payload_field tool_name)
+payload_load
+# One extraction for the three fields the shell lane reads (spec 0054 R22).
+payload_fields navori_tool=tool_name navori_bg=tool_input.run_in_background cmd=tool_input.command
 
 block() {
   echo "[navori] BLOCKED by subagent-no-background: $1" >&2
@@ -127,7 +131,6 @@ case "$navori_tool" in
     ;;
 esac
 
-navori_bg=$(payload_field tool_input.run_in_background)
 if [ "$navori_bg" = "true" ]; then
   block "Bash run_in_background dentro de un subagente"
 fi
@@ -135,7 +138,6 @@ fi
 # SHELL LANE. `cmd` is read only here, past the cheap gates above: a payload
 # with no command (or a jq/node-less host that cannot extract it) has nothing to
 # inspect and falls through to allow, the same fail-open posture as the rest.
-cmd=$(extract_cmd)
 if [ -n "$cmd" ]; then
   if [ "${#cmd}" -gt "$CMD_MAX" ]; then
     block "comando demasiado grande para inspeccionarlo (${#cmd} > ${CMD_MAX})"

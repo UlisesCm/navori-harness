@@ -1,6 +1,6 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, beforeAll, afterAll } from "vitest";
 import { PassThrough } from "node:stream";
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
@@ -8,6 +8,16 @@ import { fileURLToPath } from "node:url";
 import { readProfileHookInput } from "../codex-profile.ts";
 import { resolveCodexHooks } from "../../engines/codex/hook-registrations.ts";
 import { NavoriConfigSchema } from "../../lib/config/schema.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 const script = fileURLToPath(
   new URL("../../../../core/core-assets/hooks/model-advisor.sh", import.meta.url),
@@ -23,7 +33,7 @@ describe("fixed Codex profile hook", () => {
   it("production fixed probe CLI reports pending opt-out without starting a native owner", () => {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), "navori-profile-probe-cli-")));
     directories.push(directory);
-    execFileSync("git", ["init", "-q"], { cwd: directory });
+    repoTplMaster.copyInto(directory);
     writeFileSync(
       join(directory, "navori.config.json"),
       JSON.stringify({ name: "fixture", preset: "custom", engines: ["codex"] }),
@@ -104,6 +114,12 @@ describe("fixed Codex profile hook", () => {
       const input = { agent_type: "local", message: { opaque: "encrypted" }, other: [null, false] };
       const updated = { ...input, model: "gpt-6.1-sol", reasoning_effort: "medium" };
       const wire = {
+        navoriProfile: {
+          version: 1,
+          role: "local",
+          model: { kind: "set", value: "gpt-6.1-sol" },
+          effort: { kind: "set", value: "medium" },
+        },
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: mode === "deny" ? "deny" : "allow",
@@ -140,6 +156,111 @@ describe("fixed Codex profile hook", () => {
       if (mode === "allow") expect(result.hookSpecificOutput.updatedInput).toEqual(updated);
     },
   );
+  // Covers: R12, R13, R18
+  describe("supervisor typed selection admission", () => {
+    const input = { agent_type: "local", message: { opaque: ["ñ", false, null] } };
+    const invoke = (
+      wire: unknown,
+      original: Record<string, unknown> = input,
+    ): Record<string, unknown> => {
+      const directory = mkdtempSync(join(tmpdir(), "navori-profile-intent-"));
+      directories.push(directory);
+      symlinkSync(process.execPath, join(directory, "node"));
+      const quoted = JSON.stringify(wire).replaceAll("'", "'\\''");
+      writeFileSync(
+        join(directory, "navori"),
+        `#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '${quoted}'\n`,
+        { mode: 0o755 },
+      );
+      const output = spawnSync("/bin/bash", [script, "codex-pretool-profile"], {
+        input: JSON.stringify({ tool_input: original }),
+        encoding: "utf8",
+        timeout: 5000,
+        env: { ...process.env, PATH: `${directory}${delimiter}/bin` },
+      });
+      expect(output.status).toBe(0);
+      expect(output.stdout.trim().split("\n")).toHaveLength(1);
+      return JSON.parse(output.stdout) as Record<string, unknown>;
+    };
+    const base = {
+      navoriProfile: {
+        version: 1,
+        role: "local",
+        model: { kind: "set", value: "gpt-6.1-sol" },
+        effort: { kind: "set", value: "medium" },
+      },
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: { ...input, model: "gpt-6.1-sol", reasoning_effort: "medium" },
+      },
+    };
+    // Covers: R12, R13, R18
+    it.each([
+      ["set", "set"],
+      ["set", "inherit"],
+      ["inherit", "set"],
+      ["inherit", "inherit"],
+    ])("preserves opaque input and strips %s/%s intent metadata", (model, effort) => {
+      const updated: Record<string, unknown> = { ...input };
+      if (model === "set") updated.model = "gpt-6.1-sol";
+      if (effort === "set") updated.reasoning_effort = "medium";
+      const native = { ...base.hookSpecificOutput, updatedInput: updated };
+      const output = invoke({
+        navoriProfile: {
+          ...base.navoriProfile,
+          model: model === "set" ? base.navoriProfile.model : { kind: "inherit" },
+          effort: effort === "set" ? base.navoriProfile.effort : { kind: "inherit" },
+        },
+        hookSpecificOutput: native,
+      });
+      expect(output).toEqual({ hookSpecificOutput: native });
+      expect(output).not.toHaveProperty("navoriProfile");
+    });
+    const inherit = { kind: "inherit" };
+    // Covers: R12, R13, R18
+    it.each([
+      { hookSpecificOutput: base.hookSpecificOutput },
+      { ...base, navoriProfile: null },
+      { ...base, navoriProfile: [] },
+      { ...base, navoriProfile: { ...base.navoriProfile, version: 2 } },
+      { ...base, navoriProfile: { ...base.navoriProfile, role: "other" } },
+      { ...base, navoriProfile: { ...base.navoriProfile, extra: true } },
+      { ...base, navoriProfile: { ...base.navoriProfile, model: { kind: "set" } } },
+      { ...base, navoriProfile: { ...base.navoriProfile, effort: { kind: "set", value: null } } },
+      {
+        ...base,
+        navoriProfile: { ...base.navoriProfile, model: { kind: "inherit", value: "smuggled" } },
+      },
+      { ...base, navoriProfile: { ...base.navoriProfile, model: inherit } },
+      { ...base, navoriProfile: { ...base.navoriProfile, model: { kind: "arbitrary" } } },
+      { ...base, hookSpecificOutput: { ...base.hookSpecificOutput, updatedInput: input } },
+      {
+        ...base,
+        hookSpecificOutput: {
+          ...base.hookSpecificOutput,
+          updatedInput: { ...base.hookSpecificOutput.updatedInput, message: "changed" },
+        },
+      },
+      { ...base, hookSpecificOutput: { ...base.hookSpecificOutput, additionalContext: {} } },
+      { ...base, extra: true },
+    ])("rejects malformed selection annotation %#", (wire) => {
+      expect(invoke(wire)).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    });
+    const inherited = {
+      navoriProfile: { ...base.navoriProfile, model: inherit, effort: inherit },
+      hookSpecificOutput: { ...base.hookSpecificOutput, updatedInput: input },
+    };
+    // Covers: R12, R13, R18
+    it.each(["gpt-6.1-sol", "", null])(
+      "rejects inherited selection with explicit original value %s",
+      (value) => {
+        expect(invoke(inherited, { ...input, model: value })).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+      },
+    );
+  });
   // Covers: R13, R18
   it("large opaque native input exceeds environment argument limits without losing a denial wire", () => {
     const directory = mkdtempSync(join(tmpdir(), "navori-profile-large-"));

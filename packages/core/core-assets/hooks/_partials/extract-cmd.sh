@@ -25,6 +25,17 @@
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -35,6 +46,90 @@ payload_field() {
 }
 extract_cmd() {
   payload_field tool_input.command
+}
+
+# payload_fields VAR=path… — several fields, ONE process (spec 0054 R22, D10).
+# Each `payload_field` call forks a subshell plus jq/node; a hook that needs two
+# or more fields up front pays that per field. Here a single jq (or node) emits
+# every field followed by a NUL and closes with the sentinel `END` NUL.
+#
+# NEVER SHIFTS A FIELD (challenge B3). `tool_input.command` is model-controlled,
+# and JSON `\u0000` decodes to a NUL byte, which would end that field early and
+# slide the next value (`cwd`, `session_id`, a role) into the wrong variable. So
+# the producer REFUSES to emit anything when any value holds a NUL, and the shell
+# reads exactly N fields plus the sentinel with nothing after it. Any anomaly —
+# a NUL, a missing or extra field, empty output for a non-empty payload, a
+# producer that failed — discards the whole read and repeats it field by field
+# with `payload_field`, i.e. exactly today's behaviour. A variable is never left
+# empty "because the read went wrong" (that would read as "allowed").
+#
+# Values match `$(payload_field …)`: trailing newlines stripped, `null` and
+# `false` empty, non-strings as compact JSON. Paths are dotted and written HERE,
+# never user input. Works under bash 3.2 and zsh: no arrays, `printf -v` to assign.
+_payload_fields_read() {
+  local _pf_spec _pf_val _pf_end _pf_extra
+  for _pf_spec in "$@"; do
+    IFS= read -r -d '' _pf_val || return 1
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
+    printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
+  done
+  IFS= read -r -d '' _pf_end || return 1
+  [ "$_pf_end" = END ] || return 1
+  if IFS= read -r -d '' _pf_extra; then return 1; fi
+  [ -z "$_pf_extra" ] || return 1
+  return 0
+}
+payload_fields() {
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
+  [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
+  if [ -z "$payload" ]; then
+    for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
+    return 0
+  fi
+  for _pf_spec in "$@"; do
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
+    _pf_paths="$_pf_paths ${_pf_spec#*=}"
+  done
+  _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
+  if command -v jq >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | jq -j "$_pf_filter" 2>/dev/null) && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    _payload_fields_read "$@" < <(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{const j=JSON.parse(s);let o="";for(const p of process.argv[1].trim().split(" ")){let v=j;for(const k of p.split("."))v=v?.[k];const t=v==null||v===false?"":typeof v==="string"?v:JSON.stringify(v);if(t.includes("\0"))return;o+=t+"\0"}process.stdout.write(o+"END\0")}catch{}})' "$_pf_paths" 2>/dev/null) && return 0
+  fi
+  for _pf_spec in "$@"; do
+    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+  done
+  return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call

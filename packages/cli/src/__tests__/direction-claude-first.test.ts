@@ -13,7 +13,7 @@ describe("docs/DIRECTION.md states the Claude-first criterion", () => {
     expect(direction).toContain("## Admission criterion by surface");
   });
 
-  // Covers: R1, R11
+  // Covers: R1, R2, R11
   it("says 'native first' and links the typed matrix doc as the source", () => {
     const sectionStart = direction.indexOf("## Admission criterion by surface");
     expect(sectionStart).toBeGreaterThanOrEqual(0);

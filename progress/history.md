@@ -8,6 +8,27 @@ Cambios:
 - Compatibilidad nativa exacta con Codex 0.162.1/0.163.0; aserciones inglesas equivalentes, presupuestos locales de integración y observación temprana del PID del fixture, conservando identidad, independencia y deadlines del runtime.
 Quality gate: FULL exit 0, 438 archivos, 9,177 pruebas aprobadas, 2 omitidas y 0 fallos; pisos de cobertura de 154 módulos. Log `.navori/state/gate/full-20261018T033845303Z.log`. Revisión APPROVED sellada y receipt FULL contra `main` verificado `status:ok`, `fresh:true`, sin uncovered/drift. A1: 232 aprobadas; A6: 5 aprobadas y 126 filtradas; builds raíz/base, enlaces, budgets y navegador validados. Sin merge, despliegue ni publicación npm.
 
+
+## 2026-10-16 17:00 codex — Prepara checkpoint parcial de perfiles efectivos T11
+
+El usuario autorizó el PR parcial de0050 E4/M7 a main y la activación del lector nativo exacto0.162.1/0.163.0 en dos archivos del checkout original. Se preservaron0054 y los hashes de tres archivos ajenos; render Node actualizó sólo role-guard,90archivos sin cambios y Pi sin escrituras. Fast original exit0 (`fast-20261016T223707004Z.log`). El diff del checkpoint añade observación y owner acotado de perfiles, herencia de architect, procedencia nativa compatible y el inventario de dos borrados privados con sus restricciones de propiedad.
+
+La renovación de A18 detectó que un cambio del target durante baseline iniciaba otro turno antes de revisar su snapshot. La corrección mínima verifica identidad antes del refresh; la regresión exige exactamente un turn/start y cleanup acknowledged. Reproducción roja antes, focal1/1 y conjunta3/3 verdes después, sin ampliar deadlines ni debilitar hooks. Root renovó A18 con137pruebas+5goldens, exit0 (sesión51893), y la registró cumplida; A19=9/9, A20=47+5goldens y A21=29/29 también están registradas. Fast del productor verde. Full anterior9227passed/2skipped/0failed (`full-20261016T210818650Z.log`) precede esta última corrección y se conserva sólo como antecedente; revisión y receipt sobre bytes finales son requisitos de publicación, no resultados anticipados de este registro.
+
+Revisión parcial independiente: SPEC_OK y preflight nativo real ok; gate full posterior `full-20261016T230611569Z.log` terminó exit1,9226passed/1failed/2skipped en1207.25s. Único fallo: timeout15000ms del caso linked-review de role-guard.test.ts,25816ms; origen no determinado. Root focal sin instrumentación pasó1/1; instrumentada repitió timeout y midió36hooks agregados. Usuario autorizó añadir ese archivo al alcance para partir el caso sin quitar controles, ambos shells ni ampliar15s. Workplan A22 agregado y render/check verdes; nueva implementación/revisión/full pendientes. Sin receipt, commit ni PR.
+
+La partición autorizada quedó en17casos, conservando18payloads previos y2checksTS; agregó un positivo sobre el mismo destino antes de retirar el índice (38hooks estructurales entre Bash/Zsh), sin alterar15s, producción ni los25casos restantes. Productor A22 pasó80/80 en120.35s y root68929 pasó80/80 en166.40s; root registró A22 cumplido. Fast fuente `fast-20261017T003515123Z.log` exit0 y diffcheck0; canónico20paths con attest nativo targetmain/checkok. Revisión/full/receipt sobre los bytes finales son requisitos de publicación, acreditados por sus propios artefactos, sin anticipar resultados en este registro. Usuario dejó la corrección de orquestación para después en issue#1314 y pidió concluir el PR parcial.
+
+El siguiente full local `full-20261017T004104079Z.log` reportó cinco fallos en CLI/escalation/doctor y seguía activo al preparar este checkpoint, sin exit/conteo final; no se atribuyó origen ni se declaró aprobado. El usuario autorizó explícitamente publicar el draft con gate local fallido y APPROVED/receipt pendientes, y aceptar el job completo quality de GitHub como gate de cierre. Es excepción de publicación a las precondiciones locales, sin omitir tests ni fabricar receipt. No hacer merge hasta CI verde y revisión final. Publisher verificó main actualizado/behind0, autenticación,26paths autorizados y diffcheck limpio.
+
+El checkpoint se commiteó como e8567865 con hooks normales y fast verde, y se verificó subido a origin/feat/0050-t11-perfiles-efectivos. El guard denegó ghprcreate por fuente de consentimiento humano autenticada ausente; la mediación quedó pending/source-unavailable, request5f8a39ae-5937-4b24-a964-0dd5069a02c0. No se reintentó la publicación ni se creó PR. Full004104079Z terminó exit1:9237passed/6failed/2skipped,1354.48s; cinco timeouts sin atribución y una regresión de título causada por la partición: hook-includes exige el prefijo antiguo. Usuario autorizó restaurar sólo esa línea y verificar consumidor/headers, manteniendo CIcomo cierre y sin full local adicional.
+
+La corrección de ancla quedó en una sola línea del título real. Consumidor reproducido rojo antes y23/23 verde después, más4/4headers; root67687 verificó23+4 y registróA23cumplido. Fast012210239Zexit0, diffcheck0 y nativeattestmain/handoffcheckok. Sin cambios a lógica, controles, timeout ni otrofull local; publicación humana y qualityCI/revisión final siguen como requisitos de cierre bajo la excepción autorizada.
+
+La revisión focal independiente confirmó SPEC_OK, ancla resuelta y sin bloqueantes de código; consumidor23/23 fresco y fast012640564Zexit0, diffcheck0. Mantiene pendientes CI completo y aprobación final, sin receipt; sello nativo validado. El ajuste se prepara como follow-up del checkpoint ya subido, conservando la ruta humana de creación del draft.
+
+T11/A9 siguen pendientes: el catálogo privado observado usa V2/code_mode_only sin close_agent y unload60s por hijo, incompatible con cierre secuencial de ocho roles dentro180s; las alternativas estudiadas tampoco acreditaron el cierre exigido. No se modificó la aceptación ni se ejecutó inferencia real en esta continuación. Queda una ejecución <=180s reservada. T6/T12/A10/A13/E4 permanecen pendientes. El checkpoint se prepara como draft, sin merge, npm ni tag.
+
 ## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
 
 Cambios:
@@ -245,3 +266,166 @@ packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.t
 ## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
 
 El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.
+
+## 2026-10-17 02:34 codex — Integra dev para desbloquear el draft parcial T11
+
+El usuario corrigió el destino del PR draft #1346 a dev. La integración de dev94047c0f conserva los cambios de T11 y resuelve el único conflicto, en un espejo model-advisor, mediante build y render; sin correcciones manuales en código fuente. Render, typecheck, assets, presupuestos, links, cinco goldens,149pruebas focales y gate fast integrado pasaron. El diff frente a dev conserva26archivos. El CI full anterior fue verde sobre6a660d72 con base main; no acredita este árbol integrado. Gate full nuevo, revisión independiente para dev y commit/push del merge siguen pendientes en este checkpoint. T11/A9 y E4 continúan abiertos; ninguna inferencia adicional.
+
+## 2026-10-17 02:48 codex — Verifica full de la integración T11 hacia dev
+
+El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas aprobadas,2omitidas y0fallidas; cobertura84.54% statements,79.30% branches,89.62% functions y86.09% lines, con piso por módulo satisfecho. El reviewer no encontró bloqueantes de código en el alcance parcial. El usuario autorizó revisar el merge preparado sin commit comprobando MERGE_HEAD==origin/dev y cero conflictos, resolviendo la contradicción entre HEADbehind y revisión previa al commit. Sellado y publicación se completan después de este registro; no se afirma merge del PR. T11/A9 y E4 permanecen pendientes.
+
+## 2026-10-17 12:11 Codex — Integra dev/T11 en 0055 y conserva las optimizaciones de la suite
+
+- Integración local de `origin/dev` (`a251417b`) en `feat/0055-suite-rapida`, con el conflicto de `profile-dispatch.test.ts` resuelto conservando validación de PID, `ESRCH` y `vi.waitFor`.
+- Compatibilidad Codex 0.162.1/0.163.0 conservada junto con las fixtures de 0055. Nombres de chunks internos sin hash: 79 archivos, 1,637,134 bytes (1598.8 KiB), bajo el límite sin cambios de 1600 KiB.
+- Verificación de la integración: 322 pruebas dirigidas, A12 desde el hilo principal (47 pruebas) y carga perezosa/superficie del CLI (3 pruebas), sin fallos. Gate scoped verde después del diseño; se verifica de nuevo antes de revisión.
+- El usuario autorizó finalmente el commit directo de integración, seguido de revisión independiente y receipt scoped, porque la política developer del reviewer impedía revisar con HEAD detrás. El commit y la revisión siguen pendientes al registrar esta entrada; sin push ni publicación. La spec 0055 sigue en curso.
+
+## 2026-10-17 14:02 Codex — Integra auditoría sin procesos cuando no hay log activo (0055 M3)
+
+- Portado M3 desde el worktree de hooks: decisión de auditoría mediante builtins y log de sesión, repos ocultos, fallback conservador y evento con ms0 si el log nace durante el hook. Espejos regenerados oficialmente (45), snapshots Claude/Codex conservados.
+- Replay normaliza sólo números de línea de diagnósticos en stderr; las regresiones mantienen estrictas las diferencias en stdout, estado y eventos. Corpus sin cambios.
+- A3 exacto desde root exit0: 264 pruebas y 2996 casos idénticos con auditoría apagada y activa. Targeted implementer269, golden5, sintaxis bash/zsh, fast, render y scoped verdes; bundle1598.8KiB/1600. Revisión nativa y commit pendientes al registrar esta entrada.
+- Registro automático de aceptación A3/A12 pendiente por limitación del host (exec_command anidado no emite Bash); evidencia real conservada, sin fabricar registros. Spec0055 en curso; sin push ni publicación.
+
+## 2026-10-17 14:27 Codex — Integra salida compacta con evidencia de errores (0055 M9)
+
+- Portados diez archivos de M9: reporter compacto no TTY, cobertura JSON con resumen de una línea y selección de reporter conservada cuando se pide reporte JSON; resúmenes verdes del gate sin ruido cuando hay totales. Errores de carga, hooks y globales siguen visibles; hasta 50 nombres y 10 detalles acotados.
+- Configuración y umbrales actuales preservados. Productor: 29 pruebas dirigidas, fast, render y tamaño verdes (1598.8 KiB/1600).
+- A9 exacto desde root exit 0: 21 pruebas. Contexto: SessionStart Claude 108 B y Codex 297 B; gate verde 122 B; affected verde 127 B y rojo 536 B, modo emulado. No demuestra todavía la ruta nativa de affected ni criterios globales de rendimiento.
+- Documentación, revisión independiente y commit pendientes al registrar esta entrada. Aceptación formal A9 pendiente por la captura Bash ausente del host; sin registros fabricados, push ni publicación. E1 sigue abierta.
+
+## 2026-10-17 14:55 Codex — Cachea campos de payload sin cambiar veredictos (0055 M4)
+
+- Carga en shell padre con identidad exacta del payload, invalidación/restauración, declaraciones en 22 hooks, guardas de fallback y 45 espejos regenerados oficialmente. Eval sólo lee variables de ruta validada, con excepción local permitida por la regla; pruebas confirman que valores con sintaxis de shell no se ejecutan.
+- Productor: 131 pruebas en seis archivos, fast (AST 9), render, tamaño (1598.8 KiB/1600) y sintaxis bash/zsh verdes. Corpus y normalizador sin cambios.
+- A4 exacto desde root exit 0: 31 pruebas, 135 mediciones comparables y 2996 casos idénticos off/active. Audit-trigger con jq4 equivale a una extracción y tres operaciones de auditoría: audit.mode=always inicia el log aun en el escenario inicialmente absent.
+- Documentación, revisión independiente y commit pendientes al registrar esta entrada; aceptación formal A4 pendiente por captura Bash ausente. Sin push/publicación, E1 abierta. Inventario M6 identificó que el aviso legítimo de activación de 85 B fue clasificado como sin señal por el benchmark; debe medirse un escenario neutral opt-in sin silenciar el aviso.
+
+### Seguimiento M4 — 2026-10-17
+
+- Primer reviewer CHANGES_REQUESTED por seis fallos temporales del full adicional. Perfil y pares old/new demostraron recorte de sufijo cuadrático en extract-cmd.sh antes del techo de tamaño; fix focalizado usa case y trim nativo sólo si hay NL final.137 pruebas focalizadas/golden, fast/render/size/sintaxis verdes; linealidad y guardas/Pi pasaron.
+- Paridad zsh aislada superó300s tanto en bytes corregidos (310.3s) como en base a4db3432 (394.1s), con cargas distintas/elevadas. Repro en base no acredita causa exclusiva de host ni rendimiento aceptado.
+- A4 fresco exacto72360 exit0:37 pruebas y2996casos idénticos off/active. Bench135 marcado no comparable por carga inicial10.77/10CPUs. Handoff se actualiza; sin receipt/commit M4 aún.
+- Usuario difirió M5/R12/T19–T20 fuera de E1; Node conservado, oráculo no ejecutado. Conciliación de spec prevista con M6. Sin push ni publicación.
+
+- Excepción posterior aprobada por el usuario: review/commit M4 con scoped, focalizadas y replay verde; medición comparable y validación temporal de afectados/paridad pasan a M11. E1 no cierra ni se publica sin full verde. Segunda captura74084:135 mediciones no comparables (load11.22/10), Codex Bash363ms>300 en esa corrida. No se aceptan tiempos ni se eleva el presupuesto.
+
+## 2026-10-17 20:44 Codex — Consolida SessionStart y mide contexto neutral (0055 M6)
+
+- M6 integra --notice-reserve en el CLI, ACK interno condicionado a UTF-8 y marcador moderno explícito; v1 y ACK legacy se conservan. Probe stdout-only y stderr privado evitan perder el aviso tras un warning legítimo y ACK temprano; cleanup mantiene auditoría.
+- Producer:81 pruebas focalizadas/golden y40 finales tras ajustes de tipo; fast/scoped por pasos, render0, assets/links/doc-budgets/blame/sintaxis/diff verdes. Bundle1599.2KiB/1600, sin elevar límites.
+- A6 exacto desde root20458 exit0:18 pruebas y2996 casos idénticos off/active. Bench45 hooks, contextWithoutSignal0; SessionStartClaude6947B/Codex857B, gateverde122B, affectedverde127B/rojo536B en modo emulado.
+- El render opt-in inicializa AGENTS/CLAUDE/progreso: un probe con el mismo hook confirma108B→6947B por la fixture, no por cambio entre hooks. M11 comparará base/rama con la misma preparación. Aviso real always preservado, sin llamarlo ruido.
+- Scribe/reviewer/commit pendientes al registrar. M5/R12/T19–T20 se retiran formalmente en documentación por decisión del usuario, sin ejecución de oráculo; Node conservado. A6 formal pendiente por puente Bash ausente; sin registros fabricados, push ni PR. E1 permanece abierta y full final obligatorio.
+
+- Revisión de root previa al reviewer reprodujo bug nuevo: EXIT usa `navori_sc_err` heredado si el camino no inicializa/crea temporal, eliminando una ruta ajena. Probe aislado pareado conserva fixture en HEAD6396 y la elimina en M6; sólo archivos scratch propios. Fix de propiedad y regresión bash/zsh en curso; A6 anterior no acredita los bytes posteriores al fix. Workplan ya retiró A5/M5 y plan render/check terminó exit0.
+
+- Corrección final de ownership temporal: regresión primero reprodujo2 fallos bash/zsh; inicialización antes de EXIT deja20/20 verdes y confirma limpieza del temporal propio. Productor final83/83 focalizadas/golden, fast `fast-20261018T024955989Z.log` verde. Root A6 final59198 exit0:20 pruebas,45hookscontextWithoutSignal0,2996casos idénticos off/active; benchmark `context-2026-10-18T02-51-11-607Z.json` conserva6947B/857B,gate122B,affected127B/536B emulados. Esta evidencia sustituye la de20458 para bytes finales. Revisión y commit M6 pendientes.
+
+- Reviewer M6 CHANGES_REQUESTED únicamente por full39864 exit1:9669passed,2skipped,1failed/463files1795.4s; `hooks-zsh-parity.test.ts:65` timeout300000ms, origen temporal no determinado. Scoped11742 exit0 y lectura manual sin hallazgos bloqueantes. Developer del reviewer prohíbe aprobar con full rojo y no ofrece ruta de autorización para exceptuarlo; no se solicita otra aprobación. Sin receipt/commitM6, sin repetirfull/replay completo ni elevar límites; root inicia perfil por grupo acotado45s para causa de paridad.
+
+- Diagnóstico acotado sin fuente cambiada: primera sonda45s llega a guard-destructive386casos; segunda termina9.11s con15casos coincidentes por shell (medianas bash210ms/zsh213.1ms). No demuestra causa exclusiva de zsh/host; carga actual16.7/10 no permite performance comparable. No parche sin causa ni otrofull a ciegas. M6 congelado sincommit, M10 independiente puede avanzar bajo spec vigente; el cierre permanece condicionado a M11/fullverde.
+
+- El plan-gate rechazó el primer despacho M10: requiere escalamiento humano por dos CHANGES_REQUESTED del feature E1. Cero reintentos, ningún agente M10 ni código nuevo M10. Plan render/check verde tras reconciliar sólo dos rutas ya autorizadas por T35/T36. Ronda concreta preparada en7rutas, pregunta de reset pendiente; no implica excepción del full ni push/PR.
+
+- Usuario autorizó explícitamente reset y ronda acotadaM10 (mem8036); comando local devolvió reset:true/rejectionsBefore:2. Mantiene7rutas,A10+fast e integridadshards, M6sincommit y fullverde obligatorio antes deaprobaciónfinal; sinpush/PR.
+
+- M10 productor DONE/attested sobre7rutas,11fuentesM6congeladas verificadasporSHA. Final31pruebas/4archivos y fast `fast-20261018T035547361Z.log` verdes. Root A10 final38370 exit0:23pruebas/3archivos2.4s. Native2blobs transportados sin temporales originales y rechazo de versiones mixtas; floor/budget en fixture compruebanseleccióndecomandos, no fullsuiteequivalence/CIwall. Root reprodujo falsoempty de scripts y omisión de guardtests: fullconservadorpara scripts/partials y fallbackbasename lo cierran; ningún full/replay adicional. Scribe/revisiónfinal pendientes, sinreceipt/commit/push/PR.
+
+## 2026-10-17 22:35 codex — Cierra corrección de presupuesto y compatibilidad nativa
+
+**What**: El cierre de specs con todas sus tareas activas declaradas completas conserva T30 y el límite global: el exceso emite `completed-over-budget`, y reabrir tareas vuelve a bloquear. Se admite únicamente Codex 0.162.1/0.163.0 en schema y lector canónico; dos pruebas de integración conservan todas sus aserciones con presupuestos locales de 45000 ms.
+
+**Why**: El cap se aplicaba también a declaraciones completas; el runtime genuino 0.163.0 era rechazado por dos validadores fijados a 0.162.1; las 32 continuaciones durables y los 36 lanzamientos bash/zsh superaban 15000 ms bajo V8.
+
+**Where**: `packages/cli/src/lib/spec/{classify,check}.ts`, `packages/cli/src/lib/handoff/actor-provenance.ts`, lector canónico `packages/core/core-assets/hooks/_partials/review-edit-binding.sh`, pruebas/mirror/golden correspondientes y R7 de spec 0044.
+
+**Learned**: Los checkboxes no prueban aprobación histórica ni aceptación ejecutada. Schema y lector shell deben admitir el mismo conjunto finito. El ciclo nativo local de implementer, scribe y reviewer pasó con identidad real y target main; no acredita eventos live entre worktrees. Los fixtures bash/zsh cubren esa variante. Los timeouts globales, umbrales, algoritmo de escalaciones y checks de identidad permanecen iguales.
+
+Verificación final: 436 archivos y 9170 pruebas aprobadas, 2 omitidas, 0 fallidas; cobertura 84.28/79.04/89.3/85.81% y floor 154 módulos. Gate full `.navori/state/gate/full-20261018T041821759Z.log`; revisión APPROVED sellada y receipt full status ok/fresh true contra main. A1 60/60, A2 173/173 y golden 5/5. El registro de A3 no capturó el evento del host y permanece pendiente; no se fabricó evidencia ni se repitió full por tracking, y el sello/receipt nativos verificaron la evidencia real.
+
+## 2026-10-18 11:26 Pi — Full verde de 0055 y cierre bloqueado por procedencia nativa
+
+- Se corrigieron la guarda CI tras M10, lectura cwd sin cat y scheduling nativo parity/suite con grupos 1/2; fixture completo verifica inventario exact-once y equivalencia full/cuatro shards/merge. Sin elevar límites, workers ni presupuestos.
+- Full `full-20261018T162643513Z.log` exit 0: 9727 aprobadas, 2 omitidas, 465 archivos, 853.1 s; cobertura 87.59/85.94/90.2/80.5, piso 159 módulos y cero excepciones. Este full precede al último fix consola+blob y hermeticidad NAVORI_TEST_REPORT: 16 focales con reporte heredado, 80 consumidores y fast171214585Z verdes después del fix; full final pendiente.
+- Shard real T171540Z: exit 1, 1929 aprobadas y beforeEach de escalation.test.ts:137 agotado en 10 s; carga 10–20 con cobertura externa. Origen no determinado; no publicar blob de éxito ni intentar merge incompleto. Mediciones comparables y presupuesto final siguen abiertos.
+- Revisión Pi independiente sin defectos funcionales bloqueantes encontrados, scoped y 145 focales verdes; CHANGES_REQUESTED por aceptación y procedencia. Sus suplementos son unsigned: la ruta nativa sólo reconoce hijos Codex reales, no identidad Pi. Receipt check sigue error; no simular IDs, firmas ni ownership. Continuar adopción/atestación/review desde runtime Codex soportado. Cambios y evidencia conservados; sin commit, push ni PR.
+
+
+## 2026-10-18 22:16 Codex — Adopción nativa de 0055 y mediciones locales verificadas
+
+- Continuación/adopción real desde Codex mediante implementer y scribe nativos atestados, preservando la historia Pi y sus resultados unsigned. M6/M10/M11 y correcciones de scheduling parity/suite, consola+blob y hermeticidad de `NAVORI_TEST_REPORT` conservadas; no se atribuye autoría Pi a Codex.
+- Tres observaciones válidas por lado, workers=4 y carga inicial ≤4: medianas pared base/rama 847.029/828.643 s, suma por archivo 3177.592/2680.946 s, spawns 35256/34754. Poblaciones distintas (452 archivos/9551 casos frente a 465/9731): sin afirmación de aceleración global. R30 exacto por fórmula autorizada, default20s/factor1/47 excepciones; cuatro blobs reales homogéneos y merge nativo exit0, cobertura y piso verdes. T12 tiene su checkpoint hermético independiente, no sustituye M0 ni entra en R30.
+- Dieciocho microobservaciones válidas y arranque real de tres rondas de diez por lado: tools184.287→107.703ms y plan150.424→113.139ms superan20ms/20%; version163.006→91.832ms. A7 corregido sólo como comando de aceptación: separar admisión M0 del potencial restante del CLI ya optimizado; rawsamples y hashes verificados,18controles(16negativos), sin alterar probe/tests/producto.
+- A9 conserva echo122=122B y sintético194→231B. Suplemento real del mismo test,1caso por lado y tres pares:283→126B en cada par. Usuario autorizó exclusivamente conteo funcional de bytes con carga actual registrada, sin admitir/comparar tiempos; los criterios de rendimiento≤4 y todos los límites permanecen intactos. Ventana de uso del equipo liberada.
+- Full funcional root anterior a los comentarios Covers:9729 aprobadas/2 omitidas/465 archivos/1001.7s, cobertura87.59/85.94/90.2/80.52 y piso159/0. Continuación de trazabilidad modifica sólo comentarios, JS emitido/inventario idénticos,35 focales/AST9/fast verdes. Fast nativo final `fast-20261019T040712813Z.log` exit0,9/0. Estos antecedentes no son un receipt ni sustituyen el full del reviewer sobre los bytes que firmará.
+- Al registrar este checkpoint: scribe final, capturas exactas de aceptación, revisión independiente y receipt pendientes; sin commit/push/PR. Usuario autoriza PR hacia dev como vehículo para medir CI sólo tras gates locales válidos. Base CI exacta457s; pared CI rama/R29/T39/A11/M11/E1 siguen abiertas hasta resultado real y revisión/re-firma soportadas. M5 diferido, Node conservado, sin resultado de oráculo.
+
+
+## 2026-10-18 22:38 Codex — Checkpoint de 0055 al cerrar por petición del usuario
+
+## Goal
+Continuar y terminar spec0055-suite-rapida; el usuario pide guardar memoria y cerrar aquí, con R3 aún parcial.
+
+## Instructions
+Conservar todo el trabajo sin commit, CLI construido del checkout, rama feat/0055-suite-rapida y destino dev. Scheduling aprobado: proyectos parity/suite groupOrder1/2, una invocación/cobertura agregada. No elevar workers/timeouts/lanes/default20s; R30 sólo fórmula max3válidas×1.25 ceil5s autorizada. M5/R12 diferido, Node conservado, sin resultado de oráculo. Native implementer→scribe→reviewer con actores reales; historia Pi preservada, no suplantar IDs. Usuario liberado para uso normal: no pedir otra ventana exclusiva. Excepción autorizada sólo conteo funcional de bytes A9 con carga actual registrada, sin aceptar/comparar tiempos; rendimiento mantiene carga inicial≤4.
+
+## Discoveries
+- R3 omitía tres hooks realmente registrados: bash-outcome-watch/PostToolUseFailure, audit-mode-close/SessionEnd(Pi shutdown) y engram-write-guard/MCP.20nombres registrados contra17medidos. M5 no exime medir R3. SCENARIOS también alimenta bench-context: conservar sus45grupos/135escenarios; suplemento separado evita cambiar población previa.
+- A7 original confundía admisión M0 con potencial restante del CLI ya optimizado. Comando corregido valida raw M0+arranque pareado+hashes de todos los chunks, conserva20ms/20% y versión sin regresión. A9 añade validación de seis outputs reales/hashes/caso idéntico; conservar echo122=122 y sintético194→231 como antecedentes, no éxito.
+- Capturas de aceptación dependen de todos los bytes salvo progress/state: tras editar docs, refrescar mediante pendiente→comando EXACTO desde root→cumplido. Las cumplidas no entran en el índice de nuevas capturas; no fabricar ni rebind. Todos A vuelven pendientes al cierre.
+- Publicación automática rechazó source-unavailable; approval-ui mantiene false y relaypending no es consentimiento. Usuario ejecutó ruta manual y creó draft1352. Request83c4ee3f-d9a1-41be-9950-cea2d1fb4fe7 quedó stale al corregir body: no reutilizar/regenerar para eludir controles.
+
+## Accomplished
+- PR draft https://github.com/UlisesCm/navori-harness/pull/1352 verificado, base dev, HEAD6396f0ed1e2f7d78fdcf57526423980f9d43ca81, origin/feat/0055-suite-rapida actualizado. CI quality IN_PROGRESS run39199968507 al último chequeo. Es HEAD parcial: su CI NO sirve como resultado final R29/T39. M6/M10/M11 y continuaciones siguen sin commit; ningún commit nuevo en esta continuación.
+- Adopción/continuaciones nativas anteriores atestadas, historia Pi conservada. R30 vigente SHA c74f50a61d82a1819797c12473b8d164eb7f6bdf220bbe74149349f8d62ad72b,47excepciones/default20000/factor1. Cuatro blobs homogéneos y merge nativo R30 exit0,9729pass/2skip465files,cobertura87.6/85.95/90.22/80.52,piso159/0: evidencia histórica anterior a R3.
+- Tres full válidos por lado archivados: base452files/9551casos, medianas847.029s/3177.592s/35256spawns; rama465/9731,828.643s/2680.946s/34754. Poblaciones distintas, sin afirmar aceleración global. T12 checkpoint independiente453/9556,743210ms,load3.9502,workers4; no M0/R30.
+- Micro18/18 válidas; startup3rondas×10alternadas: tools184.287→107.703ms(-41.557%),plan150.424→113.139(-24.787%),version163.006→91.832. A7assertion+18controles(16negativos) verdes. A9mismo testreal1caso×3pares:gate283→126B,carga4.762/4.700,flagsfunctional-byte-count/timingsAcceptedfalse/comparablePerformancefalse; usuario autorizó esta excepción exclusivamente funcional. DIST no cambiado por R3; no repetir arranque salvo drift de chunks.
+- Full funcional root previo a Covers/R3:9729aprobadas/2omitidas/465files1001.7s,cobertura87.59/85.94/90.2/80.52,piso159/0. Covers-only emitía JS idéntico; R3 posterior sí modifica tests. Último fast verde040712813Z9/0 es PRE-R3, no valida fuente actual. Receiptnativo al cierre statuserror/freshfalse: reviewe1 no aprueba. Full actual/review independiente/receipt pendientes; deuda documentada, no éxito actual.
+- Scribe completó tabla local/A7/A9/T8 y detalle45filas/135escenarios; faltantes R3 explícitos. A7exacto3tests+size,A9exacto21+context,A2exacto10+AST9,A8,A10exacto25 pasaron y capturaron; después se corrigió tabla y quedaron pendientes por fingerprint. A12exacto47/71.2s pasó antes de esa corrección. Replays largos de A3/A4/A6 no se iniciaron.
+
+## Next Steps
+1. Retomar R3 parcial con hijo implementer nativo genuino; plan nivel3/archivos aprobados ya contiene bench-hooks.mjs y bench-scripts.test.ts. Dos fuentes preservadas: scripts/js/bench-hooks.mjs SHA51cad43eb1031b8ef5629d7163325823d561e49ae154e1b78b4a010bafd30438; packages/cli/src/__tests__/bench-scripts.test.ts SHA20bd5a90c2dace64ccea352fac65aeddab5bffed0d876618fd759f671b212de6. SCENARIOS original conservado; SUPPLEMENTAL_SCENARIOS BashFailure/SessionEnd/Memory añade7grupos:52total/156filas. Default incluyeambas, --scenario NAME repetible filtra suplemento, --runs/presupuestos intactos. Estadofailure/header/spool privado se repone antes de cada invocación; outcomes sólo suplementarios. Ningún producto/DIST/presupuesto modificado por R3.
+2. Focal roja reprodujo3omitidos; luego31/0 y32/0 verdes. Último32/0en7.5s(handle62082) precede patchmenor JSDoc/outcomes/report.scenarios: fuente final aún SIN fast/focal posterior y SIN canonicalhandoff/atestación R3. Canonicalimpl SHA616a8e0c03176306b0c73474126466ac02327a74938e9266b451270fb775fe34 y ownership siguen PRE-R3. No afirmar DONE/ownershipactual. Verificar diff, prueba focal/fast y actualizar canonical/attest→scribe→reviewer.
+3. Diagnóstico Pi NO concluyente: mismafactory/payload porlado,2hookinvocaciones base y2rama todasexit0 pero SINappend/headerintacto. Control metadata directoexit2 ambos,sinstderr capturado: causa NO DETERMINADA, no afirmar identity-conflict demostrado ni cierres exitosos. Capturar error íntegro antes de decidir reparación; no fake nv_engine/header/actor ni ampliar producto sin evidencia/alcance.
+4. Después sourcefreeze, medir suplemento faltante tres observaciones porlado≤4 con observers nuevos idénticos y preparación común; conservar135viejas/epoch. Bench-scripts pasó30→32casos: decidir/reacreditar full/cohortes/shards relevantes sobre bytes nuevos; no presentar antiguos como finales ni mezclar blobs/revisiones. Node intacto. No lanzar mediciones sobre patch parcial.
+5. Refrescar As exactas tras última prosa, full de bytes actuales, reviewer independiente/receipt, commits atómicos/push al PR1352, CI de HEADFINAL, tabla/R29/T39/A11 y revisión/re-firma soportadas. BaseCIexacta457s; no usar CI del draft6396como final. No estacionar en dev con workingtree sucio.
+
+## Relevant Files
+- progress/current.md y este cierre: próximos pasos y deuda de gate.
+- .navori/state/handoffs/impl_0055-suite-rapida-e1.json: canonical PRE-R3, no atestación actual del patch.
+- .navori/state/handoffs/workplan_0055-suite-rapida-e1.json: comandos A7/A9 literales corregidos; todosApendientes; decisiones autorizadas.
+- .navori/state/probes/0055-r3-lifecycle-diagnostic.{mjs,json}: JSONSHA9ec81c6f6f7d9c23a38cbbbc663c1a69a02b45e77e4f054699c0a7d51dd31780.
+- .navori/state/bench/observer-epochs/0055-before-r3-coverage/: observer viejo preservado SHAdd8db7268f9610bd261c03d71f9315845c11517348f779eaa16bc951362e0a96; baseclone conserva este observer hasta preparación explícita delnuevoepoch.
+- .navori/state/bench/micro-native-20261018T222241Z/validated-summary.json; cli-startup-acceptance-native.json; gate-byte-acceptance-native.json: pruebas actuales de arranque/bytes con hashes.
+- .navori/state/bench/comparable-native-20261018T185623Z/validated-summary.json; hermetic-checkpoint-native-20261018T213656Z/summary.json; probes/0055-remerge-r30-20261018T214908Z/: cohortes históricas acreditadas.
+- .navori/state/handoffs/pr_0055-progress.md: bodydraftcorrecto SHA9659d4a248553371dbee84d1ace9b7902dc1c93ab6bdb714628265b629b708f3.
+
+Procesos propios: ninguno activo al cierre según productor y chequeo root. Se observó Vitest ajeno en navori-harness-codex-0163; no tocar sus procesos/locks. Rama/workingtree sucios conservados, sin commit/cambio de rama al cerrar.
+
+## 2026-10-19 08:29 Codex — Corrección de paridad Linux y cierre funcional de 0055
+
+- Se preserva la entrega existente y se corrige el replay: las rutas grabadas ya no eligen un CLI global ni pierden Node en Linux; se conserva prioridad de shims y ausencia intencional de herramientas. Dos entradas de resume usan referencia explícita al CLI local, con inputs y resultados esperados intactos.
+- Reproducción previa en Linux limpio falló; después pasan 47 casos de los hooks afectados en zsh con auditoría apagada/activa, 6 pruebas unitarias y fast 9/0. Full independiente del reviewer `full-20261019T141658283Z.log`: exit0, 9732 aprobadas/2 omitidas, 465 archivos, cobertura87.59/85.94/90.2/80.52%, piso159 módulos sin excepciones. Revisión APPROVED y receipt full válido antes de publicar; no se repitió cobertura desde root.
+- El full anterior de164fallos coincide con Clamshell Sleep y ciclos prolongados de suspensión confirmados por pmset; se conserva como fallido, sin atribuir164bugs independientes. No se elevan workers, timeouts ni presupuestos.
+- El alcance pendiente queda en issues1354/1355, sin declarar E1/A11/T39 ni mediciones comparativas completadas. Publicación en PR1352 y verificación de CI del nuevo HEAD son el siguiente paso; esta entrada no afirma un resultado de CI aún no ejecutado.
+
+## 2026-10-19 10:02 codex — Integra PR1350 en dev y elimina encabezados redundantes
+
+Integra dev en PR1350 por decisión del usuario, conservando la excepción de spec completada, cap global, T30 y los controles actuales de identidad/binding/guard/escalation. El usuario creó merge9cfe91fc tras resolver conflictos; render oficial90sin cambios y golden5/5. A1:60/60 y A2:209/209.
+
+Full inicial falló en tamaño1600.6KiB>1600. Causa medida: baseline1599.911KiB con91bytes libres, feature+721bytes. Usuario autorizó dos archivos para emitir shebang sólo en index.js; los78chunks importados no lo necesitan. Build final1599.168KiB (852bytes margen), límite intacto; regresión lazy-load2/2, CLI surface2/2 y entrada ejecutable0.12.1 verdes; fast9/0.
+
+Full independiente final exit0:9826aprobadas,2omitidas,465archivos,740s; cobertura87.6/85.94/90.21/80.53%,floor159/0. Evidencia `.navori/state/gate/full-20261019T154723986Z.log`. Publicación dirigida al PR existente1350 contra dev, push normal sin reescribir historia; CI del nuevo HEAD se comprueba tras el push.
+
+## 2026-10-19 11:04 codex — Prepara integración revisable de PR1356
+
+Prepara la integración normal de main38303971 en dev2b98dab5 para PR1356. Preserva documentación pública inglesa y ediciones de main, incorpora ciclo local en EN/ES/zh, conserva las restricciones foreign/cache y doctrina de worktrees, y combina controles complementarios de versiones/ownership/PID sin cambios al runtime crítico. Historias de ambas ramas preservadas.
+
+Resuelve seis overrides de45s antiguos; prueba de migración confirma cinco archivos intactos y ausencia de copias cruzadas, sustituyendo una aserción frágil de prosa sin debilitar guard. Dos lectores i18n ahora usan cli.ts, dueño real del registro tras lazy load; conserva Covers:R2 perdido en traducción. Usuario autorizó ajustes equivalentes de compatibilidad de tests/validadores sin consulta por archivo, manteniendo aserciones, IDs, guards y presupuestos.
+
+Verificación final: A1 464/464 en11archivos (120.8s); A3 57/57 en6archivos; A4 build133páginas,99HTML y alternativasMarkdown,3índices válidos. Reparación de estado15casos; golden5/5; render90unchanged; preservación10tests cambiados/0borrados. Fast nativo fresco verde fast-20261019T165920585Z.log. Productor y scribe atestados genuinamente contra main en mismoHEAD; JSON canónico inmutable tras scribe.
+
+Pendiente: usuario crea el mergecommit concreto para integrar main en HEAD; reglas locales impiden commit de código por agente antes de revisión y reviewer exige ancestry antes de revisar. Después, reviewer independiente ejecuta su único full y sella receipt main; publisher hace push normal HEAD:dev y verifica CI del nuevoSHA. Sin mergePR, deploy ni npm.

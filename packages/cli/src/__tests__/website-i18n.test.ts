@@ -170,7 +170,7 @@ describe("locale routing and navigation", () => {
 describe("complete locale content", () => {
   // Covers: R3, R11
   it("requires every locale key and preserves command flags, usage and examples", () => {
-    const registry = read("packages/cli/src/index.ts").match(
+    const registry = read("packages/cli/src/cli.ts").match(
       /subCommands:\s*\{([\s\S]*?)\n\s*\},/,
     )?.[1];
     expect(registry).toBeDefined();

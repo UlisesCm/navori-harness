@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { nativeProfileCandidates } from "../host-observation.ts";
+import {
+  nativeProfileCandidates,
+  nativeProfileHookCalls,
+  profileSelectionIntent,
+} from "../host-observation.ts";
 import { isOwnedNativeObservation } from "../native-integration.ts";
 import { projectCodexProfiles, type CodexProfileProjection } from "../../assets/model-profile.ts";
 import { NavoriConfigSchema } from "../../config/schema.ts";
@@ -69,6 +73,75 @@ function events(
 }
 
 describe("native profile joins are source-unverified candidates", () => {
+  // Covers: R12, R13, R14, R16
+  it("preserves fully inherited intent and requires real unchanged parent selection with known defaults", () => {
+    const inherited: CodexProfileProjection = {
+      ...rows[0]!,
+      model: { configured: null, origin: "inherited", wouldRender: null, effectiveObserved: null },
+      effort: { configured: null, origin: "inherited", wouldRender: null, effectiveObserved: null },
+      rendered: { model: null, effort: null },
+    };
+    expect(profileSelectionIntent(inherited)).toEqual({
+      model: { kind: "inherit" },
+      effort: { kind: "inherit" },
+    });
+    const native = events();
+    const call = native[1] as {
+      params: { item: { model: string | null; reasoningEffort: string | null } };
+    };
+    call.params.item.model = null;
+    call.params.item.reasoningEffort = null;
+    const parent = {
+      context: "principal",
+      model: "gpt-6-sol",
+      effort: "medium",
+      unchanged: true,
+      defaultsKnown: true,
+    };
+    expect(nativeProfileCandidates([inherited], "principal", native, parent)).toMatchObject([
+      {
+        model: "gpt-6-sol",
+        effort: "medium",
+        intent: { model: { kind: "inherit" }, effort: { kind: "inherit" } },
+      },
+    ]);
+    expect(inherited.model.wouldRender).toBeNull();
+    expect(nativeProfileCandidates([inherited], "principal", native)).toEqual([]);
+    for (const changed of [
+      { ...parent, context: "foreign" },
+      { ...parent, effort: "high" },
+      { ...parent, unchanged: false },
+      { ...parent, defaultsKnown: false },
+      { ...parent, effort: "" },
+    ])
+      expect(nativeProfileCandidates([inherited], "principal", native, changed)).toEqual([]);
+    expect(
+      nativeProfileCandidates(
+        [{ ...inherited, effort: rows[0]!.effort }],
+        "principal",
+        native,
+        parent,
+      ),
+    ).toEqual([]);
+    expect(() =>
+      profileSelectionIntent({ ...inherited, rendered: { model: "override", effort: null } }),
+    ).toThrow("ambiguous");
+    expect(() =>
+      profileSelectionIntent({
+        ...inherited,
+        model: { ...inherited.model, configured: "conflict" },
+      }),
+    ).toThrow("ambiguous");
+    expect(() =>
+      profileSelectionIntent({ ...inherited, diagnostics: ["duplicate native role"] }),
+    ).toThrow("ambiguous");
+    // A later spawning-turn effort cannot be inferred from the old startup effort.
+    const changedActivity = structuredClone(native) as {
+      params: { item?: { reasoningEffort: string } };
+    }[];
+    changedActivity[2]!.params.item!.reasoningEffort = "high";
+    expect(nativeProfileCandidates([inherited], "principal", changedActivity, parent)).toEqual([]);
+  });
   // Covers: R13, R14, R18
   it.each(["thread", "call", "activity"])(
     "rejects conflicting duplicate %s identities in both orders",
@@ -85,11 +158,13 @@ describe("native profile joins are source-unverified candidates", () => {
     },
   );
   // Covers: R13, R14
-  it("requires the activity call ID and accepts identical duplicate native events", () => {
+  it("joins distinct activity/call IDs by exact child receiver and accepts identical native events", () => {
     const baseline = events();
     const activity = baseline[2] as { params: { item: { id: string } } };
     activity.params.item.id = "unrelated";
-    expect(nativeProfileCandidates(rows, "principal", baseline)).toEqual([]);
+    expect(nativeProfileCandidates(rows, "principal", baseline)).toMatchObject([
+      { call: "call", activity: "unrelated", context: "child" },
+    ]);
     expect(nativeProfileCandidates(rows, "principal", [...events(), ...events()])).toHaveLength(1);
   });
   // Covers: R12, R14
@@ -166,5 +241,79 @@ describe("native profile joins are source-unverified candidates", () => {
       },
     };
     expect(nativeProfileCandidates(rows, "principal", [...baseline, anotherCall])).toEqual([]);
+  });
+});
+
+describe("source-bound profile hook identity candidates", () => {
+  const expected = {
+    probe: "b771998e-155d-4213-af16-c3ae36ebc49e",
+    checkout: "/owned/fixture",
+    sourcePath: "/owned/fixture/.codex/config.toml",
+    principal: "principal",
+  };
+  const context = {
+    probe: expected.probe,
+    checkout: expected.checkout,
+    session: expected.principal,
+    call: "call",
+    role: "role0",
+    model: { kind: "set", value: "gpt-6-sol" },
+    effort: { kind: "set", value: "medium" },
+    catalog: "a".repeat(64),
+    configuration: "b".repeat(64),
+    inventory: "c".repeat(64),
+  };
+  const completed = {
+    method: "hook/completed",
+    params: {
+      threadId: expected.principal,
+      run: {
+        id: "hook-run",
+        source: "project",
+        sourcePath: expected.sourcePath,
+        eventName: "preToolUse",
+        handlerType: "command",
+        executionMode: "sync",
+        status: "completed",
+        entries: [{ kind: "context", text: `navori-profile-probe:${JSON.stringify(context)}` }],
+      },
+    },
+  };
+  // Covers: R13, R16, R18
+  it("requires native hook completion and exact source/nonce/call context", () => {
+    expect(nativeProfileHookCalls([completed], expected)).toEqual([context]);
+    expect(nativeProfileHookCalls([context], expected)).toEqual([]);
+    for (const changed of [
+      { ...expected, probe: "c771998e-155d-4213-af16-c3ae36ebc49e" },
+      { ...expected, checkout: "/foreign" },
+      { ...expected, sourcePath: "/foreign/.codex/config.toml" },
+      { ...expected, principal: "foreign" },
+    ])
+      expect(nativeProfileHookCalls([completed], changed)).toEqual([]);
+  });
+  // Covers: R13, R18
+  it.each(["source", "eventName", "handlerType", "executionMode", "status"])(
+    "rejects foreign %s",
+    (field: string) => {
+      const message = structuredClone(completed);
+      Object.assign(message.params.run, { [field]: "foreign" });
+      expect(nativeProfileHookCalls([message], expected)).toEqual([]);
+    },
+  );
+  // Covers: R13, R18
+  it("rejects missing context, wrong output kind, duplicate and conflicting call consumers", () => {
+    const missing = structuredClone(completed);
+    missing.params.run.entries = [];
+    expect(nativeProfileHookCalls([missing], expected)).toEqual([]);
+    missing.params.run.entries = [
+      { kind: "feedback", text: completed.params.run.entries[0]!.text },
+    ];
+    expect(nativeProfileHookCalls([missing], expected)).toEqual([]);
+    expect(nativeProfileHookCalls([completed, completed], expected)).toEqual([]);
+    const conflict = structuredClone(completed);
+    conflict.params.run.id = "other-run";
+    conflict.params.run.entries[0]!.text = `navori-profile-probe:${JSON.stringify({ ...context, role: "role1" })}`;
+    expect(nativeProfileHookCalls([completed, conflict], expected)).toEqual([]);
+    expect(nativeProfileHookCalls([conflict, completed], expected)).toEqual([]);
   });
 });

@@ -71,7 +71,15 @@ unidad de PR de la spec:
   reportar `single` y SHALL advertir que las entregas se fusionan en un solo PR.
 - **R7** — IF el número de entregas supera `maxPrsPerSpec` THEN the system SHALL terminar con
   código distinto de 0 e indicar en formato ERROR / WHY / FIX que la spec debe partirse en varias
-  specs.
+  specs, salvo cuando todas las entregas tengan al menos un milestone, todos los milestones
+  tengan tareas activas, todas las tareas activas estén marcadas como completadas y no haya tareas
+  huérfanas, criterios de aceptación huérfanos ni elementos de checkbox malformados. En ese caso,
+  the system SHALL emitir una advertencia explícita de spec completada sobre presupuesto, con los
+  números real y configurado de entregas. La declaración de checkboxes completados es
+  auto-declarada: no permite distinguir una aprobación histórica de una spec recién escrita con
+  sus tareas marcadas, ni demuestra que se hayan ejecutado los criterios de aceptación. Esta
+  excepción SHALL conservar la validación estructural obligatoria y el gate completo de cierre;
+  no modifica el límite configurado ni los demás requisitos.
 - **R8** — WHEN `navori spec classify` recibe `--json`, the system SHALL emitir la forma, las
   señales y los umbrales efectivos en un objeto JSON estable.
 - **R9** — IF `tasks.md` no existe o no se puede leer THEN the system SHALL terminar con código

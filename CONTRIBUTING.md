@@ -69,6 +69,25 @@ There are two levels:
 For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are enough; the full suite is not needed.
 **"Doc-only" means repo documentation, not assets.** A `.md` file under `packages/core/core-assets/` or `packages/plugins/*/` is a source for the rendered harness, so it triggers steps 2 and 3 (the mirror and golden snapshot) regardless of its extension.
 
+## Local development cycle
+
+- **`bun run test:affected`** runs only the tests reached by the changes against the merge base with
+  `dev`, including uncommitted changes and deletions. It is an iteration shortcut, not sign-off:
+  closing (`bun check`) and CI run the full suite. Changes to Vitest config, `tsconfig*`,
+  `package.json`, the lockfile, or `bunfig.toml`, and a missing merge base, run everything.
+- **`bun run bench:tests`** and **`bun run bench:hooks`** write per-file duration and per-hook cost
+  to `.navori/state/bench/` (the median of `--runs`, 3 by default), and record `loadavg`. A measurement
+  under load is not useful for comparison.
+- **Per-file budget:** `packages/cli/test-budget.json` sets `defaultMs` (20 s) for each test;
+  `exceptions[]` raises it for a specific file, and every exception requires a `reason`.
+  `check-test-budget.mjs --report` fails when a file exceeds its budget. CI applies it in the
+  `quality` job with `NAVORI_TEST_BUDGET_FACTOR=2`.
+- **`navori gate probe`** returns 0 when a cached green matches these exact bytes, and 1 otherwise.
+  It never runs the gate. Pre-commit uses it (`navori gate probe --clean`) to skip
+  `qualityGate.fast` on a hit; a hit never replaces a verdict.
+- **`NAVORI_TEST_WORKERS`** (a positive integer) sets Vitest's worker count. Without it, the count is
+  `min(CPUs - 1, 4, file-descriptor budget)`.
+
 ## Prose budget: what is capped and what is only reported
 
 All prose navori sends lives in each session's resident context, so it grows cumulatively: each session that learns something adds it, and nothing prunes it. There are **two startup surfaces**, deliberately treated differently.

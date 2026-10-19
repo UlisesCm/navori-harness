@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -16,12 +19,23 @@ import { resolveStateRoot } from "../../primitives/state-root.ts";
 import {
   computeWorktreeTree,
   fingerprintTree,
+  isPureEvidenceRunner,
   readEvidenceLog,
   readHead,
   validateEvidence,
   type EvidenceLine,
   type DeliveryEvidenceBinding,
 } from "../evidence.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 let cwd: string;
 const COMMAND = "bun test x";
@@ -32,7 +46,7 @@ function git(...args: string[]): void {
 
 beforeEach(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-")));
-  git("init", "-b", "main");
+  repoTpl.copyInto(cwd);
   git("config", "user.email", "t@t");
   git("config", "user.name", "t");
   writeFileSync(join(cwd, "a.txt"), "a\n");
@@ -54,6 +68,7 @@ function logLine(overrides: Partial<EvidenceLine> = {}): EvidenceLine {
     cwd,
     head: readHead(cwd),
     worktreeTree: computeWorktreeTree(cwd) ?? "",
+    fp: 2,
     dirty: false,
     ...overrides,
   };
@@ -382,7 +397,7 @@ describe("validateEvidence", () => {
   it("rejects a run in a foreign worktree", () => {
     const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-other-")));
     try {
-      execFileSync("git", ["init", "-b", "main"], { cwd: other, stdio: "ignore" });
+      repoTpl.copyInto(other);
       writeLog([logLine({ tree: other, cwd: other })]);
       const verdict = validate();
       expect(verdict.ok).toBe(false);
@@ -422,34 +437,31 @@ describe("repo-controlled code is never executed", () => {
 });
 
 describe("fingerprint failures are controlled rejections", () => {
-  it("names an orphan navori-fp-index.lock in WHY and FIX", () => {
+  // Covers: R35
+  it("does not depend on the git dir: an orphan scratch lock or read-only index cannot block it", () => {
     const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
       cwd,
       encoding: "utf8",
     }).trim();
     writeFileSync(join(gitDir, "navori-fp-index.lock"), "");
     writeLog([logLine()]);
-    const verdict = validate();
-    expect(verdict.ok).toBe(false);
-    if (!verdict.ok) {
-      expect(verdict.why).toContain("navori-fp-index.lock");
-      expect(verdict.fix).toContain("navori-fp-index.lock");
+    expect(validate().ok).toBe(true);
+    chmodSync(gitDir, 0o555);
+    try {
+      expect(fingerprintTree(cwd).ok).toBe(true);
+    } finally {
+      chmodSync(gitDir, 0o755);
     }
   });
 
-  it("returns a reason instead of throwing when the git dir is read-only", () => {
-    const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
-      cwd,
-      encoding: "utf8",
-    }).trim();
-    computeWorktreeTree(cwd); // creates the scratch index
-    chmodSync(join(gitDir, "navori-fp-index"), 0o444);
+  // Covers: R35
+  it("returns a reason instead of throwing outside a git checkout", () => {
+    const plain = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-plain-")));
     try {
-      const result = fingerprintTree(cwd);
-      // root can still write; otherwise the failure must be reported, not thrown
-      if (!result.ok) expect(result.reason).toContain("navori-fp-index");
+      const result = fingerprintTree(plain);
+      expect(result.ok).toBe(false);
     } finally {
-      chmodSync(join(gitDir, "navori-fp-index"), 0o644);
+      rmSync(plain, { recursive: true, force: true });
     }
   });
 });
@@ -534,5 +546,201 @@ describe("criteria shaped `cd <dir> && ...` (host persists cd)", () => {
       expect(verdict.fix).toContain("change the criterion's `command`");
       expect(verdict.fix).not.toContain(`run exactly:\n         ${bad}`);
     }
+  });
+});
+
+/** The pre-0054 `fingerprintTree` (hash-object + scratch index + write-tree), kept as the equivalence reference. */
+function referenceFingerprint(tree: string): string {
+  const excludes = [".navori/state", ".claude/progress", ".codex/progress", ".claude/worktrees"];
+  const run = (args: string[], options: { input?: string; env?: NodeJS.ProcessEnv } = {}): string =>
+    execFileSync("git", args, {
+      cwd: tree,
+      encoding: "utf8",
+      input: options.input,
+      env: options.env ?? process.env,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const scratch = run([
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-path",
+    "navori-fp-reference-index",
+  ]).trim();
+  const listed = run([
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--deduplicate",
+    "--",
+    ".",
+    ...excludes.map((path) => `:(exclude,literal)${path}`),
+  ]);
+  const files: Array<{ path: string; mode: string }> = [];
+  const links: Array<{ path: string; target: string }> = [];
+  for (const path of listed.split("\0").filter(Boolean)) {
+    let stat;
+    try {
+      stat = lstatSync(join(tree, path));
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink()) links.push({ path, target: readlinkSync(join(tree, path)) });
+    else if (stat.isFile()) files.push({ path, mode: stat.mode & 0o111 ? "100755" : "100644" });
+  }
+  const entries: string[] = [];
+  const shas = run(["hash-object", "-w", "--no-filters", "--stdin-paths"], {
+    input: `${files.map((f) => f.path).join("\n")}\n`,
+  })
+    .split("\n")
+    .filter(Boolean);
+  files.forEach((f, i) => entries.push(`${f.mode} ${shas[i]}\t${f.path}\0`));
+  for (const link of links) {
+    const sha = run(["hash-object", "-w", "--no-filters", "--stdin"], {
+      input: link.target,
+    }).trim();
+    entries.push(`120000 ${sha}\t${link.path}\0`);
+  }
+  const env = { ...process.env, GIT_INDEX_FILE: scratch };
+  run(["read-tree", "--empty"], { env });
+  if (entries.length > 0)
+    run(["update-index", "--add", "-z", "--index-info"], { input: entries.join(""), env });
+  return run(["write-tree"], { env }).trim();
+}
+
+describe("pure runners and fingerprint versions (spec 0054 R19, R20)", () => {
+  const PURE = "bun run test src/lib/plan/__tests__/evidence.test.ts";
+
+  // Covers: R19
+  it("HEAD movido con la misma huella vale para un runner puro y no para otro comando; línea legacy valida con la huella vieja", () => {
+    const pure = [
+      "bun run test",
+      PURE,
+      "bun run test:golden",
+      "bun x vitest run src/a.test.ts",
+      "cd packages/cli && bun run test src/a.test.ts",
+      "cd a && cd b && bun x vitest run",
+    ];
+    const bound = [
+      "bun test x",
+      "navori plan classify --diff",
+      "bun run check:blame-ignore",
+      "navori receipt check",
+      "bun run test && git log",
+      "bun run test | tee out",
+      "bun run test; echo x",
+      "bun run test $(git rev-parse HEAD)",
+      "bun run test > out",
+      "bun run test src/a.test.ts &",
+      "bun run test:coverage",
+      "bun run testing",
+      "cd ../x && bun run test",
+      "cd /abs && bun run test",
+      "echo x && bun run test",
+      'bun run test -t "name"',
+    ];
+    for (const command of pure) expect(isPureEvidenceRunner(command), command).toBe(true);
+    for (const command of bound) expect(isPureEvidenceRunner(command), command).toBe(false);
+
+    for (const command of [PURE, "bun test x"]) {
+      writeLog([logLine({ command })]);
+      git("commit", "--allow-empty", "-m", "same bytes");
+      expect(validate(command).ok, command).toBe(command === PURE);
+    }
+
+    // A line without `fp` validates with the legacy fingerprint (`progress/` included).
+    mkdirSync(join(cwd, "progress"), { recursive: true });
+    writeFileSync(join(cwd, "progress/current.txt"), "state\n");
+    const legacy = fingerprintTree(cwd, undefined, { legacy: true });
+    const current = fingerprintTree(cwd);
+    if (!legacy.ok || !current.ok) throw new Error("fingerprint failed");
+    expect(legacy.tree).not.toBe(current.tree);
+    const { fp: _fp, ...withoutFp } = logLine({ worktreeTree: legacy.tree });
+    writeLog([withoutFp]);
+    expect(validate(COMMAND).ok).toBe(true);
+    writeLog([logLine({ worktreeTree: legacy.tree })]);
+    expect(validate(COMMAND).ok).toBe(false);
+    writeLog([logLine({ worktreeTree: current.tree })]);
+    expect(validate(COMMAND).ok).toBe(true);
+  });
+
+  // Covers: R20
+  it("editar progress/ no invalida la evidencia", () => {
+    mkdirSync(join(cwd, "progress"), { recursive: true });
+    writeFileSync(join(cwd, "progress/current.txt"), "one\n");
+    writeLog([logLine()]);
+    expect(validate().ok).toBe(true);
+    writeFileSync(join(cwd, "progress/current.txt"), "two\n");
+    writeFileSync(join(cwd, "progress/new.txt"), "new\n");
+    expect(validate().ok).toBe(true);
+    writeFileSync(join(cwd, "a.txt"), "code\n");
+    expect(validate().ok).toBe(false);
+  });
+});
+
+describe("fingerprintTree with bounded processes (spec 0054 R35)", () => {
+  /** Puts a logging `git` first on PATH; returns how many times `fn` spawned it. */
+  function countGitSpawns(fn: () => void): number {
+    const shim = mkdtempSync(join(tmpdir(), "navori-git-shim-"));
+    const log = join(shim, "spawns.log");
+    const real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shim, "git"), `#!/bin/sh\necho x >> "${log}"\nexec "${real}" "$@"\n`, {
+      mode: 0o755,
+    });
+    writeFileSync(log, "");
+    const saved = process.env.PATH;
+    process.env.PATH = `${shim}:${saved ?? ""}`;
+    try {
+      fn();
+      return readFileSync(log, "utf8").split("\n").filter(Boolean).length;
+    } finally {
+      process.env.PATH = saved;
+      rmSync(shim, { recursive: true, force: true });
+    }
+  }
+
+  // Covers: R35
+  it("fingerprintTree produce la misma huella con procesos acotados", () => {
+    writeFileSync(join(cwd, ".gitignore"), "ignored.txt\n");
+    mkdirSync(join(cwd, "dir with space"), { recursive: true });
+    writeFileSync(join(cwd, "dir with space/file name.txt"), "spaced\n");
+    writeFileSync(join(cwd, "tracked-deleted.txt"), "gone\n");
+    writeFileSync(join(cwd, "run.sh"), "#!/bin/sh\n", { mode: 0o755 });
+    symlinkSync("a.txt", join(cwd, "tracked-link"));
+    git("add", "-A");
+    git("commit", "-m", "fixtures");
+    const mutations: Array<() => void> = [
+      () => undefined,
+      () => writeFileSync(join(cwd, "a.txt"), "modified\n"),
+      () => writeFileSync(join(cwd, "untracked.txt"), "new\n"),
+      () => rmSync(join(cwd, "tracked-deleted.txt")),
+      () => symlinkSync("dir with space", join(cwd, "untracked-link")),
+      () => writeFileSync(join(cwd, "dir with space/other file.txt"), "x\n"),
+      () => writeFileSync(join(cwd, "ignored.txt"), "ignored\n"),
+      () => {
+        mkdirSync(join(cwd, ".navori/state"), { recursive: true });
+        writeFileSync(join(cwd, ".navori/state/x"), "state\n");
+      },
+    ];
+    let spawns = 0;
+    let first = 0;
+    for (const [index, mutate] of mutations.entries()) {
+      mutate();
+      let result: ReturnType<typeof fingerprintTree> | undefined;
+      spawns = countGitSpawns(() => {
+        result = fingerprintTree(cwd, undefined, { legacy: true });
+      });
+      if (index === 0) first = spawns;
+      if (!result?.ok) throw new Error("fingerprint failed");
+      expect(result.tree, `step ${index}`).toBe(referenceFingerprint(cwd));
+    }
+    for (let i = 0; i < 60; i++) writeFileSync(join(cwd, `bulk-${i}.txt`), `${i}\n`);
+    const many = countGitSpawns(() => {
+      fingerprintTree(cwd);
+    });
+    expect(many).toBe(first);
+    expect(many).toBeLessThanOrEqual(2);
+    expect(spawns).toBeLessThanOrEqual(2);
   });
 });

@@ -48,7 +48,7 @@ describe("receipt wiring", () => {
     const publisher = read("agents/publisher.md");
     expect(publisher).toContain('"fresh":true');
     expect(publisher).not.toContain("--include-consumed");
-    expect(publisher).not.toMatch(/re-run .*by hand whenever the diff changed/i);
+    expect(publisher).not.toMatch(/re-run .*by hand/i);
   });
 
   // Covers: R6, R8

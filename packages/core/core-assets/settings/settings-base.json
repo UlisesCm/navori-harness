@@ -82,6 +82,7 @@
       "Bash(navori receipt:*)",
       "Bash(navori handoff check:*)",
       "Bash(navori handoff log-review:*)",
+      "Bash(navori handoff render:*)",
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",
@@ -143,7 +144,10 @@
       "Bash(navori master delivery-decision:*)",
       "Bash(navori master delivery-publication:*)",
       "Bash(navori master delivery-revoke:*)",
-      "Bash(navori plan escalation-reset:*)"
+      "Bash(navori plan escalation-reset:*)",
+      "Bash(navori workspace link:*)",
+      "Bash(navori workspace add-repo:*)",
+      "Bash(navori workspace init:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

@@ -1,0 +1,27 @@
+id: no-fixed-wait-in-tests
+language: typescript
+severity: error
+message: "No fixed-time waits in tests (spec 0055 R20): poll an observable signal with a deadline (`vi.waitFor`, a file barrier) instead of `Atomics.wait` or `new Promise(r => setTimeout(r, <literal>))`. A literal 0 (yield to the event loop) is allowed."
+files:
+  - "**/*.test.ts"
+  - "**/__tests__/**"
+ignores:
+  # Allowlist: each wait is part of what the test measures (not a stand-in for an event). A new
+  # file must justify itself here.
+  - "packages/cli/src/commands/__tests__/audit.test.ts" # asserts the log is UNCHANGED for a window before EOF (an absence, nothing to poll)
+rule:
+  any:
+    - pattern: Atomics.wait($$$)
+    - all:
+        - kind: new_expression
+        - has:
+            field: constructor
+            regex: ^Promise$
+        - has:
+            stopBy: end
+            pattern: setTimeout($FN, $MS)
+            has:
+              field: arguments
+              has:
+                kind: number
+                regex: ^[1-9]

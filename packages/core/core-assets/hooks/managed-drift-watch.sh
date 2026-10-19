@@ -76,17 +76,24 @@
 # a block broken INSIDE a worktree is not seen here. It surfaces when that branch
 # is rendered or reviewed.
 #
-# COST, and why this compares CONTENT rather than mtimes. The obvious cheap
-# check is `find -newer <stamp>`, and it is wrong here: `find` compares mtimes at
-# whatever resolution the filesystem stores, which on several (ext4 under the CI
-# runner among them) is ONE SECOND. Two writes inside the same second as the
-# stamp are invisible — the watcher would report the first and silently miss the
-# second, which is precisely the failure it exists to prevent. It passed on APFS
-# and failed in CI, so the clock was never a sound basis.
+# COST, mtime seal in front of the content check (spec 0054 R23, D7). Content
+# hashing stays the authority: it is exact and clock-free. But one `shasum` pass
+# over ~60 files (~35ms) on EVERY tool call is most of this hook's cost, so a
+# SEAL sits in front of it: `find <roots> -newer <mark>` (files AND directories,
+# so a created or deleted file counts) prints nothing → nothing changed since the
+# last hash pass → exit `clean` without hashing. A `find` error counts as "changed"
+# (hash), never as clean. The pending mark is touched BEFORE the hash pass, so a write
+# that lands while hashing is newer than the mark, but it only replaces the real mark
+# AFTER the pass succeeded: a hook killed mid-hash leaves the old mark and re-checks.
 #
-# So the common case costs one `shasum` pass over the managed files (~35ms) and
-# compares that list against the previous one. It is exact, it depends on no
-# clock, and per-block hashing — the expensive part, ~3.5s for 53 blocks — runs
+# DECLARED LIMIT (challenge C8): a write that preserves mtime (`touch -r`,
+# `cp -p`, `rsync -t`, a same-tick edit on a coarse-granularity filesystem) is
+# invisible to the seal. The hook is advisory, and the first pass that does hash
+# compares against the stored BASELINE (the stamp file, not the previous run's
+# result), so the change shows up at the next hash pass instead of never.
+#
+# When the seal does not hold, the cost is one `shasum` pass (~35ms) compared
+# against that baseline. Per-block hashing — the expensive part, ~3.5s for 53 blocks — runs
 # ONLY for the files whose content actually changed, which in a normal session
 # is none and in a bad one is one. That ~35ms is the MEDIAN of 13,692 recorded
 # runs in `~/.navori/audits` (mean 43.7ms, p95 78ms); the "~25ms measured over
@@ -118,7 +125,10 @@ COVERED_TOOLS='Bash Edit Write NotebookEdit'
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (unchanged)
 # and the payload cwd's git toplevel under Codex.
 # navori:include hook-input
@@ -233,6 +243,25 @@ if [ "$nv_engine" = pi ] && [ -e .pi/navori ]; then
 fi
 [ -z "$roots" ] && exit 0
 
+# Seal (R23). Needs both the mark and the baseline: either missing means "never
+# hashed", so fall through. `-print -quit` stops at the first newer entry.
+mark="$state_dir/managed-drift-mark"
+[ "$nv_engine" != pi ] || mark="$state_dir/managed-drift-mark-pi"
+[ ! -L "$mark" ] || exit 0
+if [ -f "$mark" ] && [ -f "$stamp" ]; then
+  # shellcheck disable=SC2086 — word splitting is how the root list is passed.
+  if newer=$(find $roots -newer "$mark" -print -quit 2>/dev/null) && [ -z "$newer" ]; then
+    navori_audit_reached_check=1
+    exit 0
+  fi
+fi
+# Pending mark, touched BEFORE hashing and promoted only after a successful pass (see
+# COST above). A failed touch or move only disables the seal.
+mark_pending="$mark.pending"
+[ ! -L "$mark_pending" ] || exit 0
+touch "$mark_pending" 2>/dev/null || true
+promote_mark() { mv -f "$mark_pending" "$mark" 2>/dev/null || true; }
+
 # shellcheck disable=SC2086 — word splitting is how the root list is passed.
 current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
 [ -z "$current" ] && exit 0
@@ -242,7 +271,7 @@ current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
 # first command would train the reader to ignore this hook by lunchtime.
 if [ ! -f "$stamp" ]; then
   mkdir -p "$state_dir" 2>/dev/null || exit 0
-  printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
+  printf '%s\n' "$current" > "$stamp" 2>/dev/null && promote_mark
   exit 0
 fi
 
@@ -253,7 +282,7 @@ changed=$(printf '%s\n' "$current" | grep -F -x -v -f "$stamp" 2>/dev/null | sed
 # Re-baseline BEFORE reporting, so one write is reported once instead of on
 # every command for the rest of the session. A second write does change the
 # content again, and does get its own report.
-printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
+printf '%s\n' "$current" > "$stamp" 2>/dev/null && promote_mark
 [ -z "$changed" ] && exit 0
 
 # From here on the work is per-CHANGED-file only. `$(…)` strips the trailing

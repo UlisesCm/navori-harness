@@ -1,33 +1,5 @@
-import { defineCommand, runMain } from "citty";
-import { initCommand } from "./commands/init.ts";
-import { renderCommand } from "./commands/render.ts";
-import { doctorCommand } from "./commands/doctor.ts";
-import { syncCommand } from "./commands/sync.ts";
-import { addCommand } from "./commands/add.ts";
-import { removeCommand } from "./commands/remove.ts";
-import { adoptCommand } from "./commands/adopt.ts";
-import { workspaceCommand } from "./commands/workspace.ts";
-import { ticketCommand } from "./commands/ticket.ts";
-import { configureCommand } from "./commands/configure.ts";
-import { updateCommand } from "./commands/update.ts";
-import { refreshCommand } from "./commands/refresh.ts";
-import { backupCommand } from "./commands/backup.ts";
-import { migrationsCommand } from "./commands/migrations.ts";
-import { presetCommand } from "./commands/preset.ts";
-import { scanCommand } from "./commands/scan.ts";
-import { statusCommand } from "./commands/status.ts";
-import { benchCommand } from "./commands/bench.ts";
-import { registryCommand } from "./commands/registry.ts";
-import { codexCommand } from "./commands/codex.ts";
-import { dominioCommand } from "./commands/dominio.ts";
-import { auditCommand } from "./commands/audit.ts";
-import { receiptCommand } from "./commands/receipt.ts";
-import { planCommand } from "./commands/plan.ts";
-import { specCommand } from "./commands/spec.ts";
-import { handoffCommand } from "./commands/handoff.ts";
-import { masterCommand } from "./commands/master.ts";
-import { toolsCommand } from "./commands/tools.ts";
-import { gateCommand } from "./commands/gate.ts";
+import { runMain } from "citty";
+import { main } from "./cli.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
 import {
   runUpdateNotice,
@@ -38,45 +10,6 @@ import {
   runToolVersionWorker,
   TOOL_VERSION_WORKER_ARG,
 } from "./lib/primitives/tool-version-notice.ts";
-
-const main = defineCommand({
-  meta: {
-    name: "navori",
-    version: readCliVersion(),
-    description: "Multi-agent harness + SDD scaffolder",
-  },
-  subCommands: {
-    init: initCommand,
-    add: addCommand,
-    remove: removeCommand,
-    adopt: adoptCommand,
-    configure: configureCommand,
-    update: updateCommand,
-    refresh: refreshCommand,
-    render: renderCommand,
-    sync: syncCommand,
-    scan: scanCommand,
-    registry: registryCommand,
-    doctor: doctorCommand,
-    status: statusCommand,
-    bench: benchCommand,
-    workspace: workspaceCommand,
-    ticket: ticketCommand,
-    backup: backupCommand,
-    migrations: migrationsCommand,
-    preset: presetCommand,
-    codex: codexCommand,
-    dominio: dominioCommand,
-    audit: auditCommand,
-    receipt: receiptCommand,
-    plan: planCommand,
-    spec: specCommand,
-    handoff: handoffCommand,
-    master: masterCommand,
-    tools: toolsCommand,
-    gate: gateCommand,
-  },
-});
 
 if (process.argv[2] === UPDATE_NOTICE_WORKER_ARG) {
   void runUpdateNoticeWorker(process.argv[3]).finally(() => {

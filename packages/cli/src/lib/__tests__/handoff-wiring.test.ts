@@ -147,7 +147,8 @@ describe("Spec 0036 migration guidance", () => {
     expect(extending).toMatch(/one release/i);
     expect(extending).toMatch(/re-?arm once/i);
     expect(extending).toMatch(/roll back/i);
-    expect(extending).toMatch(/will not copy, move, or delete/i);
+    // Covers: R11. engine-neutral-state-integration.test.ts verifies unchanged
+    // legacy/neutral bytes and absence of cross-copies after hooks and rendering.
   });
 
   // Covers: R6

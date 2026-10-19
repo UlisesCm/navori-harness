@@ -2,8 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { readFileSync } from "node:fs";
 import { brand, check, color, dim as grey, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { loadWorkspace } from "../lib/workspace/workspace.ts";
+import { tc, resolveLang } from "../lib/i18n.ts";
+import { dominioInjectText, workspaceLang } from "../lib/workspace/dominio-inject.ts";
 import {
   ensureDominio,
   reindex,
@@ -29,15 +29,6 @@ function resolveTarget(explicit: string | undefined, d: ReturnType<typeof tc>["d
   }
   p.cancel(d.ambiguous(matches.join(", ")));
   process.exit(1);
-}
-
-/** Language for a workspace's user-facing/injected strings (defaults → es). */
-function workspaceLang(name: string): Lang {
-  try {
-    return resolveLang(loadWorkspace(name)?.defaults.language);
-  } catch {
-    return resolveLang(undefined);
-  }
 }
 
 const initSubCommand = defineCommand({
@@ -156,34 +147,13 @@ const injectSubCommand = defineCommand({
   },
   async run() {
     try {
-      const names = resolveWorkspacesForCwd(process.cwd());
-      const blocks: string[] = [];
-      for (const ws of names) {
-        const entries = listEntries(ws).filter((e) => e.status !== "superseded");
-        if (entries.length === 0) continue;
-        blocks.push(renderInjectBlock(ws, entries, workspaceLang(ws)));
-      }
-      if (blocks.length > 0) process.stdout.write(blocks.join("\n\n") + "\n");
+      const text = dominioInjectText();
+      if (text !== "") process.stdout.write(text);
     } catch {
       // Fail silent: a broken store must not disturb session startup.
     }
   },
 });
-
-function renderInjectBlock(ws: string, entries: DominioEntry[], lang: Lang): string {
-  const dl = tc(lang).dominio;
-  const lines = [dl.injectHeader(ws), "", dl.injectHint, ""];
-  for (const e of entries) {
-    const scope = e.appliesTo === "all" ? "all" : e.appliesTo.join(", ");
-    const scopeTag = scope ? ` (${scope})` : "";
-    const dep = e.status === "deprecated" ? " [deprecated]" : "";
-    const summary = e.summary ? ` — ${e.summary}` : "";
-    lines.push(
-      `- **${e.title}**${dep}${summary}  ·  \`workspace://${ws}/dominio/${e.id}.md\`${scopeTag}`,
-    );
-  }
-  return lines.join("\n");
-}
 
 export const dominioCommand = defineCommand({
   meta: {

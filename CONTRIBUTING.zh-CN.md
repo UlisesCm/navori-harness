@@ -69,6 +69,21 @@
 对于**纯文档**（.md）改动，运行 `bun run lint` 和 `bun run format:check` 即可，无需运行完整测试套件。
 **“纯文档”指仓库文档，不包括 assets。** `packages/core/core-assets/` 或 `packages/plugins/*/` 下的 `.md` 是渲染 harness 的源文件，因此无论扩展名是什么，都要执行第 2、3 步（更新镜像和 golden snapshot）。
 
+## 本地开发周期
+
+- **`bun run test:affected`** 只运行相对于 `dev` merge-base 受改动影响的测试，包括未提交的改动和删除。
+  这是迭代快捷方式，不是验收凭据：收尾时的 `bun check` 和 CI 仍会运行完整测试套件。Vitest 配置、
+  `tsconfig*`、`package.json`、lockfile 或 `bunfig.toml` 发生变化，或找不到 merge-base 时，会运行全部测试。
+- **`bun run bench:tests`** 和 **`bun run bench:hooks`** 会将每个文件的耗时及每个 hook 的成本写入
+  `.navori/state/bench/`（`--runs` 的中位数，默认 3 次），并记录 `loadavg`。系统负载较高时的测量不适合比较。
+- **单文件预算：** `packages/cli/test-budget.json` 为每项测试设置 `defaultMs`（20 秒）；`exceptions[]`
+  可提高某个文件的预算，每个例外都必须提供 `reason`。`check-test-budget.mjs --report` 会在文件超出预算时失败。
+  CI 的 `quality` job 使用 `NAVORI_TEST_BUDGET_FACTOR=2` 执行此检查。
+- **`navori gate probe`** 在缓存的绿色结果与当前字节完全一致时返回 0，否则返回 1；它不会运行质量门。
+  pre-commit 使用它（`navori gate probe --clean`）在命中时跳过 `qualityGate.fast`；缓存命中不能替代验证结论。
+- **`NAVORI_TEST_WORKERS`**（正整数）设置 Vitest 的 worker 数量。未设置时，数量为
+  `min(CPUs - 1, 4, 文件描述符预算)`。
+
 ## 文案预算：哪些会设上限，哪些只报告
 
 navori 注入的所有文案都留在每个会话的常驻上下文中，因此会不断累积：每个学到新内容的会话都会添加内容，却没有机制修剪。启动时会加载**两种内容面**，设计上分别处理。

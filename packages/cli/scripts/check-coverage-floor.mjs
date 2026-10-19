@@ -42,10 +42,6 @@ const GUARDED_PREFIX = "src/lib/";
  * list cannot quietly outlive its reason.
  */
 const KNOWN_ZERO = new Map([
-  [
-    "src/lib/primitives/args.ts",
-    "reached only from src/commands/**, which the e2e specs exercise in the spawned dist/index.js (invisible to in-process v8)",
-  ],
   // The audit feature's reporting half is no longer untested: `report.ts` left
   // this list in spec 0013 (the per-agent card needed specs of its own) and
   // `harness.ts` in #561 — its parse feeds the report's only `high` signal, and
@@ -110,6 +106,8 @@ if (stale.length > 0) {
   ]);
 }
 
-console.log(
-  `✓ coverage floor: ${guarded.length} module(s) under ${GUARDED_PREFIX} exercised (${KNOWN_ZERO.size} documented exception(s))`,
+/** @param {"lines" | "statements" | "functions" | "branches"} metric */
+const pct = (metric) => `${summary.total[metric].pct}%`;
+process.stdout.write(
+  `Coverage: lines ${pct("lines")}, statements ${pct("statements")}, functions ${pct("functions")}, branches ${pct("branches")} (floor ok: ${guarded.length} modules, ${KNOWN_ZERO.size} exceptions)\n`,
 );

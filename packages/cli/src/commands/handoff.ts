@@ -13,10 +13,37 @@ import { readConfig } from "../lib/config/config.ts";
 import { emitReviewOutcome } from "../lib/handoff/review-evidence.ts";
 import { checkReviewHandoff } from "../lib/handoff/review-check.ts";
 import { resolveReceiptOptions } from "./receipt.ts";
+import { renderHandoff } from "../lib/handoff/render.ts";
 import { attestHandoff } from "../lib/handoff/actor-provenance.ts";
+import { readFileSync } from "node:fs";
+import {
+  prepareParallel,
+  beginParallel,
+  completeParallel,
+  finalizeParallel,
+} from "../lib/handoff/parallel.ts";
 
 function resolveConsumer(value: string | undefined): HandoffConsumer {
   return value === "scribe" || value === "publisher" ? value : "orchestrator";
+}
+
+const producerArgs = {
+  feature: { type: "positional" as const, required: true, description: "Feature slug" },
+  target: { type: "string" as const, description: "Review target branch" },
+  dir: { type: "string" as const, description: "State directory" },
+  json: { type: "boolean" as const, description: "Output JSON" },
+};
+const runArg = {
+  run: { type: "string" as const, required: true, description: "Run ID from prior authorization" },
+};
+
+function emitProducer(
+  result: { status: string; message?: string },
+  json: boolean,
+  ok: string,
+): void {
+  process.stdout.write(`${json ? JSON.stringify(result) : (result.message ?? result.status)}\n`);
+  process.exitCode = result.status === ok ? 0 : 1;
 }
 
 const checkSubCommand = defineCommand({
@@ -51,6 +78,10 @@ const checkSubCommand = defineCommand({
       description: "Checkout to validate (scribe: the one it will edit)",
     },
     json: { type: "boolean" as const, description: "Output as JSON" },
+    parallel: {
+      type: "boolean" as const,
+      description: "Validate prior parallel authority for the scribe",
+    },
   },
   run({ args }) {
     const root = resolveStateRoot({
@@ -91,6 +122,7 @@ const checkSubCommand = defineCommand({
             feature: args.feature,
             consumer: resolveConsumer(args.for),
             legacyMarkdown,
+            parallel: args.parallel,
             evidenceOptions: resolveReceiptOptions({
               feature: args.feature,
               cwd,
@@ -148,9 +180,118 @@ const logReviewSubCommand = defineCommand({
   },
 });
 
+const renderSubCommand = defineCommand({
+  meta: {
+    name: "render",
+    description:
+      "Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true)",
+  },
+  args: {
+    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    dir: { type: "string" as const, description: "State directory" },
+    cwd: { type: "string" as const, description: "Checkout to operate on" },
+    json: { type: "boolean" as const, description: "Output as JSON" },
+  },
+  run({ args }) {
+    const result = renderHandoff({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const text = result.status === "ok" ? `OK: ${result.path}` : `FAIL: ${result.message}`;
+    process.stdout.write(`${args.json ? JSON.stringify(result) : text}\n`);
+    process.exitCode = result.status === "ok" ? 0 : 1;
+  },
+});
+
 export const handoffCommand = defineCommand({
   meta: { name: "handoff", description: "Validate the implementer's handoff before dispatch" },
   subCommands: {
+    "prepare-parallel": defineCommand({
+      meta: {
+        name: "prepare-parallel",
+        description: "Bind immutable approved level-3 parallel scope",
+      },
+      args: {
+        ...producerArgs,
+        request: {
+          type: "string" as const,
+          required: true,
+          description: "Prior parallel request JSON file",
+        },
+        target: { type: "string" as const, required: true, description: "Review target branch" },
+        supersede: { type: "string" as const, description: "Explicit previous parallel run ID" },
+      },
+      async run({ args }) {
+        const options = resolveReceiptOptions(args);
+        let result;
+        try {
+          result = await prepareParallel({
+            ...options,
+            supersede: args.supersede,
+            request: JSON.parse(readFileSync(resolve(options.cwd, args.request), "utf8")),
+          });
+        } catch (error) {
+          result = {
+            status: "error",
+            message: error instanceof Error ? error.message : "parallel request unavailable",
+          };
+        }
+        emitProducer(result, args.json, "prepared");
+      },
+    }),
+    "begin-parallel": defineCommand({
+      meta: {
+        name: "begin-parallel",
+        description: "Start the native producer's immutable parallel work interval",
+      },
+      args: {
+        ...producerArgs,
+        ...runArg,
+      },
+      run({ args }) {
+        const result = beginParallel({ ...resolveReceiptOptions(args), runId: args.run });
+        emitProducer(result, args.json, "ok");
+      },
+    }),
+    "complete-parallel": defineCommand({
+      meta: {
+        name: "complete-parallel",
+        description: "Seal the native producer's own parallel paths",
+      },
+      args: {
+        ...producerArgs,
+        ...runArg,
+        status: { type: "string" as const, required: true, description: "DONE or BLOCKED" },
+        reason: {
+          type: "string" as const,
+          description: "Required blocker description when status is BLOCKED",
+        },
+      },
+      run({ args }) {
+        const result = completeParallel({
+          ...resolveReceiptOptions(args),
+          runId: args.run,
+          status: args.status,
+          reason: args.reason,
+        });
+        emitProducer(result, args.json, "completed");
+      },
+    }),
+    "finalize-parallel": defineCommand({
+      meta: {
+        name: "finalize-parallel",
+        description: "Join both producers after serial render and shared checks",
+      },
+      args: {
+        ...producerArgs,
+        target: { type: "string" as const, required: true, description: "Review target branch" },
+      },
+      run({ args }) {
+        const result = finalizeParallel(resolveReceiptOptions(args));
+        emitProducer(result, args.json, "finalized");
+      },
+    }),
     attest: defineCommand({
       meta: {
         name: "attest",
@@ -177,5 +318,6 @@ export const handoffCommand = defineCommand({
     }),
     check: checkSubCommand,
     "log-review": logReviewSubCommand,
+    render: renderSubCommand,
   },
 });

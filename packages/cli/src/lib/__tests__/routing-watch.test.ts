@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -17,6 +17,11 @@ import { join, resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
+import {
+  createRepoTemplate,
+  emptyRepo,
+  type RepoTemplate,
+} from "../../__tests__/helpers/repo-template.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { resolveHarnessPlan } from "../../engines/shared/harness-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts";
@@ -125,11 +130,20 @@ function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>
   return { code: r.status ?? -1, stdout: r.stdout ?? "" };
 }
 
-/** `git init` a fresh repo, quietly — the hook validates its checkout root,
- *  so every project dir below is a real repo
- *  unless a test is specifically about the no-git case. */
-function gitInit(dir: string): void {
-  execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+/**
+ * One empty git repo per FILE, copied per case (spec 0055 D7): the hook validates its checkout
+ * root, so every project dir below is a real repo unless a test is specifically about the no-git
+ * case. The template holds no absolute path, so a copy is as good as a fresh `git init`.
+ */
+let repoTemplate: RepoTemplate;
+beforeAll(() => {
+  repoTemplate = emptyRepo({ prefix: "navori-routing-" });
+});
+afterAll(() => repoTemplate.dispose());
+
+/** A fresh copy of the repo template (realpath'd, a real git checkout). */
+function newRepo(): string {
+  return repoTemplate.copy();
 }
 
 /** The legacy shared Git dir, used to assert old stamps remain untouched.
@@ -154,9 +168,7 @@ function stampDirFor(dir: string): string {
  */
 function play(payloads: Array<Record<string, unknown>>): HookRun[] {
   return acrossShells((shell) => {
-    const cwd = mkdtempSync(join(tmpdir(), "navori-routing-"));
-    mkdirSync(join(cwd, ".claude"), { recursive: true });
-    gitInit(cwd);
+    const cwd = freshProject();
     return payloads.map((p) => runHook(shell, cwd, p));
   });
 }
@@ -164,9 +176,8 @@ function play(payloads: Array<Record<string, unknown>>): HookRun[] {
 /** A fresh project dir with `.claude/`, for sequences that must pre-seed or
  * inspect the stamp dir afterwards (`play()` keeps its dir private). */
 function freshProject(): string {
-  const cwd = mkdtempSync(join(tmpdir(), "navori-routing-"));
+  const cwd = newRepo();
   mkdirSync(join(cwd, ".claude"), { recursive: true });
-  gitInit(cwd);
   return cwd;
 }
 
@@ -367,9 +378,7 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
     // PostToolUse hook runs after tool calls all session long, so failing
     // loudly there is worse than never warning.
     const runs = acrossShells((shell) => {
-      const cwd = mkdtempSync(join(tmpdir(), "navori-routing-ro-"));
-      mkdirSync(join(cwd, ".claude"), { recursive: true });
-      gitInit(cwd);
+      const cwd = freshProject();
       const stateDir = join(cwd, ".navori", "state", "hooks");
       mkdirSync(stateDir, { recursive: true });
       chmodSync(stateDir, 0o500);
@@ -434,9 +443,7 @@ describe("routing-watch — wiring (spec 0020)", () => {
     // The hook and the test must agree independently on where the stamp
     // lands — `stampDirFor` re-derives it via `git rev-parse`, never by
     // reading the hook's own source.
-    const cwd = mkdtempSync(join(tmpdir(), "navori-routing-stamp-"));
-    mkdirSync(join(cwd, ".claude"), { recursive: true });
-    gitInit(cwd);
+    const cwd = freshProject();
     runHook("bash", cwd, edit("src/a.ts"));
 
     expect(existsSync(join(stampDirFor(cwd), SESSION))).toBe(true);
@@ -776,21 +783,29 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
   const FEATURE = "lane-demo";
   const COMMAND = 'cd packages/cli && bun test "x y"';
 
+  // One committed repo per describe (init + config + commit once), copied per case.
+  let laneTemplate: RepoTemplate;
+  beforeAll(() => {
+    laneTemplate = createRepoTemplate("navori-lane-", (dir) => {
+      execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+      for (const [k, v] of [
+        ["user.email", "t@t"],
+        ["user.name", "t"],
+      ] as const) {
+        execFileSync("git", ["-C", dir, "config", k, v], { stdio: "ignore" });
+      }
+      writeFileSync(join(dir, "a.txt"), "a\n");
+      writeFileSync(join(dir, "run.sh"), "#!/bin/sh\n");
+      chmodSync(join(dir, "run.sh"), 0o755);
+      symlinkSync("a.txt", join(dir, "link"));
+      execFileSync("git", ["-C", dir, "add", "-A"], { stdio: "ignore" });
+      execFileSync("git", ["-C", dir, "commit", "-qm", "init"], { stdio: "ignore" });
+    });
+  });
+  afterAll(() => laneTemplate.dispose());
+
   function laneProject(commands: string[] = [COMMAND]): string {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-lane-")));
-    gitInit(dir);
-    for (const [k, v] of [
-      ["user.email", "t@t"],
-      ["user.name", "t"],
-    ] as const) {
-      execFileSync("git", ["-C", dir, "config", k, v], { stdio: "ignore" });
-    }
-    writeFileSync(join(dir, "a.txt"), "a\n");
-    writeFileSync(join(dir, "run.sh"), "#!/bin/sh\n");
-    chmodSync(join(dir, "run.sh"), 0o755);
-    symlinkSync("a.txt", join(dir, "link"));
-    execFileSync("git", ["-C", dir, "add", "-A"], { stdio: "ignore" });
-    execFileSync("git", ["-C", dir, "commit", "-qm", "init"], { stdio: "ignore" });
+    const dir = laneTemplate.copy();
     // Dirty on purpose: an untracked file and an edit, to exercise the fingerprint.
     writeFileSync(join(dir, "new.txt"), "n\n");
     writeFileSync(join(dir, "a.txt"), "a2\n");
@@ -1080,9 +1095,7 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
   const COMMAND = "bun run test";
 
   function project(): string {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-codex-outcome-")));
-    gitInit(dir);
-    return dir;
+    return newRepo();
   }
 
   /** A rollout line in the shape observed in probe V4 (`event_msg` / `item_completed`). */
@@ -1196,7 +1209,7 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
       expect(runs[2]!.stdout).toContain("exit 1");
       return runs.map((r) => r.stdout !== "");
     });
-  }, 45_000);
+  });
 
   it("a success resets the counter", () => {
     const dir = project();

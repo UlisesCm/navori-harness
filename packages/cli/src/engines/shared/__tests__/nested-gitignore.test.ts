@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +11,16 @@ import {
 import { EPHEMERAL_HARNESS_PATHS } from "../ephemeral-paths.ts";
 import { writeConfig } from "../../../lib/config/config.ts";
 import { runRender } from "../../../commands/render.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 /**
  * #1024/#1039 — the nested `.claude/.gitignore` / `.codex/.gitignore`.
@@ -65,7 +75,7 @@ let cwd: string;
 
 function tempRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "navori-nested-gitignore-"));
-  execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+  repoTplMaster.copyInto(dir);
   return dir;
 }
 
@@ -231,7 +241,7 @@ describe("render.ts wiring", () => {
   // Covers: R7, R11
   it("protects both legacy roots and neutral state in Claude-only off mode", () => {
     cwd = mkdtempSync(join(tmpdir(), "navori-nested-render-"));
-    execFileSync("git", ["-C", cwd, "init", "-q"], { stdio: "ignore" });
+    repoTplMaster.copyInto(cwd);
     writeConfig(join(cwd, "navori.config.json"), {
       name: "no-codex",
       engines: ["claude"],
@@ -291,7 +301,7 @@ function seedLegacyLeftovers(cwd: string): void {
 describe("upgrade regression: pre-existing legacy stamps stay ignored (#1024 round 2)", () => {
   it("gitignoreHarness: 'off' — render does not untrack the leftovers", () => {
     const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-off-"));
-    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    repoTplMaster.copyInto(upgraded);
     writeConfig(join(upgraded, "navori.config.json"), {
       name: "legacy-off",
       engines: ["claude"],
@@ -312,7 +322,7 @@ describe("upgrade regression: pre-existing legacy stamps stay ignored (#1024 rou
 
   it("gitignoreHarness: 'local' — root cubo A keeps both legacy entries, no content drift, leftovers stay ignored", () => {
     const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-local-"));
-    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    repoTplMaster.copyInto(upgraded);
     writeConfig(join(upgraded, "navori.config.json"), {
       name: "legacy-local",
       engines: ["claude"],
@@ -339,7 +349,7 @@ describe("upgrade regression: pre-existing legacy stamps stay ignored (#1024 rou
 
   it("a second render on an already-onboarded 'local' repo is a no-op — no content drift on a version bump", () => {
     const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-nodrift-"));
-    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    repoTplMaster.copyInto(upgraded);
     writeConfig(join(upgraded, "navori.config.json"), {
       name: "legacy-nodrift",
       engines: ["claude"],

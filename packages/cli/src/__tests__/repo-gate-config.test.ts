@@ -34,7 +34,14 @@ describe("this repo's quality gate (R23, R25)", () => {
   // Covers: R23
   it("orden y conjunto", () => {
     // Same set as before the reorder, cheap to expensive, coverage last.
-    expect(steps(gate?.full)).toEqual([...CHEAP, "test:coverage"]);
+    // `check:tests-preserved` runs from the repo root, so it sits before `cd packages/cli`.
+    const at = CHEAP.indexOf("check:blame-ignore") + 1;
+    expect(steps(gate?.full)).toEqual([
+      ...CHEAP.slice(0, at),
+      "check:tests-preserved",
+      ...CHEAP.slice(at),
+      "test:coverage",
+    ]);
     // The package.json `check` script mirrors `full`.
     const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
@@ -46,7 +53,11 @@ describe("this repo's quality gate (R23, R25)", () => {
     // `scoped` is the static checks of `full` in order: no test step of any kind.
     expect(steps(gate?.scoped)).toEqual(["check:scoped"]);
     expect(steps(pkg.scripts["check:scoped"])).toEqual(CHEAP);
-    expect(steps(gate?.full).slice(0, CHEAP.length)).toEqual(steps(pkg.scripts["check:scoped"]));
+    expect(
+      steps(gate?.full)
+        .filter((step) => step !== "check:tests-preserved")
+        .slice(0, CHEAP.length),
+    ).toEqual(steps(pkg.scripts["check:scoped"]));
     expect(pkg.scripts["check:scoped"]).not.toMatch(/test|vitest/);
   });
 

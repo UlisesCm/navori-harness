@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -11,10 +11,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
-import { HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+import { shellSensitive, type HookShell } from "./helpers/shells.ts";
 import {
   fingerprintTree,
   readEvidenceLog,
@@ -25,6 +26,13 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
+
+/** One empty repo per file, copied into each case's `dir` (spec 0055 D7). */
+let gitTemplate: RepoTemplate;
+beforeAll(() => {
+  gitTemplate = emptyRepo({ branch: "master" });
+});
+afterAll(() => gitTemplate.dispose());
 
 function setup(): { dir: string; failure: string; success: string } {
   const dir = mkdtempSync(join(tmpdir(), "navori-repeat-failure-"));
@@ -174,80 +182,81 @@ describe("bash-outcome-watch", () => {
 
 describe("producer-bound delivery success lane", () => {
   // Covers: R7, R8, R9
-  it.each(HOOK_SHELLS)(
-    "preserves legacy and exact bound fingerprints under nounset in %s",
-    (shell: HookShell) => {
-      const { dir, success } = setup();
-      execFileSync("git", ["init", "-q", dir]);
-      const stagePath = "stage";
-      mkdirSync(join(dir, stagePath));
-      writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
-      writeFileSync(join(dir, stagePath, "STATUS.md"), "view");
-      const partial = resolve(getCoreRoot(), "core-assets/hooks/_partials/bash-outcome.sh");
-      const fingerprint = (stage?: string): string => {
-        const result = spawnSync(
-          shell,
-          [
-            "-uc",
-            'source "$1"; navori_tree_fingerprint "$2" "${3:-}"',
-            "fixture",
-            partial,
-            dir,
-            ...(stage === undefined ? [] : [stage]),
-          ],
-          { encoding: "utf8" },
-        );
-        expect(result.stderr).toBe("");
-        expect(result.status).toBe(0);
-        return result.stdout.trim();
-      };
-      const legacy = fingerprint();
-      expect(fingerprint("")).toBe(legacy);
-      expect(fingerprintTree(dir)).toEqual({ ok: true, tree: legacy });
-      const bound = fingerprint(stagePath);
-      writeFileSync(join(dir, stagePath, "state.json"), "accepted");
-      writeFileSync(join(dir, stagePath, "STATUS.md"), "derived acceptance");
-      expect(fingerprint(stagePath)).toBe(bound);
-      expect(fingerprint()).not.toBe(legacy);
-      writeFileSync(join(dir, stagePath, "parts.json"), "source changed");
-      expect(fingerprint(stagePath)).not.toBe(bound);
-
-      const stateDir = join(dir, ".navori/state/handoffs");
-      mkdirSync(stateDir, { recursive: true });
-      writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\tnull\t\n`);
-      const record = (): ReturnType<typeof spawnSync> =>
-        spawnSync(shell, [success, "claude-post-tool-use"], {
-          input: JSON.stringify({ cwd: dir, tool_name: "Bash", tool_input: { command: "true" } }),
-          encoding: "utf8",
-          env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
-        });
-      expect(record().status).toBe(0);
-      const evidence = join(stateDir, "workplan_legacy.evidence.jsonl");
-      expect(existsSync(evidence)).toBe(false);
-      writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\n`);
-      const result = record();
-      expect(result.status).toBe(0);
-      expect(result.stderr).toBe("");
-      const lines = readEvidenceLog(evidence);
-      expect(lines).toHaveLength(1);
-      expect(lines[0]!.deliveryBinding).toBeUndefined();
-      expect(fingerprintTree(dir)).toEqual({ ok: true, tree: lines[0]!.worktreeTree });
-
-      symlinkSync(join(dir, stagePath), join(dir, "redirected"));
-      const redirected = spawnSync(
+  it.each(
+    shellSensitive(
+      "`set -u` with an unset array/variable aborts differently in zsh; real git fixture (#391)",
+    ),
+  )("preserves legacy and exact bound fingerprints under nounset in %s", (shell: HookShell) => {
+    const { dir, success } = setup();
+    gitTemplate.copyInto(dir);
+    const stagePath = "stage";
+    mkdirSync(join(dir, stagePath));
+    writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
+    writeFileSync(join(dir, stagePath, "STATUS.md"), "view");
+    const partial = resolve(getCoreRoot(), "core-assets/hooks/_partials/bash-outcome.sh");
+    const fingerprint = (stage?: string): string => {
+      const result = spawnSync(
         shell,
-        ["-uc", 'source "$1"; navori_tree_fingerprint "$2" redirected', "fixture", partial, dir],
+        [
+          "-uc",
+          'source "$1"; navori_tree_fingerprint "$2" "${3:-}"',
+          "fixture",
+          partial,
+          dir,
+          ...(stage === undefined ? [] : [stage]),
+        ],
         { encoding: "utf8" },
       );
-      expect(redirected.status).toBe(1);
-      expect(redirected.stdout).toBe("");
-    },
-  );
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      return result.stdout.trim();
+    };
+    const legacy = fingerprint();
+    expect(fingerprint("")).toBe(legacy);
+    expect(fingerprintTree(dir)).toEqual({ ok: true, tree: legacy });
+    const bound = fingerprint(stagePath);
+    writeFileSync(join(dir, stagePath, "state.json"), "accepted");
+    writeFileSync(join(dir, stagePath, "STATUS.md"), "derived acceptance");
+    expect(fingerprint(stagePath)).toBe(bound);
+    expect(fingerprint()).not.toBe(legacy);
+    writeFileSync(join(dir, stagePath, "parts.json"), "source changed");
+    expect(fingerprint(stagePath)).not.toBe(bound);
+
+    const stateDir = join(dir, ".navori/state/handoffs");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\tnull\t\n`);
+    const record = (): ReturnType<typeof spawnSync> =>
+      spawnSync(shell, [success, "claude-post-tool-use"], {
+        input: JSON.stringify({ cwd: dir, tool_name: "Bash", tool_input: { command: "true" } }),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+      });
+    expect(record().status).toBe(0);
+    const evidence = join(stateDir, "workplan_legacy.evidence.jsonl");
+    expect(existsSync(evidence)).toBe(false);
+    writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\n`);
+    const result = record();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    const lines = readEvidenceLog(evidence);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.deliveryBinding).toBeUndefined();
+    expect(fingerprintTree(dir)).toEqual({ ok: true, tree: lines[0]!.worktreeTree });
+
+    symlinkSync(join(dir, stagePath), join(dir, "redirected"));
+    const redirected = spawnSync(
+      shell,
+      ["-uc", 'source "$1"; navori_tree_fingerprint "$2" redirected', "fixture", partial, dir],
+      { encoding: "utf8" },
+    );
+    expect(redirected.status).toBe(1);
+    expect(redirected.stdout).toBe("");
+  });
 
   // Covers: R7, R8, R9
   it("carries CLI-captured binding and agrees with the reader on exact stage exclusions", () => {
     const { dir, success } = setup();
-    execFileSync("git", ["init", "-q", dir]);
+    gitTemplate.copyInto(dir);
     const stagePath = "specs/_master/01-proof";
     mkdirSync(join(dir, stagePath), { recursive: true });
     writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
@@ -291,7 +300,7 @@ describe("producer-bound delivery success lane", () => {
   // Covers: R7, R8, R9
   it("writes no bound success for redirected stages or unknown Codex correlation", () => {
     const { dir, success } = setup();
-    execFileSync("git", ["init", "-q", dir]);
+    gitTemplate.copyInto(dir);
     const stateDir = join(dir, ".navori/state/handoffs");
     mkdirSync(stateDir, { recursive: true });
     const binding = {

@@ -1,11 +1,11 @@
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 /**
  * Spec 0003 §3.4.7 — bundle size guard.
  *
- * Tracks dist/index.js as a regression tripwire, not an optimization target.
+ * Tracks the sum of dist/*.js (index.js + chunks, spec 0055) as a regression tripwire, not an optimization target.
  * As of the bundle-footprint change the build minifies AND inlines every
  * runtime dependency (`deps.alwaysBundle` in tsdown.config.ts), so
  * dist/index.js now
@@ -71,13 +71,19 @@ import { dirname, resolve } from "node:path";
 const LIMIT_KB = 1600;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const bundle = resolve(here, "..", "dist", "index.js");
+const dist = resolve(here, "..", "dist");
 
+// Spec 0055 R14: the build is split into `dist/index.js` plus one chunk per subcommand at the
+// root of `dist/`, so the guard sums every `dist/*.js` — the total is what the install ships.
 let sizeKb;
 try {
-  sizeKb = statSync(bundle).size / 1024;
+  const bytes = readdirSync(dist)
+    .filter((name) => name.endsWith(".js"))
+    .reduce((total, name) => total + statSync(resolve(dist, name)).size, 0);
+  if (bytes === 0) throw new Error("no .js files");
+  sizeKb = bytes / 1024;
 } catch {
-  console.error(`✗ bundle not found at ${bundle} — run 'bun run build' first`);
+  console.error(`✗ bundle not found at ${dist} — run 'bun run build' first`);
   process.exit(1);
 }
 

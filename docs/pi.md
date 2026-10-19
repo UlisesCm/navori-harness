@@ -290,6 +290,14 @@ a failing dialog refuses the call. No selector is used, so no option can be pre-
 confirmation the extension re-checks the repository state and the body digests; a change in
 either refuses the call and asks for approval again.
 
+**Doctrine in registered worktrees (#1330).** The `markdown-ownership` check (`isDoctrinePath` in the trusted
+extension) accepts an absolute Markdown target under the doctrine prefixes of another worktree registered in
+`git worktree list` of `ctx.cwd`'s repo, when it shares the same `--git-common-dir` and has no `..` or symlink
+component. Any git failure denies. Residual: every registered worktree of the repo is trusted for those
+prefixes, the same ceiling as the hook; no per-delivery grant exists before review begins. The relation to
+#1329 is the same as for the hook: shared identity primitives, earlier phase, no binding stamp. Bash and
+ambient process writes stay outside this advisory boundary.
+
 ## Doctor findings
 
 When the engine is enabled, `navori doctor` reports these Pi findings. All are advisory: none changes doctor's

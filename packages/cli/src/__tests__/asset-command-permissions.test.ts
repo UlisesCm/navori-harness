@@ -171,7 +171,7 @@ function commandVocabulary(): Set<string> {
 
 /** Subcommands the CLI registers — the same parse `check-asset-commands.mjs` does. */
 function navoriSubcommands(): Set<string> {
-  const source = readFileSync(join(REPO_ROOT, "packages/cli/src/index.ts"), "utf-8");
+  const source = readFileSync(join(REPO_ROOT, "packages/cli/src/cli.ts"), "utf-8");
   const block = source.match(/subCommands:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
   return new Set([...block.matchAll(/^\s*([a-z][\w-]*)\s*:/gm)].map((m) => m[1] ?? ""));
 }
@@ -296,6 +296,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
   [
     "tgrep serve",
     "named only to explain the freshness mechanism (a disk index refreshes under it); the same block already forbids agents from starting servers during ordinary discovery, so pre-approving it would contradict that rule",
+  ],
+  [
+    "navori update",
+    "installs a new CLI version globally; plan-gate's outdated-CLI notice addresses the human, and the update stays behind the prompt",
   ],
   ["navori configure", "writes navori.config.json — a config mutation stays behind the prompt"],
   ["navori dominio reindex", "rewrites DOMINIO.md in the workspace — a write, not a read"],

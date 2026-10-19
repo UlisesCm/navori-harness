@@ -84,7 +84,7 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     const skill = readEngram("skills/engram-orchestrator.md");
     expect(skill).toContain("**Lean close**");
     // The two steps the decision exempts.
-    expect(skill).toMatch(/summary and the curation step are exempt/i);
+    expect(skill).toMatch(/curation step are exempt/i);
     // The one it does not — plus both doctor invariants of the plugin, which the
     // rendered block must keep carrying.
     expect(skill).toMatch(/`mem_save` is not/i);

@@ -20,7 +20,7 @@ const base = ("/" + (process.env.SITE_BASE ?? "/").split("/").filter(Boolean).jo
 );
 const langs = ["en", "es", "zh-CN"] as const;
 const prefixes = { en: "", es: "es", "zh-CN": "zh-cn" };
-const registry = readFileSync(resolve(root, "packages/cli/src/index.ts"), "utf8").match(
+const registry = readFileSync(resolve(root, "packages/cli/src/cli.ts"), "utf8").match(
   /subCommands:\s*\{([\s\S]*?)\n\s*\},/,
 )?.[1];
 assert.ok(registry, "CLI command registry must be independently readable");

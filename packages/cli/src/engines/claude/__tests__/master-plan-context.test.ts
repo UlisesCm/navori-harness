@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -7,6 +7,16 @@ import { buildClaudeSettings } from "../build-settings.ts";
 import { expandHookIncludes } from "../../../lib/render/hook-includes.ts";
 import { interpolate } from "../../../lib/render/interpolate.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 const config = {
   name: "test",
@@ -117,7 +127,7 @@ describe("master-plan SessionStart installed for Codex", () => {
       "Etapa activa: specs/_master/01-mvp/STATUS.md\n",
     );
     mkdirSync(join(f.dir, "sub"));
-    spawnSync("git", ["init", "-q"], { cwd: f.dir });
+    repoTplMaster.copyInto(f.dir);
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${f.bin}:/usr/bin:/bin` };
     delete env.CLAUDE_PROJECT_DIR;
     const result = spawnSync("bash", [script], {

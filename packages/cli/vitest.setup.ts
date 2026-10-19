@@ -1,9 +1,12 @@
-import { afterAll, afterEach, beforeEach, inject } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, inject } from "vitest";
 import { createTempFile } from "./vitest.tempLifecycle.ts";
 import { describeNavoriHomeLeak, snapshotNavoriHome } from "./vitest.homeGuard.ts";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire, syncBuiltinESMExports } from "node:module";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -15,20 +18,67 @@ declare module "vitest" {
 // `git push` / `git clone` a fixture runs leaks "To /var/folders/…" lines into the
 // runner log. Pipe it unless the caller chose a stdio: a failing call still throws
 // an error carrying `stderr`, so the evidence is not lost.
+//
+// Spec 0055 R1 — the same wrapper counts the child processes this file launches
+// (`spawn`, `spawnSync`, `exec`, `execFile`, `execFileSync`, `execSync`, `fork`), so
+// `bench:tests` can report them per file. Only DIRECT children of the worker are seen;
+// grandchildren (a hook's `jq`) are not observable portably from Node.
 const childProcess = createRequire(import.meta.url)("node:child_process") as Record<
   string,
-  (...args: unknown[]) => unknown
+  ((...args: unknown[]) => unknown) & { [promisify.custom]?: (...args: unknown[]) => unknown }
 >;
-for (const name of ["execFileSync", "execSync"] as const) {
+let spawns = 0;
+// `exec` calls `module.exports.execFile` (the patched one) synchronously: count that child once.
+let insideWrapped = false;
+const counted = <T>(run: () => T): T => {
+  const nested = insideWrapped;
+  if (!nested) spawns += 1;
+  insideWrapped = true;
+  try {
+    return run();
+  } finally {
+    insideWrapped = nested;
+  }
+};
+// Spec 0055 R13 — with NAVORI_HOOK_CORPUS, direct hook spawns (singles that bypass the hook
+// helpers) are recorded too. Loaded lazily: the hook-asset modules cost a little per test file.
+const corpus =
+  process.env.NAVORI_HOOK_CORPUS === undefined || process.env.NAVORI_HOOK_CORPUS === ""
+    ? undefined
+    : await import("./src/__tests__/helpers/hook-corpus.ts");
+const PIPED_STDERR = new Set(["execFileSync", "execSync"]);
+for (const name of [
+  "spawn",
+  "spawnSync",
+  "exec",
+  "execFile",
+  "execFileSync",
+  "execSync",
+  "fork",
+] as const) {
   const original = childProcess[name];
   if (original === undefined) continue;
-  childProcess[name] = (...args: unknown[]): unknown => {
-    const last = args[args.length - 1];
-    const hasOptions = typeof last === "object" && last !== null && !Array.isArray(last);
-    const options = hasOptions ? (last as Record<string, unknown>) : {};
-    const patched = options.stdio === undefined ? { ...options, stdio: "pipe" } : options;
-    return original(...(hasOptions ? args.slice(0, -1) : args), patched);
-  };
+  const wrapped = (...args: unknown[]): unknown =>
+    counted(() => {
+      if (corpus !== undefined && (name === "spawnSync" || name === "execFileSync")) {
+        corpus.recordSpawnedHook(args[0], args.slice(1));
+      }
+      if (!PIPED_STDERR.has(name)) return original(...args);
+      const last = args[args.length - 1];
+      const hasOptions = typeof last === "object" && last !== null && !Array.isArray(last);
+      const options = hasOptions ? (last as Record<string, unknown>) : {};
+      const patched = options.stdio === undefined ? { ...options, stdio: "pipe" } : options;
+      return original(...(hasOptions ? args.slice(0, -1) : args), patched);
+    });
+  // `util.promisify(exec)` resolves `{ stdout, stderr }` through this symbol on the ORIGINAL
+  // function; a plain wrapper would lose it and resolve only the stdout string.
+  const custom = original[promisify.custom];
+  if (custom !== undefined) {
+    Object.defineProperty(wrapped, promisify.custom, {
+      value: (...args: unknown[]): unknown => counted(() => custom(...args)),
+    });
+  }
+  childProcess[name] = wrapped;
 }
 syncBuiltinESMExports();
 
@@ -61,6 +111,20 @@ const file = createTempFile(inject("navoriTempRunRoot"));
 const watchedHome = join(file.home, ".navori");
 const before = snapshotNavoriHome(watchedHome);
 const selfRepo = basename(resolve(fileURLToPath(new URL("../..", import.meta.url))));
+
+// Spec 0055 R1 — `bench:tests` points NAVORI_BENCH_PROC_DIR here; one `{ file, spawns }` per test file.
+afterAll(() => {
+  const dir = process.env.NAVORI_BENCH_PROC_DIR;
+  if (dir === undefined || dir === "") return;
+  const filepath = expect.getState().testPath ?? "unknown";
+  const packageRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
+  mkdirSync(dir, { recursive: true });
+  const slug = createHash("sha1").update(filepath).digest("hex").slice(0, 12);
+  writeFileSync(
+    join(dir, `${process.pid}-${slug}.json`),
+    JSON.stringify({ file: relative(packageRoot, filepath).split("\\").join("/"), spawns }),
+  );
+});
 
 /** Check isolated HOME after direct children close, before disposing file fixtures. */
 // Budget for disposing the file's temp root; fixture-heavy tests should clean up after themselves.

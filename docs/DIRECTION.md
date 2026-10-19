@@ -125,11 +125,18 @@ Today both are opt-in plugins again, with routing
    that the controller, publication effect, or profile observation already exists or is accepted.
    Prefer existing supported host ownership when it meets the guarantees. Any new parent client
    must enforce the same immutable scope and human-entry limit
-   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). *Why*: keep the CLI simple
-   and the harness portable.
+   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). Navori may run the
+   `qualityGate.fast` of **another** repository only when the user registered it with
+   `navori workspace link`, the chain is flat (`isSafeGateChain`), and it runs without a shell
+   (`navori gate foreign`); otherwise the commit only warns (#1097). *Why*: keep the CLI simple and
+   the harness portable.
 10. **Self-hosting** — this repository and all non-Bonum repositories commit the harness
     (`.claude/`, `CLAUDE.md`, and `navori.config.json`): Navori uses its own tooling. Repositories
     under `/bonum` ignore the local harness by convention.
+11. **A cached gate is a time-saving shortcut, never review evidence** — a cached green only avoids
+    rerunning the gate on the same bytes; it does not replace verification by the `reviewer` in a
+    fresh context. *Why*: treating a cache hit as approval saves minutes at the expense of quality,
+    which has higher priority.
 
 ## PR and verification unit
 

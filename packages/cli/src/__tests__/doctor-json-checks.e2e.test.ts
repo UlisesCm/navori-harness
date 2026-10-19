@@ -176,7 +176,7 @@ describe("doctor --json — warning-level checks", () => {
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     const english = runCli(["doctor", "--cwd", repo]);
     expect(english.stdout + english.stderr).toContain("Codegraph is no longer enabled");
-  }, 45_000);
+  }, 20_000);
 
   // Covers: R34, R35
   it("stops reporting codegraph when the plugin is disabled", () => {
@@ -188,7 +188,7 @@ describe("doctor --json — warning-level checks", () => {
     config.plugins = { codegraph: { enabled: false } };
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     expect(doctorJson(repo).codegraphDefaultPolicy).toBeNull();
-  }, 45_000);
+  });
 
   it("gateReadiness: a declared gate whose binary is not on PATH (#368)", () => {
     const repo = seedRepo();
@@ -338,7 +338,7 @@ describe("doctor --json — available external providers, not enabled (#981)", (
     const after = doctorJson(repo);
     expect(after.availableExternalProviders).not.toContain("codegraph");
     expect(after.ok).toBe(true);
-  }, 45_000);
+  });
 
   it("never gates --strict — same contract as missingExternalTools", () => {
     const repo = seedRepo();

@@ -22,6 +22,19 @@ const master = (prTarget = "main") => ({
 
 const valid = ["## E1 — d", "### M1 — m", OK_A, behavior(1)].join("\n");
 
+/** Six nonempty deliveries with 30 checked active tasks and declared acceptance. */
+function completedSpec(): string {
+  return Array.from({ length: 6 }, (_, i) =>
+    [
+      `## E${i + 1} — d`,
+      "Estimated LOC: 300",
+      `### M${i + 1} — m`,
+      `- **A${i + 1}** [observable] — c \`ls\` → ok`,
+      ...Array.from({ length: 5 }, (_, j) => behavior(i * 5 + j + 1).replace("[ ]", "[x]")),
+    ].join("\n"),
+  ).join("\n");
+}
+
 describe("parseRequirementIds", () => {
   // Covers: R11
   it("reads **R<n>** items and ignores fences and prose mentions", () => {
@@ -204,6 +217,100 @@ describe("checkSpec — una regla por caso", () => {
       ].join("\n"),
     ).join("\n");
     expect(rules(text)).toContain("too-many-deliveries");
+  });
+});
+
+describe("checkSpec — completed over-budget declarations", () => {
+  const completed = completedSpec();
+
+  // Covers: R7
+  it("accepts six completed deliveries with 30 tasks and exposes the classification warning", () => {
+    const result = check(completed);
+    const warning = result.classification.warnings.find((w) => w.rule === "completed-over-budget");
+    expect(result.ok).toBe(true);
+    expect(result.classification).toMatchObject({
+      shape: "split",
+      prCount: 6,
+      signals: { tasks: 30, deliveries: 6, milestones: 6 },
+      thresholds: { maxPrsPerSpec: 4 },
+      error: null,
+    });
+    expect(warning).toBeDefined();
+    expect(result.findings).toEqual([{ ...warning, severity: "warning" }]);
+  });
+
+  // Covers: R7
+  it("fails again as soon as T30 is reopened", () => {
+    const result = check(completed.replace("[x] **T30**", "[ ] **T30**"));
+    expect(result.ok).toBe(false);
+    expect(result.findings.map((f) => [f.rule, f.severity])).toEqual([
+      ["too-many-deliveries", "error"],
+    ]);
+  });
+
+  // Covers: R7, R8, R11, R12, R13
+  it.each([
+    {
+      name: "duplicate milestone",
+      text: completed.replace("### M6", "### M5"),
+      rule: "duplicate-id",
+    },
+    {
+      name: "duplicate task",
+      text: completed.replace("**T30**", "**T29**"),
+      rule: "task-duplicated",
+    },
+    {
+      name: "missing acceptance",
+      text: completed.replace(OK_A, ""),
+      rule: "milestone-without-acceptance",
+    },
+    {
+      name: "malformed acceptance",
+      text: completed.replace("`ls` → ok", "no command"),
+      rule: "acceptance-malformed",
+    },
+    {
+      name: "unknown requirement",
+      text: completed.replace("(R1)", "(R2)"),
+      rule: "unknown-requirement",
+    },
+    {
+      name: "non-vertical delivery",
+      text: completed
+        .replaceAll(" [observable]", "")
+        .replaceAll("effect: behavior", "effect: docs"),
+      rule: "delivery-not-vertical",
+    },
+    {
+      name: "misplaced foundation",
+      text: completed.replace("## E6 — d", "## E6 — d (foundation)"),
+      rule: "foundation-not-first",
+    },
+    {
+      name: "foundation without consumer",
+      text: completed.replace("## E1 — d", "## E1 — d (foundation)"),
+      rule: "foundation-without-consumer",
+    },
+  ])("continues structural validation for $name", ({ text, rule }) => {
+    const result = check(text);
+    expect(result.classification.error).toBeNull();
+    expect(result.classification.warnings.map((w) => w.rule)).toContain("completed-over-budget");
+    expect(result.ok).toBe(false);
+    expect(result.findings.map((f) => [f.rule, f.severity])).toContainEqual([rule, "error"]);
+  });
+
+  // Covers: R7, R8, R22
+  it("still checks requirement coverage, unreadable requirements and master mappings", () => {
+    expect(check(completed, ["R1", "R2"]).findings.map((f) => f.rule)).toContain(
+      "requirement-uncovered",
+    );
+    const unreadable = checkSpec(parseTasks(completed), DEFAULT_DELIVERIES, undefined);
+    expect(unreadable.ok).toBe(false);
+    expect(unreadable.findings.map((f) => f.rule)).toContain("requirements-unreadable");
+    const unmapped = checkSpec(parseTasks(completed), DEFAULT_DELIVERIES, ["R1"], master());
+    expect(unmapped.ok).toBe(false);
+    expect(unmapped.findings.map((f) => f.rule)).toContain("master-delivery-unmapped");
   });
 });
 

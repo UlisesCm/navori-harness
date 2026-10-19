@@ -185,6 +185,25 @@ Each managed script with `exit 2` declares its classification in the header `# B
 
 Block messages are actionable: when a safe route exists, the `route:` line names it (for example, a literal directory with `git -C <dir>` or splitting the command). Blocks with no safe route (`rm` on root or home, fork bomb, block devices) do not include one.
 
+**`implementer-no-markdown` and doctrine in worktrees (#1330).** A Write/Edit of doctrine (a path
+listed by the hook) with an absolute path is allowed when it falls inside another registered
+worktree of the same repository: it must contain no `..`, no symlink component, appear in the
+session's `git worktree list`, and have the same `--git-common-dir`. Any uncertainty (git is
+unavailable or `worktree list` fails) blocks the write. Bash forms are not relaxed.
+
+Residual: every registered worktree in the repository is trusted for those prefixes. There is no
+per-delivery grant before review begins, so the boundary cannot be narrowed further today.
+
+Relation to #1329: these are the same checkout-identity primitives (physical path, registration in
+`worktree list`, and `--git-common-dir`), but used in a different phase. This guard runs before
+`receipt review begin`, so it cannot require the `review-edit-binding` seal.
+
+The Python write analyzer is a single destination-based analyzer. It parses with `ast` and never
+executes code. An `.md` path appearing only as data (for example, `filesTouched` in JSON) does not
+block; an `.md` destination, or a dynamic or unknown destination, does. The Node `.json` writer
+allows literal file creation. Read-only git subprocesses (`rev-parse`, `diff`, `status`, `log`, and
+exactly `git branch --show-current`) are allowed.
+
 `ask` is emitted only if `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh)) allows it: non-Codex script, `jq`, `PreToolUse` payload, and `permission_mode` in `default`, `acceptEdits`, or `auto`. `plan` is excluded (it can run with prompts disabled); empty, absent, or unknown modes are excluded too. Outside the allowlist, the gate blocks with `exit 2`, so `ask` never becomes a silent allow. Codex ignores `permissionDecision`: there it is always `exit 2`. Confirmation hooks (`master-accept`, `comment-draft`, etc.) keep `ask` in every mode; their fallback is allow.
 
 Host contract for a hook `ask` (Claude Code docs):

@@ -17,7 +17,7 @@ import { mcpServerStates } from "./mcp-diagnosis.ts";
  */
 export function renderPiExtensionSource(mcpPluginIds: readonly string[] = []): string {
   return String.raw`
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
@@ -66,12 +66,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** True when a Markdown target is AI doctrine: inside the repo root, no ".." segment, under a DOCTRINE_PREFIXES entry. */
+function relIsDoctrine(rel: string): boolean {
+  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
+  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
+}
+
+function gitOut(cwd: string, args: string[]): string | null {
+  const r = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8", timeout: 2000, maxBuffer: 1048576 });
+  return r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : null;
+}
+
+/** #1330: path relative to another REGISTERED worktree of cwd's repo (same common dir, no symlink component); null on any doubt. */
+function siblingWorktreeRel(cwd: string, target: string): string | null {
+  if (!isAbsolute(target)) return null;
+  let cursor = "/";
+  for (const part of target.split(sep).filter(Boolean)) {
+    cursor = join(cursor, part);
+    try { if (lstatSync(cursor).isSymbolicLink()) return null; }
+    catch (e) { if ((e as { code?: unknown } | null)?.code !== "ENOENT") return null; }
+  }
+  let dir = dirname(target);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  const top = gitOut(dir, ["rev-parse", "--show-toplevel"]);
+  if (!top || !target.startsWith(top + sep)) return null;
+  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const session = gitOut(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!common || !session || gitOut(session, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) !== common) return null;
+  const list = gitOut(session, ["worktree", "list", "--porcelain"]);
+  if (list === null) return null;
+  const lines = list.split("\n");
+  if (!lines.includes("worktree " + top) || !lines.includes("worktree " + session)) return null;
+  return target.slice(top.length + 1);
+}
+
+/** True when a Markdown target is AI doctrine: under the repo root or another registered worktree of it, no ".." segment, under a DOCTRINE_PREFIXES entry. */
 function isDoctrinePath(cwd: string, target: string): boolean {
   if (target.split(/[\\/]/).includes("..")) return false;
   const rel = relative(cwd, resolve(cwd, target)).split(sep).join("/");
-  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
-  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
+  if (relIsDoctrine(rel)) return true;
+  if (!isAbsolute(target)) return false;
+  const sibling = siblingWorktreeRel(cwd, target);
+  return sibling !== null && relIsDoctrine(sibling);
 }
 
 function controls(cwd: string): Controls {
@@ -86,36 +121,81 @@ function controls(cwd: string): Controls {
     scribeOwnsMarkdown: value.scribeOwnsMarkdown };
 }
 
-function runNavori(cwd: string, args: string[], input: string, signal: AbortSignal): Promise<{ code: number | null; stdout: string }> {
+type NavoriResult = { code: number | null; stdout: string; stderr: string };
+/** Capture bounded control output; stderr is opt-in so handoff keeps its stdout-only contract. */
+function runNavori(cwd: string, args: string[], input: string, signal: AbortSignal,
+    captureStderr: boolean = false): Promise<NavoriResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("navori", args, { cwd, stdio: ["pipe", "pipe", "ignore"] });
-    let stdout = "";
+    const child = spawn("navori", args, { cwd, stdio: ["pipe", "pipe", captureStderr ? "pipe" : "ignore"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let bytes = 0;
     let stopped = false;
+    let finished = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const stop = (): void => {
-      if (stopped) return;
-      stopped = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    };
-    const timeout = setTimeout(stop, 10_000);
-    signal.addEventListener("abort", stop, { once: true });
-    if (signal.aborted) stop();
-    child.stdin.on("error", () => {});
-    child.stdin.end(input);
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-      if (Buffer.byteLength(stdout) > 65_536) stop();
-    });
-    child.on("error", (cause: Error) => reject(cause));
-    child.on("close", (code: number | null) => {
+    const failure = (): Error => new Error("Navori control unavailable");
+    const cleanup = (): void => {
       clearTimeout(timeout);
       if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener("abort", stop);
-      if (stopped || signal.aborted || Buffer.byteLength(stdout) > 65_536) reject(new Error("Navori control aborted, timed out, or oversized"));
-      else resolve({ code, stdout });
+      stdout.length = 0;
+      stderr.length = 0;
+    };
+    const stop = (): void => {
+      if (stopped || finished) return;
+      stopped = true;
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", stop);
+      stdout.length = 0;
+      stderr.length = 0;
+      child.kill("SIGTERM");
+      killTimer = setTimeout((): void => {
+        child.kill("SIGKILL");
+        finished = true;
+        cleanup();
+        reject(failure());
+      }, 5_000);
+    };
+    const timeout = setTimeout(stop, 10_000);
+    const capture = (target: Buffer[], chunk: Buffer): void => {
+      if (stopped || finished) return;
+      if (chunk.length > 65_536 - bytes) { stop(); return; }
+      bytes += chunk.length;
+      target.push(Buffer.from(chunk));
+    };
+    child.stdout.on("data", (chunk: Buffer): void => capture(stdout, chunk));
+    if (captureStderr) child.stderr?.on("data", (chunk: Buffer): void => capture(stderr, chunk));
+    child.on("error", (): void => {
+      if (finished) return;
+      if (child.pid) stop();
+      else { finished = true; cleanup(); }
+      reject(failure());
     });
+    child.on("close", (code: number | null): void => {
+      if (finished) return;
+      finished = true;
+      if (stopped || signal.aborted) { cleanup(); reject(failure()); return; }
+      const result: NavoriResult = { code, stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8") };
+      cleanup();
+      resolve(result);
+    });
+    signal.addEventListener("abort", stop, { once: true });
+    if (signal.aborted) stop();
+    child.stdin.on("error", (): void => {});
+    child.stdin.end(input);
   });
+}
+
+/** Reconstruct only the known workplan remedy; never publish arbitrary control output. */
+function planDenial(stderr: string, feature: string | undefined): string {
+  const match = /^\[navori\] BLOCKED by plan-gate: feature "([a-z0-9][a-z0-9._-]{0,127})" already has a workplan — open with \x60workplan: \1\x60, not nivel-0\.\n?$/.exec(stderr);
+  if (match && match[0] === stderr) {
+    const slug = match[1] === feature ? feature : "<feature>";
+    return "Navori plan gate blocked the implementer: this feature already has a workplan; open with \x60workplan: " +
+      slug + "\x60, not \x60nivel-0:\x60. Review the existing workplan and its approval before another dispatch.";
+  }
+  return "Navori plan gate blocked the implementer. The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
 }
 
 async function checkDispatch(cwd: string, role: Role, task: string,
@@ -123,9 +203,10 @@ async function checkDispatch(cwd: string, role: Role, task: string,
   if (role === "implementer" && controls(cwd).planTiers) {
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
-    try { result = await runNavori(cwd, ["plan", "gate"], payload, signal); }
+    try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
     catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
-    if (result.code !== 0) throw new Error("Navori plan gate blocked the implementer");
+    if (result.code === 2) throw new Error(planDenial(result.stderr, feature));
+    if (result.code !== 0) throw new Error("Navori plan gate unavailable; subagent blocked");
   }
   if (role === "implementer" || role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {

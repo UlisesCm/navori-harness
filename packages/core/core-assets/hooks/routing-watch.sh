@@ -83,7 +83,10 @@ set -uo pipefail
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
+nv_payload_fields="agent_id agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`/
 # `spawn_agent` tool names and multi-file patches to the shapes this hook
 # already handles for Claude.

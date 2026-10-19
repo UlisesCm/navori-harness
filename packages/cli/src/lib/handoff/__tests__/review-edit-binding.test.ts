@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -24,6 +24,16 @@ import { ReviewSidecarSchema } from "../review-schema.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { renderCodexEngine } from "../../../engines/codex/index.ts";
 import { NavoriConfigSchema } from "../../config/schema.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 let dir: string;
 let host: string;
@@ -33,6 +43,7 @@ const parent = "10000000-0000-0000-0000-000000000001";
 const producer = "10000000-0000-0000-0000-000000000002";
 const reviewer = "10000000-0000-0000-0000-000000000003";
 const otherReviewer = "10000000-0000-0000-0000-000000000004";
+const scribe = "10000000-0000-0000-0000-000000000005";
 const state = (name: string): string => join(target, ".navori/state/handoffs", name);
 const output = (ext = "md"): string => state(`review_demo.${ext}`);
 const options = () => ({ cwd: target, feature: "demo", target: "main", gate: "" });
@@ -80,7 +91,7 @@ beforeEach(() => {
   host = join(dir, "host");
   target = join(dir, "delivery");
   mkdirSync(host);
-  git(host, "init", "-b", "main");
+  repoTpl.copyInto(host);
   git(host, "config", "user.email", "binding@example.test");
   git(host, "config", "user.name", "Binding");
   writeFileSync(join(host, "a.txt"), "base\n");
@@ -139,31 +150,58 @@ afterEach(() => {
 });
 
 describe("native review edit binding", () => {
-  // Covers: R13
+  // Covers: R13, R18
   it.each([
     ["0.162.1", "0.162.1"],
     ["0.162.1", "0.163.0"],
     ["0.163.0", "0.162.1"],
     ["0.163.0", "0.163.0"],
   ])(
-    "accepts reviewer %s with producer %s through native ownership and preflight",
+    "binds reviewer %s with implementer %s and a mixed-version scribe",
     (reviewerVersion: string, producerVersion: string) => {
       actor(producer, "implementer", producerVersion);
       expect(attestHandoff(options())).toEqual({ status: "attested" });
-      actor("10000000-0000-0000-0000-000000000005", "scribe", reviewerVersion);
+      const scribeVersion = producerVersion === "0.162.1" ? "0.163.0" : "0.162.1";
+      actor(scribe, "scribe", scribeVersion);
       expect(attestHandoff(options())).toEqual({ status: "attested" });
       actor(reviewer, "reviewer", reviewerVersion);
       nonce = begin();
+      expect(read(stamp()).reviewer).toMatchObject({ thread: reviewer, version: reviewerVersion });
+      expect(read(state("ownership_demo.json")).actors).toMatchObject([
+        { role: "implementer", version: producerVersion },
+        { role: "scribe", version: scribeVersion },
+      ]);
       expect(check()).toEqual({ status: "ok", reason: "bound-review-output" });
       expect(preflight()).toEqual(check());
     },
   );
 
-  // Covers: R13
+  // Covers: R18
+  it.each(
+    ["0.162.0", "0.163.1", "0.164.0"].flatMap((version: string) => [
+      ["reviewer", version],
+      ["producer", version],
+    ]),
+  )("denies unverified %s version %s through both readers", (kind: string, version: string) => {
+    if (kind === "reviewer")
+      change(stamp(), (body: Record<string, unknown>) => {
+        (body.reviewer as Record<string, unknown>).version = version;
+      });
+    else
+      change(state("ownership_demo.json"), (body: Record<string, unknown>) => {
+        (body.actors as Record<string, unknown>[])[0]!.version = version;
+      });
+    expect(check()).toEqual({
+      status: "error",
+      reason: kind === "reviewer" ? "wrong-native-actor" : "ownership-mismatch",
+    });
+    expect(preflight()).toEqual(check());
+  });
+  // Covers: R13, R18
   it.each([0, 1])(
     "rejects unsupported persisted owner version at position %s",
     (position: number) => {
-      actor("10000000-0000-0000-0000-000000000005", "scribe", "0.163.0");
+      actor(scribe, "scribe", "0.163.0");
       expect(attestHandoff(options())).toEqual({ status: "attested" });
       actor(reviewer, "reviewer");
       nonce = begin();
@@ -295,10 +333,10 @@ describe("native review edit binding", () => {
       },
     ],
     [
-      "unsupported native version",
+      "invalid reviewer parent",
       "stamp",
       (b: Record<string, unknown>) => {
-        (b.reviewer as Record<string, unknown>).version = "0.164.0";
+        (b.reviewer as Record<string, unknown>).parent = "not-a-native-thread";
       },
     ],
     [
@@ -306,6 +344,27 @@ describe("native review edit binding", () => {
       "stamp",
       (b: Record<string, unknown>) => {
         (b.reviewer as Record<string, unknown>).sourceCwd = target;
+      },
+    ],
+    [
+      "producer role",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.role = "reviewer";
+      },
+    ],
+    [
+      "producer root",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.root = otherReviewer;
+      },
+    ],
+    [
+      "reviewer producer independence",
+      "ownership",
+      (b: Record<string, unknown>) => {
+        (b.actors as Record<string, unknown>[])[0]!.thread = reviewer;
       },
     ],
     [
@@ -383,7 +442,7 @@ describe("native review edit binding", () => {
     expect(check([join(fake, ".navori/state/handoffs/review_demo.md")]).status).toBe("error");
     const foreign = join(dir, "foreign");
     mkdirSync(foreign);
-    git(foreign, "init", "-b", "main");
+    repoTpl.copyInto(foreign);
     expect(check([join(foreign, ".navori/state/handoffs/review_demo.md")]).reason).toBe(
       "unregistered-checkout",
     );

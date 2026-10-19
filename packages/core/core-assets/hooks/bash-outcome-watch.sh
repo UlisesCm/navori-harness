@@ -2,7 +2,10 @@
 # PostToolUseFailure(Bash) advisory. The shared state helper also handles reset
 # from routing-watch on a successful PostToolUse(Bash).
 set -uo pipefail
+nv_payload_fields="agent_id agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # navori:include hook-input
 # navori:include bash-outcome
 navori_audit_name="bash-outcome-watch"

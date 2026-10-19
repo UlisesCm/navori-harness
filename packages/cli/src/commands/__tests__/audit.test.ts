@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -27,6 +27,16 @@ import * as privatePaths from "../../lib/audit/paths.ts";
 import { auditCommand } from "../audit.ts";
 import { parseCodexSession } from "../../lib/audit/parse.ts";
 import { encodeCwdToSlug } from "../../lib/audit/paths.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 vi.mock(import("node:child_process"), { spy: true });
 vi.mock(import("../../lib/audit/paths.ts"), { spy: true });
@@ -2091,7 +2101,7 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
 
   // Covers: R19, R68
   it("writes a format 2 snapshot of a schema 11 report, privately and without the repo name", () => {
-    execFileSync("git", ["init", "-q"], { cwd: repoDir });
+    repoTplMaster.copyInto(repoDir);
     execFileSync(
       "git",
       ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "x"],
@@ -2123,7 +2133,7 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
 
   // Covers: R68
   it("copies a snapshot to the git toplevel of the cwd and never overwrites a destination", () => {
-    execFileSync("git", ["init", "-q"], { cwd: repoDir });
+    repoTplMaster.copyInto(repoDir);
     mkdirSync(join(repoDir, "docs", "deep"), { recursive: true });
     markIn(repoDir, "sess-a", "2026-08-25");
 
@@ -2170,7 +2180,7 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(existsSync(join(secondDir, "all.json"))).toBe(false);
 
     // A relative path resolves from the toplevel of the cwd repo: also inside.
-    execFileSync("git", ["init", "-q"], { cwd: repoDir });
+    repoTplMaster.copyInto(repoDir);
     const relative = runAudit(["--all-repos", "--snapshot", "all2", "--copy-to", "all.json"]);
     expect(relative.status).not.toBe(0);
     expect(existsSync(join(repoDir, "all.json"))).toBe(false);

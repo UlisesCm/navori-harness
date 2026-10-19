@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
-const INDEX_TS = resolve(REPO_ROOT, "packages", "cli", "src", "index.ts");
+const INDEX_TS = resolve(REPO_ROOT, "packages", "cli", "src", "cli.ts");
 const COMMANDS_TS = resolve(REPO_ROOT, "apps", "website", "src", "content", "commands.ts");
 
 /**

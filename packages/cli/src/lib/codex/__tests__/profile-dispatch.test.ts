@@ -203,6 +203,12 @@ describe("fresh metadata prepare/claim", () => {
       },
     };
     expect(await consumeCodexProfileHook(payload)).toEqual({
+      navoriProfile: {
+        version: 1,
+        role: "local",
+        model: { kind: "set", value: "gpt-6.1-sol" },
+        effort: { kind: "set", value: "medium" },
+      },
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "allow",
@@ -216,6 +222,78 @@ describe("fresh metadata prepare/claim", () => {
         tool_input: { agent_type: "reviewer", message: "changed" },
       }),
     ).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+  });
+  // Covers: R12, R13, R16, R18
+  it("preserves inherited fields and opaque arguments while rejecting explicit/ambiguous inherited inputs", async () => {
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/agents/local.toml"), 'name = "local"\n');
+    const payload = {
+      cwd,
+      session_id: "session",
+      tool_use_id: "inherit",
+      tool_name: "spawn_agent",
+      tool_input: { agent_type: "local", message: { opaque: ["ñ", null] } },
+    };
+    expect(await consumeCodexProfileHook(payload)).toEqual({
+      navoriProfile: {
+        version: 1,
+        role: "local",
+        model: { kind: "inherit" },
+        effort: { kind: "inherit" },
+      },
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: payload.tool_input,
+      },
+    });
+    for (const value of ["gpt-6.1-sol", "", null])
+      expect(
+        await consumeCodexProfileHook({
+          ...payload,
+          tool_use_id: `explicit-${String(value)}`,
+          tool_input: { ...payload.tool_input, model: value },
+        }),
+      ).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    expect(
+      await consumeCodexProfileHook({
+        ...payload,
+        tool_use_id: "bad-effort",
+        tool_input: { ...payload.tool_input, reasoning_effort: "medium" },
+      }),
+    ).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    writeFileSync(join(cwd, ".codex/agents/local.toml"), 'name = "local"\nmodel = true\n');
+    expect(await consumeCodexProfileHook({ ...payload, tool_use_id: "malformed" })).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+  });
+  // Covers: R12, R13, R18
+  it("an inheritance-to-set change during refresh denies and keeps the real call burned", async () => {
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    const path = join(cwd, ".codex/agents/local.toml");
+    writeFileSync(path, 'name = "local"\n');
+    const counter = join(directory, "catalog-counter");
+    const rpc = join(commands, "rpc.cjs");
+    writeFileSync(
+      rpc,
+      readFileSync(rpc, "utf8").replace(
+        "process.stdout.write",
+        `if(r.method==='model/list'){const fs=require('node:fs');const path=${JSON.stringify(counter)};const n=fs.existsSync(path)?Number(fs.readFileSync(path,'utf8'))+1:1;fs.writeFileSync(path,String(n));if(n===2)fs.writeFileSync(${JSON.stringify(path)},'name = "local"\\nmodel = "gpt-6.1-sol"\\nmodel_reasoning_effort = "medium"\\n');}process.stdout.write`,
+      ),
+    );
+    const payload = {
+      cwd,
+      session_id: "session",
+      tool_use_id: "refresh",
+      tool_name: "Agent",
+      tool_input: { agent_type: "local" },
+    };
+    expect(await consumeCodexProfileHook(payload)).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+    expect(await consumeCodexProfileHook(payload)).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
   });
   // Covers: R13, R18
   it("no opt-in performs no query/attempt; malformed role remains consumed after repair", async () => {
@@ -250,15 +328,19 @@ describe("fresh metadata prepare/claim", () => {
     writeFileSync(script, "setInterval(()=>{},1000);");
     writeFileSync(
       join(commands, "codex"),
-      `#!/bin/sh\nprintf '%s' "$$" > "$NAVORI_TEST_NATIVE_PID"\nexec '${process.execPath}' '${script}'\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$$" > "$NAVORI_TEST_NATIVE_PID"\nexec '${process.execPath}' '${script}'\n`,
       { mode: 0o755 },
     );
     const start = Date.now();
     await expect(queryNativeCatalog(cwd, start + 500)).rejects.toThrow("unavailable-or-incomplete");
     expect(Date.now() - start).toBeLessThan(1200);
     const pid = Number(readFileSync(marker, "utf8"));
-    await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(Number.isSafeInteger(pid)).toBe(true);
+    expect(pid).toBeGreaterThan(1);
+    await vi.waitFor(
+      () => expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" })),
+      { timeout: 2_000, interval: 10 },
+    );
   });
   // Covers: R13, R14, R15
   it("catalog-refresh-next-session-and-dispatch retains query/source/time/context without future freshness", async () => {

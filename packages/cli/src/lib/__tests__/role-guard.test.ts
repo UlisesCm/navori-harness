@@ -59,6 +59,12 @@ interface Outcome {
   stderr: string;
 }
 
+/** The rendered policy fragment (case patterns, globbing, word-splitting) is not in the corpus, which replays unrendered source. */
+const POLICY_SENSITIVE = {
+  sensitive:
+    "generated policy fragment: case patterns, globbing and word-splitting differ between bash and zsh",
+};
+
 function run(payload: Record<string, unknown>, env?: NodeJS.ProcessEnv): Outcome {
   return acrossShells((shell) => {
     const r = spawnSync(shell, [script], {
@@ -68,7 +74,7 @@ function run(payload: Record<string, unknown>, env?: NodeJS.ProcessEnv): Outcome
       env,
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
-  });
+  }, POLICY_SENSITIVE);
 }
 
 /** An `apply_patch` call touching `files` (one `Add File` header each). */
@@ -87,21 +93,23 @@ function patch(role: string | undefined, ...files: string[]): Record<string, unk
 
 const HANDOFF = ".navori/state/handoffs/impl_x.json";
 
+interface LinkedReviewFixture {
+  host: string;
+  target: string;
+  state: string;
+  thread: string;
+  nonce: string;
+  index: string;
+  md: string;
+  json: string;
+}
+
 describe("role-guard linked review outputs", () => {
-  /** Builds the same registered fixture for bounded cases without raising test timeouts. */
-  function bindingFixture(
-    reviewerVersion: string,
-    producerVersion: string,
-  ): {
-    host: string;
-    target: string;
-    state: string;
-    thread: string;
-    nonce: string;
-    index: string;
-    md: string;
-    json: string;
-  } {
+  /** Creates an owned linked-worktree binding outside OS temp for each independent control. */
+  function linkedReviewFixture(
+    version: string = "0.162.1",
+    producerVersion: string = version,
+  ): LinkedReviewFixture {
     // Outside OS temp: removing the exact binding must deny this same physical destination.
     rmSync(repo, { recursive: true, force: true });
     const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
@@ -135,7 +143,7 @@ describe("role-guard linked review outputs", () => {
     const nonce = "20000000-0000-0000-0000-000000000004";
     const actor = {
       host: "codex",
-      version: reviewerVersion,
+      version,
       thread,
       root: nonce,
       parent: nonce,
@@ -203,87 +211,118 @@ describe("role-guard linked review outputs", () => {
     ["0.163.0", "0.162.1"],
     ["0.163.0", "0.163.0"],
   ])(
-    "supports reviewer %s and producer %s through the rendered binding branch",
-    (reviewerVersion: string, producerVersion: string) => {
-      const { host, state, thread, nonce, md, json } = bindingFixture(
-        reviewerVersion,
-        producerVersion,
-      );
-      for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
-        const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
-        const result = run({
-          cwd: host,
-          agent_id: thread,
-          agent_type: "reviewer",
-          tool_name: "apply_patch",
-          tool_input: { command },
-        });
-        expect(result.status).toBe(0);
-        expect(result.stderr).toContain("bound-review-output");
-      }
-      const stampPath = join(state, `review_demo.${nonce}.begin.json`);
-      const originalStamp = readFileSync(stampPath, "utf8");
-      const unknownReviewer = JSON.parse(originalStamp) as { reviewer: { version: string } };
-      unknownReviewer.reviewer.version = "0.164.0";
-      writeFileSync(stampPath, JSON.stringify(unknownReviewer));
-      const deniedReviewer = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
-      expect(deniedReviewer.status).toBe(2);
-      expect(deniedReviewer.stderr).toContain("wrong-native-actor");
-      writeFileSync(stampPath, originalStamp);
-      const ownerPath = join(state, "ownership_demo.json");
-      const originalOwner = readFileSync(ownerPath, "utf8");
-      for (const position of [0, 1]) {
-        const unknownOwner = JSON.parse(originalOwner) as { actors: { version: string }[] };
-        const owner = unknownOwner.actors[position];
-        if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
-        owner.version = "0.164.0";
-        writeFileSync(ownerPath, JSON.stringify(unknownOwner));
-        const deniedOwner = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
-        expect(deniedOwner.status).toBe(2);
-        expect(deniedOwner.stderr).toContain("ownership-mismatch");
-      }
-      writeFileSync(ownerPath, originalOwner);
+    "authorizes registered review outputs for reviewer %s and producer %s",
+    (version: string, producerVersion: string) => {
+      const { host, thread, md, json } = linkedReviewFixture(version, producerVersion);
+      const result = run({ ...patch("reviewer", md, json), cwd: host, agent_id: thread });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("bound-review-output");
     },
-    45_000,
   );
 
   // Covers: R13
-  it("authorizes registered linked-worktree review outputs through the binding branch", () => {
-    const { host, target, state, thread, md } = bindingFixture("0.162.1", "0.162.1");
-    const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
-    for (const files of [
-      [md, scratch],
-      [scratch, md],
-    ]) {
+  it("rejects an unsupported persisted reviewer version", () => {
+    const { host, state, thread, nonce, md } = linkedReviewFixture();
+    const stampPath = join(state, `review_demo.${nonce}.begin.json`);
+    const stamp = JSON.parse(readFileSync(stampPath, "utf8")) as {
+      reviewer: { version: string };
+    };
+    stamp.reviewer.version = "0.164.0";
+    writeFileSync(stampPath, JSON.stringify(stamp));
+    const denied = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(denied.status).toBe(2);
+    expect(denied.stderr).toContain("wrong-native-actor");
+  });
+
+  // Covers: R13
+  it.each([0, 1])("rejects an unsupported persisted owner at position %s", (position: number) => {
+    const { host, state, thread, md } = linkedReviewFixture();
+    const ownerPath = join(state, "ownership_demo.json");
+    const ownership = JSON.parse(readFileSync(ownerPath, "utf8")) as {
+      actors: { version: string }[];
+    };
+    const owner = ownership.actors[position];
+    if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
+    owner.version = "0.164.0";
+    writeFileSync(ownerPath, JSON.stringify(ownership));
+    const denied = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(denied.status).toBe(2);
+    expect(denied.stderr).toContain("ownership-mismatch");
+  });
+
+  it.each(["Add File", "Update File", "Delete File", "Move to"])(
+    "authorizes registered linked-worktree review outputs through the binding branch with %s headers",
+    (header: string) => {
+      const { host, thread, md, json } = linkedReviewFixture();
+      const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
+      const result = run({
+        cwd: host,
+        agent_id: thread,
+        agent_type: "reviewer",
+        tool_name: "apply_patch",
+        tool_input: { command },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("bound-review-output");
+    },
+  );
+
+  it.each(["review-first", "scratch-first"])(
+    "authorizes registered review output mixed with scratch in %s order",
+    (order: string) => {
+      const { host, thread, md } = linkedReviewFixture();
+      const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
+      const files = order === "review-first" ? [md, scratch] : [scratch, md];
       const mixed = run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread });
       expect(mixed.status, JSON.stringify(mixed)).toBe(0);
       expect(mixed.stderr).toContain("bound-review-output");
-    }
-    for (const files of [
-      [md, scratch, join(target, "source.ts")],
-      [join(target, "source.ts"), scratch, md],
-    ]) {
+    },
+  );
+
+  it.each(["review-first", "source-first"])(
+    "denies source mixed with review output and scratch in %s order",
+    (order: string) => {
+      const { host, target, thread, md } = linkedReviewFixture();
+      const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
+      const source = join(target, "source.ts");
+      const files = order === "review-first" ? [md, scratch, source] : [source, scratch, md];
       expect(run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread }).status).toBe(2);
-    }
+    },
+  );
+
+  it("denies traversal into the registered linked-worktree review output", () => {
+    const { host, thread } = linkedReviewFixture();
     const traversal = run({
       ...patch("reviewer", "../target/.navori/state/handoffs/review_demo.md"),
       cwd: host,
       agent_id: thread,
     });
     expect(traversal.status, JSON.stringify(traversal)).toBe(2);
-    expect(run({ ...patch("reviewer", md), cwd: host, agent_id: "" }).status).toBe(2);
-    expect(
-      run({
-        ...patch("reviewer", md),
-        cwd: host,
-        agent_id: "20000000-0000-0000-0000-000000000009",
-      }).status,
-    ).toBe(2);
+  });
+
+  it.each(["", "20000000-0000-0000-0000-000000000009"])(
+    "denies review output for an unbound identity %j",
+    (agentId: string) => {
+      const { host, md } = linkedReviewFixture();
+      expect(run({ ...patch("reviewer", md), cwd: host, agent_id: agentId }).status).toBe(2);
+    },
+  );
+
+  it("denies registered review output to an auditor", () => {
+    const { host, thread, md } = linkedReviewFixture();
     expect(run({ ...patch("auditor", md), cwd: host, agent_id: thread }).status).toBe(2);
+  });
+
+  it("denies a registered review output mixed with source", () => {
+    const { host, target, thread, md } = linkedReviewFixture();
     expect(
       run({ ...patch("reviewer", md, join(target, "source.ts")), cwd: host, agent_id: thread })
         .status,
     ).toBe(2);
+  });
+
+  it("denies a registered review output mixed with another feature output", () => {
+    const { host, state, thread, md } = linkedReviewFixture();
     expect(
       run({
         ...patch("reviewer", md, join(state, "review_other.json")),
@@ -291,6 +330,10 @@ describe("role-guard linked review outputs", () => {
         agent_id: thread,
       }).status,
     ).toBe(2);
+  });
+
+  it("denies moving a registered review output into source", () => {
+    const { host, target, thread, md } = linkedReviewFixture();
     const move = `*** Begin Patch\n*** Update File: ${md}\n*** Move to: ${join(target, "source.ts")}\n*** End Patch`;
     expect(
       run({
@@ -301,11 +344,10 @@ describe("role-guard linked review outputs", () => {
         tool_input: { command: move },
       }).status,
     ).toBe(2);
-  }, 45_000);
+  });
 
-  // Covers: R13
-  it("requires the Node runtime and exact binding for the same linked-worktree destination", () => {
-    const { host, target, thread, index, md } = bindingFixture("0.162.1", "0.162.1");
+  it("fails closed without Node for linked output and preserves ordinary handoffs", () => {
+    const { host, thread, md } = linkedReviewFixture();
     const bin = join(repo, "bin");
     mkdirSync(bin);
     for (const command of [
@@ -332,6 +374,13 @@ describe("role-guard linked review outputs", () => {
     expect(
       run({ ...patch("reviewer", HANDOFF), cwd: host }, { ...process.env, PATH: bin }).status,
     ).toBe(0);
+  });
+
+  it("revokes the same physical review destination when its binding index is removed", () => {
+    const { host, target, thread, index, md } = linkedReviewFixture();
+    const bound = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(bound.status).toBe(0);
+    expect(bound.stderr).toContain("bound-review-output");
     expect(
       checkReviewEditOutputs({ hostCwd: host, thread, outputs: [md, join(target, "source.ts")] })
         .status,
@@ -560,5 +609,94 @@ describe("hook-input spawn helpers never confuse caller and child (H16)", () => 
     expect(probe(stop, "nv_spawn_target_type")).toBe("scout");
     expect(probe({ tool_name: "ns_spawn_agent" }, "nv_is_spawn_tool && printf yes")).toBe("yes");
     expect(probe({ tool_name: "apply_patch" }, "nv_is_spawn_tool || printf no")).toBe("no");
+  });
+});
+
+// Covers: #1022 role-guard
+describe("role-guard nested worktrees (#1022)", () => {
+  const git = (cwd: string, ...args: string[]): void => {
+    const r = spawnSync(
+      "git",
+      ["-c", "user.name=Guard", "-c", "user.email=guard@example.test", ...args],
+      { cwd, encoding: "utf8" },
+    );
+    if (r.status !== 0) throw new Error(r.stderr);
+  };
+  let nested: string;
+
+  beforeEach(() => {
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "base");
+    nested = join(repo, ".navori/state/fixtures/live/native-dev");
+    mkdirSync(join(repo, ".navori/state/fixtures/live"), { recursive: true });
+    git(repo, "worktree", "add", "-q", "-b", "nested", nested);
+  });
+
+  it("lets the reviewer write the handoffs dir of a nested worktree", () => {
+    const file = join(nested, ".navori/state/handoffs/review_x.md");
+    expect(run(patch("reviewer", file)).status).toBe(0);
+  });
+
+  it("still blocks the reviewer outside its prefixes in the nested worktree and at the root", () => {
+    expect(run(patch("reviewer", join(nested, "src/x.mjs"))).status).toBe(2);
+    expect(run(patch("reviewer", join(repo, "src/x.mjs"))).status).toBe(2);
+    expect(run(patch("reviewer", join(nested, ".navori/state/fixtures/x.md"))).status).toBe(2);
+  });
+
+  it("keeps implementer and scribe exempt in the nested worktree like at the root", () => {
+    expect(run(patch("implementer", join(nested, "src/x.mjs"))).status).toBe(0);
+    expect(run(patch("scribe", join(nested, "docs/a.md"))).status).toBe(0);
+  });
+
+  it("does not treat a plain dir with a forged .git file or dir as a worktree", () => {
+    const fake = join(repo, "fake");
+    mkdirSync(fake);
+    writeFileSync(join(fake, ".git"), `gitdir: ${join(repo, ".git/worktrees/nope")}\n`);
+    expect(run(patch("reviewer", join(fake, ".navori/state/handoffs/review_x.md"))).status).toBe(2);
+    const fakeDir = join(repo, "fakedir");
+    mkdirSync(join(fakeDir, ".git"), { recursive: true });
+    expect(run(patch("reviewer", join(fakeDir, ".navori/state/handoffs/review_x.md"))).status).toBe(
+      2,
+    );
+  });
+
+  it("blocks a symlinked nested handoffs dir that points outside and `..` traversal", () => {
+    // Target is a non-prefix dir of the root (inside OS temp, so the temp grant cannot mask a miss).
+    const outside = join(repo, "src");
+    mkdirSync(outside);
+    {
+      rmSync(join(nested, ".navori"), { recursive: true, force: true });
+      mkdirSync(join(nested, ".navori/state"), { recursive: true });
+      symlinkSync(outside, join(nested, ".navori/state/handoffs"));
+      // Resolves outside the repo: external route, no binding -> blocked.
+      expect(
+        run(patch("reviewer", join(nested, ".navori/state/handoffs/review_x.md"))).status,
+      ).toBe(2);
+      expect(
+        run(patch("reviewer", join(nested, ".navori/state/handoffs/../../../src/x.mjs"))).status,
+      ).toBe(2);
+    }
+  });
+
+  it("blocks an independent nested git repo (role escape through `git init`)", () => {
+    const evil = join(repo, "packages/cli/src/evil");
+    mkdirSync(evil, { recursive: true });
+    git(evil, "init", "-q", "-b", "main");
+    git(evil, "commit", "-q", "--allow-empty", "-m", "base");
+    expect(run(patch("reviewer", join(evil, ".navori/state/handoffs/x.md"))).status).toBe(2);
+  });
+
+  it("blocks a nested linked worktree that belongs to a different repo", () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-role-other-")));
+    try {
+      git(other, "init", "-q", "-b", "main");
+      git(other, "commit", "-q", "--allow-empty", "-m", "base");
+      const foreign = join(repo, "packages/foreign");
+      mkdirSync(join(repo, "packages"), { recursive: true });
+      git(other, "worktree", "add", "-q", "-b", "foreign", foreign);
+      expect(run(patch("reviewer", join(foreign, ".navori/state/handoffs/x.md"))).status).toBe(2);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });

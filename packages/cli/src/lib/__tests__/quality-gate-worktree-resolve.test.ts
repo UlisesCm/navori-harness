@@ -1,21 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { chmodSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { cleanupTempDirs, git, mkTemp } from "./helpers/tmp-git.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
+
+/** Real `git worktree` state the verdict corpus cannot reproduce; the hook resolves the tree from shell path expansion. */
+const WORKTREE_SENSITIVE = {
+  sensitive:
+    "git worktree fixture (not in the corpus); tree resolved by shell `cd`/path expansion of the command",
+};
 
 /**
  * The `resolve-worktree` partial, exercised through the CORE quality-gate hook.
@@ -34,33 +32,7 @@ const runsBash = process.platform !== "win32";
 const BASE_PATH = "/usr/bin:/bin";
 const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh");
 
-const tempDirs: string[] = [];
-function mkTemp(prefix: string): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
-  tempDirs.push(dir);
-  return dir;
-}
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(
-    "git",
-    [
-      "-c",
-      "user.email=t@navori.test",
-      "-c",
-      "user.name=navori",
-      "-c",
-      "commit.gpgsign=false",
-      "-c",
-      "protocol.file.allow=always",
-      ...args,
-    ],
-    { cwd, stdio: "pipe", encoding: "utf-8" },
-  );
-}
+afterEach(cleanupTempDirs);
 
 /** A repo on `main` whose `tree.txt` holds `name`, one commit deep. */
 function makeRepo(prefix: string, name: string): string {
@@ -125,7 +97,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `cd '${fx.worktree}' && git commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -133,7 +105,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `git -C ${fx.worktree} commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -141,7 +113,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, "git commit -m x", fx.worktree);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -149,7 +121,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, "git commit -m x", undefined);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 });
@@ -170,7 +142,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${fx.foreign}' && cd '${fx.worktree}' && git commit -m x`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -178,7 +150,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `git -C ${fx.foreign} log && git commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 
@@ -191,7 +163,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${fx.foreign}' ; cd '${fx.worktree}' && git commit -m x`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -204,7 +176,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `git commit -m "use git -C ${fx.foreign} everywhere"`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -221,7 +193,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${join(fx.main, "sub")}' && cd .. && git commit -m x`,
         fx.main,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 });

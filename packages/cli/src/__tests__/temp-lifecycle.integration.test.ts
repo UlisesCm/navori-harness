@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const cliRoot = fileURLToPath(new URL("../..", import.meta.url));
 const vitestBin = join(
@@ -12,6 +12,9 @@ const vitestBin = join(
 );
 const setupPath = join(cliRoot, "vitest.setup.ts");
 const lifecyclePath = join(cliRoot, "vitest.tempLifecycle.ts");
+
+/** Simulated removal stall; the fixture's `hookTimeout` is set 500 ms below it. */
+const SLOW_REMOVAL_MS = 2_500;
 
 interface Fixture {
   root: string;
@@ -128,11 +131,12 @@ async function until(
   output: () => string,
   timeoutMs = 12_000,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error(`fixture deadline exceeded\n${output()}`);
-    await new Promise<void>((done) => setTimeout(done, 40));
-  }
+  await vi.waitFor(
+    () => {
+      if (!predicate()) throw new Error(`fixture deadline exceeded\n${output()}`);
+    },
+    { timeout: timeoutMs, interval: 40 },
+  );
 }
 
 function records(f: Fixture): RecordLine[] {
@@ -147,20 +151,16 @@ function records(f: Fixture): RecordLine[] {
 /** Stop and join the exact child before disposing its fixture project. */
 async function stop(run: Running): Promise<void> {
   if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill("SIGTERM");
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      run.closed,
-      new Promise<never>((_, fail) => {
-        timeout = setTimeout(
-          () => fail(new Error(`child did not shut down\n${run.output()}`)),
-          6_000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
+  let joined = false;
+  void run.closed.then(() => {
+    joined = true;
+  });
+  await vi.waitFor(
+    () => {
+      if (!joined) throw new Error(`child did not shut down\n${run.output()}`);
+    },
+    { timeout: 6_000, interval: 25 },
+  );
 }
 
 describe("real Vitest temporary lifecycle", () => {
@@ -285,6 +285,8 @@ describe("real Vitest temporary lifecycle", () => {
     }
   }, 35_000);
 
+  // The stall models a slow syscall (`rmSync` blocks the event loop), not a wait for an event: it
+  // must outlast the fixture's default `hookTimeout`, so both are shrunk together (spec 0055 R20).
   it("gives slow exact-root removal a teardown budget separate from tests", async () => {
     const f = fixture();
     const preload = join(f.root, "slow-removal.ts");
@@ -295,7 +297,7 @@ describe("real Vitest temporary lifecycle", () => {
 const original=fs.rmSync;
 fs.rmSync=(...args:Parameters<typeof fs.rmSync>):ReturnType<typeof fs.rmSync>=>{
  if(String(args[0])!==process.env.TMPDIR)return original(...args);
- const started=performance.now();Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,11000);
+ const started=performance.now();Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,${SLOW_REMOVAL_MS});
  original(...args);
  fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({root:String(args[0]),ms:performance.now()-started}));
 };syncBuiltinESMExports();`,
@@ -304,7 +306,7 @@ fs.rmSync=(...args:Parameters<typeof fs.rmSync>):ReturnType<typeof fs.rmSync>=>{
       f.config,
       readFileSync(f.config, "utf8").replace(
         "setupFiles:[",
-        `setupFiles:[${JSON.stringify(preload)},`,
+        `hookTimeout:${SLOW_REMOVAL_MS - 500},setupFiles:[${JSON.stringify(preload)},`,
       ),
     );
     writeFileSync(f.spec, specSource(f, false));
@@ -314,7 +316,7 @@ fs.rmSync=(...args:Parameters<typeof fs.rmSync>):ReturnType<typeof fs.rmSync>=>{
       expect(await run.closed, run.output()).toBe(0);
       const removal = JSON.parse(readFileSync(marker, "utf8")) as { root: string; ms: number };
       expect(removal.root).toBe(records(f)[0]!.root);
-      expect(removal.ms).toBeGreaterThanOrEqual(11_000);
+      expect(removal.ms).toBeGreaterThanOrEqual(SLOW_REMOVAL_MS);
       expect(existsSync(removal.root)).toBe(false);
       expect(run.output()).not.toContain("Hook timed out");
     } finally {
