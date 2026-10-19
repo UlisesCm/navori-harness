@@ -1,8 +1,10 @@
+> [English](README.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
+
 <div align="center">
 
 # navori
 
-**Multi-agent harness + SDD scaffolder for Claude Code (and other AI engines).**
+**Multi-agent harness and SDD scaffolder for Claude Code and other AI engines.**
 
 [![npm](https://img.shields.io/npm/v/navori?color=8b5cf6)](https://www.npmjs.com/package/navori)
 [![CI](https://github.com/UlisesCm/navori-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/UlisesCm/navori-harness/actions/workflows/ci.yml)
@@ -11,7 +13,7 @@
 
 </div>
 
-`navori` lleva tu setup de Claude Code —agentes, skills, hooks, `CLAUDE.md`, `AGENTS.md`— a cualquier repo con **un comando**, y lo mantiene al día sin pisar tu customización local ni sobrescribir lo que ya tenías.
+`navori` brings your Claude Code setup—agents, skills, hooks, `CLAUDE.md`, and `AGENTS.md`—to any repository with a **single command**. It keeps that setup up to date without overwriting your local customizations or existing work.
 
 ```bash
 npx navori init           # wizard con detección de stack
@@ -21,141 +23,120 @@ npx navori init --recommended
 npx navori init --full
 ```
 
-`--recommended` deja el harness completo funcionando con software que ya tienes (engram
-siempre activo, `+gh` si el repo tiene remote de GitHub) — nunca instala nada. `--full` suma
-proveedores externos (requieren instalar binarios propios; codegraph se agrega por opt-in)
-más una política estricta
-(`posture`/`reviewRigor`/`testsForNewCode`), scan de monorepo y pre-commit hook forzados.
+`--recommended` runs the complete harness with software you already have (Engram is always active; `+gh` is enabled when the repository has a GitHub remote) and never installs anything. `--full` adds external providers (you must install their binaries; CodeGraph is opt-in), a strict policy (`posture`/`reviewRigor`/`testsForNewCode`), a required monorepo scan, and a required pre-commit hook.
 
-> 📦 npm: [`navori`](https://www.npmjs.com/package/navori) · 📖 Referencia completa del CLI: [`packages/cli/README.md`](./packages/cli/README.md)
+> 📦 npm: [`navori`](https://www.npmjs.com/package/navori) · 📖 Full CLI reference: [`packages/cli/README.md`](./packages/cli/README.md)
 
 ---
 
-## El problema
+## The problem
 
-Cuando armas un buen harness para tu agente (agentes especializados, skills, hooks, quality gates, convenciones de SDD), ese conocimiento vive en `.claude/` y `CLAUDE.md` de **un** repo. Replicarlo a otros es copiar-pegar, y mantenerlos sincronizados cuando algo cambia es manual y se pudre con el tiempo.
+When you build a useful harness for an agent—specialized agents, skills, hooks, quality gates, and SDD conventions—that knowledge lives in `.claude/` and `CLAUDE.md` in **one** repository. Reusing it elsewhere means copy-pasting, and keeping copies in sync is manual work that decays over time.
 
-`navori` convierte ese harness en algo **versionado y reproducible**: una `navori.config.json` checked-in describe el repo, y el CLI reconstruye todo desde ahí — con marcadores `<!-- navori:managed -->` que separan lo que el CLI mantiene de lo que es tuyo.
+`navori` makes that harness **versioned and reproducible**: a checked-in `navori.config.json` describes the repository, and the CLI rebuilds everything from it. Markers such as `<!-- navori:managed -->` separate CLI-managed content from your own edits.
 
-## Qué genera
+## What it generates
 
-A partir de `navori init`:
+From `navori init`:
 
-- **`navori.config.json`** — la fuente de verdad del repo (stack, preset, plugins, quality gate, librerías detectadas).
-- **`CLAUDE.md`** con *managed blocks* versionados que el CLI sincroniza (y deja intacto lo que escribes fuera de ellos).
-- **`.claude/`** con agentes, skills, hooks y `settings.json` — read-only por default, con guard contra comandos destructivos.
+- **`navori.config.json`** — the repository's source of truth: stack, preset, plugins, quality gate, and detected libraries.
+- **`CLAUDE.md`** with versioned *managed blocks* that the CLI synchronizes while preserving anything you write outside them.
+- **`.claude/`** with agents, skills, hooks, and `settings.json`—read-only by default, with guards for destructive commands.
 
-## Cómo funciona
+## How it works
 
-**Cascada de 5 capas** — cada una refina la anterior, lo específico gana:
+**Five cascading layers**—each refines the previous one, and the more specific setting wins:
 
 ```
 Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 ```
 
-- **Core** — baseline universal: agentes, skills, hooks, protocolo SDD.
-- **Preset** — capa por stack, con bases neutras (`vite-react-ts`, `express`) y variantes especializadas encima (Next.js, NestJS, Express+Mongoose, Vite+Mantine, Astro, Medusa, background-worker…).
-- **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
-- **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
-- **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima y probada 1.1.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](docs/pi.md).
+- **Core** — the universal baseline: agents, skills, hooks, and the SDD protocol.
+- **Preset** — a stack-specific layer with neutral bases (`vite-react-ts`, `express`) and specialized variants on top (Next.js, NestJS, Express+Mongoose, Vite+Mantine, Astro, Medusa, background-worker…).
+- **Library skills** — modular skills that work across presets and are injected through dependency detection. A repository gets `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, and similar skills when it has the matching dependency, regardless of its preset.
+- **Workspace** — inheritable defaults and cross-repository tickets for changes that span repositories.
+- **Project config** — your overrides in `navori.config.json`.
+- **Engine adapters** — Claude Code (`.claude/`) and full Codex (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks, and MCP), plus universal `AGENTS.md`, Cursor, and Copilot. Pi is opt-in (`.pi/` with an extension and agents, and skills in `.agents/skills`); its minimum and tested version is 1.1.0, and it requires Node.js >= 22.19. See [docs/pi.md](./docs/pi.md) for the matrix and limits.
 
-Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
-ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
-`codexMode` adicional.
+For full parity, use `"engines": ["claude", "codex"]`. For a lightweight Codex setup alongside Claude, use `["claude", "agents-md"]`; no additional `codexMode` setting is needed.
 
-Codex recibe **paridad de garantías**: cada hook, agente, skill y regla tiene en Codex un
-equivalente o un límite documentado ([`docs/native-overlap.md`](./docs/native-overlap.md);
-verificación en vivo en [`docs/research/codex-paridad-verificacion.md`](./docs/research/codex-paridad-verificacion.md)).
+Codex has **parity of guarantees**: each hook, agent, skill, and rule has an equivalent in Codex or a documented limitation ([`docs/native-overlap.md`](./docs/native-overlap.md); see the [live verification](./docs/research/codex-paridad-verificacion.md)).
 
-- Tras `navori render --apply` con Codex, corre `navori codex trust` para aprobar los hooks. Repítelo cuando cambien (por ejemplo, al activar `masterPlan` o tgrep) y en cada worktree; `navori doctor` avisa por ruta.
-- Requiere Codex ≥ 0.160.0; `doctor` avisa si la versión es menor.
-- Los hooks llaman al binario global de npm: mantenlo actualizado. `doctor` avisa si es más viejo que el del repo.
-- El guard de búsqueda de tgrep solo bloquea si existe un índice (`tgrep index`); sin índice deja pasar.
+- After `navori render --apply` with Codex, run `navori codex trust` to approve the hooks. Repeat when they change (for example, when enabling `masterPlan` or tgrep) and in every worktree; `navori doctor` reports missing trust by path.
+- Codex >= 0.160.0 is required; `doctor` warns if the version is older.
+- Hooks call the globally installed npm binary, so keep it up to date. `doctor` warns if it is older than the repository's version.
+- The tgrep search guard blocks only when an index exists (`tgrep index`); without an index, searches pass through.
 
-**Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
+**Synchronization model** — managed blocks carry `hash`, `version`, and `source`. `sync` reports available updates and warns before replacing a block you edited by hand. It creates a backup before each write.
 
-**Perfil de modelos por agente** — cada agente se rendea con su `model` y `effort`: `orchestrator` (opus/xhigh) y `architect` (opus/xhigh) para el juicio y el diseño, `implementer`/`reviewer`/`scout`/`auditor` (sonnet/medium) para la síntesis, `publisher`/`scribe` (haiku/low) para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad afinados por evento (solo lo que corresponde, en paralelo), el harness cuesta menos por sesión. Ver [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).
+**Model profile by agent** — each agent is rendered with its own `model` and `effort`: `orchestrator` and `architect` use `opus`/`xhigh` for judgment and design; `implementer`, `reviewer`, `scout`, and `auditor` use `sonnet`/`medium` for synthesis; `publisher` and `scribe` use `haiku`/`low` for mechanical work. Mechanical work does not cost as much as judgment-intensive work. Together with focused output and event-specific quality gates (only what applies, in parallel), this lowers the cost per session. See [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).
 
-## Planificación por niveles
+## Planning by levels
 
-`navori plan classify` mide la complejidad de una tarea (0–10) a partir de señales del repo
-(`project.criticalPaths`, dependencia nueva, migración de esquema, dinero/credenciales/PII, etc.)
-y la ubica en un nivel:
+`navori plan classify` measures task complexity (0–10) from repository signals (`project.criticalPaths`, a new dependency, schema migration, money/credentials/PII, and so on) and assigns a level:
 
-| Nivel | Qué implica |
+| Level | What it means |
 |---|---|
-| 0 | Trivial — sin workplan, exención directa del gate. |
-| 1 | Estándar — workplan de `implementer`/`reviewer`, sin diseño previo. |
-| 2 | Con diseño — pasa primero por `architect` (`opus`/`xhigh`), que entrega un `solution_<scope>.md` con ≥3 caminos y una recomendación. |
-| 3 | Igual que el nivel 2, con alcance mayor (multi-repo, contrato compartido) — el mismo `architect` decide el diseño antes de que nadie escriba código. |
+| 0 | Trivial — no workplan; direct exemption from the gate. |
+| 1 | Standard — an `implementer`/`reviewer` workplan, with no prior design. |
+| 2 | Requires design — first goes through `architect` (`opus`/`xhigh`), who delivers a `solution_<scope>.md` with at least three options and a recommendation. |
+| 3 | Same as level 2, with broader scope (multiple repositories or a shared contract) — the same `architect` decides on the design before anyone writes code. |
 
-Con `harness.planTiers: true`, un hook `PreToolUse` (`navori plan gate`) niega el despacho de un
-subagente sin workplan válido para su nivel; dos rechazos seguidos escalan la exigencia al nivel
-siguiente (más artefactos, no solo más intentos). Si `navori` no está instalado o no tiene el
-subcomando `plan`, el hook no tiene veredicto: en modos que muestran el prompt pide confirmación
-en vez de bloquear sin salida. `navori plan classify --diff` corre el mismo
-clasificador contra el diff real y avisa cuando el trabajo se salió del nivel declarado.
+With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies dispatching a subagent without a valid workplan for its level. Two consecutive rejections raise the requirement to the next level (more artifacts, not just more attempts). If `navori` is not installed or has no `plan` subcommand, the hook has no verdict: in modes that show a prompt, it asks for confirmation instead of silently blocking. `navori plan classify --diff` runs the same classifier against the actual diff and warns when the work exceeds its declared level.
 
-**Coexistencia** — ¿ya tienes tu propio harness (tu orquestación / SDD)? `blocks.exclude` deja que navori conviva sin pisar tus bloques: opta por no renderear `orquestacion` / `sdd` con `navori configure blocks`, y el resto del harness sigue igual.
+**Coexistence** — already have your own harness (orchestration/SDD)? `blocks.exclude` lets Navori coexist without overwriting your blocks: choose not to render `orquestacion` / `sdd` with `navori configure blocks`, and the rest of the harness stays the same.
 
-## Comandos
+## Commands
 
-| Comando | Qué hace |
+| Command | What it does |
 |---|---|
-| `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas y sin instalar nada externo, o `--full` para sumar proveedores externos + política estricta) |
-| `refresh` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
-| `update` | Actualiza navori desde npm y corre `refresh` con el binario nuevo (`--cli-only` se detiene tras el CLI) |
-| `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
-| `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `refresh` te dan de alta solos; `scan` puebla lo que ya existía |
-| `sync` | Refresca todos los engines configurados con conflict resolution + backups |
-| `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init. `configure migrate` renombra las claves retiradas que dejan el config sin cargar (`--all` para todo el registro) |
-| `doctor` / `status` / `audit` | Audita config + drift y avisa de versiones de herramientas externas (informativo, no afecta `--strict`) / snapshot rápido / mide cómo se usó el harness en tus sesiones (resultados, ventanas de disponibilidad, comparación de snapshots) |
-| `sync` (por archivo) | Además de los bloques, ofrece reemplazo interactivo por archivo para los archivos sin marcador (`--accept-new-files` los acepta en bloque) |
-| `spec <classify\|check>` | Clasifica una spec como una PR o una PR por entrega (`classify`) y valida su `tasks.md` (`check`): milestones, criterios, cobertura y entregas verticales |
-| `plan <sub>` | Planificación por niveles (`classify`, `render`, `update`, `check`, `gate`); ver [Planificación por niveles](#planificación-por-niveles) |
-| `gate <fast\|full>` | Corre el quality gate con la salida completa en un log (`.navori/state/gate/`) y solo un veredicto compacto en stdout |
-| `handoff <check>` | Valida el handoff del implementer antes de despachar al siguiente agente |
-| `codex trust` | Aprueba los hooks del proyecto en `~/.codex/config.toml` |
-| `receipt <sign\|check\|gate\|review>` | Recibo del contenido revisado antes de publicar; `gate` decide si cada milestone necesita el gate acotado o el completo |
-| `tools notice` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque (`--ack` marca como entregados) |
-| `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
-| `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
-| `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
+| `init` | Bootstraps with stack detection and a wizard (or `--recommended` with no questions and no external installs, or `--full` to add external providers and a strict policy). |
+| `refresh` | Redetects the repository, refreshes the config, and runs the full engine — *bring me up to date*. |
+| `update` | Updates Navori from npm and runs `refresh` with the new binary (`--cli-only` stops after updating the CLI). |
+| `render` | Generates native files for each configured engine (preview by default; `--apply` writes them). `--all` renders **every** repository in the global registry at once—the rollout after a Navori bump in one command. |
+| `registry` | Global registry of your Navori repositories (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` and `refresh` register repositories automatically; `scan` adds existing ones. |
+| `sync` | Refreshes all configured engines with conflict resolution and backups. |
+| `add` / `remove` / `configure` | Enables a plugin / disables it and cleans up its blocks and scripts / adjusts a config section without re-init. `configure migrate` renames retired keys that prevent the config from loading (`--all` applies to the whole registry). |
+| `doctor` / `status` / `audit` | Audits config and drift, and reports external tool versions (informational; does not affect `--strict`) / quick snapshot / measures how the harness was used in your sessions (results, availability windows, snapshot comparison). |
+| `sync` (per file) | In addition to blocks, offers interactive per-file replacement for unmarked files (`--accept-new-files` accepts them all at once). |
+| `spec <classify\|check>` | Classifies a spec as a PR or delivery PR (`classify`) and validates its `tasks.md` (`check`): milestones, criteria, coverage, and vertical deliveries. |
+| `plan <sub>` | Planning by levels (`classify`, `render`, `update`, `check`, `gate`); see [Planning by levels](#planning-by-levels). |
+| `gate <fast\|full>` | Runs the quality gate, writing full output to a log (`.navori/state/gate/`) and only a compact verdict to stdout. |
+| `handoff <check>` | Validates the implementer's handoff before dispatching the next agent. |
+| `codex trust` | Approves project hooks in `~/.codex/config.toml`. |
+| `receipt <sign\|check\|gate\|review>` | Receipt for reviewed content before publishing; `gate` decides whether each milestone needs the scoped or full gate. |
+| `tools notice` | Emits pending external-tool version notices for the startup hook (`--ack` marks them as delivered). |
+| `master <sub>` | Master plan by stages (`init`, `ux`, `mode`, `advance`, `check`, …) and deliveries (`delivery-*`, gated with `--approved-by`). |
+| `adopt` | Brings a harness file you wrote by hand under Navori management (wraps it, does not rewrite it). |
+| `workspace` / `ticket` / `dominio` | Cross-repository config and tickets, plus the durable workspace knowledge base. |
+| `preset` / `scan` / `backup` / `migrations` / `bench` | Local presets, monorepos, restore, and benchmark. |
 
-→ Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.md).
+→ Full command table, presets, and plugins: [`packages/cli/README.md`](./packages/cli/README.md).
 
-## Migrando a 0.12
+## Migrating to 0.12
 
-- Se retiró el comando `global` y el colector launchd (`audit --collect` sigue). `doctor --json` ya no emite `globalScope`.
-- Se retiraron los plugins `jscpd` y `semgrep`: `navori add jscpd|semgrep` responde que están retirados.
-- El piso de Pi sube a 1.1.0: Pi 0.87.x pierde `navori_subagent`. Node mínimo: >= 22.12.
-- `navori update` ahora actualiza el CLI (consulta npm, confirma, instala y luego corre `navori refresh`). El comportamiento anterior es ahora `navori refresh`, sin alias: los scripts que usaban `navori update` para re-sincronizar el harness deben cambiar a `navori refresh`.
-- Migra con `navori render --apply` (poda los assets retirados que navori gestionaba) y luego `navori doctor` (reporta los restos).
+- The `global` command and launchd collector were removed (`audit --collect` remains). `doctor --json` no longer emits `globalScope`.
+- The `jscpd` and `semgrep` plugins were removed: `navori add jscpd|semgrep` reports that they are retired.
+- The Pi floor rises to 1.1.0: Pi 0.87.x no longer provides `navori_subagent`. Minimum Node.js version: >= 22.12.
+- `navori update` now updates the CLI (checks npm, confirms, installs, then runs `navori refresh`). The previous behavior is now `navori refresh`, with no alias: scripts that used `navori update` to resync the harness must switch to `navori refresh`.
+- Migrate with `navori render --apply` (prunes retired assets managed by Navori), then run `navori doctor` (reports leftovers).
 
-## Extender navori en tu repo
+## Extend Navori in your repository
 
-navori instala un baseline; lo que lo vuelve valioso en **tu** repo es el conocimiento que sólo
-tú tienes. Hay cuatro lugares donde ponerlo, ordenados de más barato a más caro — y el más barato
-suele rendir más, porque deja tu regla justo donde el agente ya iba a mirar.
+Navori installs a baseline; what makes it valuable in **your** repository is the knowledge only you have. There are four places to put it, ordered from least to most expensive. The least expensive often has the greatest impact because it puts your rule where the agent was already going to look.
 
-| Lo que tienes | Dónde va |
+| What you have | Where it goes |
 |---|---|
-| Una regla de tu repo (un patrón propio, la convención de tu data layer) | la **user-section** de la skill que ya cubre el tema |
-| Conocimiento que ninguna skill instalada cubre | **skill project-local** en `.claude/skills/<id>/SKILL.md` + `project.localSkills` |
-| Conocimiento de un stack, reusable entre repos | **preset local** (`navori preset init <id>`) |
-| Envoltura de un binario o servidor MCP | **plugin** (va a navori, no a tu repo) |
+| A repository-specific rule (your own pattern or data-layer convention) | The **user section** of the skill that already covers the topic. |
+| Knowledge no installed skill covers | A **project-local skill** in `.claude/skills/<id>/SKILL.md` plus `project.localSkills`. |
+| Stack knowledge reusable across repositories | A **local preset** (`navori preset init <id>`). |
+| A wrapper for a binary or MCP server | A **plugin** (belongs in Navori, not your repository). |
 
-`navori doctor` acompaña lo que agregues y te señala las oportunidades abiertas: un id declarado
-al que le falta su archivo, una skill que gana activación en cuanto su `description` diga cuándo
-usarla, o una user-section lista para recibir las reglas de tu repo.
+`navori doctor` supports what you add and points out open opportunities: a declared id with no file, a skill that will activate once its `description` says when to use it, or a user section ready for your repository's rules.
 
-→ La guía completa —con las cuatro preguntas que hacen fuerte a una propuesta— está en
-[`docs/EXTENDING.md`](./docs/EXTENDING.md). El contrato del archivo `SKILL.md` (frontmatter, tipos,
-caps, triggers), en [`docs/recipes/skill-authoring.md`](./docs/recipes/skill-authoring.md).
+→ The full guide—including four questions that make a proposal strong—is in [`docs/EXTENDING.md`](./docs/EXTENDING.md). The `SKILL.md` file contract (frontmatter, types, caps, triggers) is in [`docs/recipes/skill-authoring.md`](./docs/recipes/skill-authoring.md).
 
-## Estructura del monorepo
+## Monorepo structure
 
 ```
 navori-harness/
@@ -168,11 +149,11 @@ navori-harness/
 └─ package.json      # workspaces + trustedDependencies (bun)
 ```
 
-`@navori/core` y los plugins se **empaquetan dentro del CLI** en build (no se publican por separado): un solo `npm i -g navori` trae todo.
+`@navori/core` and the plugins are **bundled into the CLI** at build time (they are not published separately): a single `npm i -g navori` includes everything.
 
-## Desarrollo
+## Development
 
-Requiere **Node ≥ 22** y **bun 1.4.2**.
+Requires **Node >= 22** and **bun 1.4.2**.
 
 ```bash
 bun install
@@ -186,82 +167,56 @@ bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 ```
 
-**Quality gate**: `bun check` desde la raíz. Es un alias de `qualityGate.full` en
-`navori.config.json`, que es **el único lugar** donde vive el gate — de ahí salen los bloques
-managed de `CLAUDE.md` y el comando que corre el `publisher`. No lo copies a otro archivo:
-una segunda copia es una copia que se desincroniza.
+**Quality gate**: run `bun check` from the repository root. It aliases `qualityGate.full` in `navori.config.json`, the **only place** where the gate is defined. The managed blocks in `CLAUDE.md` and the command run by `publisher` come from there. Do not copy it into another file: a second copy will drift.
 
-→ Cómo contribuir, los disparadores del re-render del espejo y las reglas de PR:
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). Qué se acepta y qué no:
-[`docs/DIRECTION.md`](./docs/DIRECTION.md) y [`docs/EXTENDING.md`](./docs/EXTENDING.md).
+→ How to contribute, what triggers mirror re-rendering, and the PR rules: [`CONTRIBUTING.md`](./CONTRIBUTING.md). What is and is not accepted: [`docs/DIRECTION.md`](./docs/DIRECTION.md) and [`docs/EXTENDING.md`](./docs/EXTENDING.md).
 
 ## Releases
 
-Releases manuales, **en este orden**. El flujo es `dev` → `main`: los tickets mergean a `dev`, y
-`main` solo recibe releases desde `dev`. Desde 0.8.2 el commit del paso 4 va **por PR**, no en push
-directo: el README documentaba el release directo y en la misma línea advertía que así no hay PR
-donde verlo antes — o sea, CI no valida el árbol del release hasta que ya aterrizó.
+Releases are manual and must follow **this order**. The flow is `dev` → `main`: tickets merge into `dev`, and `main` receives releases only from `dev`. Since 0.8.2, the commit in step 4 goes **through a PR**, not a direct push. The README used to document a direct release while warning in the same line that there would be no PR to review beforehand—in other words, CI would not validate the release tree until it had already landed.
 
-1. Escribe la entrada de versiones del minor (titular + 3–5 bullets, en español e inglés) en
-   `apps/website/src/content/releases.ts`. Si el minor actual del CLI no tiene entrada, falla el
-   bloque "release notes" de `landing-inventory.test.ts`.
-2. Bump de la versión en `packages/cli/package.json`.
-3. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
-   ```bash
+1. Write the minor-version entry (a headline and 3–5 bullets, in Spanish and English) in `apps/website/src/content/releases.ts`. If the current CLI minor has no entry, the "release notes" block in `landing-inventory.test.ts` fails.
+2. Bump the version in `packages/cli/package.json`.
+3. **Re-render the mirror; this is mandatory:**
+
+```bash
    bun run --filter navori build && node packages/cli/dist/index.js render --apply
-   ```
-   El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 2
-   desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
-   entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
-   inconsistente y pone en rojo el primer CI de `main` posterior al release (`bun run check:render`,
-   #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
-4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3. Va en
-   `dev`, por PR a `dev` como cualquier ticket.
-5. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
-   siguiente release no arrastra historia reescrita. Tras el merge, `dev` queda por detrás del merge
-   commit: avánzalo a `main` (fast-forward) para que ambas ramas coincidan.
-6. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
-   `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre el HEAD de
-   ese push (el merge commit del paso 5, que contiene el commit `chore(release)`) si no existe ya.
-   Es idempotente, así que re-correrlo no hace nada.
 
-   Está automatizado porque el paso se saltó en **0.8.4 y en 0.8.5**, y el segundo fue
-   *después* de escribir aquí el comando exacto. El daño es diferido y silencioso:
-   `check-asset-commands.mjs` compara contra el tag más nuevo, así que un release sin tag
-   lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
-   que ya va en 0.8.4, y no falla nada.
 
-   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`.
-   Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
-   como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-7. `npm publish` desde `packages/cli`.
+```
 
-El footer del website imprime la versión importando el `package.json` del CLI
-(`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en
-su filtro de `paths`, así que el bump del paso 2 redespliega el sitio. **Si el sitio muestra
-una versión vieja, ese filtro es el primer sospechoso**: hasta 0.8.4 no incluía el manifest
-del CLI y el sitio se quedó dos releases atrás, mostrando `v0.8.2` con `0.8.4` ya en npm.
+   Each managed block marker records the CLI version, so the bump in step 2 makes the rendered mirror for this **entire** repository stale. From 0.6.0 to 0.6.1, this affected **30 files** across `.claude/` and `CLAUDE.md`. Skipping this step tags an inconsistent tree and makes the first post-release CI on `main` fail (`bun run check:render`, #421). With a PR, this is caught before landing; that was the blind spot of the direct push.
+4. Commit `chore(release): navori vX.Y.Z`, including the version bump **and** the re-render from step 3. Push it to `dev` and open a PR to `dev`, like any other ticket.
+5. Open a PR from `dev` → `main` with a **merge commit, not squash**. This keeps `dev` as an ancestor of `main`, so the next release does not bring rewritten history. After the merge, `dev` is behind the merge commit; fast-forward it to `main` so both branches match.
+6. Tag `vX.Y.Z` — **automatic since 0.8.6**. `release-tag.yml` runs when `packages/cli/package.json` changes on `main` and creates and pushes an annotated tag on the HEAD of that push (the merge commit from step 5, which contains the `chore(release)` commit), if the tag does not already exist. It is idempotent, so rerunning it does nothing.
 
-## Créditos e inspiración
+   This was automated because the step was skipped in **0.8.4 and 0.8.5**, and the second omission happened *after* the exact command had been written here. The damage is delayed and silent: `check-asset-commands.mjs` compares against the latest tag, so a release without a tag is checked against the previous one. It keeps saying "exists in v0.8.3" for a repository already on 0.8.4, and nothing fails.
 
-navori no nació en el vacío. Estos son los proyectos de los que tomó ideas — el mérito de cada uno es de quien lo construyó:
+   If you need to do it manually: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`. Tags for releases before the `dev` → `main` flow point directly to the `chore(release)` commit, as `v0.8.2` → `285fa51` and `v0.8.3` → `6f32a00`.
+7. Run `npm publish` from `packages/cli`.
 
-| Proyecto | Qué aportó como referencia |
+The website footer prints the version by importing the CLI's `package.json` (`apps/website/src/components/Footer.astro`), and `deploy-website.yml` watches that file in its `paths` filter, so the version bump in step 2 redeploys the site. **If the site displays an old version, check that filter first**: until 0.8.4 it did not include the CLI manifest, and the site fell two releases behind, showing `v0.8.2` while 0.8.4 was already on npm.
+
+## Credits and inspiration
+
+Navori did not emerge in a vacuum. These projects inspired it; credit for each belongs to its creators:
+
+| Project | What it contributed |
 |---|---|
-| [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai) | El proyecto más cercano a navori: configurador de ecosistema con SDD, memoria persistente y routing orgánico por complejidad de tarea |
-| [gstack](https://github.com/garrytan/gstack) | Skills encadenadas por rol que se alimentan entre sí; auto-detección de host con un config por host; cross-model review |
-| [harness-sdd](https://github.com/betta-tech/harness-sdd) | Notación EARS, trazabilidad obligatoria requisito↔test y el filesystem como máquina de estados de la spec |
-| [ejemplo-harness-subagentes](https://github.com/betta-tech/ejemplo-harness-subagentes) | El patrón Leader/Implementer/Reviewer y el anti-teléfono-descompuesto: estado en disco, por chat solo referencias |
-| [superpowers](https://github.com/obra/superpowers) | Subagent-driven development: agente fresco por tarea y specs "para un junior entusiasta" |
-| [ponytail](https://github.com/DietrichGebert/ponytail) | La escalera de decisión anti-over-engineering — "flojo en la solución, nunca en la lectura" |
-| [codegraph](https://github.com/colbymchenry/codegraph) | Contexto quirúrgico vía grafo pre-indexado en vez de loops de grep/read. Disponible como opt-in con `navori add codegraph`; no se habilita por defecto con `init --full`. Plugin activo de navori; se retiró brevemente el 2026-09-15 y se reintrodujo el 2026-09-16 (#838) junto con `tgrep` — acta en [`docs/research/tgrep-como-funcionaba.md`](./docs/research/tgrep-como-funcionaba.md) |
-| [graphify](https://github.com/Graphify-Labs/graphify) | Knowledge graph determinista (código + docs) commiteado al repo, como los managed assets |
-| [caveman](https://github.com/JuliusBrussee/caveman) | Eficiencia de tokens como skill transversal: disciplina de brevedad sin perder exactitud técnica |
-| [Goose](https://goose-docs.ai/) | Recipes portables en YAML para compartir workflows en equipo y CI/CD |
-| [Pi](https://pi.dev/) | "Primitivas, no features": skills on-demand y extensibilidad sobre workflows horneados |
+| [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai) | The project closest to Navori: an ecosystem configurator with SDD, persistent memory, and organic routing by task complexity. |
+| [gstack](https://github.com/garrytan/gstack) | Role-based skills that chain together; host auto-detection with a config per host; cross-model review. |
+| [harness-sdd](https://github.com/betta-tech/harness-sdd) | EARS notation, required requirement↔test traceability, and the filesystem as the spec's state machine. |
+| [ejemplo-harness-subagentes](https://github.com/betta-tech/ejemplo-harness-subagentes) | The Leader/Implementer/Reviewer pattern and anti-broken-telephone principle: state on disk, references in chat. |
+| [superpowers](https://github.com/obra/superpowers) | Subagent-driven development: a fresh agent per task and specs "for an enthusiastic junior." |
+| [ponytail](https://github.com/DietrichGebert/ponytail) | The anti-overengineering decision ladder—"weak on the solution, never on the reading." |
+| [codegraph](https://github.com/colbymchenry/codegraph) | Precise context through a pre-indexed graph instead of grep/read loops. Available by opt-in with `navori add codegraph`; not enabled by default with `init --full`. An active Navori plugin, it was briefly retired on 2026-09-15 and reintroduced on 2026-09-16 (#838) alongside `tgrep`—see the [record](./docs/research/tgrep-como-funcionaba.md). |
+| [graphify](https://github.com/Graphify-Labs/graphify) | A deterministic knowledge graph (code + docs) committed to the repository, like managed assets. |
+| [caveman](https://github.com/JuliusBrussee/caveman) | Token efficiency as a cross-cutting skill: concise writing without losing technical accuracy. |
+| [Goose](https://goose-docs.ai/) | Portable YAML recipes for sharing workflows across a team and CI/CD. |
+| [Pi](https://pi.dev/) | "Primitives, not features": on-demand skills and extensibility over baked-in workflows. |
 
-→ Notas por proyecto, con datos verificados y sus matices, en [`docs/inspiration.md`](./docs/inspiration.md).
+→ Project notes, with verified details and nuances: [`docs/inspiration.md`](./docs/inspiration.md).
 
-## Licencia
+## License
 
 [MIT](./LICENSE)

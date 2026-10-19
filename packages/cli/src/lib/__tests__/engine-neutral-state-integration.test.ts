@@ -140,6 +140,14 @@ describe("Spec 0036 engine-neutral state integration", () => {
     const oldStamp = join(main, ".git/navori/routing-watch", stampName);
     mkdirSync(join(main, ".git/navori/routing-watch"), { recursive: true });
     writeFileSync(oldStamp, "#notified\n");
+    // Covers: R7, R10, R11. Migration must preserve both stores without copying.
+    const retainedState = [
+      join(first.path, "workplan_demo.json"),
+      join(second.path, "workplan_demo.json"),
+      join(main, ".claude/progress/workplan_old.json"),
+      join(main, ".codex/progress/impl_old.json"),
+      oldStamp,
+    ].map((path: string) => ({ path, bytes: readFileSync(path) }));
     for (const cwd of [main, linked]) {
       const hook = join(cwd, ".claude/hooks/routing-watch.sh");
       execFileSync("bash", [hook], {
@@ -167,9 +175,19 @@ describe("Spec 0036 engine-neutral state integration", () => {
       ".navori/state/handoffs/workplan_demo.json",
     );
     expect(runRender(main, { dryRun: false }).ok).toBe(true);
+    expect(runRender(linked, { dryRun: false }).ok).toBe(true);
     expect(readFileSync(join(main, ".claude/progress/workplan_old.json"), "utf8")).toBe("{}\n");
     expect(readFileSync(join(main, ".codex/progress/impl_old.json"), "utf8")).toBe("{}\n");
     expect(readFileSync(oldStamp, "utf8")).toBe("#notified\n");
+    for (const { path, bytes } of retainedState) expect(readFileSync(path)).toEqual(bytes);
+    for (const cwd of [main, linked]) {
+      const neutral = join(cwd, ".navori/state/handoffs");
+      expect(existsSync(join(neutral, "workplan_old.json"))).toBe(false);
+      expect(existsSync(join(neutral, "impl_old.json"))).toBe(false);
+      for (const engine of ["claude", "codex"]) {
+        expect(existsSync(join(cwd, `.${engine}/progress/workplan_demo.json`))).toBe(false);
+      }
+    }
 
     // The receipt signs every path that differs from origin/main and spawns git per
     // path. Land the rendered tree first so only the README edit below is signed: the

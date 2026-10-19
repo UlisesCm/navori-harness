@@ -1,3 +1,5 @@
+> [English](pi.md) | [Español](pi.es.md) | [简体中文](pi.zh-CN.md)
+
 # Pi Coding Agent
 
 Pi is an opt-in Navori engine. It renders Navori-owned project resources for Pi and adds the
@@ -140,7 +142,7 @@ extension blocks `bash`, `edit` and `write` because it cannot evaluate them; rea
 removes it from the active tools at `session_start` with `setActiveTools`, and blocks any `powershell` call at
 `tool_call`. On Windows, use the `bash` tool; it requires Git for Windows (Git Bash).
 
-### Latency
+## Latency
 
 Per bash call through the bridge, with all bound scripts running concurrently: p50 26.7 ms, p95 31.1 ms, max 34.6 ms (macOS, n=60). Measured by `packages/cli/src/engines/pi/__tests__/first-class-latency.test.ts`.
 
@@ -327,7 +329,7 @@ preserved. A configured model is used when it maps to a concrete `codexMap` mode
 inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
 closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
 
-### Approval relay
+## Approval relay
 
 A headless child cannot approve an operation. When a child's Bash command claims human approval
 (`--approved-by`) and is refused, the child sends the exact refused command to the parent over the Node
@@ -339,7 +341,7 @@ Without IPC, the parent recovers the command from the `tool_execution_start` arg
 `toolCallId`, and the call ends as an error, never as success. The model's Bash does not inherit the
 channel.
 
-### Child-end handoff validation
+## Child-end handoff validation
 
 At dispatch the extension snapshots the child's canonical handoff: `impl_<feature>.json` for `implementer`, `review_<feature>.json` for `reviewer`. When the child ends, a handoff that is missing, or unchanged since the snapshot (same content and mtime), fails as stale.
 
@@ -587,7 +589,7 @@ configuration.
 Trust is an explicit Pi decision. Navori does not auto-approve the parent project or use `-e` to bypass
 trust.
 
-### MCP diagnosis for plugins
+## MCP diagnosis for plugins
 
 A plugin that declares an MCP server is checked against Pi's native MCP config. The check is read-only
 and advisory: it reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/mcp.json` and `.pi/mcp.json`, and records only

@@ -16,6 +16,7 @@ import SectionHeader from "../SectionHeader.astro";
 import { useTranslations, localizedPath } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
 import { COMMAND_GROUPS } from "../../content/command-groups";
+import { commandDocs } from "../../content/commands";
 
 interface Props {
   lang: Lang;
@@ -29,12 +30,12 @@ const groups = COMMAND_GROUPS.map((g) => ({
   label: t(g.labelKey as Parameters<typeof t>[0]),
   items: g.commands.map((id) => ({
     id,
-    desc: t(`commands.${id}.desc` as Parameters<typeof t>[0]),
+    desc: commandDocs[lang][id].summary,
   })),
 }));
 ---
 
-<section class="py-24 sm:py-28">
+<section id="commands" class="py-24 sm:py-28">
   <div class="container-prose">
     <SectionHeader
       eyebrow={t("commands.eyebrow")}

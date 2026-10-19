@@ -12,13 +12,20 @@ export default defineConfig({
   base: BASE,
   trailingSlash: "ignore",
   i18n: {
-    defaultLocale: "es",
-    locales: ["es", "en"],
+    defaultLocale: "en",
+    locales: ["en", "es", "zh-cn"],
     routing: {
       prefixDefaultLocale: false,
     },
   },
-  integrations: [sitemap()],
+  integrations: [
+    sitemap({
+      filter: (page) =>
+        !/\/en(?:\/|$)|\/versiones\/?$/.test(new URL(page).pathname) &&
+        !page.endsWith(".md") &&
+        !page.endsWith(".txt"),
+    }),
+  ],
   vite: {
     plugins: [tailwindcss()],
   },

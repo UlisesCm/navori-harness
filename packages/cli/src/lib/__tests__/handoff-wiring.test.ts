@@ -144,19 +144,20 @@ describe("Spec 0036 migration guidance", () => {
     expect(extending).toContain(".navori/state/handoffs/");
     expect(extending).toContain("<git-common-dir>/navori/");
     expect(extending).toContain("--dir");
-    expect(extending).toMatch(/una versi[oó]n/i);
-    expect(extending).toMatch(/rearm/i);
-    expect(extending).toMatch(/rollback/i);
-    expect(extending).toMatch(/sin (copiar|mover|borrar)/i);
+    expect(extending).toMatch(/one release/i);
+    expect(extending).toMatch(/re-?arm once/i);
+    expect(extending).toMatch(/roll back/i);
+    // Covers: R11. engine-neutral-state-integration.test.ts verifies unchanged
+    // legacy/neutral bytes and absence of cross-copies after hooks and rendering.
   });
 
   // Covers: R6
   it("states the trusted-local-writer boundary and concurrent redirect risk", () => {
     const extending = readDoc("EXTENDING.md");
-    expect(extending).toMatch(/escrit(or|ura) local confiable/i);
-    expect(extending).toMatch(/cambios concurrentes/i);
-    expect(extending).toMatch(/fuera del checkout/i);
-    expect(extending).toMatch(/no garantiza/i);
+    expect(extending).toMatch(/trusted local writer/i);
+    expect(extending).toMatch(/concurrent changes/i);
+    expect(extending).toMatch(/outside the checkout/i);
+    expect(extending).toMatch(/cannot guarantee/i);
     expect(extending).toMatch(/carrera|race/i);
   });
 });

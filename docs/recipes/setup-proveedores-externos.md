@@ -1,65 +1,54 @@
-# Recipe — setup de codegraph y tgrep después de instalarlos
+> [English](setup-proveedores-externos.md) | [Español](setup-proveedores-externos.es.md) | [简体中文](setup-proveedores-externos.zh-CN.md)
 
-> Qué hacer después de `navori add codegraph` / `navori add tgrep` (o de que
-> `navori init --full` habilite tgrep; codegraph requiere opt-in explícito) para que el MCP y el índice realmente
-> respondan. Destilado de `docs/research/search-v2.md` §6.1, sin el protocolo
-> interno de dogfood (branch, SHA base, git hooks) que ese doc también cubre.
+# Recipe — setting up codegraph and tgrep after installation
 
-## Cuándo aplica
+What to do after `navori add codegraph` / `navori add tgrep` (or after `navori init --full` enables tgrep; codegraph requires explicit opt-in) so the MCP server and index actually respond. Distilled from `docs/research/search-v2.md` §6.1, excluding the internal dogfood protocol (branch, base SHA, Git hooks) also covered by that document.
 
-Codegraph está disponible como opt-in y ya no forma parte de los defaults de nuevas
-instalaciones `navori init --full`, tras la evaluación T31. Las configuraciones existentes que
-lo tienen habilitado no se modifican. Para desactivarlo en una configuración propia, establece
-`enabled: false` y ejecuta `navori sync`; no borres la clave, porque una clave ausente no equivale
-a un plugin deshabilitado.
+## When this applies
 
-Solo a los 2 plugins que traen binario propio + índice: `codegraph` (servidor
-MCP, `packages/plugins/codegraph`) y `tgrep` (CLI + servidor,
-`packages/plugins/tgrep`). El resto de los plugins (`engram`, `gh`,
-`acli`) no necesita estos pasos — `navori add <plugin>` ya deja
-el binario listo para usarse.
+Codegraph is available by opt-in and is no longer included in the defaults for new `navori init --full` installations, following the T31 evaluation. Existing configurations that enable it are unchanged. To disable it in your own configuration, set `enabled: false` and run `navori sync`; do not remove the key, because a missing key does not mean that a plugin is disabled.
 
-## Pasos
+These steps apply only to the two plugins that provide their own binary and index: `codegraph` (MCP server, `packages/plugins/codegraph`) and `tgrep` (CLI and server, `packages/plugins/tgrep`). The other plugins (`engram`, `gh`, `acli`) do not need these steps; `navori add <plugin>` already leaves their binary ready to use.
 
-1. Confirma el binario: `codegraph --version` / `tgrep --version`. Si `navori
-   add` no lo instaló (lo rechazaste, o tu plataforma no tiene un comando
-   automático), instálalo con el que te mostró `navori doctor`.
-2. Inicializa el índice de codegraph en la raíz del proyecto:
+## Steps
 
-   ```
+1. Confirm the binary is available: `codegraph --version` / `tgrep --version`. If `navori add` did not install it (you declined, or your platform has no automatic installation command), install it using the command shown by `navori doctor`.
+2. Initialize the codegraph index at the project root:
+
+
+
+```
    codegraph init .
-   ```
 
-   Si ya existe un índice, `init` falla — reconstrúyelo con
-   `codegraph index --force`, no vuelvas a correr `init`.
-3. Levanta tgrep en la misma raíz. Primero revisa si ya hay un servidor:
 
-   ```
+```
+
+   If an index already exists, `init` fails. Rebuild it with `codegraph index --force`; do not run `init` again.
+3. Start tgrep from the same root. First check whether a server is already running:
+
+
+
+```
    tgrep status .
-   ```
 
-   Si no lo hay, inicia uno en una terminal dedicada:
 
-   ```
+```
+
+   If there is no server, start one in a dedicated terminal:
+
+
+
+```
    tgrep serve .
-   ```
 
-   El servidor vive mientras esa terminal siga abierta — navori no mata
-   procesos externos, así que cerrarla es la forma de apagarlo. Si no puedes
-   mantener una terminal abierta, usa `tgrep index .` (modo disco, sin
-   servidor: las búsquedas siguen funcionando, sin mantenerse al día solas).
-4. Abre (o reinicia) Claude Code desde esa misma raíz y aprueba el servidor
-   MCP de codegraph cuando el host lo pregunte. Esa aprobación es interactiva
-   por diseño — navori nunca preautoriza un MCP declarado en el propio repo.
-5. Verifica que ambos responden: una llamada real a `codegraph_explore` desde
-   un agente, y una búsqueda con `tgrep search -n -- "algo" .`. A partir de
-   aquí, `navori doctor` avisa si el índice de cualquiera de los dos queda
-   desactualizado.
 
-## Notas
+```
 
-- `codegraph init` crea `.codegraph/` con su propio `.gitignore` — no hace
-  falta ignorarlo a mano. `tgrep index`/`serve` no escriben ningún ignore
-  propio; si tu modo (`local`/`full`) no cubre `.tgrep/`, agrégalo tú.
-- Desactivar el plugin (`navori remove codegraph` / `navori remove tgrep`) no
-  borra el índice ya generado en disco.
+   The server runs while that terminal remains open. navori does not stop external processes, so closing the terminal is how you stop it. If you cannot keep a terminal open, use `tgrep index .` (disk mode, without a server: searches still work, but the index does not update itself).
+4. Open (or restart) Claude Code from that same root and approve the codegraph MCP server when the host asks. Approval is interactive by design; navori never pre-authorizes an MCP server declared in the repository itself.
+5. Verify that both respond: make a real `codegraph_explore` call from an agent and run a search with `tgrep search -n -- "algo" .`. From this point on, `navori doctor` warns you if either index becomes stale.
+
+## Notes
+
+- `codegraph init` creates `.codegraph/` with its own `.gitignore`; you do not need to ignore it manually. `tgrep index`/`serve` do not write an ignore file. If your mode (`local`/`full`) does not cover `.tgrep/`, add it yourself.
+- Disabling the plugin (`navori remove codegraph` / `navori remove tgrep`) does not delete the index already generated on disk.

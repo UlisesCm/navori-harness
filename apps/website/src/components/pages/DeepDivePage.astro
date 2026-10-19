@@ -1,0 +1,1339 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { localizedPath } from "../../i18n/utils";
+
+import { narrative, narrativeExamples } from "../../content/narratives";
+import type { Lang } from "../../i18n/ui";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const n = (key: Parameters<typeof narrative>[1]): string => narrative(lang, key);
+
+// Multi-agent roster — kept in sync with packages/core/core-assets/agents/*.
+// `model` reflects the recommended assignment via config.models.<role>
+// (opus | sonnet | haiku, all configurable per project).
+const agents = [
+  {
+    role: n("deep-dive.0"),
+    tag: n("deep-dive.1"),
+    model: "opus",
+    lead: true,
+    body: n("deep-dive.2"),
+    detail:
+      n("deep-dive.3"),
+  },
+  {
+    role: n("deep-dive.4"),
+    tag: n("deep-dive.5"),
+    model: "sonnet",
+    body: n("deep-dive.6"),
+    detail:
+      n("deep-dive.7"),
+  },
+  {
+    role: n("deep-dive.8"),
+    tag: n("deep-dive.9"),
+    model: "sonnet",
+    body: n("deep-dive.10"),
+    detail:
+      n("deep-dive.11"),
+  },
+  {
+    role: n("deep-dive.12"),
+    tag: n("deep-dive.13"),
+    model: "opus",
+    body: n("deep-dive.14"),
+    detail:
+      n("deep-dive.15"),
+  },
+  {
+    role: n("deep-dive.16"),
+    tag: n("deep-dive.17"),
+    model: "sonnet",
+    body: n("deep-dive.18"),
+    detail:
+      n("deep-dive.19"),
+  },
+  {
+    role: n("deep-dive.20"),
+    tag: n("deep-dive.21"),
+    model: "sonnet",
+    body: n("deep-dive.22"),
+    detail:
+      n("deep-dive.23"),
+  },
+  {
+    role: n("deep-dive.24"),
+    tag: n("deep-dive.25"),
+    model: "haiku",
+    body: n("deep-dive.26"),
+    detail:
+      n("deep-dive.27"),
+  },
+  {
+    role: n("deep-dive.28"),
+    tag: n("deep-dive.29"),
+    model: "haiku",
+    body: n("deep-dive.30"),
+    detail:
+      n("deep-dive.31"),
+  },
+];
+
+const leadAgent = agents.find((a) => a.lead) ?? agents[0];
+
+const modelColor: Record<string, string> = {
+  opus: "text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700",
+  sonnet: "text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700",
+  haiku: "text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+};
+
+const modelTiers = [
+  {
+    model: "haiku",
+    use: n("deep-dive.32"),
+    who: "publisher · scribe",
+    note: n("deep-dive.33"),
+  },
+  {
+    model: "sonnet",
+    use: n("deep-dive.34"),
+    who: "scout · implementer · reviewer · auditor",
+    note: n("deep-dive.35"),
+  },
+  {
+    model: "opus",
+    use: n("deep-dive.36"),
+    who: "orchestrator · architect",
+    note: n("deep-dive.37"),
+  },
+];
+
+// Level-based planning (spec 0032) — proportional to task complexity, never
+// loose chat prose: `navori plan classify` computes a 0-10 score from
+// verifiable signals and derives the level.
+const planLevels = [
+  {
+    level: "0",
+    when: n("deep-dive.38"),
+    artifact: n("deep-dive.39"),
+  },
+  {
+    level: "1",
+    when: n("deep-dive.40"),
+    artifact:
+      n("deep-dive.41"),
+  },
+  {
+    level: "2",
+    when: n("deep-dive.42"),
+    artifact:
+      n("deep-dive.43"),
+  },
+  {
+    level: "3",
+    when: n("deep-dive.44"),
+    artifact: n("deep-dive.45"),
+  },
+];
+
+const glossary = [
+  {
+    term: n("deep-dive.46"),
+    def: n("deep-dive.47"),
+  },
+  {
+    term: n("deep-dive.48"),
+    def: n("deep-dive.49"),
+  },
+  {
+    term: n("deep-dive.50"),
+    def: n("deep-dive.51"),
+  },
+  {
+    term: n("deep-dive.52"),
+    def: n("deep-dive.53"),
+  },
+  {
+    term: n("deep-dive.54"),
+    def: n("deep-dive.55"),
+  },
+  {
+    term: n("deep-dive.56"),
+    def: n("deep-dive.57"),
+  },
+  {
+    term: n("deep-dive.58"),
+    def: n("deep-dive.59"),
+  },
+  {
+    term: n("deep-dive.60"),
+    def: n("deep-dive.61"),
+  },
+  {
+    term: n("deep-dive.62"),
+    def: n("deep-dive.63"),
+  },
+  {
+    term: n("deep-dive.64"),
+    def: n("deep-dive.65"),
+  },
+];
+
+const tokenMechanisms = [
+  {
+    title: n("deep-dive.66"),
+    body: n("deep-dive.67"),
+  },
+  {
+    title: n("deep-dive.68"),
+    body: n("deep-dive.69"),
+  },
+  {
+    title: n("deep-dive.70"),
+    body: n("deep-dive.71"),
+  },
+  {
+    title: n("deep-dive.72"),
+    body: n("deep-dive.73"),
+  },
+  {
+    title: n("deep-dive.74"),
+    body: n("deep-dive.75"),
+  },
+];
+
+const engramPoints = [
+  n("deep-dive.76"),
+  n("deep-dive.77"),
+  n("deep-dive.78"),
+  n("deep-dive.79"),
+];
+
+const workspacePoints = [
+  n("deep-dive.80"),
+  n("deep-dive.81"),
+  n("deep-dive.82"),
+  n("deep-dive.83"),
+];
+
+const productionPoints = [
+  {
+    title: n("deep-dive.84"),
+    body: n("deep-dive.85"),
+  },
+  {
+    title: n("deep-dive.86"),
+    body: n("deep-dive.87"),
+  },
+  {
+    title: n("deep-dive.88"),
+    body: n("deep-dive.89"),
+  },
+  {
+    title: n("deep-dive.90"),
+    body: n("deep-dive.91"),
+  },
+];
+
+const gates = [
+  {
+    title: n("deep-dive.92"),
+    body: n("deep-dive.93"),
+  },
+  {
+    title: n("deep-dive.94"),
+    body: n("deep-dive.95"),
+  },
+  {
+    title: n("deep-dive.96"),
+    body: n("deep-dive.97"),
+  },
+  {
+    title: n("deep-dive.98"),
+    body: n("deep-dive.99"),
+  },
+];
+
+const whyNavori = [
+  {
+    title: n("deep-dive.100"),
+    body: n("deep-dive.101"),
+  },
+  {
+    title: n("deep-dive.102"),
+    body: n("deep-dive.103"),
+  },
+  {
+    title: n("deep-dive.104"),
+    body: n("deep-dive.105"),
+  },
+  {
+    title: n("deep-dive.106"),
+    body: n("deep-dive.107"),
+  },
+];
+
+const creditsBuiltOn = [
+  {
+    name: n("deep-dive.108"),
+    by: n("deep-dive.109"),
+    role: n("deep-dive.110"),
+    href: "https://claude.com/claude-code",
+  },
+  {
+    name: n("deep-dive.111"),
+    by: n("deep-dive.112"),
+    role: n("deep-dive.113"),
+    href: "https://github.com/Gentleman-Programming/engram",
+  },
+  {
+    name: n("deep-dive.114"),
+    by: n("deep-dive.115"),
+    role: n("deep-dive.116"),
+    href: "https://cli.github.com",
+  },
+  {
+    name: n("deep-dive.117"),
+    by: n("deep-dive.118"),
+    role: n("deep-dive.119"),
+    href: "https://developer.atlassian.com/cloud/acli/",
+  },
+  {
+    name: n("deep-dive.120"),
+    by: n("deep-dive.121"),
+    role: n("deep-dive.122"),
+    href: "https://github.com/colbymchenry/codegraph",
+  },
+];
+
+const creditsIdeas = [
+  {
+    name: n("deep-dive.123"),
+    role: n("deep-dive.124"),
+    href: "https://agents.md",
+  },
+  {
+    name: n("deep-dive.125"),
+    role: n("deep-dive.126"),
+    href: "https://docs.claude.com/en/docs/claude-code/sub-agents",
+  },
+  {
+    name: n("deep-dive.127"),
+    role: n("deep-dive.128"),
+    href: null,
+  },
+];
+
+// Projects navori took ideas from. Distinct from creditsIdeas (standards and
+// patterns) and creditsBuiltOn (tools navori integrates or runs).
+// Per-project notes and verified caveats: docs/inspiration.md.
+const creditsInspiration = [
+  {
+    name: n("deep-dive.129"),
+    by: n("deep-dive.130"),
+    role: n("deep-dive.131"),
+    href: "https://github.com/Gentleman-Programming/gentle-ai",
+  },
+  {
+    name: n("deep-dive.132"),
+    by: n("deep-dive.133"),
+    role: n("deep-dive.134"),
+    href: "https://github.com/garrytan/gstack",
+  },
+  {
+    name: n("deep-dive.135"),
+    by: n("deep-dive.136"),
+    role: n("deep-dive.137"),
+    href: "https://github.com/betta-tech/harness-sdd",
+  },
+  {
+    name: n("deep-dive.138"),
+    by: n("deep-dive.139"),
+    role: n("deep-dive.140"),
+    href: "https://github.com/betta-tech/ejemplo-harness-subagentes",
+  },
+  {
+    name: n("deep-dive.141"),
+    by: n("deep-dive.142"),
+    role: n("deep-dive.143"),
+    href: "https://github.com/obra/superpowers",
+  },
+  {
+    name: n("deep-dive.144"),
+    by: n("deep-dive.145"),
+    role: n("deep-dive.146"),
+    href: "https://github.com/DietrichGebert/ponytail",
+  },
+  {
+    name: n("deep-dive.147"),
+    by: n("deep-dive.148"),
+    role: n("deep-dive.149"),
+    href: "https://github.com/colbymchenry/codegraph",
+  },
+  {
+    name: n("deep-dive.150"),
+    by: n("deep-dive.151"),
+    role: n("deep-dive.152"),
+    href: "https://github.com/Graphify-Labs/graphify",
+  },
+  {
+    name: n("deep-dive.153"),
+    by: n("deep-dive.154"),
+    role: n("deep-dive.155"),
+    href: "https://github.com/JuliusBrussee/caveman",
+  },
+  {
+    name: n("deep-dive.156"),
+    by: n("deep-dive.157"),
+    role: n("deep-dive.158"),
+    href: "https://goose-docs.ai/",
+  },
+  {
+    name: n("deep-dive.159"),
+    by: n("deep-dive.160"),
+    role: n("deep-dive.161"),
+    href: "https://pi.dev/",
+  },
+];
+
+const creditsBuiltWith = [
+  { name: n("deep-dive.162"), href: "https://github.com/bombshell-dev/clack" },
+  { name: n("deep-dive.163"), href: "https://github.com/unjs/citty" },
+  { name: n("deep-dive.164"), href: "https://zod.dev" },
+  { name: n("deep-dive.165"), href: "https://astro.build" },
+  { name: n("deep-dive.166"), href: "https://tailwindcss.com" },
+];
+
+const onboarding = [
+  {
+    n: "01",
+    title: n("deep-dive.167"),
+    body: n("deep-dive.168"),
+    code: narrativeExamples["deep-dive"][0],
+  },
+  {
+    n: "02",
+    title: n("deep-dive.169"),
+    body: n("deep-dive.170"),
+    code: narrativeExamples["deep-dive"][1],
+  },
+  {
+    n: "03",
+    title: n("deep-dive.171"),
+    body: n("deep-dive.172"),
+    code: narrativeExamples["deep-dive"][2],
+  },
+  {
+    n: "04",
+    title: n("deep-dive.173"),
+    body: n("deep-dive.174"),
+    code: narrativeExamples["deep-dive"][3],
+  },
+];
+---
+
+<BaseLayout
+  lang={lang}
+  title={n("deep-dive.175")}
+  description={n("deep-dive.176")}
+>
+  {/* ── Hero ─────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-b"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 grid-bg opacity-50 pointer-events-none"></div>
+    <div class="absolute inset-0 glow-hero opacity-70 pointer-events-none"></div>
+
+    <div class="container-prose relative py-16 sm:py-24">
+      <span class="eyebrow">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+        {n("deep-dive.177")}
+      </span>
+      <h1
+        class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("deep-dive.178")}</span>
+        <br />
+        <span class="display-italic gradient-text">{n("deep-dive.179")}</span>
+      </h1>
+      <p
+        class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
+      >
+        {n("deep-dive.180")} <strong>{n("deep-dive.181")}</strong>
+        {n("deep-dive.182")}
+      </p>
+      <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+        {n("deep-dive.183")} <em>{n("deep-dive.184")}</em>, <em>{n("deep-dive.185")}</em>{n("deep-dive.186")} <em>{n("deep-dive.187")}</em>?
+        <a
+          href="#glossary"
+          class="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+          >{n("deep-dive.188")}</a
+        >
+      </p>
+    </div>
+  </section>
+
+  {/* ── Quick glossary (helper) ──────────────────────────── */}
+  <section
+    id="glossary"
+    class="scroll-mt-20 border-b"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div id="diccionario" class="container-prose scroll-mt-20 py-14 sm:py-16">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >{n("deep-dive.189")}</span
+        >
+        <h2 class="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
+          {n("deep-dive.190")}
+        </h2>
+        <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
+          {n("deep-dive.191")}
+        </p>
+      </div>
+
+      <div class="mt-8 grid gap-3 sm:grid-cols-2">
+        {
+          glossary.map((g) => (
+            <details
+              class="group rounded-lg border p-4 transition-colors"
+              style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+            >
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-3 font-medium [&::-webkit-details-marker]:hidden">
+                <span class="font-mono text-sm">{g.term}</span>
+                <span
+                  class="text-lg leading-none text-slate-400 transition-transform group-open:rotate-45"
+                  aria-hidden="true"
+                >
+                  +
+                </span>
+              </summary>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {g.def}
+              </p>
+            </details>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 1 · Multi-agent orchestration (interactive) ──────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >{n("deep-dive.192")}</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("deep-dive.193")}</span>
+        <span class="display-italic gradient-text">{n("deep-dive.194")}</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        {n("deep-dive.195")} <strong>{n("deep-dive.196")}</strong> {n("deep-dive.197")}
+      </p>
+    </div>
+
+    <p class="mt-8 text-sm text-slate-500 dark:text-slate-400">
+      {n("deep-dive.198")}
+    </p>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        agents.map((a) => (
+          <button
+            type="button"
+            data-agent-card
+            data-role={a.role}
+            data-model={a.model}
+            data-detail={a.detail}
+            data-active={a.lead ? "" : undefined}
+            class="card group flex h-full cursor-pointer flex-col text-left data-[active]:-translate-y-0.5 data-[active]:ring-2 data-[active]:ring-violet-500"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-base font-semibold tracking-tight">{a.role}</h3>
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider shrink-0 ${modelColor[a.model]}`}
+              >
+                {a.model}
+              </span>
+            </div>
+            <span class="mt-1 font-mono text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              {a.lead ? "main · " : ""}
+              {a.tag}
+            </span>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {a.body}
+            </p>
+          </button>
+        ))
+      }
+    </div>
+
+    {/* detail panel — filled on click */}
+    <div
+      class="mt-4 rounded-xl border p-5 sm:p-6"
+      style="border-color: var(--color-violet-400); background: color-mix(in oklab, var(--color-violet-500), transparent 93%);"
+    >
+      <div class="flex items-center gap-3">
+        <h3
+          id="agent-detail-role"
+          class="text-lg font-semibold tracking-tight"
+        >
+          {leadAgent.role}
+        </h3>
+        <span
+          id="agent-detail-model"
+          class="rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-violet-700 dark:text-violet-300"
+          style="border-color: var(--color-violet-400);"
+        >
+          {leadAgent.model}
+        </span>
+      </div>
+      <p
+        id="agent-detail-body"
+        class="mt-3 text-sm sm:text-base leading-relaxed text-slate-700 dark:text-slate-300"
+      >
+        {leadAgent.detail}
+      </p>
+    </div>
+
+    {/* model per role */}
+    <h3
+      class="mt-14 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+    >
+      {n("deep-dive.199")}
+    </h3>
+    <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      {
+        modelTiers.map((m) => (
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider ${modelColor[m.model]}`}
+              >
+                {m.model}
+              </span>
+              <span class="text-sm font-medium">{m.use}</span>
+            </div>
+            <p class="mt-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+              {m.who}
+            </p>
+            <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {m.note}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+      {n("deep-dive.200")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][4]}</code
+      >{n("deep-dive.201")}<code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][5]}</code
+      >{n("deep-dive.202")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][6]}</code
+      >{n("deep-dive.203")}
+    </p>
+
+    <div
+      class="mt-10 rounded-xl border overflow-hidden"
+      style="border-color: var(--color-border-soft);"
+    >
+      <div
+        class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+      >
+        {n("deep-dive.204")}
+      </div>
+      <pre
+        class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+        style="background: var(--color-night); color: rgb(226 232 240);"><code>{narrativeExamples["deep-dive"][7]}</code></pre>
+    </div>
+
+    {/* level-based planning */}
+    <h3
+      class="mt-14 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+    >
+      {n("deep-dive.205")}
+    </h3>
+    <p class="mt-3 text-sm sm:text-base leading-relaxed text-slate-600 dark:text-slate-400">
+      {n("deep-dive.206")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][8]}</code
+      > {n("deep-dive.207")}
+    </p>
+    <div
+      class="mt-5 overflow-x-auto rounded-xl border"
+      style="border-color: var(--color-border-soft);"
+    >
+      <table class="w-full text-left text-sm">
+        <thead>
+          <tr
+            style="background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            <th class="px-4 py-2.5 font-medium">{n("deep-dive.208")}</th>
+            <th class="px-4 py-2.5 font-medium">{n("deep-dive.209")}</th>
+            <th class="px-4 py-2.5 font-medium">{n("deep-dive.210")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            planLevels.map((l) => (
+              <tr class="border-t" style="border-color: var(--color-border-soft);">
+                <td class="px-4 py-2.5 align-top font-mono text-xs">{l.level}</td>
+                <td class="px-4 py-2.5 align-top">{l.when}</td>
+                <td class="px-4 py-2.5 align-top text-slate-600 dark:text-slate-400">
+                  {l.artifact}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+      {n("deep-dive.211")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][9]}</code
+      > {n("deep-dive.212")} <strong>{n("deep-dive.213")}</strong> {n("deep-dive.214")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][10]}</code
+      >{n("deep-dive.215")} <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][11]}</code
+      > {n("deep-dive.216")}<code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][12]}</code
+      >{n("deep-dive.217")}
+    </p>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 2 · Production & legacy ──────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >{n("deep-dive.218")}</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">{n("deep-dive.219")}</span>
+          <span class="display-italic gradient-text">{n("deep-dive.220")}</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          {n("deep-dive.221")} <code
+            class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+            >{narrativeExamples["deep-dive"][13]}</code
+          > {n("deep-dive.222")}
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div class="grid gap-4 sm:grid-cols-2">
+          {
+            productionPoints.map((p) => (
+              <div class="card">
+                <h3 class="text-base font-semibold tracking-tight">
+                  {p.title}
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  {p.body}
+                </p>
+              </div>
+            ))
+          }
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            {n("deep-dive.223")}
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>{narrativeExamples["deep-dive"][14]}</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 3 · Token efficiency ─────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >{n("deep-dive.224")}</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("deep-dive.225")}</span>
+        <span class="display-italic gradient-text">{n("deep-dive.226")}</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        {n("deep-dive.227")}
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+      <div class="grid gap-4 sm:grid-cols-2">
+        {
+          tokenMechanisms.map((m) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{m.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {m.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div
+        class="rounded-xl border p-6"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 20%);"
+      >
+        <h3
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+        >
+          {n("deep-dive.228")}
+        </h3>
+        <div class="mt-4 space-y-4 text-sm">
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-rose-500">
+              {n("deep-dive.229")}
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              {n("deep-dive.230")}
+            </p>
+          </div>
+          <div class="hairline"></div>
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+              {n("deep-dive.231")}
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              {n("deep-dive.232")}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 4 · Engram ───────────────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+      <div>
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >{n("deep-dive.233")}</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">{n("deep-dive.234")}</span>
+          <span class="display-italic gradient-text">{n("deep-dive.235")}</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          {n("deep-dive.236")}
+        </p>
+        <ul class="mt-6 space-y-3">
+          {
+            engramPoints.map((p) => (
+              <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                <svg
+                  class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{p}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div
+        class="rounded-xl border overflow-hidden"
+        style="border-color: var(--color-border-soft);"
+      >
+        <div
+          class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+        >
+          {n("deep-dive.237")}
+        </div>
+        <pre
+          class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+          style="background: var(--color-night); color: rgb(226 232 240);"><code>{narrativeExamples["deep-dive"][15]}</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 5 · Workspaces ───────────────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+        <div class="lg:order-2">
+          <span
+            class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+            >{n("deep-dive.238")}</span
+          >
+          <h2
+            class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+          >
+            <span class="font-sans font-semibold">{n("deep-dive.239")}</span>
+            <span class="display-italic gradient-text">{n("deep-dive.240")}</span>
+          </h2>
+          <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+            {n("deep-dive.241")}
+          </p>
+          <ul class="mt-6 space-y-3">
+            {
+              workspacePoints.map((p) => (
+                <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <svg
+                    class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{p}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden lg:order-1"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            {n("deep-dive.242")}
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>{narrativeExamples["deep-dive"][16]}</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 6 · Standards & gates ────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >{n("deep-dive.243")}</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("deep-dive.244")}</span>
+        <span class="display-italic gradient-text">{n("deep-dive.245")}</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        {n("deep-dive.246")}
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        gates.map((g) => (
+          <div class="card">
+            <h3 class="text-base font-semibold tracking-tight">{g.title}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {g.body}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  {/* ── 7 · Why navori (conviction) ──────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >{n("deep-dive.247")}</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">{n("deep-dive.248")}</span>
+          <span class="display-italic gradient-text">{n("deep-dive.249")}</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          {n("deep-dive.250")}
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-4 sm:grid-cols-2">
+        {
+          whyNavori.map((w) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{w.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {w.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 8 · Join an existing repo (main focus) ───────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >{n("deep-dive.251")}</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("deep-dive.252")}</span>
+        <span class="display-italic gradient-text">{n("deep-dive.253")}</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        {n("deep-dive.254")} <code
+          class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+          >{narrativeExamples["deep-dive"][17]}</code
+        > {n("deep-dive.255")}
+    </p>
+    </div>
+
+    <div class="mt-12 space-y-8">
+      {
+        onboarding.map((s) => (
+          <article class="grid gap-5 sm:grid-cols-[64px_1fr]">
+            <div>
+              <span
+                class="display-italic text-4xl sm:text-5xl gradient-text leading-none block"
+                aria-hidden="true"
+              >
+                {s.n}
+              </span>
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-lg sm:text-xl font-semibold tracking-tight">
+                {s.title}
+              </h3>
+              <p class="mt-2 text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+                {s.body}
+              </p>
+              <pre
+                class="mt-4 rounded-lg border px-3 sm:px-5 py-3 sm:py-4 text-[12px] sm:text-[13px] font-mono leading-relaxed overflow-x-auto"
+                style="background: var(--color-night); color: rgb(226 232 240); border-color: var(--color-border-soft);"
+              >{s.code}</pre>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    <p
+      class="mt-10 rounded-lg border px-4 py-3 text-sm text-slate-600 dark:text-slate-400"
+      style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+    >
+      <span class="font-semibold text-slate-800 dark:text-slate-200"
+        >{n("deep-dive.256")}</span
+      >
+      <code
+        class="mx-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >{narrativeExamples["deep-dive"][18]}</code
+      > {n("deep-dive.257")}
+    </p>
+  </section>
+
+  {/* ── CTA ──────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-t"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 glow-hero opacity-60 pointer-events-none"></div>
+    <div class="container-prose relative py-16 sm:py-20 text-center">
+      <h2 class="text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.1] tracking-tight">
+        <span class="font-sans font-semibold">{n("deep-dive.258")}</span>
+        <span class="display-italic gradient-text">{n("deep-dive.259")}</span>
+      </h2>
+      <p
+        class="mx-auto mt-4 max-w-xl text-base text-slate-600 dark:text-slate-400"
+      >
+        {n("deep-dive.260")}
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a class="btn btn-primary" href={localizedPath(lang, "/quickstart")}>
+          {n("deep-dive.261")}
+        </a>
+        <a class="btn btn-ghost" href={localizedPath(lang, "/docs/init")}>
+          {n("deep-dive.262")}
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {/* ── Credits & inspiration ────────────────────────────── */}
+  <section
+    class="border-t"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div class="container-prose py-16 sm:py-20">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >{n("deep-dive.263")}</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.6rem,3.5vw,2.4rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">{n("deep-dive.264")}</span>
+          <span class="display-italic gradient-text">{n("deep-dive.265")}</span>
+        </h2>
+        <p class="mt-4 text-base text-slate-600 dark:text-slate-400">
+          {n("deep-dive.266")}
+        </p>
+      </div>
+
+      {/* Builds on */}
+      <h3
+        class="mt-12 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        {n("deep-dive.267")}
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          creditsBuiltOn.map((c) => (
+            <li>
+              <a
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                    aria-hidden="true"
+                  >
+                    ↗
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] uppercase tracking-wider text-violet-700/70 dark:text-violet-300/70">
+                  {c.by}
+                </p>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/* Ideas & standards */}
+      <h3
+        class="mt-10 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        {n("deep-dive.268")}
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-3">
+        {
+          creditsIdeas.map((c) => {
+            const inner = (
+              <>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  {c.href && (
+                    <span
+                      class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                      aria-hidden="true"
+                    >
+                      ↗
+                    </span>
+                  )}
+                </div>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </>
+            );
+            return (
+              <li>
+                {c.href ? (
+                  <a
+                    href={c.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <div
+                    class="group block h-full rounded-lg border p-4"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </div>
+                )}
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      {/* Inspiration */}
+      <h3
+        class="mt-10 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        {n("deep-dive.269")}
+      </h3>
+      <p class="mt-3 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
+        {n("deep-dive.270")} <code class="font-mono text-[13px]"
+          >{narrativeExamples["deep-dive"][19]}</code
+        >.
+      </p>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          creditsInspiration.map((c) => (
+            <li>
+              <a
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                    aria-hidden="true"
+                  >
+                    ↗
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] uppercase tracking-wider text-violet-700/70 dark:text-violet-300/70">
+                  {c.by}
+                </p>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/* Built with */}
+      <div class="mt-10 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+          >{n("deep-dive.271")}</span
+        >
+        {
+          creditsBuiltWith.map((c) => (
+            <a
+              href={c.href}
+              target="_blank"
+              rel="noreferrer"
+              class="rounded-full border px-3 py-1 font-mono text-[12px] transition-colors hover:text-sky-700 dark:hover:text-sky-300"
+              style="border-color: var(--color-border-soft);"
+            >
+              {c.name}
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* subagent card interactivity */}
+  <script is:inline>
+    (function () {
+      const cards = document.querySelectorAll("[data-agent-card]");
+      const roleEl = document.getElementById("agent-detail-role");
+      const modelEl = document.getElementById("agent-detail-model");
+      const bodyEl = document.getElementById("agent-detail-body");
+      if (!cards.length || !roleEl || !modelEl || !bodyEl) return;
+
+      function select(card) {
+        cards.forEach((c) => c.removeAttribute("data-active"));
+        card.setAttribute("data-active", "");
+        roleEl.textContent = card.dataset.role;
+        modelEl.textContent = card.dataset.model;
+        bodyEl.textContent = card.dataset.detail;
+      }
+
+      cards.forEach((card) => {
+        card.addEventListener("click", () => select(card));
+      });
+    })();
+  </script>
+</BaseLayout>

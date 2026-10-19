@@ -1,0 +1,322 @@
+> [English](DIRECTION.md) | [Español](DIRECTION.es.md) | [简体中文](DIRECTION.zh-CN.md)
+
+# DIRECTION — Fuente de verdad de navori
+
+> **Lee esto ANTES de proponer o construir cualquier cosa en navori** (humano o agente de IA).
+> Es el norte del proyecto: qué es, hacia dónde va, qué SÍ y qué NO debe hacer.
+> Si una idea contradice lo que aquí se declara como invariante, no se implementa sin
+> pasar primero por "Qué requiere discusión". Las decisiones formales viven en `specs/`;
+> este doc las resume y enlaza, no las duplica.
+
+## Qué es navori
+
+navori es un paquete npm (CLI, binario `navori`) que replica un **harness multi-agente + SDD**
+en cualquier repo, de forma reproducible y con soporte **multi-engine**: hoy renderean Claude
+Code, Codex nativo (Spec 0004, ejecutada), Pi (opt-in; controles verificados en
+[`docs/pi.md`](./pi.es.md)), AGENTS.md universal, Cursor y Copilot sobre el
+mismo spine engine-agnostic. Reconstruye
+`CLAUDE.md` + `.claude/` + `progress/` de forma **idempotente** desde una única fuente de
+verdad (`navori.config.json`), sin pisar el trabajo manual del usuario. Estado actual: MVP
+funcional en producción interna (rollout a 15 repos Bonum), monorepo Bun con `@navori/cli` +
+`@navori/core` + `apps/website`.
+
+## North Star
+
+**Que cualquier repo entre a una sesión de IA con guardrails, doctrina de orquestación,
+memoria y calidad ya puestos — reproducibles, versionados y sin degradar el trabajo del
+usuario.** navori genera el harness; no ejecuta las herramientas del agente: dicta *qué*
+herramienta y *qué* doctrina usar vía skills + permisos + protocolo, materializados como
+assets managed.
+
+navori es **tool-for-self primero**: el criterio de toda feature es "¿esto me ayuda a mí
+(Ulises/Bonum) a trabajar mejor?", no "¿esto populariza el producto?". El MVP ya cubre el
+workflow real; lo que sigue **endurece lo que existe** antes que agregar superficie nueva.
+
+## Estado del harness
+
+El estado efímero de ejecución es local al checkout y neutral al engine: handoffs en
+`.navori/state/handoffs/` y stamps de hooks en `.navori/state/hooks/`. No se versiona.
+En cambio, `progress/current.md`, `progress/history.md` y `.navori/presets/` siguen siendo
+conocimiento versionable del proyecto. Esta separación no introduce configuración persistente
+oculta: `navori.config.json` sigue siendo la fuente de verdad del harness.
+
+## Metas
+
+- **Reproducibilidad**: `render` reconstruye todo el harness desde `navori.config.json`. Cero
+  estado oculto; el config checked-in es la única fuente de verdad.
+- **Modelo híbrido no destructivo**: lo managed se sincroniza; lo del usuario es intocable.
+  El moat es regenerar sin destruir trabajo manual.
+- **Multi-engine con un solo pipeline**: un proveedor N+1 cuesta ~una tabla declarativa, no
+  reimplementar el render (spine compartido, Specs 0007/0008).
+- **Calidad que sobrevive 6 meses**: la CLI y los assets generados no dan sorpresas; el
+  quality gate es duro.
+- **Optimización de tokens**: el harness rendereado se paga en cada sesión → reducir el peso
+  always-on es leverage compuesto (Specs 0005/0006).
+- **Base por-workspace**: conocimiento durable transversal al workspace (Dominio, Spec 0011),
+  aditivo.
+
+## No-metas (Non-goals)
+
+Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo cambie:
+
+- **Popularizar / branding / marketing / monetización / i18n del producto / control plane
+  en Rust.** navori es tool-for-self, no un producto de mercado (Spec 0003).
+- **Ecosistema público formalizado de plugins.** Los plugins son bundles internos, no un
+  marketplace.
+- **Arquitectura de instalación selectiva** estilo otras herramientas.
+- **Features grandes nuevas cuando el pendiente es endurecer lo existente.** Prioridad:
+  calidad > tokens > velocidad, en ese orden.
+- **LSP / Serena (Rung 3 de la escalera de búsqueda).** Descartado por overhead fijo (~3k
+  tok/sesión + language server); la escalera se corta en Rung 2 / ast-grep (Spec 0005).
+  codegraph (Spec 0009) entró como índice AST local barato, no como LSP. Se retiró del motor
+  el 2026-09-15 junto con `tgrep` (Spec 0017) — retirada **parcial y temporal**: el anuncio
+  era reimplementarlos desde cero con una integración que los hiciera trabajar entre sí, y
+# 838 (2026-09-16) cerró ese ciclo. Hoy ambos son plugins opt-in de nuevo, con el routing de
+  *Code discovery* eligiendo entre discovery estructural (codegraph) y textual (tgrep/nativo)
+  por el tipo de pregunta, no por doctrina en prosa. Lo medido antes de la reimplementación
+  —codegraph con cableado correcto y cero llamadas; tgrep al 7.4% por doctrina y 40.7% con
+  guard mecánico— queda como historia del diseño anterior en
+  [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md); el rechazo
+  a LSP/Serena no se re-litiga por esto.
+- **Que navori ejecute las herramientas del agente.** navori genera el harness (skills +
+  allowlists + plugins + protocolo); no corre grep/ast-grep/tests por el agente.
+- **"Voz de navori" / app-builder / review 4R** — parqueados (Spec 0010, superseded por 0046).
+- **Piso de doctrina por máquina en `~/.claude`** (capa global, Spec 0010). No se adoptó: costaba
+  ~5.5-6k LOC y se retiró con la Spec 0046; las sesiones fuera de un repo con navori quedan sin
+  harness a propósito.
+
+## Principios de diseño / invariantes (NO se re-litigan sin razón nueva)
+
+1. **5 capas en cascada** — Core → Preset → Workspace → Project config (`navori.config.json` +
+   plugins opt-in) → Engine adapters. Cada capa compone sobre la anterior. *Por qué*: separa
+   baseline universal de lo específico por stack/org/repo/engine sin duplicación.
+2. **Multi-engine desde día 1** — el core es engine-agnostic aunque solo se rendericen algunos
+   engines. *Por qué*: agregar un proveedor no debe reescribir el pipeline.
+3. **Source of truth = `navori.config.json` checked-in** — `render` reconstruye desde ahí.
+   *Por qué*: reproducibilidad total; sin estado oculto.
+4. **Modelo híbrido de sync con marcadores** — `<!-- navori:managed ... -->` se sincroniza;
+   todo lo de afuera es del usuario e intocable. `hash` detecta drift de contenido; `version`
+   es la versión de navori que cambió por última vez el contenido del bloque (no la que lo
+   renderizó), así que re-renderizar con un CLI más nuevo sobre contenido igual no toca el archivo.
+   `harnessVersion` en `navori.config.json` es el registro a nivel repo de la última versión que
+   aplicó un cambio real, y sostiene el anti-rollback (#1262). *Por qué*: regenerar idempotente sin
+   pisar trabajo manual ni ensuciar el diff.
+5. **Render preview por default** — `render` no toca disco; `--apply` escribe, con backup previo
+   y escritura atómica (fsync). *Por qué*: nunca sorprender al usuario con cambios en disco.
+6. **Plugins como bundles** — cada plugin trae hasta piezas opcionales (settings fragment,
+   claude-md block, skill, hook, doctor check) y se declara dentro de la capa Project config.
+   *Por qué*: addons opt-in cohesivos, no una capa aparte.
+7. **Un solo pipeline de render (spine compartido)** — resolver inventario + placement +
+   backup/write/prune viven una vez; los engines son tablas declarativas sobre ese spine
+   (Specs 0007/0008). *Por qué*: un fix de pipeline llega a todos los engines a la vez; evita
+   divergencia silenciosa entre proveedores.
+8. **Huella-cero sin opt-in** — el Dominio es **aditivo**: se hace a un lado cuando el repo
+   trae su propia config navori y nunca degrada lo que el repo ya trae. *Por qué*: instalar base
+   por-workspace no debe romper repos existentes.
+9. **navori genera, no ejecuta** — el harness enseña al agente qué herramienta usar; navori no
+   corre esas herramientas. Excepción opt-in por proyecto: una integración nativa de Codex
+   puede observar perfiles y evaluación del host y autorizar una sola publicación fija de PR,
+   con decisión humana autenticada y alcance inmutable. El engine conserva la ejecución normal;
+   la excepción no admite API genérica de ejecución, runner, broker de modelos, dependencia nueva,
+   superficie always-on, escritura global de permisos/configuración/trust ni waiver de R6/A9/A10.
+   El alcance aprobado permite implementar un controlador de navegador del host con autorización
+   humana; no afirma que el controlador, el efecto de publicación o la observación de perfiles
+   ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
+   satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
+   y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   *Por qué*: mantiene el CLI simple y el harness portable.
+10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
+    commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
+    `/bonum` el harness va gitignored por convención.)
+
+## Unidad de PR y de verificación
+
+La unidad de PR es la entrega funcional; el milestone es la unidad de verificación y de commit. Una spec pequeña va en 1 PR; una grande se reparte en 2 a 4 PRs según `sdd.deliveries`. El gate completo corre una vez por PR, sobre los bytes que se publican. No hay rama de integración: las entregas mergean en orden a `prTarget`. Master-plan sigue las mismas reglas. Detalle y evidencia: [`docs/research/distribucion-entregas-agentes.md`](research/distribucion-entregas-agentes.md).
+
+## Criterio de admisión por superficie
+
+Antes de sumar una superficie nueva (plugin, servidor MCP, bloque managed o skill), el
+orden de admisión por mecanismo es: reglas always-on → skill on-demand → MCP → CLI local
+→ API directa, con sesgo explícito hacia la superficie de runtime más chica, el menor
+overhead de tokens y menos piezas móviles. Es un eje distinto del de `docs/EXTENDING.md`
+(dónde vive conocimiento NUEVO de tu repo, ordenado por quién es dueño: user-section →
+skill project-local → preset local → plugin → core) — ahí el bloque always-on (`core`)
+es el escalón más caro y último, no el primero. Los dos ejes no se mezclan: uno decide
+qué mecanismo usar, el otro dónde vive el conocimiento una vez elegido el mecanismo.
+
+Claude primero, nativo primero: una unidad se queda solo si el host no entrega ya esa
+capacidad, y la matriz tipada es la fuente de esa decisión, no la prosa. La tabla
+generada vive en [`native-overlap.md`](native-overlap.md).
+
+Para un servidor MCP en particular, gana su slot solo si se cumplen **las dos**
+condiciones: (1) **universal** — aplica a prácticamente cualquier sesión, no a un caso
+de nicho; (2) **MCP le gana a un CLI/API envuelto en skill** — el trabajo necesita algo
+que solo MCP da (estado de sesión interactivo, streaming, un handshake de auth, browsing
+estructurado). Trabajo stateless de request/response es una skill, no un servidor.
+
+El argumento de costo con el que otros harnesses (ECC) sostienen esta regla —que cada
+conector default carga sus ~30 esquemas de tools en cada sesión— es un dato de 2026 ya
+superado en Claude Code: [la doc oficial de context window](https://code.claude.com/docs/en/context-window)
+confirma que los esquemas de tools MCP quedan **diferidos por default** y se cargan bajo
+demanda vía tool search; lo que sí carga siempre es el listado de nombres. El criterio
+que se adopta aquí es el **arquitectónico** (stateless → skill, menos piezas móviles), no
+el de costo de tokens de ECC.
+
+`packages/core/core-assets/` no declara ningún `mcpServers` hoy — cero connectors
+default. Esta regla es criterio para lo que venga, no auditoría de lo que ya existe.
+
+**Retirados** (superficie, veredicto y reemplazo — para que nadie los reproponga sin
+saber qué se midió): ninguno hoy. `tgrep` y `codegraph` pasaron por esta tabla entre
+2026-09-15 y #838 (2026-09-16); su medición previa y por qué no cuenta como "bajo valor
+descartado" vive en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
+
+## Criterio de admisión de agentes
+
+Un agente (del core o de un preset) es admisible **solo si garantiza al menos una**
+de estas tres cosas. Si no garantiza ninguna, es **prescindible** y se propone para retiro
+([Spec 0031](../specs/0031-admision-de-agentes/requirements.md)).
+
+- **Calidad:** un resultado verificablemente mejor que el que obtendría el hilo principal. Cuenta
+  la verificación independiente en contexto fresco, un tier de modelo que el orquestador no puede
+  fijarse a sí mismo, o un contexto especializado que el hilo principal no debe cargar.
+- **Velocidad:** menos tiempo total por fan-out paralelo sobre trabajo independiente.
+- **Tokens:** ahorro **neto** del arranque en frío (~25k tokens a precio de `cache_creation`,
+  medido en la Spec 0027). Cuenta sacar del contexto principal salida voluminosa que no se vuelve
+  a leer, o correr trabajo mecánico en un tier más barato.
+
+Reglas de aplicación:
+
+- **El orden de metas aplica entre ejes:** una ganancia en un eje no se paga con uno de mayor
+  prioridad (calidad > tokens > velocidad). Por ejemplo, implementers en paralelo que degradan
+  la calidad no se justifican por velocidad.
+- **Toda propuesta declara** la garantía que da y la señal con que se mide, su costo de arranque
+  contra lo que produce, y un criterio de retiro con plazo (por ejemplo, N días sin invocaciones
+  → `RETIRED_AGENTS`).
+- **Un agente nuevo sale apagado por default** hasta que su señal lo sostenga. Excepción: `architect`
+  (spec 0032 R35) — el usuario decidió habilitarlo siempre, sin flag, porque el nivel que lo activa
+  (2/3) lo decide `navori plan classify`, no el modelo, así que el costo queda acotado sin
+  necesidad de un interruptor aparte.
+- **Ampliar el trabajo de un agente existente** pasa por la misma prueba antes de implementarse,
+  con el arranque en frío de cada delegación contado en el eje de tokens.
+
+La skill local `author-agent` de este repo aplica el criterio al proponer o revisar un agente.
+
+## Qué requiere discusión antes de cambiarse
+
+Estas son "decisiones ya tomadas — no re-litigar sin razón nueva". Cambiarlas exige una
+**spec nueva o una enmienda a la spec vigente** (no un PR suelto):
+
+- Cualquiera de los 10 invariantes de arriba.
+- La lista de No-metas (reabrir branding, plugin marketplace, LSP, etc. requiere justificación
+  documentada de por qué cambió el contexto).
+- El orden de prioridad de metas: **calidad > tokens > velocidad**.
+- El criterio de admisión de agentes (Spec 0031).
+- El alcance lean del Dominio (Spec 0011; 0010 superseded por 0046): ampliarlos a "voz",
+  app-builder o review 4R está parqueado a propósito.
+- La forma de los assets managed (marcadores, `hash`/`version`, zona managed vs zona usuario):
+  romper este contrato rompe `sync` en todos los repos ya instalados.
+
+Regla práctica: si tu idea contradice un invariante o reabre una No-meta, **primero abre/edita
+una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
+
+## Cómo contribuir sin salirse de los parámetros (humanos Y agentes)
+
+1. **Lee este doc primero**, luego `docs/architecture.md` (cómo funciona el render y las capas)
+   y la(s) spec(s) del área que vas a tocar (`specs/000X-*.md`).
+
+   Y antes de escribir nada, **ubica en qué capa rinde más el cambio** — `docs/EXTENDING.md`.
+   Cinco destinos ordenados de más barato a más caro, donde el más barato suele ser el más
+   efectivo: sumar a la skill que ya cubre el tema llega más rápido y con la autoridad ya
+   establecida. Ese doc trae además las cuatro preguntas que hacen fuerte a una propuesta.
+2. **Las decisiones formales viven en `specs/`.** No inventes dirección nueva en un PR: si
+   necesitas una decisión de arquitectura, va en una spec. Respeta el estado que declare su header
+   (`proposed` / `planning only — NO implementar` / `EJECUTADA`) **y confírmalo contra el
+   código**, que es la fuente más fresca (ver "Referencias").
+3. **Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)** — `pnpm check` desde
+   la raíz del monorepo. Es lo que valida el job `quality` de CI, o el PR falla.
+
+   El gate vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. `pnpm check` es
+   su alias, y de ahí salen también los bloques managed de `CLAUDE.md`. Este doc no lo transcribe
+   a propósito — una segunda copia es una copia que se desincroniza, y ya pasó una vez (#508).
+
+   Lo que no se deduce del comando —los disparadores del re-render del espejo, el golden snapshot,
+   y qué cuenta como cambio doc-only— está en `CONTRIBUTING.md`.
+4. **Commits**: Conventional, español MX, atómicos.
+5. **Branching/PR**: cada ticket en branch nueva con base `dev` y PR a `dev`; `main` solo recibe
+   releases desde `dev` por merge commit (`branchBase`/`prTarget` en `navori.config.json`). Nunca
+   commitees el harness local de un repo `/bonum`.
+6. **Memoria (engram)**: `mem_search` al inicio si el mensaje referencia navori; `mem_save`
+   proactivo tras una decisión de diseño; `mem_session_summary` antes de cerrar.
+
+## Convención: regla autosuficiente con enlace tipado (issue #816)
+
+Forma para escribir una regla que declara la obligación en la línea y manda su porqué a un
+solo dueño en vez de inlinearlo, tomada del patrón de dsh
+([origen](research/deepseek-harness-lessons.md#32--el-patrón-canónico)):
+
+```
+- **<obligación>**: <condición o excepción, si hace falta> (`[<ancla>](<ruta>)`).
+```
+
+Vocabulario cerrado de anclas — cuatro, cada una apunta a un tipo de dueño distinto que
+navori ya tiene (no se inventa una casa nueva):
+
+| Ancla | Dueño del otro lado |
+|---|---|
+| `[rule]` | una spec formal en `specs/` que manda el comportamiento |
+| `[why]` | el invariante o la sección de `docs/DIRECTION.md` / `docs/architecture.md` / `docs/research/` que trae el trade-off completo |
+| `[decision]` | el issue o PR de GitHub donde se decidió, cuando todavía no existe spec ni doc |
+| `[scope]` | la skill o la sección de `CLAUDE.md` que define dónde aplica la regla y dónde no |
+
+Reglas del patrón:
+
+- **Un solo dueño por regla.** Si el porqué ya vive en `docs/DIRECTION.md` o en una spec, la
+  regla no lo repite: enlaza y listo. Repetirlo en dos lugares es la deriva que este patrón
+  existe para cortar.
+- **Sin fragmentos de header entre archivos.** Hoy no hay gate que verifique anclas `#slug`
+  (ver el hallazgo en [`deepseek-harness-lessons.md`§3.3](research/deepseek-harness-lessons.md#33--qué-significa-para-navori)); un link a nivel de archivo se
+  verifica con `test -f` y no se rompe si el título del destino cambia de texto. Un fragmento
+  dentro del **mismo** archivo (como los de esta misma sección) es distinto: Markdown lo
+  resuelve sin depender del slugger de otro renderer.
+- **Escalar el patrón a los bloques managed exige el `verify-md-links` primero** — ya
+  señalado como prerrequisito en el mismo `§3.3` citado arriba. Mientras ese gate no exista,
+  el patrón se aplica en puntos puntuales y de bajo riesgo, no de forma masiva.
+
+## Referencias
+
+- `docs/architecture.md` — cómo funciona el render, las 5 capas y los bloques managed.
+- `docs/EXTENDING.md` — en qué capa rinde más lo que quieres agregar (user-section / skill
+  project-local / preset local / plugin / core) y las cuatro preguntas que hacen fuerte a una
+  propuesta.
+- `docs/recipes/skill-authoring.md` — el contrato de un `SKILL.md`: frontmatter, tipos, caps y
+  triggers.
+- `specs/` — decisiones de arquitectura formales. Al día de hoy van de 0001 a 0021 más
+  `gitignore-harness`: 0001 render por workspace,
+  0002 engine Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006
+  reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 (superseded por 0046),
+  0011 Dominio, 0012 capa de solutioning, 0013 redefinición de `audit`, 0014 harness ajeno, 0015
+  orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep
+  (retirada 2026-09-15, reintroducida por #838 el 2026-09-16 con nueva integración — su banner y
+  la 0009 quedan como acta del diseño de esa primera vuelta, no del código vigente; detalle en
+  `docs/research/tgrep-como-funcionaba.md`),
+  0018 harness por workspace, 0019 orquestación que cabe en el arranque, 0020 delegación por
+  mecanismo nativo, 0021 eventos OTel como tercera fuente.
+
+  **Cómo leerlas con confianza.** El header de cada spec declara la intención con la que se
+  escribió, y el código dice dónde acabó. Varias se escribieron antes de aterrizar y su header se
+  quedó en ese primer momento —0001 y 0002 siguen diciendo `proposed` con su contenido ya en
+  producción—, y once todavía no declaran `Status`. Combinar ambas fuentes toma un minuto y da el
+  estado real; lo que sí sigue pendiente de decidir lo dice sin ambigüedad (`planning only — NO
+  implementar hasta aprobación`, como 0005 y 0006). Normalizar esos headers es una mejora
+  pendiente con buen retorno: es la primera señal que lee quien llega nuevo.
+- `docs/audit-2026-07.md` — auditoría del harness generado y del CLI.
+- `CLAUDE.md` (raíz) — instrucciones vivas del repo (secciones "Qué es este proyecto",
+  "Decisiones ya tomadas", "Quality gate").
+## Codegraph queda como opt-in en instalaciones nuevas
+
+La medición T31 de la Spec 0039 concluyó `quitar-del-default`: codegraph no alcanza el umbral
+pre-registrado para el workload de descubrimiento Claude medido. Por eso `navori init --full` ya
+no lo habilita por defecto; sigue disponible mediante opt-in explícito. Las configuraciones
+existentes permanecen intactas y `navori doctor` informa la política. Esto no demuestra ahorros
+universales para otros repositorios, motores o cargas de subagentes. Evidencia y límites:
+[`codegraph-costo-neto.md`](./research/codegraph-costo-neto.md).

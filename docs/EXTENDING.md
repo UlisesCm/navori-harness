@@ -1,248 +1,167 @@
-# EXTENDING — dónde va lo que quieres agregar
+[English](EXTENDING.md) | [Español](EXTENDING.es.md) | [简体中文](EXTENDING.zh-CN.md)
 
-> navori está diseñado para que lo extiendas. El harness que instala es un piso, no un techo: lo
-> que lo hace valioso en **tu** repo es el conocimiento que sólo tú tienes. Este doc es el mapa
-> para colocarlo donde rinda más.
+# EXTENDING — where your additions belong
+
+> Navori is designed to be extended. The harness you install is a floor, not a ceiling: what makes it valuable in **your** repository is the knowledge only you have. This guide maps where to put that knowledge so it has the greatest effect.
 >
-> Lee [`DIRECTION.md`](DIRECTION.md) para el norte del proyecto; aquí resolvemos la pregunta
-> práctica: *tengo algo nuevo —una regla, una skill, una herramienta, un bloque de doctrina—
-> ¿dónde lo pongo para que funcione y siga funcionando en seis meses?*
+> Read [`DIRECTION.md`](./DIRECTION.md) for the project's direction. Here we answer a practical question: *I have something new—a rule, a skill, a tool, a block of doctrine—where should I put it so it works now and still works six months from now?*
 >
-> Sirve igual a las dos audiencias que llegan: **(a)** quien extiende navori dentro de su repo y
-> **(b)** quien contribuye a navori. La mayoría llega por (a), y (a) es donde está el mejor
-> retorno por minuto invertido.
+> This guide serves two audiences: **(a)** people extending Navori within their own repository and **(b)** people contributing to Navori. Most readers belong to (a), where the return per minute invested is highest.
 
-## La buena noticia: casi siempre ya tienes dónde ponerlo
+## The good news: you probably already have a place for it
 
-Hay cinco destinos, ordenados de más barato a más caro. "Barato" significa menos archivos, menos
-revisión y menos tokens por sesión — y el más barato suele ser además el más efectivo, porque deja
-tu conocimiento justo donde el agente ya iba a mirar.
+There are five destinations, ordered from least to most expensive. “Least expensive” means fewer files, less review, and fewer tokens per session. The least expensive option is also usually the most effective because it puts your knowledge where the agent was already going to look.
 
-Empieza arriba y baja sólo cuando el escalón anterior se te quede corto.
+Start at the top and move down only when the previous option falls short.
 
-| Lo que tienes | Su lugar | Quién lo versiona |
+| What you have | Where it belongs | Who versions it |
 |---|---|---|
-| Una regla de **tu repo** (patrón propio, convención de tu data layer, área crítica) | la **user-section** de la skill que ya cubre el tema | tu repo |
-| Conocimiento que ninguna skill instalada cubre todavía | **skill project-local** — `.claude/skills/<id>/SKILL.md` | tu repo |
-| Conocimiento de un **stack**, reusable en varios repos tuyos | **preset local** — `.navori/presets/<id>/` | tu repo |
-| La envoltura de una **herramienta externa** (binario o servidor MCP) | **plugin** | navori |
-| Doctrina **universal**: cierta en cualquier repo, stack y engine | **core** | navori |
+| A rule for **your repository** (a local pattern, data-layer convention, or critical area) | the **user section** of the skill that already covers the topic | your repository |
+| Knowledge not covered by an installed skill | a **project-local skill** — `.claude/skills/<id>/SKILL.md` | your repository |
+| Knowledge about a **stack**, reusable across several of your repositories | a **local preset** — `.navori/presets/<id>/` | your repository |
+| A wrapper for an **external tool** (a binary or MCP server) | a **plugin** | Navori |
+| **Universal** doctrine: true for any repository, stack, and engine | **core** | Navori |
 
-Cada escalón está pensado para que el de abajo casi nunca haga falta. Si dudas entre dos, el de
-arriba gana: siempre puedes promoverlo después, y promover es más fácil que retirar.
+Each step is meant to make the next one rarely necessary. If you are choosing between two, use the one higher in the table: you can promote it later, and promotion is easier than removal.
 
-## Migración del estado efímero
+## Ephemeral state migration
 
-El runtime guarda handoffs en `.navori/state/handoffs/` y estado de hooks en
-`.navori/state/hooks/`, ambos locales al checkout y no versionables. Durante **una versión**,
-los handoffs existentes en `.claude/progress/` y `.codex/progress/` siguen siendo legibles; una
-continuación explícita con `--dir` conserva esa ubicación. Al terminar la ventana, navori no hará
-limpieza automática: sin copiar, mover ni borrar estado antiguo o nuevo. Para rollback, usa la versión
-anterior del CLI y selecciona explícitamente el directorio con `--dir` cuando sea necesario.
+The runtime stores handoffs in `.navori/state/handoffs/` and hook status in `.navori/state/hooks/`. Both are local to a checkout and must not be versioned. During **one release**, existing handoffs in `.claude/progress/` and `.codex/progress/` remain readable; an explicit continuation with `--dir` keeps using that location. When that window ends, Navori will not clean anything up automatically: it will not copy, move, or delete old or new state. To roll back, use the previous CLI version and explicitly select the directory with `--dir` when needed.
 
-Los stamps anteriores en `<git-common-dir>/navori/` también quedan intactos. Cada checkout inicia
-un baseline de detector propio, así que una notificación puede **rearmarse** una vez después de la
-actualización. Esto no es una limpieza ni una migración de esos stamps. El directorio versionado
-`progress/` —incluidos `progress/current.md` y `progress/history.md`— y los presets en
-`.navori/presets/` conservan su semántica y pueden versionarse; no forman parte del estado efímero.
+The previous stamps in `<git-common-dir>/navori/` also remain intact. Each checkout starts with its own detector baseline, so a notification may **re-arm once** after the update. This is not cleanup or migration of those stamps. The versioned `progress/` directory—including `progress/current.md` and `progress/history.md`—and presets under `.navori/presets/` retain their semantics and may be versioned; they are not ephemeral state.
 
-La validación de rutas protege contra traversal y symlinks observables, bajo el supuesto de un
-**escritor local confiable**. No es una contención race-proof: **cambios concurrentes** maliciosos
-en directorios del checkout pueden redirigir lecturas o escrituras **fuera del checkout** entre
-validación y uso. Las comprobaciones estáticas reducen la ventana, pero **no garantizan** evitar
-esa **carrera**. El CLI no limpia ni repara esos paths.
+Path validation protects against observable traversal and symlinks under the assumption of a **trusted local writer**. It does not provide race-proof containment: malicious **concurrent changes** to checkout directories can redirect reads or writes **outside the checkout** between validation and use. Static checks reduce the window but **cannot guarantee** that the **race** is avoided. The CLI does not clean up or repair those paths.
 
 ---
 
-## 1. user-section — el default, y casi siempre la mejor jugada
+## 1. user section — the default, and almost always the best choice
 
-Cada skill que navori renderiza trae un sentinel `<!-- navori:user-section -->`. Todo lo que
-escribas debajo es tuyo: `render` y `sync` lo respetan íntegro, y sobrevive a cualquier bump del
-CLI. Las plantillas ya te sugieren qué poner —mira el final de
-`.claude/skills/review-diff/SKILL.md`.
+Every skill Navori renders includes a `<!-- navori:user-section -->` sentinel. Everything you write below it is yours: `render` and `sync` preserve it in full, and it survives every CLI upgrade. The templates already suggest what to add; see the end of `.claude/skills/review-diff/SKILL.md`.
 
-Lo que ganas: **cero archivos nuevos, cero config, cero revisión**, y la regla queda dentro de la
-skill que el agente ya carga para ese tema. Es la forma más rápida que existe de convertir
-conocimiento tuyo en comportamiento del agente.
+What you get: **no new files, no configuration, and no extra review**. The rule stays in the skill the agent already loads for that topic. This is the fastest way to turn your knowledge into agent behavior.
 
-`navori doctor` te señala las user-sections que siguen con la plantilla: son oportunidades
-abiertas —skills genéricas corriendo en un repo que tiene reglas propias listas para declarar.
+`navori doctor` points out user sections that still contain the template: they are open opportunities to add repository-specific rules to generic skills.
 
-## 2. Skill project-local
+## 2. Project-local skill
 
-Cuando el tema merece su propio archivo, este escalón es tuyo por completo.
+When a topic deserves its own file, this option is entirely yours.
 
-1. Crea `.claude/skills/<id>/SKILL.md`. La **forma directorio** es la que el host descubre, así
-   que con esa estructura tu skill queda cargable desde el primer momento
-   (`packages/cli/src/lib/assets/skill-meta.ts`, `resolveLocalSkillPath`).
-2. Escribe el frontmatter con una `description` que declare **cuándo** usarla. Ese trigger es lo
-   que hace que el host la cargue sola en el momento justo. El contrato completo —campos, tipos,
-   caps— está en [`recipes/skill-authoring.md`](recipes/skill-authoring.md).
-3. Declara el id en `project.localSkills` de `navori.config.json`. Con eso `doctor` lo vigila (avisa si falta
-   `<id>/SKILL.md`) y los engines de prosa lo listan en su índice de skills etiquetada `project-local`; en Claude
-   el host lo descubre solo por su `description` (`CLAUDE.md` ya no lleva índice de skills, #1273).
+1. Create `.claude/skills/<id>/SKILL.md`. The **directory form** is what the host discovers, so the skill is loadable as soon as it has that structure (`packages/cli/src/lib/assets/skill-meta.ts`, `resolveLocalSkillPath`).
+2. Write frontmatter with a `description` that says **when** to use the skill. That trigger lets the host load it automatically at the right time. The full contract—fields, types, and limits—is in [`recipes/skill-authoring.md`](./recipes/skill-authoring.md).
+3. Declare the id in `project.localSkills` in `navori.config.json`. Then `doctor` checks that it exists (and warns if `<id>/SKILL.md` is missing), while prose engines list it in their skill index as `project-local`. In Claude, the host discovers it through its `description` alone (`CLAUDE.md` no longer has a skill index, #1273).
 
-**navori nunca escribe dentro de ese archivo.** No lleva bloque managed ni user-section: es tuyo
-entero, y ningún render futuro lo va a tocar. Lo que navori aporta es indexarlo y cuidarlo:
+**Navori never writes inside this file.** It has no managed block or user section: the whole file is yours, and future renders will not touch it. Navori indexes the skill and checks it for you:
 
-| `doctor` te avisa | Para que puedas |
+| `doctor` warning | What you can do |
 |---|---|
-| `missingLocalSkills` | conectar el id declarado con su archivo, y recuperar la skill en el índice |
-| `triggerlessSkills` | darle a una skill ya escrita la línea que le falta para activarse sola |
+| `missingLocalSkills` | Connect the declared id to your file so the skill appears in the index. |
+| `triggerlessSkills` | Add the trigger that lets an existing skill activate itself. |
 
-Ese segundo aviso es el de mayor retorno del set: una skill con buen contenido y sin trigger ya
-hizo el trabajo difícil. Añadir un *"Usar cuando…"* la pone a funcionar.
+The second warning has the greatest payoff: writing good skill content is the hard part, but without a trigger the skill cannot do its job. Add a *“Use when…”* description to activate it.
 
-## 3. Preset local
+## 3. Local preset
 
-`navori preset init <id>` te deja `.navori/presets/<id>/` andando (manifest + `managed/stack.md` +
-`skills/`) y cableado al config. La resolución es **local → bundled**, así que un preset local con
-el id de uno oficial gana: es la vía limpia para adaptar un preset incluido a como trabaja tu
-equipo, sin tocar el paquete.
+`navori preset init <id>` creates `.navori/presets/<id>/` with a manifest, `managed/stack.md`, and `skills/`, and wires it into the configuration. Resolution is **local → bundled**, so a local preset with the id of an official preset takes precedence. This is the clean way to adapt a bundled preset to your team's environment without changing the package.
 
-El JSON del preset puede declarar `libraries: [<id de lib-skill>]`: las lib-skills que siempre implica, unidas con `project.libraries` al renderizar. Los ids que el registro del CLI no conoce se descartan con una advertencia, y el `id` del manifest debe coincidir con el nombre del archivo o el preset no carga.
+The preset JSON can declare `libraries: [<lib-skill id>]`: these are the library skills it always includes, combined with `project.libraries` during rendering. Ids unknown to the CLI registry are discarded with a warning. The manifest `id` must match the filename or the preset will not load.
 
-Si solo quieres sumar lib-skills a *este* repo, sin preset, declara `project.extraLibraries: [<id de lib-skill>]` (y `extraLibraries` dentro de un workspace para ese workspace). Son ids tuyos: `update` nunca los toca, y se unen con los detectados y los del preset al renderizar. El valor de la raíz **no** se filtra a los workspaces: cada uno declara los suyos. Un id que el registro no conoce avisa en `render` y en `doctor`. Quitar una lib detectada o de preset por esta vía no está soportado.
+If you only want to add library skills to *this* repository without creating a preset, declare `project.extraLibraries: [<lib-skill id>]` (or `extraLibraries` inside a workspace for that workspace). These are your ids: `update` never changes them, and rendering combines them with detected and preset libraries. The root value is **not** inherited by workspaces; each workspace declares its own. An unknown id produces a warning in `render` and `doctor`. Removing a detected or preset library this way is not supported.
 
-Es el escalón indicado cuando el conocimiento es del **stack** y lo vas a querer igual en el
-siguiente repo que lo use. Escríbelo una vez, cóbralo en todos.
+A local preset is the right step when the knowledge belongs to a **stack** and you want it to work the same way in your next repository. Write it once and use it in each one.
 
-## 4. Plugin — la envoltura de una herramienta externa
+## 4. Plugin — a wrapper for an external tool
 
-Aquí es donde navori conecta el harness con el mundo: un plugin envuelve un binario o un servidor
-MCP y lo deja instalado, permisado, enganchado y documentado de una sola pieza. Los que
-existen —`engram`, `acli`, `gh`, `tgrep`, `codegraph`— comparten esa forma: todos declaran
-`externalTool.checkBinary`. Ése es el patrón a seguir, y es lo que hace que
-`navori add <plugin>` pueda ofrecerte la instalación y que `doctor` sepa verificarla.
+This is how Navori connects the harness to the outside world: a plugin wraps a binary or MCP server and keeps its installation, permissions, hooks, and documentation together. Existing plugins—`engram`, `acli`, `gh`, `tgrep`, and `codegraph`—share this shape: each declares `externalTool.checkBinary`. Follow that pattern; it lets `navori add <plugin>` offer installation and lets `doctor` verify the tool.
 
-> **`codegraph` y `tgrep` son el sexto y el séptimo.** Se retiraron el 2026-09-15 y #838 los
-> reintrodujo el 2026-09-16 con una integración nueva (routing de *Code discovery* entre
-> discovery estructural y textual). La anatomía del diseño anterior —binario externo, servidor
-> MCP, guard, hook de sesión y cinco inyecciones de doctrina— sigue documentada pieza por pieza
-> en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
+> **`codegraph` and `tgrep` are the sixth and seventh plugins.** They were retired on 2026-09-15 and reintroduced by #838 on 2026-09-16 with a new integration: *Code discovery* routing between structural and textual discovery. The earlier design's anatomy—external binary, MCP server, guard, session hook, and five doctrine injections—remains documented piece by piece in [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
-Si lo que traes no tiene herramienta que instalar, tienes buenas noticias: es una skill o un bloque
-managed, y esos escalones son bastante más rápidos de aterrizar.
+If what you want to add has no tool to install, that is good news: it is probably a skill or a managed block, and those options are much quicker to ship.
 
-Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
+A `plugin.json` offers up to six pieces. Include only the ones you need:
 
-| Pieza | Qué te da |
+| Piece | What it provides |
 |---|---|
-| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando. Opcional: `capabilityProbe` (`{args, mustContain, minVersion}`) declara que el binario debe soportar una flag que `--version` no reporta con fiabilidad (p. ej. una herramienta cuyo `--version` imprime un minor distinto al del paquete); `doctor`/`init` corren `args` y avisan si `mustContain` no aparece en la salida. A diferencia de `pinnedVersion` (exige igualdad exacta contra `--version`), `minVersion` es solo informativo — aparece en el mensaje pero nunca se compara contra la versión instalada. Opcional: `versionAdvisory` (`[{below, reason: {es, en}, ref?}]`) es un piso curado de versiones con problema conocido: si la instalada es `< below` (exclusivo; `below` es la primera versión corregida, `x.y.z` exacto), `doctor` avisa, sin red. Es solo informativo: nunca afecta el veredicto de salud ni `--strict`. Las tres son distintas: `pinnedVersion` exige igualdad exacta (avisa tanto por más nueva como por más vieja), `capabilityProbe.minVersion` solo se muestra y `versionAdvisory.below` es el piso de versiones con problema conocido. Convención: agrega una entrada solo con un `ref` upstream (issue/release); `reason` exige `es` y `en`; si actualizar no basta para limpiar el estado, pon el remedio en `reason` (engram: volver a correr `engram setup codex`). Se reportan todas las entradas que coincidan; un prerelease de la versión corregida cuenta como corregido. Opcional: `latestRelease` (`{source, id, notify?}`) opt-in al aviso "hay versión más nueva en el release upstream" (#1244). Incompatible con `pinnedVersion` — si ambos están presentes, el load falla. La consulta ocurre en un worker detached, una vez por día por herramienta, contra `api.github.com/repos/<id>/releases/latest` (si `source: github`) o `registry.npmjs.org/<id>/latest` (si `source: npm`), sin token; solo se guardan versiones estables en formato `x.y.z` (v prefijo permitido, cualquier otra cosa se marca como "unparseable" en `doctor` y nunca notifica). El aviso aparece en la sesión de arranque si cabe en el presupuesto, o como un puntero a `navori doctor` si no. `notify` es el nivel mínimo de cambio que dispara el aviso: `major` (default `minor`), `minor` o `patch`. Host tools (Claude Code, Codex, pi) no se vigilan porque auto-notifican. Cuando agregues el campo, bumpeá la versión del manifest (`version` en `plugin.json`) |
-| `managed[]` | bloque(s) inyectados en `CLAUDE.md` |
-| `settingsFragment` | los permisos que tu herramienta necesita, ya puestos |
-| `scripts[]` | archivos copiados a `.claude/scripts/` |
-| `hooks[]` | hooks registrados por evento (`SessionStart`, `PreToolUse`, …) |
-| `skills[]` | assets propios **o** extensiones vía `injectInto` |
+| `externalTool` | A binary to check, a platform-specific install command (`darwin`, `linux`, or `win32`; any other platform key makes the plugin fail to load), and `installDocs`, the official installation URL for a platform without a command. Optional `capabilityProbe` (`{args, mustContain, minVersion}`) declares a capability flag that the binary must support when `--version` does not report it reliably—for example, when `--version` prints a minor version that differs from the package's. `doctor` and `init` run `args` and warn if the output does not contain `mustContain`. Unlike `pinnedVersion`, which requires an exact match with `--version`, `minVersion` is informational: it appears in the message but is never compared with the installed version. Optional `versionAdvisory` (`[{below, reason: {es, en}, ref?}]`) lists curated versions with a known problem. If the installed version is below `below` (exclusive; `below` is the first fixed version and must be exact `x.y.z`), `doctor` warns without using the network. This is informational only: it never affects the health verdict or `--strict`. The three version fields serve different purposes: `pinnedVersion` requires exact equality and warns for both older and newer versions; `capabilityProbe.minVersion` is displayed only; and `versionAdvisory.below` is the floor for versions known to have a problem. Convention: add an entry only when it has an upstream `ref` (issue or release); `reason` must include both `es` and `en`. If upgrading alone does not clear the condition, put the remedy in `reason` (for engram, run `engram setup codex` again). Every matching entry is reported; a prerelease of the fixed version counts as fixed. Optional `latestRelease` (`{source, id, notify?}`) opts into the notice that a newer upstream release is available (#1244). It cannot be combined with `pinnedVersion`; if both are present, loading fails. The query runs in a detached worker once per day per tool, without a token, against `api.github.com/repos/<id>/releases/latest` when `source` is `github`, or `registry.npmjs.org/<id>/latest` when `source` is `npm`. Only stable versions in `x.y.z` form are saved (`v` prefixes are accepted; anything else is marked “unparseable” in `doctor` and is never reported). The notice appears at session start if it fits the context budget; otherwise the session points to `navori doctor`. `notify` is the minimum change level that triggers a notice: `major`, `minor`, or `patch` (default: `minor`). Host tools (Claude Code, Codex, and Pi) are not monitored because they notify users themselves. When adding this field, bump the manifest's `version` in `plugin.json`. |
+| `managed[]` | Blocks injected into `CLAUDE.md`. |
+| `settingsFragment` | The permissions your tool needs, already configured. |
+| `scripts[]` | Files copied to `.claude/scripts/`. |
+| `hooks[]` | Hooks registered for events such as `SessionStart` and `PreToolUse`. |
+| `skills[]` | Plugin-owned assets **or** extensions to existing assets through `injectInto`. |
 
-**`injectInto` es la pieza más elegante del formato.** Si tu plugin tiene doctrina para un agente
-que ya existe, la inyecta dentro de ese archivo: el agente aprende tu herramienta sin que nadie
-tenga que mantener una copia paralela. `engram` llega a cuatro destinos (`orchestrator`,
-`implementer`, `reviewer`, `auditor`) sin aportar un solo asset nuevo —
-cuatro agentes mejores por el precio de dos archivos de extensión.
+**`injectInto` is the most elegant part of the format.** If a plugin has doctrine for an agent that already exists, inject it into that agent's file. The agent learns about the tool without anyone maintaining a parallel copy. `engram` reaches four destinations (`orchestrator`, `implementer`, `reviewer`, and `auditor`) without adding a single new asset—four stronger agents for the cost of two extension files.
 
-Vale la pena medirlo: el archivo **compuesto** es lo que la sesión carga, y tiene su propio techo
-(`maxWordsComposed`). Inyectar sale mucho más barato que duplicar, y ese techo está para que siga
-siéndolo.
+Measure the result: the **composed** file is what the session loads, and it has its own ceiling (`maxWordsComposed`). Injection costs much less than duplication; that ceiling helps keep it that way.
 
-## 5. Core — lo que le sirve a todo el mundo
+## 5. Core — what works for everyone
 
-El listón es alto y por buena razón: lo que entra aquí se le renderiza a cada repo que instaló
-navori. Un buen candidato es **cierto en cualquier repo, cualquier stack y cualquier engine**. Si
-la frase necesita un *"si usas X"*, tienes un preset excelente; si necesita un *"en nuestro
-equipo"*, tienes una user-section perfecta. Las tres son contribuciones reales — sólo viven en
-capas distintas.
+The bar is high for good reason: core content is rendered into every repository where Navori is installed. A good candidate is **true for every repository, stack, and engine**. If a sentence needs “if you use X,” it belongs in a preset. If it needs “on our team,” it belongs in a user section. All three are useful contributions; they belong at different layers.
 
-Cuando sí es universal, el camino está abierto: relee los invariantes y las no-metas de
-`DIRECTION.md`, y si tu idea toca alguno, ábrela como spec en `specs/`. Una spec es precisamente
-el lugar donde una idea grande consigue que la discutan en serio.
+If the idea really is universal, the path is open: reread the invariants and non-goals in `DIRECTION.md`. If the idea touches one of them, propose it in a spec under `specs/`. A spec is where a substantial idea gets a serious discussion.
 
 ---
 
-## Las cuatro preguntas que hacen fuerte a una propuesta
+## Four questions that make a proposal stronger
 
-Respóndelas antes de escribir y tu cambio entra con muy poca fricción. Son las mismas cuatro que
-usa quien revisa.
+Answer these before writing. Doing so makes the change easier to review. They are the same four questions reviewers ask.
 
-### 1. ¿Dónde vive hoy este tema?
+## 1. Where does this topic live today?
 
-Abre el listado de skills que el host muestra en tu sesión (`CLAUDE.md` ya no lleva un bloque "Skills disponibles", #1273): ahí están los triggers de las skills core,
-las de workflow, las de librería auto-detectadas y las del preset. Es el mejor minuto que vas a
-invertir, porque muy seguido descubres que el tema ya tiene casa — y entonces tu aporte va a la
-**user-section de esa skill** o a un `injectInto`, que es más rápido de escribir y llega con la
-autoridad ya establecida.
+Open the list of skills the host shows in your session (`CLAUDE.md` no longer has an “Available skills” block, #1273). It includes core skills, workflow skills, auto-detected library skills, and preset skills. Spending a minute on this list often reveals that the topic already has a home. Then your contribution can go in that skill's **user section** or through `injectInto`—faster to write and backed by the authority the skill already has.
 
-Concentrar el conocimiento de un tema en un solo lugar es lo que hace que el agente responda igual
-siempre. Cada vez que sumas a lo que ya existe, en vez de al lado, esa consistencia se refuerza.
+Keeping a topic's knowledge in one place helps the agent respond consistently. Adding to an existing home, instead of creating a neighboring copy, reinforces that consistency.
 
-### 2. ¿Cómo conversa con la dirección del proyecto?
+## 2. How does it fit the project's direction?
 
-`DIRECTION.md` declara diez invariantes y una lista de no-metas — el acuerdo que mantiene a navori
-coherente entre versiones y entre repos. Alinearse con ellos es el atajo: una propuesta que se
-apoya en un invariante se revisa en minutos.
+`DIRECTION.md` declares ten invariants and a list of non-goals—the agreement that keeps Navori consistent across versions and repositories. Align with them and the proposal is quick to review.
 
-Y si tu idea sí necesita mover uno, eso también tiene vía: se abre una spec. El proyecto cambia de
-rumbo por specs, y esa puerta está abierta para quien traiga el argumento.
+If your idea needs to change one of them, there is a path for that too: propose a spec. Specs are how the project changes direction, and anyone with a case to make can open that discussion.
 
-### 3. ¿Qué presupuesto ocupa, y qué devuelve?
+## 3. What does it cost, and what does it contribute?
 
-Aquí hay números concretos, y saberlos te deja escribir con puntería:
+The limits are concrete. Knowing them helps you write with focus:
 
-- El contexto de arranque tiene **8000 bytes** (`NAVORI_CTX_BUDGET`, en
-  `packages/core/core-assets/hooks/session-start-context.sh`). Lo que entra ahí lo lee el agente en
-  cada sesión: es el espacio más valioso del harness. Lo que no cabe se degrada a un puntero
-  *"léelo con `Read`"*, que sigue sirviendo, pero rinde menos.
-- Cada skill tiene su cap de palabras por tipo, y `maxWords` te deja subirlo cuando la longitud
-  está justificada — el override es explícito para que la razón quede escrita junto al número.
-- Un bloque managed de `CLAUDE.md` se cobra en cada sesión de cada repo que lo tenga.
+- Startup context has a budget of **8000 bytes** (`NAVORI_CTX_BUDGET`, in `packages/core/core-assets/hooks/session-start-context.sh`). The agent reads everything in it every session, making it the harness's most valuable space. Content that does not fit becomes a *“read this with `Read`”* pointer. That still helps, but delivers less value.
+- Each skill type has a word limit. `maxWords` lets you raise it when the length is justified; the override is explicit so the reason sits next to the number.
+- A managed block in `CLAUDE.md` costs tokens in every session of every repository that contains it.
 
-La pregunta que afina cualquier texto: *¿esto rinde más que lo que ocupa?* Un párrafo preciso suele
-ganarle a una página, y el harness entero se beneficia.
+Use this question to sharpen any text: *Does it deliver more value than the space it takes?* A precise paragraph often beats a page, and the whole harness benefits.
 
-### 4. ¿Es una implementación o una decisión?
+## 4. Is this an implementation or a decision?
 
-Las dos son bienvenidas, y llegan mejor por separado. Si tu cambio mueve **cómo se decide** algo
-—qué se delega, qué se renderiza always-on, qué escribe navori en el repo del usuario, qué permisos
-trae el harness—, esa parte luce mucho más en una spec, donde se discute por su propio mérito. La
-implementación después entra sola, porque la decisión ya está acordada.
+Both are welcome, and they work better as separate contributions. If your change affects **how a decision is made**—what gets delegated, what is rendered always-on, what Navori writes into a user's repository, or what permissions the harness has—put that part in a spec, where it can be discussed on its own merits. Once the decision is settled, the implementation can follow cleanly.
 
 ---
 
-## Checklist antes de mandar
+## Checklist before you submit
 
-Para (a), extender tu repo:
+For (a), extending your repository:
 
-- [ ] Revisé el listado de skills de mi sesión y ya sé si el tema tiene casa o estrena una.
-- [ ] Está en el escalón más barato que le sirve (user-section antes que skill; skill antes que preset).
-- [ ] La `description` dice **cuándo** usarlo, no sólo qué hace.
-- [ ] `.claude/skills/<id>/SKILL.md` en forma directorio, y el id declarado en `project.localSkills`.
-- [ ] `navori doctor` en verde.
+- [ ] I checked the skills shown in my session and know whether the topic already has a home.
+- [ ] I chose the least expensive option that works (user section before skill; skill before preset).
+- [ ] The `description` says **when** to use the skill, not only what it does.
+- [ ] `.claude/skills/<id>/SKILL.md` uses the directory form, and its id is declared in `project.localSkills`.
+- [ ] `navori doctor` passes.
 
-Para (b), contribuir a navori — lo anterior más:
+For (b), contributing to Navori—everything above, plus:
 
-- [ ] Leí `DIRECTION.md` y sé con qué invariante se alinea mi cambio (o qué spec lo propone).
-- [ ] Si extiende un asset existente, usa `injectInto` y suma a lo que ya hay.
-- [ ] Respeta el cap de su tipo, o declara `maxWords` con la razón escrita al lado.
-- [ ] El quality gate (`pnpm check`) queda verde, y el re-render del espejo va en el mismo PR —
-      los disparadores exactos están en [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+- [ ] I read `DIRECTION.md` and know which invariant the change supports (or which spec proposes it).
+- [ ] If I am extending an existing asset, I use `injectInto` and build on what is already there.
+- [ ] I respect the word limit for the asset type, or declare `maxWords` with the reason beside it.
+- [ ] The quality gate (`pnpm check`) passes, and the mirror re-render is in the same PR. Exact triggers are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
-## Si te toca revisar una propuesta
+## If you are reviewing a proposal
 
-Cuatro preguntas, en orden, y en tono de conversación: casi siempre hay una versión de la idea que
-sí entra, y encontrarla es el trabajo.
+Ask four questions, in order and conversationally. There is usually a version of the idea that fits; finding it is part of the review.
 
-1. **¿Cuál es su capa natural?** (tabla de arriba)
-2. **¿El tema ya tiene casa?** Si la tiene → user-section o `injectInto`, y llega más rápido.
-3. **¿Con qué parte de la dirección se alinea?** Si propone moverla → una spec le hace justicia.
-4. **¿Qué ocupa y qué devuelve?** Si entra al always-on, vale decir qué gana el lector a cambio.
+1. **What is its natural layer?** (Use the table above.)
+2. **Does this topic already have a home?** If it does, use a user section or `injectInto` to get there faster.
+3. **How does it fit the project's direction?** If it proposes a change, give it a fair discussion in a spec.
+4. **What does it cost, and what does it return?** If it enters always-on context, say what the reader gains in exchange.
 
-## Referencias
+## References
 
-- [`DIRECTION.md`](DIRECTION.md) — objetivo, metas, no-metas e invariantes.
-- [`recipes/skill-authoring.md`](recipes/skill-authoring.md) — el contrato de un `SKILL.md`:
-  frontmatter, tipos, caps y triggers.
-- [`architecture.md`](architecture.md) — cómo funciona el render, las 5 capas y los bloques managed.
-- [`../packages/cli/src/engines/README.md`](../packages/cli/src/engines/README.md) — el sexto
-  destino, y el más ambicioso: **agregar un engine**. Trae el contrato `EngineAdapter` y el
-  checklist de spike, pensado justo para que un proveedor nuevo cueste una tabla declarativa.
-- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — quality gate, re-render del espejo, commits y PRs.
+- [`DIRECTION.md`](./DIRECTION.md) — purpose, goals, non-goals, and invariants.
+- [`recipes/skill-authoring.md`](./recipes/skill-authoring.md) — the `SKILL.md` contract: frontmatter, types, limits, and triggers.
+- [`architecture.md`](./architecture.md) — how rendering works, the five layers, and managed blocks.
+- [`../packages/cli/src/engines/README.md`](../packages/cli/src/engines/README.md) — the sixth, most ambitious destination: **adding an engine**. It explains the `EngineAdapter` contract and spike checklist, designed to make a new provider cost one declarative table.
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — quality gate, mirror re-render, commits, and pull requests.

@@ -1,11 +1,13 @@
 # Sesión actual
 
-PR1350 contra dev, rama local fix/1350-integrate-dev. Merge usuario9cfe91fc integra dev6c6a17ef. Source final:10paths vs dev; conserva cap/T30/controles dev. Shebang sólo index.js con prueba aprobada por usuario; build1599.168KiB, límite1600 intacto.
+PR1356 dev→main, rama local fix/1356-integrate-main. HEADdev2b98dab5; MERGE_HEADmain38303971. Resolución final sin conflictos de índice; sin commit/push nuevos todavía. Historias main/dev preservadas.
 
 ## Estado
 
-A1:60/60, A2:209/209, A5:2/2; CLI surface2/2, ejecutable0.12.1; fast9/0. Full independiente exit0,9826pass/2skip/465files/740s, log full-20261019T154723986Z.log. Reviewer sella aprobación/receipt dev.
+Plan pr1356-main-integration nivel2/9, manifest394rutas (carry y resolución). Usuario autorizó compatibilidad de tests/validadores autónoma, preservando aserciones/IDs/guards/presupuestos y sin funcionalidad nueva. Fuente/prosa final atestadas por implementer+scribe contra main, mismoHEAD, JSON inmutable. Runtime crítico/hook/golden iguales a dev. No source edits después de aceptaciones.
+
+A1 final464/464 en11archivos, A3 57/57 en6, A4 build133páginas y checker99HTML/alternativas+3índices verdes. Estado15casos, golden5, render90unchanged; fastverde fast-20261019T165920585Z.log. Seis overrides45s ausentes; registry i18n usa cli.ts; Covers:R2 restaurado.
 
 ## Siguiente paso
 
-Verificar receipt fresco dev y handoff publisher; commit de corrección/progress y push normal HEAD:fix/spec-completed-budget, actualizar descripción PR1350 y comprobar CI del HEAD remoto. No merge automático. Worktree original intacto, no cambiar a dev ocupado en otro checkout. PR1351/1352 ya mergeados.
+Usuario ejecuta mergecommit concreto para que main sea ancestro de HEAD; no reset de ownership/JSON por mero cambio de HEAD sin bytes. Después freshreviewer contra main/full propio/receipt fresco; publisher push normal HEAD:dev, actualizarPR1356 y comprobarCI del nuevoSHA. SourceCLI siempre (global puede rechazar evidencia soportada). No mergePR/deploy/npm ni cambio prTarget. No aparcar dev ocupado en otro checkout.

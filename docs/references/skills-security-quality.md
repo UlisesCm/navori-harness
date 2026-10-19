@@ -1,3 +1,7 @@
+> [English](skills-security-quality.md) | [Español](skills-security-quality.es.md) | [简体中文](skills-security-quality.zh-CN.md)
+
+> [English](skills-security-quality.md) | [Español](skills-security-quality.es.md) | [简体中文](skills-security-quality.zh-CN.md)
+
 # Skills security and quality references
 
 Last reviewed: 2026-10-12. This is a provenance record, not a copy of a

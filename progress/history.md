@@ -1,5 +1,14 @@
 # History
 
+## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
+
+Cambios:
+- Documentación principal en inglés, con 42ediciones completas en inglés, español y chino simplificado; web en `/`, `/es/` y `/zh-cn/`, navegación recíproca y 34 aliases estáticos compatibles.
+- SEO localizado, 99 páginas HTML y 99 alternativas Markdown, 3 índices llms.txt, tarjetas sociales y enlaces canónicos conscientes de la base.
+- Compatibilidad nativa exacta con Codex 0.162.1/0.163.0; aserciones inglesas equivalentes, presupuestos locales de integración y observación temprana del PID del fixture, conservando identidad, independencia y deadlines del runtime.
+Quality gate: FULL exit 0, 438 archivos, 9,177 pruebas aprobadas, 2 omitidas y 0 fallos; pisos de cobertura de 154 módulos. Log `.navori/state/gate/full-20261018T033845303Z.log`. Revisión APPROVED sellada y receipt FULL contra `main` verificado `status:ok`, `fresh:true`, sin uncovered/drift. A1: 232 aprobadas; A6: 5 aprobadas y 126 filtradas; builds raíz/base, enlaces, budgets y navegador validados. Sin merge, despliegue ni publicación npm.
+
+
 ## 2026-10-16 17:00 codex — Prepara checkpoint parcial de perfiles efectivos T11
 
 El usuario autorizó el PR parcial de0050 E4/M7 a main y la activación del lector nativo exacto0.162.1/0.163.0 en dos archivos del checkout original. Se preservaron0054 y los hashes de tres archivos ajenos; render Node actualizó sólo role-guard,90archivos sin cambios y Pi sin escrituras. Fast original exit0 (`fast-20261016T223707004Z.log`). El diff del checkpoint añade observación y owner acotado de perfiles, herencia de architect, procedencia nativa compatible y el inventario de dos borrados privados con sus restricciones de propiedad.
@@ -410,3 +419,13 @@ Integra dev en PR1350 por decisión del usuario, conservando la excepción de sp
 Full inicial falló en tamaño1600.6KiB>1600. Causa medida: baseline1599.911KiB con91bytes libres, feature+721bytes. Usuario autorizó dos archivos para emitir shebang sólo en index.js; los78chunks importados no lo necesitan. Build final1599.168KiB (852bytes margen), límite intacto; regresión lazy-load2/2, CLI surface2/2 y entrada ejecutable0.12.1 verdes; fast9/0.
 
 Full independiente final exit0:9826aprobadas,2omitidas,465archivos,740s; cobertura87.6/85.94/90.21/80.53%,floor159/0. Evidencia `.navori/state/gate/full-20261019T154723986Z.log`. Publicación dirigida al PR existente1350 contra dev, push normal sin reescribir historia; CI del nuevo HEAD se comprueba tras el push.
+
+## 2026-10-19 11:04 codex — Prepara integración revisable de PR1356
+
+Prepara la integración normal de main38303971 en dev2b98dab5 para PR1356. Preserva documentación pública inglesa y ediciones de main, incorpora ciclo local en EN/ES/zh, conserva las restricciones foreign/cache y doctrina de worktrees, y combina controles complementarios de versiones/ownership/PID sin cambios al runtime crítico. Historias de ambas ramas preservadas.
+
+Resuelve seis overrides de45s antiguos; prueba de migración confirma cinco archivos intactos y ausencia de copias cruzadas, sustituyendo una aserción frágil de prosa sin debilitar guard. Dos lectores i18n ahora usan cli.ts, dueño real del registro tras lazy load; conserva Covers:R2 perdido en traducción. Usuario autorizó ajustes equivalentes de compatibilidad de tests/validadores sin consulta por archivo, manteniendo aserciones, IDs, guards y presupuestos.
+
+Verificación final: A1 464/464 en11archivos (120.8s); A3 57/57 en6archivos; A4 build133páginas,99HTML y alternativasMarkdown,3índices válidos. Reparación de estado15casos; golden5/5; render90unchanged; preservación10tests cambiados/0borrados. Fast nativo fresco verde fast-20261019T165920585Z.log. Productor y scribe atestados genuinamente contra main en mismoHEAD; JSON canónico inmutable tras scribe.
+
+Pendiente: usuario crea el mergecommit concreto para integrar main en HEAD; reglas locales impiden commit de código por agente antes de revisión y reviewer exige ancestry antes de revisar. Después, reviewer independiente ejecuta su único full y sella receipt main; publisher hace push normal HEAD:dev y verifica CI del nuevoSHA. Sin mergePR, deploy ni npm.

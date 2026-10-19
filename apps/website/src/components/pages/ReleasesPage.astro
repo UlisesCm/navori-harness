@@ -1,0 +1,12 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Releases from "../sections/Releases.astro";
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+---
+<BaseLayout lang={lang} title={t("releases.pageTitle")} description={t("releases.pageDescription")}>
+  <Releases lang={lang} asPage />
+</BaseLayout>

@@ -33,6 +33,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEBSITE = resolve(__dirname, "..");
 const REPO_ROOT = resolve(WEBSITE, "..", "..");
 const OUT_DIR = resolve(WEBSITE, "public");
+const inventorySource = readFileSync(resolve(WEBSITE, "src/consts.ts"), "utf8");
+const inventory = Object.fromEntries(
+  [...inventorySource.matchAll(/^\s*(\w+):\s*(\d+),/gm)].map(([, key, value]) => [
+    key,
+    Number(value),
+  ]),
+);
+const cliPackage = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, "packages/cli/package.json"), "utf8"),
+);
+if (!["commands", "presets", "plugins", "engines"].every((key) => Number.isInteger(inventory[key])))
+  throw new Error("Unrecognized INVENTORY source");
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -58,7 +70,7 @@ function loadSharp() {
     return require("sharp");
   } catch {
     // Not hoisted — reach into the store directly.
-    const matches = globSync("node_modules/.pnpm/sharp@*/node_modules/sharp/package.json", {
+    const matches = globSync("node_modules/{.pnpm,.bun}/sharp@*/node_modules/sharp/package.json", {
       cwd: REPO_ROOT,
     });
     if (matches.length === 0) {
@@ -78,16 +90,16 @@ function loadSharp() {
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
- * @param {{ taglineA: string, taglineB: string, stats: string[] }} copy
+ * @param {{ taglineA: string, taglineB: string, stats: string[], eyebrow: string, render: string, done: string, example: string }} copy
  * @returns {string} the SVG source for one share image
  */
-function buildSvg({ taglineA, taglineB, stats }) {
+function buildSvg({ taglineA, taglineB, stats, eyebrow, render, done, example }) {
   const terminalLines = [
     { text: "$ navori init --recommended", fill: "#e2e8f0" },
     { text: "✓ engines: claude · codex", fill: "#7dd3fc" },
     { text: "✓ plugins: engram · codegraph", fill: "#7dd3fc" },
-    { text: "→ rendering managed assets", fill: C.violetLight },
-    { text: "✓ Done — 34 created", fill: "#6ee7b7" },
+    { text: `→ ${render}`, fill: C.violetLight },
+    { text: `✓ ${done}`, fill: "#6ee7b7" },
   ];
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
@@ -120,7 +132,7 @@ function buildSvg({ taglineA, taglineB, stats }) {
     <g transform="translate(0, 132)">
       <circle cx="9" cy="-9" r="5" fill="${C.sky}"/>
       <text x="26" y="-3" font-family="ui-monospace, monospace" font-size="18"
-            letter-spacing="3.4" fill="${C.slate}">OPEN SOURCE · 5 ENGINES</text>
+            letter-spacing="3.4" fill="${C.slate}">${esc(eyebrow)}</text>
     </g>
 
     <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
@@ -143,6 +155,7 @@ function buildSvg({ taglineA, taglineB, stats }) {
     <circle cx="26" cy="21" r="6" fill="#ef4444" fill-opacity="0.7"/>
     <circle cx="48" cy="21" r="6" fill="#f59e0b" fill-opacity="0.7"/>
     <circle cx="70" cy="21" r="6" fill="#10b981" fill-opacity="0.7"/>
+    <text x="100" y="25" font-family="sans-serif" font-size="13" fill="#94a3b8">${esc(example)}</text>
     <g font-family="ui-monospace, monospace" font-size="17">
       ${terminalLines
         .map((l, i) => `<text x="26" y="${86 + i * 34}" fill="${l.fill}">${esc(l.text)}</text>`)
@@ -171,7 +184,7 @@ function buildSvg({ taglineA, taglineB, stats }) {
     github.com/UlisesCm/navori-harness
   </text>
   <text x="${WIDTH - 76}" y="600" text-anchor="end" font-family="ui-monospace, monospace"
-        font-size="18" fill="${C.slate}">MIT · Node ≥ 20</text>
+        font-size="18" fill="${C.slate}">MIT · Node ${esc(cliPackage.engines.node)} · v${esc(cliPackage.version)}</text>
 </svg>`;
 }
 
@@ -179,18 +192,53 @@ const VARIANTS = [
   {
     file: "og.png",
     svgFile: "og.svg",
+    eyebrow: `CÓDIGO ABIERTO · ${inventory.engines} ENGINES`,
+    render: "renderizando recursos managed",
+    done: "Listo — 34 creados",
+    example: "ejemplo",
     taglineA: "El harness multi-agente",
     taglineB: "para cualquier repo.",
-    stats: ["21 comandos", "13 presets", "7 plugins", "5 engines"],
+    stats: [
+      `${inventory.commands} comandos`,
+      `${inventory.presets} presets`,
+      `${inventory.plugins} plugins`,
+      `${inventory.engines} engines`,
+    ],
   },
   {
     file: "og-en.png",
     svgFile: "og-en.svg",
+    eyebrow: `OPEN SOURCE · ${inventory.engines} ENGINES`,
+    render: "rendering managed assets",
+    done: "Done — 34 created",
+    example: "example",
     taglineA: "The multi-agent harness",
     taglineB: "for any repo.",
-    stats: ["21 commands", "13 presets", "7 plugins", "5 engines"],
+    stats: [
+      `${inventory.commands} commands`,
+      `${inventory.presets} presets`,
+      `${inventory.plugins} plugins`,
+      `${inventory.engines} engines`,
+    ],
   },
 ];
+
+VARIANTS.push({
+  file: "og-zh-CN.png",
+  svgFile: "og-zh-CN.svg",
+  eyebrow: `开源 · ${inventory.engines} 种引擎`,
+  render: "正在渲染受管理资源",
+  done: "完成 — 创建 34 个",
+  example: "示例",
+  taglineA: "多智能体 harness",
+  taglineB: "适用于任何代码仓库。",
+  stats: [
+    `${inventory.commands} 条命令`,
+    `${inventory.presets} 个预设`,
+    `${inventory.plugins} 个插件`,
+    `${inventory.engines} 种引擎`,
+  ],
+});
 
 const sharp = loadSharp();
 await mkdir(OUT_DIR, { recursive: true });
@@ -202,5 +250,5 @@ for (const v of VARIANTS) {
   await writeFile(resolve(OUT_DIR, v.svgFile), svg, "utf8");
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
   await writeFile(resolve(OUT_DIR, v.file), png);
-  console.log(`✓ public/${v.file}  ${(png.length / 1024).toFixed(1)} KB`);
+  process.stdout.write(`✓ public/${v.file}  ${(png.length / 1024).toFixed(1)} KB\n`);
 }

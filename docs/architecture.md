@@ -1,29 +1,23 @@
-# Arquitectura de navori — cómo funciona (v0.12.0)
+> [English](architecture.md) | [Español](architecture.es.md) | [简体中文](architecture.zh-CN.md)
 
-> Diagramas navegables: en GitHub, **hacé click en los nodos** para saltar al
-> archivo fuente. navori reconstruye `CLAUDE.md` + `.claude/` de forma
-> idempotente desde una única fuente de verdad (`navori.config.json`), sin
-> pisar tu trabajo manual.
+# navori architecture — how it works (v0.12.0)
 
-## 1. Modelo de capas — de dónde sale el contenido
+> Navigable diagrams: on GitHub, **click nodes** to jump to the source file. navori rebuilds
+> engine-specific resources idempotently from a single source of truth (`navori.config.json`),
+> without overwriting your manual work.
 
-Las 5 capas en cascada (decisión de diseño del proyecto): cada una compone
-sobre la anterior. `navori.config.json` es la fuente de verdad checked-in y
-materializa la **capa 4 (Project config)**: declara qué preset usar, de qué
-workspace heredar y qué **plugins** habilitar. Los plugins son addons opt-in
-*dentro* del Project config — no una capa aparte. La capa 5 (Engine adapters)
-renderiza todo; hoy solo Claude Code, aunque el core es engine-agnostic por
-diseño. (En monorepos, `monorepo.workspaces[]` aplica un override por app
-dentro de la capa Project.)
+## 1. Layer model — where content comes from
+
+The five cascading layers (a project design decision) each compose on top of the previous one. `navori.config.json` is the checked-in source of truth and materializes **layer 4 (Project config)**: it declares which preset to use, which workspace to inherit from, and which **plugins** to enable. Plugins are opt-in add-ons *within* Project config, not a separate layer. Layer 5 (Engine adapters) renders resources for the selected engine. The CLI currently includes adapters for Claude Code, Codex, Pi, AGENTS.md, Cursor, and Copilot; each adapter has its own output and supported controls, so this architecture guide does not imply feature parity. (In monorepos, `monorepo.workspaces[]` applies an override per app inside the Project layer.)
 
 ```mermaid
 flowchart TD
-    CORE["Capa 1 · Core<br/>baseline: agents, skills, managed blocks"]
-    PRESET["Capa 2 · Preset (por stack)<br/>nextjs / nestjs / medusa / astro / mantine"]
-    WS["Capa 3 · Workspace<br/>defaults compartidos por la org ('workspace init')"]
-    PROJ["Capa 4 · Project config<br/>navori.config.json del repo + plugins opt-in"]
-    ENGINE["Capa 5 · Engine adapters<br/>Claude (.claude/) hoy; multi-engine en roadmap"]
-    OUT["CLAUDE.md + .claude/ + progress/"]
+    CORE["Layer 1 · Core<br/>baseline: agents, skills, managed blocks"]
+    PRESET["Layer 2 · Preset (by stack)<br/>nextjs / nestjs / medusa / astro / mantine"]
+    WS["Layer 3 · Workspace<br/>shared org defaults ('workspace init')"]
+    PROJ["Layer 4 · Project config<br/>repo navori.config.json + opt-in plugins"]
+    ENGINE["Layer 5 · Engine adapters<br/>Claude Code · Codex · Pi · AGENTS.md · Cursor · Copilot"]
+    OUT["Resources for the selected engine"]
 
     CORE --> PRESET --> WS --> PROJ --> ENGINE --> OUT
 
@@ -31,51 +25,34 @@ flowchart TD
     click PRESET "../packages/core/core-assets/presets" "Presets"
     click WS "../packages/cli/src/lib/workspace/workspace.ts" "Workspace defaults"
     click PROJ "../packages/cli/src/lib/config/schema.ts" "Config schema (Zod)"
-    click ENGINE "../packages/cli/src/engines/claude/index.ts" "Claude engine"
+    click ENGINE "../packages/cli/src/engines" "Engine adapters"
 ```
 
-> Los **plugins** (engram / gh / acli / tgrep / codegraph / cognitive) se declaran
-> en la capa Project config y el render los aplica junto a core + preset — ver
-> el pipeline abajo. [packages/plugins/](../packages/plugins)
+> **Plugins** (engram / gh / acli / tgrep / codegraph / cognitive) are declared in Project config
+> and render applies them with core + preset — see the pipeline below. [packages/plugins/](../packages/plugins)
 
-### Harness de workspaces en monorepos (`monorepo.workspaceHarness`)
+### Monorepo workspace harness (`monorepo.workspaceHarness`)
 
-`monorepo.workspaceHarness` (`lib/config/schema.ts`) decide cuánto harness escribe
-navori en cada workspace. Es un único valor para todo el monorepo:
+`monorepo.workspaceHarness` (`lib/config/schema.ts`) decides how much harness navori writes into each workspace. It is one value for the whole monorepo:
 
-| Valor | Qué recibe el workspace |
+| Value | What the workspace receives |
 |---|---|
-| `minimal` (default) | Su archivo de contexto más las skills que la raíz no tiene ya. Una skill del workspace idéntica a la de la raíz (comparación normalizada, sin deriva de frontmatter) no se duplica. |
-| `full` | Todo, como antes de recortar. Vuelve al comportamiento previo byte a byte. |
-| `root` | Solo su archivo de contexto (`CLAUDE.md`, y `AGENTS.md` bajo Codex). La raíz escribe además las skills de librería y de preset que declaran los workspaces. |
+| `minimal` (default) | Its context file plus skills the root does not already have. A workspace skill identical to the root one (normalized comparison, without frontmatter drift) is not duplicated. |
+| `full` | Everything, as before the reduction. Restores the previous behavior byte for byte. |
+| `root` | Only its context file (`CLAUDE.md`, and `AGENTS.md` under Codex). The root also writes library and preset skills that declare workspaces. |
 
-`root` es para equipos que siempre abren la sesión en la raíz del repo. La decisión
-(`engines/shared/workspace-engine-decision.ts`) se toma una sola vez antes de escribir y
-la comparten `render`, `sync` y `doctor`, así que preview, apply y diagnóstico parten del
-mismo plan. En Claude, `sync` no borra (`prune: false`): solo `render` poda. El destino raíz de Codex en `sync` conserva la poda de huérfanos por marcador que Codex ya tenía. Lo que el recorte borra queda
-respaldado (`navori backup`).
+`root` is for teams that always start the session at the repository root. The decision (`engines/shared/workspace-engine-decision.ts`) is made once before writing and shared by `render`, `sync`, and `doctor`, so preview, apply, and diagnosis use the same plan. In Claude, `sync` does not delete (`prune: false`); only `render` prunes. The Codex root destination in `sync` keeps the orphan pruning by marker that Codex already had. Anything removed by the reduction is backed up (`navori backup`).
 
-`navori doctor` y el diagnóstico de harness obsoleto (`lib/diagnose/stale-harness.ts`)
-tratan `minimal` y `root` como harness recortado: no reportan como faltante lo que el
-modo omite y sí reportan restos generados por navori que el modo ya no escribe. Bajo
-`full`, `doctor` agrega una nota informativa: hooks, agentes, settings y `.mcp.json` del
-workspace no se usan si la sesión arranca en la raíz; no cambia el veredicto de salud.
+`navori doctor` and stale-harness diagnosis (`lib/diagnose/stale-harness.ts`) treat `minimal` and `root` as reduced harness modes: they do not report as missing what the mode omits, and they do report navori-generated leftovers that the mode no longer writes. Under `full`, `doctor` adds an informational note: workspace hooks, agents, settings, and `.mcp.json` are not used if the session starts at the root; this does not change the health verdict.
 
-Advertencias operativas al usar `root`:
+Operational warnings when using `root`:
 
-- **Actualizá navori antes de ponerlo.** Un navori anterior rechaza `"root"` y con él todo
-  el config (el enum es estricto a propósito: un fallback silencioso a `minimal` recrearía
-  skills en cada workspace). Actualizá a todo el equipo, a CI y al CLI global que usan los
-  agentes antes de editar el config.
-- **Directorios `<slug>-<id>` huérfanos en la raíz.** Si renombrás o quitás un workspace,
-  los directorios `<slug>-<id>` que la raíz escribió para él no se detectan ni se borran:
-  la poda parte del config actual y no escanea directorios. Borralos a mano.
+- **Update navori before setting it.** An older navori rejects `"root"` and therefore rejects the entire config (the enum is intentionally strict: silently falling back to `minimal` would recreate skills in every workspace). Update the whole team, CI, and the global CLI used by agents before editing the config.
+- **Orphaned `<slug>-<id>` directories at the root.** If you rename or remove a workspace, the `<slug>-<id>` directories the root wrote for it are not detected or removed: pruning uses the current config and does not scan directories. Remove them manually.
 
-## 2. Pipeline de render — `navori render [--apply]`
+## 2. Render pipeline — `navori render [--apply]`
 
-`render` es **preview por default** (no toca disco); `--apply` escribe. La
-escritura es atómica y con backup previo. `NAVORI_BENCH=1` instrumenta los
-tiempos por step.
+`render` is **preview by default** (does not touch disk); `--apply` writes. Writing is atomic and preceded by a backup. `NAVORI_BENCH=1` instruments timing by step.
 
 ```mermaid
 flowchart TD
@@ -87,8 +64,8 @@ flowchart TD
     P3["planManagedFile()<br/>agents · skills · quality-gate hook"]
     P4["plugin scripts + sub-block injects<br/>.claude/scripts/, engram→orchestrator.md"]
     GATE{"--apply?"}
-    PREVIEW["PREVIEW<br/>muestra el plan, no escribe"]
-    WRITE["backup → writeFileAtomic (fsync)<br/>por output pendiente"]
+    PREVIEW["PREVIEW<br/>shows the plan, does not write"]
+    WRITE["backup → writeFileAtomic (fsync)<br/>for each pending output"]
 
     CMD --> READ --> ENG
     ENG --> P1
@@ -111,19 +88,19 @@ flowchart TD
     click WRITE "../packages/cli/src/lib/primitives/atomic.ts" "writeFileAtomic"
 ```
 
-## 3. Lifecycle de comandos — cómo lo usás
+## 3. Command lifecycle — how you use it
 
 ```mermaid
 flowchart LR
-    INIT["navori init<br/>detecta stack/preset/plugins"]
-    EDIT["editás config<br/>add / configure / scan"]
-    RENDER["navori render --apply<br/>escribe outputs"]
-    WORK["trabajás en el repo"]
-    SYNC["navori sync --interactive<br/>resuelve drift por bloque"]
-    INSPECT["doctor · status · bench<br/>inspección"]
+    INIT["navori init<br/>detects stack/preset/plugins"]
+    EDIT["edit config<br/>add / configure / scan"]
+    RENDER["navori render --apply<br/>writes outputs"]
+    WORK["work in the repo"]
+    SYNC["navori sync --interactive<br/>resolves drift by block"]
+    INSPECT["doctor · status · bench<br/>inspection"]
 
     INIT --> EDIT --> RENDER --> WORK
-    WORK -- "bundle avanza /<br/>editaste a mano = drift" --> SYNC
+    WORK -- "bundle advances /<br/>you edited manually = drift" --> SYNC
     SYNC --> WORK
     WORK -.-> INSPECT
     INSPECT -.-> EDIT
@@ -135,51 +112,25 @@ flowchart LR
     click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
 ```
 
-## 4. Plan maestro — etapas numeradas y fases
+## 4. Master plan — numbered stages and phases
 
-El plan maestro organiza el trabajo de un proyecto en etapas independientes, numeradas y con
-slug, por ejemplo `01-mvp` y `02-pagos`. Cada etapa tiene su propio registro bajo
-`specs/_master/`; el índice indica cuál está activa y las etapas cerradas quedan como registros de
-solo lectura.
+The master plan organizes project work into independent, numbered, slugged stages, for example `01-mvp` and `02-payments`. Each stage has its own record under `specs/_master/`; the index says which stage is active, and closed stages remain read-only records.
 
-El flujo progresa por fases: `context` reúne el modo y los archivos de entrada; `transcribed`
-produce el inventario del código y su digest; `mapped` genera y evalúa planes; `planned` registra
-las decisiones; `questioned` consolida el `MASTER.md` y sus partes; `mastered` espera la orden para
-empezar; y `executing` da inicio a las partes como specs. `navori master check` valida la fase
-activa y `navori master advance` solo la mueve cuando cumple sus criterios.
+The workflow moves through phases: `context` gathers the mode and input files; `transcribed` produces the code inventory and its digest; `mapped` generates and evaluates plans; `planned` records decisions; `questioned` consolidates `MASTER.md` and its parts; `mastered` waits for the command to begin; and `executing` starts the parts as specs. `navori master check` validates the active phase, and `navori master advance` moves it only when its criteria are met.
 
-Una etapa puede terminar normalmente con `navori master close` tras la ejecución. Desde `context`
-hasta `questioned`, el usuario puede optar por `close --convert` para convertir el trabajo en una
-sola spec; antes de `mastered`, `close --abandon` registra su abandono. El cierre conserva el
-registro de la etapa y actualiza el estado del plan maestro.
+A stage can end normally with `navori master close` after execution. From `context` through `questioned`, the user can choose `close --convert` to turn the work into one spec; before `mastered`, `close --abandon` records abandonment. Closing preserves the stage record and updates master-plan state.
 
-El estado mutable —etapa activa, fase, modo y estado o vínculos de cada parte— vive en JSON
-validable por esquema, para que el CLI pueda comprobar transiciones y generar el estado derivado.
-Los planes, las decisiones y el contenido del `MASTER.md` son prosa authored en Markdown: expresan
-criterio humano y se validan contra su estructura, no se parsean como fuente de estado. Los archivos
-de estado derivados, como `STATUS.md`, se renderizan.
+Mutable state — active stage, phase, mode, and each part's status or links — lives in schema-validatable JSON, so the CLI can check transitions and generate derived state. Plans, decisions, and `MASTER.md` content are prose authored in Markdown: they express human judgment and are checked against their structure, not parsed as the source of state. Derived state files such as `STATUS.md` are rendered.
 
-**Entregas de una parte.** Las entregas de cada parte se validan contra su `parts.json`, no contra el
-Markdown. `navori master delivery-*` opera sobre la fase de entregas: `delivery-baseline` registra la
-aprobación explícita de la línea base; `delivery-queue` autoriza una cola acotada de partes de una
-entrega (`--delivery E<n> --parts P<n>,…`); `delivery-slice` proyecta el slice autorizado a un workplan;
-`delivery-revoke` retira la autoridad concedida. `delivery-criterion`, `delivery-review`,
-`delivery-present`, `delivery-decision` y `delivery-publication` cubren criterios, revisión,
-presentación, decisión y publicación de cada entrega. Los pasos que autorizan o aprueban llevan
-`--approved-by`, que debe ser `user`.
+**Deliveries for a part.** Each part's deliveries are validated against its `parts.json`, not Markdown. `navori master delivery-*` operates on the delivery phase: `delivery-baseline` records explicit baseline approval; `delivery-queue` authorizes a bounded queue of parts from a delivery (`--delivery E<n> --parts P<n>,…`); `delivery-slice` projects the authorized slice into a workplan; `delivery-revoke` withdraws the granted authority. `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, and `delivery-publication` cover each delivery's criteria, review, presentation, decision, and publication. Steps that authorize or approve require `--approved-by`, which must be `user`.
 
-### 4.1 Specs en entregas — `navori spec classify` y `check`
+### 4.1 Specs in deliveries — `navori spec classify` and `check`
 
-`navori spec classify <feature>` decide si una spec sale en una PR o en una PR por entrega, comparando
-tareas y LOC estimadas contra `sdd.deliveries` (`splitMinTasks`, `splitMinLoc`, `maxPrsPerSpec`;
-defaults 12, 1500 y 4). `navori spec check` valida el `tasks.md`: milestones `M<n>`, criterios,
-cobertura de `R<n>` por tareas `T<n>` y entregas verticales `E<n>`. El gate completo corre una vez
-por PR; el gate por milestone lo decide `navori receipt gate`.
+`navori spec classify <feature>` decides whether a spec ships in one PR or one PR per delivery by comparing tasks and estimated LOC against `sdd.deliveries` (`splitMinTasks`, `splitMinLoc`, `maxPrsPerSpec`; defaults 12, 1500, and 4). `navori spec check` validates `tasks.md`: milestones `M<n>`, criteria, `R<n>` coverage by `T<n>` tasks, and vertical `E<n>` deliveries. The full gate runs once per PR; `navori receipt gate` decides the gate by milestone.
 
-## 5. El corazón: bloques managed
+## 5. The core: managed blocks
 
-Todo el modelo gira alrededor de marcadores en los archivos generados. La
-regeneración es idempotente y nunca pisa lo que está fuera de los markers.
+The whole model revolves around markers in generated files. Regeneration is idempotent and never overwrites anything outside the markers.
 
 ```text
 <!-- navori:managed id="idioma-rol" hash="a1b2c3" version="0.0.1" source="@navori/core" -->
@@ -191,199 +142,137 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 - lo que escribas acá sobrevive a todo render
 ```
 
-- **`hash`** → detecta edición manual del bloque (content drift). `sync` lo
-  respeta o lo resuelve interactivo (keep-mine / accept-new).
-- **`version`** → versión de navori que cambió por última vez el contenido del bloque (o su
-  frontmatter), no la que lo renderizó por última vez. Re-renderizar con un CLI más nuevo sobre
-  contenido igual deja el archivo byte-idéntico; los bloques sin versión sí se estampan. El hash no
-  cambia (sha1 del cuerpo). `$navori.version` en `.claude/settings.json` y `.mcp.json` sigue la
-  misma regla.
-- **`harnessVersion`** (clave opcional de primer nivel en `navori.config.json`) → última versión de
-  navori que aplicó un cambio real. Solo la escribe un `--apply` de `render`/`sync`/`adopt` que
-  escribió o borró algo; nunca baja, y se omite con un aviso si el archivo no está en el JSON
-  canónico que navori escribe.
-- **Anti-rollback (#79)** → piso por bloque = max(`version` del marker, `harnessVersion`). Un CLI
-  más viejo omite (`downgrade-skipped`) los bloques y JSON que degradaría; `render --force` solo
-  lo anula en `settings.json`/`.mcp.json`. No se rechaza el apply completo. Brecha aceptada: un
-  asset que va A→B→A solo queda protegido si el CLI nuevo aplicó algún otro cambio real.
-- **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
-  idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/render/marker.ts).
+- **`hash`** detects manual edits to the block (content drift). `sync` preserves it or resolves it interactively (keep-mine / accept-new).
+- **`version`** is the navori version that last changed the block's content (or frontmatter), not the version that last rendered it. Re-rendering unchanged content with a newer CLI leaves the file byte-identical; unversioned blocks are stamped. The hash (sha1 of the body) does not change. `$navori.version` in `.claude/settings.json` and `.mcp.json` follows the same rule.
+- **`harnessVersion`** (optional top-level key in `navori.config.json`) is the last navori version that applied a real change. It is written only by `render`/`sync`/`adopt --apply` when something was written or deleted; it never decreases, and is omitted with a warning if the file is not in the canonical JSON written by navori.
+- **Anti-rollback (#79)** — per-block floor = max(`version` marker, `harnessVersion`). An older CLI skips (`downgrade-skipped`) blocks and JSON it would downgrade; `render --force` only overrides this in `settings.json`/`.mcp.json`. The full apply is not rejected. Accepted gap: an asset that goes A→B→A is protected only if the newer CLI applied another real change.
+- **Outside the markers** — yours, untouched. That is the moat: idempotent regeneration without destroying your work. See [marker.ts](../packages/cli/src/lib/render/marker.ts).
 
-### Resolución de archivos completos en `sync`
+### Resolving complete files in `sync`
 
-Un archivo managed completo (agente, skill, hook, script de plugin, `AGENTS.md`…) editado a mano
-es resoluble solo si conserva el marcador navori de su id. El engine adjunta entonces
-`SkippedFile.resolution` (`absPath`, `basis`, `content`, `chmodExec?`), calculado únicamente tras
-`user-modified-skipped` —después del anti-rollback, así que un `downgrade-skipped` nunca la lleva—
-y solo para un destino regular que no sea symlink. No se adjunta a archivos sin marcador, skips de
-sub-bloque o settings, ni en Pi; tampoco cuando el render forzado iguala al archivo o falla. La
-presencia del campo es el único criterio de «resoluble» y ningún JSON de salida incluye el
-contenido.
+A complete managed file (agent, skill, hook, plugin script, `AGENTS.md`, etc.) edited manually can be resolved only if it retains the navori marker for its ID. The engine then attaches `SkippedFile.resolution` (`absPath`, `basis`, `content`, `chmodExec?`), calculated only after `user-modified-skipped` — after anti-rollback, so a `downgrade-skipped` never carries it — and only for a regular, non-symlink target. It is not attached to files without a marker, sub-block skips, settings, or Pi; nor when forced rendering would produce the same file or fails. The field's presence is the only criterion for “resolvable,” and no output JSON includes the content.
 
-- **`sync --interactive`** (o la opción «resolver uno por uno», ofrecida si hay conflictos de
-  bloque o de archivo resoluble) muestra el diff por archivo y pregunta keep/accept. Todas las
-  respuestas se recogen antes de escribir; cancelar no escribe nada.
-- **Escritura**: los aceptados se escriben con `commitWrites` y backup `<target>:sync` antes del
-  apply normal. Justo antes de cada escritura se re-verifica que el archivo siga siendo regular e
-  igual al `basis` mostrado (TOCTOU); si no, se descarta con aviso y los demás continúan. Si una
-  escritura falla, los anteriores quedan escritos (con sus backups impresos), los posteriores no se
-  intentan, sale con exit 1 y repetir el comando es idempotente.
-- **`--accept-new-files`** acepta todo archivo resoluble sin preguntar. Solo escribe con `--apply`
-  o `--yes` (si no, preview); combina con `--accept-new`, y se rechaza con `--keep-mine`
-  (`bulk-flags-conflict`) e `--interactive` (`bulk-flags-interactive`). `--yes` sigue saliendo con
-  1 si quedan conflictos de bloque de CLAUDE.md sin responder; `--accept-new` solo nunca toca
-  archivos completos (semántica CI intacta, #523).
-- **`sync --json`** añade `acceptNewFiles` y, por conflicto, `resolvable` (`bulk` | `none`), nunca
-  `basis` ni contenido. Reporta el estado posterior a resolver: los archivos resueltos salen de
-  `conflicts[]` y `targets[].skipped`, y entran en `written`/`backups`.
-- **`resolution`** y **`markerlessResolution`**: un archivo que conserva su marcador completo lleva
-  `resolution` (resoluble en bulk). Uno sin ningún texto `navori:managed` (scripts de plugin que
-  #1242 no adopta, assets `foreign`) lleva `markerlessResolution`: reemplazo de archivo completo,
-  solo en `--interactive`, con render fresco (`existingContent` null, #637), aviso neutral, default
-  «conservar» y backup en `~/.navori/backups` (30 días; `navori backup restore`). Los flags bulk
-  (`--accept-new-files`, `--yes`, `--json`, `--dry-run`) nunca lo leen: `resolvable` sigue en `none`
-  y la forma del JSON no cambia; sin respuesta interactiva se avisa con
-  `sync.markerlessFilesInteractiveOnly`. Un marcador parcial o una mención de `navori:managed` en un
-  comentario no lleva ninguna de las dos: salida manual, mover aparte y `navori render --apply`.
+- **`sync --interactive`** (or the “resolve one by one” option offered when there are block conflicts or resolvable files) shows each file's diff and asks keep/accept. All answers are collected before writing; cancelling writes nothing.
+- **Writing:** accepted files are written with `commitWrites` and a `<target>:sync` backup before normal apply. Immediately before each write, the file is checked again to confirm it is still regular and matches the displayed `basis` (TOCTOU); otherwise it is discarded with a warning and the others continue. If a write fails, earlier files remain written (with their backups printed), later writes are not attempted, and the command exits 1. Repeating the command is idempotent.
+- **`--accept-new-files`** accepts every resolvable file without asking. It writes only with `--apply` or `--yes` (otherwise it previews); it combines with `--accept-new` and is rejected with `--keep-mine` (`bulk-flags-conflict`) and `--interactive` (`bulk-flags-interactive`). `--yes` still exits 1 if unanswered CLAUDE.md block conflicts remain; `--accept-new` alone never touches complete files (CI semantics stay intact, #523).
+- **`sync --json`** adds `acceptNewFiles` and, per conflict, `resolvable` (`bulk` | `none`), never `basis` or content. It reports the post-resolution state: resolved files leave `conflicts[]` and `targets[].skipped`, and enter `written`/`backups`.
+- **`resolution` and `markerlessResolution`:** a file retaining its complete marker has `resolution` (bulk-resolvable). One with no `navori:managed` text (plugin scripts that #1242 does not adopt, `foreign` assets) has `markerlessResolution`: complete-file replacement available only with `--interactive`, using a fresh render (`existingContent` null, #637), a neutral warning, default “keep,” and backup under `~/.navori/backups` (30 days; `navori backup restore`). Bulk flags (`--accept-new-files`, `--yes`, `--json`, `--dry-run`) never read it: `resolvable` stays `none` and the JSON shape does not change; without an interactive answer, a `sync.markerlessFilesInteractiveOnly` warning appears. A partial marker or a mention of `navori:managed` in a comment has neither field: resolve manually, move it aside, and run `navori render --apply`.
 
-Ver [sync.ts](../packages/cli/src/commands/sync.ts) y
-[execute-plan.ts](../packages/cli/src/engines/shared/execute-plan.ts).
+See [sync.ts](../packages/cli/src/commands/sync.ts) and [execute-plan.ts](../packages/cli/src/engines/shared/execute-plan.ts).
 
-## 6. Modos de permiso de Claude Code — tabla de referencia
+## 6. Claude Code permission modes — reference table
 
-Referencia de lookup (no una orden always-on): el bloque managed
-`operaciones-seguras` solo enlaza aquí. El modo lo fija el host, no el agente.
-Doc oficial: https://code.claude.com/docs/en/permission-modes
+Lookup reference, not an always-on instruction: the managed `operaciones-seguras` block only links here. The host sets the mode, not the agent. Official docs: https://code.claude.com/docs/en/permission-modes
 
 | Mode | Runs without asking | What it changes for you |
 |---|---|---|
-| `default` | reads only | every edit and every command prompts: batch them and explain before asking |
+| `default` | reads only | every edit and command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `auditor` and an SDD spec ARE this mode's work; leave the mode to execute |
-| `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
-| `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
-| `bypassPermissions` | everything | prompts are skipped and `allow` rules stop having any effect — but `deny` rules still block, in this mode as in every other, and so does the hook (`exit 2` blocks in any mode). Isolated environments only |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `auditor`, and an SDD spec ARE this mode's work; leave the mode to execute |
+| `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits, and `allow`-covered MCP calls do not, so `cmd1 && cmd2` in one call beats two |
+| `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow`, and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan`, or `auto` |
+| `bypassPermissions` | everything | prompts are skipped and `allow` rules have no effect — but `deny` rules still block, in this and every other mode, as does the hook (`exit 2` blocks in any mode). Isolated environments only |
 
-### 6.1 Bloqueos de hooks — clasificación hard / ask / advisory
+### 6.1 Hook blocks — hard / ask / advisory classification
 
-Cada script managed con `exit 2` declara su clasificación en el header
-`# Blocking classification (#1117):` (lo exige `hook-claims-vs-scripts.test.ts`).
+Each managed script with `exit 2` declares its classification in the header `# Blocking classification (#1117):` (required by `hook-claims-vs-scripts.test.ts`).
 
-| Clase | Significa | Hooks |
+| Class | Meaning | Hooks |
 |---|---|---|
-| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard` |
-| `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente |
-| `advisory` | `PostToolUse`: el `exit 2` solo llega al modelo | `managed-drift-watch` |
+| `hard` | There is a verdict or a containment action; nothing is available to approve | `guard-destructive` (limits, `--no-verify`, force-push to base, `rm` on root/home/system, rewriting managed files, discarding a whole tree with uncommitted work: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` paths without `--staged`, `git clean -f`), `plan-gate` with a denied plan, `quality-gate-pre-commit` with invalid cwd or failing gate, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard` |
+| `ask` | No verdict is available (the tool is missing); the human decides in the UI | `plan-gate` with navori missing or without the `plan` subcommand; `quality-gate-pre-commit` with missing runner |
+| `advisory` | `PostToolUse`: `exit 2` reaches only the model | `managed-drift-watch` |
 
-Los mensajes de bloqueo son accionables: cuando existe una salida segura, la línea `route:` la nombra
-(por ejemplo, un directorio literal con `git -C <dir>` o partir el comando). Los bloqueos sin salida
-(`rm` sobre root o home, fork bomb, dispositivos de bloque) no la dan.
+Block messages are actionable: when a safe route exists, the `route:` line names it (for example, a literal directory with `git -C <dir>` or splitting the command). Blocks with no safe route (`rm` on root or home, fork bomb, block devices) do not include one.
 
-**`implementer-no-markdown` y doctrina en worktrees (#1330).** Un Write/Edit de doctrina (prefijos de la
-lista del hook) con ruta absoluta se acepta si cae en otro worktree registrado del mismo repo: sin `..`,
-sin componente symlink, listado en `git worktree list` de la sesión y con el mismo `--git-common-dir`.
-Cualquier duda (git ausente, fallo de `worktree list`) bloquea. Las formas Bash no se relajan.
+**`implementer-no-markdown` and doctrine in worktrees (#1330).** A Write/Edit of doctrine (a path
+listed by the hook) with an absolute path is allowed when it falls inside another registered
+worktree of the same repository: it must contain no `..`, no symlink component, appear in the
+session's `git worktree list`, and have the same `--git-common-dir`. Any uncertainty (git is
+unavailable or `worktree list` fails) blocks the write. Bash forms are not relaxed.
 
-Residual: todo worktree registrado del repo queda confiado para esos prefijos. No existe una concesión por
-entrega antes de que empiece la revisión, así que no hay más estrechamiento posible hoy.
+Residual: every registered worktree in the repository is trusted for those prefixes. There is no
+per-delivery grant before review begins, so the boundary cannot be narrowed further today.
 
-Relación con #1329: son los mismos primitivos de identidad de checkout (ruta física, registro en
-`worktree list`, `--git-common-dir`), pero otra fase. Este guard actúa antes de `receipt review begin`, así
-que no puede exigir el sello de binding de `review-edit-binding`.
+Relation to #1329: these are the same checkout-identity primitives (physical path, registration in
+`worktree list`, and `--git-common-dir`), but used in a different phase. This guard runs before
+`receipt review begin`, so it cannot require the `review-edit-binding` seal.
 
-Analizador de escrituras Python: uno solo y basado en destino. Parsea con `ast` y nunca ejecuta el código.
-Un `.md` que aparece solo como dato (por ejemplo `filesTouched` dentro de un JSON) no bloquea; un destino
-`.md`, dinámico o desconocido sí. El writer de `.json` en Node admite la creación con literales. Los
-subprocesos git de solo lectura (`rev-parse`, `diff`, `status`, `log` y exactamente `git branch --show-current`) están permitidos.
+The Python write analyzer is a single destination-based analyzer. It parses with `ast` and never
+executes code. An `.md` path appearing only as data (for example, `filesTouched` in JSON) does not
+block; an `.md` destination, or a dynamic or unknown destination, does. The Node `.json` writer
+allows literal file creation. Read-only git subprocesses (`rev-parse`, `diff`, `status`, `log`, and
+exactly `git branch --show-current`) are allowed.
 
-`ask` solo se emite si `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh))
-lo permite: script no-Codex, `jq`, payload `PreToolUse` y `permission_mode` en
-`default`, `acceptEdits` o `auto`. `plan` queda fuera (puede correr con prompts
-desactivados); vacío, ausente o desconocido también. Fuera de la allowlist el gate
-bloquea con `exit 2`, así que un `ask` nunca se vuelve un allow silencioso. Codex ignora
-`permissionDecision`: ahí es siempre `exit 2`. Los hooks de confirmación (`master-accept`,
-`comment-draft`, etc.) conservan su `ask` en todo modo: su respaldo es permitir.
+`ask` is emitted only if `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh)) allows it: non-Codex script, `jq`, `PreToolUse` payload, and `permission_mode` in `default`, `acceptEdits`, or `auto`. `plan` is excluded (it can run with prompts disabled); empty, absent, or unknown modes are excluded too. Outside the allowlist, the gate blocks with `exit 2`, so `ask` never becomes a silent allow. Codex ignores `permissionDecision`: there it is always `exit 2`. Confirmation hooks (`master-accept`, `comment-draft`, etc.) keep `ask` in every mode; their fallback is allow.
 
-Contrato del host para un `ask` de hook (docs de Claude Code):
+Host contract for a hook `ask` (Claude Code docs):
 
-| Modo | `ask` de hook | `exit 2` | Regla `ask` de settings |
+| Mode | Hook `ask` | `exit 2` | Settings `ask` rule |
 |---|---|---|---|
-| `default`, `acceptEdits`, `plan` | pregunta | bloquea | pregunta |
-| `auto` | fuerza el prompt | bloquea | pregunta |
-| `dontAsk` | se niega solo | bloquea | se niega |
-| `bypassPermissions` | no documentado | bloquea | pregunta |
-| `-p` | se niega | bloquea | se niega salvo host de permisos |
+| `default`, `acceptEdits`, `plan` | asks | blocks | asks |
+| `auto` | forces the prompt | blocks | asks |
+| `dontAsk` | denies by itself | blocks | denies |
+| `bypassPermissions` | undocumented | blocks | asks |
+| `-p` | denies | blocks | denies unless permission host |
 
-`guard-destructive` no pregunta. Para `rm` sobre una variable bloquea y su mensaje
-indica la forma literal `rm -rf <ruta absoluta>`, que la regla `ask` de
-`settings-base.json` convierte en confirmación nativa. Residual: esa regla solo
-casa las grafías literales; cualquier otra forma sigue bloqueada.
+`guard-destructive` does not ask. For `rm` on a variable, it blocks and its message gives the literal form `rm -rf <absolute path>`, which the `ask` rule in `settings-base.json` turns into native confirmation. Residual: that rule matches literal spellings only; other forms remain blocked.
 
-Auditoría: `navori_audit_log` deriva `kind` del veredicto (`block` → `hard`,
-`ask` → `ask`; `deny` explícito) y `reason` es un único código de la allowlist
-`HOOK_REASON_CODES` ([model.ts](../packages/cli/src/lib/audit/model.ts)), espejo de la lista
-de `jq` del partial (un test detecta deriva). Cualquier otro texto se registra como
-`unspecified`.
+Audit: `navori_audit_log` derives `kind` from the verdict (`block` → `hard`, `ask` → `ask`; explicit `deny`) and `reason` is one code from the `HOOK_REASON_CODES` allowlist ([model.ts](../packages/cli/src/lib/audit/model.ts)), mirrored by the partial's `jq` list (a test detects drift). Any other text is recorded as `unspecified`.
 
-### 6.2 Notas de Codex
+### 6.2 Codex notes
 
-- **`AGENTS.md` más delgado**: Codex omite el índice de skills (lo lista nativamente), el roster de
-  agentes se reduce a una cláusula y `qualityGate.full` aparece una sola vez, en `orquestacion.md`.
-- **Sin degradación de modelo con catálogo viejo**: un catálogo escrito por un cliente de Codex
-  anterior no baja el modelo ya renderizado. Una `previous` de la misma familia con versión mayor
-  que la del catálogo se conserva.
-- **Guardia de escrituras de engram en subagentes**: el hook `engram-write-guard` aplica una política
-  por rol. `auditor` lee y guarda (`mem_save`); `implementer`, `reviewer` y `scout` solo leen;
-  `architect`, `publisher` y `scribe` no acceden; el resto, solo lectura. Un acceso denegado sale con
-  `exit 2`. Sin `jq` ni `node` el hook también bloquea, y en repos sin engram es inerte.
+- **Thinner `AGENTS.md`:** Codex omits the skills index (it lists skills natively), reduces the agent roster to one clause, and includes `qualityGate.full` only once, in `orquestacion.md`.
+- **No model downgrade with an old catalog:** a catalog written by an older Codex client does not lower the model already rendered. A `previous` from the same family with a higher version than the catalog is preserved.
+- **Engram write guard for subagents:** `engram-write-guard` applies a role policy. `auditor` reads and saves (`mem_save`); `implementer`, `reviewer`, and `scout` only read; `architect`, `publisher`, and `scribe` have no access; all others are read-only. Denied access exits with `exit 2`. Without `jq` or `node`, the hook also blocks; in repositories without engram it is inert.
 
-## 7. Retiro de plugins
+## 7. Retiring plugins
 
-Un plugin retirado (`RETIRED_PLUGINS`, en [lib/config/plugins.ts](../packages/cli/src/lib/config/plugins.ts)) ya no tiene manifiesto, así que nada puede re-renderizar sus scripts para comparar bytes. El veredicto sale del archivo mismo y de quién todavía puede llamarlo. La política vive en [engines/shared/retired-plugin-assets.ts](../packages/cli/src/engines/shared/retired-plugin-assets.ts) y la comparten tres sitios de borrado: el barrido de Claude, el de `.codex/scripts` y `render --prune`. Una ruta se borra solo si `retiredAssetKeepReason` devuelve `null`; si no, se conserva, el render avisa con la razón y `doctor` la reporta.
+A retired plugin (`RETIRED_PLUGINS`, in [lib/config/plugins.ts](../packages/cli/src/lib/config/plugins.ts)) no longer has a manifest, so nothing can re-render its scripts to compare bytes. The verdict comes from the file itself and who can still call it. The policy lives in [engines/shared/retired-plugin-assets.ts](../packages/cli/src/engines/shared/retired-plugin-assets.ts) and is shared by three deletion sites: the Claude sweep, the `.codex/scripts` sweep, and `render --prune`. A path is deleted only when `retiredAssetKeepReason` returns `null`; otherwise it is preserved, render warns with the reason, and `doctor` reports it.
 
-**Propiedad.** Se evalúa archivo por archivo (un directorio se recorre entero; un symlink en cualquier punto lo conserva). Un archivo es de navori si cumple una de tres:
+**Ownership.** Evaluation is per file (a directory is traversed completely; a symlink anywhere preserves it). A file belongs to navori if it meets one of three conditions:
 
-- marcador managed íntegro (hash verificado, no sellado por un navori más nuevo) y nada fuera del bloque managed;
-- sin marcador, pero contenido byte a byte igual al render previo a #637 (huella legacy, en [legacy-plugin-script-fingerprints.ts](../packages/cli/src/engines/shared/legacy-plugin-script-fingerprints.ts));
-- sin marcador, y la entrada del registro declara `deleteForeign` (restos anteriores a los marcadores de script, que no están en la tabla de huellas).
+- intact managed marker (verified hash, not sealed by a newer navori) and nothing outside the managed block;
+- no marker, but byte-for-byte equal to the pre-#637 render (legacy fingerprint, in [legacy-plugin-script-fingerprints.ts](../packages/cli/src/engines/shared/legacy-plugin-script-fingerprints.ts));
+- no marker, and the registry entry declares `deleteForeign` (script remnants from before script markers, not listed in the fingerprint table).
 
-Un marcador íntegro con contenido fuera del bloque se conserva como `modified`.
+An intact marker with content outside the block is preserved as `modified`.
 
-**Referencias.** Un archivo de navori aún se conserva si algo puede llamarlo:
+**References.** A navori file is still preserved if something can call it:
 
-- `native-hook-declared`: `plugins.<id>.nativeHook: true`; el usuario lo cableó a mano, posiblemente por una ruta que ningún escaneo sigue.
-- `settings-referenced`: un config con hooks que este render no reescribió (`settings.json` o `config.toml` omitido, o `.claude/settings.local.json`) nombra el script.
-- `hook-referenced`: una fuente de hooks nombra el script.
+- `native-hook-declared`: `plugins.<id>.nativeHook: true`; the user wired it manually, possibly through a path no scan follows.
+- `settings-referenced`: a config containing hooks that this render did not rewrite (`settings.json` or `config.toml` omitted, or `.claude/settings.local.json`) names the script.
+- `hook-referenced`: a hook source names the script.
 
-El resto de razones de conservación (`foreign`, `newer`, `modified`, `ephemeral`, `symlink`) está en `KeepReason` de [lib/render/removable.ts](../packages/cli/src/lib/render/removable.ts). La mención se busca por subcadena del nombre base: es conservadora, así que un comentario que nombra el script también lo conserva.
+Other preservation reasons (`foreign`, `newer`, `modified`, `ephemeral`, `symlink`) are in `KeepReason` in [lib/render/removable.ts](../packages/cli/src/lib/render/removable.ts). The search is a basename substring match and is conservative: a comment naming the script also preserves it.
 
-**Fuentes de hooks leídas.** `readHookSources`, en [lib/diagnose/native-hooks.ts](../packages/cli/src/lib/diagnose/native-hooks.ts), se ejecuta de forma perezosa y una vez por render:
+**Hook sources read.** `readHookSources`, in [lib/diagnose/native-hooks.ts](../packages/cli/src/lib/diagnose/native-hooks.ts), runs lazily once per render:
 
-- el directorio de hooks que git resuelve (respeta `core.hooksPath`, sin archivos `.sample`) y `.husky/**`;
-- configs de lefthook (`lefthook*` y `.lefthook/`, en la raíz y en `.config/`), `.pre-commit-config.yaml`, `.overcommit.yml`, `package.json`, `Makefile` y `.github/workflows/*.yml|yaml`;
-- un salto de delegación: una ruta relativa al repo que nombra una entrada de hook también se lee.
+- the hook directory resolved by git (respects `core.hooksPath`, excludes `.sample` files) and `.husky/**`;
+- lefthook configs (`lefthook*` and `.lefthook/`, at the root and in `.config/`), `.pre-commit-config.yaml`, `.overcommit.yml`, `package.json`, `Makefile`, and `.github/workflows/*.yml|yaml`;
+- one delegation hop: a repository-relative path naming a hook entry is also read.
 
-**No se detecta:** dos o más saltos de delegación, rutas construidas en runtime, llamadores fuera del repo (tareas de IDE, otros CI) y `extends` o `remotes` de lefthook.
+**Not detected:** two or more delegation hops, runtime-constructed paths, callers outside the repository (IDE tasks, other CI), and lefthook `extends` or `remotes`.
 
-**Bloques retirados.** Los bloques y sub-bloques managed de plugins retirados se quitan de `CLAUDE.md` y de los archivos de skills, con guarda (#1273): un bloque editado a mano queda con estado `retired-kept`, y uno sellado por un navori más nuevo queda con `downgrade-skipped`. Ninguno cuenta como conflicto.
+**Retired blocks.** Managed blocks and sub-blocks for retired plugins are removed from `CLAUDE.md` and skills files, with a guard (#1273): a manually edited block is marked `retired-kept`, and one sealed by a newer navori is `downgrade-skipped`. Neither counts as a conflict.
 
-**`doctor`.** `scanRetiredPluginLeftovers`, en [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts), reporta los ids retirados que el config aún declara, los scripts retirados en disco con su razón de conservación (o sin razón si el próximo `render --apply` los borra), los bloques retirados presentes y las referencias en fuentes de hooks, marcando `scriptMissing` cuando el script ya no existe. Son solo avisos: no entran en `computeHealthVerdict`, así que no cambian `ok`, el exit 2 ni `--strict`.
+**`doctor`.** `scanRetiredPluginLeftovers`, in [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts), reports retired IDs still declared in the config, retired scripts on disk with their preservation reason (or without one if the next `render --apply` will delete them), retired blocks present, and references in hook sources; it sets `scriptMissing` when the script no longer exists. These are warnings only: they do not enter `computeHealthVerdict`, so they do not change `ok`, exit 2, or `--strict`.
 
-## Archivos clave
+## Key files
 
-| Pieza | Archivo |
+| Component | File |
 |---|---|
 | Config + schema (Zod) | [lib/config/schema.ts](../packages/cli/src/lib/config/schema.ts) · [lib/config/config.ts](../packages/cli/src/lib/config/config.ts) |
-| Plan de render (CLAUDE.md) | [lib/render-plan.ts](../packages/cli/src/lib/render/render-plan.ts) |
-| Markers managed (inject/diff/hash) | [lib/marker.ts](../packages/cli/src/lib/render/marker.ts) |
-| Engine Claude | [engines/claude/index.ts](../packages/cli/src/engines/claude/index.ts) |
-| Settings deep-merge | [engines/claude/build-settings.ts](../packages/cli/src/engines/claude/build-settings.ts) |
-| Render de agents/skills/hooks | [engines/shared/render-managed-file.ts](../packages/cli/src/engines/shared/render-managed-file.ts) |
+| Render plan (CLAUDE.md) | [lib/render-plan.ts](../packages/cli/src/lib/render/render-plan.ts) |
+| Managed markers (inject/diff/hash) | [lib/marker.ts](../packages/cli/src/lib/render/marker.ts) |
+| Claude engine | [engines/claude/index.ts](../packages/cli/src/engines/claude/index.ts) |
+| Settings deep merge | [engines/claude/build-settings.ts](../packages/cli/src/engines/claude/build-settings.ts) |
+| Agent/skill/hook rendering | [engines/shared/render-managed-file.ts](../packages/cli/src/engines/shared/render-managed-file.ts) |
 | Presets / Plugins | [lib/presets.ts](../packages/cli/src/lib/config/presets.ts) · [lib/plugins.ts](../packages/cli/src/lib/config/plugins.ts) |
-| Health-check (doctor/status) | [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts) |
-| Detección de stack | [lib/diagnose/detect.ts](../packages/cli/src/lib/diagnose/detect.ts) |
-| Comandos | [src/commands/](../packages/cli/src/commands) |
-| Assets bundleados | [core-assets/](../packages/core/core-assets) · [plugins/](../packages/plugins) |
+| Health check (doctor/status) | [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts) |
+| Stack detection | [lib/diagnose/detect.ts](../packages/cli/src/lib/diagnose/detect.ts) |
+| Commands | [src/commands/](../packages/cli/src/commands) |
+| Bundled assets | [core-assets/](../packages/core/core-assets) · [plugins/](../packages/plugins) |
 
-> El plan de release que produjo v0.2 está en
+> The release plan that produced v0.2 is in
 > [specs/0003-v0.2-quality-velocity-tokens/design.md](../specs/0003-v0.2-quality-velocity-tokens/design.md).

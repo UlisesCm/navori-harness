@@ -98,6 +98,7 @@ interface LinkedReviewFixture {
   target: string;
   state: string;
   thread: string;
+  nonce: string;
   index: string;
   md: string;
   json: string;
@@ -105,7 +106,10 @@ interface LinkedReviewFixture {
 
 describe("role-guard linked review outputs", () => {
   /** Creates an owned linked-worktree binding outside OS temp for each independent control. */
-  function linkedReviewFixture(version: string = "0.162.1"): LinkedReviewFixture {
+  function linkedReviewFixture(
+    version: string = "0.162.1",
+    producerVersion: string = version,
+  ): LinkedReviewFixture {
     // Outside OS temp: removing the exact binding must deny this same physical destination.
     rmSync(repo, { recursive: true, force: true });
     const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
@@ -159,7 +163,15 @@ describe("role-guard linked review outputs", () => {
         fingerprint: "b".repeat(64),
         base: null,
         handoff: ownership,
-        actors: [{ ...actor, thread: "20000000-0000-0000-0000-000000000002", role: "implementer" }],
+        actors: [
+          {
+            ...actor,
+            version: producerVersion,
+            thread: "20000000-0000-0000-0000-000000000002",
+            role: "implementer",
+          },
+          { ...actor, thread: "20000000-0000-0000-0000-000000000005", role: "scribe" },
+        ],
       }),
     );
     writeFileSync(
@@ -189,18 +201,54 @@ describe("role-guard linked review outputs", () => {
     writeFileSync(index, JSON.stringify({ v: 1, feature: "demo", thread, nonce }));
     const md = join(state, "review_demo.md");
     const json = join(state, "review_demo.json");
-    return { host, target, state, thread, index, md, json };
+    return { host, target, state, thread, nonce, index, md, json };
   }
 
-  it.each(["0.162.1", "0.163.0"])(
-    "authorizes registered linked-worktree review outputs for supported Codex %s",
-    (version: string) => {
-      const { host, thread, md, json } = linkedReviewFixture(version);
+  // Covers: R13
+  it.each([
+    ["0.162.1", "0.162.1"],
+    ["0.162.1", "0.163.0"],
+    ["0.163.0", "0.162.1"],
+    ["0.163.0", "0.163.0"],
+  ])(
+    "authorizes registered review outputs for reviewer %s and producer %s",
+    (version: string, producerVersion: string) => {
+      const { host, thread, md, json } = linkedReviewFixture(version, producerVersion);
       const result = run({ ...patch("reviewer", md, json), cwd: host, agent_id: thread });
       expect(result.status).toBe(0);
       expect(result.stderr).toContain("bound-review-output");
     },
   );
+
+  // Covers: R13
+  it("rejects an unsupported persisted reviewer version", () => {
+    const { host, state, thread, nonce, md } = linkedReviewFixture();
+    const stampPath = join(state, `review_demo.${nonce}.begin.json`);
+    const stamp = JSON.parse(readFileSync(stampPath, "utf8")) as {
+      reviewer: { version: string };
+    };
+    stamp.reviewer.version = "0.164.0";
+    writeFileSync(stampPath, JSON.stringify(stamp));
+    const denied = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(denied.status).toBe(2);
+    expect(denied.stderr).toContain("wrong-native-actor");
+  });
+
+  // Covers: R13
+  it.each([0, 1])("rejects an unsupported persisted owner at position %s", (position: number) => {
+    const { host, state, thread, md } = linkedReviewFixture();
+    const ownerPath = join(state, "ownership_demo.json");
+    const ownership = JSON.parse(readFileSync(ownerPath, "utf8")) as {
+      actors: { version: string }[];
+    };
+    const owner = ownership.actors[position];
+    if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
+    owner.version = "0.164.0";
+    writeFileSync(ownerPath, JSON.stringify(ownership));
+    const denied = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(denied.status).toBe(2);
+    expect(denied.stderr).toContain("ownership-mismatch");
+  });
 
   it.each(["Add File", "Update File", "Delete File", "Move to"])(
     "authorizes registered linked-worktree review outputs through the binding branch with %s headers",

@@ -2,8 +2,10 @@
 import "../styles/global.css";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
-import { useTranslations, alternateLang, localizedPath } from "../i18n/utils";
+import { useTranslations, localizedPath } from "../i18n/utils";
 import type { Lang } from "../i18n/ui";
+import { locales, localeOrder } from "../i18n/locales";
+import { pageFromPath, pagePath, markdownPath, indexPath } from "../content/pages";
 import { REPO_URL } from "../consts";
 import cliPkg from "../../../../packages/cli/package.json";
 
@@ -20,30 +22,19 @@ interface Props {
 
 const { lang, title, description, pathname = Astro.url.pathname, image, altSlug } = Astro.props;
 const t = useTranslations(lang);
-const altLang = alternateLang(lang);
+const page = pageFromPath(pathname, import.meta.env.BASE_URL);
 
 const pageTitle = title ? `${title} — navori` : `navori — ${t("site.tagline")}`;
 const pageDescription = description ?? t("site.description");
 
 const siteOrigin = Astro.site ?? new URL("https://ulisescm.github.io");
-const canonicalUrl = new URL(pathname, siteOrigin).toString();
+const canonicalUrl = new URL(pagePath(lang, page, import.meta.env.BASE_URL), siteOrigin).toString();
 
-// Strip both the base path and any /en locale prefix to get the canonical
-// path, then localize it into the alternate language.
-const baseTrimmed = import.meta.env.BASE_URL.replace(/\/$/, "");
-const pathnameNoBase =
-  baseTrimmed && pathname.startsWith(baseTrimmed) ? pathname.slice(baseTrimmed.length) : pathname;
-const altPath = pathnameNoBase.replace(/^\/en(?=\/|$)/, "") || "/";
-const altHref = new URL(localizedPath(altLang, altSlug ?? altPath), siteOrigin).toString();
-// x-default is the Spanish page: this one when lang is es, otherwise its counterpart.
-const esPath = lang === "es" ? altPath : (altSlug ?? altPath);
-
-// The site declared `summary_large_image` with no image behind it, so every
-// share rendered an empty card. `scripts/gen-og.mjs` builds these.
-const ogFile = image ?? (lang === "es" ? "og.png" : "og-en.png");
-const ogImage = new URL(`${import.meta.env.BASE_URL}${ogFile}`, siteOrigin).toString();
-
-const llmsUrl = new URL(`${import.meta.env.BASE_URL}llms.txt`, siteOrigin).toString();
+const alternates = localeOrder.map((locale) => ({locale, href: new URL(pagePath(locale, page, import.meta.env.BASE_URL), siteOrigin).href}));
+const ogFile = image ?? locales[lang].image;
+const ogImage = new URL(`${import.meta.env.BASE_URL}${ogFile}`, siteOrigin).href;
+const llmsUrl = new URL(indexPath(lang, import.meta.env.BASE_URL), siteOrigin).href;
+const markdownUrl = new URL(markdownPath(lang, page, import.meta.env.BASE_URL), siteOrigin).href;
 
 /**
  * Structured data. Agents and search crawlers both read this; it states in one
@@ -77,7 +68,7 @@ const jsonLd = {
 ---
 
 <!doctype html>
-<html lang={lang === "es" ? "es-MX" : "en"}>
+<html lang={locales[lang].html}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -91,20 +82,18 @@ const jsonLd = {
     <meta name="theme-color" content="#0a0f1f" media="(prefers-color-scheme: dark)" />
 
     <link rel="canonical" href={canonicalUrl} />
-    <link rel="alternate" hreflang={altLang} href={altHref} />
-    <link rel="alternate" hreflang={lang} href={canonicalUrl} />
-    <link rel="alternate" hreflang="x-default" href={new URL(localizedPath("es", esPath), siteOrigin).toString()} />
-
-    {/* Agent-readable index of the site, per the emerging llms.txt convention. */}
-    <link rel="alternate" type="text/markdown" href={llmsUrl} title="llms.txt" />
+    {alternates.map(({locale,href}) => <link rel="alternate" hreflang={locale} href={href} />)}
+    <link rel="alternate" hreflang="x-default" href={alternates[0].href} />
+    <link rel="describedby" type="text/plain" href={llmsUrl} title="llms.txt" />
+    <link rel="alternate" type="text/markdown" href={markdownUrl} />
 
     <meta property="og:site_name" content="navori" />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={pageDescription} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
-    <meta property="og:locale" content={lang === "es" ? "es_MX" : "en_US"} />
-    <meta property="og:locale:alternate" content={altLang === "es" ? "es_MX" : "en_US"} />
+    <meta property="og:locale" content={locales[lang].og} />
+    {localeOrder.filter((locale) => locale !== lang).map((locale) => <meta property="og:locale:alternate" content={locales[locale].og} />)}
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -121,7 +110,7 @@ const jsonLd = {
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
   </head>
   <body>
-    <Header lang={lang} />
+    <Header lang={lang} page={page} />
     <main>
       <slot />
     </main>

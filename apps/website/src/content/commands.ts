@@ -1298,6 +1298,8 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "Run doctor in CI with --strict to fail the build on unresolved drift.",
+      "The optional harnessVersion in navori.config.json records the last navori version that applied a real change. Only render/sync/adopt --apply that writes or deletes content updates it, and it never decreases. When it exceeds the running CLI version, doctor reports the harness finding and --strict fails.",
+      "Per-block version drift and staleBlocks are retired: a marker's version records when its content last changed. In --json, DriftReport.kind is downgrade|harness|content, a breaking change for JSON consumers.",
       "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
       "Codex trust state is read from $CODEX_HOME/config.toml if CODEX_HOME is set, and from ~/.codex/config.toml otherwise; a relative value is rejected.",
       "With the codex engine enabled it also checks every git worktree of the repo that has .codex/config.toml: it warns with the hook, the path and 'cd <path> && navori codex trust' when approval is missing. It also warns when the installed codex is newer than the last verified version. If git or the disk fails, it degrades to a warning.",
@@ -1320,6 +1322,7 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "status is the at-a-glance view; doctor is the verbose audit. They share the same health-check logic.",
+      "Shows harness (last changed), the navori version that last changed the harness (harnessVersion). The --json key remains renderedVersion.",
     ],
   },
   bench: {
@@ -2169,7 +2172,1294 @@ const en: Record<string, CommandDoc> = {
   },
 };
 
-export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
+const zhCN: Record<string, CommandDoc> = {
+  init: {
+    id: "init",
+    title: "init",
+    summary: "在仓库中初始化 navori：检测技术栈，询问必要信息，一分钟内准备就绪。",
+    usage: "navori init [--full] [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
+    flags: [
+      {
+        flag: "--full",
+        desc: "--recommended 加默认外部提供方（tgrep、acli；codegraph 需主动启用）、pre-commit 钩子、monorepo 扫描和严格项目块（posture/reviewRigor/testsForNewCode），需自行安装对应可执行文件。",
+      },
+      {
+        flag: "--recommended",
+        desc: "预设模式：--yes 加完整 harness，不安装外部软件；GitHub 仓库添加 gh，engram 始终默认提供。",
+      },
+      {
+        flag: "--yes",
+        desc: "无需询问，接受检测结果，适用于 CI。",
+      },
+      {
+        flag: "--lang <es|en>",
+        desc: "向导语言，默认 es。",
+      },
+      {
+        flag: "--scan-monorepo",
+        desc: "检测到 monorepo 时扫描工作区，为各工作区分配预设。",
+      },
+      {
+        flag: "--pre-commit-hook",
+        desc: "主动启用运行 navori doctor --strict 的 pre-commit 钩子。",
+      },
+      {
+        flag: "--no-render",
+        desc: "只写配置，暂不渲染。",
+      },
+    ],
+    example: [
+      {
+        title: "交互使用",
+        code: "$ npx navori init\n? Wizard › English\n→ stack: Next.js · pnpm\n? Preset › nextjs\n✓ navori.config.json\n✓ Done — 5 created",
+      },
+      {
+        title: "非交互使用（CI）",
+        code: "npx navori init --recommended --yes",
+      },
+    ],
+    notes: [
+      "已有手写 .claude/ 时可共存，只添加带 managed 标记的块。",
+      "navori.config.json 是唯一事实来源，请提交到仓库。",
+      "所有模式（--yes、--recommended、--full、交互）均提示插件可执行文件是否缺失及安装方式，不代为安装。",
+    ],
+  },
+  add: {
+    id: "add",
+    title: "add",
+    summary: "注册插件到 navori.config.json，或按技术栈推荐插件。",
+    usage: "navori add <plugin> | navori add --suggest",
+    flags: [
+      {
+        flag: "<plugin>",
+        desc: "待注册插件：engram、codegraph、tgrep、acli、gh。",
+      },
+      {
+        flag: "--suggest",
+        desc: "检测技术栈并推荐预设与插件，不安装内容。",
+      },
+      {
+        flag: "--yes",
+        desc: "不询问，需要时安装外部工具。",
+      },
+      {
+        flag: "--skip-install",
+        desc: "只注册插件，不安装外部工具。",
+      },
+    ],
+    example: [
+      {
+        title: "添加 engram",
+        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\n✓ Rendered CLAUDE.md — 2 created, 1 updated\nDone",
+      },
+      {
+        title: "按技术栈推荐",
+        code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'\n · Available external provider: 'codegraph' — 'navori add codegraph'",
+      },
+    ],
+    notes: ["add 同时更新 navori.config.json 并渲染插件接线，包括 .mcp.json、权限和受管理块。"],
+  },
+  preset: {
+    id: "preset",
+    title: "preset",
+    summary: "为没有官方预设的技术栈，在 .navori/presets/ 创建本地预设。",
+    usage: "navori preset init <id>",
+    flags: [
+      {
+        flag: "<id>",
+        desc: "预设 id 使用 kebab-case，拒绝保留值 custom 及其他格式。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认为当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "创建本地预设",
+        code: "$ navori preset init express-fastify\n✓ .navori/presets/express-fastify/\n✓ navori.config.json → preset: express-fastify\n→ run 'navori render --apply' to materialize it",
+      },
+    ],
+    notes: [
+      "生成 <id>.json 清单、managed/stack.md 技术栈上下文及 skills/ 下的示例技能。",
+      "预设提交在 .navori/presets/，解析时本地优先于内置。",
+      "用于没有官方预设的技术栈，检测器找不到预设时会提示。",
+    ],
+  },
+  render: {
+    id: "render",
+    title: "render",
+    summary: "从 navori.config.json 幂等重建所有配置引擎，默认预览。",
+    usage:
+      "navori render [--apply] [--force] [--workspace <name>] [--json] [--all [--prune] [--verbose]]",
+    flags: [
+      {
+        flag: "--apply",
+        desc: "写入磁盘；否则只预览，不触碰文件。",
+      },
+      {
+        flag: "--force",
+        desc: "即使 settings.json 损坏或缺少 $navori 标记也重新生成，先备份旧文件。",
+      },
+      {
+        flag: "--workspace <name>",
+        desc: "仅渲染指定 monorepo 工作区。",
+      },
+      {
+        flag: "--dry-run",
+        desc: "已弃用；预览已是默认行为，此参数作为显式别名。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读结果，抑制人类输出，适用于 CI 和自动化。",
+      },
+      {
+        flag: "--all",
+        desc: "渲染全局注册表 ~/.navori/registry.json 中的所有仓库；升级 navori 后可一次更新全部项目。",
+      },
+      {
+        flag: "--prune",
+        desc: "--all 时先移除已不存在仓库的注册项；单仓库加 --apply 时，先备份再删除已从 config.engines 移除的引擎遗留输出。",
+      },
+      {
+        flag: "--verbose",
+        desc: "--all 时逐仓库列出变化的受管理块，而非只显示数量。",
+      },
+    ],
+    example: [
+      {
+        title: "预览（默认）",
+        code: "$ navori render\n  + CLAUDE.md  (created)\n  + .claude/settings.json  (created)\n  + .claude/agents/  (5)\nPreview — 5 created · run 'navori render --apply' to write",
+      },
+      {
+        title: "应用",
+        code: "$ navori render --apply\nDone — 5 created",
+      },
+    ],
+    notes: [
+      "默认预览，仅 --apply 才写入磁盘。",
+      "仅重新生成 managed 标记之间的内容，保留标记之外的手写内容。",
+      "还会写 .claude/.gitignore，启用 codex 时也写 .codex/.gitignore。任何 gitignoreHarness 模式下均以版本化块忽略 progress/、worktrees/、settings.local.json 等临时状态，保留引擎必需文件。",
+    ],
+  },
+  sync: {
+    id: "sync",
+    title: "sync",
+    summary: "将资源包变化同步到所有已配置引擎，保留你的修改。",
+    usage:
+      "navori sync [--interactive] [--apply] [--yes] [--accept-new] [--accept-new-files] [--keep-mine] [--dry-run] [--json] [--workspace <name>]",
+    flags: [
+      {
+        flag: "--interactive",
+        desc: "逐个查看差异并选择保留或接受，适用于 CLAUDE.md 块、带标记整文件及无标记整文件；后者整份替换并备份。",
+      },
+      {
+        flag: "--apply",
+        desc: "直接应用，无交互提示。",
+      },
+      {
+        flag: "--yes",
+        desc: "自动确认，有冲突时退出 1，适用于 CI 关卡。",
+      },
+      {
+        flag: "--accept-new",
+        desc: "无需询问，所有 CLAUDE.md 块冲突接受新内容。具有破坏性，需 --apply 或 --yes，先备份文件并保留用户区。",
+      },
+      {
+        flag: "--keep-mine",
+        desc: "无需询问，所有 CLAUDE.md 块冲突保留你的修改，应用其余变化。需 --apply 或 --yes。",
+      },
+      {
+        flag: "--dry-run",
+        desc: "显示计划，不写入。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读结果，抑制人类输出，适用于 CI。",
+      },
+      {
+        flag: "--accept-new-files",
+        desc: "无需询问，覆盖仍带 navori 标记的手改整文件。需 --apply 或 --yes，逐文件先备份；--accept-new 不处理整文件。",
+      },
+      {
+        flag: "--workspace <name>",
+        desc: "仅同步指定 monorepo 工作区。",
+      },
+    ],
+    example: [
+      {
+        title: "交互解决冲突",
+        code: "$ navori sync --interactive\nConflict CLAUDE.md:idioma-rol\n  - your edit\n  + new rendered version\n? keep mine / accept new",
+      },
+    ],
+    notes: [
+      "手改受管理块时 sync 检测哈希漂移，不直接覆盖，由你解决。",
+      "带 navori 标记的手改整文件（智能体、技能、钩子、脚本、AGENTS.md 等）可用 --interactive 查看差异并保留/接受，或用 --accept-new-files 批量接受。完全无标记的旧脚本或自有文件仅可交互整份替换：提示并显示差异，默认保留，接受前备份且保留 30 天，可用 navori backup restore 恢复。批量参数和 --json 不触碰它们。标记仅剩部分或只在注释中出现时，须手动移开再运行 render --apply。",
+      "--json 为各冲突提供 resolvable（bulk 或 none），输出 acceptNewFiles，不含文件内容，报告解决后的状态。",
+      "sync 用于版本更新，render --apply 用于重新生成。",
+      "与其他受管理块一样，更新 .claude/.gitignore 及启用 codex 时的 .codex/.gitignore。",
+    ],
+  },
+  doctor: {
+    id: "doctor",
+    title: "doctor",
+    summary: "审计项目配置、插件、漂移、不变量并建议后续步骤。",
+    usage: "navori doctor [--json] [--strict]",
+    flags: [
+      {
+        flag: "--json",
+        desc: "面向 CI 的结构化输出，可接管道。",
+      },
+      {
+        flag: "--strict",
+        desc: "发现漂移或 .mcp.json 与插件清单不一致时退出 1，适用于 CI 关卡。",
+      },
+    ],
+    example: [
+      {
+        title: "诊断",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/orchestrator.md edited by hand\nNext steps · run 'navori sync --interactive'",
+      },
+    ],
+    notes: [
+      "在 CI 运行 doctor --strict，使未解决漂移导致构建失败。",
+      "navori.config.json 的可选 harnessVersion 记录最后实际修改内容的 navori 版本。仅 render/sync/adopt --apply 真正写入或删除时更新，且从不降低。它高于当前 CLI 版本时，doctor 报告 harness 问题，--strict 失败。",
+      "逐块 version 漂移和 staleBlocks 已退役；标记 version 表示该内容最后变化的版本。--json 的 DriftReport.kind 变为 downgrade|harness|content，对 JSON 消费者构成不兼容变化。",
+      "检查必须保留的关键子串不变量，缺失时退出 2。",
+      "CODEX_HOME 已设置时读取 $CODEX_HOME/config.toml，否则读取 ~/.codex/config.toml；拒绝相对路径。",
+      "启用 codex 时检查所有带 .codex/config.toml 的 git worktree；缺少批准时显示钩子、路径与 cd <path> && navori codex trust。Codex 新于最近已验证版本时也提示；git 或磁盘失败时降级为警告。",
+      "渲染钩子调用 navori 时，若 PATH 中全局 navori 低于当前 doctor CLI 则警告，避免旧逻辑；不改变 ok。",
+      "对声明 latestRelease 的外部工具（目前 engram），以信息提示稳定新版本，低于已知故障下限（engram < 3.0.0）时警告。均不改变结论或 --strict。",
+    ],
+  },
+  status: {
+    id: "status",
+    title: "status",
+    summary: "快速查看配置、插件、漂移及后续步骤，一条命令确认当前状态。",
+    usage: "navori status [--json]",
+    flags: [
+      {
+        flag: "--json",
+        desc: "结构化输出，可接管道。",
+      },
+    ],
+    example: [
+      {
+        title: "状态快照",
+        code: "$ navori status\nname · my-app   preset · nextjs\nplugins · engram   drift · 0\nNext steps · All clear",
+      },
+    ],
+    notes: [
+      "status 是概览，doctor 是详细审计，两者共用健康检查逻辑。",
+      "显示 harness (last changed)，即最后修改 harness 的 navori 版本（harnessVersion）；--json 键仍为 renderedVersion。",
+    ],
+  },
+  bench: {
+    id: "bench",
+    title: "bench",
+    summary: "对 render 执行 N 次计时，报告 p50/p95，在提交前发现本地回归。",
+    usage: "navori bench [--runs <n>]",
+    flags: [
+      {
+        flag: "--runs <n>",
+        desc: "迭代次数，默认 20。",
+      },
+    ],
+    example: [
+      {
+        title: "基准测试",
+        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
+      },
+    ],
+    notes: ["补充 NAVORI_BENCH=1 对单次运行的计时。"],
+  },
+  codex: {
+    id: "codex",
+    title: "codex",
+    summary:
+      "在 ~/.codex/config.toml 批准项目 Codex 钩子。项目受信任前 Codex 不加载仓库内容，包括 AGENTS.md。",
+    usage: "navori codex trust [--yes] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "--yes",
+        desc: "不询问直接批准，适用于非交互使用。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认 cwd。",
+      },
+    ],
+    example: [
+      {
+        title: "批准",
+        code: "$ navori codex trust\nCodex hooks — /repo\n  .\n    ⇡ PreToolUse (^Bash$) — guard-destructive [Untrusted]\n? Approve these hooks in ~/.codex/config.toml? Yes\n✓ Written. Previous backup: ~/.navori/backups/codex-config-...\n",
+      },
+    ],
+    notes: [
+      "显示事件、匹配器和状态组成的钩子表，写入前确认；无 TTY 需 --yes。",
+      "编辑前备份 ~/.codex/config.toml，写入前校验 TOML；确认后文件若变化则终止且不写入。",
+      "覆盖根目录及所有启用 codex 的 monorepo 工作区；doctor 只读检测是否仍需批准。",
+      "CODEX_HOME 已设置时用 $CODEX_HOME/config.toml 替代 ~/.codex/config.toml；拒绝相对路径。",
+    ],
+  },
+  remove: {
+    id: "remove",
+    title: "remove",
+    summary: "停用插件并清理遗留的受管理块、注入子块和脚本。",
+    usage: "navori remove <plugin> [--yes] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "<plugin>",
+        desc: "待移除插件 id：codegraph、tgrep、acli、gh。",
+      },
+      {
+        flag: "--yes",
+        desc: "跳过确认。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认为当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "移除插件",
+        code: "$ navori remove tgrep --yes\n◆  'tgrep' removed and cleaned up.\n└  Done",
+      },
+      {
+        title: "engram 无法移除",
+        code: "$ navori remove engram\n└  engram is always-on with navori; it can't be removed.",
+      },
+    ],
+    notes: [
+      "先设 enabled:false 并渲染以清理块和脚本，再移除配置键；直接删除键会跳过清理。",
+      "渲染失败时退出 1，配置保留 enabled:false，避免 CI 将半写入状态视为成功。",
+    ],
+  },
+  configure: {
+    id: "configure",
+    title: "configure",
+    summary: "init 后修改 navori.config.json，各部分有独立子命令。",
+    usage:
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks|migrate> [value]",
+    flags: [
+      {
+        flag: "plugins",
+        desc: "交互启用或停用本仓库插件。",
+      },
+      {
+        flag: "quality-gate [--fast <cmd>] [--full <cmd>]",
+        desc: "设置关卡的两条命令，无参数时询问，传参后非交互。",
+      },
+      {
+        flag: "language <es|en>",
+        desc: "受管理 Core 资源的语言。",
+      },
+      {
+        flag: "branch-base <branch>",
+        desc: "质量关卡比较差异的基础分支。",
+      },
+      {
+        flag: "pr-target <branch>",
+        desc: "PR 目标分支（gh pr create --base），默认与 branch-base 相同。",
+      },
+      {
+        flag: "engines",
+        desc: "增删引擎：claude、agents-md、cursor、copilot、codex、pi。",
+      },
+      {
+        flag: "workspace <name>",
+        desc: "关联工作区，空值解除关联。",
+      },
+      {
+        flag: "blocks",
+        desc: "排除核心受管理块，如 orquestacion、sdd。",
+      },
+      {
+        flag: "migrate [--dry-run] [--yes] [--all [--apply]]",
+        desc: "重命名退役配置键（harness、models、effort）以恢复加载。--all 遍历全局注册表，默认预览，--apply 写入。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认当前目录，适用于全部子命令。",
+      },
+    ],
+    example: [
+      {
+        title: "切换语言",
+        code: "$ navori configure language en\n◆  language → en\n└  Run 'navori render --apply' to re-render managed blocks in the new language.",
+      },
+      {
+        title: "非交互设置关卡",
+        code: '$ navori configure quality-gate --fast "pnpm lint" --full "pnpm test && pnpm lint"\n◆  qualityGate updated\n└  Done',
+      },
+      {
+        title: "PR 指向 develop，关卡基于 main",
+        code: "$ navori configure branch-base main\n$ navori configure pr-target develop\n◆  prTarget → develop",
+      },
+    ],
+    notes: [
+      "configure 只写 navori.config.json，运行 navori render --apply 才生成实际文件。",
+      "branchBase 是差异比较的分支起点，prTarget 是 PR 目标，多数仓库二者相同。",
+    ],
+  },
+  refresh: {
+    id: "refresh",
+    title: "refresh",
+    summary: "一步更新：重新检测仓库，提供配置差异，再运行 sync。",
+    usage: "navori refresh [--yes] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "--yes",
+        desc: "不询问，应用检测差异并同步。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认为当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "无需操作",
+        code: "$ navori refresh\n└  Up to date — nothing to update",
+      },
+      {
+        title: "用于 CI",
+        code: "navori refresh --yes",
+      },
+    ],
+    notes: [
+      "检测仓库现状与配置的漂移：推荐预设、质量关卡命令、基础分支与库迁移。",
+      "手动值优先，检测结果不同也保留。关卡仅在仓库新增缺失步骤时建议补全，不删减；engines 只报告，库迁移由 legacy 协调。唯一例外 project.libraries 从依赖推导，会被替换。",
+      "确定配置后运行 sync，同一步更新受管理块。",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary: "将 navori CLI 更新到 npm 最新版本，再用新可执行文件运行 navori refresh。",
+    usage: "navori update [--yes] [--cli-only] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "--yes",
+        desc: "不询问，安装并刷新。",
+      },
+      {
+        flag: "--cli-only",
+        desc: "只更新 CLI，不运行 refresh。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认为当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "更新并同步",
+        code: "$ navori update\n◇  navori 0.12.0 available (current: 0.11.3)\n│  Will run: npm i -g navori@latest",
+      },
+      {
+        title: "用于 CI",
+        code: "navori update --yes",
+      },
+    ],
+    notes: [
+      "查询 registry.npmjs.org，超时 2 秒；已最新或离线时简要说明并继续 refresh。",
+      "按原安装方式选择命令：npm 全局、devDependency 或 dependency；npx 则重新执行 npx navori@latest refresh。",
+      "无交互终端且无 --yes 时不安装，打印命令并以错误退出。",
+    ],
+  },
+  scan: {
+    id: "scan",
+    title: "scan",
+    summary: "重新检测 monorepo，将 init 后新增的工作区加入配置。",
+    usage: "navori scan [--yes] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "--yes",
+        desc: "直接接受所有新工作区的推荐预设。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "扫描目录，默认为当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "未声明 monorepo 的仓库",
+        code: "$ navori scan\n└  navori.config.json does not declare 'monorepo'. Add { monorepo: { enabled: true, tool: '...' } } to the config and run scan again.",
+      },
+    ],
+    notes: [
+      "只添加配置尚未列出的工作区，不改动已有项目。",
+      "需要配置 monorepo.enabled，可用 navori init --scan-monorepo 从一开始启用。",
+      "monorepo.workspaceHarness 控制内容：minimal 为默认，仅上下文和根目录缺失技能；full 为全部；root 仅上下文，库与预设技能由根目录写入。root 要求每台机器与 CI 使用理解该模式的 navori。",
+    ],
+  },
+  registry: {
+    id: "registry",
+    title: "registry",
+    summary: "机器上所有 navori 仓库的全局注册表，支持 render --all。",
+    usage: "navori registry <ls|scan|add|remove|prune> [args]",
+    flags: [
+      {
+        flag: "ls",
+        desc: "列出全部注册仓库。",
+      },
+      {
+        flag: "scan <dir...> [--depth=<n>]",
+        desc: "遍历目录并注册 navori 仓库，最大深度 4。",
+      },
+      {
+        flag: "add <path>",
+        desc: "按路径注册仓库。",
+      },
+      {
+        flag: "remove <path>",
+        desc: "取消注册，保留文件。",
+      },
+      {
+        flag: "prune",
+        desc: "移除磁盘上已不存在仓库的条目。",
+      },
+    ],
+    example: [
+      {
+        title: "注册目录下所有仓库",
+        code: "$ navori registry scan ~/dev --depth=3\n│    · known  demo  /Users/you/dev/demo\n│    ~ worktree  /Users/you/dev/wt-BT-123\n└  Done 0 added · 1 already registered",
+      },
+      {
+        title: "查看注册表",
+        code: "$ navori registry ls\n│    ✓ demo\n│        /Users/you/dev/demo\n└  1 repo(s)",
+      },
+      {
+        title: "清理失效条目",
+        code: "$ navori registry prune\n└  Nothing to prune · 1 repo(s) registered",
+      },
+    ],
+    notes: [
+      "注册表在 ~/.navori/，仅属于本机，不提交也不随仓库分发。",
+      "ls 将已不存在的仓库标为 missing，并提示 prune。",
+      "remove 只取消注册，不删除仓库文件。",
+      "scan 跳过 git worktree，它们已有父仓库及 harness；注册会让 render --all 改写任务分支。它们单独报告，要主动注册可用 registry add <path>。",
+      "name 来自 navori.config.json，每次 render --apply 刷新。",
+    ],
+  },
+  workspace: {
+    id: "workspace",
+    title: "workspace",
+    summary: "跨仓库共享配置与任务，统一默认值，一次渲染整个仓库集合。",
+    usage: "navori workspace <init|ls|show|link|add-repo|set-default|render|rename|delete> [args]",
+    flags: [
+      {
+        flag: "init <name> [--description <txt>] [--yes]",
+        desc: "在 ~/.navori/workspaces/<name>.json 创建工作区。",
+      },
+      {
+        flag: "ls [--json]",
+        desc: "列出已知工作区。",
+      },
+      {
+        flag: "show <name> [--json]",
+        desc: "显示路径、默认值和注册仓库。",
+      },
+      {
+        flag: "link [<name>] [--cwd <dir>]",
+        desc: "注册当前仓库并记录到 navori.config.json；未传名称时使用配置声明的工作区。",
+      },
+      {
+        flag: "add-repo <workspace> --name <n> --path <p> [--stack <s>] [--description <d>]",
+        desc: "按路径注册仓库，无需进入目录。",
+      },
+      {
+        flag: "set-default <workspace> <key> <value>",
+        desc: "适用于工作区所有仓库的默认值：engines 逗号分隔，plugins 使用 true|false。",
+      },
+      {
+        flag: "render <workspace> [--apply] [--force] [--verbose]",
+        desc: "渲染全部注册仓库，不带 --apply 只预览。",
+      },
+      {
+        flag: "rename <from> <to> [--yes]",
+        desc: "重命名并保留任务、仓库及默认值。",
+      },
+      {
+        flag: "delete <name> [--yes]",
+        desc: "移到 ~/.navori/.trash，可恢复。",
+      },
+    ],
+    example: [
+      {
+        title: "创建并关联",
+        code: "$ navori workspace init bonum --yes\n◆  Wrote ~/.navori/workspaces/bonum/workspace.json\n\n$ navori workspace link bonum\n◆  Registered 'demo' in workspace 'bonum'.\n◆  workspace → 'bonum' saved in navori.config.json",
+      },
+      {
+        title: "查看详情",
+        code: '$ navori workspace show bonum\n│    ticketsDir : tickets\n│    defaults   : {"engines":["claude"]}\n│    repos      : 1\n│  Repos:\n│      · demo  /Users/you/dev/demo',
+      },
+      {
+        title: "批量渲染预览",
+        code: "$ navori workspace render bonum\n│    · demo  up-to-date  45 unchanged\n└  Preview 1/1 ok · 0 would change · 0 conflict · 1 warning · 0 failed",
+      },
+    ],
+    notes: [
+      "工作区在 ~/.navori/workspaces/，仅属于本机，仓库只保留 navori.config.json 的 workspace 键。",
+      "link 在仓库内关联，add-repo 从外部按路径执行相同注册。",
+      "render 无 --apply 时预览完整仓库，以衡量预设变更的影响范围。",
+      "delete 移到 ~/.navori/.trash，不直接删除。",
+    ],
+  },
+  ticket: {
+    id: "ticket",
+    title: "ticket",
+    summary: "将任务作为工作区文件保存，为跨仓库工作提供统一位置。",
+    usage: "navori ticket <list|show|new|archive|unarchive|delete> <workspace> [args]",
+    flags: [
+      {
+        flag: "list <workspace> [--archive] [--json]",
+        desc: "列出活跃任务；--archive 包括归档任务。",
+      },
+      {
+        flag: "show <workspace> <id> [--json]",
+        desc: "显示任务及引用它的仓库。",
+      },
+      {
+        flag: "new <workspace> <id> [--title <txt>]",
+        desc: "从模板创建任务。",
+      },
+      {
+        flag: "archive <workspace> <id>",
+        desc: "移到 _archive，可撤销。",
+      },
+      {
+        flag: "unarchive <workspace> <id>",
+        desc: "恢复到活跃目录。",
+      },
+      {
+        flag: "delete <workspace> <id> [--yes]",
+        desc: "永久删除。",
+      },
+    ],
+    example: [
+      {
+        title: "创建任务",
+        code: "$ navori ticket new bonum BNM-123 --title 'Login breaks on Safari'\n◆  Wrote ~/.navori/workspaces/bonum/tickets/BNM-123.md\n└  Reference it from a repo's progress/current.md with:\n  ticket: BNM-123",
+      },
+      {
+        title: "列出任务",
+        code: "$ navori ticket list bonum\n│    · BNM-123  Login breaks on Safari\n└  1 ticket",
+      },
+    ],
+    notes: [
+      "任务为含 Goal、Repos affected、Scope 等章节的 .md 文件，供人和智能体共同阅读。",
+      "show 在工作区各仓库的 progress/current.md 交叉查找 id，确认谁正在处理。",
+      "id 仅允许字母、数字、连字符和下划线，以字母或数字开头。",
+    ],
+  },
+  dominio: {
+    id: "dominio",
+    title: "dominio",
+    summary: "工作区知识库，保存跨仓库、不适合单个 CLAUDE.md 的权威事实。",
+    usage: "navori dominio <init|list|show|reindex|doctor|inject> [--workspace <name>]",
+    flags: [
+      {
+        flag: "init",
+        desc: "创建工作区 Dominio 存储。",
+      },
+      {
+        flag: "list",
+        desc: "列出条目。",
+      },
+      {
+        flag: "show <id>",
+        desc: "输出一个条目。",
+      },
+      {
+        flag: "reindex",
+        desc: "根据条目文件重建 DOMINIO.md。",
+      },
+      {
+        flag: "doctor",
+        desc: "校验 Dominio，仅警告。",
+      },
+      {
+        flag: "inject",
+        desc: "输出 SessionStart 钩子使用的索引。",
+      },
+      {
+        flag: "--workspace <name>",
+        desc: "待操作工作区，默认使用当前仓库配置的声明。",
+      },
+    ],
+    example: [
+      {
+        title: "创建存储",
+        code: "$ navori dominio init --workspace bonum\n└  Dominio created at ~/.navori/workspaces/bonum/dominio.",
+      },
+      {
+        title: "检查一致性",
+        code: "$ navori dominio doctor --workspace bonum\n◇  Dominio for 'bonum' ────────╮\n│    ✓ Dominio is consistent.  │\n└  OK",
+      },
+      {
+        title: "重建索引",
+        code: "$ navori dominio reindex --workspace bonum\n└  Index rebuilt (0 entries): ~/.navori/workspaces/bonum/dominio/DOMINIO.md",
+      },
+    ],
+    notes: [
+      "用于长期跨仓库事实：数据模型、业务规则、服务契约和共享注意事项。",
+      "SessionStart 消费 inject 输出，将索引注入上下文，条目按需读取。",
+      "dominio 技能引导把发现提升到知识库，而非仅留在会话记忆。",
+    ],
+  },
+  tools: {
+    id: "tools",
+    title: "tools",
+    summary:
+      "SessionStart 机器命令：每个会话提示一次声明 latestRelease 的工具有稳定新版本，目前为 engram。",
+    usage: "navori tools notice [--ack <plugin@x.y.z,...>]",
+    flags: [
+      {
+        flag: "notice",
+        desc: "仅读本机缓存，不联网；将每日刷新交给分离执行者，输出待通知内容；无通知则不输出。",
+      },
+      {
+        flag: "--ack <plugin@x.y.z,...>",
+        desc: "将对应版本标为已通知，仅由钩子在输出正文后调用。",
+      },
+    ],
+    example: [
+      {
+        title: "钩子读取的内容",
+        code: "$ navori tools notice\n#navori-tool-notice v1 ack=engram@3.2.1\nA newer engram is available: 3.2.1 (installed: 3.0.0). Tell the user once; `navori doctor` shows the detail.",
+      },
+    ],
+    notes: [
+      "首行须为 #navori-tool-notice v1，否则钩子丢弃输出，避免旧 navori 将用法说明注入上下文。",
+      "始终退出 0；NAVORI_NO_UPDATE_NOTIFIER=1 可完全关闭，doctor 也显示同样通知作为信息。",
+    ],
+  },
+  backup: {
+    id: "backup",
+    title: "backup",
+    summary: "每次 sync 或 render 修改文件前，在 ~/.navori/backups/ 创建快照。",
+    usage: "navori backup <list|restore|prune> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "列出快照，默认最近 20 个。",
+      },
+      {
+        flag: "restore <timestamp> [--cwd <dir>] [--yes]",
+        desc: "恢复快照文件到当前目录，时间戳来自 backup list。",
+      },
+      {
+        flag: "prune [--days <n>] [--yes]",
+        desc: "删除超出保留期限（默认 30 天）的备份，再按最旧优先清理到容量上限。",
+      },
+    ],
+    example: [
+      {
+        title: "查看备份",
+        code: "$ navori backup list\n│  1 backup(s) total. Showing 1:\n│    · repo-2026-09-01T17-49-47-756  (just now)\n│        · .claude/agents/orchestrator.md\n│        · CLAUDE.md\n└  Done",
+      },
+      {
+        title: "恢复",
+        code: "navori backup restore repo-2026-09-01T17-49-47-756 --yes",
+      },
+      {
+        title: "清理",
+        code: "$ navori backup prune --days 30 --yes\n└  Nothing to prune — backups are within retention and under the size cap",
+      },
+    ],
+    notes: [
+      "备份自动创建，没有 backup create 命令，每次破坏性写入前均备份。",
+      "位于 ~/.navori/backups/，仅属于本机，不提交。",
+      "快照只包含该操作将触碰的文件，不包含整个仓库。",
+    ],
+  },
+  migrations: {
+    id: "migrations",
+    title: "migrations",
+    summary: "init 以 replace 模式采用 navori 时备份原 harness，可恢复。",
+    usage: "navori migrations <list|restore> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "列出迁移备份，默认最近 20 个。",
+      },
+      {
+        flag: "restore <timestamp> <repo> [--cwd <dir>] [--yes] [--json]",
+        desc: "恢复原始 harness，两个值均来自 migrations list。",
+      },
+    ],
+    example: [
+      {
+        title: "没有备份时",
+        code: "$ navori migrations list\n●  No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.\n└  Done",
+      },
+      {
+        title: "用于脚本",
+        code: '$ navori migrations list --json\n{\n  "migrations": [],\n  "totalAvailable": 0\n}',
+      },
+    ],
+    notes: [
+      "backup 覆盖 navori 每次写入，migrations 保存引入 navori 前的 .claude/。",
+      "仅 replace 模式产生备份；coexist 不替换，所以无需备份。",
+      "位于 ~/.navori/migrations/，仅属于本机。",
+    ],
+  },
+  audit: {
+    id: "audit",
+    title: "audit",
+    summary: "查看 harness 真实执行：token 去向及未能遵守的指令。",
+    usage:
+      "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--all-repos] [--include-human-content] [--snapshot <name>] [--compare <snapshot>] [--json]",
+    flags: [
+      {
+        flag: "--session <id>",
+        desc: "按 id、前缀或 latest 选择一个会话。",
+      },
+      {
+        flag: "--days <n>",
+        desc: "仅选择最近 N 天标记的会话。",
+      },
+      {
+        flag: "--since <YYYY-MM-DD>",
+        desc: "起始日期。",
+      },
+      {
+        flag: "--until <YYYY-MM-DD>",
+        desc: "截止日期。",
+      },
+      {
+        flag: "--json",
+        desc: "JSON 报告输出到 stdout，不写文件。",
+      },
+      {
+        flag: "--out <dir>",
+        desc: "覆盖输出目录。",
+      },
+      {
+        flag: "--all-repos",
+        desc: "汇总所有已审计仓库的区间报告，并显示各仓库覆盖率。",
+      },
+      {
+        flag: "--include-human-content",
+        desc: "仅本次调用把人类内容加入私有报告，不能与 --collect 组合。",
+      },
+      {
+        flag: "--disarm",
+        desc: "取消待生效的 --arm，不启动任何会话。",
+      },
+      {
+        flag: "--snapshot <name>",
+        desc: "将区间指标固定为审计根目录内的版本化快照；格式 2 按宿主、运行方式、模型和工作分组。不覆盖现有快照，不能与 --json 组合。",
+      },
+      {
+        flag: "--copy-to <path>",
+        desc: "复制快照到相对于 git 根目录的此路径，不覆盖。",
+      },
+      {
+        flag: "--compare <snapshot>",
+        desc: "逐指标与快照比较，仅描述结果；分组一致时标 matched，不宣称改进。可与 --json 组合且不写文件。",
+      },
+      {
+        flag: "--start <id>",
+        desc: "将会话标为已审计，供钩子流程使用。",
+      },
+      {
+        flag: "--arm",
+        desc: "准备 audit-mode：仓库中已打开会话在下一消息激活，可在会话内用 ! navori audit --arm；否则下个新会话激活。钩子自行执行 --start，仅作用一次；--disarm 可取消。",
+      },
+      {
+        flag: "--stop <id>",
+        desc: "封存会话日志并生成报告。",
+      },
+      {
+        flag: "--collect",
+        desc: "在 127.0.0.1:4318 运行 OTel 接收器直至停止。它是第三来源，记录宿主权限批准与活跃技能；输出地址、目录和需在审计会话终端导出的变量。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "待审计仓库，默认当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "启用 audit-mode",
+        code: "$ navori audit --start 8f3c1d2e\n└  audit-mode active ~/.navori/audits/demo/session-8f3c1d2e.log",
+      },
+      {
+        title: "无已标记会话",
+        code: "$ navori audit\n└  No sessions marked with audit-mode for 'demo'. Activate it with 'navori audit --start <session-id>'.",
+      },
+      {
+        title: "单会话报告",
+        code: "$ navori audit --session latest\n◇  demo · 2026-09-01 → 2026-09-01 ─╮\n│  1 sessions · 19 agents          │\n│  billable  2.3M tok              │\n│  startup  346k tok               │\n│  findings  1 high · 3 warn       │\n└  Report ~/.navori/audits/demo/sessions/2026-09-01-8f3c1d2e/report.md",
+      },
+    ],
+    notes: [
+      "逐会话主动启用，未提前 --start 就没有日志，navori 不观察活动。",
+      "两个来源互不替代：钩子事件日志记录 harness 行为，Claude Code 会话记录是 token 用量唯一来源。",
+      "Markdown 和 JSON 报告保存在 ~/.navori/audits/<repo>/，旁边留存会话日志副本。",
+      "记录器较晚启动时钩子计数不完整，orchestrator 卡片说明限制及实际观察比例。",
+      "宿主未暴露数据标为不可用，不记作 0。报告含任务结果（review、receipt、dispatch）和按各自分母分组的建议，不合成总分。",
+      "每项指标声明从哪个版本或来源开始可用，并提供逐任务效率。未声明参数被拒绝，退出 2。",
+      "限制：receipt review 动词从 0.11.3 提供，最低值与上限未校准，--compare 噪声带未测量，逐任务 token 归因仅覆盖 implementer。",
+    ],
+  },
+  adopt: {
+    id: "adopt",
+    title: "adopt",
+    summary: "将手写 harness 文件纳入管理，保留原文。",
+    usage: "navori adopt <path> [--apply] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "<path>",
+        desc: "仅接受仓库 .claude/ 下 .md 文件，如 .claude/skills/mine.md，拒绝其他路径。",
+      },
+      {
+        flag: "--apply",
+        desc: "写入磁盘，否则只预览。",
+      },
+      {
+        flag: "--cwd <dir>",
+        desc: "仓库目录，默认当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "预览",
+        code: "$ navori adopt .claude/skills/mine.md\n●  would wrap '.claude/skills/mine.md' in a managed block id=\"adopted-claude-skills-mine\", leaving its content untouched\n└  Preview: nothing was written. Run it again with --apply.",
+      },
+      {
+        title: "纳入管理",
+        code: "$ navori adopt .claude/skills/mine.md --apply\n◆  '.claude/skills/mine.md' adopted (managed block id=\"adopted-claude-skills-mine\").\n└  Backup at ~/.navori/backups/repo-2026-09-01T20-04-26-926",
+      },
+      {
+        title: "重复运行无变化",
+        code: "$ navori adopt .claude/skills/mine.md --apply\n└  '.claude/skills/mine.md' was already adopted — no changes.",
+      },
+    ],
+    notes: [
+      "adopt 仅将原文包装在受管理块中，不重写；接管的是生命周期，而非内容。",
+      "已有受管理块、仓库外路径或非 .claude/ 下 .md 文件均拒绝，说明原因且不写入。",
+      "doctor 检测仓库内冲突 harness 时建议本命令；若文件在 ~/.claude，则只读，需明确确认冲突。",
+      "写入前始终备份，并说明备份位置。",
+    ],
+  },
+  receipt: {
+    id: "receipt",
+    title: "receipt",
+    summary: "发布前签署或校验已审查的字节内容。",
+    usage:
+      "navori receipt <sign|check|gate|review begin|review seal> --feature <id> [--target <ref>] [--dir <path>] [--include-consumed] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
+    flags: [
+      {
+        flag: "--feature <id>",
+        desc: "handoff 中接收的标识。",
+      },
+      {
+        flag: "--target <ref>",
+        desc: "实际 PR 基础分支，默认 prTarget。",
+      },
+      {
+        flag: "--dir <path>",
+        desc: "进度目录，默认 .claude/progress。",
+      },
+      {
+        flag: "--spec <spec> --milestone M<n>",
+        desc: "当前循环规格与里程碑，gate 必填；sign 时须和 --gate-ran 一起使用。",
+      },
+      {
+        flag: "--phase <name|index>",
+        desc: "工作计划阶段名称或从 1 开始的序号，在 sign/gate 中替代 --spec/--milestone。",
+      },
+      {
+        flag: "--gate-ran <scoped|full>",
+        desc: "sign：实际运行的关卡，决策为 full 时拒绝 scoped。",
+      },
+      {
+        flag: "--include-consumed",
+        desc: "check：receipt.txt 消失时使用已消费的 receipt.consumed.txt。",
+      },
+      {
+        flag: "review begin | review seal --nonce <n>",
+        desc: "review_<feature>.json 的生产者证据：begin 在审查差异前记录内容身份并输出 nonce，seal 用该 nonce 封存 sidecar。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读契约。",
+      },
+    ],
+    example: [
+      {
+        title: "签署与校验",
+        code: "navori receipt sign --feature checkout --json\nnavori receipt check --feature checkout --json",
+      },
+    ],
+    notes: [
+      "仅 JSON 返回 status ok 才发布。",
+      "gate 只读，返回 { gateKind, reason, unit, closingMilestone }，决定 scoped/full。scoped receipt 从不 fresh，只允许提交，不允许创建 PR。",
+    ],
+  },
+  plan: {
+    id: "plan",
+    title: "plan",
+    summary: "分类复杂度并校验工作计划（spec 0032）。",
+    usage:
+      "navori plan <classify|render|update|check|gate> <feature> [--files <a,b,c> | --diff [<base>]] [--dir <path>] [--json]",
+    flags: [
+      {
+        flag: "--files <a,b,c>",
+        desc: "任务触碰的仓库相对路径，用于 classify。",
+      },
+      {
+        flag: "--diff [<base>]",
+        desc: "将真实差异 git diff --name-only <base>...HEAD（默认 origin/main）与声明信号比较，超过声明级别时失败。",
+      },
+      {
+        flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
+        desc: "classify 无法自行测量、由调用方声明的信号。",
+      },
+      {
+        flag: "--progress <A1>=<status>",
+        desc: "修改标准状态，可重复传参（--progress A1=cumplido --progress A2=bloqueado），整批全部应用或全部不应用。",
+      },
+      {
+        flag: "--decision <text> --date <date>",
+        desc: "向工作计划追加决策。",
+      },
+      {
+        flag: "--dir <path>",
+        desc: "进度目录，默认 .claude/progress。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读契约。",
+      },
+    ],
+    example: [
+      {
+        title: "分类与校验",
+        code: "navori plan classify checkout --files src/checkout.ts,src/checkout.test.ts --json\nnavori plan check checkout",
+      },
+      {
+        title: "比较真实差异与声明级别",
+        code: "navori plan classify checkout --diff origin/main",
+      },
+    ],
+    notes: [
+      "classify 是 0–3 任务级别的唯一定义，不在别处重写阈值。",
+      "render 从 JSON 确定性生成 workplan_<feature>.md，不手改。",
+      "gate 不接受 <feature>，从 stdin 读取 PreToolUse(Agent) 载荷；启用 harness.planTiers 时，无有效计划或零级豁免则拒绝派发 implementer。",
+      "钩子只在计划缺失或无效等明确结论下拒绝。navori 或 plan 子命令缺失时无法判定：Claude 在可显示确认的权限模式询问用户，Codex 或不可提示模式保持阻止。",
+    ],
+  },
+  spec: {
+    id: "spec",
+    title: "spec",
+    summary: "分类规格 tasks.md 并校验交付结构（spec 0044）。",
+    usage: "navori spec <classify|check> <feature> [--cwd <path>] [--json]",
+    flags: [
+      {
+        flag: "--cwd <path>",
+        desc: "仓库根目录，默认当前目录。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读契约。",
+      },
+    ],
+    example: [
+      {
+        title: "分类与校验规格",
+        code: "navori spec classify checkout --json\nnavori spec check checkout",
+      },
+    ],
+    notes: [
+      "classify 选择 single 单 PR 或 split 按功能交付拆分；仅在至少 2 个交付且超过 12 个任务或估算 1500 行时拆分，最多 4 个 PR，阈值由 sdd.deliveries 定义。",
+      "check 校验里程碑、标准、任务、R<n> 覆盖、垂直交付与基础阶段。master-plan deliveries 模式下，每个 E<n> 必须在 parts.json（master-delivery-unmapped 为错误），目标须匹配 prTarget（master-target-mismatch 为警告）。旧格式只警告。",
+      "退出码：0 正常或仅警告；2 存在错误；1 配置无效或缺少 tasks.md，classify 超出 maxPrsPerSpec 时也退出 1。",
+      "只读，不运行验收命令、不创建 PR。",
+    ],
+  },
+  handoff: {
+    id: "handoff",
+    title: "handoff",
+    summary: "orchestrator 派发下一角色前，校验 implementer handoff。",
+    usage:
+      "navori handoff <check|log-review> <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
+    flags: [
+      {
+        flag: "--for scribe",
+        desc: "除存在、解析和 feature 外，还要求 --cwd 匹配 worktree/branch，校验每个 markdownRequests[].path；无此参数仅检查存在、可解析与 feature 匹配。",
+      },
+      {
+        flag: "--dir <path>",
+        desc: "进度目录，默认 .claude/progress。",
+      },
+      {
+        flag: "--cwd <checkout>",
+        desc: "待校验 checkout，默认当前目录。",
+      },
+      {
+        flag: "--json",
+        desc: "输出机器可读契约。",
+      },
+    ],
+    example: [
+      {
+        title: "派发 scribe 或 reviewer 之前",
+        code: "navori handoff check checkout --json",
+      },
+      {
+        title: "scribe 写入或提交前预检",
+        code: "navori handoff check checkout --for scribe --cwd <checkout> --json",
+      },
+    ],
+    notes: [
+      "JSON 包含 status（ok/findings/error）、带 check 规则名的 failures 和 warnings，以及 handoff 的 worktree/branch；失败规则为 exists/parse/feature/worktree/branch/path，警告为 head/legacy-md。",
+      "退出码与 receipt 一致：0 正常，2 检查失败，1 git 或 I/O 错误而非校验失败。",
+      "log-review <feature> 校验 review_<feature>.json，将 score >= 50 且未记录的问题追加到 findings.jsonl。接受 --dir、--cwd、--json；sidecar 无效时退出 1。",
+      "缺少 head 仍返回 ok，仅警告，不阻止。",
+      "harness.scribeOwnsMarkdown: false 时校验 impl_<feature>.md，要求存在、非空且含 Status: 行，仅通过文件名关联 feature。",
+    ],
+  },
+  master: {
+    id: "master",
+    title: "master",
+    summary: "项目主计划：管理阶段、流程、部分和闭环（spec 0034）。",
+    usage:
+      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [options] [--cwd <path>]",
+    flags: [
+      {
+        flag: "<slug>",
+        desc: "首阶段 kebab-case 名称，仅无活跃阶段时 init 必填。",
+      },
+      {
+        flag: "<template|en-curso>",
+        desc: "阶段模式，只能在首阶段 context 流程设置；从第二阶段起自动记录 en-curso。",
+      },
+      {
+        flag: "ux <none|md|md-json>",
+        desc: "记录阶段 UX 契约决策，只能在 ux 流程设置，暂不适用于 deliveries。",
+      },
+      {
+        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
+        desc: "将授权部分投影为工作计划。--refresh 重置待验收标准，并要求 --approved-by user。",
+      },
+      {
+        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
+        desc: "为交付授权限定队列，按 parts.json 校验各部分。",
+      },
+      {
+        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
+        desc: "只读检查准备状态（有阻塞退出 1），记录明确基线批准，或撤销队列权限。",
+      },
+      {
+        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
+        desc: "消费宿主证据；仅手动标准可用显式证明 --approved-by user。",
+      },
+      {
+        flag: "delivery-review --part <P<n>> --report <file> --envelope <file> [--approved-by user]",
+        desc: "记录操作者证明的技术审查，CLI 校验内容与 receipt，不校验审查者身份或 QA 执行。",
+      },
+      {
+        flag: "delivery-present --delivery <E<n>>",
+        desc: "记录已技术审查的演示身份，不代表客户同意。",
+      },
+      {
+        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <text>] [--reference <ref>] --approved-by user",
+        desc: "记录客户对已审查身份的决定；非 accepted 决策须有 --reason。",
+      },
+      {
+        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
+        desc: "证明已接受身份的 release/deploy 引用，不执行部署；merge 不算部署。",
+      },
+      {
+        flag: "status [--json|--line]",
+        desc: "显示当前阶段和流程；无参数时重建 STATUS.md，--json 与 --line 只读。",
+      },
+      {
+        flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
+        desc: "校验当前流程出口、已关闭阶段、部分规格或单规格适配的可验证标准。",
+      },
+      {
+        flag: "advance",
+        desc: "校验当前流程，满足条件后推进。",
+      },
+      {
+        flag: "part <P<n>> [--state <state>] [--reason <text>] [--spec <path>] [--issue <n>]",
+        desc: "更新部分；--accept、--command、--result、--approved-by 记录验收证据。",
+      },
+      {
+        flag: "template <name> [--part <P<n>>]",
+        desc: "打印模板；--part 从 parts.json 填充 issue 模板。",
+      },
+      {
+        flag: "close [--convert <path>|--abandon] [--reason <text>]",
+        desc: "关闭、转换或放弃当前阶段；已关闭阶段只读。",
+      },
+      {
+        flag: "--cwd <path>",
+        desc: "待操作仓库，默认当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "开启首阶段",
+        code: "$ navori master init mvp\nStage 01-mvp · phase context\nSignal: commits=3 firstCommit=2026-08-01 filesChanged=12 framework=next suggested=template",
+      },
+      {
+        title: "查看信号后登记模式",
+        code: "navori master mode template",
+      },
+    ],
+    notes: [
+      "init 在 <sdd.specsDir>/_master/<NN>-<slug>/ 创建 context/raw/（独立 .gitignore，任何 gitignoreHarness 模式均不提交）、context/md/ 和 plans/，启用 harness.masterPlan 并应用渲染。",
+      "已有活跃阶段时 init 无论是否带名称都只补齐当前阶段，不创建第二个；报告阶段与流程，若传名称则退出 1。",
+      "sdd.enabled 为 false 时失败，指出需启用的键。",
+      "check --stage 查看已关闭阶段；状态变更操作仅作用于活跃阶段。",
+      "delivery-* 属于 deliveries 模式，按 parts.json 校验，每次批准需 --approved-by user。master-accept-confirm 钩子在记录前要求人类确认，智能体不能自行批准。",
+    ],
+  },
+  gate: {
+    id: "gate",
+    title: "gate",
+    summary: "运行项目质量关卡，完整输出写日志，stdout 仅显示紧凑结论。",
+    usage: "navori gate <fast|full|foreign> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<fast|full>",
+        desc: "逐字运行 navori.config.json 中 qualityGate.fast 或 qualityGate.full。",
+      },
+      {
+        flag: "foreign",
+        desc: "质量关卡钩子在其他仓库提交时调用：仅对已通过 navori workspace link 注册、命令链简单且不使用 nativeHooks 的仓库运行 qualityGate.fast。不符合条件时退出 64，不输出标记。",
+      },
+      {
+        flag: "--cwd <path>",
+        desc: "项目根目录，默认当前目录。",
+      },
+    ],
+    example: [
+      {
+        title: "运行完整关卡",
+        code: "$ navori gate full\nnavori gate full: exit 0 — log .navori/state/gate/full-20261008T191709Z.log",
+      },
+    ],
+    notes: [
+      "stdout 首行始终是 navori gate <kind>: exit <N> — log <path>。无标记表示未执行，需运行原始命令。",
+      "完整输出保存在 .navori/state/gate/<kind>-<ts>.log。成功摘要小于 2 KB；失败输出有上限的错误片段与末尾日志。",
+      "退出码与关卡命令链一致。配置关卡不再通过权限安全检查时，不运行任何命令并退出 2。",
+      "向子进程转发 SIGINT/SIGTERM，并写入 killed 标记。",
+      "foreign 将日志保存在私有临时目录中（不写入目标仓库），仅保留最新日志。",
+    ],
+  },
+};
+
+export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { en, es, "zh-CN": zhCN };
 
 export const commandOrder = [
   "init",

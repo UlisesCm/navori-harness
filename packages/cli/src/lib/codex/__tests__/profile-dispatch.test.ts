@@ -324,10 +324,11 @@ describe("fresh metadata prepare/claim", () => {
   it("total slow catalog deadline closes the owned native child", async () => {
     const marker = join(directory, "native-pid");
     const script = join(commands, "rpc.cjs");
+    vi.stubEnv("NAVORI_TEST_NATIVE_PID", marker);
     writeFileSync(script, "setInterval(()=>{},1000);");
     writeFileSync(
       join(commands, "codex"),
-      `#!/bin/sh\nprintf '%s\\n' "$$" > '${marker}'\nexec '${process.execPath}' '${script}'\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$$" > "$NAVORI_TEST_NATIVE_PID"\nexec '${process.execPath}' '${script}'\n`,
       { mode: 0o755 },
     );
     const start = Date.now();

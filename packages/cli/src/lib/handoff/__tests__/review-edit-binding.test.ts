@@ -150,7 +150,7 @@ afterEach(() => {
 });
 
 describe("native review edit binding", () => {
-  // Covers: R18
+  // Covers: R13, R18
   it.each([
     ["0.162.1", "0.162.1"],
     ["0.162.1", "0.163.0"],
@@ -197,6 +197,25 @@ describe("native review edit binding", () => {
     });
     expect(preflight()).toEqual(check());
   });
+  // Covers: R13, R18
+  it.each([0, 1])(
+    "rejects unsupported persisted owner version at position %s",
+    (position: number) => {
+      actor(scribe, "scribe", "0.163.0");
+      expect(attestHandoff(options())).toEqual({ status: "attested" });
+      actor(reviewer, "reviewer");
+      nonce = begin();
+      change(state("ownership_demo.json"), (body: Record<string, unknown>) => {
+        const owners = body.actors as Record<string, unknown>[];
+        const owner = owners[position];
+        if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
+        owner.version = "0.164.0";
+      });
+      expect(check()).toEqual({ status: "error", reason: "ownership-mismatch" });
+      expect(preflight()).toEqual(check());
+    },
+  );
+
   it("publishes an exact thread pointer and shares decisions with the read-only preflight", () => {
     expect(read(index())).toEqual({ v: 1, thread: reviewer, feature: "demo", nonce });
     expect(read(stamp()).editBinding).toMatchObject({
@@ -262,6 +281,7 @@ describe("native review edit binding", () => {
     expect(check().status).toBe("ok");
   });
 
+  // Covers: R13
   it.each([
     [
       "index nonce",
@@ -446,8 +466,16 @@ describe("native review edit binding", () => {
     );
   });
 
+  // Covers: R13
   it("detects old or marker-only hooks before requesting native identity", () => {
     const hook = join(host, ".codex/hooks/role-guard.sh");
+    const current = readFileSync(hook, "utf8");
+    const old = current
+      .replace("!['0.162.1', '0.163.0'].includes(a.version)", "a.version !== '0.162.1'")
+      .replace("!['0.162.1', '0.163.0'].includes(p.version)", "p.version !== '0.162.1'");
+    expect(old).not.toBe(current);
+    writeFileSync(hook, old);
+    expect(preflight().reason).toContain("unsupported-host-hook");
     writeFileSync(hook, "# navori:review-edit-binding/v1\n");
     expect(preflight().reason).toContain("unsupported-host-hook");
     expect(preflightReviewEdits({ cwd: target, hostCwd: host, feature: "../escape" }).status).toBe(

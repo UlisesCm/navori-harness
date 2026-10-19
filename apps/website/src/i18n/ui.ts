@@ -1,319 +1,14 @@
-export const languages = {
-  es: "Español",
-  en: "English",
-} as const;
+import { locales, type Locale } from "./locales";
 
-export const defaultLang = "es" as const;
+/** Native language names in the public publishing order. */
+export const languages = Object.fromEntries(
+  Object.entries(locales).map(([id, locale]) => [id, locale.name]),
+);
+export const defaultLang = "en" as const;
+export type Lang = Locale;
 
-export type Lang = keyof typeof languages;
-
-/**
- * Every visible string on the site, in both languages.
- *
- * The `en` block is not optional decoration: a landing that ships bilingual and
- * only updates one half ends up describing two different products. Add a key to
- * both at once — `UIKey` is derived from `es`, so a missing `en` key is a type
- * error at the call site, not a silent fallback.
- *
- * Numbers in this copy come from `../consts.ts` where they can be asserted
- * against the repo. Do not hardcode a count here.
- */
+/** Required localized UI and walkthrough text shared by HTML and agent exports. */
 export const ui = {
-  es: {
-    "site.tagline": "El harness multi-agente para cualquier repo",
-    "site.description":
-      "navori instala en cualquier repo un harness multi-agente + SDD reproducible: agentes, skills, hooks, permisos y memoria, versionados en un solo config y renderizados a Claude Code, Codex, Cursor, Copilot y AGENTS.md.",
-    "nav.docs": "Docs",
-    "nav.quickstart": "Quickstart",
-    "nav.deepdive": "A fondo",
-    "nav.github": "GitHub",
-    "nav.npm": "npm",
-    "lang.switchTo": "English",
-
-    "hero.eyebrow": "open source · 6 engines",
-    "hero.headlineA": "El harness multi-agente",
-    "hero.headlineB": "para cualquier repo.",
-    "hero.subhead":
-      "Agentes, skills, hooks, permisos y memoria — versionados en un solo config y reconstruibles con un comando. Se renderiza a Claude Code, Codex, Cursor, Copilot y AGENTS.md sin pisar una línea de lo tuyo.",
-    "hero.cta.primary": "Empezar",
-    "hero.cta.secondary": "Ver en GitHub",
-    "hero.install.label": "Instalación",
-
-    // ── el recorrido: un prompt entrando al harness ───────────────────
-    "graph.eyebrow": "Anatomía de una sesión",
-    "graph.title": "Sigue un prompt por dentro del harness",
-    "graph.subtitle":
-      "Sin harness, tu frase llega sola a un modelo que decide por su cuenta. Esto es todo lo que navori pone en el camino — ocho paradas, de la frase al commit, y de vuelta a la memoria.",
-    "graph.aria":
-      "Diagrama del recorrido de un prompt: entra, se le carga el contexto del repo, el orchestrator lo descompone, las herramientas de búsqueda lo ubican en el código, los subagentes trabajan en paralelo, los guardas y los gates de calidad lo filtran, y termina en un commit cuya decisión vuelve a la memoria.",
-    "graph.hint": "El recorrido avanza solo. Toca una parada para saltar a ella.",
-    "graph.pause": "Pausar",
-    "graph.play": "Reanudar",
-    "graph.replay": "Volver a empezar",
-    "graph.prompt": "arregla el bug del login que reportó soporte",
-    "graph.promptLabel": "tu prompt",
-    "graph.stationOf": "Parada {n} de {total}",
-
-    "graph.s1.name": "Entra",
-    "graph.s1.title": "Escribes una frase. Todavía no piensa nadie.",
-    "graph.s1.body":
-      "Antes de que el modelo lea tu prompt, un hook de arranque ya corrió. Es la diferencia entre un asistente que empieza en blanco cada mañana y uno que abre la sesión sabiendo dónde está parado.",
-    "graph.s2.name": "Contexto",
-    "graph.s2.title": "Cuatro fuentes entran antes que tu frase",
-    "graph.s2.body":
-      "Las reglas de este repo, la guía de esta tarea, los hechos que valen para todo el workspace y lo que ya se decidió en sesiones pasadas. Nada de esto se lo tienes que contar tú otra vez.",
-    "graph.s3.name": "Orquesta",
-    "graph.s3.title": "El agente con el que hablas no hace el trabajo",
-    "graph.s3.body":
-      "Lee, decide en cuántas piezas se parte y a quién le toca cada una. Es el único que ve la tarea completa — y el único que corre en el modelo caro, porque su trabajo es juzgar, no leer archivos.",
-    "graph.s4.name": "Ubica",
-    "graph.s4.title": "Primero encontrar, después leer",
-    "graph.s4.body":
-      "Dos preguntas distintas con dos herramientas distintas: dónde vive un símbolo y qué se rompe si lo tocas, contra qué archivos contienen esta cadena. Sin esto, un agente abre veinte archivos para encontrar uno.",
-    "graph.s5.name": "Trabaja",
-    "graph.s5.title": "Tres especialistas, en paralelo, sin estorbarse",
-    "graph.s5.body":
-      "Cada uno corre en su propia ventana de contexto y devuelve la conclusión, no el volcado de lo que leyó. Por eso el hilo principal no se llena de ruido y por eso el modelo caro no paga por leer.",
-    "graph.s6.name": "Protege",
-    "graph.s6.title": "Lo que el agente NO puede hacer",
-    "graph.s6.body":
-      "Un hook intercepta cada herramienta antes de que corra, y los permisos declaran qué pasa sin preguntar, qué pregunta y qué está prohibido. El `rm -rf` con una variable se bloquea aquí, no después.",
-    "graph.s7.name": "Filtra",
-    "graph.s7.title": "Nada se da por terminado porque alguien lo diga",
-    "graph.s7.body":
-      "Seguridad y duplicación sobre el diff, el quality gate del repo corriendo de verdad, y un reviewer con contexto fresco que aprueba o rechaza con motivos. Cuatro filtros que no son opiniones.",
-    "graph.s8.name": "Cierra",
-    "graph.s8.title": "El commit no es el final: la decisión se guarda",
-    "graph.s8.body":
-      "Sale el commit con el formato del repo y su PR. Y lo que se decidió —y por qué— vuelve a la memoria, que es de donde saldrá el contexto de la sesión del lunes. El ciclo se cierra solo.",
-
-    "graph.chip.sessionstart": "arranca el harness",
-    "graph.chip.claudemd": "las reglas de este repo",
-    "graph.chip.skills": "la guía de esta tarea",
-    "graph.chip.dominio": "hechos de todo el workspace",
-    "graph.chip.engram": "lo que ya se decidió",
-    "graph.chip.orchestrator": "descompone y reparte",
-    "graph.chip.codegraph": "dónde vive · quién lo llama",
-    "graph.chip.tgrep": "qué archivos lo contienen",
-    "graph.chip.scout": "mapea o investiga",
-    "graph.chip.implementer": "escribe el código",
-    "graph.chip.auditor": "busca lo que duele",
-    "graph.chip.guard": "bloquea lo destructivo",
-    "graph.chip.permissions": "allow · ask · deny",
-    "graph.chip.gate": "lint · tests · formato",
-    "graph.chip.reviewer": "aprueba o rechaza",
-    "graph.chip.commit": "commit + PR",
-    "graph.chip.memory": "guarda la decisión",
-    "graph.loop": "lo guardado vuelve al contexto de la próxima sesión",
-    "graph.loopIn": "de la sesión anterior",
-
-    "problem.eyebrow": "El problema",
-    "problem.title": "Cada repo reinventa lo mismo",
-    "problem.subtitle":
-      "Si trabajas con varios proyectos y agentes de IA, sabes a qué nos referimos.",
-    "problem.card1.title": "Cada repo, su propio harness",
-    "problem.card1.body":
-      "Copias y pegas .claude/ de un proyecto a otro. Mantenerlo sincronizado es manual y propenso a errores.",
-    "problem.card2.title": "Cada engine, su propia config",
-    "problem.card2.body":
-      "Claude tiene .claude/, Cursor tiene .cursor/, Copilot tiene .github/copilot-instructions.md. La misma intención, tres archivos.",
-    "problem.card3.title": "El SDD se erosiona",
-    "problem.card3.body":
-      "Las skills, los hooks y las convenciones de Spec-Driven Development se pierden con el tiempo si no hay una forma de versionarlas y actualizarlas.",
-
-    // ── los tres alcances ─────────────────────────────────────────────
-    "scopes.eyebrow": "Alcances",
-    "scopes.title": "El harness ya no vive solo en el repo",
-    "scopes.subtitle":
-      "Dos alcances aditivos, cada uno opt-in. El workspace se suma al repo sin degradarlo.",
-    "scopes.repo.tag": "por repo",
-    "scopes.repo.title": "El repo",
-    "scopes.repo.body":
-      "navori.config.json checked-in es la fuente de verdad. render reconstruye CLAUDE.md, .claude/ y progress/ desde ahí, idempotente y sin tocar lo que escribiste tú.",
-    "scopes.repo.cmd": "navori init",
-    "scopes.workspace.tag": "por organización",
-    "scopes.workspace.title": "El workspace",
-    "scopes.workspace.body":
-      "Defaults de toda la org —quality gate, branch base, convenciones— y el Dominio: los hechos durables que cruzan repos y no caben en el CLAUDE.md de ninguno. Un modelo de datos, un contrato entre servicios, un gotcha compartido.",
-    "scopes.workspace.cmd": "navori workspace · navori dominio",
-    "scopes.footnote":
-      "Huella cero sin opt-in: sin el init correspondiente, navori no escribió un solo byte fuera de tu repo.",
-
-    "how.eyebrow": "Cómo funciona",
-    "how.title": "5 capas en cascada, una sola fuente de verdad",
-    "how.subtitle":
-      "Cada capa se compone sobre la anterior. Tú decides cuánto control quieres a nivel proyecto.",
-    "how.layer1.name": "Core",
-    "how.layer1.body":
-      "El baseline gestionado por navori: agentes, skills, hooks y los bloques de doctrina. Siempre presente.",
-    "how.layer2.name": "Preset",
-    "how.layer2.body":
-      "Configuración por stack — Next.js, NestJS, Astro, Expo, Medusa, monorepos y más. ¿Falta el tuyo? Creas uno local con `navori preset init`.",
-    "how.layer3.name": "Workspace",
-    "how.layer3.body":
-      "Reglas de toda tu organización compartidas entre repos, más el Dominio del workspace.",
-    "how.layer4.name": "Project",
-    "how.layer4.body":
-      "Lo específico del repo en navori.config.json: quality gate, áreas críticas, rutas legacy y los plugins que habilitas.",
-    "how.layer5.name": "Adapters",
-    "how.layer5.body":
-      "Renderizado por engine para Claude Code, Codex, Cursor, Copilot y AGENTS.md, todos sobre el mismo pipeline.",
-    "how.config.label": "navori.config.json",
-
-    "flow.eyebrow": "En vivo",
-    "flow.title": "Mira qué aporta cada capa",
-    "flow.subtitle":
-      "Haz click en una capa para resaltar qué parte del harness genera. Los adapters lo materializan en el formato nativo de cada engine.",
-    "flow.all": "Todas",
-    "flow.engineLabel": "Engine adapters →",
-    "flow.hint": "Selecciona una capa para ver su aporte.",
-    "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
-    "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
-    "flow.workspace.note": "Defaults heredados de tu org: quality gate, branch base.",
-    "flow.project.note": "Lo del repo: los plugins que habilitas (engram) y su protocolo.",
-
-    // ── la caja de herramientas del agente ────────────────────────────
-    "toolbox.eyebrow": "Caja de herramientas",
-    "toolbox.title": "navori no ejecuta las herramientas, le enseña a usarlas",
-    "toolbox.subtitle":
-      "Cada plugin es un bundle: trae su skill, su bloque de protocolo, sus permisos y su check de doctor. Habilitas el que quieres y el harness sabe cuándo recurrir a él — y cuándo no.",
-    "toolbox.codegraph.title": "Buscar por estructura",
-    "toolbox.codegraph.body":
-      "Un grafo AST local del repo. Dónde vive un símbolo, quién lo llama y qué se rompe si lo cambias — una consulta en vez de una ronda de greps y lecturas.",
-    "toolbox.tgrep.title": "Buscar por contenido",
-    "toolbox.tgrep.body":
-      "Índice de trigramas sobre el repo. Qué archivos contienen esta cadena, con el contrato de exit code intacto y sin pelear con el motor que tenga la máquina.",
-    "toolbox.engram.title": "Memoria persistente",
-    "toolbox.engram.body":
-      "Decisiones, causas raíz y convenciones que sobreviven al cierre de sesión y a las compactaciones de contexto. No vuelves a explicar el lunes lo que decidiste el viernes.",
-    "toolbox.gh.title": "GitHub",
-    "toolbox.gh.body":
-      "Issues, PRs y checks por gh. El agente lee el ticket, abre el PR con el formato del repo y sabe leer un CI en rojo.",
-    "toolbox.acli.title": "Jira",
-    "toolbox.acli.body":
-      "Lectura y escritura de tickets por acli, con la cuenta correcta. El intake de un ticket empieza por el ticket, no por una descripción pegada a mano.",
-    "toolbox.note":
-      "navori genera el harness; no corre grep, ni los tests, ni el linter por el agente. Dicta qué herramienta usar y con qué doctrina — el resto lo ejecuta quien corresponde.",
-
-    // ── observabilidad ────────────────────────────────────────────────
-    "audit.eyebrow": "Observabilidad",
-    "audit.title": "El harness que se audita a sí mismo",
-    "audit.subtitle":
-      "Escribir doctrina es fácil; saber si alguien la siguió, no. navori audit responde las dos preguntas que ninguna otra cosa responde: a dónde se fueron los tokens y qué instrucciones nadie obedeció.",
-    "audit.point1.title": "A dónde se fueron los tokens",
-    "audit.point1.body":
-      "Facturable, arranque y por agente. El costo del harness deja de ser una intuición y pasa a ser un número que puedes atacar.",
-    "audit.point2.title": "Qué instrucciones nadie siguió",
-    "audit.point2.body":
-      "Hallazgos con severidad sobre el ruteo real: la skill que se ignoró, la búsqueda que fue por el camino caro, la delegación que no ocurrió.",
-    "audit.point3.title": "Tres fuentes que no se sustituyen",
-    "audit.point3.body":
-      "El log que escriben los hooks (qué hizo el harness), el transcript (el único lugar donde viven los tokens) y los eventos OTel del host (qué permiso se aprobó y qué skill estaba activa).",
-    "audit.point4.title": "Opt-in y por sesión",
-    "audit.point4.body":
-      "Sin un --start previo no hay log que auditar y navori no observa nada. El reporte queda en markdown y JSON dentro de ~/.navori/audits/, y --snapshot/--compare permiten contrastar rangos: describen, no declaran mejoras.",
-
-    "commands.eyebrow": "Comandos",
-    "commands.title": "El ciclo completo, comando a comando.",
-    "commands.subtitle":
-      "Todos los subcomandos que el CLI registra, agrupados por el momento en que los necesitas. Cada uno tiene su página de referencia.",
-    "commands.group.start": "Empezar",
-    "commands.group.render": "Renderizar y actualizar",
-    "commands.group.operate": "Operar",
-    "commands.group.observe": "Observar",
-    "commands.group.scale": "Escalar",
-    "commands.docsCta": "Ver la referencia completa",
-
-    "commands.init.desc":
-      "Detecta el stack, hace unas preguntas y deja el repo listo en un minuto.",
-    "commands.adopt.desc":
-      "Toma un archivo del harness que escribiste a mano y lo pone bajo gestión, sin cambiar lo que dice.",
-    "commands.add.desc": "Habilita un plugin, o sugiere cuáles según tu stack.",
-    "commands.remove.desc": "Desactiva un plugin y limpia los bloques y scripts que había dejado.",
-    "commands.preset.desc":
-      "Crea un preset local cuando tu stack no tiene uno oficial, y lo deja conectado al config.",
-    "commands.configure.desc":
-      "Edita el config sin abrirlo a mano: quality gate, áreas críticas, rutas legacy.",
-    "commands.render.desc":
-      "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
-    "commands.sync.desc":
-      "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque, o archivo por archivo en los que no tienen marcadores.",
-    "commands.update.desc": "Actualiza la CLI a la última versión de npm y luego corre refresh.",
-    "commands.refresh.desc":
-      "Detecta que el bundle avanzó y te dice qué cambiaría antes de tocarlo.",
-    "commands.migrations.desc": "Aplica las migraciones de config entre versiones del CLI.",
-    "commands.backup.desc":
-      "La red de seguridad: cada escritura deja antes un snapshot restaurable.",
-    "commands.doctor.desc":
-      "Drift, plugins rotos, invariants, harness ajeno en conflicto y próximos pasos.",
-    "commands.status.desc": "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
-    "commands.scan.desc": "Recorre un monorepo y asigna preset a cada workspace.",
-    "commands.registry.desc": "Qué presets, plugins y engines tiene disponible esta versión.",
-    "commands.bench.desc": "Mide render sobre N corridas y reporta p50/p95.",
-    "commands.audit.desc":
-      "Cómo corrió el harness de verdad: tokens por agente y doctrina que nadie siguió.",
-    "commands.workspace.desc":
-      "Config cross-repo y render del estándar a todos los repos de la org.",
-    "commands.dominio.desc": "La base de conocimiento del workspace: los hechos que cruzan repos.",
-    "commands.ticket.desc": "Tickets como archivos versionables dentro del workspace.",
-
-    "engines.eyebrow": "Multi-engine",
-    "engines.title": "Una config, seis engines.",
-    "engines.subtitle":
-      "El mismo harness materializado en el formato nativo de cada uno, sobre un solo pipeline de render. Agregar el sexto cuesta una tabla declarativa, no reescribir nada.",
-    "engines.claude.detail": "agentes · skills · hooks · settings.json con permisos",
-    "engines.codex.detail": "agentes propios · skills · hooks · servidores MCP",
-    "engines.agentsmd.detail": "spec universal · la leen Cursor, Codex, Gemini y Copilot",
-    "engines.cursor.detail": "reglas .mdc · contexto de proyecto",
-    "engines.copilot.detail": "instrucciones de workspace",
-    "engines.pi.detail": "extensión, agentes y hooks · requiere Pi >= 1.1.0",
-    "engines.status": "disponible",
-
-    "quickstart.eyebrow": "Quickstart",
-    "quickstart.title": "De cero a productivo en tres pasos",
-    "quickstart.step1.title": "Instala",
-    "quickstart.step1.body": "Sin instalación global. Usa npx.",
-    "quickstart.step2.title": "Inicializa",
-    "quickstart.step2.body":
-      "Responde unas preguntas y obtén navori.config.json + el harness renderizado.",
-    "quickstart.step3.title": "Renderiza cuando cambies algo",
-    "quickstart.step3.body":
-      "Edita el config, corre 'render --apply' y commitea. Todo idempotente.",
-
-    "releases.eyebrow": "Novedades",
-    "releases.title": "Qué cambió, versión por versión",
-    "releases.subtitle": "Lo que ganas al actualizar, en lenguaje llano.",
-    "releases.all": "Ver todas las versiones",
-    "releases.patches": "Parches destacados",
-    "releases.pageTitle": "Versiones",
-    "releases.pageDescription": "Historial de versiones de navori, explicado para quien lo usa.",
-    "nav.releases": "Versiones",
-
-    "faq.eyebrow": "Preguntas frecuentes",
-    "faq.title": "Lo que probablemente te estás preguntando",
-    "faq.q1": "¿Y si ya tengo un .claude/ que armé a mano?",
-    "faq.a1":
-      "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Si quieres que navori se haga cargo de un archivo tuyo, 'navori adopt' lo envuelve sin cambiar una palabra de lo que dice. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques para no competir con los tuyos.",
-    "faq.q2": "¿Qué engines soporta hoy?",
-    "faq.a2":
-      "Seis, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/), Copilot y Pi (.pi/, con extensión, agentes y hooks; requiere Pi >= 1.1.0). Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
-    "faq.q3": "¿Necesito Claude Code para usar navori?",
-    "faq.a3":
-      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 22.12+ y renderiza a seis engines distintos.",
-    "faq.q4": "¿Qué tan invasivo es? ¿Puedo revertirlo?",
-    "faq.a4":
-      "render hace preview por default: sin --apply no toca disco. Cuando escribe, deja antes un snapshot restaurable con 'navori backup', y la escritura es atómica. Fuera del repo no existe nada que no hayas pedido por su nombre: sin 'global init' no hay capa global, sin '--start' no hay auditoría.",
-    "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
-    "faq.a5":
-      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori refresh' te dice antes qué cambiaría.",
-    "faq.q6": "¿No sale caro correr un harness multi-agente?",
-    "faq.a6":
-      "Menos de lo que parece, y ya no hace falta creerlo: 'navori audit' te dice a dónde se fueron los tokens de una sesión real. Cada agente corre con su modelo y su effort — el músculo solo donde hay juicio, lo mecánico en un modelo ligero — y cada subagente devuelve su conclusión en vez del volcado de lo que leyó.",
-
-    "footer.tagline": "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
-    "footer.links": "Enlaces",
-    "footer.legal": "Licencia",
-  },
   en: {
     "site.tagline": "The multi-agent harness for any repo",
     "site.description":
@@ -324,7 +19,6 @@ export const ui = {
     "nav.github": "GitHub",
     "nav.npm": "npm",
     "lang.switchTo": "Español",
-
     "hero.eyebrow": "open source · 6 engines",
     "hero.headlineA": "The multi-agent harness",
     "hero.headlineB": "for any repo.",
@@ -333,8 +27,6 @@ export const ui = {
     "hero.cta.primary": "Get started",
     "hero.cta.secondary": "View on GitHub",
     "hero.install.label": "Install",
-
-    // ── the walkthrough: a prompt entering the harness ────────────────
     "graph.eyebrow": "Anatomy of a session",
     "graph.title": "Follow one prompt through the harness",
     "graph.subtitle":
@@ -348,7 +40,6 @@ export const ui = {
     "graph.prompt": "fix the login bug support reported",
     "graph.promptLabel": "your prompt",
     "graph.stationOf": "Stop {n} of {total}",
-
     "graph.s1.name": "Arrives",
     "graph.s1.title": "You type a sentence. Nobody has thought yet.",
     "graph.s1.body":
@@ -381,7 +72,6 @@ export const ui = {
     "graph.s8.title": "The commit isn't the end: the decision is kept",
     "graph.s8.body":
       "Out comes the commit in the repo's format, with its PR. And what was decided — and why — returns to memory, which is where Monday's session will get its context. The loop closes itself.",
-
     "graph.chip.sessionstart": "boots the harness",
     "graph.chip.claudemd": "this repo's rules",
     "graph.chip.skills": "this task's guide",
@@ -401,7 +91,6 @@ export const ui = {
     "graph.chip.memory": "saves the decision",
     "graph.loop": "what is saved returns as the next session's context",
     "graph.loopIn": "from the previous session",
-
     "problem.eyebrow": "The problem",
     "problem.title": "Every repo reinvents the same thing",
     "problem.subtitle":
@@ -415,7 +104,6 @@ export const ui = {
     "problem.card3.title": "SDD erodes over time",
     "problem.card3.body":
       "Skills, hooks, and Spec-Driven Development conventions decay when there's no way to version and roll them forward.",
-
     "scopes.eyebrow": "Scopes",
     "scopes.title": "The harness no longer lives only in the repo",
     "scopes.subtitle":
@@ -432,7 +120,6 @@ export const ui = {
     "scopes.workspace.cmd": "navori workspace · navori dominio",
     "scopes.footnote":
       "Zero footprint without opt-in: without the matching init, navori has not written a single byte outside your repo.",
-
     "how.eyebrow": "How it works",
     "how.title": "Five cascading layers, one source of truth",
     "how.subtitle":
@@ -452,7 +139,6 @@ export const ui = {
     "how.layer5.body":
       "Per-engine rendering for Claude Code, Codex, Cursor, Copilot and AGENTS.md — all on one pipeline.",
     "how.config.label": "navori.config.json",
-
     "flow.eyebrow": "Live",
     "flow.title": "See what each layer contributes",
     "flow.subtitle":
@@ -464,7 +150,6 @@ export const ui = {
     "flow.preset.note": "Stack-specific skills — here, Next.js.",
     "flow.workspace.note": "Defaults inherited from your org: quality gate, branch base.",
     "flow.project.note": "Repo-level: the plugins you enable (engram) and its protocol.",
-
     "toolbox.eyebrow": "Toolbox",
     "toolbox.title": "navori doesn't run the tools, it teaches the agent to use them",
     "toolbox.subtitle":
@@ -486,7 +171,6 @@ export const ui = {
       "Reading and writing tickets through acli, from the right account. Ticket intake starts at the ticket, not at a description pasted by hand.",
     "toolbox.note":
       "navori generates the harness; it does not run grep, the tests or the linter on the agent's behalf. It dictates which tool to use and under what doctrine — the rest is executed by whoever owns it.",
-
     "audit.eyebrow": "Observability",
     "audit.title": "The harness that audits itself",
     "audit.subtitle":
@@ -503,7 +187,6 @@ export const ui = {
     "audit.point4.title": "Opt-in, one session at a time",
     "audit.point4.body":
       "With no prior --start there is no log to audit and navori observes nothing. The report lands as markdown and JSON under ~/.navori/audits/, and --snapshot/--compare let you contrast ranges: they describe, they never declare an improvement.",
-
     "commands.eyebrow": "Commands",
     "commands.title": "The whole lifecycle, command by command.",
     "commands.subtitle":
@@ -514,7 +197,6 @@ export const ui = {
     "commands.group.observe": "Observe",
     "commands.group.scale": "Scale",
     "commands.docsCta": "See the full reference",
-
     "commands.init.desc":
       "Detects the stack, asks a few questions, and leaves the repo ready in a minute.",
     "commands.adopt.desc":
@@ -544,7 +226,6 @@ export const ui = {
     "commands.workspace.desc": "Cross-repo config, and rendering the standard to every org repo.",
     "commands.dominio.desc": "The workspace knowledge base: the facts that span repos.",
     "commands.ticket.desc": "Tickets as versionable files inside the workspace.",
-
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config, six engines.",
     "engines.subtitle":
@@ -556,7 +237,6 @@ export const ui = {
     "engines.copilot.detail": "workspace instructions",
     "engines.pi.detail": "extension, agents and hooks · requires Pi >= 1.1.0",
     "engines.status": "available",
-
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "From zero to productive in three steps",
     "quickstart.step1.title": "Install",
@@ -566,7 +246,6 @@ export const ui = {
       "Answer a few prompts and get navori.config.json plus the rendered harness.",
     "quickstart.step3.title": "Render whenever you change something",
     "quickstart.step3.body": "Edit the config, run render --apply, commit. Fully idempotent.",
-
     "releases.eyebrow": "What's new",
     "releases.title": "What changed, version by version",
     "releases.subtitle": "What you gain by upgrading, in plain language.",
@@ -575,7 +254,6 @@ export const ui = {
     "releases.pageTitle": "Releases",
     "releases.pageDescription": "navori release history, explained for the people who use it.",
     "nav.releases": "Releases",
-
     "faq.eyebrow": "FAQ",
     "faq.title": "What you're probably wondering",
     "faq.q1": "What if I already have a hand-rolled .claude/?",
@@ -596,11 +274,626 @@ export const ui = {
     "faq.q6": "Isn't running a multi-agent harness expensive?",
     "faq.a6":
       "Less than you'd think — and you no longer have to take that on faith: 'navori audit' tells you where a real session's tokens went. Each agent runs with its own model and effort — the muscle only where judgment lives, mechanical work on a light model — and every subagent returns its conclusion instead of a dump of what it read.",
-
     "footer.tagline": "Open source, MIT. Built by developers who juggle many repos.",
     "footer.links": "Links",
     "footer.legal": "License",
+    "theme.toggle": "Toggle theme",
+    "lang.label": "Language",
+    "docs.usage": "Usage",
+    "docs.flags": "Flags",
+    "docs.examples": "Examples",
+    "docs.notes": "Notes",
+    "docs.reference": "No manpage yet. This page is the reference.",
+    "quickstart.full": "Full quickstart",
+    "toolbox.search": "search",
+    "toolbox.memory": "memory",
+    "toolbox.workflow": "workflow",
+    "copy.action": "Copy",
+    "copy.done": "Copied",
+    "copy.failed": "Copy failed; select the command to copy it.",
+    "logo.home": "navori home",
+    "logo.label": "AI harness",
+    "terminal.render": "rendering managed assets",
+    "terminal.permissions": "permissions",
+    "terminal.done": "Done — 34 created · 0 overwritten",
+    "terminal.example": "example",
+    "toolbox.quality": "quality",
+    "toolbox.context": "context",
+    "toolbox.external": "external",
+    "inventory.commands": "commands",
+    "inventory.presets": "presets",
+    "inventory.plugins": "plugins",
+    "inventory.engines": "engines",
+    "inventory.agents": "agents",
+    "inventory.skills": "skills",
+    "inventory.dependencies": "0 runtime deps",
   },
-} as const;
+  es: {
+    "site.tagline": "El harness multi-agente para cualquier repo",
+    "site.description":
+      "navori instala en cualquier repo un harness multi-agente + SDD reproducible: agentes, skills, hooks, permisos y memoria, versionados en un solo config y renderizados a Claude Code, Codex, Cursor, Copilot y AGENTS.md.",
+    "nav.docs": "Docs",
+    "nav.quickstart": "Quickstart",
+    "nav.deepdive": "A fondo",
+    "nav.github": "GitHub",
+    "nav.npm": "npm",
+    "lang.switchTo": "English",
+    "hero.eyebrow": "open source · 6 engines",
+    "hero.headlineA": "El harness multi-agente",
+    "hero.headlineB": "para cualquier repo.",
+    "hero.subhead":
+      "Agentes, skills, hooks, permisos y memoria — versionados en un solo config y reconstruibles con un comando. Se renderiza a Claude Code, Codex, Cursor, Copilot y AGENTS.md sin pisar una línea de lo tuyo.",
+    "hero.cta.primary": "Empezar",
+    "hero.cta.secondary": "Ver en GitHub",
+    "hero.install.label": "Instalación",
+    "graph.eyebrow": "Anatomía de una sesión",
+    "graph.title": "Sigue un prompt por dentro del harness",
+    "graph.subtitle":
+      "Sin harness, tu frase llega sola a un modelo que decide por su cuenta. Esto es todo lo que navori pone en el camino — ocho paradas, de la frase al commit, y de vuelta a la memoria.",
+    "graph.aria":
+      "Diagrama del recorrido de un prompt: entra, se le carga el contexto del repo, el orchestrator lo descompone, las herramientas de búsqueda lo ubican en el código, los subagentes trabajan en paralelo, los guardas y los gates de calidad lo filtran, y termina en un commit cuya decisión vuelve a la memoria.",
+    "graph.hint": "El recorrido avanza solo. Toca una parada para saltar a ella.",
+    "graph.pause": "Pausar",
+    "graph.play": "Reanudar",
+    "graph.replay": "Volver a empezar",
+    "graph.prompt": "arregla el bug del login que reportó soporte",
+    "graph.promptLabel": "tu prompt",
+    "graph.stationOf": "Parada {n} de {total}",
+    "graph.s1.name": "Entra",
+    "graph.s1.title": "Escribes una frase. Todavía no piensa nadie.",
+    "graph.s1.body":
+      "Antes de que el modelo lea tu prompt, un hook de arranque ya corrió. Es la diferencia entre un asistente que empieza en blanco cada mañana y uno que abre la sesión sabiendo dónde está parado.",
+    "graph.s2.name": "Contexto",
+    "graph.s2.title": "Cuatro fuentes entran antes que tu frase",
+    "graph.s2.body":
+      "Las reglas de este repo, la guía de esta tarea, los hechos que valen para todo el workspace y lo que ya se decidió en sesiones pasadas. Nada de esto se lo tienes que contar tú otra vez.",
+    "graph.s3.name": "Orquesta",
+    "graph.s3.title": "El agente con el que hablas no hace el trabajo",
+    "graph.s3.body":
+      "Lee, decide en cuántas piezas se parte y a quién le toca cada una. Es el único que ve la tarea completa — y el único que corre en el modelo caro, porque su trabajo es juzgar, no leer archivos.",
+    "graph.s4.name": "Ubica",
+    "graph.s4.title": "Primero encontrar, después leer",
+    "graph.s4.body":
+      "Dos preguntas distintas con dos herramientas distintas: dónde vive un símbolo y qué se rompe si lo tocas, contra qué archivos contienen esta cadena. Sin esto, un agente abre veinte archivos para encontrar uno.",
+    "graph.s5.name": "Trabaja",
+    "graph.s5.title": "Tres especialistas, en paralelo, sin estorbarse",
+    "graph.s5.body":
+      "Cada uno corre en su propia ventana de contexto y devuelve la conclusión, no el volcado de lo que leyó. Por eso el hilo principal no se llena de ruido y por eso el modelo caro no paga por leer.",
+    "graph.s6.name": "Protege",
+    "graph.s6.title": "Lo que el agente NO puede hacer",
+    "graph.s6.body":
+      "Un hook intercepta cada herramienta antes de que corra, y los permisos declaran qué pasa sin preguntar, qué pregunta y qué está prohibido. El `rm -rf` con una variable se bloquea aquí, no después.",
+    "graph.s7.name": "Filtra",
+    "graph.s7.title": "Nada se da por terminado porque alguien lo diga",
+    "graph.s7.body":
+      "Seguridad y duplicación sobre el diff, el quality gate del repo corriendo de verdad, y un reviewer con contexto fresco que aprueba o rechaza con motivos. Cuatro filtros que no son opiniones.",
+    "graph.s8.name": "Cierra",
+    "graph.s8.title": "El commit no es el final: la decisión se guarda",
+    "graph.s8.body":
+      "Sale el commit con el formato del repo y su PR. Y lo que se decidió —y por qué— vuelve a la memoria, que es de donde saldrá el contexto de la sesión del lunes. El ciclo se cierra solo.",
+    "graph.chip.sessionstart": "arranca el harness",
+    "graph.chip.claudemd": "las reglas de este repo",
+    "graph.chip.skills": "la guía de esta tarea",
+    "graph.chip.dominio": "hechos de todo el workspace",
+    "graph.chip.engram": "lo que ya se decidió",
+    "graph.chip.orchestrator": "descompone y reparte",
+    "graph.chip.codegraph": "dónde vive · quién lo llama",
+    "graph.chip.tgrep": "qué archivos lo contienen",
+    "graph.chip.scout": "mapea o investiga",
+    "graph.chip.implementer": "escribe el código",
+    "graph.chip.auditor": "busca lo que duele",
+    "graph.chip.guard": "bloquea lo destructivo",
+    "graph.chip.permissions": "allow · ask · deny",
+    "graph.chip.gate": "lint · tests · formato",
+    "graph.chip.reviewer": "aprueba o rechaza",
+    "graph.chip.commit": "commit + PR",
+    "graph.chip.memory": "guarda la decisión",
+    "graph.loop": "lo guardado vuelve al contexto de la próxima sesión",
+    "graph.loopIn": "de la sesión anterior",
+    "problem.eyebrow": "El problema",
+    "problem.title": "Cada repo reinventa lo mismo",
+    "problem.subtitle":
+      "Si trabajas con varios proyectos y agentes de IA, sabes a qué nos referimos.",
+    "problem.card1.title": "Cada repo, su propio harness",
+    "problem.card1.body":
+      "Copias y pegas .claude/ de un proyecto a otro. Mantenerlo sincronizado es manual y propenso a errores.",
+    "problem.card2.title": "Cada engine, su propia config",
+    "problem.card2.body":
+      "Claude tiene .claude/, Cursor tiene .cursor/, Copilot tiene .github/copilot-instructions.md. La misma intención, tres archivos.",
+    "problem.card3.title": "El SDD se erosiona",
+    "problem.card3.body":
+      "Las skills, los hooks y las convenciones de Spec-Driven Development se pierden con el tiempo si no hay una forma de versionarlas y actualizarlas.",
+    "scopes.eyebrow": "Alcances",
+    "scopes.title": "El harness ya no vive solo en el repo",
+    "scopes.subtitle":
+      "Dos alcances aditivos, cada uno opt-in. El workspace se suma al repo sin degradarlo.",
+    "scopes.repo.tag": "por repo",
+    "scopes.repo.title": "El repo",
+    "scopes.repo.body":
+      "navori.config.json checked-in es la fuente de verdad. render reconstruye CLAUDE.md, .claude/ y progress/ desde ahí, idempotente y sin tocar lo que escribiste tú.",
+    "scopes.repo.cmd": "navori init",
+    "scopes.workspace.tag": "por organización",
+    "scopes.workspace.title": "El workspace",
+    "scopes.workspace.body":
+      "Defaults de toda la org —quality gate, branch base, convenciones— y el Dominio: los hechos durables que cruzan repos y no caben en el CLAUDE.md de ninguno. Un modelo de datos, un contrato entre servicios, un gotcha compartido.",
+    "scopes.workspace.cmd": "navori workspace · navori dominio",
+    "scopes.footnote":
+      "Huella cero sin opt-in: sin el init correspondiente, navori no escribió un solo byte fuera de tu repo.",
+    "how.eyebrow": "Cómo funciona",
+    "how.title": "5 capas en cascada, una sola fuente de verdad",
+    "how.subtitle":
+      "Cada capa se compone sobre la anterior. Tú decides cuánto control quieres a nivel proyecto.",
+    "how.layer1.name": "Core",
+    "how.layer1.body":
+      "El baseline gestionado por navori: agentes, skills, hooks y los bloques de doctrina. Siempre presente.",
+    "how.layer2.name": "Preset",
+    "how.layer2.body":
+      "Configuración por stack — Next.js, NestJS, Astro, Expo, Medusa, monorepos y más. ¿Falta el tuyo? Creas uno local con `navori preset init`.",
+    "how.layer3.name": "Workspace",
+    "how.layer3.body":
+      "Reglas de toda tu organización compartidas entre repos, más el Dominio del workspace.",
+    "how.layer4.name": "Project",
+    "how.layer4.body":
+      "Lo específico del repo en navori.config.json: quality gate, áreas críticas, rutas legacy y los plugins que habilitas.",
+    "how.layer5.name": "Adapters",
+    "how.layer5.body":
+      "Renderizado por engine para Claude Code, Codex, Cursor, Copilot y AGENTS.md, todos sobre el mismo pipeline.",
+    "how.config.label": "navori.config.json",
+    "flow.eyebrow": "En vivo",
+    "flow.title": "Mira qué aporta cada capa",
+    "flow.subtitle":
+      "Haz click en una capa para resaltar qué parte del harness genera. Los adapters lo materializan en el formato nativo de cada engine.",
+    "flow.all": "Todas",
+    "flow.engineLabel": "Engine adapters →",
+    "flow.hint": "Selecciona una capa para ver su aporte.",
+    "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
+    "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
+    "flow.workspace.note": "Defaults heredados de tu org: quality gate, branch base.",
+    "flow.project.note": "Lo del repo: los plugins que habilitas (engram) y su protocolo.",
+    "toolbox.eyebrow": "Caja de herramientas",
+    "toolbox.title": "navori no ejecuta las herramientas, le enseña a usarlas",
+    "toolbox.subtitle":
+      "Cada plugin es un bundle: trae su skill, su bloque de protocolo, sus permisos y su check de doctor. Habilitas el que quieres y el harness sabe cuándo recurrir a él — y cuándo no.",
+    "toolbox.codegraph.title": "Buscar por estructura",
+    "toolbox.codegraph.body":
+      "Un grafo AST local del repo. Dónde vive un símbolo, quién lo llama y qué se rompe si lo cambias — una consulta en vez de una ronda de greps y lecturas.",
+    "toolbox.tgrep.title": "Buscar por contenido",
+    "toolbox.tgrep.body":
+      "Índice de trigramas sobre el repo. Qué archivos contienen esta cadena, con el contrato de exit code intacto y sin pelear con el motor que tenga la máquina.",
+    "toolbox.engram.title": "Memoria persistente",
+    "toolbox.engram.body":
+      "Decisiones, causas raíz y convenciones que sobreviven al cierre de sesión y a las compactaciones de contexto. No vuelves a explicar el lunes lo que decidiste el viernes.",
+    "toolbox.gh.title": "GitHub",
+    "toolbox.gh.body":
+      "Issues, PRs y checks por gh. El agente lee el ticket, abre el PR con el formato del repo y sabe leer un CI en rojo.",
+    "toolbox.acli.title": "Jira",
+    "toolbox.acli.body":
+      "Lectura y escritura de tickets por acli, con la cuenta correcta. El intake de un ticket empieza por el ticket, no por una descripción pegada a mano.",
+    "toolbox.note":
+      "navori genera el harness; no corre grep, ni los tests, ni el linter por el agente. Dicta qué herramienta usar y con qué doctrina — el resto lo ejecuta quien corresponde.",
+    "audit.eyebrow": "Observabilidad",
+    "audit.title": "El harness que se audita a sí mismo",
+    "audit.subtitle":
+      "Escribir doctrina es fácil; saber si alguien la siguió, no. navori audit responde las dos preguntas que ninguna otra cosa responde: a dónde se fueron los tokens y qué instrucciones nadie obedeció.",
+    "audit.point1.title": "A dónde se fueron los tokens",
+    "audit.point1.body":
+      "Facturable, arranque y por agente. El costo del harness deja de ser una intuición y pasa a ser un número que puedes atacar.",
+    "audit.point2.title": "Qué instrucciones nadie siguió",
+    "audit.point2.body":
+      "Hallazgos con severidad sobre el ruteo real: la skill que se ignoró, la búsqueda que fue por el camino caro, la delegación que no ocurrió.",
+    "audit.point3.title": "Tres fuentes que no se sustituyen",
+    "audit.point3.body":
+      "El log que escriben los hooks (qué hizo el harness), el transcript (el único lugar donde viven los tokens) y los eventos OTel del host (qué permiso se aprobó y qué skill estaba activa).",
+    "audit.point4.title": "Opt-in y por sesión",
+    "audit.point4.body":
+      "Sin un --start previo no hay log que auditar y navori no observa nada. El reporte queda en markdown y JSON dentro de ~/.navori/audits/, y --snapshot/--compare permiten contrastar rangos: describen, no declaran mejoras.",
+    "commands.eyebrow": "Comandos",
+    "commands.title": "El ciclo completo, comando a comando.",
+    "commands.subtitle":
+      "Todos los subcomandos que el CLI registra, agrupados por el momento en que los necesitas. Cada uno tiene su página de referencia.",
+    "commands.group.start": "Empezar",
+    "commands.group.render": "Renderizar y actualizar",
+    "commands.group.operate": "Operar",
+    "commands.group.observe": "Observar",
+    "commands.group.scale": "Escalar",
+    "commands.docsCta": "Ver la referencia completa",
+    "commands.init.desc":
+      "Detecta el stack, hace unas preguntas y deja el repo listo en un minuto.",
+    "commands.adopt.desc":
+      "Toma un archivo del harness que escribiste a mano y lo pone bajo gestión, sin cambiar lo que dice.",
+    "commands.add.desc": "Habilita un plugin, o sugiere cuáles según tu stack.",
+    "commands.remove.desc": "Desactiva un plugin y limpia los bloques y scripts que había dejado.",
+    "commands.preset.desc":
+      "Crea un preset local cuando tu stack no tiene uno oficial, y lo deja conectado al config.",
+    "commands.configure.desc":
+      "Edita el config sin abrirlo a mano: quality gate, áreas críticas, rutas legacy.",
+    "commands.render.desc":
+      "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
+    "commands.sync.desc":
+      "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque, o archivo por archivo en los que no tienen marcadores.",
+    "commands.update.desc": "Actualiza la CLI a la última versión de npm y luego corre refresh.",
+    "commands.refresh.desc":
+      "Detecta que el bundle avanzó y te dice qué cambiaría antes de tocarlo.",
+    "commands.migrations.desc": "Aplica las migraciones de config entre versiones del CLI.",
+    "commands.backup.desc":
+      "La red de seguridad: cada escritura deja antes un snapshot restaurable.",
+    "commands.doctor.desc":
+      "Drift, plugins rotos, invariants, harness ajeno en conflicto y próximos pasos.",
+    "commands.status.desc": "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
+    "commands.scan.desc": "Recorre un monorepo y asigna preset a cada workspace.",
+    "commands.registry.desc": "Qué presets, plugins y engines tiene disponible esta versión.",
+    "commands.bench.desc": "Mide render sobre N corridas y reporta p50/p95.",
+    "commands.audit.desc":
+      "Cómo corrió el harness de verdad: tokens por agente y doctrina que nadie siguió.",
+    "commands.workspace.desc":
+      "Config cross-repo y render del estándar a todos los repos de la org.",
+    "commands.dominio.desc": "La base de conocimiento del workspace: los hechos que cruzan repos.",
+    "commands.ticket.desc": "Tickets como archivos versionables dentro del workspace.",
+    "engines.eyebrow": "Multi-engine",
+    "engines.title": "Una config, seis engines.",
+    "engines.subtitle":
+      "El mismo harness materializado en el formato nativo de cada uno, sobre un solo pipeline de render. Agregar el sexto cuesta una tabla declarativa, no reescribir nada.",
+    "engines.claude.detail": "agentes · skills · hooks · settings.json con permisos",
+    "engines.codex.detail": "agentes propios · skills · hooks · servidores MCP",
+    "engines.agentsmd.detail": "spec universal · la leen Cursor, Codex, Gemini y Copilot",
+    "engines.cursor.detail": "reglas .mdc · contexto de proyecto",
+    "engines.copilot.detail": "instrucciones de workspace",
+    "engines.pi.detail": "extensión, agentes y hooks · requiere Pi >= 1.1.0",
+    "engines.status": "disponible",
+    "quickstart.eyebrow": "Quickstart",
+    "quickstart.title": "De cero a productivo en tres pasos",
+    "quickstart.step1.title": "Instala",
+    "quickstart.step1.body": "Sin instalación global. Usa npx.",
+    "quickstart.step2.title": "Inicializa",
+    "quickstart.step2.body":
+      "Responde unas preguntas y obtén navori.config.json + el harness renderizado.",
+    "quickstart.step3.title": "Renderiza cuando cambies algo",
+    "quickstart.step3.body":
+      "Edita el config, corre 'render --apply' y commitea. Todo idempotente.",
+    "releases.eyebrow": "Novedades",
+    "releases.title": "Qué cambió, versión por versión",
+    "releases.subtitle": "Lo que ganas al actualizar, en lenguaje llano.",
+    "releases.all": "Ver todas las versiones",
+    "releases.patches": "Parches destacados",
+    "releases.pageTitle": "Versiones",
+    "releases.pageDescription": "Historial de versiones de navori, explicado para quien lo usa.",
+    "nav.releases": "Versiones",
+    "faq.eyebrow": "Preguntas frecuentes",
+    "faq.title": "Lo que probablemente te estás preguntando",
+    "faq.q1": "¿Y si ya tengo un .claude/ que armé a mano?",
+    "faq.a1":
+      "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Si quieres que navori se haga cargo de un archivo tuyo, 'navori adopt' lo envuelve sin cambiar una palabra de lo que dice. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques para no competir con los tuyos.",
+    "faq.q2": "¿Qué engines soporta hoy?",
+    "faq.a2":
+      "Seis, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/), Copilot y Pi (.pi/, con extensión, agentes y hooks; requiere Pi >= 1.1.0). Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
+    "faq.q3": "¿Necesito Claude Code para usar navori?",
+    "faq.a3":
+      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 22.12+ y renderiza a seis engines distintos.",
+    "faq.q4": "¿Qué tan invasivo es? ¿Puedo revertirlo?",
+    "faq.a4":
+      "render hace preview por default: sin --apply no toca disco. Cuando escribe, deja antes un snapshot restaurable con 'navori backup', y la escritura es atómica. Fuera del repo no existe nada que no hayas pedido por su nombre: sin 'global init' no hay capa global, sin '--start' no hay auditoría.",
+    "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
+    "faq.a5":
+      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori refresh' te dice antes qué cambiaría.",
+    "faq.q6": "¿No sale caro correr un harness multi-agente?",
+    "faq.a6":
+      "Menos de lo que parece, y ya no hace falta creerlo: 'navori audit' te dice a dónde se fueron los tokens de una sesión real. Cada agente corre con su modelo y su effort — el músculo solo donde hay juicio, lo mecánico en un modelo ligero — y cada subagente devuelve su conclusión en vez del volcado de lo que leyó.",
+    "footer.tagline": "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
+    "footer.links": "Enlaces",
+    "footer.legal": "Licencia",
+    "theme.toggle": "Cambiar tema",
+    "lang.label": "Idioma",
+    "docs.usage": "Uso",
+    "docs.flags": "Flags",
+    "docs.examples": "Ejemplos",
+    "docs.notes": "Notas",
+    "docs.reference": "Sin manual aún. Esta página es la referencia.",
+    "quickstart.full": "Quickstart completo",
+    "toolbox.search": "búsqueda",
+    "toolbox.memory": "memoria",
+    "toolbox.workflow": "flujo",
+    "copy.action": "Copiar",
+    "copy.done": "Copiado",
+    "copy.failed": "No se pudo copiar; selecciona el comando para copiarlo.",
+    "logo.home": "Inicio de navori",
+    "logo.label": "Harness de IA",
+    "terminal.render": "renderizando recursos managed",
+    "terminal.permissions": "permisos",
+    "terminal.done": "Listo — 34 creados · 0 sobrescritos",
+    "terminal.example": "ejemplo",
+    "toolbox.quality": "calidad",
+    "toolbox.context": "contexto",
+    "toolbox.external": "externo",
+    "inventory.commands": "comandos",
+    "inventory.presets": "presets",
+    "inventory.plugins": "plugins",
+    "inventory.engines": "engines",
+    "inventory.agents": "agentes",
+    "inventory.skills": "skills",
+    "inventory.dependencies": "0 deps runtime",
+  },
+  "zh-CN": {
+    "site.tagline": "适用于任何代码仓库的多智能体 harness",
+    "site.description":
+      "navori 为任何仓库安装可复现的多智能体与 SDD 工作环境：智能体、技能、钩子、权限和记忆统一版本管理，并渲染到 Claude Code、Codex、Cursor、Copilot 和 AGENTS.md。",
+    "nav.docs": "文档",
+    "nav.quickstart": "快速开始",
+    "nav.deepdive": "深入了解",
+    "nav.github": "GitHub",
+    "nav.npm": "npm",
+    "lang.switchTo": "选择语言",
+    "hero.eyebrow": "开源 · 六种引擎",
+    "hero.headlineA": "多智能体 harness",
+    "hero.headlineB": "适用于任何代码仓库。",
+    "hero.subhead":
+      "智能体、技能、钩子、权限和记忆统一保存在一个配置中，用一条命令即可重建。渲染到 Claude Code、Codex、Cursor、Copilot 和 AGENTS.md，同时保留你的自定义内容。",
+    "hero.cta.primary": "开始使用",
+    "hero.cta.secondary": "在 GitHub 查看",
+    "hero.install.label": "安装",
+    "graph.eyebrow": "一次会话的结构",
+    "graph.title": "跟随提示词走完整个 harness",
+    "graph.subtitle":
+      "没有 harness，模型只能独自决定如何处理你的请求。navori 在这条路径上设置八个站点：从一句话到提交，再将决策存回记忆。",
+    "graph.aria":
+      "提示词旅程图：收到请求，加载仓库上下文，由 orchestrator 分解任务，搜索工具定位代码，子智能体并行工作，安全守卫和质量关卡筛选结果，最后提交并将决策存回记忆。",
+    "graph.hint": "导览自动播放，点击站点即可跳转。",
+    "graph.pause": "暂停",
+    "graph.play": "继续",
+    "graph.replay": "重新开始",
+    "graph.prompt": "修复客服报告的登录错误",
+    "graph.promptLabel": "你的提示词",
+    "graph.stationOf": "第 {n} 站，共 {total} 站",
+    "graph.s1.name": "接收",
+    "graph.s1.title": "你输入一句话，模型还未开始思考。",
+    "graph.s1.body":
+      "模型读取提示词之前，启动钩子已经运行。这让助手开启会话时就了解当前状态，无需每天从零开始。",
+    "graph.s2.name": "上下文",
+    "graph.s2.title": "四种上下文先于提示词加载",
+    "graph.s2.body":
+      "仓库规则、任务指南、适用于整个工作区的事实，以及以往会话已作出的决策。你不必再次解释这些内容。",
+    "graph.s3.name": "编排",
+    "graph.s3.title": "与你对话的智能体负责分配工作",
+    "graph.s3.body":
+      "它读取需求，决定如何拆分任务、由谁负责。它掌握任务全貌，使用高能力模型来判断和决策，而非阅读文件。",
+    "graph.s4.name": "定位",
+    "graph.s4.title": "先定位，再阅读",
+    "graph.s4.body":
+      "两个问题对应两种工具：符号在哪里、修改后影响谁，以及哪些文件包含指定文本。否则，智能体可能为了找到一个文件而打开二十个。",
+    "graph.s5.name": "执行",
+    "graph.s5.title": "三个专家并行工作，互不阻塞",
+    "graph.s5.body":
+      "每个专家都有独立上下文，只返回结论，不倾倒读过的全部内容。主线程保持清晰，高成本模型也无需承担阅读成本。",
+    "graph.s6.name": "保护",
+    "graph.s6.title": "明确智能体禁止执行的操作",
+    "graph.s6.body":
+      "钩子在每次工具执行前拦截，权限规定哪些操作直接通过、哪些需要询问、哪些禁止。藏在变量后的 `rm -rf` 会在这里被阻止。",
+    "graph.s7.name": "筛选",
+    "graph.s7.title": "完成必须有证据",
+    "graph.s7.body":
+      "对差异进行安全与重复检查，真正运行仓库质量关卡，并由拥有新上下文的 reviewer 给出批准或拒绝的理由。这四道检查都有可验证依据。",
+    "graph.s8.name": "闭环",
+    "graph.s8.title": "提交之后，决策还要保存",
+    "graph.s8.body":
+      "按仓库格式生成提交和 PR，将决定及原因写回记忆。下次会话从这里恢复上下文，形成完整闭环。",
+    "graph.chip.sessionstart": "启动 harness",
+    "graph.chip.claudemd": "仓库规则",
+    "graph.chip.skills": "任务指南",
+    "graph.chip.dominio": "工作区事实",
+    "graph.chip.engram": "既有决策",
+    "graph.chip.orchestrator": "拆分并分配",
+    "graph.chip.codegraph": "符号位置与调用者",
+    "graph.chip.tgrep": "包含文本的文件",
+    "graph.chip.scout": "映射或调查",
+    "graph.chip.implementer": "编写代码",
+    "graph.chip.auditor": "发现风险",
+    "graph.chip.guard": "阻止破坏操作",
+    "graph.chip.permissions": "allow · ask · deny",
+    "graph.chip.gate": "lint · 测试 · 格式",
+    "graph.chip.reviewer": "批准或拒绝",
+    "graph.chip.commit": "提交与 PR",
+    "graph.chip.memory": "保存决策",
+    "graph.loop": "保存的内容成为下次会话的上下文",
+    "graph.loopIn": "来自上次会话",
+    "problem.eyebrow": "问题",
+    "problem.title": "每个仓库都在重复造轮子",
+    "problem.subtitle": "如果你同时维护多个项目并使用 AI 智能体，就会熟悉这些问题。",
+    "problem.card1.title": "每个仓库各自维护 harness",
+    "problem.card1.body": "将 .claude/ 从一个项目复制到另一个项目，手动同步既费力又容易出错。",
+    "problem.card2.title": "每种引擎各自维护配置",
+    "problem.card2.body":
+      "Claude 使用 .claude/，Cursor 使用 .cursor/，Copilot 使用 .github/copilot-instructions.md。同样的意图分散在三个文件。",
+    "problem.card3.title": "SDD 逐渐失效",
+    "problem.card3.body": "如果无法版本管理和持续更新，技能、钩子与规格驱动开发约定就会逐渐偏离。",
+    "scopes.eyebrow": "作用域",
+    "scopes.title": "harness 不再局限于单个仓库",
+    "scopes.subtitle":
+      "两个可叠加的作用域，均需主动启用。工作区在仓库配置上增加规则，同时保留仓库能力。",
+    "scopes.repo.tag": "每个仓库",
+    "scopes.repo.title": "仓库",
+    "scopes.repo.body":
+      "提交到版本库的 navori.config.json 是唯一事实来源。render 据此幂等重建 CLAUDE.md、.claude/ 和 progress/，同时保留你的内容。",
+    "scopes.repo.cmd": "navori init",
+    "scopes.workspace.tag": "每个组织",
+    "scopes.workspace.title": "工作区",
+    "scopes.workspace.body":
+      "组织级默认值，包括质量关卡、基础分支与约定，以及 Dominio：跨仓库的持久事实，如数据模型、服务间契约和共同注意事项。",
+    "scopes.workspace.cmd": "navori workspace · navori dominio",
+    "scopes.footnote":
+      "未启用就没有额外足迹：不运行对应的 init，navori 就不会在仓库外写入任何字节。",
+    "how.eyebrow": "工作原理",
+    "how.title": "五层级联，一个事实来源",
+    "how.subtitle": "每层叠加在前一层之上，由你决定项目层面的控制程度。",
+    "how.layer1.name": "核心",
+    "how.layer1.body": "navori 管理的基线：智能体、技能、钩子和规则块，始终存在。",
+    "how.layer2.name": "预设",
+    "how.layer2.body":
+      "面向 Next.js、NestJS、Astro、Expo、Medusa、monorepo 等技术栈的默认值。没有适合的？用 `navori preset init` 创建本地预设。",
+    "how.layer3.name": "工作区",
+    "how.layer3.body": "跨仓库共享的组织规则，以及工作区 Dominio。",
+    "how.layer4.name": "项目",
+    "how.layer4.body":
+      "navori.config.json 中属于本仓库的设置：质量关卡、关键区域、旧代码路径与启用的插件。",
+    "how.layer5.name": "适配器",
+    "how.layer5.body":
+      "通过同一流水线渲染为 Claude Code、Codex、Cursor、Copilot 和 AGENTS.md 的原生格式。",
+    "how.config.label": "navori.config.json",
+    "flow.eyebrow": "交互演示",
+    "flow.title": "查看每一层的作用",
+    "flow.subtitle": "点击层级即可高亮它生成的内容。适配器将结果转换为各引擎的原生格式。",
+    "flow.all": "全部",
+    "flow.engineLabel": "引擎适配器 →",
+    "flow.hint": "选择一层，查看它添加的内容。",
+    "flow.core.note": "基线：始终加载的智能体、技能和规则块。",
+    "flow.preset.note": "技术栈专用技能，此处为 Next.js。",
+    "flow.workspace.note": "继承自组织的默认值：质量关卡、基础分支。",
+    "flow.project.note": "仓库级配置：启用的插件（engram）及其协议。",
+    "toolbox.eyebrow": "工具箱",
+    "toolbox.title": "navori 教智能体如何使用工具",
+    "toolbox.subtitle":
+      "每个插件包含技能、协议块、权限与 doctor 检查。启用需要的插件后，harness 就知道何时使用、何时无需使用。",
+    "toolbox.codegraph.title": "按结构搜索",
+    "toolbox.codegraph.body":
+      "本地仓库 AST 图：符号在哪里、谁调用它、修改后影响什么。一次查询替代多轮文本搜索与文件阅读。",
+    "toolbox.tgrep.title": "按内容搜索",
+    "toolbox.tgrep.body":
+      "仓库的三元组索引，查找包含指定文本的文件，保留退出码契约，无需适配机器上的搜索引擎。",
+    "toolbox.engram.title": "持久记忆",
+    "toolbox.engram.body":
+      "决策、根因与约定在会话结束和上下文压缩之后仍然保留。下周无需重新解释上周决定的事情。",
+    "toolbox.gh.title": "GitHub",
+    "toolbox.gh.body":
+      "通过 gh 管理 issue、PR 与检查。智能体读取任务，按仓库格式创建 PR，并理解失败的 CI。",
+    "toolbox.acli.title": "Jira",
+    "toolbox.acli.body":
+      "使用正确账户，通过 acli 读写任务。任务接收从原始工单开始，无需手动粘贴描述。",
+    "toolbox.note":
+      "navori 生成 harness，不替智能体运行 grep、测试或 linter。它规定使用什么工具及遵循什么规则，实际执行由对应角色负责。",
+    "audit.eyebrow": "可观测性",
+    "audit.title": "能够审计自身的 harness",
+    "audit.subtitle":
+      "写规则容易，确认是否执行很难。navori audit 回答两个问题：token 花在哪里，哪些指令没有得到遵守。",
+    "audit.point1.title": "token 的去向",
+    "audit.point1.body": "区分计费、启动与各智能体用量，让 harness 成本从猜测变为可优化的数据。",
+    "audit.point2.title": "未被执行的指令",
+    "audit.point2.body":
+      "按严重程度报告真实路由问题：忽略的技能、高成本搜索路径，以及没有发生的委派。",
+    "audit.point3.title": "三种互不可替代的来源",
+    "audit.point3.body":
+      "钩子事件日志记录 harness 行为；会话记录保存 token；宿主 OTel 事件记录权限批准与活跃技能。",
+    "audit.point4.title": "逐会话主动启用",
+    "audit.point4.body":
+      "没有提前运行 --start，就没有可审计日志，navori 也不观察任何活动。Markdown 与 JSON 报告保存在 ~/.navori/audits/；--snapshot/--compare 用于对比区间，只描述结果，不宣称改进。",
+    "commands.eyebrow": "命令",
+    "commands.title": "完整生命周期，逐个命令讲解。",
+    "commands.subtitle": "按实际使用时机对 CLI 注册的所有子命令分组。每个命令都有独立参考页。",
+    "commands.group.start": "开始",
+    "commands.group.render": "渲染与更新",
+    "commands.group.operate": "操作",
+    "commands.group.observe": "观察",
+    "commands.group.scale": "扩展",
+    "commands.docsCta": "查看完整参考",
+    "commands.init.desc": "检测技术栈，询问必要信息，一分钟内准备好仓库。",
+    "commands.adopt.desc": "将手写的 harness 文件纳入管理，保留原有内容。",
+    "commands.add.desc": "启用插件，或按技术栈建议合适的插件。",
+    "commands.remove.desc": "停用插件，并清理它留下的块和脚本。",
+    "commands.preset.desc": "没有官方预设时，创建本地预设并接入配置。",
+    "commands.configure.desc": "通过命令修改质量关卡、关键区域与旧代码路径等配置。",
+    "commands.render.desc": "重建所有已配置引擎，默认仅预览，--apply 才会写入。",
+    "commands.sync.desc": "更新受管理块。使用 --interactive 逐块解决冲突，无标记文件则逐文件处理。",
+    "commands.update.desc": "将 CLI 更新到 npm 最新版本，然后运行 refresh。",
+    "commands.refresh.desc": "检测资源包更新，并先说明哪些内容会变化。",
+    "commands.migrations.desc": "在 CLI 版本间迁移配置。",
+    "commands.backup.desc": "每次写入前先创建可恢复快照。",
+    "commands.doctor.desc": "检查漂移、损坏插件、不变量、冲突 harness，并给出后续步骤。",
+    "commands.status.desc": "快速查看配置、插件、漂移与下一步操作。",
+    "commands.scan.desc": "遍历 monorepo，为各工作区分配预设。",
+    "commands.registry.desc": "列出当前版本包含的预设、插件与引擎。",
+    "commands.bench.desc": "对 render 运行 N 次计时，并报告 p50/p95。",
+    "commands.audit.desc": "展示 harness 的真实执行：各智能体 token 用量与未遵守的规则。",
+    "commands.workspace.desc": "跨仓库配置，并将组织标准渲染到所有仓库。",
+    "commands.dominio.desc": "工作区知识库，保存跨仓库事实。",
+    "commands.ticket.desc": "将任务保存为工作区内可版本管理的文件。",
+    "engines.eyebrow": "多引擎",
+    "engines.title": "一个配置，六种引擎。",
+    "engines.subtitle":
+      "同一 harness 通过同一流水线生成各引擎原生格式。增加引擎只需声明式适配表，无需重写。",
+    "engines.claude.detail": "智能体 · 技能 · 钩子 · 带权限的 settings.json",
+    "engines.codex.detail": "自定义智能体 · 技能 · 钩子 · MCP 服务器",
+    "engines.agentsmd.detail": "通用规范 · Cursor、Codex、Gemini 和 Copilot 均可读取",
+    "engines.cursor.detail": ".mdc 规则 · 项目上下文",
+    "engines.copilot.detail": "工作区指令",
+    "engines.pi.detail": "扩展、智能体和钩子 · 需要 Pi >= 1.1.0",
+    "engines.status": "可用",
+    "quickstart.eyebrow": "快速开始",
+    "quickstart.title": "三步开始高效工作",
+    "quickstart.step1.title": "安装",
+    "quickstart.step1.body": "无需全局安装，使用 npx。",
+    "quickstart.step2.title": "初始化",
+    "quickstart.step2.body": "回答提示，即可获得 navori.config.json 与渲染后的 harness。",
+    "quickstart.step3.title": "配置变化后重新渲染",
+    "quickstart.step3.body": "编辑配置，运行 render --apply，再提交。整个过程幂等。",
+    "releases.eyebrow": "最新变化",
+    "releases.title": "逐版本了解变化",
+    "releases.subtitle": "用清晰语言解释升级带来的变化。",
+    "releases.all": "查看所有版本",
+    "releases.patches": "重要补丁",
+    "releases.pageTitle": "版本记录",
+    "releases.pageDescription": "面向使用者的 navori 版本历史。",
+    "nav.releases": "版本记录",
+    "faq.eyebrow": "常见问题",
+    "faq.title": "你可能想了解的问题",
+    "faq.q1": "已经有手写的 .claude/ 怎么办？",
+    "faq.a1":
+      "navori 可以共存。init 检测现有 harness，只添加带标记的受管理块，保留自定义内容。要纳管某个文件，可用 navori adopt 包装，原文保持不变。已有编排或 SDD 时，可用 blocks.exclude 排除对应规则块，避免相互竞争。",
+    "faq.q2": "目前支持哪些引擎？",
+    "faq.a2":
+      "六种均已提供：Claude Code（.claude/）、原生 Codex（智能体、技能、钩子和 MCP）、通用 AGENTS.md、Cursor（.cursor/rules/）、Copilot，以及 Pi（.pi/ 扩展、智能体和钩子，需要 Pi >= 1.1.0）。它们共享渲染流水线，修复可同时覆盖所有引擎。",
+    "faq.q3": "使用 navori 必须安装 Claude Code 吗？",
+    "faq.a3":
+      "不需要。navori 是脚手架工具，生成 harness 后即可退出。它运行于 Node 22.12+，能够渲染六种不同引擎。",
+    "faq.q4": "会改动多少内容？能回滚吗？",
+    "faq.a4":
+      "render 默认预览，不带 --apply 就不写入磁盘。真正写入前，通过 navori backup 保留可恢复快照，并使用原子写入。仓库外的操作都需明确启用：没有 global init 就没有全局层；没有 --start 就没有审计。",
+    "faq.q5": "新版本发布后怎样更新项目？",
+    "faq.a5":
+      "运行 npx navori@latest sync，只更新受管理块，保留你的代码。使用 --interactive 逐块处理手动改动；navori refresh 可先说明将发生的变化。",
+    "faq.q6": "多智能体 harness 的运行成本高吗？",
+    "faq.a6":
+      "通常低于预期，也无需只凭感觉判断：navori audit 会显示真实会话的 token 去向。每个智能体使用适合的模型与推理强度，判断任务用强模型，机械任务用轻模型；子智能体只返回结论，不返回全部阅读内容。",
+    "footer.tagline": "MIT 开源。由同时维护多个仓库的开发者打造。",
+    "footer.links": "链接",
+    "footer.legal": "许可证",
+    "theme.toggle": "切换主题",
+    "lang.label": "语言",
+    "docs.usage": "用法",
+    "docs.flags": "参数",
+    "docs.examples": "示例",
+    "docs.notes": "注意事项",
+    "docs.reference": "暂无 man 手册，本页为命令参考。",
+    "quickstart.full": "完整快速开始",
+    "toolbox.search": "搜索",
+    "toolbox.memory": "记忆",
+    "toolbox.workflow": "工作流",
+    "copy.action": "复制",
+    "copy.done": "已复制",
+    "copy.failed": "复制失败，请选中命令手动复制。",
+    "logo.home": "navori 首页",
+    "logo.label": "AI 工作环境",
+    "terminal.render": "正在渲染受管理资源",
+    "terminal.permissions": "权限",
+    "terminal.done": "完成 — 创建 34 个 · 覆盖 0 个",
+    "terminal.example": "示例",
+    "toolbox.quality": "质量",
+    "toolbox.context": "上下文",
+    "toolbox.external": "外部",
+    "inventory.commands": "命令",
+    "inventory.presets": "预设",
+    "inventory.plugins": "插件",
+    "inventory.engines": "引擎",
+    "inventory.agents": "智能体",
+    "inventory.skills": "技能",
+    "inventory.dependencies": "零运行时依赖",
+  },
+} as const satisfies Record<Lang, Record<string, string>>;
 
-export type UIKey = keyof (typeof ui)[typeof defaultLang];
+export type UIKey = keyof (typeof ui)["en"];
