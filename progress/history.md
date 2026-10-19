@@ -402,3 +402,11 @@ Procesos propios: ninguno activo al cierre según productor y chequeo root. Se o
 - Reproducción previa en Linux limpio falló; después pasan 47 casos de los hooks afectados en zsh con auditoría apagada/activa, 6 pruebas unitarias y fast 9/0. Full independiente del reviewer `full-20261019T141658283Z.log`: exit0, 9732 aprobadas/2 omitidas, 465 archivos, cobertura87.59/85.94/90.2/80.52%, piso159 módulos sin excepciones. Revisión APPROVED y receipt full válido antes de publicar; no se repitió cobertura desde root.
 - El full anterior de164fallos coincide con Clamshell Sleep y ciclos prolongados de suspensión confirmados por pmset; se conserva como fallido, sin atribuir164bugs independientes. No se elevan workers, timeouts ni presupuestos.
 - El alcance pendiente queda en issues1354/1355, sin declarar E1/A11/T39 ni mediciones comparativas completadas. Publicación en PR1352 y verificación de CI del nuevo HEAD son el siguiente paso; esta entrada no afirma un resultado de CI aún no ejecutado.
+
+## 2026-10-19 10:02 codex — Integra PR1350 en dev y elimina encabezados redundantes
+
+Integra dev en PR1350 por decisión del usuario, conservando la excepción de spec completada, cap global, T30 y los controles actuales de identidad/binding/guard/escalation. El usuario creó merge9cfe91fc tras resolver conflictos; render oficial90sin cambios y golden5/5. A1:60/60 y A2:209/209.
+
+Full inicial falló en tamaño1600.6KiB>1600. Causa medida: baseline1599.911KiB con91bytes libres, feature+721bytes. Usuario autorizó dos archivos para emitir shebang sólo en index.js; los78chunks importados no lo necesitan. Build final1599.168KiB (852bytes margen), límite intacto; regresión lazy-load2/2, CLI surface2/2 y entrada ejecutable0.12.1 verdes; fast9/0.
+
+Full independiente final exit0:9826aprobadas,2omitidas,465archivos,740s; cobertura87.6/85.94/90.21/80.53%,floor159/0. Evidencia `.navori/state/gate/full-20261019T154723986Z.log`. Publicación dirigida al PR existente1350 contra dev, push normal sin reescribir historia; CI del nuevo HEAD se comprueba tras el push.

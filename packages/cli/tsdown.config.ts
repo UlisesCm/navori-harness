@@ -15,7 +15,8 @@ export default defineConfig({
   dts: false,
   minify: true,
   deps: { alwaysBundle: [/./] },
-  banner: { js: "#!/usr/bin/env node" },
+  banner: ({ fileName }: { fileName: string }): string =>
+    fileName === "index.js" ? "#!/usr/bin/env node" : "",
   plugins: [bundleRenderDataPlugin(), bundleCommentsPlugin()],
   outputOptions: {
     entryFileNames: "index.js",
