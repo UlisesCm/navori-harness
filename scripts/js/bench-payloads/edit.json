@@ -1,0 +1,15 @@
+{
+  "session_id": "bench-session",
+  "transcript_path": "__CWD__/transcript.jsonl",
+  "cwd": "__CWD__",
+  "hook_event_name": "__EVENT__",
+  "tool_name": "__TOOL__",
+  "tool_input": {
+    "file_path": "__CWD__/src/example.ts",
+    "old_string": "const a = 1;",
+    "new_string": "const a = 2;",
+    "command": "*** Begin Patch\n*** Update File: src/example.ts\n@@\n-const a = 1;\n+const a = 2;\n*** End Patch\n"
+  },
+  "tool_response": { "success": true },
+  "tool_use_id": "toolu_bench_edit"
+}

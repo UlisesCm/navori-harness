@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import * as nodeFs from "node:fs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
@@ -17,6 +16,16 @@ import { conditionOrchestration } from "../../../lib/render/render-plan.ts";
 import { missingPiChildFlags } from "../runtime-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { load as loadWithScripts } from "./fixtures/load-extension.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 type Role = "scout" | "implementer" | "reviewer" | "scribe";
 type AnalyticRole = "auditor" | "architect" | "publisher";
@@ -404,7 +413,7 @@ describe("Pi first-class roles", () => {
   it("publisher gh pr create relays to the parent and never runs in the child", async () => {
     const dir = mkdtempSync(join(tmpdir(), "navori-pi-publisher-"));
     dirs.push(dir);
-    execFileSync("git", ["init", "-q", dir]);
+    repoTplMaster.copyInto(dir);
     renderPiEngine(
       dir,
       NavoriConfigSchema.parse({

@@ -60,13 +60,15 @@ export interface ContentIdentityOptions {
 }
 
 /** State and sibling-worktree paths never part of the identity (match the receipt's exclusions). */
-const EXCLUDES: readonly string[] = [
+export const IDENTITY_EXCLUDES: readonly string[] = [
   ...PROGRESS_DIRS.map((dir) => dir.replace(/\/$/, "")),
   ".claude/worktrees",
 ];
 const isExcluded = (path: string): boolean =>
-  EXCLUDES.some((dir) => path === dir || path.startsWith(`${dir}/`));
+  IDENTITY_EXCLUDES.some((dir) => path === dir || path.startsWith(`${dir}/`));
 const NULL_SHA = /^0+$/;
+/** Paths with line breaks or undecodable bytes cannot be hashed unambiguously. */
+const UNSAFE_PATH = /[\r\n\uFFFD]/;
 
 class Abort extends Error {
   constructor(readonly reason: ContentIdentityFailure) {
@@ -156,7 +158,7 @@ export function contentIdentity(
         "--deduplicate",
         "--",
         ".",
-        ...EXCLUDES.map((path) => `:(exclude,literal)${path}`),
+        ...IDENTITY_EXCLUDES.map((path) => `:(exclude,literal)${path}`),
       ],
       deadline,
     );
@@ -166,7 +168,7 @@ export function contentIdentity(
     const links: Array<{ path: string; target: string }> = [];
     let bytes = 0;
     for (const path of listed.split("\0").filter(Boolean)) {
-      if (/[\r\n�]/.test(path)) return { ok: false, reason: "unsafe-path" };
+      if (UNSAFE_PATH.test(path)) return { ok: false, reason: "unsafe-path" };
       let stat;
       try {
         stat = lstatSync(join(cwd, path));
@@ -249,4 +251,51 @@ function diverges(raw: string, working: Map<string, WorkingEntry>): boolean {
     if (NULL_SHA.test(stagedBlob) ? live !== undefined : live?.blob !== stagedBlob) return true;
   }
   return false;
+}
+
+export type IndexContentIdentity =
+  | { ok: true; alg: typeof CONTENT_ALG; fingerprint: string }
+  | { ok: false; reason: ContentIdentityFailure };
+
+/**
+ * Same `navori-content/v1` fingerprint, but over the INDEX (`git ls-files -s -z`,
+ * which honours an inherited `GIT_INDEX_FILE`) instead of the working tree: the
+ * exact bytes a commit would record. Untracked files are not in it and a path
+ * deleted only in the working tree still is, so equality with a working-tree
+ * fingerprint means "index == working tree". Any stage other than 0 fails.
+ * Gitlinks and `IDENTITY_EXCLUDES` are skipped. Never throws.
+ */
+export function indexContentIdentity(
+  cwd: string,
+  options: Pick<ContentIdentityOptions, "timeoutMs"> = {},
+): IndexContentIdentity {
+  const deadline = Date.now() + (options.timeoutMs ?? CONTENT_TIMEOUT_MS);
+  try {
+    if (
+      run(cwd, ["rev-parse", "--is-inside-work-tree"], deadline, undefined, true)?.trim() !== "true"
+    )
+      return { ok: false, reason: "not-a-checkout" };
+    const listed = run(cwd, ["ls-files", "-s", "-z"], deadline);
+    if (listed === undefined) return { ok: false, reason: "git-failed" };
+    const entries: Array<{ path: string; bytes: Buffer; line: string }> = [];
+    for (const record of listed.split("\0").filter(Boolean)) {
+      const tab = record.indexOf("\t");
+      const [mode = "", blob = "", stage = ""] = record.slice(0, tab).split(" ");
+      const path = record.slice(tab + 1);
+      if (tab < 0 || !/^[0-3]$/.test(stage)) return { ok: false, reason: "git-failed" };
+      if (stage !== "0") return { ok: false, reason: "unmerged-index" };
+      if (mode === "160000" || isExcluded(path)) continue;
+      if (UNSAFE_PATH.test(path)) return { ok: false, reason: "unsafe-path" };
+      entries.push({ path, bytes: Buffer.from(path), line: `${mode} ${blob}\t${path}\0` });
+    }
+    entries.sort((a, b) => Buffer.compare(a.bytes, b.bytes));
+    const body = entries.map((entry) => entry.line).join("");
+    return {
+      ok: true,
+      alg: CONTENT_ALG,
+      fingerprint: createHash("sha256").update(`${CONTENT_ALG}\n${body}`).digest("hex"),
+    };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Abort ? error.reason : "git-failed" };
+  }
 }

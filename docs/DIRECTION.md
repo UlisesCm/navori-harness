@@ -122,10 +122,15 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
    satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
    y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   navori puede ejecutar el `qualityGate.fast` de **otro** repo solo si el usuario lo registró (`navori workspace link`), la cadena es plana (`isSafeGateChain`) y corre sin shell (`navori gate foreign`); si no se cumple, el commit solo avisa (#1097).
    *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
     `/bonum` el harness va gitignored por convención.)
+11. **La caché del gate es atajo de tiempo, nunca evidencia de review** — un verde cacheado
+    solo evita re-correr el gate sobre los mismos bytes; no sustituye la verificación del
+    `reviewer` en contexto fresco. *Por qué*: una caché que se leyera como aprobación ahorraría
+    minutos a costa de la calidad, que es la meta de mayor prioridad.
 
 ## Unidad de PR y de verificación
 

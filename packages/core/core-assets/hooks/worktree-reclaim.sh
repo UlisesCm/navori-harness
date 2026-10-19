@@ -38,7 +38,10 @@
 set +e
 
 payload=$(cat 2>/dev/null)
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2/D6: nv_project_dir is the Codex-aware fallback below ($PWD is
 # already correct when the payload's own `.cwd` resolves, which is the common
 # case on both engines).
@@ -75,7 +78,7 @@ trap navori_audit_on_exit EXIT
 
 cwd=""
 if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
-  cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null)
+  cwd=$(payload_field cwd)
 fi
 [ -n "$cwd" ] || cwd=${nv_project_dir:-$PWD}
 cd "$cwd" 2>/dev/null || exit 0

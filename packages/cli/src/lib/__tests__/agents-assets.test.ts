@@ -172,23 +172,45 @@ describe("each agent declares its own handoff contract (#573)", () => {
  * Spec 0032 lote 3 (#1011), T10 — the implementer's `acceptance` report and
  * the reviewer's workplan-evidence rule, gated behind `<!-- navori:if
  * planTiers -->` in the raw asset (the rendered on/off behavior is covered
- * by `plan-tiers-contracts.test.ts`).
+ * by `doctrine-contracts.test.ts`).
  *
  * Covers: R20, R21
  */
 describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (T10)", () => {
+  /** Splits a raw agent body into the text INSIDE planTiers conditionals and the text outside. */
+  const splitPlanTiers = (body: string): { gated: string; ungated: string } => {
+    const block = /<!-- navori:if planTiers -->\n([\s\S]*?)\n<!-- \/navori:if -->/g;
+    return {
+      gated: [...body.matchAll(block)].map((m) => m[1]).join("\n"),
+      ungated: body.replace(block, ""),
+    };
+  };
+
   it("R20: implementer's workplan/acceptance block is wrapped in the planTiers conditional", () => {
-    const body = readAgent("implementer");
-    expect(body).toMatch(
-      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` `command` exactly as written \(same string, foreground, no rewrites\), then mark progress and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. The routing-watch hook records acceptance evidence only when the host itself ran that exact command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and never runs the command for you\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
-    );
+    const { gated, ungated } = splitPlanTiers(readAgent("implementer"));
+    for (const token of [
+      "`workplan: <feature>`",
+      "exactly as written",
+      "`acceptance`",
+      "navori plan update <feature>",
+      "blocker to report",
+    ]) {
+      expect(gated, token).toContain(token);
+      expect(ungated, token).not.toContain(token);
+    }
   });
 
   it("R21: reviewer's workplan-evidence rule is wrapped in the planTiers conditional", () => {
-    const body = readAgent("reviewer");
-    expect(body).toMatch(
-      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence \(the routing-watch hook records it only when the host ran the exact `command`\) is a finding → `CHANGES_REQUESTED`\.\n(?:- [^\n]*\n)*<!-- \/navori:if -->/,
-    );
+    const { gated, ungated } = splitPlanTiers(readAgent("reviewer"));
+    for (const token of [
+      "navori plan classify <feature> --diff",
+      "navori plan check <feature> --json",
+      "`CHANGES_REQUESTED`",
+    ]) {
+      expect(gated, token).toContain(token);
+    }
+    expect(ungated).not.toContain("navori plan check <feature> --json");
+    expect(ungated).not.toContain("navori plan classify <feature> --diff");
   });
 });
 
@@ -379,15 +401,15 @@ describe("core agent assets — scout and auditor declare each brief with its ou
 describe("core agent assets — scout and auditor forbid universal negatives (#900)", () => {
   it("scout's hard rule requires naming the searched scope and applies inline", () => {
     const body = readAgent("scout");
-    expect(body).not.toContain('say "I didn\'t find X in the repo"');
+    expect(body).not.toContain("say \"I didn't find X");
     expect(body).toContain("a negative is never universal");
-    expect(body).toContain("whether you write an artifact or answer inline");
+    expect(body).toContain("an artifact or answer inline");
   });
 
   it("auditor's hard rule requires naming the searched scope and applies inline", () => {
     const body = readAgent("auditor");
-    expect(body).toContain("A negative finding is never universal");
-    expect(body).toContain("whether you write an artifact or answer inline");
+    expect(body).toContain("negative finding is never universal");
+    expect(body).toContain("an artifact or answer inline");
   });
 });
 

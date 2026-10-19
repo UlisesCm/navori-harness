@@ -1,0 +1,35 @@
+id: no-real-home-in-tests
+language: typescript
+severity: error
+message: "Tests must not name the real home: `os.userInfo()` and literal `/Users/...` or `/home/...` paths. Use the temp HOME (`homedir()`); if the path is only data, add the file to this rule's `ignores:` with a reason."
+files:
+  - "**/*.test.ts"
+  - "**/__tests__/**"
+ignores:
+  # Allowlist: each file uses the path as DATA (error text, path normalization, classification
+  # fixtures) and never touches it on disk. A new file must justify itself here.
+  - "packages/cli/src/__tests__/audit-hooks.test.ts" # path literals inside hook payloads
+  - "packages/cli/src/__tests__/home-isolation.test.ts" # fake homes fed to the leak describer
+  - "packages/cli/src/commands/__tests__/doctor-foreign-harness.test.ts" # foreign-harness path fixtures
+  - "packages/cli/src/commands/__tests__/name-mismatch-doctor.test.ts" # doctor message fixtures
+  - "packages/cli/src/commands/__tests__/workspace-link-doctor.test.ts" # doctor message fixtures
+  - "packages/cli/src/engines/pi/__tests__/subagent.test.ts" # path normalization data
+  - "packages/cli/src/lib/__tests__/codex-trust.test.ts" # trust-table path keys
+  - "packages/cli/src/lib/__tests__/guard-destructive.test.ts" # destructive-command payloads
+  - "packages/cli/src/lib/assets/__tests__/foreign-skill-index.test.ts" # foreign skill path fixtures
+  - "packages/cli/src/lib/audit/__tests__/discovery.test.ts" # transcript cwd data
+  - "packages/cli/src/lib/audit/__tests__/parse.test.ts" # transcript cwd data
+  - "packages/cli/src/lib/audit/__tests__/paths.test.ts" # path-resolution inputs, never created
+  - "packages/cli/src/lib/audit/__tests__/snapshot.test.ts" # transcript cwd data
+  - "packages/cli/src/lib/diagnose/__tests__/source-classify.test.ts" # classification path fixtures
+  - "packages/cli/src/lib/workspace/__tests__/workspace-link.test.ts" # symlink target strings, not on disk
+rule:
+  any:
+    - pattern: userInfo()
+    - pattern: $OS.userInfo()
+    - kind: string_fragment
+      regex: ^/(Users|home)/
+      inside:
+        any:
+          - kind: string
+          - kind: template_string

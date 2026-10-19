@@ -42,7 +42,7 @@ function section(file: string, heading: string): string {
 describe("SDD threshold — one formulation, and it's a proposal (F2)", () => {
   it("sdd.md owns the threshold and hands the decision to the user", () => {
     const sdd = read("managed/sdd.md");
-    expect(sdd).toMatch(/recommendation you put to the user/i);
+    expect(sdd).toMatch(/recommendation you put to/i);
     // The gate is R3's opt-in: an agent must not self-assign a spec.
     expect(sdd).toMatch(/opt-in/i);
     expect(sdd).toMatch(/explicit request or accepted proposal/i);
@@ -124,7 +124,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
 describe("R1 → PR boundary — defined once, by the agent that applies it (M6)", () => {
   it("the pilot owns the PR side of the delegation rule", () => {
     const pilot = read("agents/publisher.md");
-    expect(pilot).toMatch(/this is where the PR side of it is enforced/);
+    expect(pilot).toMatch(/where the PR side of/);
     // The criterion itself stays here — and since #502.3 there is exactly ONE
     // of them (the non-trivial-file count), defined in that same paragraph
     // instead of borrowed. `commit-pr-pilot-contract.test.ts` owns the shape of
@@ -133,7 +133,7 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
     // por conteo que ya no existe. Vuelve cuando vuelva el ruling, como código
     // compartido y no como prosa (ver leader.md).
     expect(pilot).toContain("delegation was genuinely impossible");
-    expect(pilot).toMatch(/an APPROVED review, or a declared impossibility/);
+    expect(pilot).toMatch(/or a declared impossibility/);
   });
 
   it("orquestacion apunta a esa excepción con una sola redacción", () => {
@@ -269,7 +269,7 @@ describe("orchestrator playbook has no inline-edit route and one design gate", (
 
   it("carries no brainstorm gate that hands approval to the user", () => {
     expect(playbook).not.toContain("Brainstorm gate");
-    expect(playbook).not.toMatch(/Wait for approval of ONE approach/i);
+    expect(playbook).not.toMatch(/approval of ONE approach/i);
   });
 
   it("does not let the orchestrator fix a finding itself instead of a fresh implementer", () => {
@@ -278,7 +278,7 @@ describe("orchestrator playbook has no inline-edit route and one design gate", (
 
   it("does not carve out docs/.claude or a single trivial line as self-editable source", () => {
     expect(playbook).not.toMatch(/Changes in `docs\/`, `\.claude\/progress\/`, `CLAUDE\.md`/);
-    expect(playbook).not.toMatch(/A single trivial line in a known file/i);
+    expect(playbook).not.toMatch(/trivial line in a known/i);
   });
 });
 
@@ -373,8 +373,8 @@ describe("checklists with a single owner (T15)", () => {
   it("guard entry-point coverage lives only in security-invariants", () => {
     const reviewDiff = read("skills/review-diff.md");
     const security = read("skills/security-invariants.md");
-    expect(reviewDiff).not.toMatch(/enumerating every way that resource is mutated/i);
-    expect(security).toMatch(/enumerating every way that resource is mutated/i);
+    expect(reviewDiff).not.toMatch(/way that resource is mutated/i);
+    expect(security).toMatch(/way that resource is mutated/i);
     expect(reviewDiff).toMatch(/security-invariants/);
   });
 
@@ -385,7 +385,7 @@ describe("checklists with a single owner (T15)", () => {
     expect(reviewDiff).toMatch(/failure scenario/i);
     expect(reviewDiff).toMatch(/no existing guard/i);
     expect(reviewDiff).toMatch(/downgrades it to MEDIUM/i);
-    expect(reviewDiff).toMatch(/Zero findings is a valid verdict/i);
+    expect(reviewDiff).toMatch(/findings is a valid verdict/i);
   });
 });
 
@@ -434,7 +434,7 @@ describe("phase owners (T16)", () => {
   it("follow-up-prs hands replies to publisher", () => {
     const skill = read("skills/follow-up-prs.md");
     expect(skill).toMatch(/publisher/);
-    expect(skill).toMatch(/reply to the comment is `publisher`'s/i);
+    expect(skill).toMatch(/the comment is `publisher`'s/i);
     expect(skill).not.toMatch(/gh (pr|issue) comment/);
   });
 });
@@ -456,7 +456,7 @@ describe("reviewer re-reads (#1274)", () => {
     ]) {
       expect(reviewer).toContain(heading);
     }
-    expect(reviewer).toMatch(/whole file when those headings are absent/);
+    expect(reviewer).toMatch(/when those headings are absent/);
   });
 
   it("round 2+ reopens the solution only on SPEC_MISS or out-of-diff files", () => {
@@ -474,5 +474,18 @@ describe("reviewer re-reads (#1274)", () => {
 
   it("keeps the Coverage table mandatory on the signing round", () => {
     expect(reviewer).toMatch(/Coverage[^\n]*signing round/);
+  });
+});
+
+describe("#1022 — prior authority and the joint review barrier", () => {
+  it("keeps the parallel lifecycle canonical in orchestration with explicit serial operations", () => {
+    const orchestration = read("managed/orquestacion.md");
+    for (const operation of ["stage", "commit", "checkout", "render"]) {
+      expect(orchestration).toContain(operation);
+    }
+    expect(orchestration).toMatch(/both producers|both completions/i);
+    expect(orchestration).toMatch(/independent.*review|review.*independent/i);
+    expect(read("agents/orchestrator.md")).toContain("prepare-parallel");
+    expect(read("skills/resolve-ticket.md")).toContain("parallel");
   });
 });

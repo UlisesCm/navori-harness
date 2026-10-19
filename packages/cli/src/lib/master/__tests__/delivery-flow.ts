@@ -182,6 +182,7 @@ export function presentFromSlice(repo: DeliveryRepo, stage: string): string {
       cwd,
       head: readHead(cwd),
       worktreeTree: tree.tree,
+      fp: 2,
       dirty: true,
       deliveryBinding: binding,
     }) + "\n",

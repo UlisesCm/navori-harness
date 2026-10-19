@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { IDENTITY_EXCLUDES, indexContentIdentity } from "../content-identity.ts";
 import { contentIdentity, type ContentIdentity } from "../content-identity.ts";
 
 const workspaces: string[] = [];
@@ -174,5 +175,58 @@ describe("contentIdentity", () => {
     const bare = realpathSync(mkdtempSync(join(tmpdir(), "navori-content-none-")));
     workspaces.push(bare);
     expect(contentIdentity(bare).ok).toBe(false);
+  });
+});
+
+describe("indexContentIdentity", () => {
+  const index = (cwd: string): string => {
+    const identity = indexContentIdentity(cwd);
+    if (!identity.ok) throw new Error(`index identity failed: ${identity.reason}`);
+    return identity.fingerprint;
+  };
+
+  // Covers: R17
+  it("matches the working-tree fingerprint when index == tree; add -p, untracked files and conflicts do not", () => {
+    const cwd = fixture();
+    expect(index(cwd)).toBe(ok(contentIdentity(cwd)).fingerprint);
+
+    // add -p: the tree has an edit the index lacks.
+    writeFileSync(join(cwd, "a.txt"), "edited\n");
+    expect(index(cwd)).not.toBe(ok(contentIdentity(cwd)).fingerprint);
+    git(cwd, "add", "a.txt");
+    expect(index(cwd)).toBe(ok(contentIdentity(cwd)).fingerprint);
+
+    // Untracked: in the tree identity, not in the index one.
+    writeFileSync(join(cwd, "new.txt"), "n\n");
+    expect(index(cwd)).not.toBe(ok(contentIdentity(cwd)).fingerprint);
+    rmSync(join(cwd, "new.txt"));
+
+    // Conflict: stage != 0 fails instead of hashing a partial index.
+    git(cwd, "checkout", "-b", "side");
+    writeFileSync(join(cwd, "b.txt"), "side\n");
+    git(cwd, "commit", "-am", "side");
+    git(cwd, "checkout", "main");
+    writeFileSync(join(cwd, "b.txt"), "main\n");
+    git(cwd, "commit", "-am", "main");
+    expect(() => git(cwd, "merge", "side")).toThrow();
+    expect(indexContentIdentity(cwd)).toEqual({ ok: false, reason: "unmerged-index" });
+  });
+
+  // Covers: R17
+  it("skips IDENTITY_EXCLUDES and symlinks hash their target like the tree identity", () => {
+    const cwd = fixture();
+    expect(IDENTITY_EXCLUDES).toContain(".navori/state");
+    symlinkSync("a.txt", join(cwd, "link"));
+    mkdirSync(join(cwd, ".navori/state"), { recursive: true });
+    writeFileSync(join(cwd, ".navori/state/x.json"), "{}");
+    git(cwd, "add", "-f", "link", ".navori/state/x.json");
+    expect(index(cwd)).toBe(ok(contentIdentity(cwd)).fingerprint);
+  });
+
+  // Covers: R17
+  it("fails outside a checkout", () => {
+    const bare = realpathSync(mkdtempSync(join(tmpdir(), "navori-content-none-")));
+    workspaces.push(bare);
+    expect(indexContentIdentity(bare).ok).toBe(false);
   });
 });

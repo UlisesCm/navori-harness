@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -31,6 +31,16 @@ import {
   type SnapshotMetric,
 } from "../snapshot.ts";
 import { session } from "./lifecycle-fixtures.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 const CATALOG: HarnessCatalog = {
   agents: [{ name: "implementer", tools: null, hasMcp: true }],
@@ -265,7 +275,7 @@ describe("snapshot: format 2 and privacy (R19, R68)", () => {
   it("reads the root commit of a git repository and nothing outside one", () => {
     const repo = join(root, "git-repo");
     mkdirSync(repo);
-    execFileSync("git", ["init", "-q"], { cwd: repo });
+    repoTplMaster.copyInto(repo);
     execFileSync(
       "git",
       ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "x"],
@@ -341,7 +351,7 @@ describe("snapshot: --copy-to (R68)", () => {
   beforeEach(() => {
     repo = join(root, "work", "repo");
     mkdirSync(join(repo, "docs", "deep"), { recursive: true });
-    execFileSync("git", ["init", "-q"], { cwd: repo });
+    repoTplMaster.copyInto(repo);
     snapshotFile = snapOf("repo");
   });
 

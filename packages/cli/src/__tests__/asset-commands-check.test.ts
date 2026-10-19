@@ -263,9 +263,9 @@ describe("asset subcommand check — against this repo", () => {
   it("knows every subcommand the CLI registers", () => {
     // The parser is the load-bearing half: if `subCommands` stops matching, the
     // check silently considers every citation prose and flags nothing.
-    const source = readFileSync(resolve(REPO_ROOT, "packages/cli/src/index.ts"), "utf-8");
+    const source = readFileSync(resolve(REPO_ROOT, "packages/cli/src/cli.ts"), "utf-8");
     const block = source.match(/subCommands:\s*\{([\s\S]*?)\n\s*\},/)?.[1];
-    expect(block, "the check's own regex must still match index.ts").toBeTypeOf("string");
+    expect(block, "the check's own regex must still match cli.ts").toBeTypeOf("string");
     const names = [...(block ?? "").matchAll(/^\s*([a-z][\w-]*)\s*:/gm)].map((m) => m[1]);
     expect(names).toContain("render");
     expect(names).toContain("audit");

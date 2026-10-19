@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "smol-toml";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
@@ -26,6 +26,16 @@ import { listBundledPluginIds } from "../../../lib/render/bundled-assets.ts";
 import { buildCodexConfigToml } from "../build-config-toml.ts";
 import { codexHookHash } from "../../../lib/codex/trust.ts";
 import { PluginManifestSchema, type LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
@@ -1318,7 +1328,7 @@ describe("renderCodexEngine — tgrep search lane (spec 0041 T16)", () => {
   it("blocks a recursive shell grep with exit 2 and carries no Claude path", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config(tgrepOn));
-    execFileSync("git", ["init", "-q"], { cwd });
+    repoTplMaster.copyInto(cwd);
     const hook = readFileSync(join(cwd, hookPath), "utf-8");
     expect(hook).toContain('navori:managed start id="tgrep-search-lane"');
     // The base hook mentions CLAUDE_PROJECT_DIR in comments and its Claude arm;

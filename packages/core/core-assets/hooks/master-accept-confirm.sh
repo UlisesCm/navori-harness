@@ -10,6 +10,8 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.command"
+payload_load() { :; }
 # navori:include extract-cmd
 
 # Every matching command needs this literal token, so its absence from the raw
@@ -19,6 +21,7 @@ TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue escalation-reset na
 
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="master-accept-confirm"

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -59,11 +59,43 @@ function project(compiled: boolean = false): { cwd: string; agentDir: string; ho
   return { cwd, agentDir, home };
 }
 
+/** Load only the parent fixture without inheriting the test runner's child depth. */
+async function withParentRuntime<T>(load: () => Promise<T>): Promise<T> {
+  const previousDepth = process.env.NAVORI_PI_CHILD_DEPTH;
+  delete process.env.NAVORI_PI_CHILD_DEPTH;
+  try {
+    return await load();
+  } finally {
+    if (previousDepth === undefined) delete process.env.NAVORI_PI_CHILD_DEPTH;
+    else process.env.NAVORI_PI_CHILD_DEPTH = previousDepth;
+  }
+}
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("Pi 1.1.0 credential-free runtime", () => {
+  it.each([undefined, "1"])(
+    "isolates parent fixture depth and restores it after success and failure (depth=%s)",
+    async (depth: string | undefined) => {
+      vi.stubEnv("NAVORI_PI_CHILD_DEPTH", depth);
+      await withParentRuntime(async (): Promise<void> => {
+        expect(process.env.NAVORI_PI_CHILD_DEPTH).toBeUndefined();
+      });
+      expect(process.env.NAVORI_PI_CHILD_DEPTH).toBe(depth);
+      const failure = new Error("parent fixture load failed");
+      await expect(
+        withParentRuntime(async (): Promise<never> => {
+          expect(process.env.NAVORI_PI_CHILD_DEPTH).toBeUndefined();
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+      expect(process.env.NAVORI_PI_CHILD_DEPTH).toBe(depth);
+    },
+  );
+
   // Covers: R7, R9
   it("accepts Pi's three process trust modes without touching user auth", () => {
     const piPackage: unknown = JSON.parse(
@@ -124,7 +156,9 @@ describe("Pi 1.1.0 credential-free runtime", () => {
       await denied.reload({ resolveProjectTrust: async () => false });
       expect(denied.getExtensions().extensions).toEqual([]);
       const loader = new DefaultResourceLoader({ cwd, agentDir });
-      await loader.reload({ resolveProjectTrust: async () => true });
+      const previousDepth = process.env.NAVORI_PI_CHILD_DEPTH;
+      await withParentRuntime(() => loader.reload({ resolveProjectTrust: async () => true }));
+      expect(process.env.NAVORI_PI_CHILD_DEPTH).toBe(previousDepth);
       // Covers: R3, R9
       expect(loader.getSkills().skills.map((skill) => skill.name)).toContain("verify-before-done");
       expect(loader.getExtensions().errors).toEqual([]);

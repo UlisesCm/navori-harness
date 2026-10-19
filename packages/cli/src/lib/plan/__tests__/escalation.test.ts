@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { acknowledgePlanEscalation, evaluatePlanGate } from "../gate.ts";
 import * as escalation from "../escalation.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
+import { createRepoTemplate, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
 
 vi.mock(import("node:fs"), { spy: true });
 const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
@@ -115,14 +116,22 @@ function binding(): escalation.EscalationBinding {
   );
 }
 
+/** Built once: an initialized repo with the handoffs directory, before any path-bearing state. */
+let template: RepoTemplate;
+beforeAll(() => {
+  template = createRepoTemplate("navori-escalation-", (dir) => {
+    execFileSync("git", ["init", "-b", "main"], { cwd: dir });
+    mkdirSync(join(dir, ".navori/state/handoffs"), { recursive: true });
+  });
+});
+afterAll(() => template.dispose());
+
 beforeEach(() => {
   // Module-factory spies retain implementations across restoreAllMocks; reset their delegates.
   vi.mocked(fs.fsyncSync).mockImplementation(actualFs.fsyncSync);
   vi.mocked(fs.linkSync).mockImplementation(actualFs.linkSync);
-  cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-escalation-")));
-  execFileSync("git", ["init", "-b", "main"], { cwd });
+  cwd = template.copy();
   root = join(cwd, ".navori/state/handoffs");
-  mkdirSync(root, { recursive: true });
   fixture();
 });
 afterEach(() => {
@@ -306,7 +315,7 @@ describe("explicit immutable continuations", () => {
       }),
     ).toThrow();
     expect(retained()).toEqual(original);
-  }, 45_000);
+  });
 
   it.each([
     "invalid-utf8",

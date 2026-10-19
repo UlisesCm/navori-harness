@@ -16,7 +16,7 @@ const CONTEXT = 2;
 
 // Runner totals: vitest/jest, pytest, cargo, go, coverage tables.
 const TOTALS =
-  /^\s*(?:Test Files\s|Test Suites:|Tests?:|Tests\s+\d|Snapshots:|=+ .*\b(?:passed|failed|error|skipped)\b.* in [\d.]+s|\d+ (?:passed|failed)\b.* in [\d.]+s|test result:|ok\s+\S+|All files\b|TOTAL\b|Statements\s*:|Branches\s*:|Functions\s*:|Lines\s*:)/;
+  /^\s*(?:Test Files\s|Test Suites:|Tests?:|Coverage:|Tests\s+\d|Snapshots:|=+ .*\b(?:passed|failed|error|skipped)\b.* in [\d.]+s|\d+ (?:passed|failed)\b.* in [\d.]+s|test result:|ok\s+\S+|All files\b|TOTAL\b|Statements\s*:|Branches\s*:|Functions\s*:|Lines\s*:)/;
 const CARGO_RESULT = /^\s*test result:/;
 const GO_OK = /^ok\s+\S+/;
 // Failure markers. `N failed` only counts when N > 0 so "0 failed" stays green.
@@ -68,11 +68,14 @@ export function totalsLines(lines: string[]): string[] {
   return out.slice(-10);
 }
 
-/** Green body: totals lines + last 3 non-empty lines, middle-truncated to fit. */
+/**
+ * Green body: one totals line per recognized runner (R26). Only a log with no
+ * recognizable totals falls back to its last 3 non-empty lines.
+ */
 export function summarizeGreen(log: string, budget = GREEN_CAP): string {
   const lines = cleanLines(log);
-  const body = [...totalsLines(lines)];
-  for (const line of lastNonEmpty(lines, TAIL_GREEN)) if (!body.includes(line)) body.push(line);
+  const body = totalsLines(lines);
+  if (body.length === 0) body.push(...lastNonEmpty(lines, TAIL_GREEN));
   return truncateMiddle(body.join("\n"), budget);
 }
 

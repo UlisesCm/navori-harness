@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="clack" hash="1417a320" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="clack" hash="1417a320" version="0.12.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Clack prompts — interactive CLI
 
 ## When to use this skill

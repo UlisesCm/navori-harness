@@ -1,0 +1,8 @@
+{
+  "session_id": "bench-session",
+  "transcript_path": "__CWD__/transcript.jsonl",
+  "cwd": "__CWD__",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "bench-model"
+}

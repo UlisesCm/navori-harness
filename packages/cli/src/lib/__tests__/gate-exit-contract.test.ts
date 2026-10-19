@@ -15,7 +15,10 @@ import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import type { NavoriConfig } from "../config/config.ts";
-import { HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
+import { shellSensitive, type HookShell } from "./helpers/shells.ts";
+
+const GATE_SENSITIVE =
+  "runner lookup via PATH, `command -v` and exit-status propagation of the gate are shell-specific";
 
 /**
  * #1117 — what a core gate hook EXITS WITH is its verdict, and `PreToolUse`
@@ -154,7 +157,7 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
 
   // Covers: A2
   it("runner not on PATH + Claude hook payload → ask JSON, exit 0, no 'outside the agent'", () => {
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of shellSensitive(GATE_SENSITIVE)) {
       const fx = qgFixture("missing");
       const out = runAsk(shell, fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
       expect(out.status).toBe(CLEAN);

@@ -12,6 +12,24 @@ const environmentKeys = [
   "USERPROFILE",
   "NAVORI_BACKUP_ROOT",
   "CODEX_HOME",
+  "NAVORI_AUDITS_ROOT",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_TEMPLATE_DIR",
+  "XDG_CONFIG_HOME",
+  "CLAUDE_PROJECT_DIR",
+  "CLAUDE_CODE_SESSION_ID",
+  "NAVORI_AUDIT_HOST",
+  "NAVORI_AUDIT_SESSION_ID",
+] as const;
+
+/** Inherited session keys a hermetic child must not see (a test that needs one passes it in `env`). */
+const sessionKeys = [
+  "CODEX_HOME",
+  "CLAUDE_PROJECT_DIR",
+  "CLAUDE_CODE_SESSION_ID",
+  "NAVORI_AUDIT_HOST",
+  "NAVORI_AUDIT_SESSION_ID",
 ] as const;
 
 const retentionMarker = ".navori-retain";
@@ -79,12 +97,22 @@ export interface TempFile {
  */
 export function createTempFile(runRoot?: string): TempFile {
   const keepArtifacts = process.env.NAVORI_KEEP_TEST_ARTIFACTS === "1";
-  const saved = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]));
+  // Every inherited GIT_* goes (a pre-commit run exports GIT_INDEX_FILE), so it is saved too.
+  const inheritedGit = Object.keys(process.env).filter((key) => key.startsWith("GIT_"));
+  const restoreKeys = [...new Set<string>([...environmentKeys, ...inheritedGit])];
+  const saved = Object.fromEntries(restoreKeys.map((key) => [key, process.env[key]]));
   const root = mkdtempSync(join(runRoot ?? tmpdir(), "navori-test-file-"));
   const home = join(root, "home");
   const backups = join(root, "backups");
   mkdirSync(home);
   mkdirSync(backups);
+  const gitConfig = join(root, "gitconfig");
+  const gitTemplate = join(root, "git-template");
+  writeFileSync(gitConfig, "");
+  mkdirSync(join(gitTemplate, "hooks"), { recursive: true });
+  mkdirSync(join(gitTemplate, "info"));
+  for (const key of inheritedGit) delete process.env[key];
+  for (const key of sessionKeys) delete process.env[key];
   Object.assign(process.env, {
     TMPDIR: root,
     TMP: root,
@@ -92,8 +120,13 @@ export function createTempFile(runRoot?: string): TempFile {
     HOME: home,
     USERPROFILE: home,
     NAVORI_BACKUP_ROOT: backups,
+    // Never created: audit stays off unless a test points NAVORI_AUDITS_ROOT at a real dir.
+    NAVORI_AUDITS_ROOT: join(root, "no-audits"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: gitConfig,
+    GIT_TEMPLATE_DIR: gitTemplate,
+    XDG_CONFIG_HOME: join(root, "xdg"),
   });
-  delete process.env.CODEX_HOME;
   const children = new Map<ChildProcess, Promise<void>>();
   const onChild = (message: unknown): void => {
     if (
@@ -157,7 +190,7 @@ export function createTempFile(runRoot?: string): TempFile {
         if (timeout) clearTimeout(timeout);
         unsubscribe("child_process", onChild);
         process.off("exit", onExit);
-        for (const key of environmentKeys) {
+        for (const key of restoreKeys) {
           if (saved[key] === undefined) delete process.env[key];
           else process.env[key] = saved[key];
         }

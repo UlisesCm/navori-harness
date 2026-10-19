@@ -6,6 +6,10 @@ import { join, resolve } from "node:path";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../../lib/render/hook-includes.ts";
 import { acrossShells, type HookShell } from "../../../lib/__tests__/helpers/shells.ts";
+
+/** Backslash continuation and quote-stripping of `sh -c`/`eval` payloads are parsed by the shell (#391). */
+const CONTINUATION_SENSITIVE =
+  "backslash-newline continuation and nested quote handling are shell-specific";
 import { buildClaudeSettings, claudeHookCommand } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
@@ -52,16 +56,17 @@ function runHook(
   return { code: result.status ?? -1, stdout: result.stdout ?? "" };
 }
 
-function run(input: Record<string, unknown>, env?: NodeJS.ProcessEnv): HookRun {
-  return acrossShells((shell) => runHook(shell, input, env));
+function run(input: Record<string, unknown>, env?: NodeJS.ProcessEnv, sensitive?: string): HookRun {
+  return acrossShells((shell) => runHook(shell, input, env), { sensitive });
 }
 
 function expectAsk(
   input: Record<string, unknown>,
   env?: NodeJS.ProcessEnv,
   approval = "a manual criterion",
+  sensitive?: string,
 ): void {
-  const result = run(input, env);
+  const result = run(input, env, sensitive);
   expect(result.code).toBe(0);
   const parsed = JSON.parse(result.stdout) as {
     hookSpecificOutput?: {
@@ -282,11 +287,19 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
       'navori master "close"',
       "navori master part P1 \\\n  --accept A1 --approved-by user",
     ]) {
-      expectAsk(payload(command));
+      expectAsk(payload(command), undefined, undefined, CONTINUATION_SENSITIVE);
     }
     // Wrapped read-only commands stay silent.
-    expect(run(payload("sh -c 'navori master status'")).stdout.trim()).toBe("");
-    expect(run(payload('bash -lc "navori master check --part P1"')).stdout.trim()).toBe("");
+    expect(
+      run(payload("sh -c 'navori master status'"), undefined, CONTINUATION_SENSITIVE).stdout.trim(),
+    ).toBe("");
+    expect(
+      run(
+        payload('bash -lc "navori master check --part P1"'),
+        undefined,
+        CONTINUATION_SENSITIVE,
+      ).stdout.trim(),
+    ).toBe("");
   });
 
   // Covers: R9

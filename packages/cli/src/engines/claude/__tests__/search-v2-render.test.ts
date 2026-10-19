@@ -495,14 +495,14 @@ describe("R09 — a hand-edited or newer-version sub-block is preserved and repo
     const original = readFileSync(path, "utf-8");
     const edited = original.replace(
       "Apply Code discovery routing from the project instructions.",
-      "USER-EDIT: apply routing however you like.",
+      "apply routing however you like.",
     );
     expect(edited).not.toBe(original);
     writeFileSync(path, edited);
 
     const r = renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
     const after = readFileSync(path, "utf-8");
-    expect(after).toContain("USER-EDIT: apply routing however you like.");
+    expect(after).toContain("apply routing however you like.");
 
     const skip = r.skipped.find((s) => s.path === ".claude/agents/orchestrator.md");
     expect(skip?.status).toBe("user-modified-skipped");

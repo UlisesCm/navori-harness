@@ -44,6 +44,12 @@ interface Outcome {
   stderr: string;
 }
 
+/** The rendered policy fragment (case patterns, globbing, word-splitting) is not in the corpus, which replays unrendered source. */
+const POLICY_SENSITIVE = {
+  sensitive:
+    "generated policy fragment: case patterns, globbing and word-splitting differ between bash and zsh",
+};
+
 function run(role: string | undefined, tool: string): Outcome {
   return acrossShells((shell) => {
     const r = spawnSync(shell, [script], {
@@ -58,7 +64,7 @@ function run(role: string | undefined, tool: string): Outcome {
       encoding: "utf-8",
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
-  });
+  }, POLICY_SENSITIVE);
 }
 
 const ALLOW = 0;

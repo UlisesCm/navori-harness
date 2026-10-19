@@ -56,3 +56,34 @@ E4 entregará T6, T11 y T12 junto con A5/A6/A9/A10 originales en un PR, tras wor
 clasificado/aprobado, revisión independiente y verificación de envío. Esta enmienda
 documental no cierra esos requisitos ni convierte la evidencia histórica en aceptación
 actual.
+
+## Enmienda de entrega parcial E4/M7 — T11/A9
+
+Esta entrega acotada implementa el consumidor enfocado de T11/A9, separándolo del
+validador de resultados T6/T12. R1–R18 permanecen intactos y aplican sin reducción. La
+proyección de perfiles conserva la herencia explícita de R12; una anotación interna
+tipada de `set`/`inherit` expresa intención para el hook, mientras que solo la observación
+nativa puede acreditar el par efectivo conforme a R14. La fixture opt-in y aislada ejecuta
+el snapshot de solo lectura del target; el target continúa opt-out y su configuración y
+trust global no se activan ni modifican.
+
+La aceptación nativa A9 permanece pendiente. A18 exacto fue renovado después del guard y
+pasó 137/137 más golden 5/5; root lo registró cumplido en sesión `51893`. A19 pasó 9/9 y
+también fue registrado. Root registró A20
+cumplida con 47/47 pruebas y 5/5 goldens, y A21 cumplida con removal-parity 29/29.
+Separadamente, el artefacto de metadata nativa sin turnos es diagnóstico y no acredita A9.
+Estos criterios no aprueban la revisión independiente. El full gate histórico interrumpido
+fue sustituido por la ejecución fresca descrita en la actualización de checkpoint M7;
+T11 sigue pendiente junto con T6, T12, A9, A10 y A13, y esta entrega no
+cierra E4 ni sus criterios de envío.
+
+### Estado del checkpoint parcial autorizado
+
+El usuario autorizó activar el lector de edición/review del checkout original y preparar
+un checkpoint parcial para PR dirigido a `main`, manteniendo T11/A9 pendiente. La activación
+exacta del lector 0.162.1/0.163.0 se aplicó en el checkout original y pasó su gate fast.
+El full 9,227/2/0 es anterior al guard y no es una verificación fresca del árbol actual;
+fresh full y review independiente siguen pendientes. A18/A19/A20/A21 no sustituyen
+la aceptación nativa A9 ni la revisión independiente, receipt, commit o PR. T6, T12, A10,
+A13 y E4 continúan pendientes; no se cambian R1–R18, el contrato, ni el presupuesto de
+180 segundos. La ejecución de inferencia restante permanece sin usar.

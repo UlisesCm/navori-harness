@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -17,6 +17,16 @@ import { runCommand } from "citty";
 import { planCommand } from "../plan.ts";
 import { evaluatePlanGate } from "../../lib/plan/gate.ts";
 import { computeWorktreeTree, readHead } from "../../lib/plan/evidence.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 /** Lets a test edit the workplan "between phases" of `plan update`: runs right
  * after the real evidence validation, before the lock is taken (R11). */
@@ -99,7 +109,7 @@ describe("navori plan classify", () => {
   // Covers: R6
   it("rejects an ancestor-symlinked command cwd before it selects another checkout", async () => {
     const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-other-")));
-    execFileSync("git", ["init", "-b", "main"], { cwd: other });
+    repoTpl.copyInto(other);
     mkdirSync(join(other, "sub"));
     symlinkSync(other, join(cwd, "alias"));
     await expect(
@@ -351,12 +361,73 @@ describe("navori plan classify --diff", () => {
     expect(parsed.files).toEqual(expect.arrayContaining(["src/a.ts", "README.md", "untracked.ts"]));
   });
 
-  it("fails when the feature has no workplan", async () => {
+  it("fails when the workplan exists but is invalid", async () => {
     gitRepoWithDiff(["src/a.ts"]);
+    writePlan("absent", { feature: "absent" });
     await runCommand(planCommand, {
       rawArgs: ["classify", "absent", "--diff", "main", "--cwd", cwd],
     });
     expect(process.exitCode).toBe(1);
+  });
+
+  // Covers: R29
+  it("reviewDepth con área crítica, sin declaración y light", async () => {
+    const run = async (
+      files: string[],
+      criticalPaths: string[] | undefined,
+      feature = "nolevel",
+    ): Promise<{ reviewDepth: string; depthReason?: string; workplan: boolean }> => {
+      gitRepoWithDiff(files);
+      writeFileSync(
+        join(cwd, "navori.config.json"),
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          ...(criticalPaths ? { project: { criticalPaths } } : {}),
+        }),
+      );
+      const logs: string[] = [];
+      const spy = vi_spyConsole(logs);
+      await runCommand(planCommand, {
+        rawArgs: ["classify", feature, "--diff", "main", "--json", "--cwd", cwd],
+      });
+      spy.restore();
+      return JSON.parse(logs.join(""));
+    };
+
+    // Declared critical paths, untouched: light, and no workplan is not an error.
+    const light = await run(["src/a.ts"], ["hooks/**"]);
+    expect(light).toMatchObject({ reviewDepth: "light", workplan: false });
+    expect(light.depthReason).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
+
+    // No declaration: a critical file is indistinguishable, so full.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    expect(await run(["src/a.ts"], undefined)).toMatchObject({
+      reviewDepth: "full",
+      depthReason: "criticalPaths-undeclared",
+    });
+
+    // Touching a declared critical path: full, whatever the level.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    expect(await run(["hooks/guard.sh"], ["hooks/**"])).toMatchObject({
+      reviewDepth: "full",
+      depthReason: expect.stringMatching(/^(critical-path-matched|level)$/),
+    });
+
+    // A workplan always means the full review.
+    rmSync(cwd, { recursive: true, force: true });
+    mkdirSync(cwd);
+    process.exitCode = undefined;
+    writePlan("demo", validPlan);
+    expect(await run(["src/a.ts"], ["hooks/**"], "demo")).toMatchObject({
+      reviewDepth: "full",
+      depthReason: "workplan",
+      workplan: true,
+    });
   });
 });
 
@@ -410,7 +481,8 @@ describe("navori plan update", () => {
     );
     expect(updated.progress.A1).toBe("cumplido");
     const md = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
-    expect(md).toContain("**A1** (cumplido, sin evidencia: engine sin señal)");
+    expect(md).toContain("**A1** (cumplido, sin evidencia");
+    expect(md).toContain("engine sin señal");
   });
 
   // Covers: R6
@@ -726,7 +798,7 @@ describe("navori plan update — evidence gate", () => {
     const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-other-")));
     mkdirSync(join(cwd, "sub"));
     try {
-      execFileSync("git", ["init", "-b", "main"], { cwd: other });
+      repoTpl.copyInto(other);
       const cases: Array<Record<string, unknown>> = [
         { head: "deadbeef" },
         { command: "something else" },

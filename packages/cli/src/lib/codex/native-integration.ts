@@ -1,15 +1,47 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
-import { closeSync, openSync, writeSync, fsyncSync, ftruncateSync } from "node:fs";
+import {
+  closeSync,
+  openSync,
+  writeSync,
+  fsyncSync,
+  ftruncateSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  copyFileSync,
+  existsSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import { readConfig } from "../config/config.ts";
-import { join } from "node:path";
+import { join, dirname, relative, isAbsolute, delimiter } from "node:path";
+import { projectCodexProfiles, type CodexProfileProjection } from "../assets/model-profile.ts";
+import { getCoreRoot, readCliVersion } from "../render/bundled-assets.ts";
+import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
+import { extractManagedContent, removeManagedSection } from "../render/marker.ts";
+import { codexHome } from "./home.ts";
+import { codexHookHash, codexHookKey } from "./trust.ts";
+import {
+  codexHookCommand,
+  type ResolvedCodexHook,
+} from "../../engines/codex/hook-registrations.ts";
 import { requestBrowserDecision, type NativeApprovalIdentity } from "./approval-controller.ts";
 import { approvalSourceIsolationAvailable } from "./approval-ui.ts";
 import {
   readNativeProfileView,
   nativeProfileCandidates,
+  nativeProfileHookCalls,
+  profileSelectionIntent,
   type NativeCatalogSnapshot,
   type NativeProfileCandidate,
 } from "./host-observation.ts";
@@ -56,6 +88,80 @@ type PendingRpc = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+type ProtocolBudget = {
+  bytes: number;
+  events: number;
+  usedBytes: number;
+  usedEvents: number;
+  ledger?: { path: string; probe: string };
+};
+const protocolLedger = z.strictObject({
+  probe: z.uuid(),
+  bytes: z.number().int().nonnegative(),
+  frames: z.number().int().nonnegative(),
+});
+
+/** A private metrics ledger enforces one aggregate budget across owned parent and hook catalog processes. */
+function accountProtocol(
+  budget: ProtocolBudget | undefined,
+  bytes: number,
+  frames: number,
+): boolean {
+  if (!budget) return true;
+  if (!budget.ledger) {
+    budget.usedBytes += bytes;
+    budget.usedEvents += frames;
+  } else {
+    const { path, probe } = budget.ledger;
+    let lock: number | undefined;
+    try {
+      // No retry: a concurrent/uncertain update fails closed rather than losing accounting.
+      lock = openSync(`${path}.lock`, "wx", 0o600);
+      if (realpathSync(path) !== path) return false;
+      const value = protocolLedger.parse(JSON.parse(readFileSync(path, "utf8")) as unknown);
+      if (value.probe !== probe) return false;
+      value.bytes += bytes;
+      value.frames += frames;
+      writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
+      budget.usedBytes = value.bytes;
+      budget.usedEvents = value.frames;
+    } catch {
+      return false;
+    } finally {
+      if (lock !== undefined) {
+        closeSync(lock);
+        unlinkSync(`${path}.lock`);
+      }
+    }
+  }
+  return budget.usedBytes <= budget.bytes && budget.usedEvents <= budget.events;
+}
+
+/** Hook catalog children may account only to the owned private fixture ledger, never an arbitrary env path. */
+function hookProtocolBudget(): ProtocolBudget | undefined {
+  const probe = z.uuid().safeParse(process.env.NAVORI_CODEX_PROFILE_PROBE);
+  if (!probe.success) return undefined;
+  const root = process.env.NAVORI_CODEX_PROFILE_PROBE_ROOT;
+  if (
+    !root ||
+    !root.startsWith(join(realpathSync(tmpdir()), "navori-profile-live-")) ||
+    realpathSync(root) !== root ||
+    (statSync(root).mode & 0o777) !== 0o700
+  )
+    throw new Error("owned-protocol-ledger-unverified");
+  const path = join(root, "protocol-budget.json");
+  const value = protocolLedger.parse(JSON.parse(readFileSync(path, "utf8")) as unknown);
+  if (realpathSync(path) !== path || value.probe !== probe.data)
+    throw new Error("owned-protocol-ledger-unverified");
+  return {
+    bytes: PROFILE_PROBE_BOUNDS.maxProtocolBytes,
+    events: PROFILE_PROBE_BOUNDS.maxEvents,
+    usedBytes: value.bytes,
+    usedEvents: value.frames,
+    ledger: { path, probe: probe.data },
+  };
+}
+
 /** Diagnostics contain protocol types only, never prompts, credentials, bodies or raw stderr. */
 export interface NativeIntegrationResult {
   readonly status: "pending" | "declined" | "completed" | "uncertain";
@@ -63,6 +169,214 @@ export interface NativeIntegrationResult {
   readonly connection: string;
   readonly context?: string;
   readonly events: readonly string[];
+}
+
+const profileParentReport = z.strictObject({
+  outcome: z.enum(["completed", "blocked"]),
+  reason: z.enum([
+    "none",
+    "tool_unavailable",
+    "role_unavailable",
+    "workflow_prerequisite",
+    "other",
+  ]),
+});
+type ModelReportedProfileDiagnostic =
+  | {
+      source: "model-reported";
+      status: "available";
+      outcome: z.infer<typeof profileParentReport>["outcome"];
+      reason: z.infer<typeof profileParentReport>["reason"];
+    }
+  | { source: "model-reported"; status: "unavailable" | "ambiguous" };
+
+/** Parse only completed parent messages in the owned turn; model statements never attest native capability or selection. */
+export function readModelReportedProfileDiagnostic(
+  messages: readonly unknown[],
+  principal: string,
+  turn: string | null,
+): ModelReportedProfileDiagnostic {
+  const unavailable = { source: "model-reported", status: "unavailable" } as const;
+  if (!turn) return unavailable;
+  const completion = z.object({
+    method: z.literal("item/completed"),
+    params: z.object({
+      threadId: z.literal(principal),
+      turnId: z.literal(turn),
+      item: z.object({
+        type: z.literal("agentMessage"),
+        text: z.string(),
+        phase: z.literal("final_answer").nullish(),
+      }),
+    }),
+  });
+  const reports: z.infer<typeof profileParentReport>[] = [];
+  let malformed = false;
+  for (const message of messages) {
+    const parsed = completion.safeParse(message);
+    if (!parsed.success) continue;
+    try {
+      reports.push(profileParentReport.parse(JSON.parse(parsed.data.params.item.text) as unknown));
+    } catch {
+      malformed = true;
+    }
+  }
+  if (!reports.length) return unavailable;
+  if (
+    malformed ||
+    reports.some(
+      (report) => report.outcome !== reports[0]!.outcome || report.reason !== reports[0]!.reason,
+    )
+  )
+    return { source: "model-reported", status: "ambiguous" };
+  return { source: "model-reported", status: "available", ...reports[0]! };
+}
+
+interface NativeProfilePhaseDiagnostic {
+  modelReported: ModelReportedProfileDiagnostic;
+  items: {
+    collabAgentToolCall: number;
+    subAgentActivity: number;
+    agentMessage: number;
+    other: number;
+  };
+  spawns: {
+    attempted: number;
+    completed: number;
+    recognizedRoleReports: number;
+    unknownRoleReports: number;
+    missingIdentity: number;
+  };
+  activity: { missingIdentity: number; missingSelection: number };
+  hooks: {
+    runs: number;
+    relevant: number;
+    sourceMatched: number;
+    completed: number;
+    failed: number;
+    otherStatus: number;
+    missingIdentity: number;
+    validContexts: number;
+    contextEntries: number;
+    missingContextRuns: number;
+  };
+  joinedCandidates: number;
+}
+
+/** Diagnostic counts only: never include arbitrary native text, IDs, role names, tool names or selection evidence. */
+export function summarizeNativeProfilePhase(
+  messages: readonly unknown[],
+  roles: readonly string[],
+  expected: {
+    sourcePath: string;
+    principal: string;
+    joinedCandidates: number;
+    validContexts: number;
+    turn?: string | null;
+  },
+): NativeProfilePhaseDiagnostic {
+  const summary: NativeProfilePhaseDiagnostic = {
+    modelReported: readModelReportedProfileDiagnostic(
+      messages,
+      expected.principal,
+      expected.turn ?? null,
+    ),
+    items: { collabAgentToolCall: 0, subAgentActivity: 0, agentMessage: 0, other: 0 },
+    spawns: {
+      attempted: 0,
+      completed: 0,
+      recognizedRoleReports: 0,
+      unknownRoleReports: 0,
+      missingIdentity: 0,
+    },
+    activity: { missingIdentity: 0, missingSelection: 0 },
+    hooks: {
+      runs: 0,
+      relevant: 0,
+      sourceMatched: 0,
+      completed: 0,
+      failed: 0,
+      otherStatus: 0,
+      missingIdentity: 0,
+      validContexts: expected.validContexts,
+      contextEntries: 0,
+      missingContextRuns: 0,
+    },
+    joinedCandidates: expected.joinedCandidates,
+  };
+  const present = (value: unknown): boolean => typeof value === "string" && value.length > 0;
+  for (const message of messages) {
+    const event = object.safeParse(message).data;
+    const params = object.safeParse(event?.params).data;
+    if (!event || !params) continue;
+    if (event.method === "thread/started") {
+      const thread = object.safeParse(params.thread).data;
+      if (thread && thread.id !== expected.principal) {
+        if (typeof thread.agentRole === "string" && roles.includes(thread.agentRole))
+          summary.spawns.recognizedRoleReports++;
+        else summary.spawns.unknownRoleReports++;
+      }
+    }
+    if (event.method === "item/started" || event.method === "item/completed") {
+      const item = object.safeParse(params.item).data;
+      if (!item) continue;
+      if (
+        item.type === "collabAgentToolCall" ||
+        item.type === "subAgentActivity" ||
+        item.type === "agentMessage"
+      )
+        summary.items[item.type]++;
+      else summary.items.other++;
+      if (item.type === "collabAgentToolCall" && item.tool === "spawnAgent") {
+        if (event.method === "item/started") summary.spawns.attempted++;
+        if (event.method === "item/completed" && item.status === "completed")
+          summary.spawns.completed++;
+        if (
+          !present(item.id) ||
+          !present(params.threadId) ||
+          !present(item.senderThreadId) ||
+          !Array.isArray(item.receiverThreadIds) ||
+          !item.receiverThreadIds.length ||
+          !item.receiverThreadIds.every(present)
+        )
+          summary.spawns.missingIdentity++;
+      }
+      if (item.type === "subAgentActivity") {
+        if (!present(item.id) || !present(item.agentThreadId) || !present(item.agentPath))
+          summary.activity.missingIdentity++;
+        if (!present(item.model) || !present(item.reasoningEffort))
+          summary.activity.missingSelection++;
+      }
+    }
+    if (event.method === "hook/started" || event.method === "hook/completed") {
+      const run = object.safeParse(params.run).data;
+      summary.hooks.runs++;
+      if (!run) {
+        summary.hooks.missingIdentity++;
+        continue;
+      }
+      if (run.eventName !== "preToolUse" || run.handlerType !== "command") continue;
+      summary.hooks.relevant++;
+      const contexts = Array.isArray(run.entries)
+        ? run.entries.filter((entry: unknown) => object.safeParse(entry).data?.kind === "context")
+            .length
+        : 0;
+      summary.hooks.contextEntries += contexts;
+      if (event.method === "hook/completed" && !contexts) summary.hooks.missingContextRuns++;
+      if (
+        run.source === "project" &&
+        run.sourcePath === expected.sourcePath &&
+        params.threadId === expected.principal
+      )
+        summary.hooks.sourceMatched++;
+      if (run.status === "completed") summary.hooks.completed++;
+      else if (run.status === "failed") summary.hooks.failed++;
+      else summary.hooks.otherStatus++;
+      if (!present(run.id) || !present(params.threadId) || !present(run.sourcePath))
+        summary.hooks.missingIdentity++;
+    }
+  }
+  return summary;
 }
 
 /** Owned stdio transport with bounded messages and exact ID correlation (including ID zero). */
@@ -75,6 +389,7 @@ class NativeConnection {
   private readonly deadline?: number;
   private operationTimer?: ReturnType<typeof setTimeout>;
   private exitObserved = false;
+  private readonly scopedProcessGroup: boolean;
   private exitAcknowledgement?: Promise<boolean>;
   private readonly requests = new Map<string | number, PendingRpc>();
   onMessage: (message: RpcMessage) => void = () => {};
@@ -87,20 +402,17 @@ class NativeConnection {
     cwd: string,
     overrides: readonly string[],
     deadline?: number,
-    private readonly limits?: {
-      bytes: number;
-      events: number;
-      usedBytes: number;
-      usedEvents: number;
-    },
+    private readonly limits?: ProtocolBudget,
+    env?: NodeJS.ProcessEnv,
   ) {
     if (deadline !== undefined && Date.now() >= deadline)
       throw new Error("native-operation-timeout");
     this.deadline = deadline;
+    this.scopedProcessGroup = env !== undefined;
     this.child = spawn(
       "codex",
       ["app-server", "--stdio", ...overrides.flatMap((value) => ["-c", value])],
-      { cwd, stdio: "pipe" },
+      { cwd, stdio: "pipe", ...(env ? { env, detached: true } : {}) },
     );
     this.child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
     this.child.stderr.on("data", () => {
@@ -117,8 +429,7 @@ class NativeConnection {
 
   /** Reject oversized/invalid protocol input without forwarding raw native payloads. */
   private receive(chunk: Buffer): void {
-    if (this.limits) this.limits.usedBytes += chunk.length;
-    if (this.limits && this.limits.usedBytes > this.limits.bytes) {
+    if (!accountProtocol(this.limits, chunk.length, 0)) {
       this.close();
       return;
     }
@@ -138,7 +449,7 @@ class NativeConnection {
         this.close();
         return;
       }
-      if (this.limits && ++this.limits.usedEvents > this.limits.events) {
+      if (!accountProtocol(this.limits, 0, 1)) {
         this.close();
         return;
       }
@@ -180,8 +491,7 @@ class NativeConnection {
   }
   send(message: RecordValue): void {
     const encoded = `${JSON.stringify(message)}\n`;
-    if (this.limits) this.limits.usedBytes += Buffer.byteLength(encoded);
-    if (this.limits && this.limits.usedBytes > this.limits.bytes) {
+    if (!accountProtocol(this.limits, Buffer.byteLength(encoded), 1)) {
       this.close();
       return;
     }
@@ -192,7 +502,13 @@ class NativeConnection {
     if (this.closed) return;
     this.closed = true;
     clearTimeout(this.operationTimer);
-    this.child.kill(this.deadline === undefined ? "SIGTERM" : "SIGKILL");
+    if (this.scopedProcessGroup && this.child.pid) {
+      try {
+        process.kill(-this.child.pid, "SIGKILL");
+      } catch {
+        this.child.kill("SIGKILL");
+      }
+    } else this.child.kill(this.deadline === undefined ? "SIGTERM" : "SIGKILL");
     for (const request of this.requests.values()) {
       clearTimeout(request.timer);
       request.reject(new Error("native-connection-closed"));
@@ -249,12 +565,28 @@ export async function queryNativeCatalog(
   cwd: string,
   deadline = Date.now() + 8_000,
 ): Promise<NativeCatalogSnapshot> {
-  const connection = new NativeConnection(cwd, [], Math.min(deadline, Date.now() + 8_000));
+  const budget = hookProtocolBudget();
+  const inherited = z.coerce
+    .number()
+    .int()
+    .positive()
+    .safeParse(process.env.NAVORI_CODEX_PROFILE_PROBE_DEADLINE);
+  const end = Math.min(
+    deadline,
+    Date.now() + 8_000,
+    budget && inherited.success ? inherited.data : Infinity,
+  );
+  const connection = new NativeConnection(cwd, [], end, budget);
+  let snapshot: NativeCatalogSnapshot;
   try {
-    return await readConnectionCatalog(connection, cwd, "closed");
+    snapshot = await readConnectionCatalog(connection, cwd, "closed");
   } finally {
-    connection.close();
+    if (budget) await connection.closeAcknowledged(end);
+    else connection.close();
   }
+  if (budget && !(await connection.closeAcknowledged(end)))
+    throw new Error("hook-catalog-exit-unacknowledged");
+  return snapshot;
 }
 
 /** Internal same-connection catalog query; only fixed native lifecycles can use the transport. */
@@ -618,6 +950,870 @@ export async function preflightNativeProfileProbe(
     tree,
     configuration,
     roles: Object.freeze(roles),
+    pending: Object.freeze(pending),
+  });
+}
+
+const LIVE_PROFILE_SCENARIO = "target-snapshot-profile-dispatch-refresh-v1-0.162.1";
+const LIVE_RESTRICTIONS = [
+  "shell_tool",
+  "apps",
+  "plugins",
+  "browser_use",
+  "computer_use",
+  "memories",
+  "request_permissions_tool",
+  "image_generation",
+  "skill_mcp_dependency_install",
+  "remote_plugin",
+  "worktrees",
+] as const;
+
+/** Current target snapshot exercised only in an opted-in disposable checkout, never the caller's session. */
+export interface NativeLiveProfileProbe {
+  readonly status: "completed" | "pending";
+  readonly scenario: typeof LIVE_PROFILE_SCENARIO;
+  readonly target: string;
+  readonly targetIntegration: boolean;
+  readonly execution?: string;
+  readonly identity?: string;
+  readonly consumed: boolean;
+  readonly principalTurnRequests: number;
+  readonly principal?: {
+    readonly context: string;
+    readonly model: string;
+    readonly effort: string;
+  };
+  readonly children: readonly NativeProfileCandidate[];
+  readonly refresh: "verified" | "pending";
+  readonly refreshChild?: NativeProfileCandidate;
+  readonly events: readonly string[];
+  readonly diagnostics: readonly NativeProfilePhaseDiagnostic[];
+  readonly cleanup: "acknowledged" | "unverified" | "not-started";
+  readonly bounds: typeof PROFILE_PROBE_BOUNDS;
+  readonly protocol: { bytes: number; frames: number };
+  readonly phases: {
+    readonly baselinePrincipalTurns: 1;
+    readonly refreshPrincipalTurns: 1;
+    readonly extraRefreshDispatches: 1;
+  };
+  readonly pending: readonly string[];
+}
+
+/** Bind only relevant current target/implementation inputs; report/spec prose and fixture names are not inputs. */
+function liveProfileSnapshot(cwd: string): {
+  identity: string;
+  rows: CodexProfileProjection[];
+  paths: string[];
+} {
+  const config = readConfig(join(cwd, "navori.config.json"));
+  if (!config.engines.includes("codex")) throw new Error("codex-engine-required");
+  const rows = projectCodexProfiles(cwd, config, { catalogPath: null });
+  const roleFile = z.strictObject({
+    name: z.string().min(1),
+    description: z.string(),
+    developer_instructions: z.string(),
+    model: z.string().min(1).optional(),
+    model_reasoning_effort: z.string().min(1).optional(),
+  });
+  for (const row of rows.filter((entry) => entry.scope === "subagent")) {
+    const parsed = roleFile.safeParse(parseToml(readFileSync(join(cwd, row.path), "utf8")));
+    if (!parsed.success || parsed.data.name !== row.nativeName)
+      throw new Error("native-role-overrides-or-instructions-unverified");
+  }
+  const expectedHook = renderManagedFile({
+    assetPath: join(getCoreRoot(), "core-assets/hooks/model-advisor.sh"),
+    existingContent: null,
+    managedId: "model-advisor-base",
+    meta: { source: "@navori/core", version: readCliVersion() },
+    config,
+    engine: "codex",
+  }).content;
+  const actualHook = readFileSync(join(cwd, ".codex/hooks/model-advisor.sh"), "utf8");
+  if (
+    extractManagedContent(actualHook, "model-advisor-base", "shell") !==
+      extractManagedContent(expectedHook, "model-advisor-base", "shell") ||
+    removeManagedSection(actualHook, "model-advisor-base", "shell").trim() !==
+      removeManagedSection(expectedHook, "model-advisor-base", "shell").trim()
+  )
+    throw new Error("native-profile-hook-source-not-current");
+  const paths = [
+    ...new Set([
+      "navori.config.json",
+      ".codex/hooks/model-advisor.sh",
+      ...rows.map((row) => row.path),
+      ...(existsSync(join(cwd, "AGENTS.md")) ? ["AGENTS.md"] : []),
+    ]),
+  ].sort();
+  const hash = createHash("sha256").update(JSON.stringify([cwd, LIVE_PROFILE_SCENARIO]));
+  for (const path of paths) {
+    const absolute = realpathSync(join(cwd, path));
+    const rel = relative(cwd, absolute);
+    if (isAbsolute(rel) || rel === ".." || rel.startsWith("../"))
+      throw new Error("profile-input-escapes-target");
+    hash.update(path).update(readFileSync(absolute));
+  }
+  const implementation = new Set([fileURLToPath(import.meta.url)]);
+  if (import.meta.url.endsWith(".ts"))
+    for (const path of [
+      "host-observation.ts",
+      "profile-dispatch.ts",
+      "../../commands/codex-profile.ts",
+    ])
+      implementation.add(fileURLToPath(new URL(path, import.meta.url)));
+  for (const path of implementation) hash.update(path).update(readFileSync(path));
+  return { identity: hash.digest("hex"), rows, paths };
+}
+
+/** Only recognized loaded features establish restriction support; arbitrary config echoes do not. */
+async function verifyLiveProfileAdmission(
+  connection: NativeConnection,
+  cwd: string,
+  hook: { command: string; hash: string; sourcePath: string },
+): Promise<void> {
+  const features = z
+    .object({
+      data: z.array(z.object({ name: z.string(), enabled: z.boolean(), stage: z.string() })),
+      nextCursor: z.null().optional(),
+    })
+    .parse(await connection.rpc("experimentalFeature/list", { limit: 200 }));
+  if (
+    LIVE_RESTRICTIONS.some(
+      (name) =>
+        !features.data.some(
+          (entry) =>
+            entry.name === name &&
+            entry.enabled === false &&
+            !["removed", "deprecated"].includes(entry.stage),
+        ),
+    )
+  )
+    throw new Error("recognized-native-restrictions-unverified");
+  if (
+    !["hooks", "multi_agent"].every((name) =>
+      features.data.some(
+        (entry) => entry.name === name && entry.enabled && entry.stage === "stable",
+      ),
+    )
+  )
+    throw new Error("recognized-native-dispatch-unverified");
+  const policy = z
+    .object({ config: object })
+    .parse(await connection.rpc("config/read", { cwd, includeLayers: false })).config;
+  const loaded = object.parse(policy.features);
+  const defaults = object.safeParse(policy.agents).data;
+  if (defaults?.enabled !== true) throw new Error("loaded-native-agents-enabled-unverified");
+  const nativeDefaults = z.strictObject({
+    enabled: z.literal(true),
+    max_concurrent_threads_per_session: z.int().nonnegative().nullish(),
+    max_depth: z.int().nonnegative().nullish(),
+    default_subagent_model: z.null().optional(),
+    default_subagent_reasoning_effort: z.null().optional(),
+    job_max_runtime_seconds: z.int().nonnegative().nullish(),
+    interrupt_message: z.boolean().nullish(),
+  });
+  if (!nativeDefaults.safeParse(defaults).success)
+    throw new Error("native-default-inheritance-unverified");
+  if (
+    policy.sandbox_mode !== "read-only" ||
+    policy.approval_policy !== "never" ||
+    policy.web_search !== "disabled" ||
+    LIVE_RESTRICTIONS.some((name) => loaded[name] !== false) ||
+    Object.keys(object.parse(policy.mcp_servers ?? {})).length !== 0
+  )
+    throw new Error("loaded-native-restrictions-unverified");
+  const hooks = z
+    .object({
+      data: z.array(
+        z.object({
+          cwd: z.string(),
+          errors: z.array(z.unknown()),
+          warnings: z.array(z.string()),
+          hooks: z.array(
+            z.object({
+              enabled: z.boolean(),
+              trustStatus: z.string(),
+              source: z.string(),
+              sourcePath: z.string(),
+              currentHash: z.string(),
+              eventName: z.string(),
+              handlerType: z.string(),
+              command: z.string().optional(),
+            }),
+          ),
+        }),
+      ),
+    })
+    .parse(await connection.rpc("hooks/list", { cwds: [cwd] }));
+  const entry = hooks.data.length === 1 ? hooks.data[0] : undefined;
+  const actual = entry?.hooks.length === 1 ? entry.hooks[0] : undefined;
+  if (
+    entry?.cwd !== cwd ||
+    entry.errors.length ||
+    entry.warnings.length ||
+    !actual ||
+    !actual.enabled ||
+    actual.trustStatus !== "trusted" ||
+    actual.source !== "project" ||
+    actual.sourcePath !== hook.sourcePath ||
+    actual.currentHash !== hook.hash ||
+    actual.command !== hook.command ||
+    actual.eventName !== "preToolUse" ||
+    actual.handlerType !== "command"
+  )
+    throw new Error("exact-native-hook-registration-unverified");
+}
+
+/** Drive only one fixed no-effect turn; any foreign tool/request, extra spawn or missing completion fails closed. */
+async function runProfileProbePhase(
+  connection: NativeConnection,
+  principal: string,
+  roles: readonly string[],
+  deadline: number,
+  observe: (messages: readonly unknown[], turn: string | null) => void,
+): Promise<unknown[]> {
+  const messages: unknown[] = [];
+  let turn: string | null = null;
+  let finish: (error?: Error) => void = () => {};
+  const completed = new Promise<void>((resolve, reject) => {
+    finish = (error?: Error): void => (error ? reject(error) : resolve());
+  });
+  void completed.catch(() => {});
+  const timer = setTimeout(
+    () => finish(new Error("native-profile-phase-timeout")),
+    Math.max(1, deadline - Date.now()),
+  );
+  const spawns = new Set<string>();
+  const active = new Set<string>();
+  const receivers = new Map<string, string>();
+  connection.onClose = (): void => finish(new Error("native-profile-connection-closed"));
+  connection.onMessage = (message: RpcMessage): void => {
+    messages.push(message);
+    if (message.id !== undefined && message.method !== undefined) {
+      connection.send({
+        id: message.id,
+        error: { code: -32601, message: "Fixed profile probe denies effects" },
+      });
+      finish(new Error("unexpected-native-effect-request"));
+      return;
+    }
+    const params = object.safeParse(message.params);
+    if (!params.success) return;
+    const item = object.safeParse(params.data.item);
+    if (item.success && message.method === "item/started") {
+      const value = item.data;
+      if (
+        value.type === "collabAgentToolCall" &&
+        value.tool === "spawnAgent" &&
+        typeof value.id === "string"
+      ) {
+        spawns.add(value.id);
+        active.add(value.id);
+        if (
+          params.data.threadId !== principal ||
+          spawns.size > roles.length ||
+          active.size > PROFILE_PROBE_BOUNDS.maxConcurrentChildren
+        )
+          finish(new Error("unexpected-native-profile-dispatch"));
+      } else if (
+        value.type === "collabAgentToolCall" &&
+        !["wait", "closeAgent", "listAgents"].includes(String(value.tool))
+      ) {
+        finish(new Error("unexpected-native-child-turn-or-control"));
+      } else if (
+        [
+          "commandExecution",
+          "fileChange",
+          "mcpToolCall",
+          "dynamicToolCall",
+          "webSearch",
+          "imageGeneration",
+        ].includes(String(value.type))
+      )
+        finish(new Error("unexpected-native-effect-attempt"));
+    }
+    if (
+      item.success &&
+      message.method === "item/completed" &&
+      item.data.type === "collabAgentToolCall"
+    ) {
+      const value = item.data;
+      if (params.data.threadId !== principal) finish(new Error("unexpected-native-child-control"));
+      if (
+        value.tool === "spawnAgent" &&
+        value.status === "completed" &&
+        typeof value.id === "string" &&
+        Array.isArray(value.receiverThreadIds)
+      )
+        for (const context of value.receiverThreadIds)
+          if (typeof context === "string") receivers.set(context, value.id);
+      if (value.tool === "closeAgent" && value.status === "completed") {
+        const states = object.safeParse(value.agentsStates);
+        if (states.success)
+          for (const [context, state] of Object.entries(states.data))
+            if (object.safeParse(state).data?.status === "shutdown")
+              active.delete(receivers.get(context) ?? "");
+      }
+    }
+    if (message.method === "turn/completed" && params.data.threadId === principal) {
+      const turn = z.object({ status: z.literal("completed") }).safeParse(params.data.turn);
+      finish(turn.success ? undefined : new Error("native-profile-turn-incomplete"));
+    }
+  };
+  try {
+    const started = await connection.rpc("turn/start", {
+      threadId: principal,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      outputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["outcome", "reason"],
+        properties: {
+          outcome: { type: "string", enum: ["completed", "blocked"] },
+          reason: {
+            type: "string",
+            enum: [
+              "none",
+              "tool_unavailable",
+              "role_unavailable",
+              "workflow_prerequisite",
+              "other",
+            ],
+          },
+        },
+      },
+      input: [
+        {
+          type: "text",
+          text: `This is the fixed native profile diagnostic. Sequentially spawn exactly one native child of each exact agent_type in ${JSON.stringify(roles)}. Preserve each role's configured instructions and profile: do not override model or effort in the spawn. Give each child only this no-effect task: reply PROFILE_PROBE_OK and do not use tools or delegate. Wait for each child to finish and close it with close_agent before starting the next. Do not create other children, resume children, use shell, edit files, browse, or request permissions. Finish after every listed child is closed. Return only the final JSON report required by outputSchema: outcome completed with reason none if you executed this exact scenario; otherwise outcome blocked with reason tool_unavailable, role_unavailable, workflow_prerequisite or other. This report is your diagnostic statement only; do not include explanations, tool names, role names or other text.`,
+        },
+      ],
+    });
+    turn = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(started).turn.id;
+    await completed;
+    return messages;
+  } finally {
+    observe(messages, turn);
+    clearTimeout(timer);
+    connection.onMessage = (): void => {};
+    connection.onClose = (): void => {};
+  }
+}
+
+/** Require native shutdown per exact child; an app-server signal alone never proves child cleanup. */
+function nativeProfileChildrenClosed(
+  messages: readonly unknown[],
+  children: readonly NativeProfileCandidate[],
+): boolean {
+  const closed = new Set<string>();
+  const schema = z.object({
+    method: z.literal("item/completed"),
+    params: z.object({
+      threadId: z.string(),
+      item: z.object({
+        type: z.literal("collabAgentToolCall"),
+        tool: z.literal("closeAgent"),
+        status: z.literal("completed"),
+        senderThreadId: z.string(),
+        receiverThreadIds: z.array(z.string()),
+        agentsStates: z.record(z.string(), z.object({ status: z.literal("shutdown") })),
+      }),
+    }),
+  });
+  for (const message of messages) {
+    const parsed = schema.safeParse(message);
+    if (parsed.success) {
+      const { threadId, item } = parsed.data.params;
+      if (threadId !== item.senderThreadId) continue;
+      for (const context of Object.keys(item.agentsStates))
+        if (
+          item.receiverThreadIds.includes(context) &&
+          children.some((child) => child.context === context && child.parent === threadId)
+        )
+          closed.add(context);
+    }
+  }
+  return children.every((child) => closed.has(child.context));
+}
+
+/**
+ * One authorized target snapshot, isolated native fixture and named refresh subphase. Missing admission/evidence stays pending.
+ * Operational bounds detect excess dispatch/output; no hard inference-token or pre-effect model-turn cap is claimed.
+ */
+export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProfileProbe> {
+  const root = resolveStateRoot({ cwd, feature: "codex-profile" });
+  const deadline = Date.now() + PROFILE_PROBE_BOUNDS.wallTimeMs;
+  const operationDeadline = deadline - 10_000;
+  const limits: ProtocolBudget = {
+    bytes: PROFILE_PROBE_BOUNDS.maxProtocolBytes,
+    events: PROFILE_PROBE_BOUNDS.maxEvents,
+    usedBytes: 0,
+    usedEvents: 0,
+  };
+  const pending: string[] = [];
+  let consumed = false;
+  let temporary: string | undefined;
+  let execution: string | undefined;
+  let identity: string | undefined;
+  let connection: NativeConnection | undefined;
+  let cleanup: NativeLiveProfileProbe["cleanup"] = "not-started";
+  let refresh: NativeLiveProfileProbe["refresh"] = "pending";
+  let targetIntegration = false;
+  let principalTurnRequests = 0;
+  let principalSelection: NativeLiveProfileProbe["principal"];
+  let refreshChild: NativeProfileCandidate | undefined;
+  let allPhasesClosed = true;
+  let children: NativeProfileCandidate[] = [];
+  const diagnostics: NativeProfilePhaseDiagnostic[] = [];
+  try {
+    const snapshot = liveProfileSnapshot(root.cwd);
+    identity = snapshot.identity;
+    const config = readConfig(join(root.cwd, "navori.config.json"));
+    targetIntegration = config.harness?.codexIntegration === true;
+    const roles = snapshot.rows.filter((row) => row.scope === "subagent");
+    if (!roles.length || roles.length > PROFILE_PROBE_BOUNDS.maxEnabledChildRoles)
+      throw new Error("enabled-role-count-outside-fixed-probe-bounds");
+    for (const row of snapshot.rows) {
+      const intent = profileSelectionIntent(row);
+      if (
+        row.scope === "principal" &&
+        (intent.model.kind !== "set" || intent.effort.kind !== "set")
+      )
+        throw new Error("current-principal-pair-missing");
+    }
+    ensureStateDirectory(root);
+    const fd = openSync(
+      stateArtifactPath(root, `profile-probe-live-${identity}.json`),
+      "wx",
+      0o600,
+    );
+    consumed = true;
+    try {
+      writeSync(
+        fd,
+        JSON.stringify({
+          scenario: LIVE_PROFILE_SCENARIO,
+          target: root.cwd,
+          identity,
+          status: "consumed-uncertain",
+        }),
+      );
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    temporary = realpathSync(mkdtempSync(join(tmpdir(), "navori-profile-live-")));
+    const probe = randomUUID();
+    const ledgerPath = join(temporary, "protocol-budget.json");
+    writeFileSync(ledgerPath, JSON.stringify({ probe, bytes: 0, frames: 0 }), { mode: 0o600 });
+    limits.ledger = { path: ledgerPath, probe };
+    execution = join(temporary, "checkout");
+    const home = join(temporary, "codex-home");
+    const bin = join(temporary, "bin");
+    for (const path of [execution, home, bin]) mkdirSync(path, { mode: 0o700 });
+    for (const path of snapshot.paths) {
+      mkdirSync(dirname(join(execution, path)), { recursive: true });
+      copyFileSync(join(root.cwd, path), join(execution, path));
+    }
+    writeFileSync(
+      join(execution, "navori.config.json"),
+      JSON.stringify({ ...config, harness: { ...config.harness, codexIntegration: true } }),
+    );
+    const nativePath = join(execution, ".codex/config.toml");
+    const original = readFileSync(nativePath, "utf8");
+    const nativeConfig = parseToml(original);
+    if (
+      Object.keys(nativeConfig).some(
+        (key) =>
+          ![
+            "sandbox_mode",
+            "approval_policy",
+            "approvals_reviewer",
+            "model",
+            "model_reasoning_effort",
+            "features",
+            "hooks",
+            "project_doc_max_bytes",
+            "developer_instructions",
+            "mcp_servers",
+          ].includes(key),
+      )
+    )
+      throw new Error("native-principal-overrides-unverified");
+    delete nativeConfig.hooks;
+    delete nativeConfig.mcp_servers;
+    const hook: ResolvedCodexHook = {
+      script: "model-advisor",
+      event: "PreToolUse",
+      matcher: "^(Agent|spawn_agent)$",
+      args: "codex-pretool-profile",
+      timeout: 15,
+      statusMessage: "navori: future child profile",
+    };
+    const command = codexHookCommand(hook);
+    const hash = codexHookHash(hook, command);
+    nativeConfig.hooks = {
+      PreToolUse: [
+        {
+          matcher: hook.matcher!,
+          hooks: [
+            { type: "command", command, timeout: hook.timeout, statusMessage: hook.statusMessage! },
+          ],
+        },
+      ],
+    };
+    const start = original.match(/^# navori:managed start id="codex-config-base".*$/m)?.[0];
+    const end = original.match(/^# navori:managed end id="codex-config-base".*$/m)?.[0];
+    if (!start || !end) throw new Error("target-native-config-ownership-unverified");
+    writeFileSync(nativePath, `${start}\n${stringifyToml(nativeConfig)}\n${end}\n`);
+    writeFileSync(
+      join(home, "config.toml"),
+      stringifyToml({
+        projects: { [execution]: { trust_level: "trusted" } },
+        agents: { enabled: true },
+        hooks: {
+          state: { [codexHookKey(nativePath, "PreToolUse", 0, 0)]: { trusted_hash: hash } },
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const auth = join(codexHome(), "auth.json");
+    if (!existsSync(auth)) throw new Error("isolated-native-auth-source-unavailable");
+    copyFileSync(auth, join(home, "auth.json"));
+    const entry = import.meta.url.endsWith(".ts")
+      ? fileURLToPath(new URL("../../index.ts", import.meta.url))
+      : fileURLToPath(import.meta.url);
+    const installedBinary = (name: string): string => {
+      const found = spawnSync("which", [name], {
+        encoding: "utf8",
+        timeout: Math.max(1, operationDeadline - Date.now()),
+      });
+      if (found.status !== 0 || !found.stdout.trim())
+        throw new Error("installed-native-dependency-unavailable");
+      return realpathSync(found.stdout.trim());
+    };
+    const runtime = import.meta.url.endsWith(".ts") ? installedBinary("bun") : process.execPath;
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+    writeFileSync(join(bin, "navori"), `#!/bin/sh\nexec ${quote(runtime)} ${quote(entry)} "$@"\n`, {
+      mode: 0o700,
+    });
+    symlinkSync(process.execPath, join(bin, "node"));
+    symlinkSync(installedBinary("codex"), join(bin, "codex"));
+    if (
+      spawnSync("git", ["init", "-q", execution], {
+        timeout: Math.max(1, operationDeadline - Date.now()),
+        stdio: "ignore",
+      }).status !== 0
+    )
+      throw new Error("isolated-native-checkout-unavailable");
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      CODEX_HOME: home,
+      NAVORI_CODEX_PROFILE_PROBE: probe,
+      NAVORI_CODEX_PROFILE_PROBE_ROOT: temporary,
+      NAVORI_CODEX_PROFILE_PROBE_DEADLINE: String(operationDeadline),
+      NAVORI_AUDITS_ROOT: join(temporary, "audit-disabled"),
+      PATH: `${bin}${delimiter}/usr/bin${delimiter}/bin`,
+    };
+    const overrides = [
+      ...LIVE_RESTRICTIONS.map((name) => `features.${name}=false`),
+      'sandbox_mode="read-only"',
+      'approval_policy="never"',
+      'approvals_reviewer="user"',
+      'web_search="disabled"',
+    ];
+    connection = new NativeConnection(execution, overrides, operationDeadline, limits, env);
+    cleanup = "unverified";
+    await initialize(connection);
+    await verifyLiveProfileAdmission(connection, execution, {
+      command,
+      hash,
+      sourcePath: nativePath,
+    });
+    const catalog = await readConnectionCatalog(connection, execution, "open", true);
+    const view = await readNativeProfileView(execution, catalog, operationDeadline);
+    const comparable = (rows: readonly CodexProfileProjection[]): string =>
+      JSON.stringify(
+        rows.map((row) => ({
+          name: row.nativeName,
+          model: row.model.wouldRender,
+          effort: row.effort.wouldRender,
+          diagnostics: row.diagnostics,
+        })),
+      );
+    if (comparable(view.rows) !== comparable(snapshot.rows))
+      throw new Error("fixture-profile-projection-mismatch");
+    for (const path of snapshot.paths.filter(
+      (path) => !["navori.config.json", ".codex/config.toml"].includes(path),
+    ))
+      if (!readFileSync(join(execution, path)).equals(readFileSync(join(root.cwd, path))))
+        throw new Error("fixture-profile-inputs-mismatch");
+    if (liveProfileSnapshot(root.cwd).identity !== identity)
+      throw new Error("target-profile-inputs-changed");
+    for (const row of view.rows) {
+      const intent = profileSelectionIntent(row);
+      if (
+        !catalog.models.some(
+          (model) =>
+            (intent.model.kind === "inherit" || model.model === intent.model.value) &&
+            (intent.effort.kind === "inherit" || model.efforts.includes(intent.effort.value)),
+        )
+      )
+        throw new Error("current-role-intent-not-in-native-catalog");
+    }
+    const principal = view.rows.find((row) => row.scope === "principal")!;
+    const started = threadSchema.parse(
+      await connection.rpc("thread/start", {
+        cwd: execution,
+        ephemeral: true,
+        sandbox: "read-only",
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        model: principal.model.wouldRender,
+        config: { model_reasoning_effort: principal.effort.wouldRender },
+      }),
+    );
+    if (
+      started.model !== principal.model.wouldRender ||
+      started.reasoningEffort !== principal.effort.wouldRender
+    )
+      throw new Error("principal-effective-profile-mismatch");
+    principalSelection = {
+      context: started.thread.id,
+      model: started.model!,
+      effort: started.reasoningEffort!,
+    };
+    const accept = (
+      messages: unknown[],
+      rows: readonly CodexProfileProjection[],
+      phase: { configuration: string; inventory: string },
+    ): NativeProfileCandidate[] => {
+      const selected = nativeProfileCandidates(rows, started.thread.id, messages, {
+        context: started.thread.id,
+        model: started.model!,
+        effort: started.reasoningEffort!,
+        // Both fixed parent turns omit pair overrides; fixture role/default keys were checked before startup.
+        unchanged: true,
+        defaultsKnown: true,
+      });
+      const spawns = new Set<string>();
+      for (const message of messages) {
+        const spawn = z
+          .object({
+            method: z.literal("item/completed"),
+            params: z.object({
+              item: z.object({
+                type: z.literal("collabAgentToolCall"),
+                tool: z.literal("spawnAgent"),
+                id: z.string(),
+              }),
+            }),
+          })
+          .safeParse(message);
+        if (spawn.success) spawns.add(spawn.data.params.item.id);
+      }
+      const calls = nativeProfileHookCalls(messages, {
+        probe,
+        checkout: execution!,
+        sourcePath: nativePath,
+        principal: started.thread.id,
+      });
+      if (
+        selected.length !== rows.length ||
+        spawns.size !== rows.length ||
+        new Set(selected.map((child) => child.call)).size !== selected.length ||
+        new Set(selected.map((child) => child.context)).size !== selected.length ||
+        rows.some(
+          (row) => selected.filter((child) => child.nativeName === row.nativeName).length !== 1,
+        ) ||
+        selected.some(
+          (child) =>
+            !calls.some(
+              (call) =>
+                call.call === child.call &&
+                call.role === child.nativeName &&
+                call.configuration === phase.configuration &&
+                call.inventory === phase.inventory &&
+                call.catalog ===
+                  createHash("sha256").update(JSON.stringify(catalog.models)).digest("hex") &&
+                JSON.stringify({ model: call.model, effort: call.effort }) ===
+                  JSON.stringify(child.intent),
+            ),
+        )
+      )
+        throw new Error("native-profile-selection-or-hook-call-unverified");
+      if (
+        selected.some(
+          (child) =>
+            !catalog.models.some(
+              (model) => model.model === child.model && model.efforts.includes(child.effort),
+            ),
+        )
+      )
+        throw new Error("native-child-pair-not-in-current-catalog");
+      if (!nativeProfileChildrenClosed(messages, selected))
+        throw new Error("native-child-shutdown-unverified");
+      return selected;
+    };
+    const observe =
+      (rows: readonly CodexProfileProjection[]) =>
+      (messages: readonly unknown[], turn: string | null): void => {
+        diagnostics.push(
+          summarizeNativeProfilePhase(
+            messages,
+            rows.map((row) => row.nativeName),
+            {
+              sourcePath: nativePath,
+              principal: started.thread.id,
+              turn,
+              joinedCandidates: nativeProfileCandidates(rows, started.thread.id, messages, {
+                context: started.thread.id,
+                model: started.model!,
+                effort: started.reasoningEffort!,
+                unchanged: true,
+                defaultsKnown: true,
+              }).length,
+              validContexts: nativeProfileHookCalls(messages, {
+                probe,
+                checkout: execution!,
+                sourcePath: nativePath,
+                principal: started.thread.id,
+              }).length,
+            },
+          ),
+        );
+      };
+    principalTurnRequests++;
+    allPhasesClosed = false;
+    children = accept(
+      await runProfileProbePhase(
+        connection,
+        started.thread.id,
+        roles.map((row) => row.nativeName),
+        operationDeadline,
+        observe(roles),
+      ),
+      roles,
+      view,
+    );
+    allPhasesClosed = true;
+    const changed = roles.find(
+      (row) =>
+        profileSelectionIntent(row).model.kind === "set" &&
+        profileSelectionIntent(row).effort.kind === "set",
+    );
+    if (!changed) throw new Error("supported-pinned-refresh-role-unavailable");
+    const option = z
+      .enum(["low", "medium", "high", "xhigh", "max"])
+      .parse(
+        catalog.models
+          .find((model) => model.model === changed.model.wouldRender)
+          ?.efforts.find(
+            (effort) =>
+              effort !== changed.effort.wouldRender &&
+              ["low", "medium", "high", "xhigh", "max"].includes(effort),
+          ),
+      );
+    const fixtureConfig = readConfig(join(execution, "navori.config.json"));
+    fixtureConfig.models = {
+      ...fixtureConfig.models,
+      codexProfiles: {
+        ...fixtureConfig.models?.codexProfiles,
+        [changed.nativeName]: {
+          ...fixtureConfig.models?.codexProfiles?.[changed.nativeName],
+          effort: option,
+        },
+      },
+    };
+    writeFileSync(join(execution, "navori.config.json"), JSON.stringify(fixtureConfig));
+    const originalRole = readFileSync(join(execution, changed.path), "utf8");
+    // Only a fixture pin changes; instructions, names and every baseline target file stay intact.
+    writeFileSync(
+      join(execution, changed.path),
+      originalRole.replace(
+        /^model_reasoning_effort\s*=.*$/m,
+        `model_reasoning_effort = ${JSON.stringify(option)}`,
+      ),
+    );
+    const refreshView = await readNativeProfileView(execution, catalog, operationDeadline);
+    const refreshed = refreshView.rows.find((row) => row.nativeName === changed.nativeName)!;
+    if (
+      refreshed.effort.wouldRender !== option ||
+      readFileSync(join(execution, changed.path), "utf8") === originalRole
+    )
+      throw new Error("fixture-refresh-pair-unverified");
+    if (liveProfileSnapshot(root.cwd).identity !== identity)
+      throw new Error("target-profile-inputs-changed");
+    principalTurnRequests++;
+    allPhasesClosed = false;
+    const next = accept(
+      await runProfileProbePhase(
+        connection,
+        started.thread.id,
+        [changed.nativeName],
+        operationDeadline,
+        observe([refreshed]),
+      ),
+      [refreshed],
+      refreshView,
+    );
+    allPhasesClosed = true;
+    if (
+      children.some((child) => child.context === next[0]?.context || child.call === next[0]?.call)
+    )
+      throw new Error("refresh-native-context-reused");
+    refresh = "verified";
+    refreshChild = next[0];
+    await verifyLiveProfileAdmission(connection, execution, {
+      command,
+      hash,
+      sourcePath: nativePath,
+    });
+    if (liveProfileSnapshot(root.cwd).identity !== identity)
+      throw new Error("target-profile-inputs-changed");
+  } catch (error) {
+    pending.push(
+      error instanceof Error && "code" in error && error.code === "EEXIST"
+        ? "fixed-live-probe-attempt-already-consumed"
+        : error instanceof Error && /^[a-z0-9-]+$/.test(error.message)
+          ? error.message
+          : "fixed-live-profile-probe-unavailable",
+    );
+  } finally {
+    if (connection) {
+      const acknowledged = await connection.closeAcknowledged(deadline);
+      cleanup = acknowledged && allPhasesClosed ? "acknowledged" : "unverified";
+      if (!acknowledged) pending.push("owned-process-exit-unacknowledged");
+    }
+    if (!accountProtocol(limits, 0, 0))
+      pending.push("aggregate-protocol-budget-unverified-or-exceeded");
+    // These paths are created by this owner outside the target and global home.
+    if (temporary) rmSync(temporary, { recursive: true, force: true });
+  }
+  return Object.freeze({
+    status: pending.length ? "pending" : "completed",
+    scenario: LIVE_PROFILE_SCENARIO,
+    target: root.cwd,
+    targetIntegration,
+    execution,
+    identity,
+    consumed,
+    principalTurnRequests,
+    principal: principalSelection,
+    children: Object.freeze(children),
+    refresh,
+    refreshChild,
+    events: Object.freeze(connection?.events.slice() ?? []),
+    diagnostics: Object.freeze(diagnostics),
+    cleanup,
+    bounds: PROFILE_PROBE_BOUNDS,
+    protocol: { bytes: limits.usedBytes, frames: limits.usedEvents },
+    phases: {
+      baselinePrincipalTurns: 1,
+      refreshPrincipalTurns: 1,
+      extraRefreshDispatches: 1,
+    } as const,
     pending: Object.freeze(pending),
   });
 }

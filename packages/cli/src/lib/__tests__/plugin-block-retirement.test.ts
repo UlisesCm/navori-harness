@@ -89,7 +89,7 @@ describe("#614 — migration: an already rendered repo loses the orphan", () => 
 
     const after = read("CLAUDE.md");
     expect(after).not.toContain("jscpd-protocol");
-    expect(after).not.toContain("stale body from a previous render");
+    expect(after).not.toContain("stale body from a previous");
   });
 
   it("registers every retired block against the plugin that declared it", () => {
@@ -140,7 +140,7 @@ describe("#1273 — guarded removal of gh-protocol and skills-index", () => {
 
       const after = read("CLAUDE.md");
       expect(after).not.toContain(`id="${id}"`);
-      expect(after).not.toContain("stale body from a previous render");
+      expect(after).not.toContain("stale body from a previous");
       expect(after).toContain("- Regla propia del usuario.");
     });
 
@@ -163,7 +163,7 @@ describe("#1273 — guarded removal of gh-protocol and skills-index", () => {
 
       const after = read("CLAUDE.md");
       expect(after).toContain(`id="${id}"`);
-      expect(after).toContain("stale body from a previous render");
+      expect(after).toContain("stale body from a previous");
     });
   }
 

@@ -1,7 +1,13 @@
 # Sesión actual
 
-**Estado:** corrección spec-completed-budget validada y revisión nativa APPROVED contra main. T30 y límite global conservados. Full: 9170 aprobadas, 2 omitidas, 0 fallidas; log .navori/state/gate/full-20261018T041821759Z.log. Receipt full status ok/fresh true; ciclo local genuino de implementer/scribe/reviewer completado. Detalle en progress/history.md.
+Resolviendo PR [#1350](https://github.com/UlisesCm/navori-harness/pull/1350) contra `dev` por decisión del usuario. Rama local `fix/1350-integrate-dev`; el worktree original permanece intacto.
+
+## Estado
+
+Merge de dev `6c6a17ef` resuelto sin conflictos de índice. Se conserva la corrección de spec completada con warning, T30 y el cap global. Identidad, binding, hook generado, golden y escalation conservan dev sin cambios. Selección externa del usuario verificada; ninguna operación bloqueada se reintentó.
+
+Implementer DONE y attest nativo contra dev. A1: 60/60; A2: 209/209; typecheck, golden 5/5, render 90 sin cambios, assets, presupuestos de docs y links verdes. Fast nativo 9/0 (`fast-20261019T152821239Z.log`).
 
 ## Siguiente paso
 
-Apertura del PR por el usuario, con base main y head fix/spec-completed-budget, usando el título/cuerpo/comando exactos entregados al finalizar commit y push. Body preparado en .navori/state/handoffs/comment_spec-completed-budget.md. El hook Codex pr-publisher-confirm requiere confirmación y ejecución humana; no intentar rodearlo. Sin merge, tag o npm. A3 permanece pendiente sólo en tracking por evento de host no capturado; evidencia real de full y receipt nativos válidos. Conservar rama y worktree para la acción final.
+Reviewer independiente revisa el diff y ejecuta su único full. Después receipt fresco contra dev, merge commit y push normal `HEAD:fix/spec-completed-budget`; verificar CI del nuevo HEAD de PR1350. No declarar full/CI verde antes de sus resultados. PR1351 y1352 ya mergeados.

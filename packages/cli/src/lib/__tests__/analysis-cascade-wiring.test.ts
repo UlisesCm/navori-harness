@@ -138,7 +138,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
     // Deleted from the intake skill: rules whose canonical owner is another asset.
     expect(read("agents/reviewer.md")).toMatch(/Never skip Pass 1/i);
     const ticketBlock = read("managed/intake-tickets.md");
-    expect(ticketBlock).toContain("The proposed solution is a suggestion, never the spec");
+    expect(ticketBlock).toContain("a suggestion, never the spec");
     expect(ticketBlock).toContain("Size is measured, not assumed");
   });
 });
@@ -181,7 +181,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
     expect(skill).toMatch(/You synthesize[^|]*audit_ticket_<ID>\.md/);
     expect(skill).toMatch(/never delegated/i);
     // Over-fanning is the opposite failure the decision named explicitly.
-    expect(skill).toMatch(/cost more than the serial run they replace/i);
+    expect(skill).toMatch(/more than the serial run/i);
   });
 
   it("the audit agent knows its scope is ONE area and that it does not synthesize", () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -16,9 +16,28 @@ import { spawnSync } from "node:child_process";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
-import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
+import { acrossShells, shellSensitive } from "./helpers/shells.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import type { HookShell } from "./helpers/shells.ts";
+
+/** The hook consumes state on disk and builds the context with shell `printf`/glob expansion (#391). */
+const NOTICE_SENSITIVE =
+  "notice consumption and context-dir glob expansion (NULL_GLOB) are shell-specific";
+const GIT_SENSITIVE =
+  "git-state fixture the corpus cannot reproduce; branch/log text goes through shell expansion";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+let repoTplFeat: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+  repoTplFeat = emptyRepo({ branch: "feat/x" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+  repoTplFeat.dispose();
+});
 
 /**
  * Behavioral tests for the SessionStart context hook (#169 / N1). We install
@@ -119,7 +138,7 @@ function parseCtx(stdout: string): string {
 
 describe("session-start context hook", () => {
   it("emits branch + recent commits + progress/current.md on a working branch", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -138,7 +157,7 @@ describe("session-start context hook", () => {
   });
 
   it("warns when the session starts on the base branch", () => {
-    git("init", "-q", "-b", "main");
+    repoTpl.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -227,7 +246,7 @@ describe("session-start context hook — untrusted content is fenced as DATA (#5
   const CLOSE = "END UNTRUSTED REPOSITORY DATA";
 
   function seedRepo(subject: string): void {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -338,7 +357,7 @@ describe("session-start context hook — aviso de worktrees conservados (#774)",
   }
 
   it("re-emite el aviso y lo consume, en todos los shells", () => {
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of shellSensitive(NOTICE_SENSITIVE)) {
       const path = seedNotice(BODY);
 
       const first = parseCtx(runOnce(shell, "startup").stdout);
@@ -376,7 +395,7 @@ describe("session-start context hook — aviso de worktrees conservados (#774)",
 describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
   // Covers: R1, R2
   it("codex payload yields additionalContext with branch, commits and progress", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -388,6 +407,7 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
     const stdout = acrossShells(
       (shell) => runOnce(shell, "startup", hookPath, { cwd: dir }).stdout,
+      { sensitive: GIT_SENSITIVE },
     );
     const ctx = parseCtx(stdout);
 
@@ -448,13 +468,17 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     // proving the Codex arm above is the one suppressing it, not a fluke of
     // the fixture (e.g. a missing dir).
     installHook("hook.sh");
-    const claudeCtx = parseCtx(acrossShells((shell) => runOnce(shell, "startup").stdout));
+    const claudeCtx = parseCtx(
+      acrossShells((shell) => runOnce(shell, "startup").stdout, { sensitive: NOTICE_SENSITIVE }),
+    );
     expect(claudeCtx).toContain("Doctrine only Claude needs repeated.");
   });
 });
 
 /**
- * #1244 — tool update notice. The hook calls `navori tools notice` and trusts nothing it
+ * #1244 — tool update notice. The hook calls `navori tools session-context` (spec 0054 R25) and,
+ * when that is not framed as expected (this stub answers every call alike, like an older CLI),
+ * falls back to `navori tools notice`; it trusts nothing it
  * prints: output without the `#navori-tool-notice v1` sentinel (an older navori's usage
  * banner) or with a bad ack charset is discarded, and the delivery is acked only when the
  * BODY (not the budget pointer) was emitted. Every case uses a temp HOME and a stub `navori`
@@ -487,7 +511,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   /** Run under every shell with a fresh call log each time; the outputs must agree. */
   function emit(env: Record<string, string>): { ctx: string; calls: string[] } {
     const seen: { ctx: string; calls: string[] }[] = [];
-    for (const shell of HOOK_SHELLS) {
+    for (const shell of shellSensitive(NOTICE_SENSITIVE)) {
       rmSync(log, { force: true });
       const ctx = parseCtx(runOnce(shell, "startup", join(dir, "hook.sh"), {}, env).stdout);
       seen.push({ ctx, calls: calls() });
@@ -506,11 +530,15 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const r = emit(stub(OUTPUT));
     expect(r.ctx).toContain(NOTICE);
     expect(r.ctx).not.toContain("#navori-tool-notice");
-    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+    expect(r.calls).toEqual([
+      "tools session-context --notice-reserve 300",
+      "tools notice",
+      "tools notice --ack engram@3.2.1",
+    ]);
   });
 
   it("is the LAST section: it follows the repository state", () => {
-    git("init", "-q", "-b", "feat/x");
+    repoTplFeat.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
     writeFileSync(join(dir, "a.txt"), "a\n");
@@ -525,7 +553,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const banner = "USAGE navori init|add|render|doctor\n\nCOMMANDS\n  init  ...\n";
     const r = emit(stub(banner, { exit: 2 }));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 300", "tools notice"]);
   });
 
   it.each([
@@ -537,20 +565,24 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   ])("discards %s", (_name, output) => {
     const r = emit(stub(output));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 300", "tools notice"]);
   });
 
   it("still delivers and acks the body when the budget is spent: the notice has its own reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_CTX_BUDGET: "10" });
     expect(r.ctx).toContain(NOTICE);
-    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+    expect(r.calls).toEqual([
+      "tools session-context --notice-reserve 300",
+      "tools notice",
+      "tools notice --ack engram@3.2.1",
+    ]);
   });
 
   it("degrades to the fixed English pointer and does NOT ack when the notice exceeds its reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_NOTICE_RESERVE: "10" });
     expect(r.ctx).toContain("tool update notices didn't fit here");
     expect(r.ctx).not.toContain(NOTICE);
-    expect(r.calls).toEqual(["tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 10", "tools notice"]);
   });
 
   it("does not call navori when opted out", () => {

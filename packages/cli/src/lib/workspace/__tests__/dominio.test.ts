@@ -23,7 +23,9 @@ const {
   dominioIndexPath,
   toSlug,
 } = await import("../dominio.ts");
-const { writeWorkspace, WorkspaceConfigSchema } = await import("../workspace.ts");
+const { writeWorkspace, WorkspaceConfigSchema, linkRepoToWorkspace } =
+  await import("../workspace.ts");
+const { dominioCommand } = await import("../../../commands/dominio.ts");
 
 function makeWorkspace(name: string, repos: Array<{ name: string; path: string }> = []) {
   writeWorkspace(WorkspaceConfigSchema.parse({ name, repos }));
@@ -188,6 +190,41 @@ describe("resolveWorkspacesForCwd", () => {
     const outside = mkdtempSync(join(tmpdir(), "navori-outside-"));
     expect(resolveWorkspacesForCwd(outside)).toEqual([]);
     rmSync(outside, { recursive: true, force: true });
+  });
+
+  // Covers: #1269
+  it("stale registered path resolves nothing and inject is silent; relinking from the new path repairs both", async () => {
+    const newPath = mkdtempSync(join(tmpdir(), "navori-moved-"));
+    makeWorkspace("bonum", [{ name: "webapp", path: "/old/parent/webapp" }]);
+    writeEntry(
+      "bonum",
+      "coachee",
+      { title: "Coachee", type: "concept", status: "canonical" },
+      "coachee = user-profile.kind",
+    );
+
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(newPath);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const runInject = async (): Promise<string> => {
+      out.mockClear();
+      const subs = dominioCommand.subCommands as Record<string, { run?: (c: never) => unknown }>;
+      await subs["inject"]?.run?.({} as never);
+      return out.mock.calls.map((c) => String(c[0])).join("");
+    };
+    try {
+      expect(resolveWorkspacesForCwd(newPath)).toEqual([]);
+      expect(await runInject()).toBe("");
+
+      expect(linkRepoToWorkspace("bonum", { name: "webapp", path: newPath }).action).toBe(
+        "updated-path",
+      );
+      expect(resolveWorkspacesForCwd(newPath)).toEqual(["bonum"]);
+      expect(await runInject()).toContain("Coachee");
+    } finally {
+      cwdSpy.mockRestore();
+      out.mockRestore();
+      rmSync(newPath, { recursive: true, force: true });
+    }
   });
 });
 

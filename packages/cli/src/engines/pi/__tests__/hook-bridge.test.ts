@@ -1,13 +1,22 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { BASH, load, type Shell } from "./fixtures/load-extension.ts";
 import { PI_HOOK_BINDINGS, type PiHookBinding } from "../hook-bindings.ts";
 import { renderPiEngine } from "../index.ts";
 import { serializePiManifest, type PiManifestHook } from "../owned-file.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 interface Ctx {
   cwd: string;
@@ -453,7 +462,7 @@ describe("hook bridge: managed drift", () => {
   it("drift exit 2 becomes advisory", async () => {
     const dir = mkdtempSync(join(tmpdir(), "navori-pi-drift-"));
     dirs.push(dir);
-    execFileSync("git", ["init", "-q", dir]);
+    repoTplMaster.copyInto(dir);
     const drift = PI_HOOK_BINDINGS.filter((binding) => binding.script === "managed-drift-watch");
     expect(drift).toHaveLength(1);
     renderPiEngine(

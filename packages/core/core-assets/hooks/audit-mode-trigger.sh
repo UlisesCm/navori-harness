@@ -17,16 +17,19 @@
 
 set +e
 
+nv_payload_fields="agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
 # navori:include audit-repo
 
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # navori:include hook-input
 
-session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
-cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
+# One extraction for both fields (spec 0054 R22): no fork per field on every prompt.
+payload_fields session_id=session_id cwd=cwd
 [ -n "$session_id" ] || exit 0
 # The id composes `log_file` below, so a path-shaped one would escape the
 # audit root. The CLI validates it too (#503) — this guard is here so the
