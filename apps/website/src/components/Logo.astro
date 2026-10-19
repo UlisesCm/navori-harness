@@ -1,5 +1,5 @@
 ---
-import { getLangFromUrl, localizedPath } from "../i18n/utils";
+import { getLangFromUrl, localizedPath, useTranslations } from "../i18n/utils";
 
 interface Props {
   size?: number;
@@ -8,13 +8,14 @@ interface Props {
 }
 const { size = 28, withWordmark = true, class: className = "" } = Astro.props;
 const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
 const homeHref = localizedPath(lang, "/");
 ---
 
 <a
   href={homeHref}
   class:list={["inline-flex items-center gap-2.5 group", className]}
-  aria-label="navori home"
+  aria-label={t("logo.home")}
 >
   <span
     class="relative inline-flex items-center justify-center rounded-md"
@@ -59,7 +60,7 @@ const homeHref = localizedPath(lang, "/");
         </span>
         <span class="hidden sm:inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300"
           style="border-color: var(--color-border-soft);">
-          AI harness
+          {t("logo.label")}
         </span>
       </span>
     )

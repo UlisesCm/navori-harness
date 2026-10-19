@@ -88,7 +88,20 @@ function patch(role: string | undefined, ...files: string[]): Record<string, unk
 const HANDOFF = ".navori/state/handoffs/impl_x.json";
 
 describe("role-guard linked review outputs", () => {
-  it("authorizes registered linked-worktree review outputs through the binding branch", () => {
+  /** Builds the same registered fixture for bounded cases without raising test timeouts. */
+  function bindingFixture(
+    reviewerVersion: string,
+    producerVersion: string,
+  ): {
+    host: string;
+    target: string;
+    state: string;
+    thread: string;
+    nonce: string;
+    index: string;
+    md: string;
+    json: string;
+  } {
     // Outside OS temp: removing the exact binding must deny this same physical destination.
     rmSync(repo, { recursive: true, force: true });
     const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
@@ -122,7 +135,7 @@ describe("role-guard linked review outputs", () => {
     const nonce = "20000000-0000-0000-0000-000000000004";
     const actor = {
       host: "codex",
-      version: "0.162.1",
+      version: reviewerVersion,
       thread,
       root: nonce,
       parent: nonce,
@@ -142,7 +155,15 @@ describe("role-guard linked review outputs", () => {
         fingerprint: "b".repeat(64),
         base: null,
         handoff: ownership,
-        actors: [{ ...actor, thread: "20000000-0000-0000-0000-000000000002", role: "implementer" }],
+        actors: [
+          {
+            ...actor,
+            version: producerVersion,
+            thread: "20000000-0000-0000-0000-000000000002",
+            role: "implementer",
+          },
+          { ...actor, thread: "20000000-0000-0000-0000-000000000005", role: "scribe" },
+        ],
       }),
     );
     writeFileSync(
@@ -172,18 +193,63 @@ describe("role-guard linked review outputs", () => {
     writeFileSync(index, JSON.stringify({ v: 1, feature: "demo", thread, nonce }));
     const md = join(state, "review_demo.md");
     const json = join(state, "review_demo.json");
-    for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
-      const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
-      const result = run({
-        cwd: host,
-        agent_id: thread,
-        agent_type: "reviewer",
-        tool_name: "apply_patch",
-        tool_input: { command },
-      });
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain("bound-review-output");
-    }
+    return { host, target, state, thread, nonce, index, md, json };
+  }
+
+  // Covers: R13
+  it.each([
+    ["0.162.1", "0.162.1"],
+    ["0.162.1", "0.163.0"],
+    ["0.163.0", "0.162.1"],
+    ["0.163.0", "0.163.0"],
+  ])(
+    "supports reviewer %s and producer %s through the rendered binding branch",
+    (reviewerVersion: string, producerVersion: string) => {
+      const { host, state, thread, nonce, md, json } = bindingFixture(
+        reviewerVersion,
+        producerVersion,
+      );
+      for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
+        const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
+        const result = run({
+          cwd: host,
+          agent_id: thread,
+          agent_type: "reviewer",
+          tool_name: "apply_patch",
+          tool_input: { command },
+        });
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain("bound-review-output");
+      }
+      const stampPath = join(state, `review_demo.${nonce}.begin.json`);
+      const originalStamp = readFileSync(stampPath, "utf8");
+      const unknownReviewer = JSON.parse(originalStamp) as { reviewer: { version: string } };
+      unknownReviewer.reviewer.version = "0.164.0";
+      writeFileSync(stampPath, JSON.stringify(unknownReviewer));
+      const deniedReviewer = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+      expect(deniedReviewer.status).toBe(2);
+      expect(deniedReviewer.stderr).toContain("wrong-native-actor");
+      writeFileSync(stampPath, originalStamp);
+      const ownerPath = join(state, "ownership_demo.json");
+      const originalOwner = readFileSync(ownerPath, "utf8");
+      for (const position of [0, 1]) {
+        const unknownOwner = JSON.parse(originalOwner) as { actors: { version: string }[] };
+        const owner = unknownOwner.actors[position];
+        if (!owner) throw new Error(`Missing fixture owner at position ${position}`);
+        owner.version = "0.164.0";
+        writeFileSync(ownerPath, JSON.stringify(unknownOwner));
+        const deniedOwner = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+        expect(deniedOwner.status).toBe(2);
+        expect(deniedOwner.stderr).toContain("ownership-mismatch");
+      }
+      writeFileSync(ownerPath, originalOwner);
+    },
+    45_000,
+  );
+
+  // Covers: R13
+  it("authorizes registered linked-worktree review outputs through the binding branch", () => {
+    const { host, target, state, thread, md } = bindingFixture("0.162.1", "0.162.1");
     const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
     for (const files of [
       [md, scratch],
@@ -207,8 +273,11 @@ describe("role-guard linked review outputs", () => {
     expect(traversal.status, JSON.stringify(traversal)).toBe(2);
     expect(run({ ...patch("reviewer", md), cwd: host, agent_id: "" }).status).toBe(2);
     expect(
-      run({ ...patch("reviewer", md), cwd: host, agent_id: "20000000-0000-0000-0000-000000000009" })
-        .status,
+      run({
+        ...patch("reviewer", md),
+        cwd: host,
+        agent_id: "20000000-0000-0000-0000-000000000009",
+      }).status,
     ).toBe(2);
     expect(run({ ...patch("auditor", md), cwd: host, agent_id: thread }).status).toBe(2);
     expect(
@@ -232,6 +301,11 @@ describe("role-guard linked review outputs", () => {
         tool_input: { command: move },
       }).status,
     ).toBe(2);
+  }, 45_000);
+
+  // Covers: R13
+  it("requires the Node runtime and exact binding for the same linked-worktree destination", () => {
+    const { host, target, thread, index, md } = bindingFixture("0.162.1", "0.162.1");
     const bin = join(repo, "bin");
     mkdirSync(bin);
     for (const command of [

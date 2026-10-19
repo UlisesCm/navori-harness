@@ -51,7 +51,7 @@ const tools = PLUGIN_IDS.map((id) => {
   const k = kind[m.kind];
   return {
     id,
-    kindLabel: lang === "es" ? k.label : k.en,
+    kindLabel: t(`toolbox.${m.kind}`),
     color: k.color,
     // The keys are declared in `ui.ts` for both languages; the cast keeps the
     // lookup typed without restating the whole union here.

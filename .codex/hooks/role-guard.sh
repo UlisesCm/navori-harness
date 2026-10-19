@@ -1,4 +1,4 @@
-# navori:managed start id="role-guard-base" hash="cb82dafc" version="0.12.1" source="@navori/core"
+# navori:managed start id="role-guard-base" hash="38dccb2f" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(apply_patch | spawn_agent) guard, CODEX ONLY (spec 0041 D5/D13,
@@ -316,7 +316,7 @@ function validate(host, output) {
       b.commonDir !== actual.commonDir || b.stateDir !== neutral || typeof b.target !== 'string' ||
       !b.target || stamp.v !== 1 || stamp.alg !== 'navori-content/v1' ||
       stamp.feature !== feature || stamp.nonce !== index.nonce) deny('invalid-binding');
-  if (!a || a.host !== 'codex' || a.version !== '0.162.1' || a.role !== 'reviewer' ||
+  if (!a || a.host !== 'codex' || !['0.162.1', '0.163.0'].includes(a.version) || a.role !== 'reviewer' ||
       a.thread !== thread || !uuid.test(a.root) || !uuid.test(a.parent) ||
       !hex.test(a.sourceHash) || checkout(a.sourceCwd) !== host.checkout) deny('wrong-native-actor');
   const owner = json(path.join(state, `ownership_${feature}.json`));
@@ -324,7 +324,7 @@ function validate(host, output) {
       owner.handoff !== stamp.ownership || !hex.test(stamp.ownership) ||
       owner.fingerprint !== stamp.fingerprint || owner.base !== stamp.base ||
       !Array.isArray(owner.actors) || !owner.actors.length ||
-      owner.actors.some((p) => p.host !== 'codex' || p.version !== '0.162.1' ||
+      owner.actors.some((p) => p.host !== 'codex' || !['0.162.1', '0.163.0'].includes(p.version) ||
         !['implementer', 'scribe'].includes(p.role) || !uuid.test(p.thread) ||
         p.root !== a.root || p.thread === thread)) deny('ownership-mismatch');
   const handoff = path.join(state, `impl_${feature}.json`);

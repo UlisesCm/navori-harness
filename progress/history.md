@@ -1,5 +1,13 @@
 # History
 
+## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
+
+Cambios:
+- Documentación principal en inglés, con 42ediciones completas en inglés, español y chino simplificado; web en `/`, `/es/` y `/zh-cn/`, navegación recíproca y 34 aliases estáticos compatibles.
+- SEO localizado, 99 páginas HTML y 99 alternativas Markdown, 3 índices llms.txt, tarjetas sociales y enlaces canónicos conscientes de la base.
+- Compatibilidad nativa exacta con Codex 0.162.1/0.163.0; aserciones inglesas equivalentes, presupuestos locales de integración y observación temprana del PID del fixture, conservando identidad, independencia y deadlines del runtime.
+Quality gate: FULL exit 0, 438 archivos, 9,177 pruebas aprobadas, 2 omitidas y 0 fallos; pisos de cobertura de 154 módulos. Log `.navori/state/gate/full-20261018T033845303Z.log`. Revisión APPROVED sellada y receipt FULL contra `main` verificado `status:ok`, `fresh:true`, sin uncovered/drift. A1: 232 aprobadas; A6: 5 aprobadas y 126 filtradas; builds raíz/base, enlaces, budgets y navegador validados. Sin merge, despliegue ni publicación npm.
+
 ## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
 
 Cambios:

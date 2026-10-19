@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "astro build && bun scripts/check-i18n.ts",
     "preview": "astro preview",
     "astro": "astro"
   },

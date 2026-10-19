@@ -1,0 +1,25 @@
+---
+import LandingPage from "../components/pages/LandingPage.astro";
+import QuickstartPage from "../components/pages/QuickstartPage.astro";
+import DeepDivePage from "../components/pages/DeepDivePage.astro";
+import ReleasesPage from "../components/pages/ReleasesPage.astro";
+import DocsLayout from "../layouts/DocsLayout.astro";
+import CommandDocBody from "../components/CommandDocBody.astro";
+import { canonicalPages, topicPath } from "../content/pages";
+import { locales } from "../i18n/locales";
+import { commandDocs } from "../content/commands";
+
+export function getStaticPaths() {
+  return canonicalPages.filter(({lang}) => lang !== "en").map(({lang,page}) => ({
+    params: {localized: `${locales[lang].prefix}${topicPath(page) === "/" ? "" : topicPath(page)}`},
+    props: {lang, page},
+  }));
+}
+const {lang, page} = Astro.props;
+const doc = page.startsWith("docs/") ? commandDocs[lang][page.slice(5)] : undefined;
+---
+{page === "home" && <LandingPage lang={lang} />}
+{page === "quickstart" && <QuickstartPage lang={lang} />}
+{page === "deep-dive" && <DeepDivePage lang={lang} />}
+{page === "releases" && <ReleasesPage lang={lang} />}
+{doc && <DocsLayout lang={lang} title={`navori ${doc.title}`} description={doc.summary} current={doc.id}><CommandDocBody doc={doc} lang={lang} /></DocsLayout>}

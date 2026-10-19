@@ -14,7 +14,7 @@ interface Props {
 const { lang, title, description, current } = Astro.props;
 const t = useTranslations(lang);
 
-const docsLabel = lang === "es" ? "Comandos" : "Commands";
+const docsLabel = t("commands.eyebrow");
 ---
 
 <BaseLayout lang={lang} title={title} description={description}>
@@ -49,9 +49,7 @@ const docsLabel = lang === "es" ? "Comandos" : "Commands";
       >
         <p class="text-slate-500 dark:text-slate-400">
           {
-            lang === "es"
-              ? "Sin manual aún. Esta página es la referencia."
-              : "No manpage yet. This page is the reference."
+            t("docs.reference")
           }
         </p>
       </div>

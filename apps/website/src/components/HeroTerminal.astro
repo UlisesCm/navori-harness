@@ -1,16 +1,18 @@
 ---
 // Animated terminal mock for the hero. Lines reveal sequentially via CSS keyframes
 // with staggered animation-delay; no JS needed at runtime.
+import { getLangFromUrl, useTranslations } from "../i18n/utils";
+const t = useTranslations(getLangFromUrl(Astro.url));
 const lines = [
   { kind: "cmd", text: "navori init --recommended" },
   { kind: "info", text: "✓ stack: Next.js · pnpm" },
   { kind: "info", text: "✓ engines: claude · codex" },
   { kind: "info", text: "✓ plugins: engram · gh" },
-  { kind: "render", text: "→ rendering managed assets" },
+  { kind: "render", text: `→ ${t("terminal.render")}` },
   { kind: "ok", text: "✓ CLAUDE.md · AGENTS.md" },
   { kind: "ok", text: "✓ .claude/  agents · skills · hooks" },
-  { kind: "ok", text: "✓ .claude/settings.json  permisos" },
-  { kind: "done", text: "✓ Done — 34 created · 0 overwritten" },
+  { kind: "ok", text: `✓ .claude/settings.json  ${t("terminal.permissions")}` },
+  { kind: "done", text: `✓ ${t("terminal.done")}` },
 ];
 
 const colorByKind: Record<string, string> = {
@@ -81,7 +83,7 @@ const colorByKind: Record<string, string> = {
       <span
         class="ml-3 text-[11px] uppercase tracking-wider text-slate-400 select-none"
       >
-        ~/your-repo &nbsp;·&nbsp; zsh
+        ~/your-repo &nbsp;·&nbsp; zsh · {t("terminal.example")}
       </span>
     </div>
     <div class="px-4 sm:px-5 py-4 text-[12px] sm:text-[13px] leading-[1.7] font-mono overflow-hidden">

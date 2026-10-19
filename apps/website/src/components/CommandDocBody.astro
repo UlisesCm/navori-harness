@@ -1,6 +1,7 @@
 ---
 import type { CommandDoc } from "../content/commands";
 import type { Lang } from "../i18n/ui";
+import { useTranslations } from "../i18n/utils";
 
 interface Props {
   doc: CommandDoc;
@@ -9,20 +10,8 @@ interface Props {
 
 const { doc, lang } = Astro.props;
 
-const labels = {
-  es: {
-    usage: "Uso",
-    flags: "Flags",
-    examples: "Ejemplos",
-    notes: "Notas",
-  },
-  en: {
-    usage: "Usage",
-    flags: "Flags",
-    examples: "Examples",
-    notes: "Notes",
-  },
-}[lang];
+const t = useTranslations(lang);
+const labels = {usage:t("docs.usage"), flags:t("docs.flags"), examples:t("docs.examples"), notes:t("docs.notes")};
 ---
 
 <header>

@@ -361,3 +361,16 @@
     animation: none;
   }
 }
+
+/* Native CJK faces keep long translations readable without synthetic italics. */
+:lang(zh-CN) {
+  font-family: "Geist Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  line-break: strict;
+}
+:lang(zh-CN) .display-italic {
+  font-family: inherit;
+  font-style: normal;
+  letter-spacing: normal;
+}
+main { min-width: 0; }
+p, h1, h2, h3, a { overflow-wrap: break-word; }

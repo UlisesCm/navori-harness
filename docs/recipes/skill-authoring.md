@@ -1,24 +1,24 @@
-# Recipe — autoría de SKILL.md en navori
+> [English](skill-authoring.md) | [Español](skill-authoring.es.md) | [简体中文](skill-authoring.zh-CN.md)
 
-> El contrato de un archivo de skill: frontmatter, tipos, caps y triggers.
-> Implementa spec 0003 §3.2.1 (output discipline) y §3.2.2 (triggers).
-> Enforced por `packages/cli/src/lib/assets/__tests__/skill-caps.test.ts` sobre los assets que
-> navori bundlea (core, presets, plugins).
+# Recipe — authoring SKILL.md in navori
+
+> The contract for a skill file: frontmatter, types, caps, and triggers.
+> Implements spec 0003 §3.2.1 (output discipline) and §3.2.2 (triggers).
+> Enforced by `packages/cli/src/lib/assets/__tests__/skill-caps.test.ts` against the assets
+> bundled by navori (core, presets, plugins).
 >
-> **Dónde va tu skill** —core, preset, plugin o project-local— es otra pregunta, y se
-> responde en [`../EXTENDING.md`](../EXTENDING.md). Este doc asume que ya la decidiste.
+> **Where your skill belongs** — core, preset, plugin, or project-local — is a separate question,
+> answered in [`../EXTENDING.md`](../EXTENDING.md). This document assumes you have already decided.
 
-## Dónde vive el archivo
+## Where the file lives
 
-Una sola forma, porque es la única que el host descubre: un **directorio** con su `SKILL.md`.
+There is one supported shape, because it is the only one the host discovers: a **directory** containing its `SKILL.md`.
 
 ```
 .claude/skills/<id>/SKILL.md
 ```
 
-Con esa estructura la skill queda cargable desde el primer momento. La forma plana (`<id>.md`
-suelto en la raíz de `skills/`) pertenece a `.claude/commands/`, que es otra feature. Vale igual
-para las skills que navori renderiza y para las tuyas.
+With this structure, the skill can be loaded immediately. The flat form (a standalone `<id>.md` in the `skills/` root) belongs to `.claude/commands/`, which is a different feature. This applies both to skills rendered by navori and to your own skills.
 
 ## Frontmatter
 
@@ -28,90 +28,62 @@ name: nextjs-app-router
 description: Use when touching app/ in Next.js App Router — Server vs Client Components. Not for data fetching (see nextjs-data-fetching).
 metadata:
   type: reference
-  # maxWords: 520           # opcional — override del cap del tipo
-  # maxWordsComposed: 700   # opcional — techo del archivo YA compuesto (ver abajo)
+  # maxWords: 520           # optional — override the type cap
+  # maxWordsComposed: 700   # optional — ceiling for the ALREADY composed file (see below)
 ---
 ```
 
-| Campo | Requerido | Qué es |
+| Field | Required | Meaning |
 |---|---|---|
-| `name` | sí | id de la skill (kebab-case). |
-| `description` | sí | una línea con **trigger de activación** (ver abajo). |
-| `metadata.type` | sí | `behavior` \| `reference` \| `tool`. Va bajo `metadata:` (#810): un `type` en el nivel superior se lee como nulo. |
-| `metadata.maxWords` | no | sube el cap del tipo cuando la longitud está justificada. |
-| `metadata.maxWordsComposed` | no | techo del archivo compuesto, cuando un plugin la extiende. |
+| `name` | yes | Skill ID (kebab-case). |
+| `description` | yes | One line with an **activation trigger** (see below). |
+| `metadata.type` | yes | `behavior` \| `reference` \| `tool`. It belongs under `metadata:` (#810): a top-level `type` is read as null. |
+| `metadata.maxWords` | no | Raises the type cap when the length is justified. |
+| `metadata.maxWordsComposed` | no | Ceiling for the composed file when a plugin extends it. |
 
-Solo `name`, `description` y `metadata` son portables entre engines (Claude Code, Codex, DeepSeek); una clave propia de un engine no viaja. La `description` cabe en 500 caracteres —el corte más bajo de los tres— y cierra con un `Not for <skill vecina>` cuando hay una con la que se confunde.
+Only `name`, `description`, and `metadata` are portable across engines (Claude Code, Codex, DeepSeek); an engine-specific key does not travel. `description` is limited to 500 characters — the lowest limit of the three — and ends with `Not for <neighboring skill>` when there is a skill it could be confused with.
 
-## Caps por tipo
+## Caps by type
 
-El body (todo lo que sigue al frontmatter) tiene un cap de palabras. Los tokens se gastan cada
-vez que la skill se carga, así que se mantienen ajustadas.
+The body (everything after the frontmatter) has a word cap. Tokens are spent each time the skill loads, so keep it tight.
 
-| Tipo | Cap | Cuándo |
+| Type | Cap | When |
 |---|---|---|
-| `behavior` | ≤200 | dicta cómo actúa el agente (ej. `verify-before-done`). |
-| `reference` | ≤500 | documenta un patrón/stack (ej. `mantine-ui-patterns`). |
-| `tool` | ≤300 | envuelve una herramienta externa. |
+| `behavior` | ≤200 | Defines how the agent acts (for example, `verify-before-done`). |
+| `reference` | ≤500 | Documents a pattern/stack (for example, `mantine-ui-patterns`). |
+| `tool` | ≤300 | Wraps an external tool. |
 
-Si una skill excede su cap, el test falla. Para excederlo a propósito declara `maxWords: N` — el
-override es explícito, no silencioso, y **lleva escrita la razón en un comentario** junto al campo.
-Varios assets del core lo usan hoy; para verlos, `grep -rn 'maxWords:' packages/core/core-assets
-packages/plugins`.
+If a skill exceeds its cap, the test fails. To exceed it deliberately, declare `maxWords: N` — the override is explicit, never silent, and **the reason must be written in a comment** next to the field. Several core assets use it today; inspect them with `grep -rn 'maxWords:' packages/core/core-assets packages/plugins`.
 
-### `maxWordsComposed` — el archivo que la sesión realmente carga
+### `maxWordsComposed` — the file the session actually loads
 
-`maxWords` es el presupuesto del **autor del asset**: lo que ese archivo argumenta por sí solo, y
-esa razón no debe evaporarse porque un plugin le anexó una sección. `maxWordsComposed` es lo que
-**paga la sesión**: el `SKILL.md` final, con cada extensión de plugin ya inyectada y los valores
-del proyecto ya interpolados.
+`maxWords` is the **asset author's** budget: what that file argues on its own. Its justification must not disappear because a plugin appended a section. `maxWordsComposed` is what the **session pays for**: the final `SKILL.md`, with every plugin extension injected and project values interpolated.
 
-Declararlo sólo aplica a una skill que algo extiende (`injectInto`). Cuando nada la extiende, el
-archivo compuesto **es** el asset y `maxWords` ya mide lo correcto. Ejemplo real: `review-diff`
-declara `maxWords: 1200` y `maxWordsComposed: 1450` — 1200 del núcleo, 200 de la extensión de
-un plugin, más margen para los `project.criticalAreas` que el render interpola dentro del bloque.
+Declare it only for a skill that something extends (`injectInto`). When nothing extends it, the composed file **is** the asset, and `maxWords` already measures the right thing. Real example: `review-diff` declares `maxWords: 1200` and `maxWordsComposed: 1450` — 1200 for the core, 200 for a plugin extension, plus room for `project.criticalAreas` that render interpolates into the block.
 
-## Triggers en `description`
+## Triggers in `description`
 
-El host carga una skill **on-demand** leyendo su `description` y decidiendo si la situación
-encaja. Ese trigger es lo que la pone a trabajar sola en el momento justo, así que es la línea de
-mayor retorno del archivo: incluye un verbo de activación y la skill se activa cuando toca.
+The host loads a skill **on demand**, reading its `description` and deciding whether the situation fits. That trigger makes the skill work by itself at the right moment, so it has the highest return in the file: include an activation verb, and make the skill activate when needed.
 
-- ✅ `Aplica antes de tocar src/api/.`
-- ✅ `Usar cuando definas contratos HTTP.`
+- ✅ `Applies before touching src/api/.`
+- ✅ `Use when defining HTTP contracts.`
 - ✅ `Use when the user edits app/.`
-- ↗ `Reglas de Medusa.` → gana con un `Aplica cuando toques src/modules/.`
-- ↗ `Automate browser interactions and test web pages.` → dice qué hace; súmale el cuándo
+- ↗ `Medusa rules.` → improve it with `Applies when touching src/modules/.`
+- ↗ `Automate browser interactions and test web pages.` → says what it does; add when it should run
 
-Se aceptan los verbos comunes es/en (`Aplica`, `Usar`, `cuando`, `antes de`, `Use when/this`): los
-assets de navori se escriben en inglés, pero una skill tuya se escribe en tu idioma.
+Common verbs in Spanish/English are accepted (`Aplica`, `Usar`, `cuando`, `antes de`, `Use when/this`): navori assets are written in English, but you can write your own skill in your language.
 
-En los engines de prosa (`AGENTS.md`, Codex, Cursor, Copilot) el trigger también se imprime en el índice de
-skills, condensado a la primera cláusula y cortado a 120 caracteres, así que ponlo al principio.
-El índice de `CLAUDE.md` ya no lo imprime (#908): Claude Code lee la `description` completa de su
-listado nativo. Todo el "cuándo usarla" va en la `description`, no en una sección del body: el
-body solo se carga después de que la skill se activó.
+In prose engines (`AGENTS.md`, Codex, Cursor, Copilot), the trigger is also printed in the skills index, shortened to the first clause and cut off at 120 characters, so put it first. The `CLAUDE.md` index no longer prints it (#908): Claude Code reads the full `description` from its native listing. Put the entire “when to use it” in `description`, not in a body section. The body loads only after the skill activates.
 
-## Piezas opcionales: fallback declarado
+## Optional pieces: declare a fallback
 
-Si tu skill depende de algo que puede faltar en la máquina —un binario externo, un MCP,
-memoria persistente—, escribe en el propio archivo qué hacer cuando no está, no asumas que
-siempre va a estar. Sin eso, la falta de la pieza se reporta como "no encontré nada" en vez
-de "no pude buscar" — el anti-patrón "silent skipping" (#824): un canal caído no es lo mismo
-que cero resultados, y confundirlos produce un falso negativo. `locate-code` es el
-ejemplo: cae a `Grep`/lectura manual cuando no hay provider estructural o textual habilitado,
-y a `Grep` + lectura acotada cuando `ast-grep` no está instalado — cada fallback nombra su
-propio escalón de degradación en vez de darlo por sentado.
+If your skill depends on something that may be missing from a machine — an external binary, an MCP server, persistent memory — state in the file what to do when it is absent; do not assume it is always available. Without this, a missing piece is reported as “found nothing” rather than “could not search”: the “silent skipping” anti-pattern (#824). A failed channel is not the same as zero results, and confusing them creates a false negative. `locate-code` is an example: it falls back to `Grep`/manual reading when no structural or textual provider is enabled, and to `Grep` plus bounded reading when `ast-grep` is not installed. Each fallback names its own degradation step instead of taking it for granted.
 
-## Skills project-local
+## Project-local skills
 
-Una skill que escribes en tu repo (`project.localSkills`) sigue el **mismo contrato de archivo**,
-con dos diferencias:
+A skill you write in your repository (`project.localSkills`) follows the **same file contract**, with two differences:
 
-- **navori nunca la toca.** No lleva bloque managed ni user-section: el archivo es tuyo entero.
-- **Los caps quedan a tu criterio** — `skill-caps.test.ts` audita los assets bundleados. Siguen
-  siendo la referencia correcta, porque quien cobra esos tokens es tu propia sesión.
+- **navori never touches it.** It has no managed block or user section; the whole file belongs to you.
+- **You choose the caps** — `skill-caps.test.ts` audits bundled assets. Those caps are still the right reference, because your own session pays for those tokens.
 
-`navori doctor` las acompaña con dos avisos accionables: que el id declarado tenga su archivo
-(`missingLocalSkills`) y que la `description` lleve trigger (`triggerlessSkills`). Son
-sugerencias, no bloqueos — nunca cambian el veredicto.
+`navori doctor` accompanies them with two actionable warnings: that the declared ID has a file (`missingLocalSkills`) and that `description` contains a trigger (`triggerlessSkills`). They are suggestions, not blockers, and never change the verdict.

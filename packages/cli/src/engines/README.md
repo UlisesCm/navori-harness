@@ -1,34 +1,23 @@
-# Engines — cómo agregar un proveedor
+> [English](README.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
 
-Un "engine" materializa el harness (agents, skills, hooks + archivos propios) en
-el formato de una herramienta concreta: `.claude/` para Claude Code, `.codex/` +
-`AGENTS.md` para Codex, `AGENTS.md`/`.cursor/`/`.github/` para los prose engines.
+# Engines — adding a provider
 
-Este documento es el contrato que un proveedor N+1 debe implementar y el checklist
-para llegar ahí. Es el resultado de las Specs [0007](../../../../specs/0007-render-plan-unificado/design.md)
-(spine compartido) y [0008](../../../../specs/0008-fase-c-claude-spine/design.md) (Claude sobre el spine).
+An engine materializes the harness (agents, skills, hooks, and engine-specific files) in the format expected by a particular tool: `.claude/` for Claude Code, `.codex/` plus `AGENTS.md` for Codex, or `AGENTS.md`/`.cursor/`/`.github/` for prose engines.
 
-## Las 3 capas (todo engine de disco las comparte)
+This document is the contract for a future provider and the checklist for implementing one. It reflects Specs [0007](../../../../specs/0007-render-plan-unificado/design.md) (shared spine) and [0008](../../../../specs/0008-fase-c-claude-spine/design.md) (Claude on the spine).
+
+## The three layers shared by every disk engine
 
 ```
 resolveHarnessPlan ──▶ EngineAdapter (place*) ──▶ collectPlan ──▶ commitWrites
    (Capa 1, shared)      (Capa 2, por engine)       (Capa 3, shared, escribe una vez)
 ```
 
-- **Capa 1 — `shared/harness-plan.ts`**: `resolveHarnessPlan(config, coreAssets, preset, { includeLeader })`
-  resuelve QUÉ emitir (agents/skills/hooks) desde config + preset + libraries. No
-  conoce rutas ni formatos. Es la MISMA para todos; el parity test
-  (`__tests__/engine-parity.test.ts`) garantiza que Claude y Codex parten del
-  mismo inventario.
-- **Capa 2 — el adapter del engine (`<engine>/adapter.ts` o inline)**: lo ÚNICO
-  que define un proveedor. Mapea cada asset planeado a un `PlacementRequest`
-  (destino + serialización) y declara sus `extraFiles` y `orphanScans`. ~80 LOC
-  de tabla declarativa.
-- **Capa 3 — `shared/execute-plan.ts`**: `collectPlan` (planea sin escribir) +
-  `commitWrites` (backup → escritura atómica → chmod → poda → reporte). Se comparte
-  una sola vez: un fix de poda/anti-retroceso/backup llega a todos los engines.
+- **Layer 1 — `shared/harness-plan.ts`**: `resolveHarnessPlan(config, coreAssets, preset, { includeLeader })` resolves **what** to emit (agents/skills/hooks) from the config, preset, and libraries. It knows nothing about paths or formats. It is the same for every engine; the parity test (`__tests__/engine-parity.test.ts`) ensures Claude and Codex start with the same inventory.
+- **Layer 2 — the engine adapter (`<engine>/adapter.ts` or inline)**: the only provider-specific layer. It maps each planned asset to a `PlacementRequest` (destination plus serialization) and declares `extraFiles` and `orphanScans`. About 80 LOC of declarative tables.
+- **Layer 3 — `shared/execute-plan.ts`**: `collectPlan` (plans without writing) plus `commitWrites` (backup → atomic write → chmod → prune → report). This is shared once, so a fix to pruning, anti-rollback, or backups reaches every engine.
 
-## El contrato `EngineAdapter` (congelado — `shared/execute-plan.ts`)
+## The `EngineAdapter` contract (frozen in `shared/execute-plan.ts`)
 
 ```ts
 interface EngineAdapter {
@@ -42,103 +31,44 @@ interface EngineAdapter {
 }
 ```
 
-El adapter NO declara qué respaldar: `commitWrites` deriva el backup de lo que
-va a escribir o borrar (#405), así que ningún engine puede declararlo de menos
-(un `.mcp.json` olvidado) ni de más (todo `.claude/` por un cambio de 1 byte).
+The adapter does not declare what to back up: `commitWrites` derives the backup from the files it will write or delete (#405). This prevents an engine from backing up too little (for example, forgetting `.mcp.json`) or too much (for example, all of `.claude/` for a one-byte change).
 
-Esa regla no es solo para los engines: **toda escritura del render pasa por el
-choke point**, incluidas las que no pertenecen a ningún engine. `.gitignore`
-(repo-level, `shared/gitignore-harness.ts`) escribía directo y era la última que
-esquivaba el respaldo — justo el archivo que navori NO crea, sino que edita
-inyectando un bloque en uno que ya era del usuario (#458). Si agregas una
-escritura nueva, enrútala por `commitWrites`; el guard de
-`shared/__tests__/render-writes-backed-up.test.ts` falla si no lo haces.
+This rule applies beyond engines: **every render write goes through the choke point**, including writes that do not belong to an engine. `.gitignore` (repo-level, `shared/gitignore-harness.ts`) used to write directly and was the last write that bypassed backups—the very file Navori does not create, but edits by injecting a block into a file the user already owns (#458). Route every new write through `commitWrites`; the guard in `shared/__tests__/render-writes-backed-up.test.ts` fails if you do not.
 
-Ese guard tiene dos límites declarados, para que la regla de arriba no se lea
-como una garantía más ancha de lo que la máquina sostiene: barre
-`src/engines/**` y `commands/render.ts`, así que una escritura nueva en
-`src/lib/**` llamada desde el render se le escapa (hoy los cuatro sitios de
-escritura del render viven dentro del barrido); y decide **por módulo**, así que
-un archivo que ya llama a `commitWrites`/`createBackup` en cualquier parte pasa
-aunque agregue una escritura cruda al lado. La mitad conductual del mismo test
-cubre lo que su fixture ejercita. Subir la granularidad a nivel de sentencia
-pide ast-grep.
+That guard has two declared limits, so the rule above is not mistaken for a broader guarantee than the code provides. It scans `src/engines/**` and `commands/render.ts`, so a new write in `src/lib/**` called by render would escape it (today, all four render write sites are within the scan). It also decides **by module**: a file that calls `commitWrites`/`createBackup` anywhere passes, even if you add a raw write nearby. The behavioral half of the same test covers only what its fixture exercises. Checking at statement level would require ast-grep.
 
-Un `PlacementRequest` es o bien un asset (`assetPath`, renderizado por
-`renderManagedFile`) o un `body` ya serializado por el adapter (`config.toml`,
-`.toml` de agente). `firstRenderSeed` siembra header/trailer solo la primera vez.
+A `PlacementRequest` is either an asset (`assetPath`, rendered by `renderManagedFile`) or a `body` already serialized by the adapter (`config.toml`, an agent `.toml`). `firstRenderSeed` seeds the header/trailer on the first render only.
 
-### Válvulas para lo que el contrato no modela
+## Escape hatches for what the contract does not model
 
-- Un engine con archivos propios (settings, scripts, un pipeline como el de
-  `CLAUDE.md`) los construye en su función `render<Engine>Engine`, fusiona su
-  `pending` con el de `collectPlan`, y llama **un solo** `commitWrites` — así
-  comparte backup, orden de escritura y superficie de error. Ver
-  `claude/index.ts` como referencia (pipeline CLAUDE.md + reconciliación de 3
-  vías Claude-only sobre el spine).
-- `commitWrites` parametriza lo que legítimamente varía: `writeLast` (qué archivo
-  se escribe al final), `backupExclude` (excludes extra del engine; los efímeros
-  entran siempre), `engineLabel`, `removalsBestEffort`, y `skipReason` (prosa de
-  skip localizada) en `collectPlan`.
+- An engine with its own files (settings, scripts, or a pipeline like `CLAUDE.md`) builds them in its `render<Engine>Engine` function, merges its `pending` writes with those from `collectPlan`, and calls **one** `commitWrites`. This shares backup behavior, write ordering, and the error surface. See `claude/index.ts` as a reference (the CLAUDE.md pipeline plus Claude-only three-way reconciliation on the shared spine).
+- `commitWrites` parameterizes legitimate differences: `writeLast` (which file is written last), `backupExclude` (extra engine exclusions; ephemeral files are always excluded), `engineLabel`, `removalsBestEffort`, and `skipReason` (localized skip text) in `collectPlan`.
 
-## Checklist de spike para el proveedor #3 (los 4 unknowns de la Fase 0)
+## Spike checklist for provider #3 (the four Phase 0 unknowns)
 
-Antes de escribir el adapter, resuelve estos cuatro contra la CLI real (fue el
-método de la Spec 0004 §Fase 0 para Codex):
+Before writing the adapter, resolve these four questions against the real CLI (the method used in Spec 0004 §Phase 0 for Codex):
 
-1. **Payload de hooks** — ¿qué recibe un hook y por qué canal (stdin/env/arg)?
-   ¿En qué eventos (PreToolUse/SessionStart/Stop…)? ¿Corren en sandbox?
-2. **Discovery de skills** — ¿de qué directorio lee las skills la herramienta?
-   (Codex: `.agents/skills/<id>/SKILL.md`; Claude: `.claude/skills/<id>/SKILL.md`
-   — forma-directorio; Claude Code solo auto-descubre esa forma, no el `<id>.md` plano.)
-3. **Ubicación de config** — ¿dónde vive la config del proyecto y en qué formato?
-   (Claude: `.claude/settings.json`; Codex: `.codex/config.toml`.)
-4. **Mapa de modelos** — ¿cómo nombra sus modelos? Mapea los tiers Claude
-   (opus/sonnet/haiku) a ids concretos (ver `CODEX_MODEL_BY_CLAUDE_TIER` +
-   override `models.codexMap`, Spec 0007 M3).
+1. **Hook payload** — What does a hook receive, and through which channel (stdin/env/arg)? Which events are available (PreToolUse/SessionStart/Stop…)? Do hooks run in a sandbox?
+2. **Skill discovery** — Which directory does the tool read? (Codex: `.agents/skills/<id>/SKILL.md`; Claude: `.claude/skills/<id>/SKILL.md`, directory form—Claude Code auto-discovers that form only, not a flat `<id>.md` file.)
+3. **Config location** — Where does project config live, and in what format? (Claude: `.claude/settings.json`; Codex: `.codex/config.toml`.)
+4. **Model map** — How does the tool name its models? Map Claude tiers (opus/sonnet/haiku) to concrete ids (see `CODEX_MODEL_BY_CLAUDE_TIER` plus the `models.codexMap` override, Spec 0007 M3).
 
-## Criterio DT-2 — cuándo factorizar más (regla de tres)
+## DT-2 criterion — when to factor further (the rule of three)
 
-Con 2 implementaciones la abstracción se adivina; con 3 se factoriza contra casos
-reales. El spine (Capas 1+3) ya existe porque Codex y Claude lo comparten. El
-contrato `EngineAdapter` (Capa 2) se **ajusta con el proveedor #3 en la mano**,
-no antes: lo congelado es la forma (3 capas), no cada firma. Un bug de divergencia
-("fix aplicado a un engine y olvidado en el otro") también justifica factorizar.
+With two implementations, an abstraction is guesswork; with three, it can be factored against real cases. The spine (Layers 1 and 3) already exists because Codex and Claude share it. The `EngineAdapter` contract (Layer 2) is **shaped with provider #3 in hand**, not beforehand: the three-layer structure is fixed, not every signature. A divergence bug (“a fix was applied to one engine and missed in the other”) is also grounds for factoring.
 
-## Skills en split-root (`.agents/skills/`) — sellado (Spec 0007 M7)
+## Skills in the split root (`.agents/skills/`) — sealed (Spec 0007 M7)
 
-Codex descubre skills de repo en `.agents/skills/<id>/SKILL.md`, un directorio
-**cross-tool**: otros agentes que respetan la convención `AGENTS.md`/`.agents/`
-también las leen. El resto de la config de Codex vive en `.codex/`.
+Codex discovers repository skills in `.agents/skills/<id>/SKILL.md`, a **cross-tool** directory: other agents that follow the `AGENTS.md`/`.agents/` convention can read them too. The rest of Codex config lives in `.codex/`.
 
-Este split (`.agents/` para skills, `.codex/` para lo demás) está **sellado**: es
-el seam multi-proveedor gratis. Un proveedor #3 que también lea `.agents/skills/`
-comparte las skills sin re-render. No lo colapses a un único árbol por engine.
+This split (`.agents/` for skills, `.codex/` for everything else) is **sealed**: it is the free multi-provider seam. A third provider that also reads `.agents/skills/` can share skills without another render. Do not collapse it into a single engine-specific tree.
 
-**Recomendación para repos destino**: versiona `.agents/skills/` y `.codex/`
-(son managed, reconstruibles con `navori render`, pero útiles en el diff del PR);
-si prefieres no versionarlos, agrégalos al `.gitignore` del repo destino junto con
-`.claude/` — navori no gestiona el `.gitignore` del repo, es decisión del equipo.
+**Recommendation for destination repositories**: check in `.agents/skills/` and `.codex/` (they are managed and can be rebuilt with `navori render`, but are useful in the PR diff). If you prefer not to check them in, add them to the destination repository's `.gitignore` alongside `.claude/`—Navori does not manage the repository's `.gitignore`; that is the team's decision.
 
-> **`.codex/hooks/` y worktrees**: a diferencia de `.claude/`, versionar
-> `.codex/hooks/` no es solo cosmético. Si `.codex/` está gitignored/untracked,
-> un git worktree recién creado **no lo hereda**; una sesión de Codex abierta
-> **dentro** de ese worktree carga su config por raíz-de-proyecto (marcador
-> `.git` del worktree), no encuentra `.codex/config.toml` y **no registra los
-> hooks** — el guard destructivo queda silenciosamente apagado. Codex corre los
-> hooks con el *session cwd* y no expone un env var de raíz de proyecto
-> (equivalente a `$CLAUDE_PROJECT_DIR`), así que la resolución vía path no lo
-> arregla: la defensa robusta es **trackear `.codex/hooks/` en git** para que
-> viaje a cada worktree y clon. `navori doctor` lo advierte si están sin
-> versionar (`guardNotVersioned`).
+> **`.codex/hooks/` and worktrees**: unlike `.claude/`, checking in `.codex/hooks/` is not just cosmetic. If `.codex/` is gitignored or untracked, a newly created git worktree does **not** inherit it. A Codex session opened **inside** that worktree loads config relative to the project root (the worktree's `.git` marker), cannot find `.codex/config.toml`, and **does not register the hooks**—the destructive-command guard silently turns off. Codex runs hooks with the *session cwd* and exposes no project-root environment variable (equivalent to `$CLAUDE_PROJECT_DIR`), so resolving paths does not fix this. The robust defense is to **track `.codex/hooks/` in git** so it reaches each worktree and clone. `navori doctor` warns if these files are untracked (`guardNotVersioned`).
 
-## Prose engines (agents-md / cursor / copilot) — NO usan el spine
+## Prose engines (agents-md / cursor / copilot) — do not use the spine
 
-Comparten su propio spine (`renderProseFile`) y son wrappers de ~40 LOC. No
-emiten agents/skills/hooks por archivo; migrarlos al `EngineAdapter` sería churn
-sin ganancia (Spec 0007 DT-1).
+These engines share their own spine (`renderProseFile`) and are wrappers of about 40 LOC. They do not emit agents/skills/hooks as separate files; moving them to `EngineAdapter` would add churn without benefit (Spec 0007 DT-1).
 
-Cada adapter pasa su `engine` (`"agents-md"`, `"cursor"`, `"copilot"`) a `renderProseFile`, y es obligatorio
-(#1273): resuelve las llaves reservadas de condición `onCodex` y `onClaude` (ambas ignoran la config). `onClaude`
-solo es verdadera para `engine === "claude"`: el CLAUDE.md recibe el invariante + puntero de `intake-tickets` y
-`sdd`, mientras que los engines de prosa (y Pi) conservan el texto completo porque no cargan skills.
+Each adapter passes its `engine` (`"agents-md"`, `"cursor"`, `"copilot"`) to `renderProseFile`; this is required (#1273). It resolves the reserved condition keys `onCodex` and `onClaude` (both ignore config). `onClaude` is true only for `engine === "claude"`: `CLAUDE.md` receives the invariant plus the `intake-tickets` and `sdd` pointers, while prose engines (and Pi) retain the full text because they do not load skills.

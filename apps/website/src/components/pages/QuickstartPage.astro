@@ -1,0 +1,180 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { localizedPath } from "../../i18n/utils";
+
+import { narrative, narrativeExamples } from "../../content/narratives";
+import type { Lang } from "../../i18n/ui";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const n = (key: Parameters<typeof narrative>[1]): string => narrative(lang, key);
+
+const steps = [
+  {
+    n: "01",
+    title: n("quickstart.0"),
+    body:
+      n("quickstart.1"),
+    code: narrativeExamples["quickstart"][0],
+  },
+  {
+    n: "02",
+    title: n("quickstart.2"),
+    body:
+      n("quickstart.3"),
+    code: narrativeExamples["quickstart"][1],
+  },
+  {
+    n: "03",
+    title: n("quickstart.4"),
+    body:
+      n("quickstart.5"),
+    code: narrativeExamples["quickstart"][2],
+  },
+  {
+    n: "04",
+    title: n("quickstart.6"),
+    body:
+      n("quickstart.7"),
+    code: narrativeExamples["quickstart"][3],
+  },
+];
+
+const checklist = [
+  n("quickstart.8"),
+  n("quickstart.9"),
+  n("quickstart.10"),
+  n("quickstart.11"),
+];
+---
+
+<BaseLayout
+  lang={lang}
+  title={n("quickstart.12")}
+  description={n("quickstart.13")}
+>
+  <section
+    class="relative overflow-hidden border-b"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 grid-bg opacity-50 pointer-events-none"></div>
+    <div class="absolute inset-0 glow-hero opacity-70 pointer-events-none"></div>
+
+    <div class="container-prose relative py-16 sm:py-24">
+      <span class="eyebrow">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+        {n("quickstart.14")}
+      </span>
+      <h1
+        class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
+      >
+        <span class="font-sans font-semibold">{n("quickstart.15")}</span>
+        <br />
+        <span class="display-italic gradient-text">{n("quickstart.16")}</span>
+      </h1>
+      <p
+        class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
+      >
+        {n("quickstart.17")}
+      </p>
+    </div>
+  </section>
+
+  <section class="container-prose py-16">
+    <div class="grid gap-8 lg:grid-cols-[1fr_320px]">
+      <div class="space-y-12">
+        {
+          steps.map((s) => (
+            <article class="grid gap-5 sm:grid-cols-[80px_1fr]">
+              <div>
+                <span
+                  class="display-italic text-5xl gradient-text leading-none block"
+                  aria-hidden="true"
+                >
+                  {s.n}
+                </span>
+              </div>
+              <div class="min-w-0">
+                <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">
+                  {s.title}
+                </h2>
+                <p class="mt-2 text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+                  {s.body}
+                </p>
+                <pre
+                  class="mt-4 rounded-lg border px-3 sm:px-5 py-3 sm:py-4 text-[12px] sm:text-[13px] font-mono leading-relaxed overflow-x-auto"
+                  style="background: var(--color-night); color: rgb(226 232 240); border-color: var(--color-border-soft);"
+                >{s.code}</pre>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+
+      <aside class="lg:sticky lg:top-20 lg:self-start">
+        <div
+          class="rounded-xl border p-6"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+        >
+          <h3
+            class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >
+            {n("quickstart.18")}
+          </h3>
+          <ul class="mt-4 space-y-3">
+            {
+              checklist.map((c) => (
+                <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <svg
+                    class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{c}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div
+          class="mt-6 rounded-xl border p-6"
+          style="border-color: var(--color-border-soft);"
+        >
+          <h3
+            class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+          >
+            {n("quickstart.19")}
+          </h3>
+          <ul class="mt-4 space-y-2 text-sm">
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/init")}>{n("quickstart.20")}</a
+              >
+            </li>
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/add")}>{n("quickstart.21")}</a
+              >
+            </li>
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/sync")}>{n("quickstart.22")}</a
+              >
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>

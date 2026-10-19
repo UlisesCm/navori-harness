@@ -1,19 +1,22 @@
-import { getRelativeLocaleUrl } from "astro:i18n";
-import { ui, defaultLang, type Lang, type UIKey } from "./ui";
+import { ui, type Lang, type UIKey } from "./ui";
+import { localePath } from "./locales";
 
+/** Identify a canonical locale after removing the configured project base. */
 export function getLangFromUrl(url: URL): Lang {
-  // Strip Astro base so `/navori-harness/en/foo` parses the same as `/en/foo`.
   const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const stripped =
-    base && url.pathname.startsWith(base) ? url.pathname.slice(base.length) : url.pathname;
-  const [, maybeLang] = stripped.split("/");
-  if (maybeLang === "en") return "en";
-  return defaultLang;
+  const path =
+    base && url.pathname.startsWith(`${base}/`) ? url.pathname.slice(base.length) : url.pathname;
+  if (/^\/es(?:\/|$)/.test(path)) return "es";
+  if (/^\/zh-cn(?:\/|$)/.test(path)) return "zh-CN";
+  return "en";
 }
 
-export function useTranslations(lang: Lang) {
-  return function t(key: UIKey): string {
-    return ui[lang][key] ?? ui[defaultLang][key];
+/** Read a required translation; missing values are build errors, never fallbacks. */
+export function useTranslations(lang: Lang): (key: UIKey) => string {
+  return (key: UIKey): string => {
+    const value = ui[lang][key];
+    if (!value) throw new Error(`Missing UI translation: ${lang}/${key}`);
+    return value;
   };
 }
 
@@ -23,10 +26,5 @@ export function useTranslations(lang: Lang) {
  * the site is served from a subpath (e.g. GitHub project Pages).
  */
 export function localizedPath(lang: Lang, path: string): string {
-  const clean = path.startsWith("/") ? path.slice(1) : path;
-  return getRelativeLocaleUrl(lang, clean);
-}
-
-export function alternateLang(lang: Lang): Lang {
-  return lang === "es" ? "en" : "es";
+  return localePath(lang, path, import.meta.env.BASE_URL);
 }

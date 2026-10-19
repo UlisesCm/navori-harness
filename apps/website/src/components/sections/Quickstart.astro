@@ -29,7 +29,7 @@ const steps = [
 ];
 ---
 
-<section class="py-24 sm:py-28">
+<section id="quickstart" class="py-24 sm:py-28">
   <div class="container-prose">
     <SectionHeader
       eyebrow={t("quickstart.eyebrow")}
@@ -67,7 +67,7 @@ const steps = [
 
     <div class="mt-10 flex justify-center">
       <a class="btn btn-ghost" href={localizedPath(lang, "/quickstart")}>
-        {lang === "es" ? "Quickstart completo" : "Full quickstart"}
+        {t("quickstart.full")}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M5 12h14M13 5l7 7-7 7"></path>
         </svg>

@@ -1,283 +1,114 @@
-# Cómo contribuir a navori
+> [English](CONTRIBUTING.md) | [Español](CONTRIBUTING.es.md) | [简体中文](CONTRIBUTING.zh-CN.md)
 
-**Lee primero [`docs/DIRECTION.md`](docs/DIRECTION.md)** — es la fuente de verdad del objetivo,
-metas, no-metas e invariantes de navori. Aplica a humanos **y** agentes de IA: si tu idea
-contradice un invariante o reabre una no-meta, abre/edita una spec en `specs/` antes de tocar
-código; no la metas en un PR suelto.
+# How to contribute to navori
 
-## Antes de codear
+**Read [`docs/DIRECTION.md`](./docs/DIRECTION.md) first.** It is the source of truth for navori's purpose, goals, non-goals, and invariants. It applies to people and AI agents alike. If an idea conflicts with an invariant or reopens a non-goal, create or update a spec in `specs/` before changing code; do not introduce it through an isolated PR.
 
-1. Lee `docs/DIRECTION.md`, luego `docs/architecture.md` (cómo funciona el render y las 5 capas)
-   y la(s) spec(s) del área que vas a tocar (`specs/000X-*.md`). Respeta el `Status` de cada
-   spec (`proposed` / `planning only — NO implementar` / `EJECUTADA`), y **confírmalo contra el
-   código**, que es la fuente más fresca: varias specs se escribieron antes de aterrizar y su
-   header quedó en la intención original —0001 y 0002 dicen `proposed` con su contenido ya en
-   producción—, y once todavía no declaran uno. Un vistazo al código y a `git log` te da el estado
-   real en un minuto; y lo que sigue pendiente de decidir lo dice sin ambigüedad
-   (`planning only — NO implementar hasta aprobación`).
-2. **Ubica en qué capa rinde más tu cambio antes de escribirlo** —
-   [`docs/EXTENDING.md`](docs/EXTENDING.md). Hay cinco destinos ordenados de más barato a más
-   caro, y el más barato suele ser el más efectivo: si el tema ya lo cubre una skill, sumar ahí
-   (user-section o `injectInto`) llega más rápido y con la autoridad ya establecida. Ese doc trae
-   además las cuatro preguntas que hacen fuerte a una propuesta — respóndelas y tu PR entra con
-   muy poca fricción.
-3. Pregúntate: ¿es lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente?
-   Simplicidad > cleverness.
+## Before coding
 
-## Instalar dependencias
+1. Read `docs/DIRECTION.md`, then `docs/architecture.md` (how rendering works and its five layers), and the spec or specs for the area you plan to change (`specs/000X-*.md`). Respect each spec's `Status` (`proposed` / `planning only — NO implementar` / `EJECUTADA`) and **verify it against the code**, which is the more current source. Several specs were written before implementation and still show their original intent in the header: 0001 and 0002 say `proposed` although their content is in production, and eleven specs have no status yet. A quick look at the code and `git log` reveals the actual state; anything still awaiting a decision is marked unambiguously as `planning only — NO implementar hasta aprobación`.
+2. **Before writing, identify the layer where your change will have the greatest effect** — see [`docs/EXTENDING.md`](./docs/EXTENDING.md). There are five destinations, ordered from least to most expensive; the least expensive is often the most effective. If a skill already covers the topic, adding to it (its user section or `injectInto`) gets the guidance there sooner and uses an authority already in place. That guide also gives four questions that make a proposal stronger; answer them and your PR will be much easier to review.
+3. Ask yourself: Is this the simplest solution? Will it be readable in six months? Does it follow the existing pattern? Simplicity over cleverness.
 
-`bun install` desde la raíz. El `package.json` raíz declara
-`"trustedDependencies": ["esbuild", "sharp"]` — sin eso bun ignora sus scripts de postinstall (y
-ahí es donde antes, con pnpm, saltaba un error en vez de un warning). Ambos necesitan el suyo:
-esbuild descarga su binario nativo (del que depende vitest) y sharp compila contra libvips
-para el sitio Astro. Se listan explícitamente y se comitean para que un clon fresco instale sin que
-nadie tenga que aprobar nada a mano.
+## Install dependencies
 
-## Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)
+Run `bun install` from the repository root. The root `package.json` declares `"trustedDependencies": ["esbuild", "sharp"]`; without this, Bun ignores their postinstall scripts (previously, pnpm reported an error instead of a warning). Both dependencies need those scripts: esbuild downloads the native binary that Vitest depends on, and sharp compiles against libvips for the Astro site. They are listed explicitly and committed so a fresh clone can install without anyone having to approve anything manually.
 
-Hay dos niveles:
+## Quality gate (required before closing changes to `packages/cli`)
 
-- **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (format,
-  jscpd, ast-grep, lint, typecheck), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
-  el hook de commit de los agentes (`quality-gate-pre-commit.sh`, PreToolUse sobre `git commit`)
-  corre la misma cadena que el pre-commit versionado. El job `fast` de CI, que corre en `dev` y en los
-  PRs hacia `dev`, corre además `check:dup` y `check:ast`, sin tests.
-- **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
-  `main` y en los pushes a `main`; si no pasa, el PR falla. Es el único nivel que corre tests y cobertura:
+There are two levels:
 
-1. **`bun check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
-   `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
-   managed de `CLAUDE.md` y el comando que corre el `publisher`. No lo transcribas aquí ni
-   en ningún otro archivo — una segunda copia es una copia que se desincroniza, y ya pasó
-   (`repo-config-gate.test.ts` existe por eso; ver el detalle al final de esta sección).
+- **Fast** — the versioned pre-commit hook (`bun hooks:install`) runs `bun check:fast` (format, jscpd, ast-grep, lint, typecheck), without tests. `qualityGate.fast` is `bun run check:fast`, so the agents' commit hook (`quality-gate-pre-commit.sh`, a PreToolUse hook on `git commit`) runs the same chain as the versioned pre-commit hook. The CI `fast` job, which runs on `dev` and on PRs to `dev`, also runs `check:dup` and `check:ast`, without tests.
+- **Full** — `bun check`, described below. This is what the CI `quality` job runs for PRs to `main` and pushes to `main`; a failure fails the PR. It is the only level that runs tests and coverage.
 
-   Dos trampas dentro de ese comando:
-   - **`bun run test:coverage`, no `bun test`.** Corre la misma suite más
-     `check-coverage-floor.mjs`, que además del umbral caza una entrada obsoleta en `KNOWN_ZERO`
-     (los módulos que navori envía sin tests). Correr sólo `bun test` lo deja pasar, y ya costó
-     un CI rojo con el gate verde.
-   - **`bun run format:check` (oxfmt) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
-     que más se olvida. Se arregla con `bun run format`.
-   - **`blame.ignoreRevsFile`**: configúralo (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
-     para que `git blame` salte los commits de reformateo masivo (p. ej. la migración a oxfmt,
-     #889) listados en `.git-blame-ignore-revs` en la raíz. Un commit entra ahí **solo después de
-     aterrizar en `main`** (vía el PR `dev` → `main`, que mergea con merge commit), nunca en el mismo PR
-     de ticket que se mergea por squash a `dev` — el squash reescribe el SHA y la entrada deja de ser
-     ancestro de `main` (#986, #1004). `bun run check:blame-ignore`
-     (parte del gate) exige ambas cosas por entrada: que sea ancestro de `origin/main` y que su diff
-     sea mecánico.
-   - **Dos gates corriendo el mismo `test:coverage` sobre el mismo árbol de trabajo** (dos agentes
-     en la misma sesión local, no en worktrees distintos) chocan escribiendo al mismo
-     `packages/cli/coverage/` (#909). Para aislar una corrida, exporta
-     `NAVORI_COVERAGE_DIR=coverage-<algo único>` antes del comando — `vitest.config.ts` y
-     `check-coverage-floor.mjs` leen la misma variable, con fallback a `coverage` (el default, sin
-     tocarlo, es lo que sigue corriendo en CI y en el gate normal).
+1. **Run `bun check` from the monorepo root.** It is an alias for `qualityGate.full` in `navori.config.json`, the **only place** where the gate is defined. The managed blocks in `CLAUDE.md` and the command used by the `publisher` are generated from that configuration. Do not copy the gate into this or any other file: duplicate definitions drift out of sync. That has already happened (`repo-config-gate.test.ts` exists for this reason; see the end of this section).
 
-   - **Los temporales de tests se limpian por archivo.** Cada spec recibe un directorio aislado
-     antes de importarse, con su `HOME` y backups; al terminar sus hooks locales, se elimina. Esto
-     también corre en cada ciclo de watch y en configs que cargan solo `setupFiles`. Los valores
-     de entorno se restauran al finalizar. El hook reserva 30 s para completar borrados lentos y
-     mantiene la espera de 1 s por hijos directos; un disco lleno aún puede agotar ese margen. El
-     directorio del lock de `dist` usa
-     `NAVORI_TEST_COORDINATION_BASE`, heredado por los procesos hijos y estable mientras cambia
-     `TMPDIR`/`TMP`/`TEMP` para los fixtures.
-   - Para conservar fixtures y reportes generados durante una investigación, ejecuta con
-     `NAVORI_KEEP_TEST_ARTIFACTS=1`. Sin esa opción, los reportes generados por `test:coverage` se
-     borran también si fallan Vitest o el floor; si pasas `NAVORI_COVERAGE_DIR`, ese directorio
-     siempre es tuyo y se conserva. Cuando una limpieza retiene evidencia —por diagnóstico, un
-     hijo directo aún activo o interrupción— la salida indica la ruta exacta. La prueba del guard
-     de `HOME` conserva el directorio de ese archivo.
+   Watch out for these details:
+   - **Use `bun run test:coverage`, not `bun test`.** It runs the same suite plus `check-coverage-floor.mjs`, which checks the threshold and catches stale entries in `KNOWN_ZERO` (modules navori ships without tests). Running only `bun test` misses this check; it has already caused a red CI run while the gate passed.
+   - **`bun run format:check` (oxfmt) does not run under `packages/cli`**; it runs at the root and is the step most often forgotten. Fix formatting with `bun run format`.
+   - **`blame.ignoreRevsFile`**: configure it with `git config blame.ignoreRevsFile .git-blame-ignore-revs` so `git blame` skips bulk-formatting commits (for example, the oxfmt migration, #889) listed in the root `.git-blame-ignore-revs`. Add a commit there **only after it lands on `main`** (through a `dev` → `main` PR that uses a merge commit), never in the same ticket PR that is squash-merged to `dev`: the squash rewrites the SHA, so the entry is no longer an ancestor of `main` (#986, #1004). As part of the gate, `bun run check:blame-ignore` requires both conditions for each entry: the commit is an ancestor of `origin/main`, and its diff is mechanical.
+   - **Two gates running the same `test:coverage` against the same working tree** (two agents in one local session, not separate worktrees) will collide while writing to `packages/cli/coverage/` (#909). Isolate a run by exporting `NAVORI_COVERAGE_DIR=coverage-<algo único>` before the command. `vitest.config.ts` and `check-coverage-floor.mjs` read the same variable and fall back to `coverage`; leave the default unchanged for CI and the normal gate.
 
-     La cobertura de ciclo de vida aplica a los workers estándar de Vitest y a hijos Node/Bun que
-     heredan el entorno. El seguimiento de procesos usa un canal experimental de Node para hijos
-     directos: no garantiza nietos desacoplados, procesos que eliminan el entorno, ni configs
-     personalizadas que omiten tanto `setupFiles` como `globalSetup`. Asignaciones temporales hechas
-     al importar la config o sus propios setup files ocurren antes del aislamiento. `SIGKILL` o un
-     reinicio no permiten ejecutar la limpieza ni reportar rutas; tampoco hay barrido histórico ni
-     garantía de cuota o tamaño máximo en disco.
+   - **Test temporary files are cleaned up per file.** Before each spec is imported, it receives an isolated directory with its own `HOME` and backups; the directory is removed after that file's local hooks finish. This also runs on every watch cycle and with configs that load only `setupFiles`. Environment values are restored afterward. The hook allows 30 seconds for slow deletions and waits 1 second for direct child processes; a full disk can still exhaust that allowance. The `dist` lock directory uses `NAVORI_TEST_COORDINATION_BASE`, which child processes inherit and which stays stable while `TMPDIR`/`TMP`/`TEMP` changes for fixtures.
+   - To keep fixtures and reports generated during an investigation, run with `NAVORI_KEEP_TEST_ARTIFACTS=1`. Without it, reports generated by `test:coverage` are also deleted when Vitest or the coverage floor fails. If you set `NAVORI_COVERAGE_DIR`, that directory is yours and is always preserved. When cleanup retains evidence—for diagnosis, an active direct child, or an interruption—the output gives the exact path. The `HOME` guard test preserves that file's directory.
 
-   **Precheck local: oxlint + jscpd 5.4.0 + ast-grep 0.45.3**, los dos últimos como devDependencies
-   raíz con versión exacta. `check:dup` escanea todo el repo contra `.jscpd-baseline.json`
-   (versionado): silencioso si pasa, y si falla re-corre en verbose marcando `[NEW]`.
-   `check:dup:baseline` es `jscpd --update-baseline`. `check:ast` es
-   `ast-grep test --skip-snapshot-tests && ast-grep scan` (reglas en `ast-grep/rules`, tests en
-   `ast-grep/rule-tests`, config `sgconfig.yml`). Una herramienta ausente es rojo, nunca se omite: los scripts llaman a
-   `./node_modules/.bin/jscpd` y `./node_modules/.bin/ast-grep` explícitamente, así que sin
-   `bun install` quedan en rojo aunque haya binarios globales. `report/` (salida del reporter JSON
-   de jscpd) está en `.gitignore`.
-   Orden de `qualityGate.full` (`bun check`): format:check, lint, typecheck, check:dup, check:ast,
-   check:links, check:render, check:assets, check:doc-budgets, check:blame-ignore, check:size,
-   test:coverage. `check:scoped` es lo mismo sin test:coverage; `check:fast` (pre-commit) es
-   format:check, check:dup, check:ast, lint, typecheck.
+     Lifecycle cleanup covers standard Vitest workers and Node/Bun child processes that inherit the environment. Process tracking uses an experimental Node channel for direct children; it does not guarantee cleanup of detached grandchildren, processes that remove the environment, or custom configs that omit both `setupFiles` and `globalSetup`. Temporary assignments made while importing the config or its own setup files occur before isolation. `SIGKILL` or a restart prevents cleanup and path reporting. There is no historical sweep, quota, or maximum disk-size guarantee.
 
-   **Baseline de duplicación.** Tiene 22 fingerprints y un test lo topa con
-   `DUP_BASELINE_CEILING = 22`. Regénéralo (`bun run check:dup:baseline`) solo cuando un cambio de
-   formato o un bump de jscpd mueva un clon existente, justificándolo en el PR. Al eliminar un clon,
-   regenera y baja el techo (ratchet). Los tests también se escanean.
+   **Local prechecks: oxlint + jscpd 5.4.0 + ast-grep 0.45.3**; the latter two are root devDependencies pinned to exact versions. `check:dup` scans the entire repo against the versioned `.jscpd-baseline.json`. It is silent on success; on failure, it reruns in verbose mode and marks new findings as `[NEW]`. `check:dup:baseline` runs `jscpd --update-baseline`. `check:ast` runs `ast-grep test --skip-snapshot-tests && ast-grep scan` (rules in `ast-grep/rules`, tests in `ast-grep/rule-tests`, config in `sgconfig.yml`). A missing tool is an error; it is never skipped. The scripts call `./node_modules/.bin/jscpd` and `./node_modules/.bin/ast-grep` explicitly, so they fail without `bun install` even if global binaries are available. `report/` (jscpd's JSON reporter output) is in `.gitignore`.
 
-   **Supresiones.** Solo `// ast-grep-ignore: <rule-id>` (un ignore sin id falla
-   `no-bare-ast-grep-ignore`) y `// any justified: <razón>` justo encima de la sentencia, que
-   silencia únicamente `no-unjustified-double-cast` (`as unknown as`); **no** silencia
-   `no-explicit-any` de oxlint. Cuando una línea se suprime para ambas herramientas (hoy
-   `packages/cli/src/lib/gate/run.ts` y `packages/cli/src/commands/add.ts`), lleva
-   `// ast-grep-ignore: no-shell-exec` encima de la llamada y
-   `// nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true` al final de su
-   primera línea, más `// prettier-ignore` para que oxfmt no mueva ese comentario. Conserva ambos
-   comentarios: el job `semgrep` de `main` sigue leyendo `nosemgrep`. Reglas ast-grep: no-shell-exec, no-unjustified-double-cast,
-   no-explicit-any (en dirs que oxlint no lintea: `apps/website/src`, `scripts`, `packages/core`,
-   `packages/plugins`, `.pi/extensions`), no-bare-ast-grep-ignore, no-bash-eval.
-   Huecos conocidos: `.astro`, `.mjs`, `.py` y casi todo `.sh` (salvo no-bash-eval) no están
-   cubiertos por ast-grep; semgrep los cubre solo en `main`.
+   The order of `qualityGate.full` (`bun check`) is: format:check, lint, typecheck, check:dup, check:ast, check:links, check:render, check:assets, check:doc-budgets, check:blame-ignore, check:size, test:coverage. `check:scoped` is the same without test:coverage; `check:fast` (pre-commit) runs format:check, check:dup, check:ast, lint, typecheck.
 
-   **CI y semgrep.** `quality` (main) y `fast` (dev) corren `check:dup` y `check:ast`. El job
-   `semgrep` corre solo en `main` (pushes y PRs hacia `main`): imagen Docker oficial fijada por
-   digest, `p/default`, diff-scan con `--baseline-commit` + `--error` (solo bloquean hallazgos
-   nuevos) y SARIF subido a code scanning. Todas las actions de los workflows van fijadas a SHA (un
-   test lo exige). Este repo ya no usa los plugins jscpd/semgrep de navori; el producto sigue
-   distribuyéndolos.
-2. **Si tocaste cualquier cosa que alimente el render**: `bun run check:render` desde la raíz. Este
-   repo se auto-hospeda —`.claude/` y `CLAUDE.md` son salida de `navori render`—, así que el PR
-   debe incluir el re-render del espejo (`bun run render:apply` desde la raíz, que es exactamente
-   `bun run --filter navori build && node packages/cli/dist/index.js render --apply`) o el
-   job `quality` queda en rojo (#421). **El build de esa cadena NO es opcional**: sin él el
-   render compara contra los assets del último build, no contra tu árbol de trabajo — te dice
-   `unchanged` y un `--apply` llega a *revertir* el espejo. Por eso existe el alias: para que no
-   se copie a medias. Disparadores; cualquiera de los cuatro obliga al re-render:
-   - **assets del core**: `packages/core/core-assets/**`.
-   - **assets de un plugin**: `packages/plugins/*/{managed,scripts,skills,hooks}/**` y el
-     `plugin.json` que los declara. El build los empaqueta igual que los del core
-     (`packages/cli/scripts/copy-assets.mjs`) y renderizan bloques dentro de `CLAUDE.md` y
-     archivos bajo `.claude/`. **Por aquí se coló #429**: tocó un asset de plugin, no del core, y
-     el espejo quedó desfasado un día.
-   - **el bump de versión de `packages/cli/package.json`**: el marcador de cada bloque managed
-     estampa `readCliVersion()`, así que subir la versión desfasa el espejo **entero** — medido en
-     0.6.0 → 0.6.1: **30 archivos** `updated`, 16 bloques de `CLAUDE.md`. Un commit
-     `chore(release)` NO es una excepción; ver "Releases" en el `README.md`.
-   - **el `navori.config.json`** de este repo, que define qué se renderiza.
+   **Duplication baseline.** It has 22 fingerprints, and a test caps it with `DUP_BASELINE_CEILING = 22`. Regenerate it (`bun run check:dup:baseline`) only when a formatting change or jscpd upgrade moves an existing clone, and justify the change in the PR. When removing a clone, regenerate the baseline and lower the ceiling (ratchet). Tests are scanned too.
 
-   El check rebuildea antes de renderizar a propósito: `dist/assets/` es una copia del core y de
-   los plugins hecha en build, y renderizar con un `dist` viejo compara contra los assets
-   anteriores y pasa en silencio.
+   **Suppressions.** The only allowed forms are `// ast-grep-ignore: <rule-id>` (an ignore without an ID fails `no-bare-ast-grep-ignore`) and `// any justified: <razón>` immediately above the statement; the latter suppresses only `no-unjustified-double-cast` (`as unknown as`), **not** oxlint's `no-explicit-any`. When a line is suppressed for both tools (currently in `packages/cli/src/lib/gate/run.ts` and `packages/cli/src/commands/add.ts`), put `// ast-grep-ignore: no-shell-exec` above the call and `// nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true` at the end of its first line, plus `// prettier-ignore` so oxfmt does not move that comment. Keep both comments: the `semgrep` job on `main` still reads `nosemgrep`. ast-grep rules: no-shell-exec, no-unjustified-double-cast, no-explicit-any (in directories oxlint does not lint: `apps/website/src`, `scripts`, `packages/core`, `packages/plugins`, `.pi/extensions`), no-bare-ast-grep-ignore, no-bash-eval. Known gaps: ast-grep does not cover `.astro`, `.mjs`, `.py`, or almost all `.sh` files (except no-bash-eval); semgrep covers them only on `main`.
 
-   Dos reglas que solo se descubren cuando ya te mordieron (#435):
+   **CI and semgrep.** The `quality` job (`main`) and `fast` job (`dev`) run `check:dup` and `check:ast`. The `semgrep` job runs only on `main` (pushes and PRs to `main`): it uses the official Docker image pinned by digest, `p/default`, a diff scan with `--baseline-commit` and `--error` (which blocks only new findings), and uploads SARIF to code scanning. All workflow actions are pinned to SHAs, as required by a test. This repo no longer uses navori's jscpd/semgrep plugins; the product still distributes them.
 
-   - **El re-render caduca cuando la base se mueve.** Tras cualquier rebase o merge de `dev`,
-     vuelve a correr `bun run render:apply`: tu espejo se generó contra los assets de antes, y si
-     entre medias entró otro PR de assets, el tuyo ya está viejo. Pasó tres veces seguidas
-     mientras se construía #421.
-   - **Nunca resuelvas a mano un conflicto dentro de un bloque managed.** Toma la versión de la
-     base y regenera con `bun run render:apply`. El motivo importa: cada bloque lleva el `hash` de su
-     propio contenido, así que editarlo a mano lo marca como *modificado por el usuario* y
-     `render --apply` **deja de pisarlo** — pasa a `user-modified-skipped`, la clase de drift
-     que ya solo arregla `navori sync`. Es la trampa fácil: ante un conflicto de git el reflejo
-     es editar, y aquí ese reflejo convierte un problema de un comando en uno que exige entender
-     el modelo de marcadores.
-3. **Si el paso 2 aplicó, el golden snapshot del árbol renderizado también se mueve**:
-   regenéralo con `cd packages/cli && bun run test:golden` (~1 s) y **lee el diff** antes de
-   commitearlo. Son cinco fixtures, uno por engine, en
-   `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`; existen porque los ~11 tests de
-   wiring apuntan a tokens sueltos y nadie ve el output completo (#394). Un cambio que no sepas
-   explicar en ese diff es el hallazgo, no ruido a aplanar con `-u`.
+2. **If you changed anything that feeds rendering**, run `bun run check:render` from the root. This repo is self-hosted: `.claude/` and `CLAUDE.md` are output from `navori render`, so the PR must include a mirror re-render (`bun run render:apply` from the root, exactly `bun run --filter navori build && node packages/cli/dist/index.js render --apply`) or the `quality` job will fail (#421). **The build in that chain is not optional.** Without it, rendering compares against assets from the last build instead of your working tree; it reports `unchanged`, and `--apply` can revert the mirror. The alias prevents running only part of the sequence. Any of these four changes requires a re-render:
+   - **Core assets**: `packages/core/core-assets/**`.
+   - **Plugin assets**: `packages/plugins/*/{managed,scripts,skills,hooks}/**` and the `plugin.json` that declares them. The build packages them just like core assets (`packages/cli/scripts/copy-assets.mjs`), and they render blocks in `CLAUDE.md` and files under `.claude/`. **This is how #429 slipped through**: it changed a plugin asset, not a core asset, and the mirror was out of date for a day.
+   - **A version bump in `packages/cli/package.json`**: each managed-block marker stamps `readCliVersion()`, so a version bump makes the **entire** mirror stale. In the measured 0.6.0 → 0.6.1 change, **30 files** were `updated`, including 16 `CLAUDE.md` blocks. A `chore(release)` commit is **not** an exception; see "Releases" in `README.md`.
+   - **This repo's `navori.config.json`**, which defines what gets rendered.
 
-   Un disparador del paso 2 que **no** aplica aquí: el bump de versión. El snapshot normaliza el
-   `version=` y el `hash=` del marcador, así que subir la versión mueve 30 archivos del espejo y
-   **cero** líneas del golden. Es a propósito: sin esa normalización se invalidaría en cada
-   release y dejaría de tener señal.
+   The check rebuilds before rendering on purpose: `dist/assets/` is a build-time copy of core and plugin assets. Rendering with an old `dist` compares against the previous assets and can pass silently.
 
-`repo-config-gate.test.ts` sostiene el gate contra `ci.yml` en las **dos** direcciones: si el
-workflow gana un paso que el gate no declara, o el gate gana uno que CI no corre, la suite falla y
-dice cuál. Las excepciones viven en dos mapas, `EXEMPT_FROM_LOCAL_GATE` y `EXEMPT_FROM_CI`, con
-razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están exentos:
+   Two rules tend to become clear only after they have caused trouble (#435):
 
-- **`check:assets:ci`** (de `EXEMPT_FROM_LOCAL_GATE`): es la misma verificación que `check:assets`
-  con `--strict`, y lo estricto depende de tags que CI trae a propósito y un clon fresco no tiene —
-  en el gate local fallaría por una causa ambiental, no por el fondo.
-- **`check:assets`** (de `EXEMPT_FROM_CI`): CI corre el superset estricto, `check:assets:ci`.
+   - **A re-render becomes stale when the base moves.** After any rebase or merge of `dev`, run `bun run render:apply` again. Your mirror was generated from the earlier assets; if another asset PR landed in the meantime, your mirror is already stale. This happened three times in a row while #421 was being built.
+   - **Never resolve a conflict inside a managed block by hand.** Take the version from the base and regenerate with `bun run render:apply`. Each block has a `hash` of its own content. Editing it by hand marks it as *user-modified*, so `render --apply` **stops overwriting it** and reports `user-modified-skipped`; that drift can then only be fixed with `navori sync`. This is an easy trap: when Git reports a conflict, the instinct is to edit it, but here that turns a one-command fix into a need to understand the marker model.
 
-Cambios **doc-only** (.md): basta `bun run lint` + `bun run format:check`; no necesitas la suite
-completa.
-**"Doc-only" son los docs del repo, no los assets**: un `.md` bajo `packages/core/core-assets/`
-o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3
-(espejo y golden) aunque su extensión diga lo contrario.
+3. **If step 2 applied changes, the golden snapshot of the rendered tree changes too.** Regenerate it with `cd packages/cli && bun run test:golden` (~1 s) and **read the diff** before committing it. There are five fixtures, one per engine, at `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`. They exist because the roughly 11 wiring tests check individual tokens, so no one sees the full output (#394). If you cannot explain a change in that diff, investigate it; do not flatten it away with `-u` as noise.
 
-## Presupuesto de prosa: qué se capea y qué solo se reporta
+   One step-2 trigger does **not** affect the golden snapshot: a version bump. The snapshot normalizes the marker's `version=` and `hash=`, so a version bump changes 30 mirror files and **zero** golden lines. This is intentional: without that normalization, every release would invalidate the snapshot and it would stop providing useful signal.
 
-Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por
-acumulación: cada sesión que aprende algo agrega, ninguna poda. Hay **dos superficies de arranque**
-y se tratan distinto a propósito.
+`repo-config-gate.test.ts` checks the gate against `ci.yml` in **both** directions: if the workflow gains a step the gate does not declare, or the gate gains a step CI does not run, the suite fails and identifies it. Exceptions are kept in two maps, `EXEMPT_FROM_LOCAL_GATE` and `EXEMPT_FROM_CI`; every entry requires a reason, and both maps are checked for stale entries. The current exceptions are:
 
-| Superficie | Quién la escribe | ¿Techo? | Quién lo vigila |
+- **`check:assets:ci`** (in `EXEMPT_FROM_LOCAL_GATE`): it is the same check as `check:assets` with `--strict`. Strict mode depends on tags that CI intentionally provides and a fresh clone does not have, so the local gate would fail for an environmental reason rather than a code issue.
+- **`check:assets`** (in `EXEMPT_FROM_CI`): CI runs its stricter superset, `check:assets:ci`.
+
+For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are enough; the full suite is not needed.
+**"Doc-only" means repo documentation, not assets.** A `.md` file under `packages/core/core-assets/` or `packages/plugins/*/` is a source for the rendered harness, so it triggers steps 2 and 3 (the mirror and golden snapshot) regardless of its extension.
+
+## Prose budget: what is capped and what is only reported
+
+All prose navori sends lives in each session's resident context, so it grows cumulatively: each session that learns something adds it, and nothing prunes it. There are **two startup surfaces**, deliberately treated differently.
+
+| Surface | Who writes it | Capped? | Who monitors it |
 |---|---|---|---|
-| Assets managed (`core-assets/managed/`, `presets/*/managed/`, `plugins/*/managed/`) | navori | **Sí**, por archivo | `bun run check:doc-budgets` en el gate |
-| Bloques computados (`contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
-| Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
-| `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
-| `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |
+| Managed assets (`core-assets/managed/`, `presets/*/managed/`, `plugins/*/managed/`) | navori | **Yes**, per file | `bun run check:doc-budgets` in the gate |
+| Computed blocks (`contexto-proyecto`, `agentes-disponibles`) | navori, from consumer configuration | **Yes**, using `base + k · filas` | `navori doctor` (reports only) |
+| Consumer-owned prose outside markers | The repository owner | **No, never** | Reported only |
+| `.claude/context/*.md` | navori | **Not yet** (#919) | `navori doctor` (reports only) |
+| `AGENTS.md` (engine prose) | navori | **No** — reported against the host's cap | `navori doctor` (yellow warning from 80%) |
 
-Los techos viven en un solo lugar: `packages/cli/src/lib/assets/doc-budgets.ts`. Está bajo `src/lib/` y no
-en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
-mismos números dentro del repo de un consumidor, y solo puede si van en el bundle. Política: cada
-techo carga **≥5 % de margen** sobre lo medido, y la subida se justifica en el cambio que la pide —
-poner el número exacto que pasa es cómo `CLAUDE.md` llegó a 2548/2550.
+The caps live in one place: `packages/cli/src/lib/assets/doc-budgets.ts`. It is under `src/lib/`, not in a JSON file under `scripts/`, because npm publishes `["dist", "README.md"]`. `doctor` must read the same values inside a consumer's repo, which is possible only if they are in the bundle. Policy: every cap has **at least 5% headroom** above the measured value, and any increase must be justified by the change requesting it. Setting a cap to the exact passing value is how `CLAUDE.md` reached 2548/2550.
 
-Tres decisiones que no son obvias:
+Three decisions may not be obvious:
 
-- **La prosa del consumidor no se capea.** navori no tiene standing para ponerle techo al
-  `CLAUDE.md` de otro repo; este mismo repo tiene 536 palabras propias contra 1771 managed. Se
-  reporta separada ("X tuyas, Y de navori") y punto.
-- **Los bloques computados no pueden tener constante.** `contexto-proyecto` mide 54 palabras aquí y
-  335 en `bonum-dashboard` — 6.2x — solo porque ese repo declara más entradas en `project.*`, que es
-  usar la herramienta como debe usarse. La `k` está calibrada **generosa** a propósito: el bloque
-  cobra lo que cuesta cada entrada de config, no castiga tenerlas.
-- **El reporte de `doctor` no mueve `ok` ni falla `--strict`.** Hay 30 repos en el registry global;
-  engancharlo al veredicto los pone en rojo el día del bump por prosa legítima. `render` tampoco
-  imprime una línea informativa fija: solo avisa cuando el techo **se cruza en esa ejecución**.
+- **Consumer prose is not capped.** navori has no standing to cap another repo's `CLAUDE.md`. This repo itself has 536 words of owner-written prose versus 1771 managed words. Report the amounts separately ("X yours, Y navori's") and stop there.
+- **Computed blocks cannot have a constant cap.** `contexto-proyecto` is 54 words here and 335 in `bonum-dashboard`—6.2 times as much—only because that repo declares more `project.*` entries, which is the intended use of the tool. The `k` is deliberately generous: the block accounts for the cost of each config entry instead of penalizing repos for having them.
+- **The `doctor` report does not change `ok` or fail `--strict`.** There are 30 repos in the global registry; making the report affect the verdict would turn them red on the day of a bump because of legitimate prose. `render` also does not print a fixed informational line: it warns only when a cap is crossed in that run.
 
-Un detalle de la métrica que vale la pena conocer antes de leer un número: **los bloques sin
-techo no entran en la comparación**. Un bloque que navori no budgetea (típicamente uno retirado
-que sigue en un archivo viejo) suma palabras al total pero aporta 0 al techo, así que contarlo en
-el cociente reporta un exceso que inventó la métrica. Medido en el `CLAUDE.md` real de
-`bonum-webapp`: `engram-protocol` (497) + `codegraph-protocol` (255) eran **752 de 1207** del
-exceso reportado, el 62 %. Se cuentan aparte y se nombran en su propia línea, no se esconden.
+One metric detail matters when reading a number: **blocks without a cap are excluded from the comparison**. A block navori does not budget (typically a removed block still present in an old file) adds words to the total but contributes zero to the cap. Including it in the ratio would report excess invented by the metric. In the actual `CLAUDE.md` for `bonum-webapp`, `engram-protocol` (497) plus `codegraph-protocol` (255) accounted for **752 of 1207** reported excess words, or 62%. They are counted separately and named on their own line, not hidden.
 
-La superficie prosa (`AGENTS.md`, que comparten `codex`, `agents-md`, `cursor` y `copilot`) se
-mide en **bytes**, no en palabras, y por una razón: el único límite que existe ahí es del host.
-Codex concatena de la raíz hacia abajo y **deja de agregar archivos** al llegar a
-`project_doc_max_bytes` (32 KiB por defecto), sin avisar — truncamiento silencioso, que ningún
-techo de palabras detecta. navori reporta su parte y nada más: la cadena suma el
-`~/.codex/AGENTS.md` del usuario y los `AGENTS.md` anidados, así que lo medido es una **cota
-inferior**. Tampoco se mide bloque a bloque: `AGENTS.md` renderiza como un solo bloque
-`navori-agents`, y un reporte por bloque ahí daría `ceiling 0, overBy 0` — una línea que no puede
-fallar nunca. Darle diagnóstico por bloque cambiaría la topología de markers de un archivo ya
-desplegado (área crítica): eso es una spec aparte.
+The prose surface (`AGENTS.md`, shared by `codex`, `agents-md`, `cursor`, and `copilot`) is measured in **bytes**, not words, because the only limit there belongs to the host. Codex concatenates files from the root downward and **stops adding files** when it reaches `project_doc_max_bytes` (32 KiB by default), without warning. No word cap detects that silent truncation. navori reports only its own contribution: the chain also includes the user's `~/.codex/AGENTS.md` and nested `AGENTS.md` files, so the measurement is a **lower bound**. It is not measured block by block either: `AGENTS.md` renders as one `navori-agents` block, and a per-block report would say `ceiling 0, overBy 0`—a line that could never fail. Per-block diagnostics would change the marker topology of an already deployed file, a critical area, and require a separate spec.
 
-Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
-archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya
-adelgazaron — en `bonum-webapp` un `navori render --apply` recorta 1175 palabras (−37 %) sin que su
-dueño decida nada. `doctor` reporta primero la staleness por eso: es la única palanca que no pide
-ninguna decisión.
+The distinction that determines what to do about a warning is: **"your file is large" is not the same as "your file is stale."** A `CLAUDE.md` rendered by an older version can contain blocks that have since shrunk. In `bonum-webapp`, `navori render --apply` removes 1175 words (−37%) without requiring an owner decision. That is why `doctor` reports staleness first: it is the only fix that requires no decision.
 
-Un último número que el reporte nombra y conviene tener presente al escribir prosa managed: **cada
-subagente recarga `CLAUDE.md` + las project rules desde cero** en su propio contexto (Claude Code,
-"What loads at startup"; solo `omitClaudeMd` lo evita). No hay multiplicador fijo —el ticket decide
-cuántos agentes corren— pero un ciclo implementer→reviewer→publisher paga ese archivo una vez por
-agente, además de la sesión principal. **Es un hecho de Claude, no portable**: un subagente de
-Codex se lanza desde su propio archivo de agente con `developer_instructions` obligatorias, así que
-el reporte omite esa línea cuando `engines` no incluye `claude`.
+One last number in the report is worth remembering when writing managed prose: **each subagent reloads `CLAUDE.md` and the project rules from scratch** into its own context (Claude Code, "What loads at startup"; only `omitClaudeMd` prevents this). There is no fixed multiplier—the ticket determines how many agents run—but an implementer→reviewer→publisher cycle loads that file once per agent, in addition to the main session. **This is a Claude-specific fact, not portable across engines**: a Codex subagent starts from its own agent file with required `developer_instructions`, so the report omits this line when `engines` does not include `claude`.
 
-## Parciales de hook y su test de comportamiento
+## Hook partials and their behavior test
 
-Los parciales de `core-assets/hooks/_partials/` se incluyen en los hooks con `# navori:include <nombre>`. Un parcial solo vale su lugar si un hook **core** lo incluye, y solo es confiable mientras un test que ejecuta ese hook lo nombra. [hook-includes.test.ts](packages/cli/src/lib/render/__tests__/hook-includes.test.ts) verifica ambas mitades de forma mecánica:
+Partials in `core-assets/hooks/_partials/` are included in hooks with `# navori:include <nombre>`. A partial earns its place only if a **core** hook includes it, and it is trusted only while a test that runs that hook names it. [hook-includes.test.ts](packages/cli/src/lib/render/__tests__/hook-includes.test.ts) checks both conditions mechanically:
 
-- Un parcial nuevo necesita un consumidor core o una entrada en `PLUGIN_ONLY_PENDING_REMOVAL`. Esa lista es solo para parciales cuyo único consumidor es un plugin, y la entrada se borra junto con el plugin.
-- Cada parcial que no está en esa lista necesita una fila en `PARTIAL_BEHAVIOUR_TESTS`, con `{ hook, file, title }`: `hook` es el hook core que lo incluye, `file` el test que ejercita su comportamiento y `title` el nombre exacto de ese test, que debe aparecer literal en `file`. El archivo también debe nombrar el hook.
-- Una fila sin parcial correspondiente (obsoleta) también falla.
+- A new partial needs a core consumer or an entry in `PLUGIN_ONLY_PENDING_REMOVAL`. That list is only for partials whose sole consumer is a plugin; remove the entry along with the plugin.
+- Every partial not on that list needs a row in `PARTIAL_BEHAVIOUR_TESTS`, with `{ hook, file, title }`: `hook` is the core hook that includes it, `file` is the test that exercises its behavior, and `title` is the exact test name, which must appear literally in `file`. The file must also name the hook.
+- A row with no corresponding partial (a stale row) also fails.
 
-Así, un parcial nuevo sin test de comportamiento hace fallar la suite; no pasa en silencio.
+So a new partial without a behavior test fails the suite; it does not pass silently.
 
-## Commits y PRs
+## Commits and PRs
 
-- Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
-- Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (format, lint y typecheck en CI, sin
-  tests). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
-- No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.
+- Commits: Conventional, Mexican Spanish, atomic (`feat|fix|chore|docs(scope): mensaje`).
+- Start each ticket on a new branch based on `dev`, and open a PR to `dev` (CI runs format, lint, and typecheck, but not tests). Merge `dev` into `main` through a PR using a merge commit, not squash; that PR must pass the full gate.
+- Do not commit the local harness (`CLAUDE.md`, `.claude/`) in a `/bonum` repo.

@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
+type LocalizedText = Record<"en" | "es" | "zh-CN", string>;
+interface ReleaseEntry {
+  minor: string;
+  headline: LocalizedText;
+  bullets: LocalizedText[];
+  patches?: { note: LocalizedText }[];
+}
 
 /**
  * The landing said 8 commands, 6 presets and 6 plugins while the CLI shipped
@@ -31,6 +39,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
+const releaseModule: unknown = await import(
+  /* @vite-ignore */ pathToFileURL(resolve(REPO_ROOT, "apps/website/src/content/releases.ts")).href
+);
+const { RELEASES } = releaseModule as { RELEASES: readonly ReleaseEntry[] };
 
 const P = {
   index: resolve(REPO_ROOT, "packages", "cli", "src", "index.ts"),
@@ -208,11 +220,8 @@ describe("landing inventory", () => {
   });
   describe("release notes", () => {
     const FIX = "Edit apps/website/src/content/releases.ts";
-    const source = readFileSync(P.releases, "utf8");
     // Parsed like the rest of this file: releases.ts lives in the Astro app.
-    const minors = [...source.matchAll(/^\s{4}minor: "(\d+\.\d+)",/gm)].flatMap((m) =>
-      m[1] ? [m[1]] : [],
-    );
+    const minors = RELEASES.map((entry) => entry.minor);
     const num = (minor: string): number[] => minor.split(".").map(Number);
 
     it("has an entry for the CLI's current minor", () => {
@@ -239,20 +248,20 @@ describe("landing inventory", () => {
       expect(new Set(minors).size, `releases.ts repeats a minor. ${FIX}.`).toBe(minors.length);
     });
 
-    it("gives every entry Spanish and English text", () => {
-      // Every `es:`/`en:` pair is a LocalizedText: the two counts must match
-      // and no value may be empty.
-      const es = [...source.matchAll(/^\s+es: "(.*)",$/gm)];
-      const en = [...source.matchAll(/^\s+en: "(.*)",$/gm)];
-      expect(
-        es.length,
-        `releases.ts has ${es.length} es strings but ${en.length} en strings. ${FIX}.`,
-      ).toBe(en.length);
-      const empty = [...es, ...en].filter((m) => (m[1] ?? "").trim() === "");
-      expect(empty, `releases.ts has empty es/en text. ${FIX}.`).toEqual([]);
-      expect(es.length, `releases.ts has no localized text. ${FIX}.`).toBeGreaterThanOrEqual(
-        minors.length * 4,
-      );
+    // Covers: R3, R11
+    it("gives every release complete English, Spanish and Chinese text", () => {
+      expect(RELEASES.length).toBeGreaterThan(0);
+      for (const entry of RELEASES) {
+        const texts = [
+          entry.headline,
+          ...entry.bullets,
+          ...(entry.patches ?? []).map((patch) => patch.note),
+        ];
+        expect(entry.bullets.length).toBeGreaterThanOrEqual(3);
+        for (const text of texts)
+          for (const lang of ["en", "es", "zh-CN"] as const)
+            expect(text[lang].trim().length).toBeGreaterThan(0);
+      }
     });
   });
 });

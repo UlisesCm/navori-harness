@@ -1,0 +1,39 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Hero from "../Hero.astro";
+import Trustband from "../sections/Trustband.astro";
+import HarnessGraph from "../sections/HarnessGraph.astro";
+import Problem from "../sections/Problem.astro";
+import Scopes from "../sections/Scopes.astro";
+import Layers from "../sections/Layers.astro";
+import Flow from "../sections/Flow.astro";
+import Toolbox from "../sections/Toolbox.astro";
+import Audit from "../sections/Audit.astro";
+import Commands from "../sections/Commands.astro";
+import Engines from "../sections/Engines.astro";
+import Releases from "../sections/Releases.astro";
+import Quickstart from "../sections/Quickstart.astro";
+import FAQ from "../sections/FAQ.astro";
+
+import type { Lang } from "../../i18n/ui";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+---
+
+<BaseLayout lang={lang}>
+  <Hero lang={lang} />
+  <Trustband lang={lang} />
+  {/* the explainer comes before the pitch: what a harness IS, then why */}
+  <HarnessGraph lang={lang} />
+  <Problem lang={lang} />
+  <Scopes lang={lang} />
+  <Layers lang={lang} />
+  <Flow lang={lang} />
+  <Toolbox lang={lang} />
+  <Audit lang={lang} />
+  <Commands lang={lang} />
+  <Engines lang={lang} />
+  <Releases lang={lang} limit={3} />
+  <Quickstart lang={lang} />
+  <FAQ lang={lang} />
+</BaseLayout>

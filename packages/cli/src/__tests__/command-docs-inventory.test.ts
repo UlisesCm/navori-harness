@@ -126,7 +126,7 @@ describe("the website documents every registered subcommand (#548)", () => {
     expect(documented).toEqual(expect.arrayContaining(["init", "render"]));
   });
 
-  // Covers: R1
+  // Covers: R1, R11
   it("global no está registrado", () => {
     expect(registered).not.toContain("global");
   });
@@ -173,10 +173,10 @@ describe("public docs after retiring the global layer (spec 0046)", () => {
   // Covers: R10
   it("DIRECTION no declara la capa global", () => {
     const direction = readFileSync(resolve(REPO_ROOT, "docs", "DIRECTION" + ".md"), "utf8");
-    expect(direction).not.toContain("La capa global (`~/.claude`)");
+    expect(direction).not.toContain("The global layer (`~/.claude`)");
     expect(direction).not.toContain("navori global");
-    expect(direction).toContain("superseded por 0046");
-    expect(direction).toMatch(/^8\. \*\*Huella-cero sin opt-in\*\*/m);
+    expect(direction).toContain("superseded by 0046");
+    expect(direction).toMatch(/^8\. \*\*Zero footprint without opt-in\*\*/m);
   });
 });
 
