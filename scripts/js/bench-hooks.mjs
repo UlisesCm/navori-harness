@@ -154,8 +154,8 @@ export function selectHooks(registrations, scenario, engine) {
     if (reg.matcher === null || reg.matcher === "") return true;
     // Claude matchers are exact-name alternations; Codex ones are real regexes.
     const pattern = engine === "claude" ? `^(?:${reg.matcher})$` : reg.matcher;
-    // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp — matchers are regexes by contract, read from the repo's own hook registrations (trusted, not user input)
-    return new RegExp(pattern).test(subject);
+    // Matchers are regexes by contract, read from the repo's own hook registrations (trusted, not user input).
+    return new RegExp(pattern).test(subject); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   });
 }
 
