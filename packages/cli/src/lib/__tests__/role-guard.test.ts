@@ -105,7 +105,7 @@ interface LinkedReviewFixture {
 
 describe("role-guard linked review outputs", () => {
   /** Creates an owned linked-worktree binding outside OS temp for each independent control. */
-  function linkedReviewFixture(): LinkedReviewFixture {
+  function linkedReviewFixture(version: string = "0.162.1"): LinkedReviewFixture {
     // Outside OS temp: removing the exact binding must deny this same physical destination.
     rmSync(repo, { recursive: true, force: true });
     const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
@@ -139,7 +139,7 @@ describe("role-guard linked review outputs", () => {
     const nonce = "20000000-0000-0000-0000-000000000004";
     const actor = {
       host: "codex",
-      version: "0.162.1",
+      version,
       thread,
       root: nonce,
       parent: nonce,
@@ -191,6 +191,16 @@ describe("role-guard linked review outputs", () => {
     const json = join(state, "review_demo.json");
     return { host, target, state, thread, index, md, json };
   }
+
+  it.each(["0.162.1", "0.163.0"])(
+    "authorizes registered linked-worktree review outputs for supported Codex %s",
+    (version: string) => {
+      const { host, thread, md, json } = linkedReviewFixture(version);
+      const result = run({ ...patch("reviewer", md, json), cwd: host, agent_id: thread });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("bound-review-output");
+    },
+  );
 
   it.each(["Add File", "Update File", "Delete File", "Move to"])(
     "authorizes registered linked-worktree review outputs through the binding branch with %s headers",

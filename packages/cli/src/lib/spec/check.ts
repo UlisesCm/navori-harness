@@ -27,6 +27,7 @@ export type FindingRule =
   | "foundation-not-first"
   | "foundation-without-consumer"
   | "too-many-deliveries"
+  | "completed-over-budget"
   | "master-delivery-unmapped"
   | "master-target-mismatch"
   | "legacy-format";
@@ -100,6 +101,11 @@ export function checkSpec(
 
   if (classification.error) {
     add("too-many-deliveries", "error", "tasks.md", classification.error.what);
+  }
+  for (const warning of classification.warnings) {
+    if (warning.rule === "completed-over-budget") {
+      add(warning.rule, "warning", warning.where, warning.message);
+    }
   }
   const verticalSeverity: FindingSeverity = classification.shape === "split" ? "error" : "warning";
 

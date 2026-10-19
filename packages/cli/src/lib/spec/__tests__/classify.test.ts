@@ -89,12 +89,68 @@ describe("classifySpec — bordes 12/13, 1500/1501, 1 y 2 entregas, tope", () =>
 
 // Covers: R7
 describe("classifySpec — maxPrsPerSpec cap", () => {
+  const completed = spec(6, 30, 1800).replaceAll("[ ]", "[x]");
+
   it("accepts maxPrsPerSpec deliveries and errors on one more", () => {
     expect(classify(spec(4, 13, undefined)).error).toBeNull();
     const result = classify(spec(5, 13, undefined));
     expect(result.error?.rule).toBe("too-many-deliveries");
     expect(result.error?.what).toContain("5 deliveries");
     expect(result.error?.fix).toContain("split the spec");
+  });
+
+  // Covers: R7
+  it("warns on checked declarations above the cap without changing classification signals", () => {
+    const pending = classify(spec(6, 30, 1800));
+    const result = classify(completed);
+    expect(result.error).toBeNull();
+    expect(result).toMatchObject({ shape: "split", prCount: 6 });
+    expect(result.signals).toEqual(pending.signals);
+    expect(result.signals).toMatchObject({ tasks: 30, deliveries: 6, milestones: 6 });
+    expect(result.thresholds).toEqual(pending.thresholds);
+    expect(result.warnings).toContainEqual({
+      rule: "completed-over-budget",
+      where: "tasks.md",
+      message:
+        "spec declares 6 deliveries above sdd.deliveries.maxPrsPerSpec=4; all active task declarations are checked; reopening a task restores the cap error. This does not attest historical approval or acceptance execution; structural checks and the full closing gate remain required",
+    });
+  });
+
+  // Covers: R7
+  it.each([1, 4])("does not warn for %i completed deliveries within the cap", (deliveries) => {
+    const result = classify(spec(deliveries, 30, 1800).replaceAll("[ ]", "[x]"));
+    expect(result.error).toBeNull();
+    expect(result.warnings.map((w) => w.rule)).not.toContain("completed-over-budget");
+  });
+
+  // Covers: R7
+  it.each([
+    { name: "one reopened task", text: completed.replace("[x] **T30**", "[ ] **T30**") },
+    { name: "empty delivery", text: `${completed}\n## E7 — empty` },
+    { name: "empty milestone", text: `${completed}\n### M7 — empty\n- **A7** — c \`ls\` → ok` },
+    {
+      name: "retired-only milestone",
+      text: completed.replace(/\*\*T([1-5])\*\*/g, "~~T$1~~"),
+    },
+    { name: "malformed checkbox", text: `${completed}\n- [x] missing task id` },
+    { name: "checked orphan task", text: `- [x] **T31** (R1) — orphan\n${completed}` },
+    { name: "unchecked orphan task", text: `- [ ] **T31** (R1) — orphan\n${completed}` },
+    { name: "orphan criterion", text: `- **A7** — c \`ls\` → ok\n${completed}` },
+  ])("keeps the cap error for $name", ({ text }) => {
+    const result = classify(text);
+    expect(result.error?.rule).toBe("too-many-deliveries");
+    expect(result.warnings.map((w) => w.rule)).not.toContain("completed-over-budget");
+  });
+
+  // Covers: R7, R25
+  it("still requires the full gate at the completed over-budget closing milestone", () => {
+    const parsed = parseTasks(completed);
+    expect(decideGate(parsed, classifySpec(parsed, DEFAULT_DELIVERIES), "M6")).toEqual({
+      gateKind: "full",
+      reason: "closing-milestone",
+      unit: "E6",
+      closingMilestone: "M6",
+    });
   });
 });
 

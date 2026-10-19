@@ -74,6 +74,17 @@ function staticClosure(entry: string): Set<string> {
 
 describe("cli lazy load", () => {
   // Covers: R14
+  it("keeps the executable shebang only on the CLI entry", () => {
+    const scripts = readdirSync(dist).filter((file: string): boolean => file.endsWith(".js"));
+    expect(scripts).toContain("index.js");
+    expect(scripts.length).toBeGreaterThan(1);
+    for (const file of scripts) {
+      const hasShebang = readFileSync(join(dist, file), "utf8").startsWith("#!");
+      expect(hasShebang, file).toBe(file === "index.js");
+    }
+  });
+
+  // Covers: R14
   it("index no importa chunks de subcomandos y ningún subcomando carga a otro", () => {
     expect(readFileSync(join(src, "index.ts"), "utf8")).not.toMatch(/commands\//);
 

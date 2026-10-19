@@ -11,7 +11,12 @@ export type SpecShape = "single" | "split";
 
 /** A classification warning; `where` names the delivery or file it concerns. */
 export interface SpecWarning {
-  rule: "merged-deliveries" | "loc-undeclared" | "single-over-threshold" | "legacy-format";
+  rule:
+    | "merged-deliveries"
+    | "loc-undeclared"
+    | "single-over-threshold"
+    | "completed-over-budget"
+    | "legacy-format";
   where: string;
   message: string;
 }
@@ -65,14 +70,31 @@ export interface SpecClassification {
   error: SpecError | null;
 }
 
+/** Checks declared completion conservatively; does not attest acceptance or approval. */
+function declaresCompletion(parsed: ParsedTasks): boolean {
+  return (
+    parsed.format === "deliveries" &&
+    parsed.deliveries.length > 0 &&
+    parsed.orphanTasks.length === 0 &&
+    parsed.orphanCriteria.length === 0 &&
+    parsed.malformed.length === 0 &&
+    parsed.deliveries.every(
+      (d) =>
+        d.milestones.length > 0 &&
+        d.milestones.every((m) => m.tasks.length > 0 && m.tasks.every((t) => t.done)),
+    )
+  );
+}
+
 /**
  * Classifies a parsed `tasks.md`.
  *
  * `split` only with >=2 deliveries AND (tasks > splitMinTasks OR estimated
  * LOC > splitMinLoc) — strictly greater (R5). >=2 deliveries under both
  * thresholds is `single` with a `merged-deliveries` warning (R6). More
- * deliveries than `maxPrsPerSpec` sets `error` (R7). A legacy file is one
- * `single` delivery whatever it declares (R14).
+ * deliveries than `maxPrsPerSpec` sets `error` unless the nonempty structure
+ * declares all active tasks done, which yields a warning (R7). A legacy file
+ * is one `single` delivery whatever it declares (R14).
  */
 export function classifySpec(
   parsed: ParsedTasks,
@@ -155,12 +177,20 @@ export function classifySpec(
 
   let error: SpecError | null = null;
   if (deliveryCount > thresholds.maxPrsPerSpec) {
-    error = {
-      rule: "too-many-deliveries",
-      what: `spec declares ${deliveryCount} deliveries; sdd.deliveries.maxPrsPerSpec is ${thresholds.maxPrsPerSpec}`,
-      why: "each delivery ships as its own PR, and a spec beyond the cap is too large to review as one unit",
-      fix: "split the spec into several specs of at most maxPrsPerSpec deliveries each, or raise sdd.deliveries.maxPrsPerSpec",
-    };
+    if (declaresCompletion(parsed)) {
+      warnings.push({
+        rule: "completed-over-budget",
+        where: "tasks.md",
+        message: `spec declares ${deliveryCount} deliveries above sdd.deliveries.maxPrsPerSpec=${thresholds.maxPrsPerSpec}; all active task declarations are checked; reopening a task restores the cap error. This does not attest historical approval or acceptance execution; structural checks and the full closing gate remain required`,
+      });
+    } else {
+      error = {
+        rule: "too-many-deliveries",
+        what: `spec declares ${deliveryCount} deliveries; sdd.deliveries.maxPrsPerSpec is ${thresholds.maxPrsPerSpec}`,
+        why: "each delivery ships as its own PR, and a spec beyond the cap is too large to review as one unit",
+        fix: "split the spec into several specs of at most maxPrsPerSpec deliveries each, or raise sdd.deliveries.maxPrsPerSpec",
+      };
+    }
   }
 
   return {

@@ -325,6 +325,18 @@ El gate completo del árbol integrado terminó exit0:452archivos,9,549pruebas ap
 
 - M10 productor DONE/attested sobre7rutas,11fuentesM6congeladas verificadasporSHA. Final31pruebas/4archivos y fast `fast-20261018T035547361Z.log` verdes. Root A10 final38370 exit0:23pruebas/3archivos2.4s. Native2blobs transportados sin temporales originales y rechazo de versiones mixtas; floor/budget en fixture compruebanseleccióndecomandos, no fullsuiteequivalence/CIwall. Root reprodujo falsoempty de scripts y omisión de guardtests: fullconservadorpara scripts/partials y fallbackbasename lo cierran; ningún full/replay adicional. Scribe/revisiónfinal pendientes, sinreceipt/commit/push/PR.
 
+## 2026-10-17 22:35 codex — Cierra corrección de presupuesto y compatibilidad nativa
+
+**What**: El cierre de specs con todas sus tareas activas declaradas completas conserva T30 y el límite global: el exceso emite `completed-over-budget`, y reabrir tareas vuelve a bloquear. Se admite únicamente Codex 0.162.1/0.163.0 en schema y lector canónico; dos pruebas de integración conservan todas sus aserciones con presupuestos locales de 45000 ms.
+
+**Why**: El cap se aplicaba también a declaraciones completas; el runtime genuino 0.163.0 era rechazado por dos validadores fijados a 0.162.1; las 32 continuaciones durables y los 36 lanzamientos bash/zsh superaban 15000 ms bajo V8.
+
+**Where**: `packages/cli/src/lib/spec/{classify,check}.ts`, `packages/cli/src/lib/handoff/actor-provenance.ts`, lector canónico `packages/core/core-assets/hooks/_partials/review-edit-binding.sh`, pruebas/mirror/golden correspondientes y R7 de spec 0044.
+
+**Learned**: Los checkboxes no prueban aprobación histórica ni aceptación ejecutada. Schema y lector shell deben admitir el mismo conjunto finito. El ciclo nativo local de implementer, scribe y reviewer pasó con identidad real y target main; no acredita eventos live entre worktrees. Los fixtures bash/zsh cubren esa variante. Los timeouts globales, umbrales, algoritmo de escalaciones y checks de identidad permanecen iguales.
+
+Verificación final: 436 archivos y 9170 pruebas aprobadas, 2 omitidas, 0 fallidas; cobertura 84.28/79.04/89.3/85.81% y floor 154 módulos. Gate full `.navori/state/gate/full-20261018T041821759Z.log`; revisión APPROVED sellada y receipt full status ok/fresh true contra main. A1 60/60, A2 173/173 y golden 5/5. El registro de A3 no capturó el evento del host y permanece pendiente; no se fabricó evidencia ni se repitió full por tracking, y el sello/receipt nativos verificaron la evidencia real.
+
 ## 2026-10-18 11:26 Pi — Full verde de 0055 y cierre bloqueado por procedencia nativa
 
 - Se corrigieron la guarda CI tras M10, lectura cwd sin cat y scheduling nativo parity/suite con grupos 1/2; fixture completo verifica inventario exact-once y equivalencia full/cuatro shards/merge. Sin elevar límites, workers ni presupuestos.
@@ -390,3 +402,11 @@ Procesos propios: ninguno activo al cierre según productor y chequeo root. Se o
 - Reproducción previa en Linux limpio falló; después pasan 47 casos de los hooks afectados en zsh con auditoría apagada/activa, 6 pruebas unitarias y fast 9/0. Full independiente del reviewer `full-20261019T141658283Z.log`: exit0, 9732 aprobadas/2 omitidas, 465 archivos, cobertura87.59/85.94/90.2/80.52%, piso159 módulos sin excepciones. Revisión APPROVED y receipt full válido antes de publicar; no se repitió cobertura desde root.
 - El full anterior de164fallos coincide con Clamshell Sleep y ciclos prolongados de suspensión confirmados por pmset; se conserva como fallido, sin atribuir164bugs independientes. No se elevan workers, timeouts ni presupuestos.
 - El alcance pendiente queda en issues1354/1355, sin declarar E1/A11/T39 ni mediciones comparativas completadas. Publicación en PR1352 y verificación de CI del nuevo HEAD son el siguiente paso; esta entrada no afirma un resultado de CI aún no ejecutado.
+
+## 2026-10-19 10:02 codex — Integra PR1350 en dev y elimina encabezados redundantes
+
+Integra dev en PR1350 por decisión del usuario, conservando la excepción de spec completada, cap global, T30 y los controles actuales de identidad/binding/guard/escalation. El usuario creó merge9cfe91fc tras resolver conflictos; render oficial90sin cambios y golden5/5. A1:60/60 y A2:209/209.
+
+Full inicial falló en tamaño1600.6KiB>1600. Causa medida: baseline1599.911KiB con91bytes libres, feature+721bytes. Usuario autorizó dos archivos para emitir shebang sólo en index.js; los78chunks importados no lo necesitan. Build final1599.168KiB (852bytes margen), límite intacto; regresión lazy-load2/2, CLI surface2/2 y entrada ejecutable0.12.1 verdes; fast9/0.
+
+Full independiente final exit0:9826aprobadas,2omitidas,465archivos,740s; cobertura87.6/85.94/90.21/80.53%,floor159/0. Evidencia `.navori/state/gate/full-20261019T154723986Z.log`. Publicación dirigida al PR existente1350 contra dev, push normal sin reescribir historia; CI del nuevo HEAD se comprueba tras el push.
