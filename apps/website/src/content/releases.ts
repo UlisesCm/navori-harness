@@ -46,6 +46,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
             "修复计划分类、证据和升级流程，改善主计划，并新增 Codex 批准与配置控制。Codex 集成仍在验证中。",
         },
       },
+      {
+        version: "0.12.2",
+        date: "2026-10-19",
+        note: {
+          es: "Un ciclo de desarrollo más rápido: el gate reutiliza resultados por identidad de contenido y corre el gate del repo destino, con suite de pruebas más veloz y hooks más ligeros. El scribe puede correr en paralelo (opt-in), el despacho de Codex se aísla por sesión y doctor avisa cuando el CLAUDE.md global excede su tope de contexto o usa rutas de workspace obsoletas. Además corrige el tope de progress, el cierre de specs sobre el límite, los diagnósticos del plan-gate de Pi, el shebang del CLI y la base real del PR en el reviewer.",
+          en: "A faster dev cycle: the gate reuses results by content identity and runs the destination repo's gate, with a faster test suite and lighter hooks. The scribe can run in parallel (opt-in), Codex dispatch is isolated per session, and doctor warns when the global CLAUDE.md exceeds its context cap or points to obsolete workspace paths. Also fixes the progress cap, completing specs over the limit, Pi plan-gate diagnostics, the CLI shebang and the reviewer's real PR base.",
+          "zh-CN":
+            "开发循环更快：门禁按内容标识复用结果并运行目标仓库的门禁，测试套件更快、钩子更轻。scribe 可并行运行（需主动启用），Codex 调度按会话隔离，当全局 CLAUDE.md 超出上下文上限或使用过时的工作区路径时，doctor 会发出警告。同时修复了进度上限、超限规格的完成、Pi 计划门禁诊断、CLI shebang 以及 reviewer 的真实 PR 基线。",
+        },
+      },
     ],
     date: "2026-10-12",
     headline: {
