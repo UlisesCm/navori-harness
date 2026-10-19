@@ -215,7 +215,7 @@ describe("Pi control mappings", () => {
     workplanReason() + "extra",
     "\u001b[31m" + workplanReason(),
     "\u001b]0;private\u0007" + workplanReason(),
-    workplanReason().replace("\n", "\r\n"),
+    workplanReason().replaceAll("\n", "\r\n"),
     workplanReason() + "\0",
     workplanReason().replace("workplan: demo", "workplan: other"),
     workplanReason("x".repeat(129)),
