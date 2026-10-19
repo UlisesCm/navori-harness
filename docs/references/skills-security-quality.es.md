@@ -8,8 +8,8 @@
 
 | Conjunto de skills | Dependencia/versión admitida | Fuente oficial | Activador | Evidencia de validación |
 |---|---|---|---|---|
-| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Recursos de Harness CLI 0.12.1; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
-| Flujo de trabajo: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Recursos de Harness CLI 0.12.1; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
+| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Recursos de Harness CLI 0.12.2; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
+| Flujo de trabajo: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Recursos de Harness CLI 0.12.2; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
 | `zod-validation` | Zod 4.4.3 | https://zod.dev | Validación en límites de confianza | Paquete bloqueado y regresión de fragmento |
 | `vitest` | Vitest 5.0.1 | https://vitest.dev | Pruebas de Vitest | Paquete bloqueado y regresión de fragmento |
 | `citty` | Citty 0.1.6 | https://github.com/unjs/citty | Cambios de CLI con Citty | Regresión de declaraciones bloqueadas |
