@@ -59,6 +59,12 @@ interface Outcome {
   stderr: string;
 }
 
+/** The rendered policy fragment (case patterns, globbing, word-splitting) is not in the corpus, which replays unrendered source. */
+const POLICY_SENSITIVE = {
+  sensitive:
+    "generated policy fragment: case patterns, globbing and word-splitting differ between bash and zsh",
+};
+
 function run(payload: Record<string, unknown>, env?: NodeJS.ProcessEnv): Outcome {
   return acrossShells((shell) => {
     const r = spawnSync(shell, [script], {
@@ -68,7 +74,7 @@ function run(payload: Record<string, unknown>, env?: NodeJS.ProcessEnv): Outcome
       env,
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
-  });
+  }, POLICY_SENSITIVE);
 }
 
 /** An `apply_patch` call touching `files` (one `Add File` header each). */

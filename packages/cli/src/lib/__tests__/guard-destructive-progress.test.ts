@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { PROGRESS_HARD_CAP_BYTES } from "../assets/doc-budgets.ts";
@@ -26,6 +27,13 @@ const ENGINE_DIRS = {
 type Engine = keyof typeof ENGINE_DIRS;
 
 let dir: string;
+
+/** One empty repo per file, copied into each case's `dir` (spec 0055 D7). */
+let gitTemplate: RepoTemplate;
+beforeAll(() => {
+  gitTemplate = emptyRepo({ branch: "master" });
+});
+afterAll(() => gitTemplate.dispose());
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "navori-guard-progress-"));
@@ -70,7 +78,7 @@ function put(bytes: number, rel = CURRENT): void {
 
 /** A repo whose HEAD holds `headBytes` of session state (0 = absent at HEAD). */
 function repo(headBytes: number, rel = CURRENT): void {
-  git("init", "-q");
+  gitTemplate.copyInto(dir);
   writeFileSync(join(dir, "base.txt"), "base\n");
   git("add", "base.txt");
   if (headBytes > 0) {
@@ -116,7 +124,7 @@ describe("guard-destructive commit lane — no qualityGate.fast (#1266)", () => 
   );
 
   it("blocks the first commit (unborn HEAD) that stages an oversized file", () => {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     put(OVER);
     git("add", CURRENT);
     blocked(run(installGuard("1"), "git commit -m x"));
@@ -152,7 +160,7 @@ describe("guard-destructive commit lane — no qualityGate.fast (#1266)", () => 
     git("add", CURRENT);
     const other = mkdtempSync(join(tmpdir(), "navori-guard-progress-other-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: other });
+      gitTemplate.copyInto(other);
       const hook = installGuard("1");
       notMeasured(run(hook, `git -C ${other} commit --allow-empty -m x`));
       notMeasured(run(hook, `cd ${other} && git commit --allow-empty -m x`));
@@ -178,7 +186,7 @@ describe("guard-destructive commit lane — no qualityGate.fast (#1266)", () => 
   });
 
   it("passes a gitignored session-state directory", () => {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     writeFileSync(join(dir, ".gitignore"), "progress/\n");
     put(OVER * 2);
     notMeasured(run(installGuard("1"), "git commit --allow-empty -m x"));

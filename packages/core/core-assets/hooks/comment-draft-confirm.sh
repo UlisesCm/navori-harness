@@ -22,6 +22,8 @@
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.command"
+payload_load() { :; }
 # navori:include extract-cmd
 
 # Gate is broad on purpose: is-it-worth-a-fork, not is-it-the-exact-row. The
@@ -41,6 +43,7 @@ TRIGGER_TOKENS='comment review api create'
 # trade as `pr-publisher-confirm.sh` (#705).
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="comment-draft-confirm"

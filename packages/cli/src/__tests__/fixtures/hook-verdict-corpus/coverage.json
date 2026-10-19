@@ -1,0 +1,113 @@
+{
+  "guard-destructive.sh": {
+    "observed": 886,
+    "included": 886,
+    "excluded": {}
+  },
+  "audit-mode-close.sh": {
+    "observed": 4,
+    "included": 4,
+    "excluded": {}
+  },
+  "audit-mode-trigger.sh": {
+    "observed": 18,
+    "included": 18,
+    "excluded": {}
+  },
+  "bash-outcome-watch.sh": {
+    "observed": 18,
+    "included": 18,
+    "excluded": {}
+  },
+  "comment-draft-confirm.sh": {
+    "observed": 87,
+    "included": 87,
+    "excluded": {}
+  },
+  "engram-write-guard.sh": {
+    "observed": 162,
+    "included": 162,
+    "excluded": {}
+  },
+  "general-purpose-confirm.sh": {
+    "observed": 14,
+    "included": 14,
+    "excluded": {}
+  },
+  "implementer-no-markdown.sh": {
+    "observed": 723,
+    "included": 723,
+    "excluded": {}
+  },
+  "managed-drift-watch.sh": {
+    "observed": 30,
+    "included": 30,
+    "excluded": {}
+  },
+  "master-accept-confirm.sh": {
+    "observed": 289,
+    "included": 289,
+    "excluded": {}
+  },
+  "master-plan-context.sh": {
+    "observed": 1,
+    "included": 1,
+    "excluded": {}
+  },
+  "model-advisor.sh": {
+    "observed": 0,
+    "included": 0,
+    "excluded": {},
+    "note": "never invoked by a test"
+  },
+  "plan-gate.sh": {
+    "observed": 15,
+    "included": 15,
+    "excluded": {}
+  },
+  "pr-publisher-confirm.sh": {
+    "observed": 33,
+    "included": 33,
+    "excluded": {}
+  },
+  "quality-gate-pre-commit.sh": {
+    "observed": 26,
+    "included": 26,
+    "excluded": {}
+  },
+  "role-guard.sh": {
+    "observed": 128,
+    "included": 128,
+    "excluded": {}
+  },
+  "routing-watch.sh": {
+    "observed": 262,
+    "included": 262,
+    "excluded": {}
+  },
+  "session-start-context.sh": {
+    "observed": 40,
+    "included": 40,
+    "excluded": {}
+  },
+  "stop-verify-reminder.sh": {
+    "observed": 3,
+    "included": 3,
+    "excluded": {}
+  },
+  "subagent-no-background.sh": {
+    "observed": 232,
+    "included": 232,
+    "excluded": {}
+  },
+  "subagent-stop-handoff.sh": {
+    "observed": 7,
+    "included": 7,
+    "excluded": {}
+  },
+  "worktree-reclaim.sh": {
+    "observed": 18,
+    "included": 18,
+    "excluded": {}
+  }
+}

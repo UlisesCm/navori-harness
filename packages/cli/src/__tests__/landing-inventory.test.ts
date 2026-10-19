@@ -33,7 +33,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
 
 const P = {
-  index: resolve(REPO_ROOT, "packages", "cli", "src", "index.ts"),
+  index: resolve(REPO_ROOT, "packages", "cli", "src", "cli.ts"),
   engines: resolve(REPO_ROOT, "packages", "cli", "src", "engines"),
   plugins: resolve(REPO_ROOT, "packages", "plugins"),
   presets: resolve(REPO_ROOT, "packages", "core", "core-assets", "presets"),
@@ -73,7 +73,7 @@ function captures(source: string, re: RegExp): string[] {
   return out;
 }
 
-/** Subcommand names registered in `index.ts`'s `subCommands` block. */
+/** Subcommand names registered in `cli.ts`'s `subCommands` block. */
 function registeredCommands(): string[] {
   const src = readFileSync(P.index, "utf8");
   const block = src.slice(src.indexOf("subCommands: {"), src.indexOf("});"));
@@ -129,7 +129,7 @@ describe("landing inventory", () => {
    * failure message tells a reader to go fix.
    */
   const counts: { key: string; actual: number; source: string }[] = [
-    { key: "commands", actual: registeredCommands().length, source: "packages/cli/src/index.ts" },
+    { key: "commands", actual: registeredCommands().length, source: "packages/cli/src/cli.ts" },
     { key: "presets", actual: listAssets(P.presets, "").length, source: "core-assets/presets/" },
     { key: "plugins", actual: listAssets(P.plugins, "").length, source: "packages/plugins/" },
     {

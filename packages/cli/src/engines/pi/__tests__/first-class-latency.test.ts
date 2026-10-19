@@ -1,11 +1,20 @@
-import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { load } from "./fixtures/load-extension.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 // Every call runs the real rendered scripts under bash; a saturated machine needs room.
 vi.setConfig({ testTimeout: 120_000 });
@@ -43,7 +52,7 @@ describe("Pi bridge latency", () => {
   it("measures per-bash-call overhead over a benign corpus", async () => {
     const dir = mkdtempSync(join(tmpdir(), "navori-pi-latency-"));
     dirs.push(dir);
-    execFileSync("git", ["init", "-q", dir]);
+    repoTplMaster.copyInto(dir);
     renderPiEngine(
       dir,
       NavoriConfigSchema.parse({

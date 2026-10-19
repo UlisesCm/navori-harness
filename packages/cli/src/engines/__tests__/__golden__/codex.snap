@@ -1737,7 +1737,7 @@ developer_instructions = "# Publisher Agent\n\nYou own the **end of the cycle**:
 # navori:managed start id="reviewer-codex-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 name = "reviewer"
 description = "Strict reviewer — approves or rejects a diff against AGENTS.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
-developer_instructions = "# Reviewer Agent\n\nYou are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.\n\n## Protocol\n\n### Setup (common to both passes)\n\n1. Ground yourself in `AGENTS.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed. Read it by `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge section — the whole file when those headings are absent.\n2. Identify modified files. Diff against `main` (the PR's target\n   branch), **not** against the fork point: it's the EXACT diff GitHub will show and\n   the one publisher reviews. Where the fork branch and the PR target differ, the\n   fork-point diff is NOT the PR's: the target always wins.\n\n   ```bash\n   git status --short\n   git fetch origin main --quiet\n   behind=$(git rev-list --count HEAD..origin/main)\n   if [ \"$behind\" -ne 0 ]; then\n     printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before reviewing.\\n' \"$behind\" >&2\n     exit 1\n   fi\n   # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated\n   navori receipt review begin <feature> --target main --dir .navori/state/handoffs --json\n   git diff --stat\n   # two-dot: the FULL working tree vs the target (committed AND uncommitted), what the\n   # receipt fingerprints; three-dot (`...HEAD`) would miss the uncommitted diff.\n   git diff \"origin/main\"\n   git ls-files --others --exclude-standard   # untracked files (new, not yet staged)\n   ```\n\n   `begin` stamps the content identity BEFORE you read the diff, so it must run first.\n\nFor Codex, use the source CLI in this actual checkout to run `bun packages/cli/src/index.ts receipt review begin <feature> --target main --dir .navori/state/handoffs --json` before reading the diff, then retain its nonce. Immediately after a successful begin and before the expensive full gate, run `bun packages/cli/src/index.ts receipt review preflight <feature> --host-cwd <actual-host-checkout> --json`, using the actual host session checkout for `--host-cwd`. This option supplies diagnostic context only; it never overrides or supplies native reviewer identity. If the host or binding is unsupported or incompatible, stop before the full gate and report the preflight diagnostic. Static compatibility does not prove which fields a live native hook payload contains. After deciding the verdict and writing the review artifacts, run `bun packages/cli/src/index.ts receipt review seal <feature> --nonce <nonce> --target main --dir .navori/state/handoffs --json`, followed by `bun packages/cli/src/index.ts handoff log-review <feature> --dir .navori/state/handoffs`. The native runtime must independently identify the reviewer; the review must bind to the current producer handoff, publication bytes, and target. Missing, stale, unknown, same-producer, or drifted evidence cannot be approved. Never supply free-form actor IDs or claim the begin proves the reviewer read the diff. An unchanged-bytes publication commit may retain correlation without repeating the full gate.\n   A nonzero `behind` count is a hard stop: do not review, approve, or write a\n   receipt. A target-only file would otherwise look like a deletion in this\n   worktree and the receipt would sign that phantom deletion.\n\n3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code — the Pass 2 table sets the gate, so a `CHANGES_REQUESTED` round stays scoped; the Coverage table stays required on the signing round. If the previous verdict was already `APPROVED` and the diff only moved because of a later edit, that's the **delta re-sign** mode below.\n4. Apply `.agents/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.\n5. **Closing cycle** (only for spec deliveries): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff \"origin/main\"`), the re-review narrowing (Setup 3) does not apply, run `navori spec check <spec> --json` (must be `\"status\":\"ok\"`), and run the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.\n\n### Pass 1 — Spec compliance\n\nDoes the diff do EXACTLY what was asked? You don't review style yet.\n\n- Does it resolve the ticket / audit / requirement described?\n- Is it within the agreed scope? (If it touched files outside the audit/ticket scope → flag)\n- Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)\n- If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?\n- **SDD traceability** (only if `specs/<feature>/tasks.md` exists): read `specs/<spec>/tasks.md` using the `<spec>` from the `spec:` line (handoff key is `<spec>-e<n>`), check the milestone's tasks and verify `effect`/`[observable]` against the diff; a `behavior` task without observable behavior → `SPEC_MISS`. Each `R<n>` is covered by ≥1 test with `// Covers: R<n>` → `SPEC_MISS` if missing.\n\n- Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check do you confirm it happened (skipped → flag it); never escalate a screen change to a human for lacking one.\n\n**Partial verdict:**\n\n- `SPEC_OK` → move to Pass 2.\n- `SPEC_MISS` → immediate final verdict `CHANGES_REQUESTED`, list gaps. You do NOT enter Pass 2 (no point reviewing quality if the spec wasn't met).\n\n### Pass 2 — Code quality (only if SPEC_OK)\n\nDoes the code match the repo's conventions? Here you do review style/naming/types.\n\nApply `.agents/skills/review-diff/SKILL.md` in full in round 1 (later rounds: the Pre-pass plus sections tied to prior findings) — the checklist by dimension, with severities. When the diff touches auth, permissions, object access, secrets or anything in `auth, permissions, payments, data integrity`, also apply `.agents/skills/security-invariants/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `AGENTS.md` and the orchestrator's \"Project rules\" — plus any additional rule the orchestrator wrote in the user-section of its prompt.\n\n**Quality gate** (mandatory green, run this turn):\n\nWhen the encargo opens with `spec: <spec> E<n> M<n>`, run first:\n```bash\nnavori receipt gate --feature <feature> --spec <spec> --milestone M<n> --json\n```\nIf the result contains `\"gateKind\":\"scoped\"` (non-closing milestone), run `pnpm lint`, `qualityGate.affected` when declared, and the milestone's `A<n>` commands. If `\"gateKind\":\"full\"` (closing milestone or a workplan PR), the gate fails, or there is no spec line, apply the table below.\n\n| Round outcome | Gate evidence |\n|---|---|\n| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `pnpm lint` plus the assigned `A<n>` commands. Do NOT run the full gate. |\n| About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |\n```bash\nnavori gate full\n```\nThe full gate runs only on the round about to sign `APPROVED`; it may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.\n\n\nIf `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `pnpm lint` or `pnpm test && pnpm lint` instead. Read only the verdict.\n\nRead verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. The publisher reuses fresh evidence for the final diff. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal.\n\nStart `navori gate full` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.\n\n\n\n**Partial verdict:**\n\n- `QUALITY_OK` → final verdict `APPROVED`.\n- `QUALITY_MISS` → final verdict `CHANGES_REQUESTED`, list issues with a confidence score.\n\n### Content receipt (write ONLY on APPROVED)\n\nYour APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.\n\n```bash\nnavori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json\n```\n\nContinue only when its JSON has `\"status\":\"ok\"`. Any other output is an error: do not hand off a receipt. `CHANGES_REQUESTED` never signs.\n\n### Delta re-sign (post-APPROVED)\n\nA second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `publisher` now reports `DRIFT`. You judge only the **delta**, not the whole diff again:\n\n1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.\n2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). \"It looks small\" is not evidence.\n3. **Re-run the full gate** (Pass 2), over the live bytes, since this round is about to re-sign. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command instead and signs with `--gate-ran docs`; any code needs the full gate.\n4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json`, and continue only on `\"status\":\"ok\"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift. Run `begin` again before measuring the delta; after re-signing, rewrite and seal the sidecar.\n5. **Append** to the existing `.navori/state/handoffs/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.\n6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `auth, permissions, payments, data integrity`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.\n\n### Confidence scoring per finding (Pass 2)\n\nEach issue is scored 0-100. Only issues ≥80 block APPROVED. Issues 50-79 are listed as \"informational observations\" (they don't block). <50 = don't report.\n\n| Score | Meaning |\n|---|---|\n| **100** | Certain. Breaks build/data/security. |\n| **80** | Probable functional bug or hard AGENTS.md violation (typing, layers, repo conventions). |\n| **65** | Probable issue, could be intentional. |\n| **50** | Readability/naming nitpick. |\n| **<50** | Don't report. |\n\n## Verdict format\n\nWrite `.navori/state/handoffs/review_<feature>.md`:\n\n```markdown\n# Review — <task>\n\n**Final verdict:** APPROVED | CHANGES_REQUESTED\n**Content receipt:** `.navori/state/handoffs/receipt.txt` (written on APPROVED — binds the diff to the reviewed bytes)\n\n## Pass 1 — Spec compliance\n**Partial verdict:** SPEC_OK | SPEC_MISS\n\n- Resolves the requested ticket / audit:         [x] / [ ]\n- Scope respected (no files outside):            [x] / [ ]\n- Bugfix: documented root cause matches fix:     [x] / [ ] / n/a\n- UI browser-validated (only if the user requested it): [x] / [ ] / n/a\n\n**Spec gaps (if SPEC_MISS):**\n1. <file>:<line> — <what's missing vs what was asked>\n\n### Implementer doubts\n(only when `impl_<feature>` declares `doubts`; reviewed in addition to the diff, not instead of it)\n- <file>:<line> — resolved | issue — <conclusion, with file:line evidence>\n\nAn unanswered doubt, or one concluded `issue`, follows the normal severity and score rules.\n\n## Pass 2 — Code quality (only if SPEC_OK)\n**Partial verdict:** QUALITY_OK | QUALITY_MISS\n\n### Quality gate (run this turn)\n| Check | Status | Evidence |\n|---|---|---|\n| Gate (Pass 2 table: scoped on `CHANGES_REQUESTED`, full on `APPROVED`) | [x] / [ ] | <output or exit code from this turn> |\n| Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/main` that demonstrates it, this turn> |\n\n### Conventions (AGENTS.md + orchestrator's Project rules)\n- <repo-specific check>: [x] / [ ]\n\n### Issues with confidence ≥80 (block APPROVED)\n1. [score:90] <file>:<line> — <concrete, verifiable reason>\n2. [score:85] <file>:<line> — ...\n\n### Informational observations (50-79, don't block)\n1. [score:65] <file>:<line> — <nitpick or suggestion>\n\n### Coverage\nRequired when `APPROVED` with no issue ≥80 (a bare approval with no Coverage is not allowed): one row per `review-diff` section 1-9.\n\n| Section | Reviewed (what) / n/a + reason |\n|---|---|\n| Types and contracts | <what you checked> / n/a + <reason> |\n| Data layer | |\n| Error handling | |\n| Security | |\n| No hardcode | |\n| Naming and structure | |\n| Over-engineering | |\n| Dead code | |\n| Quality gate | |\n```\n\n### Sidecar (every verdict)\n\nWrite `.navori/state/handoffs/review_<feature>.json` from scratch each round (`{feature, verdict: APPROVED|CHANGES_REQUESTED, findings: [{category, severity: critical|high|medium|low, score: 0-100 integer, file, line?, summary?}]}`; `[]` when none), then run:\n\n```bash\nnavori receipt review seal <feature> --nonce <nonce> --target main --dir .navori/state/handoffs --json\nnavori handoff log-review <feature> --dir .navori/state/handoffs\n```\n\n`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict; it only leaves the review uncorrelated.\n\n## Chat reply\n\n**A single line**:\n\n```\nAPPROVED -> .navori/state/handoffs/review_<feature>.md\n```\n\nor\n\n```\nCHANGES_REQUESTED -> .navori/state/handoffs/review_<feature>.md\n```\n\n`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `publisher` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.\n\n## Hard rules\n\n- ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.\n- ❌ Never include as a blocker (in \"Issues ≥80\") a finding with confidence <80.\n- ✅ Apply `.agents/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).\n- ❌ Never approve with the full gate red.\n- ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.\n- ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.\n\n- ✅ On APPROVED, write the content receipt (`.navori/state/handoffs/receipt.txt`) so the commit is bound to the reviewed bytes.\n- ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.\n- ❌ You never edit the code. You only point out what fails and where.\n- ❌ Never stash, discard-checkout/reset or clean the shared working tree, nor recursively delete scratch dirs: they hit `ask` and stall the run.\n- ✅ Be concrete: cite `file:line`. No generic feedback.\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
+developer_instructions = "# Reviewer Agent\n\nYou are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.\n\n## Protocol\n\n### Setup (common to both passes)\n\n1. Ground yourself in `AGENTS.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design (settled in its own phase); your question is whether the code did what was agreed. Read it by `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge section — the whole file when those headings are absent.\n2. Identify modified files. Diff against `main` (the PR's target\n   branch), **not** against the fork point: it's the EXACT diff GitHub will show and\n   the one publisher reviews.\n\n   ```bash\n   git status --short\n   git fetch origin main --quiet\n   behind=$(git rev-list --count HEAD..origin/main)\n   if [ \"$behind\" -ne 0 ]; then\n     printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before reviewing.\\n' \"$behind\" >&2\n     exit 1\n   fi\n   # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated\n   navori receipt review begin <feature> --target main --dir .navori/state/handoffs --json\n   git diff --stat\n   # two-dot: the FULL working tree vs the target (committed AND uncommitted), what the\n   # receipt fingerprints; three-dot (`...HEAD`) would miss the uncommitted diff.\n   git diff \"origin/main\"\n   git ls-files --others --exclude-standard   # untracked files (new, not yet staged)\n   ```\n\n   `begin` stamps the content identity BEFORE you read the diff, so it must run first.\n\nFor Codex, use the source CLI in this actual checkout to run `bun packages/cli/src/index.ts receipt review begin <feature> --target main --dir .navori/state/handoffs --json` before reading the diff, then retain its nonce. Immediately after a successful begin and before the expensive full gate, run `bun packages/cli/src/index.ts receipt review preflight <feature> --host-cwd <actual-host-checkout> --json`, using the actual host session checkout for `--host-cwd`. This option supplies diagnostic context only; it never overrides or supplies native reviewer identity. If the host or binding is unsupported or incompatible, stop before the full gate and report the preflight diagnostic. Static compatibility does not prove which fields a live native hook payload contains. After deciding the verdict and writing the review artifacts, run `bun packages/cli/src/index.ts receipt review seal <feature> --nonce <nonce> --target main --dir .navori/state/handoffs --json`, followed by `bun packages/cli/src/index.ts handoff log-review <feature> --dir .navori/state/handoffs`. The native runtime must independently identify the reviewer; the review must bind to the current producer handoff, publication bytes, and target. Missing, stale, unknown, same-producer, or drifted evidence cannot be approved. Never supply free-form actor IDs or claim the begin proves the reviewer read the diff. An unchanged-bytes publication commit may retain correlation without repeating the full gate.\n   A nonzero `behind` count is a hard stop: do not review, approve, or write a\n   receipt. A target-only file would otherwise look like a deletion in this\n   worktree and the receipt would sign that phantom deletion.\n\n3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code — the Pass 2 table sets the gate, so a `CHANGES_REQUESTED` round stays scoped; the Coverage table stays required on the signing round. If the previous verdict was already `APPROVED` and the diff only moved because of a later edit, that's the **delta re-sign** mode below.\n4. Apply `.agents/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.\n5. **Closing cycle** (only for spec deliveries): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff \"origin/main\"`), the re-review narrowing (Setup 3) does not apply, run `navori spec check <spec> --json` (must be `\"status\":\"ok\"`), and run the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.\n\n### Pass 1 — Spec compliance\n\nDoes the diff do EXACTLY what was asked? You don't review style yet.\n\n- Does it resolve the ticket / audit / requirement described?\n- Is it within the agreed scope? (If it touched files outside the audit/ticket scope → flag)\n- Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)\n- If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?\n- **SDD traceability** (only if `specs/<feature>/tasks.md` exists): read `specs/<spec>/tasks.md` using the `<spec>` from the `spec:` line (handoff key is `<spec>-e<n>`), check the milestone's tasks and verify `effect`/`[observable]` against the diff; a `behavior` task without observable behavior → `SPEC_MISS`. Each `R<n>` is covered by ≥1 test with `// Covers: R<n>` → `SPEC_MISS` if missing.\n\n- Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check do you confirm it happened (skipped → flag it); never escalate a screen change to a human for lacking one.\n\n**Partial verdict:**\n\n- `SPEC_OK` → move to Pass 2.\n- `SPEC_MISS` → immediate final verdict `CHANGES_REQUESTED`, list gaps. You do NOT enter Pass 2 (no point reviewing quality if the spec wasn't met).\n\n### Pass 2 — Code quality (only if SPEC_OK)\n\nDoes the code match the repo's conventions? Here you do review style/naming/types.\n\nApply `.agents/skills/review-diff/SKILL.md` in full in round 1 (later rounds: the Pre-pass plus sections tied to prior findings) — the checklist by dimension, with severities. When the diff touches auth, permissions, object access, secrets or anything in `auth, permissions, payments, data integrity`, also apply `.agents/skills/security-invariants/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `AGENTS.md` and the orchestrator's \"Project rules\" — plus any additional rule the orchestrator wrote in the user-section of its prompt.\n\n**Quality gate** (mandatory green, run this turn):\n\nWhen the encargo opens with `spec: <spec> E<n> M<n>`, run first:\n```bash\nnavori receipt gate --feature <feature> --spec <spec> --milestone M<n> --json\n```\nIf the result contains `\"gateKind\":\"scoped\"` (non-closing milestone), run `pnpm lint`, `qualityGate.affected` when declared, and the milestone's `A<n>` commands. If `\"gateKind\":\"full\"` (closing milestone or a workplan PR), the gate fails, or there is no spec line, apply the table below.\n\n| Round outcome | Gate evidence |\n|---|---|\n| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `pnpm lint` plus the assigned `A<n>` commands. Do NOT run the full gate. |\n| About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |\n```bash\nnavori gate full\n```\nThe full gate runs only on the round about to sign `APPROVED`; it may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.\n\n\nIf `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `pnpm lint` or `pnpm test && pnpm lint` instead. Read only the verdict.\n\nRead verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. The publisher reuses fresh evidence for the final diff. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal.\n\nStart `navori gate full` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.\n\n\n\n**Partial verdict:**\n\n- `QUALITY_OK` → final verdict `APPROVED`.\n- `QUALITY_MISS` → final verdict `CHANGES_REQUESTED`, list issues with a confidence score.\n\n### Content receipt (write ONLY on APPROVED)\n\nYour APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.\n\n```bash\nnavori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json\n```\n\nContinue only when its JSON has `\"status\":\"ok\"`. Any other output is an error: do not hand off a receipt. `CHANGES_REQUESTED` never signs.\n\n### Delta re-sign (post-APPROVED)\n\nA second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `publisher` now reports `DRIFT`. You judge only the **delta**, not the whole diff again:\n\n1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.\n2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). \"It looks small\" is not evidence.\n3. **Re-run the full gate** (Pass 2), over the live bytes, since this round is about to re-sign. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command instead and signs with `--gate-ran docs`; any code needs the full gate.\n4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json`, and continue only on `\"status\":\"ok\"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift. Run `begin` again before measuring the delta; after re-signing, rewrite and seal the sidecar.\n5. **Append** to the existing `.navori/state/handoffs/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.\n6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `auth, permissions, payments, data integrity`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.\n\n### Confidence scoring per finding (Pass 2)\n\nEach issue is scored 0-100. Only issues ≥80 block APPROVED. Issues 50-79 are listed as \"informational observations\" (they don't block). <50 = don't report.\n\n| Score | Meaning |\n|---|---|\n| **100** | Certain. Breaks build/data/security. |\n| **80** | Probable functional bug or hard AGENTS.md violation (typing, layers, repo conventions). |\n| **65** | Probable issue, could be intentional. |\n| **50** | Readability/naming nitpick. |\n| **<50** | Don't report. |\n\n## Verdict format\n\nWrite `.navori/state/handoffs/review_<feature>.md`:\n\n```markdown\n# Review — <task>\n\n**Final verdict:** APPROVED | CHANGES_REQUESTED\n**Content receipt:** `.navori/state/handoffs/receipt.txt` (written on APPROVED — binds the diff to the reviewed bytes)\n\n## Pass 1 — Spec compliance\n**Partial verdict:** SPEC_OK | SPEC_MISS\n\n- Resolves the requested ticket / audit:         [x] / [ ]\n- Scope respected (no files outside):            [x] / [ ]\n- Bugfix: documented root cause matches fix:     [x] / [ ] / n/a\n- UI browser-validated (only if the user requested it): [x] / [ ] / n/a\n\n**Spec gaps (if SPEC_MISS):**\n1. <file>:<line> — <what's missing vs what was asked>\n\n### Implementer doubts\n(only when `impl_<feature>` declares `doubts`; reviewed in addition to the diff, not instead of it)\n- <file>:<line> — resolved | issue — <conclusion, with file:line evidence>\n\nAn unanswered doubt, or one concluded `issue`, follows the normal severity and score rules.\n\n## Pass 2 — Code quality (only if SPEC_OK)\n**Partial verdict:** QUALITY_OK | QUALITY_MISS\n\n### Quality gate (run this turn)\n| Check | Status | Evidence |\n|---|---|---|\n| Gate (Pass 2 table: scoped on `CHANGES_REQUESTED`, full on `APPROVED`) | [x] / [ ] | <output or exit code from this turn> |\n| Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/main` that demonstrates it, this turn> |\n\n### Conventions (AGENTS.md + orchestrator's Project rules)\n- <repo-specific check>: [x] / [ ]\n\n### Issues with confidence ≥80 (block APPROVED)\n1. [score:90] <file>:<line> — <concrete, verifiable reason>\n2. [score:85] <file>:<line> — ...\n\n### Informational observations (50-79, don't block)\n1. [score:65] <file>:<line> — <nitpick or suggestion>\n\n### Coverage\nRequired when `APPROVED` with no issue ≥80 (a bare approval with no Coverage is not allowed): one row per `review-diff` section 1-9.\n\n| Section | Reviewed (what) / n/a + reason |\n|---|---|\n| Types and contracts | <what you checked> / n/a + <reason> |\n| Data layer | |\n| Error handling | |\n| Security | |\n| No hardcode | |\n| Naming and structure | |\n| Over-engineering | |\n| Dead code | |\n| Quality gate | |\n```\n\n### Sidecar (every verdict)\n\nWrite `.navori/state/handoffs/review_<feature>.json` from scratch each round (`{feature, verdict: APPROVED|CHANGES_REQUESTED, findings: [{category, severity: critical|high|medium|low, score: 0-100 integer, file, line?, summary?}]}`; `[]` when none), then run:\n\n```bash\nnavori receipt review seal <feature> --nonce <nonce> --target main --dir .navori/state/handoffs --json\nnavori handoff log-review <feature> --dir .navori/state/handoffs\n```\n\n`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict; it only leaves the review uncorrelated.\n\n## Chat reply\n\n**A single line**:\n\n```\nAPPROVED -> .navori/state/handoffs/review_<feature>.md\n```\n\nor\n\n```\nCHANGES_REQUESTED -> .navori/state/handoffs/review_<feature>.md\n```\n\n`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `publisher` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.\n\n## Hard rules\n\n- ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.\n- ❌ Never include as a blocker (in \"Issues ≥80\") a finding with confidence <80.\n- ✅ Apply `.agents/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).\n- ❌ Never approve with the full gate red.\n- ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.\n- ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.\n\n- ✅ On APPROVED, write the content receipt (`.navori/state/handoffs/receipt.txt`) so the commit is bound to the reviewed bytes.\n- ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.\n- ❌ You never edit the code. You only point out what fails and where.\n- ❌ Never stash, discard-checkout/reset or clean the shared working tree, nor recursively delete scratch dirs: they hit `ask` and stall the run.\n- ✅ Be concrete: cite `file:line`. No generic feedback.\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
 # navori:managed end id="reviewer-codex-base"
 
 
@@ -1928,6 +1928,7 @@ args = ["mcp", "--tools=mem_search,mem_get_observation,mem_context,mem_save,mem_
 
 set +e
 
+nv_payload_fields="cwd matcher reason session_id tool_input.command"
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -1949,6 +1950,7 @@ navori_audit_repo_from_cwd() {
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -1976,6 +1978,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -2010,7 +2023,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -2020,14 +2035,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -2042,10 +2066,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 
 # One extraction for the three fields (spec 0054 R22).
 payload_fields session_id=session_id cwd=cwd reason=reason matcher=matcher
@@ -2076,11 +2119,69 @@ log_file=$audits_root/$repo/session-$session_id.log
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -2174,7 +2275,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -2183,6 +2291,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -2240,6 +2349,7 @@ exit 0
 
 set +e
 
+nv_payload_fields="agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -2261,6 +2371,7 @@ navori_audit_repo_from_cwd() {
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -2288,6 +2399,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -2322,7 +2444,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -2332,14 +2456,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -2354,10 +2487,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -2380,8 +2532,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -2616,11 +2769,69 @@ fi
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -2714,7 +2925,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -2723,6 +2941,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -2782,6 +3001,8 @@ exit 0
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -2809,6 +3030,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -2843,7 +3075,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -2853,14 +3087,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -2874,6 +3117,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -3103,6 +3364,7 @@ is_scan_trigger() {
 # trade as `pr-publisher-confirm.sh` (#705).
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="comment-draft-confirm"
@@ -3134,11 +3396,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -3232,7 +3552,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -3241,6 +3568,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -3663,6 +3991,8 @@ exit 0
 #   - engram write from a role that may not write memory: hard — role containment; the message names the route.
 set -euo pipefail
 
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -3690,6 +4020,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -3724,7 +4065,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -3734,14 +4077,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -3756,10 +4108,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -3782,8 +4153,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -3933,11 +4305,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -4031,7 +4461,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -4040,6 +4477,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -4164,6 +4602,8 @@ block "$navori_name is not granted to the $navori_role role. This is a fixed har
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="tool_input.agent_type tool_input.command tool_input.subagent_type"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -4191,6 +4631,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -4225,7 +4676,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -4235,14 +4688,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -4256,6 +4718,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -4299,11 +4779,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -4397,7 +4935,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -4406,6 +4951,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -4437,6 +4983,7 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+payload_load
 # Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
 payload_fields navori_gp_type=tool_input.subagent_type navori_gp_codex_type=tool_input.agent_type
 [ -n "$navori_gp_type" ] || navori_gp_type=$navori_gp_codex_type
@@ -4506,6 +5053,8 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -4533,6 +5082,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -4567,7 +5127,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -4577,14 +5139,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -4599,10 +5170,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 cmd=$(extract_cmd)
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (byte-
 # identical to what this guard read before) and the git toplevel resolved
@@ -4629,8 +5219,9 @@ cmd=$(extract_cmd)
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -4785,11 +5376,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -4883,7 +5532,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -4892,6 +5548,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -7052,6 +7709,8 @@ COVERED_TOOLS='Bash Edit Write NotebookEdit'
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -7079,6 +7738,17 @@ payload=$(cat 2>/dev/null) || payload=""
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -7113,7 +7783,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -7123,14 +7795,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -7145,10 +7826,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (unchanged)
 # and the payload cwd's git toplevel under Codex.
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
@@ -7173,8 +7873,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -7345,11 +8046,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -7443,7 +8202,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -7452,6 +8218,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -7670,6 +8437,7 @@ esac
 navori_audit_name="model-advisor"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -7694,11 +8462,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -7792,7 +8618,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -7801,6 +8634,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -8096,6 +8930,8 @@ NODE
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_id subagent_id tool_input.command"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -8123,6 +8959,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -8157,7 +9004,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -8167,14 +9016,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -8188,6 +9046,24 @@ payload_fields() {
     printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
   done
   return 0
+}
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -8433,6 +9309,7 @@ is_scan_trigger() {
 # written below. Same trade as #696, for the same reason.
 has_trigger_token "${payload:-}" || exit 0
 
+payload_load
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-publisher-confirm"
@@ -8466,11 +9343,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -8564,7 +9499,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -8573,6 +9515,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -8992,6 +9935,8 @@ exit 0
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
+nv_payload_fields="agent_type cwd hook_event_name permission_mode tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -9019,6 +9964,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -9053,7 +10009,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -9063,14 +10021,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -9085,10 +10052,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 cmd=$(extract_cmd)
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
@@ -9112,8 +10098,9 @@ cmd=$(extract_cmd)
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -9268,11 +10255,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -9366,7 +10411,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -9375,6 +10427,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -10625,6 +11678,8 @@ fi
 #   - a role touching what its contract forbids: hard — role containment; the message names the route.
 set -euo pipefail
 
+nv_payload_fields="agent_id agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -10652,6 +11707,17 @@ set -euo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -10686,7 +11752,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -10696,14 +11764,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -10718,10 +11795,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -10744,8 +11840,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -11022,11 +12119,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -11120,7 +12275,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -11129,6 +12291,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -11519,6 +12682,8 @@ set -uo pipefail
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
+nv_payload_fields="agent_id agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -11546,6 +12711,17 @@ set -uo pipefail
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -11580,7 +12756,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -11590,14 +12768,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -11612,10 +12799,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`/
 # `spawn_agent` tool names and multi-file patches to the shapes this hook
 # already handles for Claude.
@@ -11641,8 +12847,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -12213,11 +13420,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -12311,7 +13576,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -12320,6 +13592,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -12788,6 +14061,8 @@ set -euo pipefail
 # recorder reads `session_id`/`cwd` out of it. Draining is still the point: an
 # undrained stdin can leave the host writing into a closed pipe.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name session_id source tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -12815,6 +14090,17 @@ payload=$(cat 2>/dev/null) || payload=""
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -12849,7 +14135,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -12859,14 +14147,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -12881,10 +14178,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2/D3: nv_engine decides whether the `.claude/context`/
 # `.codex/context` doctrine blocks below are emitted at all (D3: under Codex
 # that doctrine already ships whole inside AGENTS.md, so repeating it here
@@ -12911,8 +14227,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -13066,11 +14383,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -13164,7 +14539,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -13173,6 +14555,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -13204,7 +14587,10 @@ navori_audit_begin
 # an unhandled early return is.
 navori_audit_verdict="skip"
 navori_audit_reason=""
+# Only this invocation's allocated diagnostic file belongs to the EXIT cleanup.
+navori_sc_err=""
 navori_audit_on_exit() {
+  [ -z "${navori_sc_err:-}" ] || rm -f -- "$navori_sc_err" 2>/dev/null || true
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
 }
@@ -13253,13 +14639,15 @@ add_bounded() {
 # navori's usage banner into the model's context): the first line must be
 # `#navori-tool-notice v1 ack=<id@x.y.z[,...]>`; anything else is discarded whole. The
 # `ack` list is charset-checked here because it is passed back to the CLI. The delivery
-# is stamped (`--ack`) only after the BODY was emitted.
+# is stamped inside a modern CLI after validating the reserved body; legacy output
+# retains its separate `--ack` only after the BODY was emitted.
 # Pre-check order: nothing to emit with -> never call navori, so no worker either.
 #
 # Reserve: with a notice present, `add_bounded` keeps NAVORI_NOTICE_RESERVE (default
-# 300) characters free for it, so earlier sections give way a little sooner. No notice,
+# 300) UTF-8 bytes free for it, so earlier sections give way a little sooner. No notice,
 # no reserve: the budget is untouched.
 NAVORI_NOTICE_RESERVE=${NAVORI_NOTICE_RESERVE:-300}
+case "$NAVORI_NOTICE_RESERVE" in "" | *[!0-9]*) NAVORI_NOTICE_RESERVE=300 ;; esac
 navori_notice_ack=""
 navori_notice_ack_pending=""
 navori_notice_body=""
@@ -13279,6 +14667,7 @@ fi
 navori_dominio_ok=0
 [ -d "$HOME/.navori/workspaces" ] && navori_dominio_ok=1
 navori_sc_done=0
+navori_sc_notice_handled=0
 navori_sc_dominio=""
 notice=""
 if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -v navori >/dev/null 2>&1; then
@@ -13289,13 +14678,13 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
   # truncated or malformed output from a CLI that knows the subcommand. It stores the
   # `navori --version` string captured at write time; the probe is skipped while the
   # installed version still matches, so an upgrade re-probes whatever the binary's mtime says.
-  # Ceiling: stderr noise before the frame (a runtime warning) fails the framing and falls
-  # back to the two calls; revisit with a stdout-only probe if that shows up in practice.
+  # Keep diagnostics out of the frame: a warning must not discard an already-acked notice.
   # Only written when `~/.navori` already exists; a hook never creates it.
   navori_sc_memo="$HOME/.navori/.no-session-context"
   navori_sc_out=""
   navori_sc_rc=0
   navori_sc_skip=0
+  navori_sc_diag=""
   if [ -f "$navori_sc_memo" ] && [ ! -L "$navori_sc_memo" ]; then
     navori_sc_ver=$(navori --version 2>/dev/null || true)
     navori_sc_saved=$(head -n 1 "$navori_sc_memo" 2>/dev/null || true)
@@ -13304,8 +14693,27 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
     fi
   fi
   if [ "$navori_sc_skip" = 0 ]; then
-    navori_sc_out=$(navori tools session-context 2>&1) || navori_sc_rc=$?
+    navori_sc_err=$(mktemp "${TMPDIR:-/tmp}/navori-sc.XXXXXX" 2>/dev/null) || navori_sc_err=""
+    if [ -n "$navori_sc_err" ]; then
+      navori_sc_out=$(navori tools session-context --notice-reserve "$NAVORI_NOTICE_RESERVE" 2>"$navori_sc_err") || navori_sc_rc=$?
+      if [ "$navori_sc_rc" != 0 ]; then
+        navori_sc_diag=$(cat "$navori_sc_err" 2>/dev/null || true)
+      fi
+      rm -f -- "$navori_sc_err" 2>/dev/null || true
+      navori_sc_err=""
+    else
+      # No safe diagnostic sink: use the legacy path without consuming a modern notice.
+      navori_sc_rc=1
+    fi
   fi
+  # A legacy CLI may silently ignore the option. Only the explicit frame extension
+  # confirms that this process handled delivery; v1 keeps its post-emission ACK.
+  case "$navori_sc_out" in
+    "#navori-session-context v1 notice-reserve${navori_sc_nl}"*)
+      navori_sc_notice_handled=1
+      navori_sc_out="#navori-session-context v1${navori_sc_nl}${navori_sc_out#*"$navori_sc_nl"}"
+      ;;
+  esac
   navori_sc_rest=${navori_sc_out#"#navori-session-context v1${navori_sc_nl}#section notice${navori_sc_nl}"}
   if [ "$navori_sc_rc" = 0 ] && [ "$navori_sc_rest" != "$navori_sc_out" ]; then
     navori_sc_rest="${navori_sc_rest}${navori_sc_nl}"
@@ -13332,7 +14740,7 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
   # The CLI clearly does not know the subcommand: remember it, keyed on its version.
   if [ "$navori_sc_done" = 0 ] && [ "$navori_sc_skip" = 0 ] && [ "$navori_sc_rc" != 0 ] \
     && [ -d "$HOME/.navori" ] && [ ! -L "$navori_sc_memo" ]; then
-    case "$navori_sc_out" in
+    case "$navori_sc_out$navori_sc_diag" in
       *"Unknown command"*)
         navori_sc_ver=$(navori --version 2>/dev/null || true)
         if [ -n "$navori_sc_ver" ]; then
@@ -13342,6 +14750,7 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
     esac
   fi
   if [ "$navori_sc_done" = 0 ] && [ "$navori_notice_ok" = 1 ]; then
+    navori_sc_notice_handled=0
     notice=$(navori tools notice 2>/dev/null || true)
   fi
 fi
@@ -13356,9 +14765,10 @@ if [ -n "$notice" ]; then
         *)
           if [ "$notice_body" != "$notice" ] && [ -n "$notice_body" ]; then
             navori_notice_body="$notice_body"
-            if [ $(( ${#notice_body} + 1 )) -le "$NAVORI_NOTICE_RESERVE" ]; then
+            notice_bytes=$(LC_ALL=C; printf '%s' "${#notice_body}")
+            if [ $(( notice_bytes + 1 )) -le "$NAVORI_NOTICE_RESERVE" ]; then
               navori_notice_ack_pending="$notice_ack"
-              navori_notice_reserve=$(( ${#notice_body} + 2 ))
+              navori_notice_reserve=$(( notice_bytes + 2 ))
             fi
           fi
           ;;
@@ -13742,8 +15152,9 @@ else
   navori_audit_reason="sin node ni jq: el contexto no se emitio"
 fi
 
-# Stamp the notice delivery AFTER the JSON went out, and only when it did.
-if [ "$navori_audit_verdict" = "inject" ] && [ -n "$navori_notice_ack" ]; then
+# Legacy CLI only: stamp delivery AFTER the JSON went out. The modern frame explicitly
+# confirms its own reservation handling, so the common path never launches another CLI.
+if [ "$navori_audit_verdict" = "inject" ] && [ -n "$navori_notice_ack" ] && [ "$navori_sc_notice_handled" = 0 ]; then
   navori tools notice --ack "$navori_notice_ack" >/dev/null 2>&1 || true
 fi
 exit 0
@@ -13844,6 +15255,8 @@ navori_audit_phase="PostToolUse"
 # Rendered includes replace these no-ops with the shared Spec 0035 adapter.
 payload_field() { :; }
 nv_subagent_type() { :; }
+nv_payload_fields="agent_id agent_transcript_path agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name transcript_path"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -13871,6 +15284,17 @@ nv_subagent_type() { :; }
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -13905,7 +15329,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -13915,14 +15341,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -13937,10 +15372,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2 — the single payload adapter shared by every hook that needs an
 # engine-specific value. Inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts).
@@ -13963,8 +15417,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -14164,11 +15619,69 @@ navori_audit_log() { :; }
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -14262,7 +15775,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -14271,6 +15791,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -14701,6 +16222,8 @@ exit 0
 set +e
 
 payload=$(cat 2>/dev/null)
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -14728,6 +16251,17 @@ payload=$(cat 2>/dev/null)
 # clobbering it with "".
 payload=${payload-$(cat)}
 payload_field() {
+  case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
+    if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+      case " ${nv_payload_fields:-} " in *" $1 "*)
+        # ast-grep-ignore: no-bash-eval — D3 reads only a variable name built from the validated literal path; payload values are never eval input.
+        eval 'printf "%s\n" "${_nv_pf_'"${1//./__}"'-}"'
+        return 0
+        ;;
+      esac
+    fi
+    ;;
+  esac
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
@@ -14762,7 +16296,9 @@ _payload_fields_read() {
   local _pf_spec _pf_val _pf_end _pf_extra
   for _pf_spec in "$@"; do
     IFS= read -r -d '' _pf_val || return 1
-    while [ "${_pf_val%$'\n'}" != "$_pf_val" ]; do _pf_val=${_pf_val%$'\n'}; done
+    # Suffix removal is quadratic in bash even without a newline. Only values
+    # ending in one need command substitution's native trailing-newline trim.
+    case "$_pf_val" in *$'\n') _pf_val=$(printf '%s' "$_pf_val") ;; esac
     printf -v "${_pf_spec%%=*}" '%s' "$_pf_val" || return 1
   done
   IFS= read -r -d '' _pf_end || return 1
@@ -14772,14 +16308,23 @@ _payload_fields_read() {
   return 0
 }
 payload_fields() {
-  local _pf_spec _pf_filter="" _pf_paths=""
+  local _pf_spec _pf_filter="" _pf_paths="" _pf_cached=1
   [ "$#" -gt 0 ] || return 0
+  for _pf_spec in "$@"; do
+    case " ${nv_payload_fields:-} " in *" ${_pf_spec#*=} "*) ;; *) _pf_cached=0 ;; esac
+  done
+  if [ "$_pf_cached" = 1 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    for _pf_spec in "$@"; do
+      printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")"
+    done
+    return 0
+  fi
   if [ -z "$payload" ]; then
     for _pf_spec in "$@"; do printf -v "${_pf_spec%%=*}" '%s' ""; done
     return 0
   fi
   for _pf_spec in "$@"; do
-    _pf_filter="$_pf_filter(.${_pf_spec#*=} // \"\" | tostring),"
+    _pf_filter="$_pf_filter(.${_pf_spec#*=}? // \"\" | tostring),"
     _pf_paths="$_pf_paths ${_pf_spec#*=}"
   done
   _pf_filter="[${_pf_filter%,}] as \$v | if all(\$v[]; any(explode[]; . == 0) | not) then (\$v[] | ., \"\\u0000\"), \"END\\u0000\" else empty end"
@@ -14794,10 +16339,29 @@ payload_fields() {
   done
   return 0
 }
+
+# Spec 0055 D3: load once in the parent shell, inherited by command substitutions.
+# Only literal, validated paths form variable names; payload values are never eval'd.
+# Keep the old cache ineligible while loading, including its per-field fallback.
+payload_load() {
+  [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ] && return 0
+  local _pl_path
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options sh_word_split
+  set --
+  for _pl_path in ${nv_payload_fields:-}; do
+    case "$_pl_path" in "" | *[!A-Za-z0-9_.]*) return 1 ;; esac
+    set -- "$@" "_nv_pf_${_pl_path//./__}=$_pl_path"
+  done
+  _nv_pf_loaded=0
+  payload_fields "$@"
+  _nv_pf_src=$payload
+  _nv_pf_loaded=1
+}
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+payload_load
 # Spec 0035 D2/D6: nv_project_dir is the Codex-aware fallback below ($PWD is
 # already correct when the payload's own `.cwd` resolves, which is the common
 # case on both engines).
@@ -14823,8 +16387,9 @@ payload_fields() {
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
@@ -14978,11 +16543,69 @@ navori_audit_repo_from_cwd() {
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
 # zsh replaces $0 with the function name; preserve the enclosing script identity.
 navori_audit_script=$0
+# Spec 0055 D4: the session's own id, read with builtins only. Succeeds (sets
+# navori_audit_sid) only when the key "session_id" appears exactly once and its value
+# is the same `id` shape the jq in navori_audit_record_metadata accepts. Anything else
+# (absent, duplicated, escaped, odd value) fails: the caller falls back to auditing.
+navori_audit_sid_read() {
+  navori_audit_sid=
+  case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
+  case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
+  navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
+  case $navori_audit_sr in \"*) navori_audit_sr=${navori_audit_sr#\"} ;; *) return 1 ;; esac
+  navori_audit_sv=${navori_audit_sr%%\"*}
+  [ "$navori_audit_sv" != "$navori_audit_sr" ] || return 1
+  case $navori_audit_sv in "" | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ "${#navori_audit_sv}" -le 256 ] || return 1
+  navori_audit_sid=$navori_audit_sv
+}
+
+# Is there a regular, non-symlink file named "$1" in any repo dir under the audit root
+# (dot-prefixed repo names included: the default glob skips them)? "$1" is
+# `session-<id>.log` or `.armed`. Builtins and globs only. zsh needs null_glob
+# (localised here) or an unmatched glob aborts the hook.
+navori_audit_has_file() {
+  [ -z "${ZSH_VERSION:-}" ] || setopt local_options null_glob
+  for navori_audit_hf in "$navori_audit_root"/*/"$1" "$navori_audit_root"/.[!.]*/"$1" "$navori_audit_root"/..?*/"$1"; do
+    [ -f "$navori_audit_hf" ] && [ ! -L "$navori_audit_hf" ] && return 0
+  done
+  return 1
+}
+
+# Audit only when the session has an active log (or an arm to consume). With a readable
+# session id and no log there is nothing to record, so no timestamp (no perl) is paid.
+# Doubt of any kind keeps today's behaviour: audit on.
 navori_audit_begin() {
   navori_audit_on=0
+  navori_audit_gate_pending=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
   [ -n "${HOME:-}${NAVORI_AUDITS_ROOT:-}" ] || return 0
   [ -d "$navori_audit_root" ] || return 0
+  if navori_audit_sid_read; then
+    if navori_audit_has_file "session-$navori_audit_sid.log"; then
+      :
+    elif case "${navori_audit_phase:-}" in SessionStart | UserPromptSubmit) true ;; *) false ;; esac &&
+      navori_audit_has_file ".armed"; then
+      :
+    else
+      navori_audit_gate_pending=1
+      return 0
+    fi
+  fi
   navori_audit_on=1
   navori_audit_t0=$(navori_audit_now)
 }
@@ -15076,7 +16699,14 @@ navori_audit_record_metadata() {
 # `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
 # explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
-  [ "${navori_audit_on:-0}" = 1 ] || return 0
+  navori_audit_race=0
+  if [ "${navori_audit_on:-0}" != 1 ]; then
+    # The log may have been born during this hook (audit-mode-trigger, or a parallel hook
+    # of the same event): record with ms 0, there was no t0 (spec 0055 R9).
+    [ "${navori_audit_gate_pending:-0}" = 1 ] && [ -n "${navori_audit_sid:-}" ] || return 0
+    navori_audit_has_file "session-$navori_audit_sid.log" || return 0
+    navori_audit_race=1
+  fi
   command -v jq >/dev/null 2>&1 || return 0
   if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = 1 ]; then
     case "${1:-}" in skip | noop) return 0 ;; esac
@@ -15085,6 +16715,7 @@ navori_audit_log() {
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+  [ "$navori_audit_race" = 0 ] || navori_audit_ms=0
   navori_audit_metadata=$(printf '%s' "${payload:-}" | jq -c \
     --arg name "${navori_audit_name:-unknown}" --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" --arg reason "${2:-}" \
@@ -15125,7 +16756,7 @@ trap navori_audit_on_exit EXIT
 
 cwd=""
 if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
-  cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null)
+  cwd=$(payload_field cwd)
 fi
 [ -n "$cwd" ] || cwd=${nv_project_dir:-$PWD}
 cd "$cwd" 2>/dev/null || exit 0

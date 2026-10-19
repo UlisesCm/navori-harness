@@ -64,6 +64,8 @@ navori_audit_tool="Agent"
 # code of this gate.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields="hook_event_name permission_mode tool_input.command"
+payload_load() { :; }
 # navori:include extract-cmd
 # navori:include gate-ask
 # navori:include audit-repo
@@ -136,6 +138,7 @@ if plan_gate_fast_allow; then
   navori_audit_reason="rol no implementer"
   exit 0
 fi
+payload_load
 
 # No verdict (navori missing or unusable). $1 = audit reason code, $2 = hard-block
 # message, $3 = text shown to the human when asking. Never returns.

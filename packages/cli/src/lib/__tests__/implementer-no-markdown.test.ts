@@ -329,34 +329,49 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
 });
 
 // Covers: R3, R4
+const WRITE_BY_MAIN_THREAD: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: "README.md", content: "x" },
+};
+const WRITE_BY_SCRIBE: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: "notes.md", content: "x" },
+  agent_type: "scribe",
+};
+const WRITE_NON_MD: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: "src/x.ts", content: "x" },
+  agent_type: "implementer",
+};
+
 describe("implementer-no-markdown hook — allow (#985 R3, R4)", () => {
+  // Payload-only singles share one process per shell (spec 0055 R18).
+  beforeAll(
+    () =>
+      primeHook([
+        WRITE_BY_MAIN_THREAD,
+        WRITE_BY_SCRIBE,
+        WRITE_NON_MD,
+        bash("cat notes.md"),
+        bash("grep -rn TODO docs/x.md"),
+        bash("echo x > src/x.ts"),
+      ]),
+    PRIME_TIMEOUT_MS,
+  );
+
   it("allows the main thread (no agent_type) writing a .md file", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Write",
-      tool_input: { file_path: "README.md", content: "x" },
-    });
-    expect(r.status).toBe(0);
+    expect(runHook(WRITE_BY_MAIN_THREAD).status).toBe(0);
   });
 
   it("allows the scribe writing a .md file", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Write",
-      tool_input: { file_path: "notes.md", content: "x" },
-      agent_type: "scribe",
-    });
-    expect(r.status).toBe(0);
+    expect(runHook(WRITE_BY_SCRIBE).status).toBe(0);
   });
 
   it("allows the implementer writing a non-md file", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Write",
-      tool_input: { file_path: "src/x.ts", content: "x" },
-      agent_type: "implementer",
-    });
-    expect(r.status).toBe(0);
+    expect(runHook(WRITE_NON_MD).status).toBe(0);
   });
 
   it("allows the implementer reading a .md file (cat)", () => {
@@ -406,19 +421,23 @@ describe("implementer-no-markdown hook — interpreter writes", () => {
     `python3 -c "open('notes.ts', 'w').write('x')"`,
     `node -e "require('fs').writeFileSync('notes.ts', 'x')"`,
   ];
-  beforeAll(() => primeHook(TABLE_310.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+  const OTHER_ROLES = ["scribe", "reviewer", "scout"];
+  const ROLE_WRITE = `node -e "require('fs').writeFileSync('notes.md', 'x')"`;
+  beforeAll(
+    () =>
+      primeHook([
+        ...TABLE_310.map((command) => bash(command)),
+        ...OTHER_ROLES.map((role) => bash(ROLE_WRITE, role)),
+      ]),
+    PRIME_TIMEOUT_MS,
+  );
   it.each(TABLE_310)("allows a read or non-Markdown write: %s", (command: string): void => {
     expect(runHook(bash(command)).status).toBe(0);
   });
 
-  it.each(["scribe", "reviewer", "scout"])(
-    "does not restrict interpreter writes by %s",
-    (role: string): void => {
-      expect(
-        runHook(bash(`node -e "require('fs').writeFileSync('notes.md', 'x')"`, role)).status,
-      ).toBe(0);
-    },
-  );
+  it.each(OTHER_ROLES)("does not restrict interpreter writes by %s", (role: string): void => {
+    expect(runHook(bash(ROLE_WRITE, role)).status).toBe(0);
+  });
 });
 
 // Submitted source remains hook payload data, including its Git calls and JSON read.
@@ -689,109 +708,128 @@ describe("implementer-no-markdown hook — bounded JSON metadata exception", () 
     expect(result.stderr).toContain("markdownRequests");
   });
 
+  const MIXED_METADATA = METADATA_PROGRAM.replace(
+    "x.filesTouched.sort();",
+    'fs.writeFileSync("extra.md","x");x.filesTouched.sort();',
+  );
+  const MIXED_APPLY_PATCH: Payload = {
+    hook_event_name: "PreToolUse",
+    tool_name: "apply_patch",
+    tool_input: {
+      command:
+        "*** Begin Patch\n*** Add File: data.json\n+{}\n*** Add File: docs/extra.md\n+text\n*** End Patch",
+    },
+    agent_type: "implementer",
+  };
+  beforeAll(
+    () => primeHook([bash(METADATA_PROGRAM), bash(MIXED_METADATA), MIXED_APPLY_PATCH], "codex"),
+    PRIME_TIMEOUT_MS,
+  );
+
   it("applies the same bounded classification in the Codex Bash hook", () => {
     expect(runHook(bash(METADATA_PROGRAM), undefined, true, "codex").status).toBe(0);
-    const mixed = METADATA_PROGRAM.replace(
-      "x.filesTouched.sort();",
-      'fs.writeFileSync("extra.md","x");x.filesTouched.sort();',
-    );
-    expect(runHook(bash(mixed), undefined, true, "codex").status).toBe(2);
+    expect(runHook(bash(MIXED_METADATA), undefined, true, "codex").status).toBe(2);
   });
 
   it("keeps mixed Codex apply_patch paths blocked", () => {
-    const patch =
-      "*** Begin Patch\n*** Add File: data.json\n+{}\n*** Add File: docs/extra.md\n+text\n*** End Patch";
-    const result = runHook(
-      {
-        hook_event_name: "PreToolUse",
-        tool_name: "apply_patch",
-        tool_input: { command: patch },
-        agent_type: "implementer",
-      },
-      undefined,
-      true,
-      "codex",
-    );
-    expect(result.status).toBe(2);
+    expect(runHook(MIXED_APPLY_PATCH, undefined, true, "codex").status).toBe(2);
   });
 });
 
+const BLOCK_WRITE_MD: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: "notes.md", content: "x" },
+  agent_type: "implementer",
+};
+const BLOCK_EDIT_UPPER: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Edit",
+  tool_input: { file_path: "NOTES.MD", old_string: "a", new_string: "b" },
+  agent_type: "implementer",
+};
+const BLOCK_EDIT_MDX: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Edit",
+  tool_input: { file_path: "docs/x.mdx", old_string: "a", new_string: "b" },
+  agent_type: "implementer",
+};
+const BLOCK_NOTEBOOK_MD: Payload = {
+  hook_event_name: "PreToolUse",
+  tool_name: "NotebookEdit",
+  tool_input: { notebook_path: "nb.md" },
+  agent_type: "implementer",
+};
+
 // Covers: R3
 describe("implementer-no-markdown hook — block per tool (#985 R3)", () => {
+  beforeAll(
+    () => primeHook([BLOCK_WRITE_MD, BLOCK_EDIT_UPPER, BLOCK_EDIT_MDX, BLOCK_NOTEBOOK_MD]),
+    PRIME_TIMEOUT_MS,
+  );
+
   it("blocks Write onto a .md path", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Write",
-      tool_input: { file_path: "notes.md", content: "x" },
-      agent_type: "implementer",
-    });
+    const r = runHook(BLOCK_WRITE_MD);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("markdownRequests");
   });
 
   it("blocks Edit onto a .MD path (case-insensitive)", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Edit",
-      tool_input: { file_path: "NOTES.MD", old_string: "a", new_string: "b" },
-      agent_type: "implementer",
-    });
-    expect(r.status).toBe(2);
+    expect(runHook(BLOCK_EDIT_UPPER).status).toBe(2);
   });
 
   it("blocks Edit onto a .mdx path", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "Edit",
-      tool_input: { file_path: "docs/x.mdx", old_string: "a", new_string: "b" },
-      agent_type: "implementer",
-    });
-    expect(r.status).toBe(2);
+    expect(runHook(BLOCK_EDIT_MDX).status).toBe(2);
   });
 
   it("blocks NotebookEdit onto a .md notebook_path", () => {
-    const r = runHook({
-      hook_event_name: "PreToolUse",
-      tool_name: "NotebookEdit",
-      tool_input: { notebook_path: "nb.md" },
-      agent_type: "implementer",
-    });
-    expect(r.status).toBe(2);
+    expect(runHook(BLOCK_NOTEBOOK_MD).status).toBe(2);
   });
 });
 
 // Covers: R4
 describe("implementer-no-markdown hook — block per Bash form (#985 R4)", () => {
+  const FORMS = [
+    "echo hi > notes.md",
+    "echo hi >> notes.md",
+    "echo hi | tee notes.md",
+    'sed -i "" -e s/a/b/ notes.md',
+    "perl -i -pe 's/a/b/' notes.md",
+    "cp /tmp/scratch.txt notes.md",
+    "mv /tmp/scratch.txt docs/notes.md",
+  ];
+  beforeAll(() => primeHook(FORMS.map((command) => bash(command))), PRIME_TIMEOUT_MS);
+
   it("blocks output redirection (>) onto a .md path", () => {
-    expect(runHook(bash("echo hi > notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[0] as string)).status).toBe(2);
   });
 
   it("blocks append redirection (>>) onto a .md path", () => {
-    expect(runHook(bash("echo hi >> notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[1] as string)).status).toBe(2);
   });
 
   it("blocks tee onto a .md path", () => {
-    expect(runHook(bash("echo hi | tee notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[2] as string)).status).toBe(2);
   });
 
   it("blocks sed -i on a .md path", () => {
-    expect(runHook(bash('sed -i "" -e s/a/b/ notes.md')).status).toBe(2);
+    expect(runHook(bash(FORMS[3] as string)).status).toBe(2);
   });
 
   it("blocks perl -i on a .md path", () => {
-    expect(runHook(bash("perl -i -pe 's/a/b/' notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[4] as string)).status).toBe(2);
   });
 
   it("blocks cp onto a .md path", () => {
-    expect(runHook(bash("cp /tmp/scratch.txt notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[5] as string)).status).toBe(2);
   });
 
   it("blocks mv onto a .md path", () => {
-    expect(runHook(bash("mv /tmp/scratch.txt docs/notes.md")).status).toBe(2);
+    expect(runHook(bash(FORMS[6] as string)).status).toBe(2);
   });
 
   it("names markdownRequests in the impl JSON as the route", () => {
-    const r = runHook(bash("echo hi > notes.md"));
+    const r = runHook(bash(FORMS[0] as string));
     expect(r.stderr).toContain("impl_<feature>.json");
     expect(r.stderr).toContain("markdownRequests");
   });
@@ -832,6 +870,36 @@ describe("implementer-no-markdown hook — AI doctrine exception (R49)", () => {
     ".claude/agents-evil/a.md",
   ];
 
+  const NOTEBOOK_DOCTRINE: Payload = {
+    hook_event_name: "PreToolUse",
+    tool_name: "NotebookEdit",
+    tool_input: { notebook_path: ".claude/agents/n.md" },
+    agent_type: "implementer",
+  };
+  const patch = (...paths: string[]): Payload => ({
+    hook_event_name: "PreToolUse",
+    tool_name: "apply_patch",
+    tool_input: {
+      command: `${paths.map((p) => `*** Update File: ${p}\n@@\n-a\n+b`).join("\n")}\n`,
+    },
+    agent_type: "implementer",
+  });
+  const PATCH_OK = patch(".codex/agents/a.md", ".agents/skills/s/SKILL.md");
+  const PATCH_MIXED = patch(".codex/agents/a.md", "progress/current.md");
+  beforeAll(() => {
+    primeHook([
+      ...DOCTRINE.flatMap((path) => ["Write", "Edit"].map((tool) => edit(path, tool))),
+      NOTEBOOK_DOCTRINE,
+      ...BLOCKED.map((path) => edit(path)),
+      edit("docs/x.md"),
+      bash("echo hi > .claude/agents/a.md"),
+      bash("tee .claude/skills/s/SKILL.md"),
+      edit("progress/current.md", "Edit", "scribe"),
+      edit("progress/current.md", "Edit", null),
+    ]);
+    primeHook([PATCH_OK, PATCH_MIXED], "codex");
+  }, PRIME_TIMEOUT_MS);
+
   // Covers: R49
   it("el implementer edita doctrina de IA y sigue bloqueado en progress, specs, docs, rutas con .. y Bash", () => {
     for (const path of DOCTRINE) {
@@ -839,14 +907,7 @@ describe("implementer-no-markdown hook — AI doctrine exception (R49)", () => {
         expect(runHook(edit(path, tool)).status, `${tool} ${path}`).toBe(0);
       }
     }
-    expect(
-      runHook({
-        hook_event_name: "PreToolUse",
-        tool_name: "NotebookEdit",
-        tool_input: { notebook_path: ".claude/agents/n.md" },
-        agent_type: "implementer",
-      }).status,
-    ).toBe(0);
+    expect(runHook(NOTEBOOK_DOCTRINE).status).toBe(0);
     for (const path of BLOCKED) {
       expect(runHook(edit(path)).status, path).toBe(2);
     }
@@ -873,17 +934,9 @@ describe("implementer-no-markdown hook — AI doctrine exception (R49)", () => {
 
   // Covers: R49
   it("checks every apply_patch path: doctrine passes, a mixed patch with progress blocks (Codex)", () => {
-    const patch = (...paths: string[]): Payload => ({
-      hook_event_name: "PreToolUse",
-      tool_name: "apply_patch",
-      tool_input: {
-        command: `${paths.map((p) => `*** Update File: ${p}\n@@\n-a\n+b`).join("\n")}\n`,
-      },
-      agent_type: "implementer",
-    });
     const run = (p: Payload): number => runHook(p, undefined, true, "codex").status;
-    expect(run(patch(".codex/agents/a.md", ".agents/skills/s/SKILL.md"))).toBe(0);
-    expect(run(patch(".codex/agents/a.md", "progress/current.md"))).toBe(2);
+    expect(run(PATCH_OK)).toBe(0);
+    expect(run(PATCH_MIXED)).toBe(2);
   });
 
   // Covers: R49

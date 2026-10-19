@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
 import { linkRepoToWorkspace } from "../../workspace/workspace.ts";
 import {
   FOREIGN_LOG_PREFIX,
@@ -25,10 +26,15 @@ import {
 } from "../run.ts";
 
 let cwd: string;
+let repoTemplate: RepoTemplate;
+
+beforeAll(() => {
+  repoTemplate = emptyRepo({ prefix: "navori-gate-" });
+});
+afterAll(() => repoTemplate.dispose());
 
 beforeEach(() => {
-  cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-gate-")));
-  execFileSync("git", ["init", "-b", "main"], { cwd });
+  cwd = repoTemplate.copy();
   writeFileSync(
     join(cwd, "package.json"),
     JSON.stringify({
@@ -37,7 +43,8 @@ beforeEach(() => {
       scripts: {
         ok: "echo all-good && echo Tests 2 passed",
         bad: "echo FAIL boom && exit 3",
-        slow: "sleep 30",
+        // Writes `started` before sleeping: the barrier tests poll for it (spec 0055 R20).
+        slow: "node -e \"require('fs').writeFileSync('started','x')\" && sleep 30",
         mark: "node -e \"require('fs').writeFileSync('marker','x')\"",
       },
     }),
@@ -45,6 +52,14 @@ beforeEach(() => {
 });
 
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+/** Resolves once the `slow` script is running, i.e. the gate's signal handlers are installed. */
+async function slowStarted(): Promise<void> {
+  await vi.waitFor(() => expect(existsSync(join(cwd, "started"))).toBe(true), {
+    timeout: 10_000,
+    interval: 20,
+  });
+}
 
 function config(gate: string | undefined, kind: "fast" | "full" = "full"): void {
   writeFileSync(
@@ -113,7 +128,7 @@ describe("runGate", () => {
   it("forwards SIGTERM to the child group and records a killed sentinel", async () => {
     config("npm run slow");
     const pending = runGate({ cwd, kind: "full" });
-    await new Promise((r) => setTimeout(r, 1000));
+    await slowStarted();
     process.emit("SIGTERM");
     const r = await pending;
     expect(r.exitCode).toBe(143);
@@ -195,7 +210,7 @@ describe("runGate", () => {
   it("SIGTERM stops the chain: later steps do not run", async () => {
     config("npm run slow ; npm run mark");
     const pending = runGate({ cwd, kind: "full" });
-    await new Promise((r) => setTimeout(r, 1000));
+    await slowStarted();
     process.emit("SIGTERM");
     const r = await pending;
     expect(r.exitCode).toBe(143);

@@ -38,7 +38,10 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 cmd=$(extract_cmd)
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (byte-
 # identical to what this guard read before) and the git toplevel resolved

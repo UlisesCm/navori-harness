@@ -63,7 +63,10 @@ set -euo pipefail
 
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`
 # (one call can touch several files at once, unlike Claude's single-path
 # Write/Edit) to the same shape this script already handles.

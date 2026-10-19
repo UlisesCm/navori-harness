@@ -20,8 +20,9 @@
 #
 # Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
 # `extract-cmd` in the same script whenever this partial's helpers are used —
-# `payload_field` is only CALLED here (inside functions), never at top level,
-# so include order between the two partials does not matter.
+# Load in the parent before the Codex/Pi include-time cwd read. The hook declares
+# nv_payload_fields before its includes; repeated loads of identical input are free.
+payload_load
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
   # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`

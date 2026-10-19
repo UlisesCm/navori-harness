@@ -211,6 +211,42 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   });
 
   describe("with a JSON parser on PATH (jq/node)", () => {
+    // Every single below is payload-only: run them as ONE table per shell (spec 0055 R18). The
+    // commands are the literals the cases use; one that drifts only costs a real spawn.
+    beforeAll(() => {
+      primeGuard(guardPath, [
+        "rm -rf /",
+        "git commit --no-verify -m x",
+        "ls -la",
+        'git commit -m "feat: x"',
+        "git commit -qn -m x",
+        "git commit -nq -m x",
+        "x&&git commit --no-verify -m y",
+        "git push --force-with-lease origin feature",
+        'git commit -m "add -notify option"',
+        'git commit -m "add -node support"',
+        'git commit -m "add -network flag"',
+        'git commit "--no-verify"',
+        "git commit \\\n --no-verify -m x",
+        "git -c k=v commit --no-verify",
+        "command git commit --no-verify",
+        "\\git commit --no-verify",
+        "(git commit --no-verify)",
+        "git config user.name x",
+      ]);
+      primeGuard(renderGuard("main"), [
+        "true;git push --force main",
+        "git push --force feature",
+        "git -C /repo push --force origin main",
+        'git commit -m "wip (full: format:check + test + lint)" && ' +
+          "git push -u origin feat/mi-rama && gh pr create --base main --body x",
+        'echo "a + b" && git push -u origin feat/x',
+        "git push --force main",
+        "git push origin +main",
+        'git commit -m "a + b" && git push origin +main',
+      ]);
+    }, PRIME_TIMEOUT_MS);
+
     it("blocks `rm -rf /` (exit 2)", () => {
       expect(runGuard("rm -rf /")).toBe(2);
     });
@@ -1497,16 +1533,15 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
           "\n",
         );
 
+      // Both halves of one input class (spec 0055 R18, was two cases): the budget half evaluates
+      // the padding alone; the verdict half must not let the padding smuggle the payload past
+      // the rules. This is the audit's repro with a real command at the end — under the old
+      // quadratic passes it was never reached.
       it("evaluates a 2000-segment command inside the time budget", () => {
-        const out = runGuardVerbose(segments(2000));
-        expect(out.status).toBe(0);
-        expect(out.ms).toBeLessThan(BUDGET_MS);
-      });
+        const benign = runGuardVerbose(segments(2000));
+        expect(benign.status).toBe(0);
+        expect(benign.ms).toBeLessThan(BUDGET_MS);
 
-      // The verdict half: the padding must not become a way to smuggle the
-      // payload past the rules. This is the audit's repro with a real command at
-      // the end — under the old quadratic passes it was never reached.
-      it("still BLOCKS the destructive tail of a 2000-segment command, in budget", () => {
         const out = runGuardVerbose(`${segments(2000)} && rm -rf ~/`);
         expect(out.status).toBe(2);
         expect(out.stderr).toContain("BLOCKED by guard-destructive");
@@ -1643,6 +1678,9 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
        * This is the exact shape #462 exists to allow — writing the document that
        * describes a security fix.
        */
+      // Also the ANTI-FALSE-GREEN for both ceilings (was its own case): an ordinary command with
+      // a heredoc must stay under them, or the ceiling tests would pass simply because the guard
+      // blocks everything.
       it("ADMITS a 40k-char single-pass prose heredoc (it used to deny it)", () => {
         const doc = `cat > /tmp/body.md <<'EOF'\n${"documentacion ".repeat(2900)}\nEOF`;
         expect(doc.length).toBeGreaterThan(40000);
@@ -1651,6 +1689,10 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
         expect(out.status).toBe(0);
         expect(out.stderr).toBe("");
         expect(out.ms).toBeLessThan(BUDGET_MS);
+
+        const ordinary = runGuardVerbose("cat > /tmp/body.md <<'EOF'\nun cuerpo de PR normal\nEOF");
+        expect(ordinary.status).toBe(0);
+        expect(ordinary.stderr).toBe("");
       });
 
       // The second ceiling: each `<<`-bearing line pays two `sed` and a `grep`,
@@ -1665,15 +1707,6 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
         // which must not run in a subshell in either shell — there the `exit 2`
         // would be swallowed and the command would sail through.
         expect(runGuard(cmd)).toBe(2);
-      });
-
-      // ANTI-FALSE-GREEN for both ceilings: an ordinary command with a heredoc
-      // must stay under them, or the two tests above would pass simply because
-      // the guard blocks everything.
-      it("leaves ordinary commands — heredoc included — under both ceilings", () => {
-        const out = runGuardVerbose("cat > /tmp/body.md <<'EOF'\nun cuerpo de PR normal\nEOF");
-        expect(out.status).toBe(0);
-        expect(out.stderr).toBe("");
       });
     },
   );

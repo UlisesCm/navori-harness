@@ -74,7 +74,7 @@ describe("renderCodexEngine — local skills (spec 0033 D2)", () => {
     (extraFrontmatter: string) => {
       const sourcePath = writeSource(
         "available",
-        "Use when the host discovers this skill by description.",
+        "the host discovers this skill",
         extraFrontmatter,
       );
       const before = readFileSync(sourcePath, "utf-8");
@@ -83,7 +83,7 @@ describe("renderCodexEngine — local skills (spec 0033 D2)", () => {
 
       const pointer = readFileSync(join(cwd, ".agents/skills/available/SKILL.md"), "utf-8");
       expect(pointer).toContain("name: available");
-      expect(pointer).toContain("Use when the host discovers this skill by description.");
+      expect(pointer).toContain("the host discovers this skill");
       expect(pointer).toContain(".claude/skills/available/SKILL.md");
       expect(existsSync(join(cwd, ".agents/skills/available/agents/openai.yaml"))).toBe(false);
       expect(readFileSync(sourcePath, "utf-8")).toBe(before);

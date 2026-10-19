@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -33,6 +33,25 @@ import {
 import { MIN_PI_VERSION } from "../runtime-version.ts";
 import { serializePiManifest, serializePiSource } from "../owned-file.ts";
 import { load } from "./fixtures/load-extension.ts";
+import {
+  createRepoTemplate,
+  emptyRepo,
+  type RepoTemplate,
+} from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+let bareTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+  bareTpl = createRepoTemplate("navori-bare-", (dir) =>
+    execFileSync("git", ["init", "--bare", "-q", "-b", "main", dir], { stdio: "ignore" }),
+  );
+});
+afterAll(() => {
+  repoTpl.dispose();
+  bareTpl.dispose();
+});
 
 /**
  * Credential-free first-class cycle on the pinned Pi 1.1.0 runtime.
@@ -208,7 +227,7 @@ describe("Pi credential-free first-class cycle", () => {
     });
 
     // A repo of its own before anything resolves a state root: otherwise the enclosing checkout answers.
-    git("init", "-b", "main");
+    repoTpl.copyInto(cwd);
     git("config", "user.name", "e2e");
     git("config", "user.email", "e2e@example.com");
     const installedExtension = readFileSync(join(cwd, ".pi/extensions/navori.ts"), "utf8");
@@ -257,7 +276,7 @@ describe("Pi credential-free first-class cycle", () => {
     });
     git("add", "-A");
     git("commit", "-m", "baseline");
-    execFileSync("git", ["init", "--bare", "-q", "-b", "main", join(root, "remote.git")]);
+    bareTpl.copyInto(join(root, "remote.git"));
     git("remote", "add", "origin", join(root, "remote.git"));
     const branch = git("branch", "--show-current");
 
@@ -790,7 +809,7 @@ describe("Pi implementer doctrine in registered worktrees", () => {
     const other = join(root, "other");
     for (const repo of [host, other]) {
       mkdirSync(repo, { recursive: true });
-      git(repo, "init", "-q", "-b", "main");
+      repoTpl.copyInto(repo);
       git(
         repo,
         "-c",

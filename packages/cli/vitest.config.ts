@@ -1,9 +1,30 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+import CompactReporter from "./vitest.reporter.ts";
 import { resolveMaxWorkers } from "./vitest.workers.ts";
 
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.ts"],
+    // Keep includes in the children: extends concatenates arrays. Positive orders
+    // also preserve the barrier with one worker (order 0 has special scheduling).
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "parity",
+          include: ["src/__tests__/hooks-zsh-parity.test.ts"],
+          sequence: { groupOrder: 1 },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "suite",
+          include: ["src/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "src/__tests__/hooks-zsh-parity.test.ts"],
+          sequence: { groupOrder: 2 },
+        },
+      },
+    ],
     environment: "node",
     // Vitest 5 changes this default to true. Keep the Vitest 4 behavior so
     // existing specs retain control of mock lifecycle explicitly.
@@ -17,7 +38,12 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     // Drop console output of passing tests; failing tests still print theirs (#1272).
     silent: "passed-only",
-    testTimeout: 15_000, // e2e specs spawn the CLI several times
+    // Hang detector only: slowness is policed by the per-file budget (test-budget.json, spec 0055 R30); 15 s flaked under suite load.
+    testTimeout: 60_000,
+    // TTY keeps Vitest's live default; piped output (agents, CI) gets the compact
+    // reporter: one totals line when green, bounded evidence when red (spec 0055 D14).
+    // An explicit --reporter on the CLI replaces this (bench:tests, CI json report).
+    reporters: process.stdout.isTTY ? ["default"] : [new CompactReporter()],
     // Cap worker forks: the e2e specs each `spawnSync(dist/index.js)`, so at full
     // core count ~200 child processes run at once and exhaust file descriptors
     // (EMFILE/ENFILE), making the suite flaky (a manifest read then mis-reads as a
@@ -53,28 +79,31 @@ export default defineConfig({
       // `json-summary` feeds scripts/check-coverage-floor.mjs, which catches the
       // shape this aggregate cannot: a single module at 0% dilutes into ~3,300
       // statements and never moves the average.
-      // `text-summary` keeps the aggregate in the log; the per-file table (~14 KB)
-      // is recoverable from the json-summary report (#1272).
-      reporter: ["text-summary", "json-summary"],
-      thresholds: {
-        // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
-        // (marker, config/schema, presets, scan, skill-meta) are well covered;
-        // command-shell utils (workspace/tickets) and cosmetic output (style)
-        // are intentionally NOT chased to 80%. The gate sits just below the
-        // achieved level: it catches a real regression without being a brittle
-        // "one deleted test breaks CI" tripwire.
-        //
-        // A GLOB group, not the global one: with the include widened, a global
-        // aggregate would average src/lib/ together with commands/ and engines/
-        // and force these numbers down. Vitest skips the global check when no
-        // top-level lines/statements/functions/branches are set.
-        "src/lib/**": {
-          lines: 65,
-          statements: 60,
-          functions: 65,
-          branches: 57,
-        },
-      },
+      // No text reporter: the floor script prints the one-line coverage totals
+      // from this report (spec 0055 R26).
+      reporter: ["json-summary"],
+      thresholds:
+        process.env.NAVORI_COVERAGE_SHARD === "1"
+          ? undefined
+          : {
+              // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
+              // (marker, config/schema, presets, scan, skill-meta) are well covered;
+              // command-shell utils (workspace/tickets) and cosmetic output (style)
+              // are intentionally NOT chased to 80%. The gate sits just below the
+              // achieved level: it catches a real regression without being a brittle
+              // "one deleted test breaks CI" tripwire.
+              //
+              // A GLOB group, not the global one: with the include widened, a global
+              // aggregate would average src/lib/ together with commands/ and engines/
+              // and force these numbers down. Vitest skips the global check when no
+              // top-level lines/statements/functions/branches are set.
+              "src/lib/**": {
+                lines: 65,
+                statements: 60,
+                functions: 65,
+                branches: 57,
+              },
+            },
     },
   },
 });

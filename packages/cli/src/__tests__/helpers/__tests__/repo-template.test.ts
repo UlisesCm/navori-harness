@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRepoTemplate, type RepoTemplate } from "../repo-template.ts";
+import {
+  committedRepo,
+  createRepoTemplate,
+  emptyRepo,
+  type RepoTemplate,
+} from "../repo-template.ts";
 
 let template: RepoTemplate;
 
@@ -56,5 +61,52 @@ describe("createRepoTemplate", () => {
       }),
     ).toThrow("boom");
     expect(existsSync(seen)).toBe(false);
+  });
+});
+
+describe("emptyRepo y committedRepo", () => {
+  const out = (cwd: string, ...args: string[]): string =>
+    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+  // Covers: R19
+  it("emptyRepo da un repo sin commits con la rama pedida, por copia", () => {
+    const tpl = emptyRepo({ branch: "trunk" });
+    try {
+      const a = tpl.copy();
+      expect(out(a, "symbolic-ref", "--short", "HEAD")).toBe("trunk");
+      expect(() => out(a, "rev-parse", "--verify", "-q", "HEAD")).toThrow();
+      expect(readFileSync(join(a, ".git", "config"), "utf8")).not.toContain(tpl.dir);
+    } finally {
+      tpl.dispose();
+    }
+  });
+
+  // Covers: R19
+  it("committedRepo versiona los archivos en un solo commit limpio", () => {
+    const tpl = committedRepo({ "a.txt": "A", "dir/b.txt": "B" });
+    try {
+      const a = tpl.copy();
+      expect(out(a, "ls-files").split("\n")).toEqual(["a.txt", "dir/b.txt"]);
+      expect(out(a, "status", "--porcelain")).toBe("");
+      expect(out(a, "rev-list", "--count", "HEAD")).toBe("1");
+      writeFileSync(join(a, "a.txt"), "changed");
+      expect(readFileSync(join(tpl.copy(), "a.txt"), "utf8")).toBe("A");
+    } finally {
+      tpl.dispose();
+    }
+  });
+
+  // Covers: R19
+  it("copyInto vuelca la plantilla en un directorio existente sin tocar la plantilla", () => {
+    const tpl = committedRepo({ "a.txt": "A" });
+    try {
+      const target = emptyRepo().copy();
+      tpl.copyInto(target);
+      expect(out(target, "ls-files")).toBe("a.txt");
+      writeFileSync(join(target, "a.txt"), "changed");
+      expect(readFileSync(join(tpl.dir, "a.txt"), "utf8")).toBe("A");
+    } finally {
+      tpl.dispose();
+    }
   });
 });

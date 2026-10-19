@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -14,6 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
+import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
 import { acrossShells } from "./helpers/shells.ts";
 import { PROGRESS_HARD_CAP_BYTES } from "../assets/doc-budgets.ts";
 
@@ -30,6 +31,13 @@ const BASE_PATH = "/usr/bin:/bin";
 
 let dir: string;
 let binDir: string;
+
+/** One empty repo per file, copied into each case's `dir` (spec 0055 D7). */
+let gitTemplate: RepoTemplate;
+beforeAll(() => {
+  gitTemplate = emptyRepo({ branch: "master" });
+});
+afterAll(() => gitTemplate.dispose());
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "navori-qg-"));
@@ -332,7 +340,7 @@ describe("quality-gate hook — runs from the repo root (#309)", () => {
     // path. Invoked from a subdir with no CLAUDE_PROJECT_DIR, the hook must fall
     // back to the git top-level and still find the file. `cat`/`git`/`sed` come
     // from BASE_PATH, so no fake package manager is needed.
-    spawnSync("git", ["init", "-q"], { cwd: dir });
+    gitTemplate.copyInto(dir);
     const sub = join(dir, "packages", "cli");
     mkdirSync(sub, { recursive: true });
     writeFileSync(join(dir, "root-marker.txt"), "ok\n");
@@ -392,7 +400,7 @@ describe("quality-gate hook — the content receipt is NOT a hook concern (#365)
     if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
   }
   function initRepo(): void {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
   }
@@ -446,7 +454,7 @@ describe("quality-gate hook — session-state ratchet (#1263)", () => {
 
   /** A repo with HEAD holding `headBytes` of session state (0 = file absent at HEAD). */
   function repo(headBytes: number, rel = CURRENT): void {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     writeFileSync(join(dir, "base.txt"), "base\n");
     git("add", "base.txt");
     if (headBytes > 0) {
@@ -484,7 +492,7 @@ describe("quality-gate hook — session-state ratchet (#1263)", () => {
   };
 
   it("blocks a first commit (unborn HEAD) that stages an oversized file", () => {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     put(OVER);
     git("add", CURRENT);
     blocked(run("git commit -m x"));
@@ -551,7 +559,7 @@ describe("quality-gate hook — session-state ratchet (#1263)", () => {
   });
 
   it("ignores a gitignored progress/ directory", () => {
-    git("init", "-q");
+    gitTemplate.copyInto(dir);
     writeFileSync(join(dir, ".gitignore"), "progress/\n");
     put(OVER * 2);
     passes(run("git commit --allow-empty -m x"));

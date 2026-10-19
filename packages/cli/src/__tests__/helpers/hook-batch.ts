@@ -4,6 +4,7 @@ import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import type { HookShell } from "../../lib/__tests__/helpers/shells.ts";
+import { recordHookCase } from "./hook-corpus.ts";
 
 /**
  * Batched hook runner (spec 0054 D4). One shell process runs N cases, each in
@@ -35,7 +36,8 @@ export interface HookCaseResult {
   stderr: string;
 }
 
-// Plain POSIX sh so it parses the same under bash and zsh. `set --` clears the
+// Bash/zsh builtins only for cwd reads (command substitution strips trailing newlines).
+// `set --` clears the
 // positional parameters the hook would otherwise see ($1 = batch dir, $2 = lanes).
 // Cases are dealt round-robin to `$2` background lanes inside this ONE process:
 // the hook itself, not process startup, dominates a case, so a serial batch would
@@ -47,7 +49,7 @@ const DRIVER = [
   "    n=$((l+1))",
   '    while [ -e "$d/$n.in" ]; do',
   "      (",
-  '        if [ -f "$d/$n.cwd" ]; then cd "$(cat "$d/$n.cwd")" || exit 97; fi',
+  '        if [ -f "$d/$n.cwd" ]; then cd "$(< "$d/$n.cwd")" || exit 97; fi',
   '        if [ -f "$d/$n.env" ]; then . "$d/$n.env"; fi',
   '        . "$0"',
   '      ) < "$d/$n.in" > "$d/$n.out" 2> "$d/$n.err"',
@@ -66,6 +68,7 @@ const LANES = Math.max(1, Math.min(4, availableParallelism() - 1));
 
 /** Real spawn of one case: the reference behavior a batch must reproduce. */
 export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase): HookCaseResult {
+  recordHookCase(hookPath, shell, c);
   const r = spawnSync(shell, [hookPath], {
     input: c.input,
     cwd: c.cwd,
@@ -73,6 +76,12 @@ export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase)
     encoding: "utf-8",
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/** Options of {@link runHookBatch}. */
+export interface HookBatchOptions {
+  /** Concurrent lanes; defaults to {@link LANES}. `1` keeps cases strictly sequential. */
+  lanes?: number;
 }
 
 /**
@@ -83,8 +92,10 @@ export function runHookBatch(
   hookPath: string,
   shell: HookShell,
   cases: readonly HookCase[],
+  options: HookBatchOptions = {},
 ): HookCaseResult[] {
   if (cases.length === 0) return [];
+  for (const c of cases) recordHookCase(hookPath, shell, c);
   const dir = mkdtempSync(join(tmpdir(), "navori-hook-batch-"));
   try {
     cases.forEach((c, i) => {
@@ -101,7 +112,7 @@ export function runHookBatch(
     });
     const r = spawnSync(
       shell,
-      ["-c", DRIVER, hookPath, dir, String(Math.min(LANES, cases.length))],
+      ["-c", DRIVER, hookPath, dir, String(Math.min(options.lanes ?? LANES, cases.length))],
       {
         encoding: "utf-8",
       },
@@ -137,7 +148,7 @@ export function runHookBatch(
 /** Memoizing per-hook batch: `prime` runs a table in one process, `run` reads it back. */
 export interface HookBatch {
   /** Runs the not-yet-cached cases under every shell in one process each. */
-  prime(shells: readonly HookShell[], cases: readonly HookCase[]): void;
+  prime(shells: readonly HookShell[], cases: readonly HookCase[], options?: HookBatchOptions): void;
   /** Cached result, or a real isolated spawn when the case was never primed. */
   run(shell: HookShell, c: HookCase): HookCaseResult;
   /** Cached result only; `undefined` when the case was never primed (no spawn). */
@@ -151,7 +162,7 @@ const keyOf = (shell: HookShell, c: HookCase): string =>
 export function createHookBatch(hookPath: string): HookBatch {
   const cache = new Map<string, HookCaseResult>();
   return {
-    prime(shells, cases) {
+    prime(shells, cases, options) {
       for (const shell of shells) {
         const fresh = new Map<string, HookCase>();
         for (const c of cases) {
@@ -159,7 +170,7 @@ export function createHookBatch(hookPath: string): HookBatch {
           if (!cache.has(k)) fresh.set(k, c);
         }
         const keys = [...fresh.keys()];
-        const results = runHookBatch(hookPath, shell, [...fresh.values()]);
+        const results = runHookBatch(hookPath, shell, [...fresh.values()], options);
         keys.forEach((k, i) => cache.set(k, results[i] as HookCaseResult));
       }
     },

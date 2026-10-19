@@ -90,7 +90,10 @@ navori_audit_phase="PostToolUse"
 # Rendered includes replace these no-ops with the shared Spec 0035 adapter.
 payload_field() { :; }
 nv_subagent_type() { :; }
+nv_payload_fields="agent_id agent_transcript_path agent_type cwd hook_event_name session_id tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name transcript_path"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # navori:include hook-input
 navori_audit_repo_from_cwd() { :; }
 # navori:include audit-repo

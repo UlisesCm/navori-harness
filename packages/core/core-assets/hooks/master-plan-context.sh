@@ -8,6 +8,7 @@ navori_audit_name="master-plan-context"
 navori_audit_phase="SessionStart"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+nv_payload_fields=""
 # navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin

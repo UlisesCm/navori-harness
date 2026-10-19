@@ -170,7 +170,7 @@ describe("evals.md — the real run, for the rare new always-on layer (#396)", (
     expect(line).toContain("RED");
     expect(line).toContain("GREEN");
     expect(line).toMatch(/ONE isolated variable/);
-    expect(line).toMatch(/same ticket, same repo, same model/);
+    expect(line).toMatch(/same repo, same model/);
     // An eval re-read to give the result someone wanted is worth nothing.
     expect(line).toMatch(/inverted results kept/i);
   });

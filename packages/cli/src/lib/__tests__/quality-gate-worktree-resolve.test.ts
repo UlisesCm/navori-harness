@@ -9,6 +9,12 @@ import { expandHookIncludes } from "../render/hook-includes.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 
+/** Real `git worktree` state the verdict corpus cannot reproduce; the hook resolves the tree from shell path expansion. */
+const WORKTREE_SENSITIVE = {
+  sensitive:
+    "git worktree fixture (not in the corpus); tree resolved by shell `cd`/path expansion of the command",
+};
+
 /**
  * The `resolve-worktree` partial, exercised through the CORE quality-gate hook.
  *
@@ -91,7 +97,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `cd '${fx.worktree}' && git commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -99,7 +105,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `git -C ${fx.worktree} commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -107,7 +113,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, "git commit -m x", fx.worktree);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -115,7 +121,7 @@ describe.runIf(runsBash)("quality gate — runs in the tree the commit acts on (
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, "git commit -m x", undefined);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 });
@@ -136,7 +142,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${fx.foreign}' && cd '${fx.worktree}' && git commit -m x`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -144,7 +150,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
     const out = acrossShells((shell) => {
       const fx = setup();
       return gateTree(fx, shell, `git -C ${fx.foreign} log && git commit -m x`, fx.main);
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 
@@ -157,7 +163,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${fx.foreign}' ; cd '${fx.worktree}' && git commit -m x`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -170,7 +176,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `git commit -m "use git -C ${fx.foreign} everywhere"`,
         fx.worktree,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "worktree" });
   });
 
@@ -187,7 +193,7 @@ describe.runIf(runsBash)("quality gate — the command cannot aim the gate elsew
         `cd '${join(fx.main, "sub")}' && cd .. && git commit -m x`,
         fx.main,
       );
-    });
+    }, WORKTREE_SENSITIVE);
     expect(out).toEqual({ status: 0, tree: "main" });
   });
 });

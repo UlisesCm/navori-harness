@@ -11,10 +11,20 @@ import {
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { readConfig } from "../lib/config/config.ts";
 import { DEFAULT_LANG } from "../lib/i18n.ts";
 import { placeholderFallback } from "../lib/render/placeholders.ts";
+import { emptyRepo, type RepoTemplate } from "./helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTplMaster: RepoTemplate;
+beforeAll(() => {
+  repoTplMaster = emptyRepo({ branch: "master" });
+});
+afterAll(() => {
+  repoTplMaster.dispose();
+});
 
 /**
  * This repo dogfoods navori: its own `navori.config.json` is what renders the
@@ -77,12 +87,12 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
   ],
   [
     "@navori/website build",
-    // #820 part A: CI's `quality:` job already runs this (see the "CI builds
+    // #820 part A: CI's `checks:` job already runs this (see the "CI builds
     // the website" test below, `#508.4`) and CI is a strict superset of the
     // local gate for this step — nothing is skipped, only NOT repeated on
     // every local `bun check`. Measured cost in isolation was ~2.8s (warm
     // cache), so this is about not paying it twice per push, not about speed.
-    "CI's `quality:` job already builds the website (#508.4); running it again locally repeats a check CI is a strict superset for",
+    "CI's unconditional `checks:` job already builds the website (#508.4); running it again locally repeats a check CI is a strict superset for",
   ],
 ]);
 
@@ -120,7 +130,7 @@ function cleanGitEnv(inject: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
  * env. Takes no env on purpose, so the leak regression exercises the real scrub.
  */
 function initAndInstallHook(repo: string): void {
-  execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+  repoTplMaster.copyInto(repo);
   execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
 }
 
@@ -175,12 +185,41 @@ function jobBody(job: string): string {
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
-/** Every check a CI job invokes (the full `quality` one by default), as `checkKey` identities. */
-function ciChecks(job = "quality"): Set<string> {
-  const runs = [...jobBody(job).matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
+/** Only a complete shard + aggregate invocation of the local wrapper counts as coverage. */
+function hasAggregateCoverage(shards: string, merge: string, script: string): boolean {
+  return (
+    script === "node scripts/run-test-coverage.mjs" &&
+    /^\s*run: node packages\/cli\/scripts\/run-test-coverage\.mjs --shard \$\{\{ matrix\.shard \}\}\/4\s*$/m.test(
+      shards,
+    ) &&
+    /^\s*run: node packages\/cli\/scripts\/run-test-coverage\.mjs --merge \.vitest-reports --shards 4\s*$/m.test(
+      merge,
+    )
+  );
+}
+
+/** Checks across the full CI path; coverage is normalized only for the same wrapper in both modes. */
+function ciChecks(job?: string): Set<string> {
+  const jobs = job ? [job] : ["checks", "test", "test-merge"];
   const checks = new Set<string>();
-  for (const run of runs) {
-    for (const m of run.matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
+  for (const name of jobs) {
+    const runs = [...jobBody(name).matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
+    for (const run of runs) {
+      for (const m of run.matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
+    }
+  }
+  if (!job) {
+    const cliPkg = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, "packages/cli/package.json"), "utf-8"),
+    ) as RootPackageJson;
+    if (
+      hasAggregateCoverage(
+        jobBody("test"),
+        jobBody("test-merge"),
+        cliPkg.scripts?.["test:coverage"] ?? "",
+      )
+    )
+      checks.add("test:coverage");
   }
   return checks;
 }
@@ -207,6 +246,9 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
       expect.arrayContaining(["check:render", "check:assets:ci", "format:check", "lint"]),
     );
     expect(ci.size).toBeGreaterThanOrEqual(7);
+    expect(uncovered(new Set([...ci, "sast:scan"]), gate, EXEMPT_FROM_LOCAL_GATE)).toEqual([
+      "sast:scan",
+    ]);
   });
 
   it("the gate parser reads the declared command (anti-false-green)", () => {
@@ -281,7 +323,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
   it("installs the tracked pre-commit hook and drops the old navori pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+      repoTplMaster.copyInto(repo);
       const legacy = hookTarget(repo, "pre-push");
       writeFileSync(legacy, "#!/usr/bin/env bash\n# navori pre-push gate\nexec bun check\n");
       execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
@@ -324,7 +366,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     const parent = mkdtempSync(resolve(tmpdir(), "navori-parent-"));
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: parent, env: cleanGitEnv() });
+      repoTplMaster.copyInto(parent);
       const parentGit = resolve(parent, ".git");
       const parentHooks = resolve(parentGit, "hooks");
       const before = readdirSync(parentHooks).sort();
@@ -360,7 +402,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
   it("warns, exits 0 and keeps a non-navori pre-commit hook and a custom pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+      repoTplMaster.copyInto(repo);
       const target = hookTarget(repo, "pre-commit");
       writeFileSync(target, "#!/usr/bin/env bash\necho custom\n");
 
@@ -389,10 +431,11 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 /**
  * The fast tier: what runs before every commit and on `dev`.
  *
- * Locally the pre-commit runs `check:fast`; CI's `fast` job runs the same set
- * (format, duplication, ast-grep, lint, typecheck) for `dev` and PRs into it. Neither runs tests: those run only
- * on `main` (`quality`). The pass must be a strict subset of
- * `qualityGate.full`, or `dev` would block on a check `main` never runs.
+ * Locally the pre-commit runs `check:fast` without tests. CI always runs the
+ * checks, plus full sharded coverage on pushes/main PRs or affected tests on
+ * dev PRs (full for hubs). The fast set remains a subset of the full gate.
+ * Legacy test titles below are retained for the test-preservation contract;
+ * `fast`/`quality` now refer to these tiers, not to removed workflow jobs.
  */
 describe("pre-commit and CI's dev tier run no tests", () => {
   const rootPkg = JSON.parse(
@@ -419,19 +462,77 @@ describe("pre-commit and CI's dev tier run no tests", () => {
   });
 
   it("CI's fast job runs only the check:fast set, no tests", () => {
-    const checks = [...ciChecks("fast")].filter((c) => c !== "install");
-    expect(checks.sort()).toEqual(["check:ast", "check:dup", "format:check", "lint", "typecheck"]);
-    expect(jobBody("fast")).not.toMatch(/\btest\b/);
+    const checks = ciChecks("checks");
+    expect([...fast].filter((c) => !checks.has(c))).toEqual([]);
+    expect([...checks].some((c) => c.startsWith("test"))).toBe(false);
+    expect(jobBody("checks")).not.toMatch(/^ {4}if:/m);
+    expect(jobBody("checks")).not.toMatch(/^\s*run: .*\b(?:test|vitest)\b/m);
   });
 
+  // Covers: R23 R25
   it("the quality job still runs the tests with coverage", () => {
-    expect([...ciChecks("quality")]).toContain("test:coverage");
+    expect([...ciChecks()]).toContain("test:coverage");
+    const shards = jobBody("test");
+    const merge = jobBody("test-merge");
+    expect(shards).toContain("fail-fast: false");
+    expect(shards).toContain("shard: [1, 2, 3, 4]");
+    expect(shards).toContain("name: vitest-shard-${{ matrix.shard }}");
+    expect(shards).toContain("path: packages/cli/.vitest-reports/");
+    expect(shards).toContain("include-hidden-files: true");
+    expect(shards).toContain("if-no-files-found: error");
+    expect(merge).toContain("needs: [test]");
+    expect(merge).toContain("always() && needs.test.result != 'skipped'");
+    expect(merge).toContain("SHARD_RESULT: ${{ needs.test.result }}");
+    expect(merge).toContain('run: test "$SHARD_RESULT" = success');
+    expect(merge).toContain("pattern: vitest-shard-*");
+    expect(merge).toContain("merge-multiple: true");
+    expect(merge).toContain("path: packages/cli/.vitest-reports/");
   });
 
+  // Covers: R23 R24
   it("main runs the full job and everything else the fast one", () => {
-    expect(jobBody("quality")).toContain("github.base_ref == 'main'");
-    expect(jobBody("fast")).toContain("github.base_ref != 'main'");
+    const workflow = readFileSync(CI_WORKFLOW, "utf-8");
+    expect(workflow).toContain("branches: [main, dev]");
+    expect(workflow).toMatch(/^  pull_request:/m);
+    expect(jobBody("checks")).not.toMatch(/^ {4}(?:if|needs):/m);
+    const shards = jobBody("test");
+    expect(shards).toContain("needs: [plan]");
+    expect(shards).toContain("!cancelled()");
+    expect(shards).toContain("github.event_name == 'push' || github.base_ref == 'main'");
+    expect(shards).toContain("needs.plan.result == 'success' && needs.plan.outputs.full == 'true'");
+    const plan = jobBody("plan");
+    expect(plan).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
+    expect(plan).toContain("full: ${{ steps.plan.outputs.full }}");
+    expect(plan).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(plan).toContain("node packages/cli/scripts/test-affected.mjs --plan-json");
+    const affected = jobBody("affected");
+    expect(affected).toContain("needs: [plan]");
+    expect(affected).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
+    expect(affected).toContain(
+      "needs.plan.result == 'success' && needs.plan.outputs.full == 'false'",
+    );
+    expect(affected).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(affected).toMatch(/^\s*run: node packages\/cli\/scripts\/test-affected\.mjs$/m);
+    expect(affected).toContain(
+      'check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"',
+    );
   });
+
+  // Covers: R23 R25
+  it.each(["missing shard", "missing merge", "raw vitest", "different wrapper"])(
+    "does not count %s as equivalent aggregate coverage",
+    (mutation: string) => {
+      const shards = mutation === "missing shard" ? "" : jobBody("test");
+      const merge = mutation === "missing merge" ? "" : jobBody("test-merge");
+      const script =
+        mutation === "raw vitest"
+          ? "vitest run --coverage"
+          : mutation === "different wrapper"
+            ? "node scripts/other-coverage.mjs"
+            : "node scripts/run-test-coverage.mjs";
+      expect(hasAggregateCoverage(shards, merge, script)).toBe(false);
+    },
+  );
 
   it("the semgrep job is main-only, digest-pinned and blocks only on new findings", () => {
     const semgrep = jobBody("semgrep");

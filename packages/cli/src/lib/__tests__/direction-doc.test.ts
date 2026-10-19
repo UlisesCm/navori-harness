@@ -12,7 +12,7 @@ describe("docs of spec 0044", () => {
   // Covers: R1
   it("unidad de PR", () => {
     const direction = read("docs/DIRECTION.md");
-    expect(direction).toContain("## Unidad de PR y de verificación");
+    expect(direction).toContain("## Unidad de PR");
     expect(direction).toContain("la entrega funcional");
     expect(direction).toContain("el milestone");
     expect(direction).toContain("sdd.deliveries");

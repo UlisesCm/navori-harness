@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
-import { HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
+import { shellSensitive, type HookShell } from "./helpers/shells.ts";
 
 /**
  * #797 — what the audit log says when the host CANCELS a quality gate.
@@ -167,7 +167,11 @@ async function runAndSignal(shell: HookShell, signal?: NodeJS.Signals): Promise<
   return { code, verdicts: events.map((e) => String(e.verdict)), events };
 }
 
-describe.each(HOOK_SHELLS)("a cancelled quality gate under %s (#797)", (shell) => {
+describe.each(
+  shellSensitive(
+    "SIGTERM/SIGINT trap and child-kill semantics of a cancelled gate differ per shell (#797)",
+  ),
+)("a cancelled quality gate under %s (#797)", (shell) => {
   it("records allow only when nothing killed it", async () => {
     const run = await runAndSignal(shell);
     expect(run.code).toBe(0);

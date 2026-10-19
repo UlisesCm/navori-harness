@@ -2,8 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { readFileSync } from "node:fs";
 import { brand, check, color, dim as grey, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { loadWorkspace } from "../lib/workspace/workspace.ts";
+import { tc, resolveLang } from "../lib/i18n.ts";
+import { dominioInjectText, workspaceLang } from "../lib/workspace/dominio-inject.ts";
 import {
   ensureDominio,
   reindex,
@@ -29,15 +29,6 @@ function resolveTarget(explicit: string | undefined, d: ReturnType<typeof tc>["d
   }
   p.cancel(d.ambiguous(matches.join(", ")));
   process.exit(1);
-}
-
-/** Language for a workspace's user-facing/injected strings (defaults → es). */
-function workspaceLang(name: string): Lang {
-  try {
-    return resolveLang(loadWorkspace(name)?.defaults.language);
-  } catch {
-    return resolveLang(undefined);
-  }
 }
 
 const initSubCommand = defineCommand({
@@ -163,36 +154,6 @@ const injectSubCommand = defineCommand({
     }
   },
 });
-
-/**
- * What `dominio inject` prints: the Dominio index of the workspace(s) the cwd belongs
- * to, newline-terminated, or `""` when there is nothing to say. Throws on a broken
- * store: `inject` swallows it, `tools session-context` treats it as "no output at all".
- */
-export function dominioInjectText(): string {
-  const blocks: string[] = [];
-  for (const ws of resolveWorkspacesForCwd(process.cwd())) {
-    const entries = listEntries(ws).filter((e) => e.status !== "superseded");
-    if (entries.length === 0) continue;
-    blocks.push(renderInjectBlock(ws, entries, workspaceLang(ws)));
-  }
-  return blocks.length > 0 ? blocks.join("\n\n") + "\n" : "";
-}
-
-function renderInjectBlock(ws: string, entries: DominioEntry[], lang: Lang): string {
-  const dl = tc(lang).dominio;
-  const lines = [dl.injectHeader(ws), "", dl.injectHint, ""];
-  for (const e of entries) {
-    const scope = e.appliesTo === "all" ? "all" : e.appliesTo.join(", ");
-    const scopeTag = scope ? ` (${scope})` : "";
-    const dep = e.status === "deprecated" ? " [deprecated]" : "";
-    const summary = e.summary ? ` — ${e.summary}` : "";
-    lines.push(
-      `- **${e.title}**${dep}${summary}  ·  \`workspace://${ws}/dominio/${e.id}.md\`${scopeTag}`,
-    );
-  }
-  return lines.join("\n");
-}
 
 export const dominioCommand = defineCommand({
   meta: {

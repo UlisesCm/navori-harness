@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -26,6 +26,16 @@ import {
   type EvidenceLine,
   type DeliveryEvidenceBinding,
 } from "../evidence.ts";
+import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+
+/** Repos built once per file and copied per case (spec 0055 D7). */
+let repoTpl: RepoTemplate;
+beforeAll(() => {
+  repoTpl = emptyRepo({ branch: "main" });
+});
+afterAll(() => {
+  repoTpl.dispose();
+});
 
 let cwd: string;
 const COMMAND = "bun test x";
@@ -36,7 +46,7 @@ function git(...args: string[]): void {
 
 beforeEach(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-")));
-  git("init", "-b", "main");
+  repoTpl.copyInto(cwd);
   git("config", "user.email", "t@t");
   git("config", "user.name", "t");
   writeFileSync(join(cwd, "a.txt"), "a\n");
@@ -387,7 +397,7 @@ describe("validateEvidence", () => {
   it("rejects a run in a foreign worktree", () => {
     const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-other-")));
     try {
-      execFileSync("git", ["init", "-b", "main"], { cwd: other, stdio: "ignore" });
+      repoTpl.copyInto(other);
       writeLog([logLine({ tree: other, cwd: other })]);
       const verdict = validate();
       expect(verdict.ok).toBe(false);

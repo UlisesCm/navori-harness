@@ -43,7 +43,10 @@
 #   - a role touching what its contract forbids: hard — role containment; the message names the route.
 set -euo pipefail
 
+nv_payload_fields="agent_id agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # navori:include hook-input
 # navori:include review-edit-binding
 

@@ -4,15 +4,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Spec 0054 R7-R9 — a rewritten test file must not lose coverage.
+ * Spec 0054 R7-R9 and spec 0055 R21 — a rewritten test file must not lose coverage.
  *
- * Compares the working tree with `git merge-base HEAD <baseRef>` for the files in
- * `test-preservation.config.json`: case count (a removal must be named in
- * `removedCases`), the set of `// Covers:` tokens, and, for the doctrine merge,
- * the literal baseline. Static analysis only: it never runs the suite. The
- * per-file mutation smoke lives with each rewrite's own tests (M3b), not here.
+ * Discovers EVERY `*.test.ts` changed or deleted against `git merge-base HEAD <base>` (default
+ * `origin/dev`, then `dev`) and compares case count, the set of `// Covers:` tokens and, for a
+ * merge, the literal baseline. A removal must be declared in `test-preservation.config.json`:
+ * `files[].removedCases` (`{ title, reason }`, the reason is mandatory) or `merges[]` (cases moved
+ * between files). Static analysis only: it never runs the suite.
  *
- * Usage: node scripts/js/check-test-preservation.mjs [--config <path>]
+ * Usage: node scripts/js/check-test-preservation.mjs [--base <ref>] [--config <path>]
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -120,100 +120,191 @@ export function compareLiteralBaseline({ baseline, expected, nowText }) {
 }
 
 /**
- * Text of `path` at the merge-base, or null when the path does not exist there.
- * A path absent at the base means the change already landed on it (e.g. the 0054
- * fusion deleted the merged-from files): there is nothing to compare, not a crash.
+ * Checks every declared removal carries a non-empty reason.
  *
- * @param {string} mergeBase @param {string} path
- * @returns {string | null}
+ * @param {string} label
+ * @param {unknown[] | undefined} entries `{ title, reason }` objects
+ * @returns {string[]} violations
  */
-export function readBase(mergeBase, path) {
-  try {
-    return execFileSync("git", ["show", `${mergeBase}:${path}`], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch {
-    // `git show` fails for a missing path; a bad merge-base was already rejected by main().
-    return null;
+export function removalReasonViolations(label, entries = []) {
+  const violations = [];
+  for (const entry of entries) {
+    const title = entry && typeof entry === "object" ? entry.title : undefined;
+    const reason = entry && typeof entry === "object" ? entry.reason : undefined;
+    if (typeof title !== "string" || title === "")
+      violations.push(`${label}: removedCases entries must be { title, reason }`);
+    else if (typeof reason !== "string" || reason.trim() === "")
+      violations.push(`${label}: removed case "${title}" has no reason`);
   }
+  return violations;
 }
 
-/** @param {string[]} argv */
-function main(argv) {
-  const at = argv.indexOf("--config");
-  const config = JSON.parse(
-    readFileSync(
-      resolve(
-        at === -1 ? resolve(REPO_ROOT, "scripts/js/test-preservation.config.json") : argv[at + 1],
-      ),
-      "utf8",
-    ),
-  );
-  let mergeBase;
-  try {
-    mergeBase = execFileSync("git", ["merge-base", "HEAD", config.baseRef], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    }).trim();
-  } catch (error) {
-    process.stderr.write(
-      `check-test-preservation: no merge-base with ${config.baseRef}: ${error.message}\n`,
-    );
-    return 1;
+/**
+ * Parses `git diff --name-status --no-renames` output into changed/deleted test files.
+ *
+ * @param {string} output
+ * @returns {{ modified: string[], deleted: string[] }}
+ */
+export function parseNameStatus(output) {
+  const modified = [];
+  const deleted = [];
+  for (const line of output.split("\n")) {
+    const [status, path] = line.split("\t");
+    if (!path || !path.endsWith(".test.ts")) continue;
+    if (status === "M") modified.push(path);
+    else if (status === "D") deleted.push(path);
   }
-  const read = (path) =>
-    existsSync(resolve(REPO_ROOT, path)) ? readFileSync(resolve(REPO_ROOT, path), "utf8") : null;
+  return { modified, deleted };
+}
+
+/**
+ * Pure core: compares every changed/deleted test against its baseline.
+ *
+ * @param {{
+ *   config: { files?: { path: string, rowIds?: boolean, removedCases?: unknown[] }[], merges?: { into: string, from: string[], reason?: string, countRowIds?: boolean, removedCases?: unknown[], literalBaseline?: { path: string, positive: number, negative: number, equivalenceCase: string } }[] },
+ *   changes: { modified: string[], deleted: string[] },
+ *   readBase: (path: string) => string | null,
+ *   readNow: (path: string) => string | null,
+ * }} input
+ * @returns {string[]} violations
+ */
+export function checkPreservation({ config, changes, readBase, readNow }) {
   const violations = [];
-  for (const file of config.files) {
-    const nowText = read(file.path);
-    if (nowText === null) {
-      violations.push(`${file.path}: file is gone`);
-      continue;
-    }
-    const baseText = readBase(mergeBase, file.path);
-    if (baseText === null) continue; // new at the base's successor: nothing to preserve
-    violations.push(
-      ...compareFile({
-        label: file.path,
-        baseTexts: [baseText],
-        nowText,
-        removedCases: file.removedCases,
-      }),
-    );
+  const files = config.files ?? [];
+  const merges = config.merges ?? [];
+  const absorbed = new Set(merges.flatMap((merge) => merge.from));
+  const titlesOf = (entries = []) =>
+    entries.map((entry) => (entry && typeof entry === "object" ? entry.title : entry));
+  for (const file of files)
+    violations.push(...removalReasonViolations(file.path, file.removedCases));
+  for (const merge of merges) {
+    if (typeof merge.reason !== "string" || merge.reason.trim() === "")
+      violations.push(`${merge.into}: merge has no reason`);
+    violations.push(...removalReasonViolations(merge.into, merge.removedCases));
   }
-  for (const merge of config.merges) {
-    const nowText = read(merge.into);
+  const declared = (path) => files.find((file) => file.path === path);
+  const handled = new Set();
+  for (const merge of merges) {
+    handled.add(merge.into);
+    for (const path of merge.from) handled.add(path);
+    const nowText = readNow(merge.into);
     if (nowText === null) {
       violations.push(`${merge.into}: file is gone`);
       continue;
     }
-    // Sources already gone at the merge-base: the fusion landed there, only the literal baseline remains.
-    const baseTexts = merge.from.map((path) => readBase(mergeBase, path)).filter((t) => t !== null);
-    if (baseTexts.length > 0) {
+    const baseTexts = [];
+    for (const path of [merge.into, ...merge.from]) {
+      const text = readBase(path);
+      // A path absent at the merge-base: the fusion already landed there, nothing to compare.
+      if (text !== null) baseTexts.push(text);
+    }
+    if (baseTexts.length > 0)
       violations.push(
         ...compareFile({
           label: merge.into,
           baseTexts,
           nowText,
+          removedCases: titlesOf(merge.removedCases),
           rowIds: merge.countRowIds,
         }),
       );
-    }
-    const literalText = read(merge.literalBaseline.path);
-    if (literalText === null) {
-      violations.push(`${merge.literalBaseline.path}: baseline is gone`);
-    } else {
-      violations.push(
-        ...compareLiteralBaseline({
-          baseline: JSON.parse(literalText),
-          expected: merge.literalBaseline,
-          nowText,
-        }),
-      );
+    if (merge.literalBaseline) {
+      const literalText = readNow(merge.literalBaseline.path);
+      if (literalText === null) violations.push(`${merge.literalBaseline.path}: baseline is gone`);
+      else
+        violations.push(
+          ...compareLiteralBaseline({
+            baseline: JSON.parse(literalText),
+            expected: merge.literalBaseline,
+            nowText,
+          }),
+        );
     }
   }
+  for (const path of changes.modified) {
+    if (handled.has(path)) continue;
+    const base = readBase(path);
+    const now = readNow(path);
+    if (base === null || now === null) continue;
+    const entry = declared(path);
+    violations.push(
+      ...compareFile({
+        label: path,
+        baseTexts: [base],
+        nowText: now,
+        removedCases: titlesOf(entry?.removedCases),
+        rowIds: entry?.rowIds,
+      }),
+    );
+  }
+  for (const path of changes.deleted) {
+    if (absorbed.has(path)) continue;
+    const base = readBase(path);
+    if (base === null) continue;
+    const titles = new Set(titlesOf(declared(path)?.removedCases));
+    const missing = [...caseTitles(base)].filter((title) => !titles.has(title));
+    const dynamic = countCases(base) - caseTitles(base).size;
+    if (missing.length > 0 || dynamic > 0)
+      violations.push(
+        `${path}: file deleted without removedCases for ${missing.length > 0 ? missing.map((t) => `"${t}"`).join(", ") : `${dynamic} non-literal case(s)`} (or a merges.from entry)`,
+      );
+  }
+  return violations;
+}
+
+/** @param {string[]} args */
+function git(args) {
+  return execFileSync("git", args, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/** @param {string[]} argv */
+function main(argv) {
+  const flag = (name) => {
+    const at = argv.indexOf(name);
+    return at === -1 ? undefined : argv[at + 1];
+  };
+  const config = JSON.parse(
+    readFileSync(
+      resolve(flag("--config") ?? resolve(REPO_ROOT, "scripts/js/test-preservation.config.json")),
+      "utf8",
+    ),
+  );
+  const candidates = [flag("--base") ?? config.baseRef ?? "origin/dev", "dev"];
+  let mergeBase;
+  let usedRef;
+  for (const ref of candidates) {
+    try {
+      mergeBase = git(["merge-base", "HEAD", ref]).trim();
+      usedRef = ref;
+      break;
+    } catch {
+      // try the next candidate
+    }
+  }
+  if (mergeBase === undefined) {
+    process.stderr.write(
+      `check-test-preservation: no merge-base with ${candidates.join(" or ")}\n`,
+    );
+    return 1;
+  }
+  const changes = parseNameStatus(
+    git(["diff", "--name-status", "--no-renames", mergeBase, "--", "*.test.ts"]),
+  );
+  const readBase = (path) => {
+    try {
+      return git(["show", `${mergeBase}:${path}`]);
+    } catch {
+      return null;
+    }
+  };
+  const readNow = (path) =>
+    existsSync(resolve(REPO_ROOT, path)) ? readFileSync(resolve(REPO_ROOT, path), "utf8") : null;
+  const violations = checkPreservation({ config, changes, readBase, readNow });
   if (violations.length > 0) {
     process.stderr.write(
       `check-test-preservation: FAILED\n${violations.map((v) => `  - ${v}`).join("\n")}\n`,
@@ -221,7 +312,7 @@ function main(argv) {
     return 1;
   }
   process.stdout.write(
-    `check-test-preservation: ${config.files.length} files and ${config.merges.length} merge preserved vs ${mergeBase.slice(0, 8)}\n`,
+    `check-test-preservation: ${changes.modified.length} changed and ${changes.deleted.length} deleted test files preserved vs ${usedRef} ${mergeBase.slice(0, 8)}\n`,
   );
   return 0;
 }

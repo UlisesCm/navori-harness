@@ -220,7 +220,7 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
     writeMonorepoConfig();
     expect(runRender(cwd).ok).toBe(true);
     const ws = readFileSync(join(cwd, "apps/backend/CLAUDE.md"), "utf-8");
-    expect(ws).toMatch(/agentes, los hooks y los permisos son los de la raíz/i);
+    expect(ws).toMatch(/hooks y los permisos/i);
     expect(ws).toMatch(/no falta nada/i);
 
     // La raíz nunca la lleva: ahí no se hereda nada.

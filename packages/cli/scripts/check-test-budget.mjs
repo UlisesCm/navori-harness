@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { globSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { summarizeReport } from "./bench-tests.mjs";
@@ -13,6 +13,7 @@ import { summarizeReport } from "./bench-tests.mjs";
  * `NAVORI_TEST_BUDGET_FACTOR` (default 1) fails, naming file, duration and budget.
  *
  * Usage: node scripts/check-test-budget.mjs [--budget <path>] [--report <json>]
+ * Proposal only: --propose <bench1.json> <bench2.json> <bench3.json> [--budget <path>]
  */
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,6 +47,90 @@ export const TestBudgetSchema = z
       seen.add(entry.file);
     });
   });
+
+const BenchSchema = z
+  .object({
+    generatedAt: z.iso.datetime(),
+    workers: z.number().int().positive(),
+    loadavgBefore: z.array(z.number().finite().nonnegative()).length(3),
+    comparable: z.literal(true),
+    success: z.literal(true),
+    vitestExit: z.literal(0),
+    wallMs: z.number().finite().nonnegative(),
+    totalFiles: z.number().int().positive(),
+    totalTests: z.number().int().nonnegative(),
+    sumFilesMs: z.number().finite().nonnegative(),
+    files: z
+      .array(
+        z.object({
+          file: z.string().min(1),
+          ms: z.number().finite().nonnegative(),
+          status: z.enum(["passed", "skipped", "pending"]),
+          tests: z.number().int().nonnegative(),
+        }),
+      )
+      .min(1),
+  })
+  .superRefine((report, ctx) => {
+    if (report.loadavgBefore[0] > report.workers)
+      ctx.addIssue({ code: "custom", message: "initial load exceeds workers" });
+    if (new Set(report.files.map(({ file }) => file)).size !== report.files.length)
+      ctx.addIssue({ code: "custom", message: "duplicate file in bench report" });
+    if (
+      report.totalFiles !== report.files.length ||
+      report.totalTests !== report.files.reduce((sum, file) => sum + file.tests, 0) ||
+      report.sumFilesMs !== report.files.reduce((sum, file) => sum + file.ms, 0)
+    )
+      ctx.addIssue({ code: "custom", message: "bench totals do not match files" });
+  });
+
+/**
+ * Proposes D10/R30 exceptions from exactly three complete, idle observations.
+ * The caller supplies the current Vitest inventory; matching report totals alone
+ * cannot distinguish three filtered runs from three full runs. No files are written.
+ *
+ * @param {unknown[]} reports
+ * @param {z.infer<typeof TestBudgetSchema>} budget
+ * @param {string[]} expectedFiles current package-relative test inventory under src
+ * @returns {z.infer<typeof TestBudgetSchema>}
+ */
+export function proposeBudget(reports, budget, expectedFiles) {
+  const observations = z.array(BenchSchema).length(3).parse(reports);
+  if (new Set(observations.map(({ generatedAt }) => generatedAt)).size !== 3)
+    throw new Error("proposal requires three distinct observations (generatedAt)");
+  if (new Set(observations.map(({ workers }) => workers)).size !== 1)
+    throw new Error("proposal requires the same worker count in all observations");
+  const inventory = [...new Set(expectedFiles)].sort();
+  if (
+    inventory.length === 0 ||
+    observations.some(
+      ({ files }) =>
+        files.length !== inventory.length ||
+        files
+          .map(({ file }) => file)
+          .sort()
+          .some((file, index) => file !== inventory[index]),
+    )
+  )
+    throw new Error("proposal requires the same complete current test file set in every report");
+  const timings = observations.map(({ files }) => new Map(files.map(({ file, ms }) => [file, ms])));
+  const exceptions = inventory.flatMap((file) => {
+    const samples = timings.map((run) => run.get(file));
+    const ms = Math.ceil((Math.max(...samples) * 1.25) / 5000) * 5000;
+    if (!Number.isSafeInteger(ms))
+      throw new Error(`proposed budget is not a safe integer: ${file}`);
+    return ms > budget.defaultMs
+      ? [
+          {
+            file,
+            ms,
+            reason: `Idle bench observations ${observations.map(({ generatedAt }) => generatedAt).join(", ")}: ${samples.join(", ")} ms; max × 1.25 rounded up to 5 s`,
+          },
+        ]
+      : [];
+  });
+  return TestBudgetSchema.parse({ defaultMs: budget.defaultMs, exceptions });
+}
 
 /**
  * Validates a parsed budget document.
@@ -121,6 +206,33 @@ function main(argv) {
     );
     return 1;
   }
+  if (argv.includes("--propose")) {
+    try {
+      const paths = [];
+      for (let index = 0; index < argv.length; index++) {
+        const arg = argv[index];
+        if (arg === "--budget" && argv[index + 1] && !argv[index + 1].startsWith("--")) index++;
+        else if (arg === "--propose" && argv.indexOf(arg) === index) continue;
+        else if (arg.startsWith("--")) throw new Error(`invalid proposal argument: ${arg}`);
+        else paths.push(arg);
+      }
+      const files = globSync("src/**/*.test.ts", { cwd: PACKAGE_ROOT }).map((file) =>
+        relative(PACKAGE_ROOT, resolve(PACKAGE_ROOT, file)).split("\\").join("/"),
+      );
+      const proposal = proposeBudget(
+        paths.map((path) => JSON.parse(readFileSync(resolve(path), "utf8"))),
+        result.budget,
+        files,
+      );
+      process.stdout.write(`${JSON.stringify(proposal, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      process.stderr.write(
+        `check-test-budget: cannot propose: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      return 1;
+    }
+  }
   const reportPath = flag("--report");
   if (reportPath) {
     let violations;
@@ -151,5 +263,5 @@ function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exit(main(process.argv.slice(2)));
+  process.exitCode = main(process.argv.slice(2));
 }

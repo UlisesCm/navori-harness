@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HOOK_SHELLS, type HookShell } from "../lib/__tests__/helpers/shells.ts";
+import { shellSensitive, type HookShell } from "../lib/__tests__/helpers/shells.ts";
 
 /**
  * `payload_fields` (`_partials/extract-cmd.sh`, spec 0054 R22, D10): N fields with ONE
@@ -77,7 +77,11 @@ const payloadOf = (command: string, extra: Record<string, unknown> = {}): string
     ...extra,
   });
 
-describe.each(HOOK_SHELLS)("payload_fields under %s", (shell) => {
+describe.each(
+  shellSensitive(
+    "payload_fields is shell code: `printf -v`, `read -d ''` and NUL handling differ in zsh (#391)",
+  ),
+)("payload_fields under %s", (shell) => {
   const ENGINES = [
     ["jq", ["jq", "sed"]],
     ["node", ["node", "sed"]],

@@ -1,11 +1,16 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
-import { acrossShells } from "../../../lib/__tests__/helpers/shells.ts";
+import { acrossShells, HOOK_SHELLS } from "../../../lib/__tests__/helpers/shells.ts";
+import {
+  createHookBatch,
+  type HookBatch,
+  type HookCase,
+} from "../../../__tests__/helpers/hook-batch.ts";
 import { buildCodexRules } from "../../codex/build-rules.ts";
 import { renderPiEngine } from "../../pi/index.ts";
 import { renderManagedFile } from "../render-managed-file.ts";
@@ -74,16 +79,28 @@ function renderCopies(): Copies {
   return { project, claude, pi: (script) => join(project, ".pi/navori/hooks", `${script}.sh`) };
 }
 
-/** Exit code of one script run on a payload, the same under bash and zsh. */
+const batches = new Map<string, HookBatch>();
+const batchOf = (script: string): HookBatch => {
+  let batch = batches.get(script);
+  if (batch === undefined) batches.set(script, (batch = createHookBatch(script)));
+  return batch;
+};
+const caseOf = (cwd: string, payload: Record<string, unknown>): HookCase => ({
+  input: JSON.stringify({ cwd, ...payload }),
+  cwd,
+});
+
+/** Runs a table of payloads for one script in ONE shell process per shell (spec 0055 R18). */
+function prime(script: string, cwd: string, payloads: readonly Record<string, unknown>[]): void {
+  batchOf(script).prime(
+    HOOK_SHELLS,
+    payloads.map((payload) => caseOf(cwd, payload)),
+  );
+}
+
+/** Exit code of one script run on a payload, the same under bash and zsh (batched when primed). */
 function exitOf(script: string, cwd: string, payload: Record<string, unknown>): number {
-  return acrossShells((shell) => {
-    const run = spawnSync(shell, [script], {
-      cwd,
-      input: JSON.stringify({ cwd, ...payload }),
-      encoding: "utf8",
-    });
-    return run.status ?? -1;
-  });
+  return acrossShells((shell) => batchOf(script).run(shell, caseOf(cwd, payload)).status);
 }
 
 const bash = (command: string): Record<string, unknown> => ({
@@ -140,8 +157,12 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
     for (const script of ["guard-destructive", "subagent-no-background"]) {
       const claude = copies.claude(script);
       const pi = copies.pi(script);
+      const payloadOf = (command: string): Record<string, unknown> =>
+        script === "guard-destructive" ? bash(command) : inChild(command);
+      prime(claude, copies.project, BENIGN.map(payloadOf));
+      prime(pi, copies.project, BENIGN.map(payloadOf));
       for (const command of BENIGN) {
-        const payload = script === "guard-destructive" ? bash(command) : inChild(command);
+        const payload = payloadOf(command);
         const claudeExit = exitOf(claude, copies.project, payload);
         const piExit = exitOf(pi, copies.project, payload);
         expect([0, 2], `${script} claude: ${command}`).toContain(claudeExit);
@@ -151,13 +172,16 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
         expect(piExit, `${script} pi: ${command}`).toBe(0);
       }
     }
-    // 256 script runs (2 scripts x 2 copies x 2 shells x the corpus): a saturated machine needs room.
+    // 4 batches x shells (2 scripts x 2 copies), each one shell process for the whole corpus.
   }, 180_000);
 
   // Covers: R2, R16
   it("claude copy verdict unchanged: golden cases recorded against the pre-0048 scripts", () => {
     const claudeGuard = copies.claude("guard-destructive");
     const piGuard = copies.pi("guard-destructive");
+    const guardPayloads = GUARD_GOLDEN.map(({ command }) => bash(command));
+    prime(claudeGuard, copies.project, guardPayloads);
+    prime(piGuard, copies.project, guardPayloads);
     for (const { command, exit } of GUARD_GOLDEN) {
       expect(exitOf(claudeGuard, copies.project, bash(command)), `claude: ${command}`).toBe(exit);
       // The Pi copy never allows what the Claude copy blocks; it may only block more.
@@ -167,6 +191,9 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
     }
     const claudeNoBg = copies.claude("subagent-no-background");
     const piNoBg = copies.pi("subagent-no-background");
+    const noBgPayloads = NO_BACKGROUND_GOLDEN.map(({ payload }) => payload);
+    prime(claudeNoBg, copies.project, noBgPayloads);
+    prime(piNoBg, copies.project, noBgPayloads);
     for (const { name, payload, exit } of NO_BACKGROUND_GOLDEN) {
       expect(exitOf(claudeNoBg, copies.project, payload), `claude: ${name}`).toBe(exit);
       const piExit = exitOf(piNoBg, copies.project, payload);
@@ -177,6 +204,9 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
     for (const [script, cases] of Object.entries(STATE_SCRIPT_GOLDEN)) {
       const claude = copies.claude(script);
       const pi = copies.pi(script);
+      const payloads = cases.map(({ payload }) => payload);
+      prime(claude, copies.project, payloads);
+      prime(pi, copies.project, payloads);
       for (const { name, payload, exit } of cases) {
         expect(exitOf(claude, copies.project, payload), `claude ${script}: ${name}`).toBe(exit);
         expect([0, 2], `pi ${script}: ${name}`).toContain(exitOf(pi, copies.project, payload));
@@ -191,19 +221,13 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
     () => {
       const claude = copies.claude("guard-destructive");
       const pi = copies.pi("guard-destructive");
-      // Added by the Pi arm only (the control plane, `pi --no-extensions`, the shared deny rules).
-      for (const command of [
+      const piOnly = [
         "echo x > .pi/settings.json",
         "pi --no-extensions",
         "sudo rm -rf build",
         "engram delete obs-1",
-      ]) {
-        expect(exitOf(pi, copies.project, bash(command)), `pi: ${command}`).toBe(2);
-      }
-      expect(exitOf(claude, copies.project, bash("echo x > .pi/settings.json"))).toBe(0);
-      expect(exitOf(claude, copies.project, bash("pi --no-extensions"))).toBe(0);
-      // Every numbered rule the Claude copy enforces is enforced, with the same verdict, by the Pi copy.
-      for (const command of [
+      ];
+      const both = [
         "rm -rf /",
         "git commit --no-verify -m x",
         "git push --force origin main",
@@ -211,7 +235,17 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
         ":(){ :|:& };:",
         "echo x > CLAUDE.md",
         "dd if=/dev/zero of=/dev/sda",
-      ]) {
+      ];
+      prime(pi, copies.project, [...piOnly, ...both].map(bash));
+      prime(claude, copies.project, [...piOnly.slice(0, 2), ...both].map(bash));
+      // Added by the Pi arm only (the control plane, `pi --no-extensions`, the shared deny rules).
+      for (const command of piOnly) {
+        expect(exitOf(pi, copies.project, bash(command)), `pi: ${command}`).toBe(2);
+      }
+      expect(exitOf(claude, copies.project, bash("echo x > .pi/settings.json"))).toBe(0);
+      expect(exitOf(claude, copies.project, bash("pi --no-extensions"))).toBe(0);
+      // Every numbered rule the Claude copy enforces is enforced, with the same verdict, by the Pi copy.
+      for (const command of both) {
         expect(exitOf(claude, copies.project, bash(command)), `claude: ${command}`).toBe(2);
         expect(exitOf(pi, copies.project, bash(command)), `pi: ${command}`).toBe(2);
       }

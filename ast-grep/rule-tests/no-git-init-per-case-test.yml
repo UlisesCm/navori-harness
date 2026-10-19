@@ -1,0 +1,43 @@
+id: no-git-init-per-case
+valid:
+  - |
+    beforeAll(() => {
+      template = emptyRepo();
+    });
+  - |
+    beforeAll(() => {
+      git(dir, "init", "-q");
+    });
+  - |
+    it("copies the template", () => {
+      const cwd = template.copy();
+      git(cwd, "status");
+    });
+  - |
+    it("runs master init", async () => {
+      await master(cwd, "init", "mvp");
+    });
+  - |
+    it("commits with an init message", () => {
+      git(cwd, "commit", "-q", "-m", "init");
+      execFileSync("git", ["-C", cwd, "commit", "--allow-empty", "-m", "init"]);
+    });
+invalid:
+  - |
+    it("per case", () => {
+      git(cwd, "init", "-q");
+    });
+  - |
+    test("per case", () => {
+      git("init", "-q", "-b", "main");
+    });
+  - |
+    it("per case", () => {
+      execFileSync("git", ["-C", cwd, "init", "-q"], { stdio: "ignore" });
+    });
+  - |
+    it("nested", () => {
+      describe("x", () => {
+        spawnSync("git", ["init", dir]);
+      });
+    });

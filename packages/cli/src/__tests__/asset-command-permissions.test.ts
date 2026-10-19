@@ -171,7 +171,7 @@ function commandVocabulary(): Set<string> {
 
 /** Subcommands the CLI registers — the same parse `check-asset-commands.mjs` does. */
 function navoriSubcommands(): Set<string> {
-  const source = readFileSync(join(REPO_ROOT, "packages/cli/src/index.ts"), "utf-8");
+  const source = readFileSync(join(REPO_ROOT, "packages/cli/src/cli.ts"), "utf-8");
   const block = source.match(/subCommands:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
   return new Set([...block.matchAll(/^\s*([a-z][\w-]*)\s*:/gm)].map((m) => m[1] ?? ""));
 }

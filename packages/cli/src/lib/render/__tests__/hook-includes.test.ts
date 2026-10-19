@@ -5,6 +5,12 @@ import { execFileSync } from "node:child_process";
 import { expandHookIncludes, hookPartialsDir } from "../hook-includes.ts";
 import { acrossShells } from "../../__tests__/helpers/shells.ts";
 
+/** The partial is sourced shell code: `[[ =~ ]]`, word-splitting and heredoc handling differ in zsh (#391). */
+const SHELL_SENSITIVE = {
+  sensitive:
+    "sourced partial: `[[ =~ ]]` regex, word-splitting and heredoc stripping differ between bash and zsh (#391)",
+};
+
 describe("expandHookIncludes", () => {
   it("returns content untouched when there is no directive", () => {
     const src = "#!/usr/bin/env bash\nset -euo pipefail\necho hi\n";
@@ -50,7 +56,7 @@ describe("gate-trigger partial (behavioral)", () => {
     return acrossShells((shell) => {
       const out = execFileSync(shell, ["-c", script, shell, cmd], { encoding: "utf-8" }).trim();
       return out === "T";
-    });
+    }, SHELL_SENSITIVE);
   }
 
   it("commit gate: fires on git commit incl. compound / wrapped forms, not on lookalikes", () => {
@@ -77,7 +83,7 @@ describe("gate-trigger partial (behavioral)", () => {
     return acrossShells((shell) => {
       const out = execFileSync(shell, ["-c", script, shell, cmd], { encoding: "utf-8" }).trim();
       return out === "T";
-    });
+    }, SHELL_SENSITIVE);
   }
 
   it("heredoc bodies fed to `cat` are data, everything else keeps its body (#1095)", () => {

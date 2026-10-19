@@ -125,7 +125,10 @@ COVERED_TOOLS='Bash Edit Write NotebookEdit'
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
 payload=$(cat 2>/dev/null) || payload=""
+nv_payload_fields="agent_type cwd hook_event_name tool_input.agent_type tool_input.command tool_input.file_path tool_input.notebook_path tool_input.subagent_type tool_name"
+payload_load() { :; }
 # navori:include extract-cmd
+payload_load
 # Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (unchanged)
 # and the payload cwd's git toplevel under Codex.
 # navori:include hook-input

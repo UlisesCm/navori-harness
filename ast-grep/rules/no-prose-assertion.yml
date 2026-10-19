@@ -1,0 +1,39 @@
+id: no-prose-assertion
+language: typescript
+severity: error
+message: "Do not assert prose wording of docs, skills or managed blocks (spec 0055 R22): `toContain`/`toMatch` with a literal of 6+ words on text read from core-assets, SKILL.md, docs/ or a Markdown file. Assert a marker, a contract token (tables like `doctrine-contracts.test.ts`) or a budget instead."
+note: "Matches `expect(x)` where `x` is declared from a read*() call naming core-assets, SKILL.md, docs/ or a .md path, in the same file. A word is a whitespace-separated token with a letter, so `<!-- ... -->` structure markers do not count. Quoted code, payloads or CLI output that is not doctrine wording go in `ignores:` with a reason."
+files:
+  - "**/*.test.ts"
+ignores:
+  # Allowlist: the literal is DATA (a payload, a rendered line, a CLI string), not doctrine wording.
+  - "packages/cli/src/__tests__/cli.e2e.test.ts" # rendered scaffold lines; owned by the in-process e2e migration (T27)
+rule:
+  all:
+    - kind: call_expression
+    - any:
+        - pattern: expect($V).toContain($LIT)
+        - pattern: expect($V).toMatch($LIT)
+        - pattern: expect($V).not.toContain($LIT)
+        - pattern: expect($V).not.toMatch($LIT)
+    - has:
+        field: arguments
+        has:
+          any:
+            - kind: string
+            - kind: template_string
+            - kind: regex
+          regex: (\S*[A-Za-z]\S*\s+){5}\S*[A-Za-z]
+    - inside:
+        stopBy: end
+        kind: program
+        has:
+          stopBy: end
+          kind: variable_declarator
+          all:
+            - has:
+                field: name
+                pattern: $V
+            - has:
+                field: value
+                regex: (?s)^\w*[rR]ead\w*\(.*(core-assets|SKILL\.md|docs/|\.mdx?["'`])

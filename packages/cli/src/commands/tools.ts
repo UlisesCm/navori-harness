@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { readConfig } from "../lib/config/config.ts";
 import { resolveLang, toolNoticeText } from "../lib/i18n.ts";
 import { ackToolNotices, prepareToolNotices } from "../lib/primitives/tool-version-notice.ts";
-import { dominioInjectText } from "./dominio.ts";
+import { dominioInjectText } from "../lib/workspace/dominio-inject.ts";
 
 /**
  * Output contract v1, read by the SessionStart hook: the FIRST line is exactly
@@ -40,8 +40,14 @@ export const SESSION_CONTEXT_END = "#end navori-session-context";
  * The whole `session-context` output, or `null` when it must not be printed: either
  * section failed to compute, or a section's text could contain one of the sentinel
  * markers (it would let content spoof the framing the hook parses).
+ * An explicit UTF-8 reservation adds `notice-reserve` to the first line and acknowledges
+ * fitting notice bodies only after both sections validate; the default v1 output stays unchanged.
  */
-export function sessionContextOutput(notice: () => string, dominio: () => string): string | null {
+export function sessionContextOutput(
+  notice: () => string,
+  dominio: () => string,
+  noticeReserve?: number,
+): string | null {
   try {
     const sections = [
       process.env.NAVORI_NO_UPDATE_NOTIFIER === "1" ? "" : notice(),
@@ -49,10 +55,22 @@ export function sessionContextOutput(notice: () => string, dominio: () => string
     ] as const;
     if (sections.some((text) => text.includes("#section ") || text.includes("#end navori-")))
       return null;
-    return [
-      `${SESSION_CONTEXT_BEGIN}\n${SESSION_CONTEXT_NOTICE}\n${sections[0]}`,
+    if (noticeReserve !== undefined && (!Number.isSafeInteger(noticeReserve) || noticeReserve < 0))
+      return null;
+    const out = [
+      `${SESSION_CONTEXT_BEGIN}${noticeReserve === undefined ? "" : " notice-reserve"}\n${SESSION_CONTEXT_NOTICE}\n${sections[0]}`,
       `${SESSION_CONTEXT_DOMINIO}\n${sections[1]}${SESSION_CONTEXT_END}\n`,
     ].join("");
+    if (noticeReserve !== undefined && sections[0] !== "") {
+      const match = /^#navori-tool-notice v1 ack=([A-Za-z0-9._@,-]+)\n([\s\S]+)\n$/.exec(
+        sections[0],
+      );
+      if (!match || !match[1] || !match[2]) return null;
+      // Match the hook: remove the frame's final LF, then reserve the body's emission LF.
+      if (Buffer.byteLength(match[2], "utf8") + 1 <= noticeReserve)
+        ackToolNotices(match[1].split(",").filter(Boolean));
+    }
+    return out;
   } catch {
     return null;
   }
@@ -62,15 +80,24 @@ export function sessionContextOutput(notice: () => string, dominio: () => string
  * `session-context` is a MACHINE command for the SessionStart hook (spec 0054 R25): the
  * output of `tools notice` and `dominio inject` in ONE process, as two sentinel-framed
  * sections. All or nothing: if either section fails, nothing is printed and the exit code
- * is 1, so the hook falls back to the two separate calls.
+ * is 1, so the hook falls back to the two separate calls. With `--notice-reserve`, delivery
+ * is acknowledged here before emission; an interrupted hook can still find it in doctor.
  */
 const sessionContextSubCommand = defineCommand({
   meta: {
     name: "session-context",
     description: "Emit the notice and Dominio sections for the SessionStart hook in one call",
   },
-  run() {
-    const out = sessionContextOutput(toolNoticeOutput, dominioInjectText);
+  args: {
+    "notice-reserve": { type: "string", description: "UTF-8 bytes reserved for notice delivery" },
+  },
+  run({ args }) {
+    const reserve = args["notice-reserve"];
+    const out = sessionContextOutput(
+      toolNoticeOutput,
+      dominioInjectText,
+      reserve === undefined ? undefined : /^\d+$/.test(reserve) ? Number(reserve) : NaN,
+    );
     if (out === null) {
       process.exitCode = 1;
       return;

@@ -336,8 +336,10 @@ describe("fresh metadata prepare/claim", () => {
     const pid = Number(readFileSync(marker, "utf8"));
     expect(Number.isSafeInteger(pid)).toBe(true);
     expect(pid).toBeGreaterThan(1);
-    await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+    await vi.waitFor(
+      () => expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" })),
+      { timeout: 2_000, interval: 10 },
+    );
   });
   // Covers: R13, R14, R15
   it("catalog-refresh-next-session-and-dispatch retains query/source/time/context without future freshness", async () => {
