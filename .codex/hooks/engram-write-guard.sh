@@ -1,4 +1,4 @@
-# navori:managed start id="engram-write-guard-base" hash="4a53d4ec" version="0.12.1" source="@navori/core"
+# navori:managed start id="engram-write-guard-base" hash="db2bdb99" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(mcp__engram__*) guard, CODEX ONLY. Claude gives a role its engram
@@ -351,7 +351,18 @@ navori_audit_script=$0
 navori_audit_sid_read() {
   navori_audit_sid=
   case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
-  navori_audit_sr=${payload#*'"session_id"'}
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
   case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
   navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
   case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac

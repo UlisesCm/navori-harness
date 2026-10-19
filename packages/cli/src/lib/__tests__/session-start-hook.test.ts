@@ -531,7 +531,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     expect(r.ctx).toContain(NOTICE);
     expect(r.ctx).not.toContain("#navori-tool-notice");
     expect(r.calls).toEqual([
-      "tools session-context",
+      "tools session-context --notice-reserve 300",
       "tools notice",
       "tools notice --ack engram@3.2.1",
     ]);
@@ -553,7 +553,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const banner = "USAGE navori init|add|render|doctor\n\nCOMMANDS\n  init  ...\n";
     const r = emit(stub(banner, { exit: 2 }));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 300", "tools notice"]);
   });
 
   it.each([
@@ -565,14 +565,14 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   ])("discards %s", (_name, output) => {
     const r = emit(stub(output));
     expect(r.ctx).toBe("");
-    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 300", "tools notice"]);
   });
 
   it("still delivers and acks the body when the budget is spent: the notice has its own reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_CTX_BUDGET: "10" });
     expect(r.ctx).toContain(NOTICE);
     expect(r.calls).toEqual([
-      "tools session-context",
+      "tools session-context --notice-reserve 300",
       "tools notice",
       "tools notice --ack engram@3.2.1",
     ]);
@@ -582,7 +582,7 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_NOTICE_RESERVE: "10" });
     expect(r.ctx).toContain("tool update notices didn't fit here");
     expect(r.ctx).not.toContain(NOTICE);
-    expect(r.calls).toEqual(["tools session-context", "tools notice"]);
+    expect(r.calls).toEqual(["tools session-context --notice-reserve 10", "tools notice"]);
   });
 
   it("does not call navori when opted out", () => {

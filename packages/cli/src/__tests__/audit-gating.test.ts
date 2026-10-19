@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shellSensitive } from "../lib/__tests__/helpers/shells.js";
 
 /**
  * Spec 0055 D4 — the audit decides by the session's own log, with builtins. Hooks are the
@@ -129,6 +130,92 @@ function events(): Record<string, unknown>[] {
 }
 
 describe("audit gating by active session log (spec 0055 R8, R9)", () => {
+  for (const shell of shellSensitive(
+    "shell wildcard searches become quadratic with large input before or after session_id",
+  )) {
+    for (const position of ["front", "tail"] as const) {
+      // Covers: R8, R9
+      it(`lee session_id (${position}) con 132 KB sin agotar el deadline en ${shell}`, () => {
+        const tool_input = { command: "x".repeat(132_000) };
+        const input = JSON.stringify(
+          position === "front"
+            ? { session_id: SESSION, tool_input }
+            : { tool_input, session_id: SESSION },
+        );
+        const res = spawnSync(
+          shell,
+          [
+            "-c",
+            [
+              '. "$1"',
+              "IFS= read -r payload",
+              "navori_audit_sid_read || exit 3",
+              'printf "%s" "$navori_audit_sid"',
+            ].join("\n"),
+            "audit-reader",
+            join(PARTIALS, "audit-log.sh"),
+          ],
+          {
+            input: `${input}\n`,
+            encoding: "utf8",
+            timeout: 2000,
+          },
+        );
+        expect(res.error, res.stderr).toBeUndefined();
+        expect(res.status, res.stderr).toBe(0);
+        expect(res.stdout).toBe(SESSION);
+      });
+    }
+
+    // Covers: R8, R9
+    it(`conserva ids válidos y rechaza duplicados o formas dudosas en ${shell}`, () => {
+      const cases: { payload: string; expected: string }[] = [
+        { payload: '"session_id"session_id":"probe"', expected: "uncertain" },
+        { payload: `{"session_id":"${SESSION}","extra":1}`, expected: SESSION },
+        { payload: `{"extra":1,"session_id" : "${SESSION}"}`, expected: SESSION },
+        { payload: `{"session_id":"${SESSION}","session_id":"other"}`, expected: "uncertain" },
+        {
+          payload: `{"session_id":"${SESSION}","nested":{"session_id":"other"}}`,
+          expected: "uncertain",
+        },
+        {
+          payload: `{"nested":{"session_id":"other"},"session_id":"${SESSION}"}`,
+          expected: "uncertain",
+        },
+        { payload: `{"tool_name":"Bash"}`, expected: "uncertain" },
+        { payload: `{"session_id":false}`, expected: "uncertain" },
+        { payload: `{"session_id":0}`, expected: "uncertain" },
+        { payload: `{"session_id":null}`, expected: "uncertain" },
+        { payload: `{"session_id":""}`, expected: "uncertain" },
+        { payload: `{"session_id":"bad/id"}`, expected: "uncertain" },
+        { payload: JSON.stringify({ session_id: 'bad"id' }), expected: "uncertain" },
+        { payload: `{"session_id":"${"a".repeat(257)}"}`, expected: "uncertain" },
+      ];
+      const res = spawnSync(
+        shell,
+        [
+          "-c",
+          [
+            '. "$1"',
+            "while IFS= read -r payload; do",
+            'if navori_audit_sid_read; then printf "%s\\n" "$navori_audit_sid"; else printf "uncertain\\n"; fi',
+            "done",
+          ].join("\n"),
+          "audit-reader",
+          join(PARTIALS, "audit-log.sh"),
+        ],
+        {
+          input: `${cases.map((entry) => entry.payload).join("\n")}\n`,
+          encoding: "utf8",
+          timeout: 2000,
+        },
+      );
+      expect(res.error, res.stderr).toBeUndefined();
+      expect(res.status, res.stderr).toBe(0);
+      expect(res.stdout.trim().split("\n")).toEqual(cases.map((entry) => entry.expected));
+    });
+  }
+
   for (const shell of SHELLS) {
     for (const hook of HOOKS) {
       // Covers: R8

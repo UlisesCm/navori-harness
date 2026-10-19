@@ -1,15 +1,17 @@
 # Sesión actual
 
-**Estado:** M3 cerrado en `e4c1ead3` y M9 en `a4db3432`, ambos APPROVED con receipts scoped consumidos válidos. M4 recibió CHANGES_REQUESTED: full adicional falló seis pruebas temporales; no receipt/commit M4. Rama `feat/0055-suite-rapida`; workplan nivel 3 `0055-suite-rapida-e1`, 261 rutas.
+Entrega funcional de `feat/0055-suite-rapida` preparada para PR [#1352](https://github.com/UlisesCm/navori-harness/pull/1352) hacia `dev`; publicación/CI deben verificarse antes del merge. No descartar trabajo ni cambiar rama mientras haya cambios sin publicar.
 
-Auditoría decide por log con builtins; fallback conservador, repos ocultos y carrera ms0. Replay limita normalización de líneas a stderr; stdout, estado y eventos estrictos. Render oficial45espejos; fuente estable.
+## Evidencia
 
-A3 pasó desde root y reviewer: 264 pruebas y 2996 casos idénticos off/active. Revisión independiente: scoped verde, affected seleccionó suite completa (459 archivos, 9597 pruebas aprobadas y 2 omitidas). Bundle 1598.8 KiB/1600. Árbol limpio tras el commit; sin push.
+Fix de PATH del replay reproducido antes en Linux limpio y validado después:47casos zsh off/active verdes,6unitarias,fast9/0. Solo dos referencias PATH del fixture cambian; inputs y expected intactos.
+
+Full independiente del reviewer `.navori/state/gate/full-20261019T141658283Z.log`: exit0,9732aprobadas/2omitidas,465archivos; cobertura87.59/85.94/90.2/80.52%,piso159/0. Revisión APPROVED y receipt full fresh antes de publicar. El full anterior164fallos coincide con ClamshellSleep y no demuestra164bugs independientes. No se elevaron límites ni se repitieron cohortes.
+
+## Alcance pendiente
+
+[#1354](https://github.com/UlisesCm/navori-harness/issues/1354) conserva mediciones R3/R29/T39 y M5/R12 diferido; Node permanece. [#1355](https://github.com/UlisesCm/navori-harness/issues/1355) conserva diagnóstico Pi. No declarar specE1/A11/T39 completos por el fix. [#1353](https://github.com/UlisesCm/navori-harness/issues/1353) registra la CI roja original; su corrección se confirma con CI del nuevo HEAD.
 
 ## Siguiente paso
 
-M4 sigue abierto, sin receipt/commit. fix_m4_trim terminó BLOCKED: corrección causal en extract-cmd.sh:73 reemplaza el recorte de sufijo cuadrático por case y trimming nativo sólo si hay NL final. Comparación serial old/fixed: ratio3.43/3.73; oversized34/175ms frente a4541ms antes. 137 pruebas focalizadas/golden, fast/render/size/sintaxis verdes. Afectados624 aprobadas/1fallo: paridad zsh supera300s bajo carga18.85/10CPUs; origen del timeout aún no determinado. Paridad zsh sola26616 exit1:1/1,310.3s, carga inicial9.54/10CPUs. Base a4db3432 en copia temporal propia17107 también exit1:1/1,394.1s, mismo timeout300s, carga inicial11.10 y posterior14.02. Ambas seriales; carga distinta/elevada impide conclusión de rendimiento. Fallo reproducido antes de M4 bajo condiciones actuales; no atribuir sólo a carga. Sin más reintentos ciegos ni cambios de límites. Research research_m4_zsh_baseline.md/probe m4-zsh-baseline.json. A4 fresco exacto72360 exit0:37 pruebas y2996casos idénticos off/active sobre bytes corregidos. Bench135 no comparable (loadBefore10.77/10CPUs), archivo hooks-2026-10-18T01-46-10-728Z.json; no aceptación temporal. Productor refrescó handoff BLOCKED. Segundo bench aislado74084 exit0/report-only:135 mediciones, no comparable (loadBefore11.22/10CPUs), Codex Bash363ms>300 en esa corrida no comparable. Usuario APROBÓ la excepción: revisar/commitear M4 con scoped+focalizadas+replay; posponer medición comparable y validación temporal de afectados/paridad a M11, sin cerrar/publicar E1 antes de full verde. Aplicar sólo en M4; no cierre/publicación E1 sin full verde. Siguen scribe/reviewer una vez resuelta la decisión. M6 brief listo sin dispatch. Primer CR M4 por seis fallos temporales, sin hallazgos funcionales; no segunda revisión hasta aclarar validación.
-
-Usuario DIFIRIÓ M5 de E1 (mem7995, solución/challenge M5). Conciliar R12/T19–T20 y D5 en próximo ciclo M6: conservar Node actual, sin afirmar resultado de oráculo. M6:85B audit-trigger es aviso válido (always); medir opt-in sin arm y conservar control positivo. Inventarios M5/M6/M10 disponibles. Sin push/publicación; E1 abierta.
-
-La captura automática A<n> requiere Bash, ausente en este host que usa exec_command anidado. Registro formal A3/A4/A9/A12 pendiente; conservar pruebas reales y receipts sin fabricar evidencia.
+Publicar los cambios revisados en PR1352, verificar CI del HEAD publicado y dejarlo listo para merge humano si está verde. No nuevas mediciones ni replays largos fuera del gate. El historial de evidencia previo permanece; el resumen del cierre está en history.md.

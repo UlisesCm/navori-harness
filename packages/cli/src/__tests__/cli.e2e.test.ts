@@ -1695,6 +1695,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(r.combined).not.toContain("No command specified");
   });
 
+  // Covers: R17
   it("'migrations --json' (boolean parent mirror) still emits JSON (#282)", async () => {
     // The boolean flag mirror works because it consumes no value token, so no
     // spurious positional is read as a subcommand.
@@ -1705,6 +1706,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(parsed).toHaveProperty("totalAvailable");
   });
 
+  // Covers: R17
   it("'migrations list --limit 5' truncates without crashing (#282 supported form)", async () => {
     // `migrations --limit N` cannot work (citty reads N as a subcommand); the
     // truncation flag lives on the `list` subcommand instead.
@@ -1757,6 +1759,7 @@ describe("CLI e2e — migrations parent/subcommand dispatch (#466)", () => {
     dirs = [];
   });
 
+  // Covers: R17
   it("'migrations list' prints its output exactly once", async () => {
     // citty runs the parent's `run` even after dispatching a subcommand, so the
     // parent's default-to-list used to print the whole list a second time.
@@ -1830,6 +1833,7 @@ describe("CLI e2e — numeric flag validation (#283)", () => {
     dirs = [];
   });
 
+  // Covers: R17
   it("'migrations list --limit abc' errors instead of silently emptying the list", () => {
     const r = runSpawned(["migrations", "list", "--limit", "abc"]);
     expect(r.status).not.toBe(0);
@@ -2339,6 +2343,7 @@ describe("CLI e2e — exit-code coverage after the R9 dedupe", () => {
     ["update", "update --dry-run reports drift without writing"],
   ];
 
+  // Covers: R17
   it("cada subcomando conserva un caso de código de salida real", () => {
     const lines = readFileSync(fileURLToPath(import.meta.url), "utf-8").split("\n");
     for (const [sub, title] of KEPT) {

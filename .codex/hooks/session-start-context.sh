@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="73da9535" version="0.12.1" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="b4b0fe67" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -397,7 +397,18 @@ navori_audit_script=$0
 navori_audit_sid_read() {
   navori_audit_sid=
   case ${payload:-} in *'"session_id"'*) ;; *) return 1 ;; esac
-  navori_audit_sr=${payload#*'"session_id"'}
+  # Consume quote-delimited chunks in this shell: wildcard prefix searches and
+  # duplicate scans can become quadratic with a large input before or after the key.
+  navori_audit_sr=
+  {
+    IFS= read -r -d '"' navori_audit_sv || :
+    while IFS= read -r -d '"' navori_audit_sv; do
+      if [ "$navori_audit_sv" = session_id ]; then
+        IFS= read -r -d '' navori_audit_sr || :
+        break
+      fi
+    done
+  } <<< "$payload"
   case $navori_audit_sr in *'"session_id"'*) return 1 ;; esac
   navori_audit_sr=${navori_audit_sr#"${navori_audit_sr%%[![:space:]]*}"}
   case $navori_audit_sr in :*) navori_audit_sr=${navori_audit_sr#:} ;; *) return 1 ;; esac
@@ -583,7 +594,10 @@ navori_audit_begin
 # an unhandled early return is.
 navori_audit_verdict="skip"
 navori_audit_reason=""
+# Only this invocation's allocated diagnostic file belongs to the EXIT cleanup.
+navori_sc_err=""
 navori_audit_on_exit() {
+  [ -z "${navori_sc_err:-}" ] || rm -f -- "$navori_sc_err" 2>/dev/null || true
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
 }
@@ -632,13 +646,15 @@ add_bounded() {
 # navori's usage banner into the model's context): the first line must be
 # `#navori-tool-notice v1 ack=<id@x.y.z[,...]>`; anything else is discarded whole. The
 # `ack` list is charset-checked here because it is passed back to the CLI. The delivery
-# is stamped (`--ack`) only after the BODY was emitted.
+# is stamped inside a modern CLI after validating the reserved body; legacy output
+# retains its separate `--ack` only after the BODY was emitted.
 # Pre-check order: nothing to emit with -> never call navori, so no worker either.
 #
 # Reserve: with a notice present, `add_bounded` keeps NAVORI_NOTICE_RESERVE (default
-# 300) characters free for it, so earlier sections give way a little sooner. No notice,
+# 300) UTF-8 bytes free for it, so earlier sections give way a little sooner. No notice,
 # no reserve: the budget is untouched.
 NAVORI_NOTICE_RESERVE=${NAVORI_NOTICE_RESERVE:-300}
+case "$NAVORI_NOTICE_RESERVE" in "" | *[!0-9]*) NAVORI_NOTICE_RESERVE=300 ;; esac
 navori_notice_ack=""
 navori_notice_ack_pending=""
 navori_notice_body=""
@@ -658,6 +674,7 @@ fi
 navori_dominio_ok=0
 [ -d "$HOME/.navori/workspaces" ] && navori_dominio_ok=1
 navori_sc_done=0
+navori_sc_notice_handled=0
 navori_sc_dominio=""
 notice=""
 if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -v navori >/dev/null 2>&1; then
@@ -668,13 +685,13 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
   # truncated or malformed output from a CLI that knows the subcommand. It stores the
   # `navori --version` string captured at write time; the probe is skipped while the
   # installed version still matches, so an upgrade re-probes whatever the binary's mtime says.
-  # Ceiling: stderr noise before the frame (a runtime warning) fails the framing and falls
-  # back to the two calls; revisit with a stdout-only probe if that shows up in practice.
+  # Keep diagnostics out of the frame: a warning must not discard an already-acked notice.
   # Only written when `~/.navori` already exists; a hook never creates it.
   navori_sc_memo="$HOME/.navori/.no-session-context"
   navori_sc_out=""
   navori_sc_rc=0
   navori_sc_skip=0
+  navori_sc_diag=""
   if [ -f "$navori_sc_memo" ] && [ ! -L "$navori_sc_memo" ]; then
     navori_sc_ver=$(navori --version 2>/dev/null || true)
     navori_sc_saved=$(head -n 1 "$navori_sc_memo" 2>/dev/null || true)
@@ -683,8 +700,27 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
     fi
   fi
   if [ "$navori_sc_skip" = 0 ]; then
-    navori_sc_out=$(navori tools session-context 2>&1) || navori_sc_rc=$?
+    navori_sc_err=$(mktemp "${TMPDIR:-/tmp}/navori-sc.XXXXXX" 2>/dev/null) || navori_sc_err=""
+    if [ -n "$navori_sc_err" ]; then
+      navori_sc_out=$(navori tools session-context --notice-reserve "$NAVORI_NOTICE_RESERVE" 2>"$navori_sc_err") || navori_sc_rc=$?
+      if [ "$navori_sc_rc" != 0 ]; then
+        navori_sc_diag=$(cat "$navori_sc_err" 2>/dev/null || true)
+      fi
+      rm -f -- "$navori_sc_err" 2>/dev/null || true
+      navori_sc_err=""
+    else
+      # No safe diagnostic sink: use the legacy path without consuming a modern notice.
+      navori_sc_rc=1
+    fi
   fi
+  # A legacy CLI may silently ignore the option. Only the explicit frame extension
+  # confirms that this process handled delivery; v1 keeps its post-emission ACK.
+  case "$navori_sc_out" in
+    "#navori-session-context v1 notice-reserve${navori_sc_nl}"*)
+      navori_sc_notice_handled=1
+      navori_sc_out="#navori-session-context v1${navori_sc_nl}${navori_sc_out#*"$navori_sc_nl"}"
+      ;;
+  esac
   navori_sc_rest=${navori_sc_out#"#navori-session-context v1${navori_sc_nl}#section notice${navori_sc_nl}"}
   if [ "$navori_sc_rc" = 0 ] && [ "$navori_sc_rest" != "$navori_sc_out" ]; then
     navori_sc_rest="${navori_sc_rest}${navori_sc_nl}"
@@ -711,7 +747,7 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
   # The CLI clearly does not know the subcommand: remember it, keyed on its version.
   if [ "$navori_sc_done" = 0 ] && [ "$navori_sc_skip" = 0 ] && [ "$navori_sc_rc" != 0 ] \
     && [ -d "$HOME/.navori" ] && [ ! -L "$navori_sc_memo" ]; then
-    case "$navori_sc_out" in
+    case "$navori_sc_out$navori_sc_diag" in
       *"Unknown command"*)
         navori_sc_ver=$(navori --version 2>/dev/null || true)
         if [ -n "$navori_sc_ver" ]; then
@@ -721,6 +757,7 @@ if { [ "$navori_notice_ok" = 1 ] || [ "$navori_dominio_ok" = 1 ]; } && command -
     esac
   fi
   if [ "$navori_sc_done" = 0 ] && [ "$navori_notice_ok" = 1 ]; then
+    navori_sc_notice_handled=0
     notice=$(navori tools notice 2>/dev/null || true)
   fi
 fi
@@ -735,9 +772,10 @@ if [ -n "$notice" ]; then
         *)
           if [ "$notice_body" != "$notice" ] && [ -n "$notice_body" ]; then
             navori_notice_body="$notice_body"
-            if [ $(( ${#notice_body} + 1 )) -le "$NAVORI_NOTICE_RESERVE" ]; then
+            notice_bytes=$(LC_ALL=C; printf '%s' "${#notice_body}")
+            if [ $(( notice_bytes + 1 )) -le "$NAVORI_NOTICE_RESERVE" ]; then
               navori_notice_ack_pending="$notice_ack"
-              navori_notice_reserve=$(( ${#notice_body} + 2 ))
+              navori_notice_reserve=$(( notice_bytes + 2 ))
             fi
           fi
           ;;
@@ -1121,8 +1159,9 @@ else
   navori_audit_reason="sin node ni jq: el contexto no se emitio"
 fi
 
-# Stamp the notice delivery AFTER the JSON went out, and only when it did.
-if [ "$navori_audit_verdict" = "inject" ] && [ -n "$navori_notice_ack" ]; then
+# Legacy CLI only: stamp delivery AFTER the JSON went out. The modern frame explicitly
+# confirms its own reservation handling, so the common path never launches another CLI.
+if [ "$navori_audit_verdict" = "inject" ] && [ -n "$navori_notice_ack" ] && [ "$navori_sc_notice_handled" = 0 ]; then
   navori tools notice --ack "$navori_notice_ack" >/dev/null 2>&1 || true
 fi
 exit 0

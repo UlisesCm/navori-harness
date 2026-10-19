@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellSensitive } from "../../../lib/__tests__/helpers/shells.ts";
@@ -51,6 +59,59 @@ describe("hook-batch", () => {
       const isolated = cases.map((c) => runHookIsolated(echoHook, shell, c));
       expect(batch).toEqual(isolated);
       expect(batch.map((r) => r.status)).toEqual([0, 2, 3, 0, 0]);
+    }
+  });
+
+  // Covers: R16, R18
+  it("cwd conserva espacios y newlines internos y elimina newlines finales como el driver original", () => {
+    const cwdHook = writeHook("cwd.sh", "pwd -P");
+    const paths = ["plain", "space dir", "line\nbreak", "trailing"].map((name: string): string => {
+      const path = join(dir, name);
+      mkdirSync(path);
+      return path;
+    });
+    const trailing = `${join(dir, "trailing")}\n\n`;
+    mkdirSync(trailing);
+    const cases: HookCase[] = paths.map((cwd: string): HookCase => ({ input: "", cwd }));
+    cases.push({ input: "", cwd: trailing });
+    for (const shell of BATCH_SHELLS) {
+      // Both command-substitution forms strip trailing newlines; isolated spawn does not.
+      const isolated = cases.map((c: HookCase) =>
+        runHookIsolated(cwdHook, shell, { ...c, cwd: c.cwd?.replace(/\n+$/, "") }),
+      );
+      for (const lanes of [1, 2]) {
+        expect(runHookBatch(cwdHook, shell, cases, { lanes })).toEqual(isolated);
+      }
+      expect(runHookIsolated(cwdHook, shell, { input: "", cwd: trailing })).toEqual({
+        status: 0,
+        stdout: `${realpathSync(trailing)}\n`,
+        stderr: "",
+      });
+    }
+  });
+
+  // Covers: R16, R18
+  it("el driver lee cwd sin ejecutar cat en bash y zsh", () => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const marker = join(dir, "cat-called");
+    const cat = join(bin, "cat");
+    writeFileSync(cat, '#!/bin/sh\nprintf called > "$CAT_MARKER"\nexit 91\n');
+    chmodSync(cat, 0o755);
+    const cwdHook = writeHook("cwd-no-cat.sh", "pwd -P");
+    const cases: HookCase[] = [{ input: "", cwd: dir }];
+    // Case env loads after cd, so the shim must be visible in the driver's inherited PATH.
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH ?? ""}`);
+    vi.stubEnv("CAT_MARKER", marker);
+    try {
+      for (const shell of BATCH_SHELLS) {
+        expect(runHookBatch(cwdHook, shell, cases)).toEqual(
+          cases.map((c: HookCase) => runHookIsolated(cwdHook, shell, c)),
+        );
+        expect(existsSync(marker)).toBe(false);
+      }
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 

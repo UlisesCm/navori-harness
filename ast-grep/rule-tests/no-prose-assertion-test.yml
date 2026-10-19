@@ -17,14 +17,18 @@ valid:
     expect(other).toContain("the agent must always read the file first");
 invalid:
   - |
+    // Covers: R22
     const text = readFileSync(join(root, "SKILL.md"), "utf8");
     expect(text).toContain("the agent must always read the file first");
   - |
+    // Covers: R22
     const text = readFileSync(join(root, "core-assets", "agents", "x.md"), "utf8");
     expect(text).not.toContain("the agent must always read the file first");
   - |
+    // Covers: R22
     const text = readFileSync("docs/DIRECTION.md", "utf8");
     expect(text).toMatch("one two three four five six seven");
   - |
+    // Covers: R22
     const text = readFileSync(join(root, "docs", "x.md"), "utf8");
     expect(text).toMatch(/seis palabras o mas en regex/);

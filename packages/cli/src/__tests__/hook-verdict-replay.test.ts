@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,7 +58,10 @@ interface Replay {
   replayCorpus: (options: {
     corpus: (Case & { expected: Record<string, unknown> })[];
     modes?: string[];
-    deps: { runHookBatch: typeof runHookBatch; resolveHook: (hook: string) => string };
+    deps: {
+      runHookBatch: typeof runHookBatch;
+      resolveHook: (hook: string, engine: string, scratch: { bin: string }) => string;
+    };
   }) => Promise<{ ok: boolean; cases: number; failure?: string }>;
   withActiveSession: (input: string) => string;
 }
@@ -121,6 +125,56 @@ const base = (input: string): Case => ({
 });
 
 describe("hook verdict corpus", () => {
+  // Covers: R13
+  it("replays recorded CLI and Node paths without exposing tools to restricted cases", async () => {
+    const dir = tmp();
+    const hookPath = join(dir, "path.sh");
+    writeFileSync(
+      hookPath,
+      [
+        'if command -v navori >/dev/null; then navori; else printf "no-cli\\n"; fi',
+        "if command -v node >/dev/null; then node -p 'JSON.stringify({portable:true})'; else printf \"no-node\\n\"; fi",
+      ].join("\n"),
+    );
+    const shim = join(dir, "shim");
+    mkdirp(shim);
+    for (const name of ["navori", "node"]) {
+      const path = join(shim, name);
+      writeFileSync(path, `#!/bin/sh\nprintf '${name}-shim\\n'\n`);
+      chmodSync(path, 0o755);
+    }
+    const recordedNode = "/unavailable-host/.nvm/versions/node/v24.0.0/bin";
+    const recordedTools = `@REPO@/packages/cli/node_modules/.bin:${recordedNode}`;
+    const rows = [
+      [recordedTools, 'local-cli\n{"portable":true}\n'],
+      [`${shim}:${recordedTools}`, "navori-shim\nnode-shim\n"],
+      [recordedNode, 'no-cli\n{"portable":true}\n'],
+      ["@CWD@/empty", "no-cli\nno-node\n"],
+      ["", "no-cli\nno-node\n"],
+    ] as const;
+    const corpus = rows.map(([PATH, stdout]) => ({
+      ...base(""),
+      envDelta: { PATH },
+      expected: { off: { status: 0, stdout, stderr: "" } },
+    }));
+    const result = await replay.replayCorpus({
+      corpus,
+      modes: ["off"],
+      deps: {
+        runHookBatch,
+        resolveHook: (_hook, _engine, scratch) => {
+          // Replace only the scratch symlink: the test exercises resolution without a CLI build.
+          const localCli = join(scratch.bin, "navori");
+          if (existsSync(localCli)) unlinkSync(localCli);
+          writeFileSync(localCli, "#!/bin/sh\nprintf 'local-cli\\n'\n");
+          chmodSync(localCli, 0o755);
+          return hookPath;
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true, cases: rows.length });
+  });
+
   // Covers: R13
   it("el replay falla en el primer caso cuyo exit, stdout o stderr difiere", async () => {
     const dir = tmp();

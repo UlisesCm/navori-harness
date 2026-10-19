@@ -200,8 +200,9 @@ const sh = (text, token, value) => text.replaceAll(token, value);
 /** Scratch project, tmp, home, empty cwd and local `navori` bin shared by every replay run. */
 function createScratch() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-replay-")));
-  const dirs = { root, project: join(root, "project"), tmp: join(root, "tmp"), home: join(root, "home"), none: join(root, "none"), bin: join(root, "bin"), audits: join(root, "audits") };
-  for (const dir of [dirs.project, dirs.tmp, dirs.home, dirs.none, dirs.bin]) mkdirSync(dir, { recursive: true });
+  const dirs = { root, project: join(root, "project"), tmp: join(root, "tmp"), home: join(root, "home"), none: join(root, "none"), bin: join(root, "bin"), nodeBin: join(root, "node-bin"), audits: join(root, "audits") };
+  for (const dir of [dirs.project, dirs.tmp, dirs.home, dirs.none, dirs.bin, dirs.nodeBin]) mkdirSync(dir, { recursive: true });
+  symlinkSync(process.execPath, join(dirs.nodeBin, "node"));
   dirs.cases = join(root, "cases");
   if (existsSync(join(REPO_ROOT, "navori.config.json"))) copyFileSync(join(REPO_ROOT, "navori.config.json"), join(dirs.project, "navori.config.json"));
   spawnSync("git", ["init", "-q"], { cwd: dirs.project, env: { PATH: process.env.PATH ?? "", HOME: dirs.home } });
@@ -209,6 +210,22 @@ function createScratch() {
   if (existsSync(dist)) symlinkSync(dist, join(dirs.bin, "navori"));
   // `project` is the template every "repo" case copies: a case never sees another's state files.
   return { ...dirs, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+/**
+ * Rebinds recorded tool directories in place, preserving shim priority and deliberately absent tools.
+ * The Node directory contains only Node, so it cannot expose a host's global CLI to negative cases.
+ *
+ * @param {string} path recorded PATH before token expansion
+ * @param {ReturnType<typeof createScratch>} scratch isolated tools
+ * @returns {string}
+ */
+function replayToolPath(path, scratch) {
+  return path.split(":").map((entry) => {
+    if (entry === "@REPO@/packages/cli/node_modules/.bin") return scratch.bin;
+    if (/\/\.nvm\/versions\/node\/v[^/]+\/bin$/.test(entry)) return scratch.nodeBin;
+    return entry;
+  }).join(":");
 }
 
 /**
@@ -271,7 +288,7 @@ function readEvents(spool) {
  */
 export function runMode(cases, mode, { resolveHook, runHookBatch, scratch }) {
   const results = new Array(cases.length);
-  const baseline = { PATH: [scratch.bin, process.env.PATH ?? ""].join(":"), HOME: scratch.home, TMPDIR: scratch.tmp };
+  const baseline = { PATH: [scratch.bin, scratch.nodeBin, process.env.PATH ?? ""].join(":"), HOME: scratch.home, TMPDIR: scratch.tmp };
   for (const key of ["LANG", "LC_ALL", "LC_CTYPE", "TERM"]) if (process.env[key] !== undefined) baseline[key] = process.env[key];
   const saved = { ...process.env };
   for (const key of Object.keys(process.env)) delete process.env[key];
@@ -311,7 +328,7 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, scratch }) {
         paths[i] = { project, root: caseRoot };
         const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
         const auditsRoot = join(scratch.audits, String(i));
-        const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(v, project, cwd)]));
+        const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));
         const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);
         if (mode === "active") {
           mkdirSync(auditsRoot, { recursive: true });

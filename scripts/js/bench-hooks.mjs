@@ -38,7 +38,7 @@ import { withoutRepoGitEnv } from "./git-env.mjs";
  * HOME and NAVORI_AUDITS_ROOT. The repo is never written, except `.navori/state/bench/`.
  * A command invoked by absolute path escapes the shim count (D10).
  *
- * Usage: node scripts/js/bench-hooks.mjs [--report-only] [--runs N]
+ * Usage: node scripts/js/bench-hooks.mjs [--report-only] [--runs N] [--scenario NAME ...]
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -52,6 +52,19 @@ export const SCENARIOS = {
   Agent: { payload: "agent.json", events: ["PreToolUse", "PostToolUse"], tools: { claude: "Agent", codex: "spawn_agent", pi: "Agent" } },
   SessionStart: { payload: "session-start.json", events: ["SessionStart"], source: "startup" },
   UserPromptSubmit: { payload: "user-prompt.json", events: ["UserPromptSubmit"] },
+};
+
+/** Additional hook observations; bench-context retains the original SCENARIOS population. */
+export const SUPPLEMENTAL_SCENARIOS = {
+  BashFailure: {
+    events: ["PostToolUseFailure"],
+    tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
+  },
+  SessionEnd: { events: ["SessionEnd"] },
+  Memory: {
+    events: ["PreToolUse"],
+    tools: { codex: "mcp__engram__mem_search" },
+  },
 };
 
 /**
@@ -134,7 +147,7 @@ export function parseCodexRegistrations(toml) {
  * @returns {Registration[]}
  */
 export function selectHooks(registrations, scenario, engine) {
-  const spec = SCENARIOS[scenario];
+  const spec = SCENARIOS[scenario] ?? SUPPLEMENTAL_SCENARIOS[scenario];
   const subject = spec.tools ? spec.tools[engine] : (spec.source ?? "");
   return registrations.filter((reg) => {
     if (reg.engine !== engine || !spec.events.includes(reg.event)) return false;
@@ -191,14 +204,17 @@ export function evaluateBudget(sums, budgetMs = BASH_BUDGET_MS) {
   return { ok: violations.length === 0, violations };
 }
 
-
-const PI_EVENTS = { tool_call: "PreToolUse", tool_result: "PostToolUse" };
+const PI_EVENTS = {
+  tool_call: "PreToolUse",
+  tool_result: "PostToolUse",
+  session_shutdown: "SessionEnd",
+};
 const PI_TOOL_NAMES = { bash: "Bash", edit: "Edit", write: "Write" };
 
 /**
  * Pi registrations from the text of `hook-bindings.ts` (`script`, `on`, optional `tools` per
- * row). Pi has no settings file: the bridge table is its registration. Only tool events are
- * benchmarked; lifecycle rows (`agent_before_settle`, `session_shutdown`) have no scenario.
+ * row). Pi has no settings file: the bridge table is its registration. Session shutdown uses
+ * the bridge's SessionEnd payload; agent_before_settle has no installed script in this checkout.
  * Read as text because the module pulls the whole config graph.
  *
  * @param {string} source
@@ -208,11 +224,14 @@ const PI_TOOL_NAMES = { bash: "Bash", edit: "Edit", write: "Write" };
 export function parsePiRegistrations(source, exists = () => true) {
   /** @type {Registration[]} */
   const out = [];
-  const row = /script:\s*"([\w-]+)",\s*on:\s*"(\w+)",\s*(?:tools:\s*\[([^\]]*)\],)?/g;
+  const row =
+    /script:\s*"([\w-]+)",\s*on:\s*"(\w+)",\s*(?:tools:\s*\[([^\]]*)\],)?/g;
   for (const [, script, on, tools] of source.matchAll(row)) {
     const event = PI_EVENTS[on];
     if (event === undefined || !exists(script)) continue;
-    const names = [...(tools ?? "").matchAll(/"(\w+)"/g)].map((m) => PI_TOOL_NAMES[m[1]] ?? m[1]);
+    const names = [...(tools ?? "").matchAll(/"(\w+)"/g)].map(
+      (m) => PI_TOOL_NAMES[m[1]] ?? m[1],
+    );
     out.push({
       engine: "pi",
       event,
@@ -328,19 +347,28 @@ export function createSandbox() {
  * @param {string} payloadPath
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
- * @returns {{ wallMs: number, cpuMs: number }}
+ * @returns {{ wallMs: number, cpuMs: number, exitCode: number | null }}
  */
 function timeOnce(command, payloadPath, cwd, env) {
   const run = spawnSync(
     "bash",
-    ["-c", 'TIMEFORMAT="%3R %3U %3S"; time bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD" >/dev/null 2>/dev/null'],
-    { cwd, env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath }, encoding: "utf8" },
+    [
+      "-c",
+      'TIMEFORMAT="%3R %3U %3S"; time bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD" >/dev/null 2>/dev/null',
+    ],
+    {
+      cwd,
+      env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
+      encoding: "utf8",
+    },
   );
   const match = /(\d+\.\d+) (\d+\.\d+) (\d+\.\d+)\s*$/.exec(run.stderr ?? "");
-  if (!match) throw new Error(`cannot read time output for: ${command}\n${run.stderr}`);
+  if (!match)
+    throw new Error(`cannot read time output for: ${command}\n${run.stderr}`);
   return {
     wallMs: Math.round(Number(match[1]) * 1000),
     cpuMs: Math.round((Number(match[2]) + Number(match[3])) * 1000),
+    exitCode: run.status,
   };
 }
 
@@ -351,16 +379,80 @@ function timeOnce(command, payloadPath, cwd, env) {
  * @param {string} payloadPath
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env env of `sandbox.env(audit, true)`
- * @returns {Record<string, number>}
+ * @param {boolean} [capture] retain supplemental output and exit status without changing timing
+ * @returns {{ execs: Record<string, number>, exitCode: number | null, stdout: string, stderr: string }}
  */
-function countOnce(command, payloadPath, cwd, env) {
+function countOnce(command, payloadPath, cwd, env, capture = false) {
   const log = env.BENCH_EXEC_LOG;
   writeFileSync(log, "");
-  spawnSync("bash", ["-c", 'bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD" >/dev/null 2>/dev/null'], {
-    cwd,
-    env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
-  });
-  return countExecs(readFileSync(log, "utf8"));
+  const run = spawnSync(
+    "bash",
+    [
+      "-c",
+      'bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD"' +
+        (capture ? "" : " >/dev/null 2>/dev/null"),
+    ],
+    {
+      cwd,
+      env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
+      encoding: "utf8",
+    },
+  );
+  return {
+    execs: countExecs(readFileSync(log, "utf8")),
+    exitCode: run.status,
+    stdout: run.stdout,
+    stderr: run.stderr,
+  };
+}
+
+/**
+ * Restore only supplemental state before each timed/count invocation, outside the timer.
+ * Fixture session headers describe private benchmark logs, never native producer identities.
+ *
+ * @param {ReturnType<typeof createSandbox>} sandbox
+ * @param {string} scenario
+ * @param {Registration} reg
+ * @param {AuditScenario} audit
+ * @param {boolean} [counting]
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function scenarioEnvironment(
+  sandbox,
+  scenario,
+  reg,
+  audit,
+  counting = false,
+) {
+  const env = sandbox.env(audit, counting);
+  if (scenario === "BashFailure") {
+    env.CLAUDE_CODE_SESSION_ID = "bench-session";
+    rmSync(
+      join(
+        sandbox.project,
+        ".navori/state/hooks/bash-outcome-watch/bench-session",
+      ),
+      { force: true },
+    );
+  }
+  if (scenario === "SessionEnd" && audit === "active") {
+    const repo = join(env.NAVORI_AUDITS_ROOT, "project");
+    chmodSync(env.NAVORI_AUDITS_ROOT, 0o700);
+    chmodSync(repo, 0o700);
+    const log = join(repo, "session-bench-session.log");
+    writeFileSync(
+      log,
+      JSON.stringify({
+        event: "start",
+        sessionId: "bench-session",
+        host: reg.engine,
+        repo: "project",
+        cwd: sandbox.project,
+      }) + "\n",
+    );
+    chmodSync(log, 0o600);
+  }
+  return env;
 }
 
 /**
@@ -397,7 +489,40 @@ export function readRegistrations() {
  */
 export function writePayload(sandbox, scenario, reg) {
   const spec = SCENARIOS[scenario];
-  const payloadPath = join(sandbox.root, `${reg.engine}-${scenario}-${reg.event}.json`);
+  const payloadPath = join(
+    sandbox.root,
+    `${reg.engine}-${scenario}-${reg.event}.json`,
+  );
+  const supplemental = {
+    BashFailure: {
+      session_id: "bench-session",
+      cwd: sandbox.project,
+      hook_event_name: reg.event,
+      tool_name: "Bash",
+      tool_input: { command: "false" },
+      tool_use_id: "toolu_bench_failure",
+      error: "Exit code 1\nbenchmark command failed",
+      is_interrupt: false,
+    },
+    SessionEnd: {
+      session_id: "bench-session",
+      cwd: sandbox.project,
+      hook_event_name: reg.event,
+      reason: "prompt_input_exit",
+      permission_mode: "dontAsk",
+    },
+    Memory: {
+      session_id: "bench-session",
+      cwd: sandbox.project,
+      hook_event_name: reg.event,
+      tool_name: "mcp__engram__mem_search",
+      tool_input: { query: "benchmark fixture", response_format: "compact" },
+    },
+  }[scenario];
+  if (supplemental) {
+    writeFileSync(payloadPath, JSON.stringify(supplemental) + "\n");
+    return payloadPath;
+  }
   writeFileSync(
     payloadPath,
     readFileSync(join(PAYLOADS, spec.payload), "utf8")
@@ -420,20 +545,57 @@ function main(argv) {
     process.stderr.write("bench:hooks: --runs needs a positive integer\n");
     return 2;
   }
+  const allScenarios = { ...SCENARIOS, ...SUPPLEMENTAL_SCENARIOS };
+  const requested = argv.flatMap((arg, index) =>
+    arg === "--scenario" ? [argv[index + 1]] : [],
+  );
+  if (requested.some((scenario) => !Object.hasOwn(allScenarios, scenario))) {
+    process.stderr.write(
+      "bench:hooks: --scenario needs a known scenario name\n",
+    );
+    return 2;
+  }
+  const scenarios =
+    requested.length > 0 ? [...new Set(requested)] : Object.keys(allScenarios);
   const registrations = readRegistrations();
   const sandbox = createSandbox();
   const loadBefore = loadavg();
   /** @type {Measurement[]} */
   const measurements = [];
   try {
-    for (const [scenario] of Object.entries(SCENARIOS)) {
-      for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
+    for (const scenario of scenarios) {
+      for (const engine of /** @type {Engine[]} */ ([
+        "claude",
+        "codex",
+        "pi",
+      ])) {
         for (const reg of selectHooks(registrations, scenario, engine)) {
           const payloadPath = writePayload(sandbox, scenario, reg);
           const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
-          for (const audit of /** @type {AuditScenario[]} */ (["absent", "root", "active"])) {
-            const timed = Array.from({ length: runs }, () => timeOnce(reg.command, payloadPath, sandbox.project, sandbox.env(audit)));
-            const execs = countOnce(reg.command, payloadPath, sandbox.project, sandbox.env(audit, true));
+          for (const audit of /** @type {AuditScenario[]} */ ([
+            "absent",
+            "root",
+            "active",
+          ])) {
+            const timed = Array.from({ length: runs }, () =>
+              timeOnce(
+                reg.command,
+                payloadPath,
+                sandbox.project,
+                scenarioEnvironment(sandbox, scenario, reg, audit),
+              ),
+            );
+            const supplemental = Object.hasOwn(
+              SUPPLEMENTAL_SCENARIOS,
+              scenario,
+            );
+            const counted = countOnce(
+              reg.command,
+              payloadPath,
+              sandbox.project,
+              scenarioEnvironment(sandbox, scenario, reg, audit, true),
+              supplemental,
+            );
             measurements.push({
               ...reg,
               scenario,
@@ -442,7 +604,17 @@ function main(argv) {
               wallMsMedian: median(timed.map((t) => t.wallMs)),
               cpuMsMedian: median(timed.map((t) => t.cpuMs)),
               runsMs: timed.map((t) => t.wallMs),
-              execs,
+              execs: counted.execs,
+              ...(supplemental
+                ? {
+                    outcome: {
+                      exitCodes: timed.map((time) => time.exitCode),
+                      countedExitCode: counted.exitCode,
+                      stdout: counted.stdout,
+                      stderr: counted.stderr,
+                    },
+                  }
+                : {}),
             });
           }
         }
@@ -453,7 +625,13 @@ function main(argv) {
   }
   // The R27 budget keeps its meaning: a Bash call with the audit root present but no active log.
   const sums = sumByEvent(
-    measurements.filter((m) => m.audit === "root").map((m) => ({ engine: m.engine, scenario: m.scenario, medianMs: m.cpuMsMedian })),
+    measurements
+      .filter((m) => m.audit === "root")
+      .map((m) => ({
+        engine: m.engine,
+        scenario: m.scenario,
+        medianMs: m.cpuMsMedian,
+      })),
   );
   const verdict = evaluateBudget(sums);
   const cpus = availableParallelism();
@@ -465,32 +643,46 @@ function main(argv) {
     workers: 1,
     comparable: isComparable(loadBefore, cpus),
     runs,
+    scenarios,
     budgetMs: BASH_BUDGET_MS,
     sums,
     measurements,
   };
   const dir = join(REPO_ROOT, ".navori", "state", "bench");
   mkdirSync(dir, { recursive: true });
-  const stamped = join(dir, `hooks-${result.generatedAt.replace(/[:.]/g, "-")}.json`);
+  const stamped = join(
+    dir,
+    `hooks-${result.generatedAt.replace(/[:.]/g, "-")}.json`,
+  );
   writeFileSync(stamped, `${JSON.stringify(result, null, 2)}\n`);
   copyFileSync(stamped, join(dir, "hooks-latest.json"));
   for (const [engine, scenarios] of Object.entries(sums)) {
     for (const [scenario, s] of Object.entries(scenarios)) {
-      process.stdout.write(`bench:hooks ${engine} ${scenario}: ${s.totalMs.toFixed(0)} ms cpu (${s.hooks} hooks)\n`);
+      process.stdout.write(
+        `bench:hooks ${engine} ${scenario}: ${s.totalMs.toFixed(0)} ms cpu (${s.hooks} hooks)\n`,
+      );
     }
   }
   process.stdout.write(
     `bench:hooks measurements=${measurements.length} comparable=${result.comparable} ` +
       `load=${loadBefore.map((n) => n.toFixed(2)).join("/")} cpus=${cpus}\n`,
   );
-  if (!result.comparable) process.stderr.write("bench:hooks NOT comparable: the machine was not idle at the start\n");
+  if (!result.comparable)
+    process.stderr.write(
+      "bench:hooks NOT comparable: the machine was not idle at the start\n",
+    );
   if (!verdict.ok) {
-    process.stderr.write(`bench:hooks over budget:\n${verdict.violations.map((v) => `  - ${v}`).join("\n")}\n`);
+    process.stderr.write(
+      `bench:hooks over budget:\n${verdict.violations.map((v) => `  - ${v}`).join("\n")}\n`,
+    );
     return reportOnly ? 0 : 1;
   }
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   process.exit(main(process.argv.slice(2)));
 }

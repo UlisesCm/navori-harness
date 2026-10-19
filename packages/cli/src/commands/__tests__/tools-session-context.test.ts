@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -134,8 +135,12 @@ describe.each(
    * A `navori` stub. `sessionContext` is what `tools session-context` prints (and its
    * exit code); the two old subcommands answer with `NOTICE` and `DOMINIO`.
    */
-  function stub(sessionContext: { out: string; exit: number }, version = "0.12.1"): void {
+  function stub(
+    sessionContext: { out: string; exit: number; err?: string },
+    version = "0.12.1",
+  ): void {
     writeFileSync(join(bin, "sc-out"), sessionContext.out);
+    writeFileSync(join(bin, "sc-err"), sessionContext.err ?? "");
     writeFileSync(join(bin, "notice-out"), NOTICE);
     writeFileSync(join(bin, "dominio-out"), DOMINIO);
     writeFileSync(
@@ -144,7 +149,7 @@ describe.each(
 echo "$*" >> '${log}'
 case "$*" in
   "--version") echo '${version}'; exit 0 ;;
-  "tools session-context") cat '${join(bin, "sc-out")}'; exit ${sessionContext.exit} ;;
+  "tools session-context --notice-reserve "*) cat '${join(bin, "sc-err")}' >&2; cat '${join(bin, "sc-out")}'; exit ${sessionContext.exit} ;;
   "tools notice") cat '${join(bin, "notice-out")}' ;;
   "dominio inject") cat '${join(bin, "dominio-out")}' ;;
 esac
@@ -166,6 +171,7 @@ exit 0
       env: {
         ...process.env,
         HOME: home,
+        TMPDIR: dir,
         NAVORI_NO_UPDATE_NOTIFIER: "",
         PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
       },
@@ -185,10 +191,13 @@ exit 0
 
   // Covers: R25
   it("salida completa o nada y caída a las dos llamadas con CLI viejo", () => {
-    // Complete output: ONE call for both sections (plus the ack of the delivered notice).
+    // A legacy CLI accepts/ignores the new flag: v1 still needs its post-delivery ACK.
     stub({ out: framed(NOTICE, DOMINIO), exit: 0 });
     const full = run(shell);
-    expect(full.calls).toEqual(["tools session-context", "tools notice --ack engram@3.2.1"]);
+    expect(full.calls).toEqual([
+      "tools session-context --notice-reserve 300",
+      "tools notice --ack engram@3.2.1",
+    ]);
     expect(full.ctx).toContain(NOTICE_BODY);
     expect(full.ctx).toContain("coachee");
     expect(full.ctx).not.toContain("#section");
@@ -218,6 +227,10 @@ exit 0
         { out: framed(NOTICE, `${SESSION_CONTEXT_DOMINIO}\n${DOMINIO}`), exit: 0 },
       ],
       ["trailing text after the end marker", { out: `${framed(NOTICE, DOMINIO)}extra\n`, exit: 0 }],
+      [
+        "a malformed modern frame",
+        { out: framed(NOTICE, DOMINIO, "").replace(" v1\n", " v1 notice-reserve\n"), exit: 0 },
+      ],
     ];
     for (const [name, output] of fallbacks) {
       stub(output);
@@ -225,7 +238,7 @@ exit 0
       // The version probe only runs to key the memo on an unknown-command answer.
       r.calls = r.calls.filter((c) => c !== "--version");
       expect(r.calls, name).toEqual([
-        "tools session-context",
+        "tools session-context --notice-reserve 300",
         "tools notice",
         "dominio inject",
         "tools notice --ack engram@3.2.1",
@@ -240,11 +253,44 @@ exit 0
     exit: 1,
   };
 
+  // Covers: R11
+  it("preserves modern notice internal and trailing newlines without a second ACK", () => {
+    const body = "ñ€\nsecond\n\n";
+    const notice = `${TOOL_NOTICE_SENTINEL}engram@3.2.1\n${body}\n`;
+    stub({ out: framed(notice, DOMINIO).replace(" v1\n", " v1 notice-reserve\n"), exit: 0 });
+    const result = run(shell);
+    expect(result.calls).toEqual(["tools session-context --notice-reserve 300"]);
+    expect(result.ctx.endsWith(`${body}\n`)).toBe(true);
+  });
+
+  // Covers: R11
+  it("recognizes unknown-command on stderr and cleans the private diagnostic file", () => {
+    stub({ out: "", err: "Unknown command session-context\n", exit: 1 });
+    const result = run(shell);
+    expect(result.calls).toContain("tools notice --ack engram@3.2.1");
+    expect(readFileSync(memo(), "utf8")).toBe("0.12.1\n");
+    expect(readdirSync(dir).filter((name) => name.startsWith("navori-sc."))).toEqual([]);
+  });
+
+  // Covers: R11
+  it("falls back without consuming modern delivery when mktemp is unavailable", () => {
+    stub({ out: framed(NOTICE, DOMINIO).replace(" v1\n", " v1 notice-reserve\n"), exit: 0 });
+    writeFileSync(join(bin, "mktemp"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const result = run(shell);
+    expect(result.calls).toEqual([
+      "tools notice",
+      "dominio inject",
+      "tools notice --ack engram@3.2.1",
+    ]);
+    expect(result.ctx).toContain(NOTICE_BODY);
+    expect(existsSync(memo())).toBe(false);
+  });
+
   // Covers: R25
   it("un CLI viejo se recuerda por versión: la caída no vuelve a pagar la llamada nueva", () => {
     stub(UNKNOWN);
     const first = run(shell);
-    expect(first.calls[0]).toBe("tools session-context");
+    expect(first.calls[0]).toBe("tools session-context --notice-reserve 300");
     expect(readFileSync(memo(), "utf-8")).toBe("0.12.1\n");
     // Same version: the probe is skipped, only the two old calls (plus the version check).
     const second = run(shell, true);
@@ -257,7 +303,7 @@ exit 0
     expect(second.ctx).toContain(NOTICE_BODY);
     // An upgraded version re-probes (the binary's mtime is irrelevant) and, if framed, is used.
     stub({ out: framed(NOTICE, DOMINIO), exit: 0 }, "0.13.0");
-    expect(run(shell, true).calls).toContain("tools session-context");
+    expect(run(shell, true).calls).toContain("tools session-context --notice-reserve 300");
   });
 
   // Covers: R25
@@ -276,6 +322,6 @@ exit 0
     // A zero-byte memo from an earlier build never matches a version: it is re-probed.
     stub({ out: framed(NOTICE, DOMINIO), exit: 0 });
     writeFileSync(memo(), "");
-    expect(run(shell, true).calls).toContain("tools session-context");
+    expect(run(shell, true).calls).toContain("tools session-context --notice-reserve 300");
   });
 });

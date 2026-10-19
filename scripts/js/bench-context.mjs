@@ -140,6 +140,25 @@ function measureTestAffected() {
   }
 }
 
+/**
+ * Materialize the neutral population from its actual policy; copying `always` hooks
+ * would measure a legitimate audit-activation notice as unsolicited context.
+ *
+ * @param {ReturnType<typeof createSandbox>} sandbox
+ */
+export function renderNeutralHooks(sandbox) {
+  const path = join(sandbox.project, "navori.config.json");
+  const config = JSON.parse(readFileSync(path, "utf8"));
+  config.audit = { ...config.audit, mode: "opt-in" };
+  writeFileSync(path, JSON.stringify(config, null, 2));
+  const run = spawnSync("node", [DIST, "render", "--apply", "--cwd", sandbox.project], {
+    cwd: sandbox.project,
+    env: sandbox.baseEnv,
+    encoding: "utf8",
+  });
+  if (run.status !== 0) throw new Error(`bench:context: neutral render failed: ${run.stdout}${run.stderr}`);
+}
+
 function main() {
   const registrations = readRegistrations();
   const sandbox = createSandbox();
@@ -148,6 +167,7 @@ function main() {
   const sessionStart = { claude: 0, codex: 0 };
   let gate;
   try {
+    renderNeutralHooks(sandbox);
     const env = sandbox.env("absent");
     for (const scenario of Object.keys(SCENARIOS)) {
       for (const engine of ["claude", "codex", "pi"]) {

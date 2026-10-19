@@ -8,8 +8,11 @@ valid:
     const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
 invalid:
   - |
+    // Covers: R20
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   - |
+    // Covers: R20
     await new Promise((r) => setTimeout(r, 1000));
   - |
+    // Covers: R20
     await new Promise<void>((done) => setTimeout(done, 40));

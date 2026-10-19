@@ -8,14 +8,20 @@ valid:
     const s = "see /usr/local/bin";
 invalid:
   - |
+    // Covers: R7
     const home = userInfo().homedir;
   - |
+    // Covers: R7
     const home = os.userInfo().homedir;
   - |
+    // Covers: R7
     const p = "/Users/someone/project";
   - |
+    // Covers: R7
     const p = "/home/someone/project";
   - |
+    // Covers: R7
     const p = `/Users/someone/${name}`;
   - |
+    // Covers: R7
     const p = `/home/someone/project`;

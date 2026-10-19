@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   existsSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -13,7 +14,11 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isComparable, readSpawnCounts, summarizeReport } from "../../scripts/bench-tests.mjs";
-import { budgetViolations, validateBudget } from "../../scripts/check-test-budget.mjs";
+import {
+  budgetViolations,
+  proposeBudget,
+  validateBudget,
+} from "../../scripts/check-test-budget.mjs";
 
 /**
  * Spec 0054 M1 — the measurement scripts. Fixed fixtures only: no test here
@@ -23,6 +28,47 @@ import { budgetViolations, validateBudget } from "../../scripts/check-test-budge
 const here = dirname(fileURLToPath(import.meta.url));
 const BUDGET_SCRIPT = resolve(here, "..", "..", "scripts", "check-test-budget.mjs");
 const ROOT = "/repo/packages/cli";
+
+interface BenchObservation {
+  generatedAt: string;
+  workers: number;
+  loadavgBefore: number[];
+  comparable: boolean;
+  success: boolean;
+  vitestExit: number;
+  wallMs: number;
+  totalFiles: number;
+  totalTests: number;
+  sumFilesMs: number;
+  files: { file: string; ms: number; status: string; tests: number }[];
+}
+
+/** Produces independent, complete bench observations without running the real suite. */
+function budgetObservations(
+  files: string[] = ["src/fast.test.ts", "src/slow.test.ts"],
+): BenchObservation[] {
+  return [0, 1, 2].map((index) => {
+    const rows = files.map((file, fileIndex) => ({
+      file,
+      ms: fileIndex === 0 ? 16_000 : [20_000, 24_001, 21_000][index]!,
+      status: "passed",
+      tests: 1,
+    }));
+    return {
+      generatedAt: `2026-10-18T00:00:0${index}.000Z`,
+      workers: 4,
+      loadavgBefore: [4, 20, 20],
+      comparable: true,
+      success: true,
+      vitestExit: 0,
+      wallMs: 100_000,
+      totalFiles: rows.length,
+      totalTests: rows.length,
+      sumFilesMs: rows.reduce((sum, row) => sum + row.ms, 0),
+      files: rows,
+    };
+  });
+}
 
 interface Registration {
   engine: "claude" | "codex" | "pi";
@@ -39,6 +85,17 @@ interface Sandbox {
   cleanup: () => void;
 }
 interface BenchHooks {
+  SCENARIOS: Record<string, unknown>;
+  SUPPLEMENTAL_SCENARIOS: Record<string, unknown>;
+  readRegistrations: () => Registration[];
+  writePayload: (sandbox: Sandbox, scenario: string, reg: Registration) => string;
+  scenarioEnvironment: (
+    sandbox: Sandbox,
+    scenario: string,
+    reg: Registration,
+    audit: "absent" | "root" | "active",
+    counting?: boolean,
+  ) => NodeJS.ProcessEnv;
   countExecs: (log: string) => Record<string, number>;
   createSandbox: () => Sandbox;
   isComparable: (loadavgBefore: number[], cpus: number) => boolean;
@@ -74,7 +131,218 @@ const {
 } = hooksModule;
 
 describe("bench scripts", () => {
-  // Covers: R1
+  // Covers: R30
+  it("propone solo excepciones sobre el default desde el máximo de tres mediciones en reposo", () => {
+    const observations = budgetObservations();
+    observations[1]!.files.reverse();
+    const proposal = proposeBudget(
+      observations,
+      {
+        defaultMs: 20_000,
+        exceptions: [{ file: "src/stale.test.ts", ms: 90_000, reason: "old measurement" }],
+      },
+      ["src/slow.test.ts", "src/fast.test.ts"],
+    );
+    expect(proposal.defaultMs).toBe(20_000);
+    expect(proposal.exceptions).toEqual([
+      {
+        file: "src/slow.test.ts",
+        ms: 35_000,
+        reason: expect.stringContaining("20000, 24001, 21000 ms"),
+      },
+    ]);
+    for (const observation of observations)
+      expect(proposal.exceptions[0]!.reason).toContain(observation.generatedAt);
+    expect(validateBudget(proposal).ok).toBe(true);
+  });
+
+  // Covers: R30
+  it.each([
+    {
+      id: "too few",
+      mutate: (rows: BenchObservation[]): void => {
+        rows.pop();
+      },
+    },
+    {
+      id: "too many",
+      mutate: (rows: BenchObservation[]): void => {
+        rows.push(rows[0]!);
+      },
+    },
+    {
+      id: "duplicate observation",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[1]!.generatedAt = rows[0]!.generatedAt;
+      },
+    },
+    {
+      id: "failed exit",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.vitestExit = 1;
+      },
+    },
+    {
+      id: "failed run",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.success = false;
+      },
+    },
+    {
+      id: "noncomparable",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.comparable = false;
+      },
+    },
+    {
+      id: "false idle claim",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.loadavgBefore[0] = 4.01;
+      },
+    },
+    {
+      id: "invalid load",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.loadavgBefore[0] = Number.NaN;
+      },
+    },
+    {
+      id: "zero workers",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.workers = 0;
+      },
+    },
+    {
+      id: "different workers",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.workers = 5;
+      },
+    },
+    {
+      id: "negative duration",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[0]!.ms = -1;
+      },
+    },
+    {
+      id: "infinite duration",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[0]!.ms = Infinity;
+      },
+    },
+    {
+      id: "unsafe proposal",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[0]!.ms = 1e100;
+        rows[0]!.sumFilesMs = 1e100;
+      },
+    },
+    {
+      id: "failed file",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[0]!.status = "failed";
+      },
+    },
+    {
+      id: "duplicate file",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[1]!.file = rows[0]!.files[0]!.file;
+      },
+    },
+    {
+      id: "different file set",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files[0]!.file = "src/other.test.ts";
+      },
+    },
+    {
+      id: "partial report",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.files.pop();
+      },
+    },
+    {
+      id: "inconsistent total",
+      mutate: (rows: BenchObservation[]): void => {
+        rows[0]!.sumFilesMs++;
+      },
+    },
+  ])("rechaza evidencia no admisible: $id", ({ mutate }) => {
+    const rows = budgetObservations();
+    mutate(rows);
+    expect(() =>
+      proposeBudget(rows, { defaultMs: 20_000, exceptions: [] }, [
+        "src/fast.test.ts",
+        "src/slow.test.ts",
+      ]),
+    ).toThrow();
+  });
+
+  // Covers: R30
+  it("rechaza tres reportes parciales aunque coincidan entre sí", () => {
+    const partial = budgetObservations(["src/fast.test.ts"]);
+    expect(() =>
+      proposeBudget(partial, { defaultMs: 20_000, exceptions: [] }, [
+        "src/fast.test.ts",
+        "src/slow.test.ts",
+      ]),
+    ).toThrow(/complete current test file set/);
+  });
+
+  // Covers: R30
+  it("CLI imprime JSON solamente, conserva el presupuesto y rechaza copias o reportes parciales", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-budget-propose-"));
+    try {
+      const root = resolve(here, "..", "..");
+      const inventory = globSync("src/**/*.test.ts", { cwd: root });
+      const observations = budgetObservations(inventory);
+      const paths = observations.map((report, index) => {
+        const path = join(dir, `bench-${index}.json`);
+        writeFileSync(path, JSON.stringify(report));
+        return path;
+      });
+      const budgetPath = join(dir, "budget.json");
+      const original = JSON.stringify({ defaultMs: 20_000, exceptions: [] });
+      writeFileSync(budgetPath, original);
+      const run = (reports: string[], extra: string[] = []): SpawnSyncReturns<string> =>
+        spawnSync(
+          "node",
+          [BUDGET_SCRIPT, "--budget", budgetPath, "--propose", ...reports, ...extra],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              NAVORI_TEST_BUDGET_FACTOR: "invalid-unused",
+            },
+          },
+        );
+      const valid = run(paths);
+      expect(valid.status, valid.stderr).toBe(0);
+      expect(valid.stderr).toBe("");
+      const proposal: unknown = JSON.parse(valid.stdout);
+      expect(validateBudget(proposal).ok).toBe(true);
+      expect(proposal).toMatchObject({
+        defaultMs: 20_000,
+        exceptions: expect.any(Array),
+      });
+      expect(readFileSync(budgetPath, "utf8")).toBe(original);
+      const copied = join(dir, "copy.json");
+      writeFileSync(copied, readFileSync(paths[0]!));
+      expect(run([paths[0]!, paths[1]!, copied]).status).toBe(1);
+      writeFileSync(paths[2]!, JSON.stringify(budgetObservations([inventory[0]!])[2]));
+      const partial = run(paths);
+      expect(partial.status).toBe(1);
+      expect(partial.stdout).toBe("");
+      expect(partial.stderr).toContain("complete current test file set");
+      expect(run(paths.slice(0, 2)).status).toBe(1);
+      expect(run(paths, ["--report", paths[0]!]).status).toBe(1);
+      expect(readFileSync(budgetPath, "utf8")).toBe(original);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R1, R29
   it("bench:tests resume pared, por archivo y top 25 desde un reporte fijo", () => {
     // Shape pinned against vitest 5.0.1 `--reporter=json`: no total duration, per-file startTime/endTime.
     const report = {
@@ -137,7 +405,12 @@ describe("bench scripts", () => {
         reportPath,
         JSON.stringify({
           testResults: [
-            { name: join(root, "src/over.test.ts"), startTime: 0, endTime: 1500, status: "passed" },
+            {
+              name: join(root, "src/over.test.ts"),
+              startTime: 0,
+              endTime: 1500,
+              status: "passed",
+            },
           ],
         }),
       );
@@ -176,7 +449,10 @@ describe("bench scripts", () => {
     expect(fractional.ok).toBe(false);
     expect(validateBudget({ defaultMs: 0, exceptions: [] }).ok).toBe(false);
     expect(
-      validateBudget({ defaultMs: 5000, exceptions: [ok.exceptions[0], ok.exceptions[0]] }).ok,
+      validateBudget({
+        defaultMs: 5000,
+        exceptions: [ok.exceptions[0], ok.exceptions[0]],
+      }).ok,
     ).toBe(false);
 
     const dir = mkdtempSync(join(tmpdir(), "navori-budget-"));
@@ -184,9 +460,14 @@ describe("bench scripts", () => {
       const bad = join(dir, "bad.json");
       writeFileSync(
         bad,
-        JSON.stringify({ defaultMs: 5000, exceptions: [{ file: "a", ms: 1, reason: "" }] }),
+        JSON.stringify({
+          defaultMs: 5000,
+          exceptions: [{ file: "a", ms: 1, reason: "" }],
+        }),
       );
-      const run = spawnSync("node", [BUDGET_SCRIPT, "--budget", bad], { encoding: "utf8" });
+      const run = spawnSync("node", [BUDGET_SCRIPT, "--budget", bad], {
+        encoding: "utf8",
+      });
       expect(run.status).toBe(1);
       expect(run.stderr).toContain("reason");
       const good = join(dir, "good.json");
@@ -206,7 +487,10 @@ describe("bench scripts", () => {
     const claude = parseClaudeRegistrations({
       hooks: {
         PreToolUse: [
-          { matcher: "Bash", hooks: [{ command: "bash a.sh" }, { command: "bash b.sh" }] },
+          {
+            matcher: "Bash",
+            hooks: [{ command: "bash a.sh" }, { command: "bash b.sh" }],
+          },
           { matcher: "Bash|Edit|Write", hooks: [{ command: "bash c.sh" }] },
           { matcher: "Agent", hooks: [{ command: "bash d.sh" }] },
         ],
@@ -236,7 +520,12 @@ describe("bench scripts", () => {
         matcher: "^Bash$",
         command: 'bash "$(git rev-parse --show-toplevel)/.codex/hooks/g.sh"',
       },
-      { engine: "codex", event: "PreToolUse", matcher: "spawn_agent$", command: "bash h.sh" },
+      {
+        engine: "codex",
+        event: "PreToolUse",
+        matcher: "spawn_agent$",
+        command: "bash h.sh",
+      },
     ]);
     const all = [...claude, ...codex];
     expect(selectHooks(all, "Bash", "claude").map((r) => r.command)).toEqual([
@@ -305,7 +594,10 @@ describe("bench scripts", () => {
           "",
         ].join("\n"),
       );
-      const env: NodeJS.ProcessEnv = { ...process.env, NAVORI_BENCH_PROC_DIR: procDir };
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NAVORI_BENCH_PROC_DIR: procDir,
+      };
       for (const key of Object.keys(env)) {
         if (key.startsWith("VITEST") || key === "NAVORI_HOOK_CORPUS") delete env[key];
       }
@@ -327,7 +619,7 @@ describe("bench scripts", () => {
     }
   });
 
-  // Covers: R2
+  // Covers: R2, R29
   it("bench:tests marca no comparable con carga inicial mayor que los workers", () => {
     expect(isComparable([3.9, 40, 40], 4)).toBe(true);
     expect(isComparable([4, 0, 0], 4)).toBe(true);
@@ -342,7 +634,10 @@ describe("bench scripts", () => {
       writeFileSync(join(dir, "b.json"), JSON.stringify({ file: "src/a.test.ts", spawns: 5 }));
       writeFileSync(join(dir, "c.json"), JSON.stringify({ file: "src/c.test.ts", spawns: 2 }));
       writeFileSync(join(dir, "junk.json"), JSON.stringify({ nope: true }));
-      expect(readSpawnCounts(dir)).toEqual({ "src/a.test.ts": 5, "src/c.test.ts": 2 });
+      expect(readSpawnCounts(dir)).toEqual({
+        "src/a.test.ts": 5,
+        "src/c.test.ts": 2,
+      });
       expect(readSpawnCounts(join(dir, "missing"))).toEqual({});
       const report = {
         success: true,
@@ -367,6 +662,122 @@ describe("bench scripts", () => {
   });
 
   // Covers: R3
+  it("bench:hooks mide todos los nombres de hooks registrados en el checkout", () => {
+    const registrations = hooksModule.readRegistrations();
+    expect(Object.keys(hooksModule.SCENARIOS)).toEqual([
+      "Bash",
+      "Edit",
+      "Agent",
+      "SessionStart",
+      "UserPromptSubmit",
+    ]);
+    const original = Object.keys(hooksModule.SCENARIOS).flatMap((scenario) =>
+      (["claude", "codex", "pi"] as const).flatMap((engine) =>
+        selectHooks(registrations, scenario, engine),
+      ),
+    );
+    // The context consumer iterates only SCENARIOS: its 45 groups stay separate from supplements.
+    expect(original).toHaveLength(45);
+    const scenarios = [
+      ...Object.keys(hooksModule.SCENARIOS),
+      ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),
+    ];
+    const selected = scenarios.flatMap((scenario) =>
+      (["claude", "codex", "pi"] as const).flatMap((engine) =>
+        selectHooks(registrations, scenario, engine),
+      ),
+    );
+    const name = (reg: Registration): string =>
+      /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
+    const measured = new Set(selected.map(name));
+    expect(registrations.length).toBeGreaterThan(0);
+    expect([...new Set(registrations.map(name))].filter((hook) => !measured.has(hook))).toEqual([]);
+  });
+
+  // Covers: R3
+  it("bench:hooks restaura estado suplementario por invocación sin cambiar escenarios previos", () => {
+    const sandbox = createSandbox();
+    const registrations = hooksModule.readRegistrations();
+    const failure = selectHooks(registrations, "BashFailure", "claude")[0]!;
+    try {
+      for (const audit of ["absent", "root", "active"] as const) {
+        expect(hooksModule.scenarioEnvironment(sandbox, "Bash", failure, audit)).toEqual(
+          sandbox.env(audit),
+        );
+      }
+      const failurePayload = JSON.parse(
+        readFileSync(hooksModule.writePayload(sandbox, "BashFailure", failure), "utf8"),
+      ) as Record<string, unknown>;
+      expect(failurePayload).toMatchObject({
+        hook_event_name: "PostToolUseFailure",
+        tool_name: "Bash",
+        session_id: "bench-session",
+        is_interrupt: false,
+        error: "Exit code 1\nbenchmark command failed",
+      });
+      const state = join(sandbox.project, ".navori/state/hooks/bash-outcome-watch");
+      mkdirSync(state, { recursive: true });
+      writeFileSync(join(state, "other-session"), "preserved");
+      for (let invocation = 0; invocation < 2; invocation += 1) {
+        writeFileSync(join(state, "bench-session"), "previous failure");
+        const env = hooksModule.scenarioEnvironment(sandbox, "BashFailure", failure, "active");
+        expect(env.CLAUDE_CODE_SESSION_ID).toBe("bench-session");
+        expect(existsSync(join(state, "bench-session"))).toBe(false);
+        expect(readFileSync(join(state, "other-session"), "utf8")).toBe("preserved");
+      }
+      for (const engine of ["claude", "codex", "pi"] as const) {
+        const close = selectHooks(registrations, "SessionEnd", engine).find((reg) =>
+          reg.command.includes("audit-mode-close.sh"),
+        )!;
+        expect(close).toBeDefined();
+        const payload = JSON.parse(
+          readFileSync(hooksModule.writePayload(sandbox, "SessionEnd", close), "utf8"),
+        ) as Record<string, unknown>;
+        expect(payload).toEqual({
+          session_id: "bench-session",
+          cwd: sandbox.project,
+          hook_event_name: "SessionEnd",
+          reason: "prompt_input_exit",
+          permission_mode: "dontAsk",
+        });
+        for (let invocation = 0; invocation < 2; invocation += 1) {
+          const env = hooksModule.scenarioEnvironment(sandbox, "SessionEnd", close, "active");
+          const repo = join(env.NAVORI_AUDITS_ROOT as string, "project");
+          const log = join(repo, "session-bench-session.log");
+          expect(JSON.parse(readFileSync(log, "utf8"))).toEqual({
+            event: "start",
+            sessionId: "bench-session",
+            host: engine,
+            repo: "project",
+            cwd: sandbox.project,
+          });
+          expect(readdirSync(join(repo, "spool-bench-session"))).toEqual([]);
+          // Simulate the consumer sealing/removing state; the next invocation must recreate it.
+          rmSync(log);
+          writeFileSync(join(repo, "spool-bench-session", "consumed.json"), "{}");
+        }
+      }
+      const memory = selectHooks(registrations, "Memory", "codex");
+      expect(memory.some((reg) => reg.command.includes("engram-write-guard.sh"))).toBe(true);
+      const payload = JSON.parse(
+        readFileSync(hooksModule.writePayload(sandbox, "Memory", memory[0]!), "utf8"),
+      ) as { tool_name: string };
+      expect(new RegExp(memory[0]!.matcher!).test(payload.tool_name)).toBe(true);
+      for (const args of [["--scenario"], ["--scenario", "unknown"]]) {
+        const run = spawnSync(
+          process.execPath,
+          [fileURLToPath(scriptUrl("bench-hooks.mjs")), ...args],
+          { encoding: "utf8" },
+        );
+        expect(run.status).toBe(2);
+        expect(run.stderr).toContain("--scenario needs a known scenario name");
+      }
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  // Covers: R3
   it("bench:hooks reporta execs por programa y escenario de auditoria", () => {
     const pi = parsePiRegistrations(
       [
@@ -374,6 +785,7 @@ describe("bench scripts", () => {
         '{ script: "role-guard", on: "tool_call", scope: "all" },',
         '{ script: "post-watch", on: "tool_result", tools: ["edit", "write"], scope: "all" },',
         '{ script: "stop-hook", on: "agent_before_settle", scope: "all" },',
+        '{ script: "audit-mode-close", on: "session_shutdown", scope: "parent" },',
         '{ script: "gone", on: "tool_call", tools: ["bash"], scope: "all" },',
       ].join("\n"),
       (script) => script !== "gone",
@@ -397,10 +809,19 @@ describe("bench scripts", () => {
         matcher: "Edit|Write",
         command: 'bash ".pi/navori/hooks/post-watch.sh"',
       },
+      {
+        engine: "pi",
+        event: "SessionEnd",
+        matcher: null,
+        command: 'bash ".pi/navori/hooks/audit-mode-close.sh"',
+      },
     ]);
     expect(selectHooks(pi, "Bash", "pi").map((r) => r.command)).toEqual([
       'bash ".pi/navori/hooks/guard-destructive.sh"',
       'bash ".pi/navori/hooks/role-guard.sh"',
+    ]);
+    expect(selectHooks(pi, "SessionEnd", "pi").map((reg) => reg.command)).toEqual([
+      'bash ".pi/navori/hooks/audit-mode-close.sh"',
     ]);
 
     expect(countExecs("jq\njq\ndate\nnot-a-shim\nperl\n")).toMatchObject({
@@ -449,7 +870,7 @@ describe("bench scripts", () => {
     }
   });
 
-  // Covers: R4
+  // Covers: R4, R29
   it("bench:context mide bytes por fuente", async () => {
     const context = (await import(scriptUrl("bench-context.mjs"))) as {
       bytesOf: (text: string | null | undefined) => number;
@@ -459,7 +880,9 @@ describe("bench scripts", () => {
     expect(context.bytesOf("ñ€")).toBe(5);
     expect(context.bytesOf(null)).toBe(0);
     const emitted = (additionalContext: string): string =>
-      JSON.stringify({ hookSpecificOutput: { hookEventName: "X", additionalContext } });
+      JSON.stringify({
+        hookSpecificOutput: { hookEventName: "X", additionalContext },
+      });
     expect(context.injectsContext(emitted("something to say"))).toBe(true);
     expect(context.injectsContext(emitted("   "))).toBe(false);
     expect(context.injectsContext(JSON.stringify({ systemMessage: "heads up" }))).toBe(true);
@@ -499,7 +922,10 @@ describe("bench scripts", () => {
       fanIn: (
         graph: Map<string, string[]>,
         tests: string[],
-      ) => { totalTests: number; modules: { module: string; fanIn: number; pct: number }[] };
+      ) => {
+        totalTests: number;
+        modules: { module: string; fanIn: number; pct: number }[];
+      };
       hubs: (result: ReturnType<typeof graph.fanIn>, fraction?: number) => string[];
       parseSpecifiers: (source: string) => string[];
     };

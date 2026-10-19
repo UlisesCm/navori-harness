@@ -1,10 +1,30 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import CompactReporter from "./vitest.reporter.ts";
 import { resolveMaxWorkers } from "./vitest.workers.ts";
 
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.ts"],
+    // Keep includes in the children: extends concatenates arrays. Positive orders
+    // also preserve the barrier with one worker (order 0 has special scheduling).
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "parity",
+          include: ["src/__tests__/hooks-zsh-parity.test.ts"],
+          sequence: { groupOrder: 1 },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "suite",
+          include: ["src/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "src/__tests__/hooks-zsh-parity.test.ts"],
+          sequence: { groupOrder: 2 },
+        },
+      },
+    ],
     environment: "node",
     // Vitest 5 changes this default to true. Keep the Vitest 4 behavior so
     // existing specs retain control of mock lifecycle explicitly.
@@ -62,25 +82,28 @@ export default defineConfig({
       // No text reporter: the floor script prints the one-line coverage totals
       // from this report (spec 0055 R26).
       reporter: ["json-summary"],
-      thresholds: {
-        // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
-        // (marker, config/schema, presets, scan, skill-meta) are well covered;
-        // command-shell utils (workspace/tickets) and cosmetic output (style)
-        // are intentionally NOT chased to 80%. The gate sits just below the
-        // achieved level: it catches a real regression without being a brittle
-        // "one deleted test breaks CI" tripwire.
-        //
-        // A GLOB group, not the global one: with the include widened, a global
-        // aggregate would average src/lib/ together with commands/ and engines/
-        // and force these numbers down. Vitest skips the global check when no
-        // top-level lines/statements/functions/branches are set.
-        "src/lib/**": {
-          lines: 65,
-          statements: 60,
-          functions: 65,
-          branches: 57,
-        },
-      },
+      thresholds:
+        process.env.NAVORI_COVERAGE_SHARD === "1"
+          ? undefined
+          : {
+              // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
+              // (marker, config/schema, presets, scan, skill-meta) are well covered;
+              // command-shell utils (workspace/tickets) and cosmetic output (style)
+              // are intentionally NOT chased to 80%. The gate sits just below the
+              // achieved level: it catches a real regression without being a brittle
+              // "one deleted test breaks CI" tripwire.
+              //
+              // A GLOB group, not the global one: with the include widened, a global
+              // aggregate would average src/lib/ together with commands/ and engines/
+              // and force these numbers down. Vitest skips the global check when no
+              // top-level lines/statements/functions/branches are set.
+              "src/lib/**": {
+                lines: 65,
+                statements: 60,
+                functions: 65,
+                branches: 57,
+              },
+            },
     },
   },
 });

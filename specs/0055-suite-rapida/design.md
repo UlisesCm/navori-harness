@@ -1,5 +1,19 @@
 # Suite rápida: tests herméticos, hooks y CLI más baratos, menos tokens — Design
 
+> **Enmienda de alcance (2026-10-19):** el cierre de este PR se reduce a documentación; la
+> implementación queda preservada y el trabajo incompleto se transfiere a
+> [#1354](https://github.com/UlisesCm/navori-harness/issues/1354). Las tablas y reportes históricos
+> siguientes no prueban bytes actuales ni aceleración global. CI preliminar de `6396f0ed` falló
+> (1 fallida/9642 aprobadas/1 omitida; causa zsh sin determinar; seguimiento
+> [#1353](https://github.com/UlisesCm/navori-harness/issues/1353)). El diagnóstico Pi sigue
+> inconcluso ([#1355](https://github.com/UlisesCm/navori-harness/issues/1355)); se conserva Node y no
+> se afirma resultado del oráculo. Full actual, revisión independiente, receipt válido y CI funcional
+> siguen pendientes; el fast fresco 9/0 no los sustituye. No se elevan límites ni se declaran
+> completados R29/T39, M5/R12 o E1.
+> El full del 2026-10-19 falló (164 fallidas, 9 567 aprobadas, 2 omitidas; 465 archivos; 32 707.7 s).
+> Hubo un salto temporal entre inicio y resultado; la causa de los fallos no está determinada
+> (`.navori/state/gate/full-20261019T044833225Z.log`).
+
 **Estado:** revisado tras el challenge (`.navori/state/handoffs/challenge_0055-suite-rapida.md`) y
 las decisiones del orquestador · **Fecha:** 2026-10-16 · **Base verificada:** `git fetch origin
 dev` → `FETCH_HEAD` = `50d9470b`, igual a `HEAD` de `feat/0055-suite-rapida`. El ref `origin/dev` no
@@ -41,7 +55,7 @@ orden, porque lo primero multiplica a lo segundo.
   (`vitest.tempLifecycle.ts`, `createTempFile`), antes de cualquier optimización, porque cambia las
   mediciones.
 - **Hooks (C)**: la auditoría se decide por log activo, sin procesos; un solo `jq` por hook vía una
-  caché de campos; el carril de fallos sin Node.
+  caché de campos. El carril de fallos sin Node (D5/R12) se difirió fuera de E1.
 - **CLI (D)**: subcomandos perezosos con la capacidad que citty ya tiene, y `dist/` en chunks, solo
   si el probe de M0 mide al menos 20 ms de ahorro en los subcomandos calientes.
 - **Suite (E)**: zsh solo donde el shell cambia el resultado, e2e en proceso, lotes de hook,
@@ -83,7 +97,7 @@ orden, porque lo primero multiplica a lo segundo.
     `grep`, `tr`, `head`, `tail`, `basename`) que registra execs por hook, separada de la pasada de
     tiempo para no inflarla.
 
-  Reporta mediana de pared y de CPU por hook, y `execs` por programa. — R3, R8, R10, R11, R12
+  Reporta mediana de pared y de CPU por hook, y `execs` por programa. — R3, R8, R10, R11
 - `scripts/js/bench-context.mjs` + `bench:context` (nuevo). Reutiliza el armado scratch de
   `bench-hooks.mjs` (exporta su función de setup) y mide bytes de: salida de `SessionStart` (Claude y
   Codex), salida de cada hook con los payloads del bench, `navori gate fast --force` verde, y
@@ -131,8 +145,9 @@ orden, porque lo primero multiplica a lo segundo.
   (D3). — R10
 - Los 22 hooks de `core-assets/hooks/` que incluyen `extract-cmd` declaran `nv_payload_fields` como
   primera asignación del script y llaman `payload_load` donde ya saben que necesitan un campo. — R10
-- `_partials/bash-outcome.sh`, `navori_bash_failure_state`, y `bash-outcome-watch.sh`. Un programa
-  `jq` que lee el payload por stdin reemplaza al `node -e` de estado y al de emisión (D5). — R12
+- `_partials/bash-outcome.sh`, `navori_bash_failure_state`, y `bash-outcome-watch.sh`: se conserva el
+  carril Node actual. R12/D5 y el oráculo quedan diferidos fuera de E1 por decisión del usuario; no se
+  ejecutó el oráculo ni se afirma un resultado. — R12 diferido
 - `session-start-context.sh` y `commands/tools.ts` (`navori tools session-context
   --notice-reserve`). Ver D6. — R11
 - Hooks que inyectan contexto sin nada que señalar. Criterio de cierre: M0 publica en "Línea base y
@@ -406,56 +421,36 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   payload del puente de Pi (`.pi/navori/`) con `bench:hooks` por engine. Si Pi no trae `session_id`, R8
   no se cumple ahí y se reporta.
 
-### D5 — Carril de fallos sin Node (R12)
+### D5 — Carril de fallos sin Node (R12 diferido)
 
-- **Un programa `jq`** reemplaza lo que hoy hace el `node -e` de `navori_bash_failure_state`. Se invoca
-  así: `jq -n --rawfile state <archivo> '(input) as $p | …'`, con el payload **por stdin**, como hoy en
-  Node (`<<< "$payload"`). Por argv, un payload de más de 128 KiB (`MAX_ARG_STRLEN` en Linux) haría
-  fallar el arranque. El programa:
-  - valida el payload (`tool_name`, `session_id`, `is_interrupt`, `command`, `cwd`);
-  - normaliza el error con las mismas sustituciones: las de raíz y home son literales (`split|join`),
-    equivalentes a la regex escapada de hoy; las demás pasan a regex Oniguruma con flags `g`/`gi`;
-  - actualiza las filas `{key,sig,count,notified,epoch}` (tope 3, 50 filas);
-  - emite, separados por NUL, el material de `key` y `sig`, el estado nuevo y el JSON
-    `hookSpecificOutput` listo.
-- **Hash.** `key` y `sig` pasan de sha256 en Node a `git hash-object --stdin`, una llamada por valor
-  (~3 ms cada una); git ya es dependencia dura de los hooks (`navori_git`). Las filas viejas no casan y
-  el conteo reinicia una vez tras actualizar (sección Migration).
-- **Escritura.** El shell escribe `tmp` con `set -C; umask 077` y `mv`, con las mismas comprobaciones
-  de componentes no-symlink de hoy.
-- **Codex.** `codexExit` se reduce a validar en el mismo `jq` la línea que el shell ya extrae con
-  `grep -F` (tipo, `item.id`, `exit_code` entero).
-- **Requisito de `jq`.** Versión ≥ 1.6 (`--rawfile`). Sin `jq` o con uno más viejo, el carril calla sin
-  advice y el hook sale 0. macOS 15+ trae `/usr/bin/jq` (presente en esta máquina) y ubuntu-latest
-  también.
-- **Compuerta de equivalencia (decide si R12 entra).** La tabla oráculo de Testing (~30 mensajes más uno
-  de 300 KiB) compara el `node -e` viejo con el `jq` nuevo. Si en M2 no da **100 %** de igualdad en
-  `body` normalizado, conteo y advice, R12 sale de la entrega y se propone para una spec aparte: son
-  ~100 líneas de lógica por ~18 ms en un camino raro (fallos de Bash).
-- **Costo esperado:** ~10 ms (jq + 2 × git) contra ~28 ms de `node -e`. **UNVERIFIED** hasta M0: si
-  `git hash-object` costara más que Node, se usaría `openssl dgst -sha256`.
+Por decisión explícita del usuario, M5/R12 sale de E1 antes de ejecutar el oráculo. El carril actual
+con Node se conserva. No hay resultado de aprobado o fallido, y la propuesta técnica que sigue siendo
+historia de diseño no autoriza una implementación. Una futura entrega puede reevaluarla con una
+comparación contra el comportamiento actual; hasta entonces R12 no forma parte de los requisitos
+activos de E1.
 
 ### D6 — Arranque de sesión con un solo CLI (R11)
 
-- **Lo que ya existe.** `session-start-context.sh` hace **una** llamada (`navori tools
-  session-context`, 0054 D12) cuando el CLI conoce el subcomando. Las 3 llamadas medidas son el camino
-  de compatibilidad: el `navori` global de esta máquina es 0.12.1, sin el subcomando, y el memo
-  `~/.navori/.no-session-context` contiene `0.12.1`. Ese camino paga `--version`, `tools notice` y
-  `dominio inject`.
-- **Cambio 1: el ack va dentro de la misma llamada.** `navori tools session-context
-  --notice-reserve <bytes>`: el CLI marca el aviso como entregado solo si su cuerpo cabe en la reserva,
-  que es la misma condición que hoy evalúa el hook. El hook ya no llama `tools notice --ack`.
-  - Límite declarado: si el hook muere después del CLI y antes de emitir, se pierde un aviso. Sigue
-    visible en `navori doctor`.
-- **Cambio 2: `bench:hooks` mide con el CLI local** (Components A). Así R11 se verifica contra la rama
-  y no contra el global publicado.
-- **Fuera de R11 (enmendado en `requirements.md`):**
-  - el consumo de arm (`navori audit --consume-arm`, solo con `.armed`);
-  - el `plan resume` de Codex en `resume`;
-  - el camino de compatibilidad con un CLI anterior al subcomando.
+`navori tools session-context` conserva el formato v1 por defecto. Con `--notice-reserve <bytes>`,
+el CLI devuelve un encabezado v1 observable que identifica la reserva; el hook usa ese marcador para
+saber que el ACK ocurrió dentro de la misma llamada y evita el segundo comando. El cuerpo del aviso se
+mide en bytes UTF-8 y la reserva incluye el salto de línea de emisión. Solo se confirma el aviso cuando
+ambas secciones del frame validan y caben en la reserva. Si falla la validación antes del ACK, el hook
+usa el camino legacy; para un CLI antiguo que ignora el flag, el ACK legacy sigue después de emitir el
+frame.
 
-  Los tres son acciones distintas o casos raros; fundirlos en `session-context` mezcla
-  responsabilidades.
+El hook sondea la disponibilidad del flag por stdout, descartando stderr de manera privada; no expone
+ese sondeo al agente. Si no puede crear el archivo temporal de diagnóstico de forma segura, conserva el camino
+legacy antes de confirmar el aviso. Si aparece una advertencia después de un frame ya confirmado, no
+se descarta el contexto. La limitación aceptada sigue vigente: el ACK del CLI puede ocurrir antes de
+que el hook alcance a emitir el frame; si el hook muere en ese intervalo, el aviso se pierde y sigue
+visible en `navori doctor`. Se conservan también las excepciones de arm, resume de Codex y compatibilidad
+con versiones anteriores.
+
+El hook registra su ruta temporal como propia solo después de asignarla. El trap `EXIT` se instala con
+esa variable inicializada antes, y limpia únicamente una ruta creada por esta invocación; un valor
+heredado en `navori_sc_err` se conserva. Así el cleanup de diagnóstico no elimina un
+archivo que el hook no creó.
 
 ### D7 — Fixtures git por plantilla (R19)
 
@@ -543,9 +538,52 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
 - **Protocolo en reposo** (R29, R30): tres corridas por lado, alternando base y rama, cada una
   comparable; se reporta la mediana. La base es un worktree temporal del merge-base con `bun install
   --frozen-lockfile --ignore-scripts`, eliminado al terminar.
-- **Presupuesto (R30).** `check-test-budget.mjs --propose` toma los bench comparables y propone
-  `ms = ⌈max(3 corridas) × 1.25⌉` redondeado a 5 s. Solo es excepción el archivo que supere
-  `defaultMs`, y el motivo cita la medición.
+- **Presupuesto (R30).** `check-test-budget.mjs --propose <bench.json…>` valida exactamente tres
+  reportes exitosos, comparables y con `generatedAt` distintos; exige workers iguales, timings y
+  carga finitos/no negativos, totales coherentes, y el inventario completo actual de tests en cada
+  reporte. Un subconjunto filtrado no se acepta como medición de suite. Propone
+  `ms = ⌈max(3 corridas) × 1.25⌉` redondeado a 5 s. Conserva `defaultMs`; solo genera excepciones
+  para archivos que lo superen, con motivos que citan las tres muestras, y elimina excepciones ya
+  obsoletas. La propuesta se imprime como JSON en stdout y no escribe `test-budget.json`; `--report`
+  y la aplicación del factor existente siguen separados. La fórmula no depende del factor de
+  enforcement. Para no truncar una propuesta grande enviada por pipe, el CLI fija `process.exitCode`
+  y deja drenar stdout en vez de llamar inmediatamente a `process.exit`; la regresión parsea el JSON
+  del inventario completo. La prueba finalSTREAM del productor pasó 59/59, sin omitidas, en 3 archivos/5.8 s
+  (89195), y su fast gate salió 0 (`.navori/state/gate/fast-20261018T043501990Z.log`). Ese
+  checkpoint describía la implementación antes de la continuación R30; las mediciones y la
+  aplicación del presupuesto actuales se registran abajo. T12 tiene un checkpoint retrospectivo
+  separado; las mediciones de hooks/contexto y el arranque de CLI siguen pendientes.
+
+- **Extracción de `session_id` en D4.** El análisis de la cadena completa para encontrar una clave
+  al final de un payload grande volvía a recorrer prefijos y crecía cuadráticamente. La primera
+  candidata, con prefijo largo (`##`) y búsqueda global de duplicados, introdujo una regresión:
+  el probe Bash con la clave al inicio de 132 000 caracteres ASCII agotó 3 s. Tampoco resolvió la ejecución real
+  60201, anterior a STREAM: agotó el timeout de paridad de 300 s (exit 1;
+  1 fallo/1 aprobado/0 omitidas, 333.6 s). La variante finalSTREAM consume segmentos delimitados
+  por comillas con builtins `read -r -d` en el shell padre, desde here-string. Al encontrar
+  `session_id`, conserva el sufijo para la detección original de duplicados y la validación de
+  valor; el solapamiento malformado sigue rechazado por la comprobación original de dos puntos.
+  Conserva el tratamiento conservador de anidados, tipos, escapes y ausencia, sin procesos nuevos.
+  Las regresiones FRONT y TAIL de 132 000 caracteres ASCII deben pasar en Bash y zsh con el límite original de
+  2 000 ms: probar solo TAIL ocultó el fallo de la primera candidata. Los probes de 16 000/64 000/132 000 caracteres ASCII, al inicio
+  y al final en Bash y zsh, pasaron; a 132 000 caracteres ASCII midieron 138.8/488 ms en Bash (inicio/final) y
+  75.3/78.4 ms en zsh. La diferencial de 335 entradas por shell (670 comparaciones) no encontró
+  diferencias ni stderr. El intento acotado 82039 pasó 6 pruebas y omitió 18 (exit 0; 119.8 s
+  incluyendo espera de lock). Los probes del orquestador `.navori/state/probes/audit-sid-stream-candidate.json`
+  y `audit-sid-stream-differential.json` son evidencia del orquestador, no ejecuciones del productor.
+  El productor declara las fuentes congeladas tras las pruebas focalizadas y el fast finalSTREAM.
+- **Límites de la validación del orquestador.** El replay nativo separado 87835 terminó exit 0:
+  2 996 veredictos idénticos con auditoría apagada y
+  activa, 347.793 s y captura completa Bash/zsh. Su perfil está en
+  `.navori/state/probes/0055-final-replay-profile.jsonl` (lote máximo 27.47 s, guard Claude Bash
+  active, 386 casos) y el resultado en `.navori/state/probes/0055-final-replay-result.json`.
+  Esto verifica replay/R13. La paridad forzada zsh sobre finalSTREAM, sesión 93018, también pasó: 2
+  pruebas/0 omitidas en 1 archivo, 136.9 s con el timeout original de 300 s. La corrida acredita ese
+  resultado funcional sobre la fuente actual, no una mejora comparable: las cargas entre pruebas
+  difirieron. No se borra el fallo histórico 60201. En ese checkpoint seguían pendientes las tres
+  corridas comparables, datos y presupuesto, comparación base/final, full gate y pared de CI; esta
+  descripción antecede a la evidencia R29/R30 y T12 registrada más adelante. M6/M10 no recibieron por
+  esa evidencia aprobación final ni commit.
 
 ### D11 — Preservación genérica (R21)
 
@@ -576,14 +614,26 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
     inversión: 241 de ~436 archivos ≈ 55 %, ya más lento que full. 40 % deja margen.
   - Los dos módulos de 0045 quedan como **hubs declarados** (full directo, aunque el grafo estime
     menos), con su cita.
-  - M0 mide el fan-in de todos los módulos con el mismo grafo y publica en "Línea base y resultado"
-    los que superan el 40 %. Se suman a la lista solo si la estimación no los cubre (por ejemplo,
-    imports dinámicos).
-  - Siguen los disparadores de hoy de `planAffected` (`trigger`: `vitest.*`, `tsconfig*`,
-    `package.json`, lockfile).
-- **Una sola invocación.** `vitest related --run <fuentes…> <tests…>`. **UNVERIFIED** (afecta solo el
-  costo): si vitest no acepta un test como ruta relacionada consigo misma, se conservan las dos
-  invocaciones de hoy.
+  - El inventario `.navori/state/bench/graph-2026-10-16T19-40-36-398Z.json` midió 452 archivos de
+    prueba, 257 módulos y 29 módulos con fan-in ≥ 40 %. Solo `config.ts` y
+    `permission-rules.ts` son excepciones declaradas por 0045; los demás entran al cálculo de salida y
+    activan full cuando la selección estimada llega al umbral. No se añadieron hubs declarados.
+  - El grafo cubre imports relativos TypeScript bajo `src/`. Cambios a scripts fuera de ese grafo y a
+    parciales compartidas de hooks fuerzan full. También fuerza full la falta de merge-base, los nombres
+    de configuración/toolchain (`vitest.*`, `tsconfig*.json`, `package.json`, lockfiles y `bunfig.toml`),
+    y los hubs declarados. Para hooks selecciona pruebas por ruta y por basename; cambios de
+    `core-assets` agregan pruebas de render/golden.
+- **Una sola invocación.** `test-affected.mjs` une fuentes y pruebas seleccionadas en un solo
+  `vitest related --run`. La versión instalada Vitest 5.0.1 acepta cada test explícito como ruta
+  relacionada consigo mismo; el test de `--plan-json` confirma que un test pasado mediante `--files` se
+  selecciona directamente. La revisión del selector nativo confirma que las rutas relacionadas se
+  incorporan al conjunto afectado antes del cierre de importadores. No queda pendiente la alternativa
+  de dos invocaciones.
+- **Rutas cubiertas por los probes.** Un plan explícito para un script wrapper fuera del grafo TS ahora
+  fuerza full; la prueba de cambios de hooks selecciona 57 casos e incluye `guard-destructive.test.ts`
+  y `guard-destructive-progress.test.ts`. El plan anterior seleccionaba 29 y omitía esos dos casos; la
+  corrección evita declarar verde un subconjunto incompleto. Estos probes validan la clasificación y la
+  selección, no sustituyen el full gate.
 - **`--plan-json`** imprime el plan sin correr nada; CI lo usa para decidir la matriz (D13).
 - **Salida.** Abre igual (`test:affected: affected subset, not a gate`) y usa el reporter `compact`.
 
@@ -603,19 +653,28 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
     2, como hoy). En un PR completo el piso también corre: son los mismos jobs.
 - **PR afectado** (`plan.full == false`, base `dev`). El job `affected` corre el subconjunto sin
   cobertura y con presupuesto por archivo. `checks` corre siempre.
-- **Merge de cobertura desde blobs.** Lo introdujo vitest PR #5736 (fuentes secundarias; las páginas
-  oficiales de CLI, reporters y coverage consultadas no lo mencionan). **UNVERIFIED** y bloqueante para
-  M6: un probe local con 2 shards debe dar el mismo `coverage-summary.json` que la corrida sin shards.
-  Si no coincide, el fallback es que cada shard escriba `coverage-final.json` y `test-merge` los combine
-  con `istanbul-lib-coverage`, que ya está en el lockfile como transitiva de `@vitest/coverage-v8` (sin
-  dependencia directa nueva).
+- **Merge de cobertura desde blobs.** Vitest 5.0.1 instalado acepta el transporte nativo. El probe
+  `.navori/state/probes/0055-shard-merge/result.json` usó una fuente y dos tests en un fixture pequeño:
+  el `coverage-summary.json` de la corrida sin shards coincide con el merge 2/2 y reporta 100 % en
+  líneas, statements, funciones y branches. Tras publicar/copiar los blobs se borraron las carpetas
+  temporales originales; el merge siguió funcionando. Un blob con versión distinta es rechazado por
+  Vitest. Esto valida el mecanismo en el fixture, no la equivalencia de cobertura del full suite ni su
+  rendimiento. La prueba integrada mantiene el piso y el presupuesto como dobles; tests unitarios
+  separados fijan su orden, el conjunto completo N, fallos por fase y preservación de directorios del
+  caller.
 - **N = 4, con cota inferior medida.** `--shard` reparte por archivo, así que la pared de un shard no
-  baja de su archivo más lento: hoy `slice.test.ts` tiene un presupuesto de 360 s, fuera de alcance. El
-  probe de M6 reporta la pared de cada shard y la duración de `slice` en CI. Si un shard queda dominado
-  por un archivo, se declara ese piso en la tabla de resultado, y N se elige por medición (de 3 a 6), no
-  por la estimación de ~447 s / 4 (run `38945840400`).
-- **Protección de ramas.** `main` y `dev` no tienen branch protection ni rulesets (verificado por el
-  orquestador con `gh`), así que partir `quality` no rompe checks requeridos.
+  baja de su archivo más lento: la línea base de `slice.test.ts` tiene un presupuesto de 360 s, fuera de
+  alcance de M10. La pared de cada shard y la duración de `slice` en CI quedan por medir en M11. Si un
+  shard queda dominado por un archivo, se declara ese piso en la tabla de resultado, y N se elige por
+  medición (de 3 a 6), no por la estimación histórica de ~447 s / 4 (run `38945840400`).
+- **Protección de ramas.** Consulta GitHub de solo lectura el 2026-10-18 alrededor de las 02:30 UTC:
+  `/branches/dev/protection` y `/branches/main/protection` devolvieron 404; `rules/branches/dev` y
+  `rules/branches/main` devolvieron listas vacías. No se observaron entonces reglas de checks
+  requeridos, por lo que la división del job `quality` no cambiaba un check protegido. No se modificó
+  configuración de GitHub.
+- **Límite de aceptación.** La prueba nativa de merge es un fixture pequeño y las pruebas de workflow
+  son focalizadas. No demuestran equivalencia de cobertura del full suite, rendimiento por shard ni
+  pared de CI; esas mediciones y el full gate verde siguen pendientes para M11.
 
 ### D14 — Reporter compacto (R26, R27)
 
@@ -637,6 +696,135 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   `Tests:`), y la detección automática haría distinta la salida según quién corre. El reporter propio es
   determinista: TTY → `default`; si no → `compact`.
 - `bench:tests` y CI pasan `--reporter` explícito, que reemplaza a los de config: no les afecta.
+
+### D15 — Paridad en dos proyectos nativos, sin solapamiento de archivos (M11)
+
+**Decisión autorizada:** opción 2 de
+`.navori/state/handoffs/architecture_0055-parity-scheduling.md`, contrastada con
+`challenge_0055-parity-scheduling.md` y aplicada según `schedulingContinuation` de
+`impl_0055-suite-rapida-e1.json`. La prioridad dentro de un grupo no impide concurrencia;
+se adoptan dos proyectos inline `extends:true` en una sola invocación: `parity`, con el
+archivo completo `hooks-zsh-parity.test.ts` y `groupOrder: 1`, y `suite`, con el resto y
+`groupOrder: 2`. Los órdenes positivos conservan la barrera también con un worker.
+No se añade runner, secuenciador ni invocación separada.
+
+- Cada hijo declara su include; se retira el include amplio explícito de la raíz porque la
+  herencia concatena arrays. La raíz resuelta conserva el default nativo, no un include amplio
+  heredado por los hijos. Parity se excluye únicamente de la selección de `suite`, nunca de
+  sus contribuciones a cobertura.
+- Setup global, provide, reporters, cobertura y política de workers siguen siendo propiedad de
+  la raíz; `setupFiles` se hereda una sola vez por hijo. El inventario resuelto real registra
+  `forks` y workers raíz/parity/suite **4/4/4**, con `NAVORI_TEST_WORKERS`,
+  `VITEST_MAX_WORKERS` y `NAVORI_COVERAGE_SHARD` sin definir. Se preserva la política de
+  overrides existente: esto no establece un hard cap universal frente a overrides.
+- La barrera separa ejecución de archivos y sus hooks esperados, no garantiza que todos los PIDs
+  hayan terminado entre grupos. No reserva CPU global, no elimina carga externa u otras
+  invocaciones y no promete mejora de pared ni que la paridad quede bajo 300 s.
+
+**Evidencia acotada del mecanismo (no aceptación de la suite real).** El fixture inicial de
+21 comandos pasó antes de integrar la configuración productiva; el probe final extendido pasó
+sus 27 comandos en primer plano con Vitest 5.0.1 y Node v24.20.0. Evidencia archivada en
+`.navori/state/probes/0055-parity-scheduling/`: `success.json`, `results.json`,
+`provenance.json`, `fixture-inventory.json` y `fixture/`. El bloqueo histórico del pase de
+arquitectura no es evidencia de ejecución; el productor declara que esta continuación autorizada
+no recibió bloqueo ni hizo retry/bypass de un deny.
+
+- Cinco archivos y cuatro fuentes medidas verifican con workers 1 y 2 que el fin de archivo/
+  afterAll de parity precede a todo setup normal; setup/teardown global ocurren una vez,
+  setup por archivo una vez e inject funciona en ambos proyectos. HOME y temporales son locales
+  al fixture; no se adquiere el lock ni se hace el build productivo dentro de él.
+- Aggregate y cuatro shards nuevos con merge nativo conservan inventario/casos exact-once y no
+  ejecutan tests ni setup al fusionar. Coverage full/merge coincide profundamente por fuentes,
+  mapas, denominadores y hits deterministas `s/f/b`: fuente nunca importada presente a cero,
+  exclusiva de parity al 100 % y ambas ramas compartidas cubiertas. Los cuatro blobs y el merge
+  proceden de una asignación nueva, misma configuración/hash, versiones y nombres de proyecto;
+  no se reutiliza evidencia histórica.
+- CompactReporter real combinado con JSON funciona en aggregate y merge; los controles de caso
+  fallido, omitido, error de setup y error de módulo conservan estados, errores visibles y salida
+  acotada. Los nombres de proyecto se verifican en specs nativos, no en un campo `projectName`
+  inexistente del reporter JSON. Threshold negativo full/merge y controles reales copiados de
+  floor y budget producen salidas finales no cero; sólo alteran datos/presupuestos del fixture.
+  **C4:** el wrapper full local no ejecuta budget; ese control se invoca en merge. Un full verde
+  no demuestra por sí solo presupuesto ni equivalencia full/merge de ese control.
+- Focal parity/normal y related compartido/exclusivo/test explícito pasan en el fixture; related
+  usa `affectedVitestArgs` con una invocación nativa por selección. El wrapper real conserva
+  `full:true` ante un cambio en `packages/cli/vitest.config.ts`, sin editar afectados.
+
+**Inventario y regresión reales, sin importar el corpus:** `globTestSpecifications` conserva los
+464 paths previos exactamente una vez y añade únicamente el nuevo `vitest-scheduling.test.ts`
+autorizado: **465 = 464 + 1** (`inventory-before.json`, `inventory-after.json`). Parity pertenece
+una vez a `parity` y nunca a `suite`. La regresión versionada tiene tres casos: inventario nativo
+y fixture mínimo con 1/2 workers reutilizando las declaraciones reales; el probe extendido queda
+efímero. La corrida focal final pasó **78 pruebas/0 omitidas, 7 archivos, 2.3 s**;
+`navori gate fast` salió 0 (`.navori/state/gate/fast-20261018T074413937Z.log`, AST 9/0).
+Preservación estática independiente: 72 archivos cambiados/0 eliminados contra `origin/dev`
+`a251417b`; no sustituye el inventario ni prueba selección del nuevo test aún sin stage.
+
+**Continuidad y aceptación pendiente.** No se reemplaza la evidencia previa de M6/M10/M11 ni se
+atribuye su autoría a esta continuación. Se conserva la reparación de guardas CI: 47 pruebas/0
+omitidas, comparaciones bidireccionales CI/gate, checks incondicionales y equivalencia del wrapper
+shard/merge con cuatro controles negativos; fast `fast-20261018T052630361Z.log` verde. También se
+conserva el cambio del driver de lotes de `cat` a lectura builtin Bash/zsh, con el stripping legacy
+de saltos finales intacto: 54 pruebas/0 omitidas y fast `fast-20261018T053604878Z.log` verde.
+El inventario anterior y sus evidencias siguen referidos por los archivos inmutables
+`.navori/state/archive/0055-m11-before-ci-guard/impl_0055-suite-rapida-e1.json` y
+`.navori/state/archive/0055-m10-reviewed-pending-full/impl_0055-suite-rapida-e1.json`.
+
+El full del orquestador anterior a esta configuración,
+`.navori/state/gate/full-20261018T071303896Z.log`, falló únicamente por paridad a 300 s:
+9 723 aprobadas, 2 omitidas y 1 fallo en 464 archivos/976.4 s. Se conserva como antecedente,
+no como validación del routing nuevo. Posteriormente, el orquestador reportó el full
+`.navori/state/gate/full-20261018T162643513Z.log` verde: exit 0, **9 727 aprobadas/2 omitidas,
+465 archivos/853.1 s**, cobertura líneas/statements/funciones/branches
+**87.59/85.94/90.2/80.5 %**, piso de **159 módulos/0 excepciones**. Ese gate precede a la
+última reparación de consola+blob y hermeticidad del test; no acredita los bytes actuales.
+El productor de esa reparación no ejecutó ni inspeccionó independientemente ese full.
+
+El primer shard real (`T170505Z`) falló por `NAVORI_TEST_REPORT` heredado en una aserción
+unitaria; el diagnóstico se extrajo del blob, sin publicar un blob de éxito. La continuación
+hace hermético el default sólo en el test, conserva el contrato del reporte explícito del caller
+y combina el reporter de consola elegido por TTY con blob en modo shard. La regresión nativa
+pequeña comprueba nombre/aserción visibles, exit 1, ausencia de controles posteriores y directorio
+de publicación de éxito vacío. Pasaron 16 pruebas focales con reporte heredado, 80 de consumidores
+sin ese entorno y el fast `fast-20261018T171214585Z.log`; el detalle está en M11 de `tasks.md`.
+Estas pruebas no sustituyen repetir los shards reales ni su merge.
+
+En ese checkpoint seguían pendientes la revisión independiente, el full sobre bytes finales, zsh
+disponible y dos casos de paridad sin skips. La primera corrida y el merge fallido por presupuesto
+se documentan abajo, junto con el remerge verde posterior; no se elevaron timeouts, workers, lanes ni
+límite alguno. La adopción de la entrega
+actual quedó a cargo de un implementer Codex nativo 0.163.0 mediante la ruta soportada. Adoptó 72
+rutas pendientes sin reescribir fuentes; la evidencia de autoría histórica Pi se conserva en
+`.navori/state/archive/0055-before-codex-adoption-20261018/` y no se reasigna. Su verificación fresca
+pasó 205 pruebas focales/0 omitidas en 12 archivos y fast gate
+(`.navori/state/gate/fast-20261018T183003589Z.log`). La identidad actual la registra el CLI; no
+implica aprobación de entrega.
+
+La corrida inicial de cuatro shards está registrada en `.navori/state/probes/0055-real-shards-20261018T180334Z/`: shards 1–3 pasaron; shard 4 tuvo ocho timeouts durante suspensión del host y su retry pasó sobre la misma fuente. El primer merge terminó `exit 1` por cuatro presupuestos previos a R30. Tras aplicar solo la propuesta R30, el remerge de los mismos cuatro blobs exitosos terminó `exit 0` (`.navori/state/probes/0055-remerge-r30-20261018T214908Z/`): 9 729 aprobadas/2 omitidas en 465 archivos, cobertura líneas/statements/funciones/branches 87.6/85.95/90.22/80.52 %, piso 159 módulos/0 excepciones y factor de budget 1. El shard fallido inicial se excluyó.
+
+La comparación local R29 usó tres reportes válidos por lado con workers=4 y carga inicial ≤4. Base: 452 archivos/9 551 tests; rama: 465/9 731. Medianas base/rama: pared 847.029/828.643 s, suma por archivo 3 177.592/2 680.946 s y 35 256/34 754 spawns. Como las poblaciones difieren, no se infiere aceleración global. CI base exacta: 457 s (`39051363851`); la rama aún no tiene medición. El run `38945840400` (447 s) permanece preliminar histórico. T38/R30 está completada con `defaultMs` de 20 000 ms, factor 1 y 47 excepciones derivadas; detalles en M11 de `tasks.md` y `.navori/state/bench/comparable-native-20261018T185623Z/`.
+
+Las microcorridas y full reportados en los checkpoints siguientes son históricos y no validan los bytes actuales. La continuación recortó el alcance: R3/R29/T39 y M5/R12 quedan transferidos a [#1354](https://github.com/UlisesCm/navori-harness/issues/1354), la CI preliminar fallida a [#1353](https://github.com/UlisesCm/navori-harness/issues/1353), y el diagnóstico Pi inconcluso a [#1355](https://github.com/UlisesCm/navori-harness/issues/1355). El PR no está listo para merge: full actual, revisión independiente, receipt válido y CI funcional siguen pendientes. El fast fresco 9/0 no los sustituye; R29/T39, M11 y E1 permanecen abiertos.
+
+**Trazabilidad posterior a las mediciones (2026-10-18).** La continuación añadió `// Covers:` únicamente en cinco rutas: tres fixtures YAML con snippets inválidos (R7: 6, R20: 3, R22: 4), y dos archivos TS con cinco marcadores R17 y tres extensiones R29 de contratos de datos, no de medición/CI. El manifiesto `.navori/state/probes/0055-traceability-native-20261018T2343Z/delta.json` (SHA256 `59d86ee7c0c8fdfee6278f1200779bab1fd4033097adaf55c41e6df2cffc8b03`) registra los hashes previos y posteriores:
+
+| Ruta | SHA256 antes | SHA256 después |
+|---|---|---|
+| `ast-grep/rule-tests/no-real-home-in-tests-test.yml` | `5b58abf3da7e5eea899fbbc24638d7c138f42d5060381609c574543ceb2019c4` | `ffe2aadc3e8ddc91412f298d57322d9e86f6f884a9e9cbda447dec88d1c1221e` |
+| `ast-grep/rule-tests/no-fixed-wait-in-tests-test.yml` | `119a43a719f3fb1bd711f08c086a7d1bb664f0806138a72bd86f1e1e87f30f60` | `c03fbbcb147b6ddcd3bcf95e994abcc6c99b3a3dd9d745aa3e0fa8bb19fa2a6c` |
+| `ast-grep/rule-tests/no-prose-assertion-test.yml` | `1be40e1a1dd96b108aaa40936ca2dd6846cf297932ea0368c8c8295117f0f6b3` | `f3dffa7e01e908b0b9f14d70f5d4214eaf446e66a9dbe6341ed686a052226f87` |
+| `packages/cli/src/__tests__/cli.e2e.test.ts` | `7757c9052e08932de860e60e8381f521b8b1721d45607b5de5c6cfb61da64f9d` | `fcf176781708af8de944d3f6eefadbd81ac85fa847668c991c8250732ba5fb5c` |
+| `packages/cli/src/__tests__/bench-scripts.test.ts` | `61be140a0ce738bdce0b3e2d4e264a5f272853090f7fe73e8b2b621056db366` | `749671dbecd57800c958af2f793ae88d27ccd3bdfa0776ef806bbc7822849d74` |
+
+La normalización al quitar los standalone `// Covers:` restituye el contenido previo de los cinco
+archivos. Los casos YAML siguen 9/6/9; las declaraciones TS siguen 95/13; el inventario Vitest
+permanece en 465 (SHA256 `1577eabf011f23f291fe0945fbc2263f466ddd8b4fb1f1ede70a96e207dda1b6`). El
+TypeScript CLI 7.0.2 con `removeComments` emitió JavaScript idéntico antes/después para los dos TS.
+El root verificó 35 focales aprobadas y 90 filtradas intencionalmente, AST 9/0 y fast 9/0. Los seis
+reportes M0/final y cuatro blobs exitosos de shards preceden estos comentarios; no se les atribuyen
+bytes nuevos ni se infiere efecto causal entre poblaciones distintas. A2/A8/A10/A12 observados antes
+del delta también requieren captura vigente para contar como aceptación actual. R29 cubre los
+contratos de reporte/comparabilidad/bytes, no demuestra tabla medida, CI real ni A11.
 
 ## Contracts
 
@@ -695,8 +883,8 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   - campo no declarado o declarado después de un include → camino de hoy; lo cazan el drift test y el de
     conteo;
   - anomalía de extracción → repetición campo por campo (0054 D10). Nunca deja vacío "por error".
-- **Carril de fallos (D5):** payload grande → por stdin, sin límite de argv; `jq` ausente o < 1.6 → el
-  carril calla sin advice (no hay veredicto que perder: el hook es advisory y sale 0).
+- **Carril de fallos (D5):** R12/M5 está diferido; E1 mantiene el carril Node y no tiene resultado de
+  oráculo. La propuesta `jq` no se ejecuta ni se presenta como aceptación.
 - **Carga perezosa (si M3 entra):**
   - chunk faltante en `dist/` (publicación parcial) → `import()` rechaza y citty imprime el error con
     exit 1. Lo cubren el smoke e2e por subcomando y `cli-surface.test.ts`;
@@ -710,8 +898,8 @@ los subcomandos calientes, M3 sale de la entrega y D8 registra la medición.
   - Mitigación: el helper falla si queda un `exitCode` sin reportar, y queda un smoke de exit real por
     subcomando contra `dist/`.
 - **Merge de shards:**
-  - la cobertura no se combina igual → probe bloqueante en M6 y fallback `istanbul-lib-coverage`
-    (D13);
+  - divergencia de cobertura del full suite → el fixture de dos shards confirma el transporte y merge
+    nativos, pero no la equivalencia del full suite; conservar esta validación pendiente de M11;
   - falta un blob (shard cancelado) → `test-merge` falla si el número de blobs ≠ N;
   - umbrales evaluados por shard → `NAVORI_COVERAGE_SHARD=1` los vacía;
   - un shard dominado por un archivo lento → piso declarado (D13).
@@ -765,10 +953,9 @@ Cada test responde a un riesgo con nombre.
   `payload_field` de hoy, con `false`, `0`, `""`, salto de línea final, `tool_input` string y una ruta
   que resuelve a objeto (debe estar fuera de las listas).
 - **Caché no declarada o declarada tarde** → drift test de `nv_payload_fields` (D3).
-- **Normalización de errores distinta tras quitar Node** → tabla oráculo de ~30 mensajes (rutas, home,
-  tmp, fechas, duraciones, hashes, ANSI) más uno de 300 KiB. Se evalúa con el `node -e` viejo, copiado
-  en el test como oráculo, y con el `jq` nuevo: mismo `body`, mismo conteo y mismo advice. Es la
-  compuerta de D5.
+- **Propuesta de normalización de errores sin Node (D5/R12, diferida)** → la comparación futura,
+  si se retoma en otra entrega, usaría la tabla oráculo de ~30 mensajes (rutas, home, tmp, fechas,
+  duraciones, hashes, ANSI) más uno de 300 KiB para comparar body, conteo y advice. No se ejecutó en E1.
 - **Arranque con más de un CLI** → `session-start-context` con un `navori` falso que cuenta
   invocaciones: 1 con aviso y ack, 1 sin aviso (R11 enmendado excluye arm y resume de Codex).
 - **Contexto inyectado sin nada que señalar** → un test por hook y engine con el payload neutro de
@@ -788,8 +975,9 @@ Cada test responde a un riesgo con nombre.
   diff, archivo borrado, archivo movido vía `merges` y motivo obligatorio.
 - **Espera fija o `git init` por caso reintroducidos** → reglas ast-grep con sus tests de regla.
 - **Aserción de prosa reintroducida** → regla `no-prose-assertion` con sus tests de regla.
-- **Shards que no suman lo mismo** → probe de M6 (D13) y, en `test-merge`, conteo de blobs igual a N y
-  `numTotalTests` igual al de un `vitest list` del mismo commit.
+- **Diferencia entre shards y corrida completa** → fixture nativo acotado confirma el merge 2/2;
+  equivalencia del full suite y rendimiento siguen pendientes de M11. Antes del merge, `runCoverage`
+  valida N nombres únicos del mismo total y después ejecuta piso y presupuesto en orden.
 - **Hub no detectado** → test de `planAffected`: un cambio en `config.ts` o `permission-rules.ts` ⇒
   `full`; un plan con `estimatedFiles` ≥ 40 % ⇒ `full`; un cambio en una hoja ⇒ subconjunto.
 - **Salida verde que crece** → `bench:context` contra la línea base; en `summary.ts`, un test de verde
@@ -804,32 +992,128 @@ tests de la suite.
 
 ## Línea base y resultado
 
-**Preliminar** (2026-10-16, investigación previa a la spec, carga no controlada; M0 la reemplaza con
-tres corridas comparables).
+**Preliminar** (2026-10-16, investigación previa a la spec, carga no controlada; M0 debía
+reemplazarlo con tres corridas comparables). Final contiene las medianas de suite local abajo; queda
+incompleta hasta cerrar las demás métricas de D10, la pared real de CI y las validaciones de cierre.
 
 | Métrica | Preliminar | M0 (reposo) | Final (reposo) | Objetivo |
 |---|---|---|---|---|
-| Suite local, pared | 380 s (0054 T43, reposo) | — | — | baja (sin cifra fija en R) |
-| Suite local, suma por archivo | 1 438 s (0054 T43) | — | — | — |
-| Procesos por corrida | ~6 000 | — | — | — |
-| CI, paso de tests | ~447 s (run `38945840400`) | — | — | 4 shards + merge |
-| `guard-destructive` | 41 ms (raíz de auditoría presente) / 10 ms sin raíz | — | — | ~10 ms con raíz y sin log (R8) |
-| `routing-watch` | 53 ms (jq ×5, git, perl) | — | — | jq ≤ 1 (R10) |
-| `role-guard` | 54 ms | — | — | jq ≤ 1 |
-| `bash-outcome-watch` (fallo) | 48 ms (node ≈ 28) | — | — | sin node (R12) |
-| `implementer-no-markdown` | 34 ms | — | — | jq ≤ 1 |
-| `quality-gate-pre-commit` | 42 ms | — | — | jq ≤ 1 |
-| `plan-gate` | 161 ms (navori ≈ 122) | — | — | baja con R14 |
-| `session-start-context` | 474 ms (navori ×3, CLI global 0.12.1) | — | — | 1 CLI (R11) |
-| `audit-mode-close` | 139 ms | — | — | — |
+| Suite local, pared | 380 s (0054 T43, reposo) | 847.029 s | 828.643 s | baja (sin cifra fija en R) |
+| Suite local, suma por archivo | 1 438 s (0054 T43) | 3 177.592 s | 2 680.946 s | — |
+| Procesos por corrida | ~6 000 | 35 256 | 34 754 | — |
+| CI, paso de tests | ~447 s (preliminar, run `38945840400`) | 457 s (base exacta `a251417b`, run [`39051363851`](https://github.com/UlisesCm/navori-harness/actions/runs/39051363851)) | — | 4 shards + merge |
+| `guard-destructive` | 41 ms (raíz de auditoría) / 10 ms sin raíz | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; objetivo ~10 ms con raíz y sin log (R8) |
+| `routing-watch` | 53 ms (jq ×5, git, perl) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 (R10) |
+| `role-guard` | 54 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | solo escenarios Codex; jq ≤ 1 |
+| `bash-outcome-watch` (fallo) | 48 ms (node ≈ 28) | sin escenario en la matriz actual | sin escenario en la matriz actual | Node conservado; objetivo R12 diferido fuera de E1 |
+| `implementer-no-markdown` | 34 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 |
+| `quality-gate-pre-commit` | 42 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 |
+| `plan-gate` | 161 ms (navori ≈ 122) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; baja con R14 |
+| `session-start-context` | 474 ms (navori ×3, CLI global 0.12.1) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; 1 CLI (R11) |
+| `audit-mode-close` | 139 ms | sin escenario en la matriz actual | sin escenario en la matriz actual | no atribuir coste medido en esta comparación |
 | `navori` en frío | 114–128 ms (`node -e 0` = 28 ms) | — | — | baja con R14 |
-| Bytes de `SessionStart` | — | — | — | registrado (R4) |
-| Bytes de `test:affected` / gate en verde | — | — | — | 1 línea de totales por paso (R26) |
-| Hooks con contexto sin nada que señalar | sin confirmar | — | — | lista vacía (R28) |
-| Cobertura del corpus por hook (casos, % de sus tests) | — | — | — | publicada; < 60 % ⇒ regla de D2 |
-| Probe de carga perezosa: ahorro en `tools`, `plan` | — | — | — | ≥ 20 ms o M3 se retira (D8) |
-| Hubs medidos (fan-in de tests ≥ 40 %) | `config.ts`, `permission-rules.ts` (0045) | — | — | lista de D12 |
+| Bytes de `SessionStart` | — | 6 947 B Claude / 857 B Codex | 6 947 B / 857 B | iguales; sin contexto vacío (R4/R28) |
+| Bytes de `test:affected` / gate en verde | — | 464 B emulado / 122 B | 88 B nativo / 122 B | modos distintos; sin atribución causal (R26) |
+| Hooks con contexto sin nada que señalar | sin confirmar | 0 | 0 | lista vacía; común a ambos lados (R28) |
+| Capturas del corpus de hooks (no cobertura semántica) | — | — | 2 996 casos / 22 hooks; Claude 2 212, Codex 588, Pi 196 | publicada; < 60 % de cobertura semántica ⇒ regla de D2 |
+| Arranque frío `tools session-context` | — | 184.287 ms | 107.703 ms (−41.557 %) | baja ≥20 ms y ≥20 % (R14) |
+| Arranque frío `plan gate` | — | 150.424 ms | 113.139 ms (−24.787 %) | baja ≥20 ms y ≥20 % (R14) |
+| Arranque `--version` | — | 163.006 ms | 91.832 ms | no empeora |
+| Potencial restante de carga perezosa `tools` / `plan` | — | 44.8 / 37.7 ms | 4.7 / 12.8 ms | separado del arranque observado |
+| Gate real: bytes de salida (mismo test) | — | 283 B ×3 | 126 B ×3 | solo bytes funcionales; tiempos no admitidos |
+| Hubs medidos (fan-in de tests ≥ 40 %) | `config.ts`, `permission-rules.ts` (0045) | base 29 (257 módulos) | rama 29 (269 módulos) | lista de D12 |
 | Pared por shard / archivo más lento en CI | — | — | — | piso declarado (D13) |
+
+
+
+#### Coste por hook, engine y escenario
+
+Costes observados: medianas de tres observaciones por escenario. Cada fila muestra las tres auditorías en orden `absent/root/active`; no se mezclan escenarios. La matriz contiene 45 combinaciones, 135 escenarios y 17 nombres de hook. Matcher, CPU y conteos de procesos están en `.navori/state/bench/micro-native-20261018T222241Z/validated-summary.json`; los hooks fuera de la matriz no tienen medición nueva.
+
+| Engine | Hook | Evento / payload | M0 ms (absent / root / active) | Final ms (absent / root / active) |
+|---|---|---|---|---|
+| claude | `audit-mode-trigger.sh` | UserPromptSubmit / UserPromptSubmit | 161 / 131 / 45 | 139 / 113 / 47 |
+| claude | `comment-draft-confirm.sh` | PreToolUse / Bash | 11 / 11 / 11 | 11 / 10 / 11 |
+| claude | `general-purpose-confirm.sh` | PreToolUse / Agent | 9 / 9 / 9 | 9 / 9 / 10 |
+| claude | `guard-destructive.sh` | PreToolUse / Bash | 19 / 44 / 45 | 18 / 19 / 48 |
+| claude | `implementer-no-markdown.sh` | PreToolUse / Bash | 11 / 40 / 46 | 17 / 17 / 49 |
+| claude | `implementer-no-markdown.sh` | PreToolUse / Edit | 11 / 37 / 41 | 17 / 18 / 49 |
+| claude | `managed-drift-watch.sh` | PostToolUse / Bash | 27 / 55 / 60 | 32 / 32 / 64 |
+| claude | `managed-drift-watch.sh` | PostToolUse / Edit | 26 / 53 / 57 | 32 / 33 / 64 |
+| claude | `model-advisor.sh` | SessionStart / SessionStart | 43 / 69 / 74 | 44 / 45 / 76 |
+| claude | `plan-gate.sh` | PreToolUse / Agent | 12 / 40 / 43 | 12 / 13 / 44 |
+| claude | `pr-publisher-confirm.sh` | PreToolUse / Bash | 11 / 11 / 11 | 11 / 11 / 11 |
+| claude | `quality-gate-pre-commit.sh` | PreToolUse / Bash | 17 / 44 / 48 | 20 / 21 / 54 |
+| claude | `routing-watch.sh` | PostToolUse / Agent | 38 / 45 / 45 | 38 / 39 / 47 |
+| claude | `routing-watch.sh` | PostToolUse / Bash | 20 / 29 / 28 | 20 / 21 / 30 |
+| claude | `routing-watch.sh` | PostToolUse / Edit | 59 / 64 / 64 | 52 / 50 / 58 |
+| claude | `session-start-context.sh` | SessionStart / SessionStart | 359 / 401 / 387 | 180 / 182 / 217 |
+| claude | `subagent-no-background.sh` | PreToolUse / Bash | 11 / 36 / 42 | 11 / 13 / 44 |
+| claude | `subagent-stop-handoff.sh` | PostToolUse / Agent | 23 / 51 / 60 | 21 / 22 / 53 |
+| codex | `audit-mode-trigger.sh` | UserPromptSubmit / UserPromptSubmit | 191 / 165 / 68 | 156 / 132 / 63 |
+| codex | `comment-draft-confirm.sh` | PreToolUse / Bash | 18 / 18 / 18 | 17 / 17 / 17 |
+| codex | `general-purpose-confirm.sh` | PreToolUse / Agent | 16 / 16 / 16 | 16 / 16 / 16 |
+| codex | `guard-destructive.sh` | PreToolUse / Bash | 41 / 67 / 73 | 35 / 36 / 67 |
+| codex | `implementer-no-markdown.sh` | PreToolUse / Bash | 30 / 56 / 61 | 34 / 34 / 64 |
+| codex | `implementer-no-markdown.sh` | PreToolUse / Edit | 30 / 56 / 62 | 33 / 34 / 65 |
+| codex | `managed-drift-watch.sh` | PostToolUse / Bash | 46 / 72 / 76 | 48 / 49 / 81 |
+| codex | `managed-drift-watch.sh` | PostToolUse / Edit | 45 / 72 / 77 | 48 / 50 / 83 |
+| codex | `model-advisor.sh` | SessionStart / SessionStart | 50 / 78 / 81 | 50 / 54 / 83 |
+| codex | `plan-gate.sh` | PreToolUse / Agent | 18 / 46 / 49 | 18 / 20 / 51 |
+| codex | `pr-publisher-confirm.sh` | PreToolUse / Bash | 17 / 17 / 17 | 17 / 17 / 17 |
+| codex | `quality-gate-pre-commit.sh` | PreToolUse / Bash | 38 / 63 / 70 | 37 / 37 / 71 |
+| codex | `role-guard.sh` | PreToolUse / Agent | 30 / 57 / 61 | 33 / 34 / 65 |
+| codex | `role-guard.sh` | PreToolUse / Edit | 31 / 57 / 61 | 34 / 35 / 66 |
+| codex | `routing-watch.sh` | PostToolUse / Agent | 58 / 64 / 64 | 55 / 55 / 63 |
+| codex | `routing-watch.sh` | PostToolUse / Bash | 68 / 75 / 76 | 70 / 68 / 76 |
+| codex | `routing-watch.sh` | PostToolUse / Edit | 75 / 79 / 80 | 67 / 67 / 77 |
+| codex | `session-start-context.sh` | SessionStart / SessionStart | 373 / 410 / 405 | 201 / 197 / 234 |
+| codex | `worktree-reclaim.sh` | SessionStart / SessionStart | 63 / 89 / 94 | 63 / 63 / 95 |
+| pi | `comment-draft-confirm.sh` | PreToolUse / Bash | 8 / 8 / 7 | 7 / 7 / 7 |
+| pi | `guard-destructive.sh` | PreToolUse / Bash | 12 / 41 / 43 | 15 / 15 / 46 |
+| pi | `managed-drift-watch.sh` | PostToolUse / Bash | 22 / 49 / 54 | 28 / 29 / 60 |
+| pi | `managed-drift-watch.sh` | PostToolUse / Edit | 22 / 49 / 57 | 28 / 30 / 61 |
+| pi | `master-accept-confirm.sh` | PreToolUse / Bash | 12 / 39 / 43 | 14 / 15 / 46 |
+| pi | `pr-publisher-confirm.sh` | PreToolUse / Bash | 7 / 8 / 7 | 7 / 7 / 7 |
+| pi | `quality-gate-pre-commit.sh` | PreToolUse / Bash | 13 / 40 / 44 | 15 / 16 / 48 |
+| pi | `subagent-no-background.sh` | PreToolUse / Bash | 7 / 34 / 39 | 8 / 9 / 40 |
+
+Las medianas locales provienen de tres observaciones válidas por lado en
+`.navori/state/bench/comparable-native-20261018T185623Z/validated-summary.json`. Base: 452 archivos,
+9 551 tests; rama: 465 archivos, 9 731 tests. Las cargas iniciales de las seis muestras válidas
+fueron ≤4 con workers=4. La segunda observación inicial de base (loadavg 3.592, por tanto admisible
+por carga) se excluyó por una interrupción/suspensión: exit 1, 13 archivos fallidos, pared medida
+1 266.410 s frente a 741.091 s monotónicos; fue sustituida por un retry válido. Una preparación de
+baseline anterior, separada de estas seis muestras, tuvo carga 10.85 y no es comparable. Las
+diferencias de inventario describen poblaciones distintas y no sustentan una afirmación de mejora
+global. La corrida de CI base exacta es 457 s en el run `39051363851`; 447 s del run `38945840400`
+permanece solo como cifra preliminar. Ninguna mide la rama. Las microcorridas válidas de hooks,
+contexto y arranque están registradas a continuación; el full de los bytes actuales, la revisión nativa
+independiente, el receipt y la pared real de CI siguen pendientes. El checkpoint T12 se registra aparte.
+
+**Microcorrida nativa de M11** (`.navori/state/bench/micro-native-20261018T222241Z/validated-summary.json`): tres observaciones por escenario. En los 135 escenarios de hooks, la suma de medianas de pared fue 8 123 ms en base y 6 294 ms en rama; los conteos agregados de procesos observados fueron `jq` 289/192, `node` 31/25, `perl` 132/68, `git` 156/156 y `navori` 16/10 (base/rama). `SessionStart` fue 6 947 B Claude/857 B Codex en ambos lados; gate verde 122 B en ambos; los hooks sin señal produjeron cero bytes. Los valores de arranque son medianas de tres rondas × diez muestras, con carga inicial admisible: `tools session-context` 184.287→107.703 ms (−41.557 %), `plan gate` 150.424→113.139 ms (−24.787 %), `--version` 163.006→91.832 ms. Estos microescenarios no sustituyen la comparación de suite, cuyas poblaciones difieren.
+
+El gate real adicional de bytes (`.navori/state/bench/gate-byte-acceptance-native.json`) mide el mismo test sin cambios en tres pares: 283→126 B. La carga registrada fue 4.762/4.700; la autorización cubre únicamente bytes funcionales (`timingsAccepted=false`, `comparablePerformance=false`). El resultado sintético 194→231 B y el rechazo de configuración se conservan como diagnósticos, no como aceptación. Para `test:affected`, M0 emulado produjo 464/1 308 B y Final nativo 88/497 B; el cambio de modo impide atribuir el diferencial exclusivamente a M9.
+
+El grafo nativo `.navori/state/bench/graph-native-comparison-20261018.json` cuenta base 452 tests,
+257 módulos y 29 hubs; rama 465 tests, 269 módulos y 29 hubs. El artefacto
+`.navori/state/probes/0055-corpus-coverage-native.json` contiene 2 996 capturas en 22 hooks:
+2 212 Claude, 588 Codex y 196 Pi. `model-advisor` tiene 0 capturas en ese corpus. Estos conteos
+describen la captura observada; no equivalen a cobertura semántica total ni permiten completar la
+regla de porcentaje de D2.
+
+**T12 — re-medición retrospectiva de M2 tras el entorno hermético.** Una observación válida en el
+checkout base `a251417bd231415c43bc091f051d9a994cf7e885`, con los observers y la normalización comunes:
+453 archivos/9 556 tests, workers=4, carga inicial 3.950, pared 743 210 ms, suma por archivo
+2 790 367 ms y 35 258 spawns (`2026-10-18T22:05:15.926Z`). El reporte
+`.navori/state/bench/hermetic-checkpoint-native-20261018T213656Z/1/tests.json` tiene SHA256
+`0601de8310dc118b68cad1fb69a504be22afbcff92e5ca4cba0af2553e000164`; snapshot de fuentes verificado,
+gap pared/monotónico 0.00745 s. T12 pide esta re-medición singular; las tres muestras por lado de
+D10/R29 se completaron aparte y no se afirma causalidad entre poblaciones. No sustituye M0 ni entra
+al cálculo R30. El plan conservó la intención original de tres observaciones retrospectivas, pero
+el checkpoint válido y el plan update root cerraron T12 antes de lanzar otras dos. El scheduler raíz
+fue detenido antes de su segunda muestra; su salida 143 no corresponde al reporte, que terminó
+exit 0 y `comparable: true`.
 
 ## Milestone order
 
@@ -843,22 +1127,23 @@ tests, sin contar fixtures generados.
 | **M1 — Hermético** | `createTempFile`, `auditsUnderHome`, regla `no-real-home-in-tests` con allowlist, censo y arreglos; **re-medición** (cambia la base) | R5–R7 | M0 | ~250 |
 | **M2a — Auditoría** | D4 | R8, R9 | M0, M1 | ~250 |
 | **M2b — Caché de campos** | D3 en 22 hooks y 3 engines, drift test, conteo por engine | R10 | M2a | ~450 |
-| **M2c — Fallos sin Node** | D5 con la tabla oráculo; sale de la entrega si la compuerta no da 100 % | R12 | M2b | ~350 |
-| **M2d — Sesión y contexto** | D6 (`--notice-reserve`), R28 según la lista de M0, render de espejos, replay final | R11, R13, R28 | M2c | ~200 |
+| **M2c — Fallos sin Node (diferido fuera de E1)** | R12/D5; sin ejecución de oráculo ni veredicto | — | — | — |
+| **M2d — Sesión y contexto** | D6 (`--notice-reserve`), R28 según la lista de M0, render de espejos, replay final | R11, R13, R28 | M2b | ~200 |
 | **M3 — CLI perezoso** | **solo si el probe de M0 da ≥ 20 ms**: `src/cli.ts`, `tsdown` con chunks, `check:size`, test de carga | R14, R15 | M0 | ~250 |
 | **M4 — Suite** | shells y paridad con corpus (D9), e2e en proceso, lotes, plantillas git, `vi.waitFor`, prosa, preservación genérica y reglas ast-grep | R16–R22 | M1, M2 (corpus validado), M3 o un `src/cli.ts` estático | ~2 500 cambiadas (neto negativo) |
 | **M5 — Tokens** | reporter `compact`, línea del piso, `summarizeGreen` | R26, R27 | M0 | ~350 |
-| **M6 — CI** | `test:affected` (`--base`, `--plan-json`, hub por salida, una invocación), `run-test-coverage --shard/--merge`, `ci.yml`; **probe de cobertura y de pared por shard primero** | R23–R25 | M4, M5 | ~300 |
+| **M6 — CI** | `test:affected` (`--base`, `--plan-json`, hub por salida, una invocación), `run-test-coverage --shard/--merge`, `ci.yml`; transporte y merge nativos validados en fixture; pared por shard pendiente | R23–R25 | M4, M5 | ~300 |
 | **M7 — Cierre** | tres corridas en reposo por lado, tabla final, `check-test-budget --propose`, `test-budget.json` | R29, R30 | todos | ~80 + datos |
 
-M2 completo (~1 250) y M3 son independientes entre sí. M5 va antes de M6 porque los dos tocan
-`test-affected.mjs` y la salida de CI. M4 no reduce casos de un hook con cobertura de corpus menor al
-60 % hasta que M2 esté verde (D2).
+M2a, M2b y M2d son independientes de la propuesta M2c, que queda diferida fuera de E1. M5 va antes de
+M6 porque ambos tocan `test-affected.mjs` y la salida de CI. M4 no reduce casos de un hook con cobertura
+de corpus menor al 60 % hasta que M2 esté verde (D2).
 
 ## Preguntas abiertas (para el orquestador)
 
-Resueltas: R7 (solo estático) y R11 (camino común) ya están enmendados en `requirements.md`. CI: `main`
-y `dev` no tienen protección de ramas ni rulesets, así que partir `quality` no rompe checks requeridos.
+Resueltas: R7 (solo estático) y R11 (camino común) ya están enmendados en `requirements.md`. La
+consulta de protección de ramas descrita en D13 refleja únicamente lo observado en GitHub el
+2026-10-18 alrededor de las 02:30 UTC.
 
 Aplicadas en `requirements.md` (2026-10-16) las cinco enmiendas siguientes:
 
@@ -871,8 +1156,8 @@ Aplicadas en `requirements.md` (2026-10-16) las cinco enmiendas siguientes:
    que debería figurar en el propio requisito, no solo en D12/D13.
 4. **R16:** la red es el corpus completo bajo zsh (D9); "casos marcados" queda para los que el corpus
    no reproduce. Conviene reflejarlo en el texto.
-5. **R12:** queda condicionado a la compuerta de equivalencia de D5 (100 % con la tabla oráculo); si no
-   se cumple, sale a una spec aparte.
+5. **R12:** diferido fuera de E1 por decisión explícita del usuario; el oráculo no se ejecutó y no hay
+   resultado de aprobado o fallido.
 
 ## NOT in scope
 
@@ -911,7 +1196,9 @@ Destino propuesto; no se escribe en esta fase.
 - Vitest Coverage, https://vitest.dev/guide/coverage, consultada el 2026-10-16. No menciona sharding.
 - Merge de cobertura desde blobs: vitest PR #5736 (https://github.com/vitest-dev/vitest/pull/5736) y el
   Knapsack Pro Vitest cookbook (https://docs.knapsackpro.com/vitest/cookbook), consultados el
-  2026-10-16. **[SIN VERIFICAR]** contra la documentación oficial; lo cierra el probe de M6.
+  2026-10-16 como referencias secundarias. La guía oficial consultada no documenta la cobertura
+  combinada; el comportamiento de Vitest 5.0.1 se verificó en el fixture limitado descrito en D13,
+  sin inferir equivalencia ni rendimiento del full suite.
 - citty 0.1.6, tipos `Resolvable` y `SubCommandsDef` en `packages/cli/node_modules/citty/dist/index.d.mts`
   (checkout principal).
 - Perfil de CPU de `navori --version` 0.12.1 y `/usr/bin/jq` presente: medidos en esta máquina el

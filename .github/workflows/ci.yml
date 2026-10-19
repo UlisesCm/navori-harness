@@ -1,11 +1,7 @@
 name: CI
 
-# Two tiers: `main` and `dev` (pushes and PRs targeting either) run the full
-# `quality` job, tests included — `dev` too, because it is the last full-suite
-# barrier before a PR lands there (spec 0054 R18); everything else runs `fast`:
-# format, lint, typecheck, duplication and ast-grep rules, no tests. The
-# versioned pre-commit hook runs `check:fast` (the same set), also without tests.
-# A separate `semgrep` job scans only `main` (pushes and PRs into it).
+# Checks always run; full coverage uses four shards and one aggregate merge.
+# PRs to dev use affected tests unless their plan requires the full suite.
 on:
   push:
     branches: [main, dev]
@@ -24,8 +20,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  quality:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.base_ref == 'main' || github.base_ref == 'dev'
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -149,83 +144,127 @@ jobs:
       - name: Test cases are preserved or their removal is declared
         run: bun run check:tests-preserved
 
-      # The hook suites run under bash AND zsh (#391) — the hooks execute with
-      # whatever shell the host wires in — and ubuntu-latest ships without zsh.
-      # The tests skip the zsh rows cleanly when the binary is missing, so this
-      # step is what makes the zsh half actually run in CI.
-      #
-      # `apt-get update` exits 100 if ANY configured source fails, and the runner
-      # image ships third-party repos this job never installs from. On 2026-09-09
-      # Google's chrome-stable index served a Hash Sum mismatch and that alone
-      # turned `main` and both open PRs red, with nothing wrong in the tree. So
-      # the update is allowed to report a failing source — the Ubuntu archive it
-      # DOES need refreshes fine — and the guarantee moves to where it belongs:
-      # `zsh --version` fails the step when the shell the suite needs is missing,
-      # so the zsh half can never quietly stop running.
+  plan:
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - id: plan
+        env:
+          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+        run: |
+          node packages/cli/scripts/test-affected.mjs --plan-json > "$RUNNER_TEMP/affected-plan.json"
+          node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (typeof p.full !== "boolean") throw Error("invalid plan"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "full=" + p.full + "\n")' "$RUNNER_TEMP/affected-plan.json"
+
+  test:
+    needs: [plan]
+    if: >-
+      ${{ !cancelled() && (github.event_name == 'push' || github.base_ref == 'main' ||
+          (needs.plan.result == 'success' && needs.plan.outputs.full == 'true')) }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
       - name: Install zsh
         run: |
           sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
           sudo apt-get install -y zsh
           zsh --version
+      - name: Build
+        run: bun run ensure-dist
+      - name: Coverage shard
+        run: node packages/cli/scripts/run-test-coverage.mjs --shard ${{ matrix.shard }}/4
+      - name: Upload successful shard
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vitest-shard-${{ matrix.shard }}
+          path: packages/cli/.vitest-reports/
+          include-hidden-files: true
+          if-no-files-found: error
 
-      # The full suite AND the coverage gate — on PRs too (#504). Deferring the
-      # gate to the `main` push meant a PR could not fail on coverage: the module
-      # it left untested was only reported once merged, which is after the only
-      # moment the gate can change anything. The suite is the same either way;
-      # instrumentation costs seconds.
-      - name: Test + coverage gate
-        run: bun run --filter navori test:coverage
-        env:
-          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-report.json
-
-      # Per-file time budget (spec 0054 R3). Factor 2: the budget is set on a
-      # local run; shared 2-4 vCPU runners are slower, and 2 absorbs that noise
-      # without hiding a file that doubles. Revisit with CI timings in M8.
-      - name: Test time budget
-        run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-report.json"
-        env:
-          NAVORI_TEST_BUDGET_FACTOR: "2"
-
-  # Format check, lint, typecheck, duplication and ast-grep on every other ref
-  # and base. No tests (they run on `main` and `dev`) and no semgrep (`main`-only job).
-  fast:
-    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' && github.base_ref != 'main' && github.base_ref != 'dev'
+  test-merge:
+    needs: [test]
+    if: ${{ always() && needs.test.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require every shard to succeed
+        env:
+          SHARD_RESULT: ${{ needs.test.result }}
+        run: test "$SHARD_RESULT" = success
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - run: bun install --frozen-lockfile
+      - name: Download all shard blobs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          pattern: vitest-shard-*
+          merge-multiple: true
+          path: packages/cli/.vitest-reports/
+      - name: Aggregate coverage, floor and time budget
+        env:
+          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-merged.json
+          NAVORI_TEST_BUDGET_FACTOR: "2"
+        run: node packages/cli/scripts/run-test-coverage.mjs --merge .vitest-reports --shards 4
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Format check
-        run: bun run format:check
-
-      - name: Lint
-        run: bun run --filter navori lint
-
-      - name: Typecheck
-        run: bun run --filter navori typecheck
-
-      - name: Duplication check
-        run: bun run check:dup
-
-      - name: ast-grep rules
-        run: bun run check:ast
+  affected:
+    needs: [plan]
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && needs.plan.result == 'success' && needs.plan.outputs.full == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Install zsh
+        run: |
+          sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
+          sudo apt-get install -y zsh
+          zsh --version
+      - name: Build
+        run: bun run ensure-dist
+      - name: Affected subset
+        env:
+          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-affected.json
+        run: node packages/cli/scripts/test-affected.mjs
+      - name: Affected time budget
+        env:
+          NAVORI_TEST_BUDGET_FACTOR: "2"
+        run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"
 
   # Semgrep `p/default` on `main` only (pushes and PRs into it). Diff-scoped via
   # `--baseline-commit`: only findings new since BASE block, so the pre-existing

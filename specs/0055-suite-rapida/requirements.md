@@ -1,5 +1,17 @@
 # Suite rápida: tests herméticos, hooks y CLI más baratos, menos tokens — Requirements
 
+> **Enmienda de alcance (2026-10-19):** esta continuación es documental y conserva la
+> implementación existente; no declara la spec completa. El inventario R3, la aceptación final
+> R29/T39 y M5/R12 diferido continúan en [#1354](https://github.com/UlisesCm/navori-harness/issues/1354);
+> la CI preliminar fallida, en [#1353](https://github.com/UlisesCm/navori-harness/issues/1353), y el
+> diagnóstico Pi inconcluso, en [#1355](https://github.com/UlisesCm/navori-harness/issues/1355).
+> La aceptación funcional de CI, el full actual, la revisión independiente y un receipt válido siguen
+> siendo requisitos de publicación. Los requisitos y resultados fechados abajo son historia, no
+> evidencia de cierre actual.
+> El full del 2026-10-19 falló (164 fallidas, 9 567 aprobadas, 2 omitidas; 465 archivos; 32 707.7 s).
+> Hubo un salto temporal entre inicio y resultado; la causa de los fallos no está determinada
+> (`.navori/state/gate/full-20261019T044833225Z.log`).
+
 **Estado:** borrador · **Fecha:** 2026-10-16 · **Base:** `dev` (incluye 0054). El PR de esta spec
 apunta a `dev`.
 
@@ -81,9 +93,11 @@ Decisiones del usuario (2026-10-16):
 - **R11** — WHEN el CLI instalado soporta el contexto de sesión y no hay arm de auditoría ni resume
   de Codex pendientes, the system SHALL resolver el contexto de arranque con a lo más una invocación
   del CLI `navori` por evento `SessionStart`.
-- **R12** — WHEN `bash-outcome-watch` procesa un fallo, the system SHALL NOT lanzar Node para parsear
-  el payload. Condicionado: el reemplazo entra solo si iguala al 100 % la tabla oráculo de la
-  implementación actual; si no, R12 sale de esta entrega a una spec aparte.
+> **R12 (diferido fuera de E1 por decisión explícita del usuario):** WHEN `bash-outcome-watch` procesa
+> un fallo, the system SHALL NOT lanzar Node para parsear el payload. Condicionado: el reemplazo entra
+> solo si iguala al 100 % la tabla oráculo de la implementación actual; si no, R12 sale de esta entrega
+> a una spec aparte. El oráculo no se ejecutó: no hay resultado de aprobado ni de fallido. E1 conserva
+> el carril Node actual; cualquier reevaluación pertenece a una entrega futura.
 - **R13** — The system SHALL mantener los veredictos (allow/ask/deny y sus mensajes) de cada hook
   idénticos a los de `dev` para el corpus de casos existente.
 
@@ -125,6 +139,12 @@ Decisiones del usuario (2026-10-16):
   `main`, CI SHALL correr la suite completa con la misma matriz de shards que en push.
 - **R25** — WHEN CI corre la suite completa, the system SHALL repartirla en shards paralelos y SHALL
   combinar sus reportes antes de evaluar cobertura y presupuesto.
+
+**Checkpoint histórico de implementación M10 (R23–R25), anterior a la adopción nativa Codex:** T35–T37
+y pruebas focalizadas estaban implementadas; A10 local había pasado 23 pruebas en 3 archivos. El
+registro de ese checkpoint decía que M6 seguía rojo y que el host no ofrecía captura Bash. Esas
+limitaciones de captura fueron superadas después; este texto no representa el estado actual ni cierra
+la aceptación. Para el estado actual de publicación, véase la enmienda de alcance al inicio.
 
 ### G — Tokens
 

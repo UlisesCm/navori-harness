@@ -36,7 +36,8 @@ export interface HookCaseResult {
   stderr: string;
 }
 
-// Plain POSIX sh so it parses the same under bash and zsh. `set --` clears the
+// Bash/zsh builtins only for cwd reads (command substitution strips trailing newlines).
+// `set --` clears the
 // positional parameters the hook would otherwise see ($1 = batch dir, $2 = lanes).
 // Cases are dealt round-robin to `$2` background lanes inside this ONE process:
 // the hook itself, not process startup, dominates a case, so a serial batch would
@@ -48,7 +49,7 @@ const DRIVER = [
   "    n=$((l+1))",
   '    while [ -e "$d/$n.in" ]; do',
   "      (",
-  '        if [ -f "$d/$n.cwd" ]; then cd "$(cat "$d/$n.cwd")" || exit 97; fi',
+  '        if [ -f "$d/$n.cwd" ]; then cd "$(< "$d/$n.cwd")" || exit 97; fi',
   '        if [ -f "$d/$n.env" ]; then . "$d/$n.env"; fi',
   '        . "$0"',
   '      ) < "$d/$n.in" > "$d/$n.out" 2> "$d/$n.err"',
