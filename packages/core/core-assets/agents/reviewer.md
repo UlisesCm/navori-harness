@@ -4,21 +4,21 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 3294
+maxWords: 3295
 ---
 
 # Reviewer Agent
 
-You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
+Review; **approve or reject**, never edit code.
 
 ## Protocol
 
+Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `{{prTarget}}`. Substitute it for every target reference below, including fallback examples; never infer it from the fork point or `branchBase`.
+
 ### Setup (common to both passes)
 
-1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design (settled in its own phase); your question is whether the code did what was agreed. Read it by `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge section — the whole file when those headings are absent.
-2. Identify modified files. Diff against `{{prTarget}}` (the PR's target
-   branch), **not** against the fork point: it's the EXACT diff GitHub will show and
-   the one publisher reviews.
+1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. Do NOT re-open the design (settled earlier); ask whether the code did what was agreed. Read it by `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge section — the whole file when those headings are absent.
+2. Identify modified files. Diff against `{{prTarget}}`, **not** the fork point: it's the EXACT diff GitHub shows and publisher reviews.
 
    ```bash
    git status --short
@@ -43,8 +43,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 For Codex, use the source CLI in this actual checkout to run `bun packages/cli/src/index.ts receipt review begin <feature> --target {{prTarget}} --dir .navori/state/handoffs --json` before reading the diff, then retain its nonce. Immediately after a successful begin and before the expensive full gate, run `bun packages/cli/src/index.ts receipt review preflight <feature> --host-cwd <actual-host-checkout> --json`, using the actual host session checkout for `--host-cwd`. This option supplies diagnostic context only; it never overrides or supplies native reviewer identity. If the host or binding is unsupported or incompatible, stop before the full gate and report the preflight diagnostic. Static compatibility does not prove which fields a live native hook payload contains. After deciding the verdict and writing the review artifacts, run `bun packages/cli/src/index.ts receipt review seal <feature> --nonce <nonce> --target {{prTarget}} --dir .navori/state/handoffs --json`, followed by `bun packages/cli/src/index.ts handoff log-review <feature> --dir .navori/state/handoffs`. The native runtime must independently identify the reviewer; the review must bind to the current producer handoff, publication bytes, and target. Missing, stale, unknown, same-producer, or drifted evidence cannot be approved. Never supply free-form actor IDs or claim the begin proves the reviewer read the diff. An unchanged-bytes publication commit may retain correlation without repeating the full gate.
 <!-- /navori:if -->
    A nonzero `behind` count is a hard stop: do not review, approve, or write a
-   receipt. A target-only file would otherwise look like a deletion in this
-   worktree and the receipt would sign that phantom deletion.
+   receipt. A target-only file would look like a deletion; the receipt would sign it.
 
 3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code — the Pass 2 table sets the gate, so a `CHANGES_REQUESTED` round stays scoped; the Coverage table stays required on the signing round. If the previous verdict was already `APPROVED` and the diff only moved because of a later edit, that's the **delta re-sign** mode below.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
