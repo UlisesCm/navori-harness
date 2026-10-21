@@ -358,6 +358,8 @@ per delivery (`<spec>-e<n>`, phases = milestones); see `orquestacion`".
 
 ### D9 — Publisher: commit-only, orden y cierre del issue (R18, R19, R26)
 
+*(Pasos 1, 2 y 4 y "Serialización" enmendados: ver "Enmienda 2026-10-21".)*
+
 **`mode: commit-only` (R26).** La regla va **antes** de "PR flow":
 
 - Si el brief dice `mode: commit-only`, o `navori receipt check` devuelve `gateKind:"scoped"`, el
@@ -593,3 +595,39 @@ Total estimado: unas 2950 LOC.
   `decideGate` y `signReceipt`, y prosa managed de `reviewer`/`publisher`.
 - **Gramática de `tasks.md`.** Destino propuesto: la skill `spec-bootstrap` y el JSDoc de
   `lib/spec/tasks.ts`.
+
+## Enmienda 2026-10-21 — orden de entregas recomendado
+
+Enmienda R18 y R19 ([requirements.md](requirements.md), "Enmienda 2026-10-21"). D9 se conserva
+arriba como historia; sus pasos 1, 2 y 4 y la "Serialización" quedan así:
+
+- **Pasos 1-2 (orden: aviso, no gate).** `after: <sha>` es el head de la entrega anterior; a
+  partir de `E2`, si falta (esa entrega aún no tiene head), el publisher pregunta. Tras
+  `git fetch` corre checks preaprobados y deterministas:
+  - mergeada = `git merge-base --is-ancestor <sha> origin/{{prTarget}}` tiene éxito; tras un
+    squash merge falla, y `gh pr list --state merged --base {{prTarget}}` es solo señal;
+  - apilada = no mergeada y `git merge-base --is-ancestor <sha> HEAD` tiene éxito;
+  - solape = `git diff --name-only origin/{{prTarget}}...HEAD` comparte un path con
+    `git diff --name-only origin/{{prTarget}}...<sha>`.
+
+  No mergeada, sin apilar, sin solape y sin `dependsOn` de `parts.json` hacia una entrega sin
+  mergear: abre el PR y lo avisa en su reporte. Apilada, con dependencia sin mergear, con solape
+  o ambigua: pregunta al usuario.
+- **Paso 4 (cierre del issue).** `Closes #<issue>` solo si, al publicar, para cada `E<k>` con
+  k≠n algún PR mergeado tiene en su cuerpo una línea que, tras un marcador de lista `- `
+  opcional y espacios alrededor, es exactamente `Spec-Delivery: <spec> E<k>/<total>`
+  (`^\s*(- )?Spec-Delivery: <spec> E<k>/<total>\s*$`; la plantilla del PR la escribe como
+  viñeta). Es coincidencia de línea completa, no de palabras.
+  `gh pr list --state merged --base {{prTarget}} --search "<spec>" --json number,body --limit 100`
+  solo acota candidatos: es búsqueda de texto completo de GitHub y devuelve PRs sin esa línea
+  (en este repo, "Spec-Delivery: 0047" devolvió #1289). Si falta alguna entrega, se llega al
+  límite de 100 resultados o algo es ambiguo, `Refs #<issue>` y el reporte dice que el issue
+  queda abierto. Falla hacia lo seguro: un issue abierto de más se cierra a mano; uno
+  cerrado antes de tiempo esconde trabajo pendiente.
+- **Serialización.** `E<n+1>` puede empezar antes del merge de `E<n>` si sus archivos son
+  disjuntos y sale en su propio PR; esperar el merge sigue siendo lo recomendado. Se acepta el
+  riesgo de conflictos tardíos a cambio de menos latencia de reloj; el solape y el apilado siguen
+  frenando en el publisher.
+- **Código.** Ningún comando del CLI impone el orden; el cambio vive en la prosa de
+  `orquestacion.md` y `publisher.md`. Las dependencias declaradas de master-plan
+  (`delivery-checks.ts`, `delivery.ts`) no cambian.

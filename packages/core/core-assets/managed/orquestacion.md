@@ -25,7 +25,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 <!-- navori:if scribeOwnsMarkdown -->
 - **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
 <!-- /navori:if -->
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `{{qualityGate.fast}}` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `{{qualityGate.fast}}` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. Merging `E<n>` before `E<n+1>` is recommended, not required; parallel deliveries need disjoint files and own PRs.
 - **Parallel implementers need disjoint files.**
 - **<!-- navori:if-not onCodex -->`{{qualityGate.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->The quality gate named in "Session closeout"<!-- /navori:if --> green** is Pass 2 on the shipping diff of the PR, once per PR.
 - **A verification brief names the probe criterion**, never an open "verify X"; track agents by artifact.

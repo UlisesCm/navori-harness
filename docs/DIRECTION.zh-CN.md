@@ -62,7 +62,7 @@ navori **首先服务自己的团队**：每项功能都应回答“它能否帮
 
 ## PR 与验证的单位
 
-功能交付是 PR 的单位；里程碑是验证和提交的单位。小型规范用一个 PR 完成；大型规范按 `sdd.deliveries` 拆为 2 至 4 个 PR。每个 PR 都必须针对最终将发布的确切内容运行完整质量门。项目不设集成分支：各交付按顺序合并到 `prTarget`。Master plan 也遵循同一规则。详情与依据见 [`docs/research/distribucion-entregas-agentes.md`](./research/distribucion-entregas-agentes.md)。
+功能交付是 PR 的单位；里程碑是验证和提交的单位。小型规范用一个 PR 完成；大型规范按 `sdd.deliveries` 拆为 2 至 4 个 PR。每个 PR 都必须针对最终将发布的确切内容运行完整质量门。项目不设集成分支：每个交付通过各自的 PR 合并到 `prTarget`；建议按顺序合并，但不强制。Master plan 也遵循同一规则。详情与依据见 [`docs/research/distribucion-entregas-agentes.md`](./research/distribucion-entregas-agentes.md)。
 
 ## 按接入表面划分的准入标准
 
