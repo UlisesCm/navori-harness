@@ -143,8 +143,8 @@ Today both are opt-in plugins again, with routing
 The functional delivery is the unit of a PR; the milestone is the unit of verification and
 commit. A small spec fits in one PR. A larger spec is split into two to four PRs according to
 `sdd.deliveries`. Run the full gate once per PR against the exact contents to be published.
-There is no integration branch: merge deliveries in order into `prTarget`. Master plans follow
-the same rules. Details and evidence: [`docs/research/distribucion-entregas-agentes.md`](research/distribucion-entregas-agentes.md).
+There is no integration branch: each delivery merges into `prTarget` in its own PR; merging in
+order is recommended, not required. Master plans follow the same rules. Details and evidence: [`docs/research/distribucion-entregas-agentes.md`](research/distribucion-entregas-agentes.md).
 
 ## Admission criterion by surface
 
