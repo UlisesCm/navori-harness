@@ -384,3 +384,105 @@ confirma un solo `principalTurnRequests`, un `turn/start` y cleanup reconocido. 
 roja de 15 segundos pasó 1/1 después del guard; el grupo de target cambiado, caso paralelo
 pending y positivo baseline+refresh pasó 3/3. El guard evita consumir evidencia obsoleta;
 no determina la causa del A9 live pendiente ni modifica sus requisitos.
+
+### Diagnóstico V2 de #1347 — 2026-10-22
+
+Se recuperó la continuación local del owner para Codex 0.163.0: una fase por rol,
+auto-suscripción de hijos efímeros, unión hook/call/turno y selección efectiva, terminal
+propio del hijo y cierre exacto tras `thread/unsubscribe`. El home privado usa unload de
+2 segundos; la ruta genérica de aprobación conserva su límite 0.162.1. No se restauran
+threads ni se cambian perfiles, permisos o trust globales.
+
+La única ejecución viva autorizada inició un turno y observó dos notificaciones
+`subAgentActivity`, pero terminó en `native-profile-activity-conflict`, con cero contextos
+de hook verificados y cleanup sin verificar. Esto demuestra actividad V2 en esta corrida;
+no demuestra el origen del fallo histórico sin dispatch ni satisface A9.
+
+El rechazo nuevo tiene una causa reproducible: se comparaba `JSON.stringify(params)` de
+inicio y término, aunque el protocolo nativo define `startedAtMs` sólo para
+`ItemStartedNotification` y `completedAtMs` sólo para `ItemCompletedNotification`.
+La fixture omitía ambos campos y ocultaba el problema. La comparación ahora proyecta
+hilo, turno, tipo, call, kind, hijo, ruta y modelo/effort; los tiempos del envelope no
+representan identidad. Las regresiones conservan el rechazo de cambios en cada identidad
+y selección. Fuente: [protocolo 0.163.0](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server-protocol/src/protocol/v2/item.rs#L1343-L1428).
+
+La prueba viva quedó consumida antes de esta corrección; no se repite ni se restablecen
+marcadores. Un positivo determinista no acredita los hooks, todos los roles, refresh ni
+cierre del host real. T11/A9 sigue pendiente.
+
+Una segunda validación autorizada expresamente sobre el fix terminó con
+`native-profile-dispatch-missing`: un turno terminal del principal, cero actividades de
+hijos y cero hooks. El reporte `blocked/tool_unavailable` no demuestra la ausencia de la
+herramienta. Esta corrida no ejercitó el par de eventos corregido; no acredita éxito ni
+regresión del fix en el host. No hubo reintentos y su identidad consumida se conserva.
+La causa histórica del no-dispatch permanece abierta. Antes de gastar otro turno sería
+necesario observar el inventario nativo de la misma solicitud, con retención acotada y
+redacción; las fixtures locales de serialización previas no representan esa solicitud.
+
+El owner admite ahora `captureToolInventory: true` como diagnóstico opcional de esa misma
+ejecución. La traza nativa se escribe bajo el home privado y se resume tras detener el
+proceso, antes de eliminar el directorio temporal. Sólo se leen registros del principal
+y de los turnos observados; se conservan índices de turno, nombres permitidos y conteos.
+Las solicitudes directas y Responses Lite (`input.additional_tools`) se inspeccionan
+conjuntamente. La ausencia de inventario o un esquema opaco queda `unverified`, no se
+convierte en una lista vacía. Prompts, descripciones, nombres desconocidos e IDs de la
+traza no salen en el resumen. La lectura tiene topes de 2 MiB, 2048 eventos, 64 bundles
+y 64 solicitudes; son límites del lector, no una cuota de disco del writer nativo.
+Rutas externas, symlinks, duplicados y fallas de lectura dejan el inventario no disponible.
+
+El diagnóstico no inicia un turno adicional ni altera el criterio de aceptación: observar
+`spawn_agent` en una solicitud no acredita dispatch, selección, hooks ni cierre. La ruta
+normal no activa captura. Las fixtures locales prueban la unión y redacción sin inferencia;
+todavía no se ejecutó esta instrumentación contra el proveedor real.
+
+La corrida con captura autorizada posteriormente sí observó `collaboration.spawn_agent`
+en `input.additional_tools` del principal y actividad V2 de un hijo. Una segunda solicitud
+del mismo turno no llevaba inventario; se reportó `unverified`, sin inferir ausencia ni
+herencia. La prueba se detuvo en la guarda que rechazaba todo `collabAgentToolCall` V2,
+antes de acreditar hooks, selección, refresh o cierre.
+
+La revisión del código oficial 0.163.0 identificó dos incompatibilidades reproducibles:
+
+- [wait_agent](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs)
+  emite `collabAgentToolCall` con `tool: wait`, receivers y states vacíos. El owner ahora
+  acepta únicamente su par inicio/término ligado al principal, turno y call exactos,
+  después de un único hijo observado; la espera no acredita el terminal ni cierre del hijo.
+  Se rechazan duplicados, esperas incompletas, selecciones y cualquier otro control.
+- [function_hook_tool_name](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/core/src/tools/registry.rs#L943-L951)
+  sólo normaliza el spawn del namespace default/V1. En V2,
+  [flat_tool_name](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/core/src/tools/mod.rs#L47-L60)
+  concatena namespace y nombre sin separador: `collaborationspawn_agent`. El matcher y
+  consumidor de perfiles ahora aceptan ese nombre exacto junto con `Agent`/`spawn_agent`.
+  La fixture V2 usa el nombre nativo; no se amplían permisos, trust ni autoridad.
+
+Ambos casos fallaron en regresiones locales antes del fix. La captura prueba que existía
+la definición de spawn y hubo actividad en esa corrida, pero no revela retrospectivamente
+la causa del intento anterior sin dispatch. No se reejecutó el host tras estos fixes;
+T11/A9 permanece pendiente.
+
+### Resultado del diagnóstico nativo de #1347
+
+La investigación posterior identificó una diferencia que las fixtures bajo Node no
+ejercitaban: el owner fuente corría en Bun y enlazaba `process.execPath` como `node`.
+El supervisor del hook ejecuta JavaScript por stdin; Bun sin argumentos imprime ayuda en
+vez de ejecutar ese programa. La prueba local del owner bajo Bun falló antes del cambio
+y pasó al resolver el ejecutable real de Node. En el host, el hook pasó de bloqueado a
+`completed` con un contexto verificado por llamada. Los diagnósticos ahora distinguen
+running/blocked/stopped y fases fijas de rechazo sin mostrar contenido arbitrario.
+
+La siguiente captura mostró una llamada de spawn con `fork_turns` omitido y un error
+nativo cuyos términos permitidos incluían `invalid`, `rollout` y `thread`. V2 interpreta
+la omisión como `all`, mientras que el padre de esta fixture es efímero. La instrucción
+fija pide ahora `fork_turns: none`, manteniendo los perfiles y la herencia de configuración;
+no añade persistencia ni restaura contexto. Con ese cambio, el mismo owner completó los
+siete roles y el refresh nativo, con cierre exacto de cada hijo y salida del proceso propio.
+
+La ejecución instrumentada con Codex 0.163.0 terminó exit 0, `status: completed`, identidad
+`bcb62a8b1ad1f8f5adab1f0857137534a269b191bcf40c54263e2922760e0e74`.
+Hubo ocho turnos del principal, un hook/contexto/candidato verificados por fase y refresh
+de implementer de high a low en un hijo distinto. El protocolo consumió 454640 B y 682
+frames, dentro de 2 MiB/2048 frames y 180 segundos agregados, con un hijo concurrente y
+cero reintentos. Cleanup quedó `acknowledged` y se comprobó la eliminación de la fixture
+privada. Las solicitudes posteriores sin inventario permanecen `unverified`; no se
+reinterpretan como inventario vacío. La observación acredita este snapshot/host, no
+equivalencia general entre motores ni los outcomes T6/T12.

@@ -1,5 +1,13 @@
 # History
 
+## 2026-10-22 10:12 Codex — Corrige y valida perfiles nativos V2 de #1347
+
+Recupera el owner V2 y corrige identidad sin timestamps, espera V2, hook `collaborationspawn_agent`, Node real para el supervisor bajo Bun y `fork_turns: none` para hijos de un padre efímero. Añade regresiones y diagnóstico opcional redactado. Trabajo y revisión directos por petición del usuario; hijos únicamente como sujetos de prueba autorizados.
+
+Prueba nativa final completed/pending[]: siete roles y refresh implementer high→low en hijo nuevo, ocho turnos, cierre exacto y cleanup confirmado; 454640B/682frames dentro de180s. Identidad bcb62a8b1ad1f8f5adab1f0857137534a269b191bcf40c54263e2922760e0e74. Invocación instrumentada del owner, no repetición del composite A9 consumido. T6/T12/E4 permanecen pendientes.
+
+`bun run check` exit0:9958aprobadas/2omitidas,472archivos,510.2s; cobertura87.67/86/90.26/80.72%,piso160/0. Formato,lint,tipos,AST,duplicación,enlaces,render,assets,presupuestos,preservación verdes;bundle1614.7KiB<1650KiB. Pendiente publicar PR contra dev; sin merge ni despliegue.
+
 ## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
 
 Cambios:
