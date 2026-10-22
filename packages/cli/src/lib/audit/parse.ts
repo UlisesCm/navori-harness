@@ -2924,6 +2924,11 @@ export function attachHookEvents(
       const cli: CliEvent = { tsMs: rec.tsMs, event: "cli", name: cliName, verdict: cliVerdict };
       const cliReason = str(rec.reason);
       if (cliReason) cli.reason = cliReason;
+      if (rec.agentId !== undefined) {
+        const agentId = str(rec.agentId);
+        if (agentId && /^[A-Za-z0-9_-]{1,256}$/.test(agentId)) cli.agentId = agentId;
+        else session.parseErrors++;
+      }
       // An outcome event carries a closed payload. The cli event is kept either
       // way; an invalid payload is counted and dropped, never half-read.
       if (
@@ -2932,7 +2937,7 @@ export function attachHookEvents(
         cliName === "dispatch-outcome"
       ) {
         const payload: Record<string, unknown> = { ...rec };
-        for (const key of ["tsMs", "event", "reason"]) delete payload[key];
+        for (const key of ["tsMs", "event", "reason", "agentId"]) delete payload[key];
         const outcome = normalizeOutcome(payload);
         if (outcome && outcome.name === cliName) cli.outcomePayload = outcome;
         else session.parseErrors++;
