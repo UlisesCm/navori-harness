@@ -274,7 +274,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict (navori gate v0.12.2)\n\nUSAGE navori gate [OPTIONS] <KIND>\n\nARGUMENTS\n\n  KIND  fast | full | probe | foreign  \n\nOPTIONS\n\n  --force  Run even when a cached green matches  \n  --index  probe: key on the index (git pre-commit)  \n  --clean  probe: index, working tree and record must agree\n  --cwd=\"<HOME>\"  Project root  \n\n\n",
+      "stdout": "Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict (navori gate v0.12.2)\n\nUSAGE navori gate [OPTIONS] <KIND>\n\nARGUMENTS\n\n  KIND  fast | full | probe | foreign  \n\nOPTIONS\n\n  --force  Run even when a cached green matches  \n  --index  probe: key on the index (git pre-commit)  \n  --clean  probe: index, working tree and record must agree  \n  --cwd=\"<HOME>\"  Project root  \n  --review-feature  full: correlate this run to a review begin  \n  --review-nonce  full: nonce returned by receipt review begin  \n  --target  Review target branch (required with --review-feature)\n  --dir  Review state directory (with --review-feature)  \n\n\n",
       "stderr": ""
     },
     {
