@@ -351,7 +351,7 @@ async function recordMetadataAction(args: Readonly<Record<string, unknown>>): Pr
   if (
     args["record-metadata"] !== true ||
     conflicts.some((key) => args[key] !== undefined) ||
-    (host !== "claude" && host !== "codex") ||
+    (host !== "claude" && host !== "codex" && host !== "pi") ||
     typeof rootSessionId !== "string" ||
     !/^[A-Za-z0-9_-]{1,256}$/.test(rootSessionId) ||
     typeof repo !== "string" ||
@@ -890,7 +890,7 @@ export const auditCommand = defineCommand({
       privateResultOrExit(ensurePrivateAuditDirectory(auditDir), json);
       // Spec 0054 R26: the hooks drop one file per event here instead of starting this
       // CLI. Best effort and idempotent: without the dir they use the metadata bridge.
-      // Pi has no metadata bridge (spec 0047 R12), so it gets no spool either.
+      // Pi's close metadata goes directly through the writer; Pi gets no spool.
       const openSpool = (): void => {
         if (hostArg === "pi") return;
         ensureAuditSpoolDir({
