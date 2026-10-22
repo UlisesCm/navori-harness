@@ -25,10 +25,11 @@ import {
   retainAuditFact,
 } from "./model.ts";
 import { attachHookEvents } from "./parse.ts";
+import { PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
-const ROLES = new Set(["scout", "implementer", "reviewer", "scribe"]);
+const ROLES: ReadonlySet<string> = new Set(PI_ROLE_NAMES);
 const MAX_DIRS = 5_000;
 const MAX_CHILDREN = 1_000;
 const TOKEN_KEYS = ["input", "output", "cacheRead", "cacheCreation", "thinking"] as const;
@@ -140,6 +141,7 @@ export function parsePiSession(
   const toolCounts: Record<string, number> = {};
   const children: Array<{
     role: string;
+    spawnToolUseId?: string;
     tokens: ReturnType<typeof emptyTokens> | null;
     at: string | null;
     ms: number;
@@ -191,6 +193,13 @@ export function parsePiSession(
           typeof details?.role === "string" && ROLES.has(details.role) ? details.role : "unknown";
         children.push({
           role,
+          // Failed/unknown tool results do not establish that a child actually spawned.
+          ...(m.isError === false &&
+          role !== "unknown" &&
+          typeof m.toolCallId === "string" &&
+          SESSION_ID.test(m.toolCallId)
+            ? { spawnToolUseId: m.toolCallId }
+            : {}),
           tokens: tokensOf(m.usage),
           at: iso(m.timestamp),
           ms: count(m.durationMs) ?? 0,
@@ -294,6 +303,7 @@ export function parsePiSession(
     const run: AgentRun = {
       // Identity: parent session id + role + ordinal; a child shares the parent's worktree (session.cwd).
       agentId: `pi-${child.role}-${index + 1}`,
+      ...(child.spawnToolUseId ? { spawnToolUseId: child.spawnToolUseId } : {}),
       agentType: child.role,
       model: null,
       description: "",

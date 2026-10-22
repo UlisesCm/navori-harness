@@ -20,6 +20,7 @@ import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { renderPiEngine } from "../index.ts";
 import type { HarnessCatalog } from "../../../lib/audit/harness.ts";
 import { createAuditReadBudget } from "../../../lib/audit/model.ts";
+import { readAuditJsonl } from "../../../lib/audit/paths.ts";
 import {
   inspectPiSession,
   parsePiSession,
@@ -127,6 +128,141 @@ const report = (sessions = [parse()]) =>
   buildReport(sessions, { repo: "repo", version: "0.1.0", catalog: CATALOG });
 
 describe("Pi session audit (spec 0047 R12)", () => {
+  // Covers: R3
+  it("retains all seven child roles and exact parent invocation IDs without publishing them", () => {
+    const roles = [
+      "scout",
+      "implementer",
+      "reviewer",
+      "scribe",
+      "auditor",
+      "architect",
+      "publisher",
+    ];
+    writeFileSync(file, line({ type: "session", id: ID, cwd: CWD }));
+    roles.forEach((role: string, index: number): void => {
+      appendFileSync(
+        file,
+        line(
+          result(index + 1, "navori_subagent", {
+            toolCallId: `private_call_${index}`,
+            details: { role },
+          }),
+        ),
+      );
+    });
+    const parsed = parse();
+    expect(parsed.agents.map((run) => run.agentType)).toEqual(roles);
+    expect(parsed.agents.map((run) => run.spawnToolUseId)).toEqual(
+      roles.map((_role: string, index: number): string => `private_call_${index}`),
+    );
+    const published = publishReport(report([parsed]));
+    expect(Object.keys(published.totals.byAgentType).sort()).toEqual(
+      [...roles, "main-thread"].sort(),
+    );
+    expect(JSON.stringify(published)).not.toContain("private_call_");
+  });
+
+  // Covers: R3
+  it("joins serial Pi calls to dispatch outcomes by invocation ID instead of role or order", () => {
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        line(
+          result(1, "navori_subagent", {
+            toolCallId: "call_first",
+            details: { role: "implementer" },
+          }),
+        ) +
+        line(
+          result(2, "navori_subagent", {
+            toolCallId: "call_second",
+            details: { role: "implementer" },
+          }),
+        ) +
+        line(
+          result(3, "navori_subagent", {
+            toolCallId: "failed_call",
+            isError: true,
+            details: { role: "implementer" },
+          }),
+        ) +
+        line(
+          result(4, "navori_subagent", {
+            toolCallId: "unknown_state",
+            isError: undefined,
+            details: { role: "implementer" },
+          }),
+        ) +
+        line(
+          result(5, "navori_subagent", {
+            toolCallId: "unknown_role",
+            details: { role: "unregistered" },
+          }),
+        ),
+    );
+    const logFile = join(dir, "session.log");
+    const records = [
+      ...view().records,
+      ...[
+        "call_second",
+        "failed_call",
+        "unknown_state",
+        "unknown_role",
+        "missing_call",
+        "call_first",
+      ].map((spawn: string, index: number): Record<string, unknown> => ({
+        event: "cli",
+        tsMs: Date.parse("2026-10-10T10:00:00Z") + index,
+        name: "dispatch-outcome",
+        verdict: "allow",
+        schemaVersion: 1,
+        featureKey: "a".repeat(64),
+        stage: "implement",
+        spawn,
+      })),
+    ];
+    writeFileSync(logFile, records.map(line).join(""));
+    const reading = readAuditJsonl(logFile, (): void => {});
+    const parsed = parsePiSession(ID, logFile, file, {
+      records,
+      reading,
+      budget: createAuditReadBudget(),
+    })!;
+    expect(parsed.agents.map((run) => run.spawnToolUseId)).toEqual([
+      "call_first",
+      "call_second",
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    const published = publishReport(report([parsed]));
+    expect(published.outcomes?.dispatch).toMatchObject({
+      events: 6,
+      confirmed: 2,
+      unconfirmed: 4,
+      unlinkable: 0,
+    });
+    expect(JSON.stringify(published)).not.toContain("call_first");
+    expect(JSON.stringify(published)).not.toContain("call_second");
+  });
+
+  // Covers: R3
+  it("keeps legacy identities and rejects malformed invocation IDs and unknown roles", () => {
+    expect(parse().agents.map((run) => run.spawnToolUseId)).toEqual(["c4", "c5"]);
+    for (const toolCallId of [undefined, "", "../private-path", "x".repeat(257), 42]) {
+      writeFileSync(
+        file,
+        line({ type: "session", id: ID, cwd: CWD }) +
+          line(result(1, "navori_subagent", { toolCallId, details: { role: "unregistered" } })),
+      );
+      const parsed = parse();
+      expect(parsed.agents[0]).toMatchObject({ agentId: "pi-unknown-1", agentType: "unknown" });
+      expect(parsed.agents[0]?.spawnToolUseId).toBeUndefined();
+      expect(JSON.stringify(parsed)).not.toContain("private-path");
+    }
+  });
+
   // Covers: R12
   it("bounded redacted parent-child correlation", () => {
     expect(resolvePiSession(ID)).toBe(file);
