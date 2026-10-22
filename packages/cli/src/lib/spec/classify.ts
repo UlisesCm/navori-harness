@@ -60,6 +60,11 @@ export interface SpecSignals {
 }
 
 export interface SpecClassification {
+  /** Declarations alone never attest runtime consumers or executable acceptance. */
+  validation: {
+    scope: "structural";
+    functionalDelivery: "unverified";
+  };
   format: TasksFormat;
   shape: SpecShape;
   prCount: number;
@@ -194,6 +199,7 @@ export function classifySpec(
   }
 
   return {
+    validation: { scope: "structural", functionalDelivery: "unverified" },
     format: parsed.format,
     shape,
     prCount: shape === "split" ? deliveryCount : 1,

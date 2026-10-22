@@ -176,7 +176,7 @@ const classifySubCommand = defineCommand({
       process.stdout.write(
         `${spec.feature}: ${classification.shape} (${classification.prCount} PR${classification.prCount === 1 ? "" : "s"}) — ` +
           `${s.tasks} tasks, ${s.deliveries} deliveries, ${s.estimatedLoc} estimated LOC ` +
-          `(thresholds >${classification.thresholds.splitMinTasks} tasks, >${classification.thresholds.splitMinLoc} LOC, max ${classification.thresholds.maxPrsPerSpec} PRs)\n`,
+          `(thresholds >${classification.thresholds.splitMinTasks} tasks, >${classification.thresholds.splitMinLoc} LOC, max ${classification.thresholds.maxPrsPerSpec} PRs); structural only, functional delivery unverified\n`,
       );
     }
     if (error) {
@@ -228,13 +228,14 @@ const checkSubCommand = defineCommand({
           feature: spec.feature,
           format: result.format,
           ok: result.ok,
+          validation: result.classification.validation,
           findings: result.findings,
           classification: result.classification,
         })}\n`,
       );
     } else {
       process.stdout.write(
-        `${spec.feature}: ${result.ok ? "ok" : "findings"} — ${errors.length} error(s), ${result.findings.length - errors.length} warning(s)\n`,
+        `${spec.feature}: ${result.ok ? "ok" : "findings"} — ${errors.length} error(s), ${result.findings.length - errors.length} warning(s); structural only, functional delivery unverified\n`,
       );
     }
     if (errors.length > 0) {
