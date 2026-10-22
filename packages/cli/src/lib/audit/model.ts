@@ -247,7 +247,8 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
   if (
     !fields.length ||
     record.wireVersion !== 1 ||
-    !["claude", "codex"].includes(String(record.host)) ||
+    (!["claude", "codex"].includes(String(record.host)) &&
+      !(record.host === "pi" && record.event === "session-end")) ||
     typeof record.eventId !== "string" ||
     !record.eventId ||
     typeof record.rootSessionId !== "string" ||

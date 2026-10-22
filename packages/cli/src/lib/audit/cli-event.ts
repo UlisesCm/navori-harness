@@ -380,7 +380,7 @@ export function appendCliEvent(
 
 /** Explicit bounded bridge input; ambient runtime variables cannot authorize it. */
 export interface AuditMetadataRequest {
-  host: "claude" | "codex";
+  host: "claude" | "codex" | "pi";
   rootSessionId: string;
   repo: string;
   auditRoot: string;
@@ -642,9 +642,14 @@ export function matchesAuditHeaderIdentity(
     resolve(projectRootFromCwd(header.cwd)) === resolve(projectRootFromCwd(cwd))
   );
 }
-function metadataTarget(request: Omit<AuditMetadataRequest, "event">): string | null {
+function metadataTarget(
+  request: Omit<AuditMetadataRequest, "event">,
+  piClose = false,
+): string | null {
   if (
-    (request.host !== "claude" && request.host !== "codex") ||
+    (request.host !== "claude" &&
+      request.host !== "codex" &&
+      !(piClose && request.host === "pi")) ||
     !metadataId(request.rootSessionId) ||
     !/^[A-Za-z0-9_.-]{1,256}$/.test(request.repo) ||
     request.repo === "." ||
@@ -668,11 +673,12 @@ function metadataResult(
 export function recordAuditMetadata(request: AuditMetadataRequest): MetadataRecordResult {
   try {
     const event = metadataEvent(request.event);
-    const target = metadataTarget(request);
+    // Pi close is direct-only: startup capture and spool APIs remain unsupported.
+    const target = metadataTarget(request, event?.event === "session-end");
     if (!event || !target) return metadataResult("invalid", "invalid-metadata");
     // The session is closing (`audit-mode-close` sends this over the CLI, never the
     // spool): fold the spool in first so every event precedes the `session-end` line.
-    if (event.event === "session-end") consolidateSpool(request);
+    if (event.event === "session-end" && request.host !== "pi") consolidateSpool(request);
     const record = {
       wireVersion: 1,
       eventId: randomUUID(),

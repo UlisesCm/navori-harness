@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="56face6a" version="0.12.1" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="30e6224b" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -488,7 +488,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
