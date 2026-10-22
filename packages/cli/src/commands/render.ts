@@ -25,15 +25,15 @@ import {
 } from "../lib/render/removable.ts";
 import { createBackup, purgeOldBackups } from "../lib/render/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render/render-plan.ts";
-import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { prepareClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
 import { isTrimmedHarness } from "../engines/shared/workspace-skills.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
-import { renderCodexEngine } from "../engines/codex/index.ts";
+import { prepareCodexEngine, renderCodexEngine } from "../engines/codex/index.ts";
 import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
-import { piOwnershipVerdict, renderPiEngine } from "../engines/pi/index.ts";
+import { piOwnershipVerdict, preparePiEngine } from "../engines/pi/index.ts";
 import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
@@ -42,8 +42,14 @@ import {
   hadRealWrites,
   noteRealWrite,
   resetRealWrites,
+  observeDestination,
+  validateDestinations,
+  type PreparedDestination,
+  type PreparedEngine,
+  type CollectedPlan,
   type SkippedFile,
 } from "../engines/shared/execute-plan.ts";
+import { OwnedPathInventory } from "../engines/shared/owned-path-inventory.ts";
 import { readCliVersion } from "../lib/render/bundled-assets.ts";
 import { setMarkerFloorVersion } from "../lib/render/marker.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
@@ -192,7 +198,9 @@ function reconcileTrimmedWorkspace(
   if (!dryRun && plan.remove.length > 0) {
     // Backed up before deleting, like every other delete path — a trim the user
     // did not want must be recoverable.
-    const handle = createBackup(wsCwd, plan.remove, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
+    const handle = createBackup(wsCwd, plan.remove, {
+      exclude: [...EPHEMERAL_HARNESS_PATHS],
+    });
     if (handle.files.length > 0) purgeOldBackups();
     // Never recursive: the plan enumerated FILES, so a directory only goes away
     // through `removeEmptyDirs` — that is, when nothing of the user's is left.
@@ -263,7 +271,7 @@ export type CodexWorkspaceOptions = Pick<
  * local presets). `warnMissingAdapters: false` silences the "no adapter yet"
  * entries for per-workspace runs — the root run already warned once.
  */
-export function renderNonClaudeEngines(
+function prepareNonClaudeEngines(
   cwd: string,
   config: NavoriConfig,
   engines: readonly string[],
@@ -274,8 +282,13 @@ export function renderNonClaudeEngines(
     lang?: Lang;
     /** Spec 0043 R8: handed to the Codex engine only; the prose engines ignore the scope. */
     codex?: CodexWorkspaceOptions;
-  } = {},
-): EngineRenderSummary[] {
+    inventory: OwnedPathInventory;
+  },
+): {
+  destinations: readonly PreparedDestination[];
+  finalize(): readonly CollectedPlan[];
+  commit(): EngineRenderSummary[];
+} {
   const repoRoot = options.repoRoot ?? cwd;
   const warnMissingAdapters = options.warnMissingAdapters ?? true;
   const lang = options.lang ?? resolveLang(config.language);
@@ -292,50 +305,150 @@ export function renderNonClaudeEngines(
     "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
     copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
-    codex: (c, cfg, o) => renderCodexEngine(c, cfg, { ...o, ...options.codex }),
-    pi: (c, cfg, o) => renderPiEngine(c, cfg, o),
   };
-
-  const out: EngineRenderSummary[] = [];
+  const prepared = new Map<string, PreparedEngine<ProseEngineResult>>();
+  const destinations: PreparedDestination[] = [];
   for (const eng of engines) {
-    if (eng === "claude") continue;
-    // `agents-md` is redundant when another configured engine already owns
-    // AGENTS.md (today, `codex`) — read from the capability registry instead
-    // of hardcoding "codex" here (#821, engine-capabilities.ts).
-    const otherOwnerConfigured = engines.some(
-      (other) =>
-        other !== eng &&
-        other in ENGINE_CAPABILITIES &&
-        ENGINE_CAPABILITIES[other as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
-    );
-    if (eng === "agents-md" && otherOwnerConfigured) {
-      out.push({
-        engine: eng,
-        written: [],
-        skipped: [],
-        warnings: [tc(lang).engine.agentsMdRedundantWithCodex],
-        backupPath: null,
-      });
-      continue;
-    }
-    const render = PROSE_ENGINES[eng];
-    if (render) {
-      const r = render(cwd, config, { dryRun, repoRoot });
-      if (!dryRun && r.written.length > 0) noteRealWrite();
-      if (eng === "codex") appendCodexTrustHint(r.warnings, cwd, repoRoot, config, lang);
-      out.push({ engine: eng, ...r });
-    } else if (warnMissingAdapters) {
-      // An engine declared in config but with no adapter yet — warn, never ignore.
-      out.push({
-        engine: eng,
-        written: [],
-        skipped: [],
-        warnings: [tc(lang).render.adapterMissing(eng)],
-        backupPath: null,
-      });
+    const opts = { dryRun, repoRoot, inventory: options.inventory };
+    const owner =
+      eng === "codex"
+        ? prepareCodexEngine(cwd, config, { ...opts, ...options.codex })
+        : eng === "pi"
+          ? preparePiEngine(cwd, config, opts)
+          : undefined;
+    if (owner) {
+      prepared.set(eng, owner);
+      destinations.push(...owner.destinations);
     }
   }
-  return out;
+  if (
+    engines.includes("agents-md") &&
+    !engines.some(
+      (eng) =>
+        eng !== "agents-md" &&
+        eng in ENGINE_CAPABILITIES &&
+        ENGINE_CAPABILITIES[eng as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
+    )
+  )
+    destinations.push(observeDestination(options.inventory, cwd, "AGENTS.md", "navori-agents"));
+  let finalized = false;
+  return {
+    destinations,
+    finalize: (): readonly CollectedPlan[] => {
+      options.inventory.requireSealed();
+      validateDestinations(destinations);
+      const plans = [...prepared.values()].map((owner) => owner.finalize());
+      finalized = true;
+      return plans;
+    },
+    commit: (): EngineRenderSummary[] => {
+      if (!finalized) throw new Error("Target engines must be finalized before commit");
+      const out: EngineRenderSummary[] = [];
+      for (const eng of engines) {
+        if (eng === "claude") continue;
+        // `agents-md` is redundant when another configured engine already owns
+        // AGENTS.md (today, `codex`) — read from the capability registry instead
+        // of hardcoding "codex" here (#821, engine-capabilities.ts).
+        const otherOwnerConfigured = engines.some(
+          (other) =>
+            other !== eng &&
+            other in ENGINE_CAPABILITIES &&
+            ENGINE_CAPABILITIES[other as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
+        );
+        if (eng === "agents-md" && otherOwnerConfigured) {
+          out.push({
+            engine: eng,
+            written: [],
+            skipped: [],
+            warnings: [tc(lang).engine.agentsMdRedundantWithCodex],
+            backupPath: null,
+          });
+          continue;
+        }
+        const owner = prepared.get(eng);
+        const render = owner ? () => owner.commit() : PROSE_ENGINES[eng];
+        if (render) {
+          const r = render(cwd, config, { dryRun, repoRoot });
+          if (!dryRun && r.written.length > 0) noteRealWrite();
+          if (eng === "codex") appendCodexTrustHint(r.warnings, cwd, repoRoot, config, lang);
+          out.push({ engine: eng, ...r });
+        } else if (warnMissingAdapters) {
+          // An engine declared in config but with no adapter yet — warn, never ignore.
+          out.push({
+            engine: eng,
+            written: [],
+            skipped: [],
+            warnings: [tc(lang).render.adapterMissing(eng)],
+            backupPath: null,
+          });
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/** Prepare every guard owner in one target before finalizing or writing any engine. */
+export function prepareRenderTarget(
+  cwd: string,
+  config: NavoriConfig,
+  engines: readonly string[],
+  dryRun: boolean,
+  options: {
+    claude?: Omit<NonNullable<Parameters<typeof prepareClaudeEngine>[2]>, "inventory" | "dryRun">;
+    additional?: Omit<NonNullable<Parameters<typeof prepareNonClaudeEngines>[4]>, "inventory">;
+  } = {},
+): {
+  inventory: OwnedPathInventory;
+  destinations: readonly PreparedDestination[];
+  finalize(): readonly CollectedPlan[];
+  commit(): {
+    claude: ClaudeEngineResult | undefined;
+    extraEngines: EngineRenderSummary[];
+  };
+} {
+  const inventory = new OwnedPathInventory();
+  const claude = engines.includes("claude")
+    ? prepareClaudeEngine(cwd, config, { ...options.claude, dryRun, inventory })
+    : undefined;
+  const additional = prepareNonClaudeEngines(cwd, config, engines, dryRun, {
+    ...options.additional,
+    inventory,
+  });
+  let finalized = false;
+  return {
+    inventory,
+    destinations: [...(claude?.destinations ?? []), ...additional.destinations],
+    finalize: (): readonly CollectedPlan[] => {
+      inventory.seal();
+      const plans = claude ? [claude.finalize()] : [];
+      plans.push(...additional.finalize());
+      finalized = true;
+      return plans;
+    },
+    commit: () => {
+      if (!finalized) throw new Error("Target must be finalized before commit");
+      return { claude: claude?.commit(), extraEngines: additional.commit() };
+    },
+  };
+}
+
+/** Compose the declared non-Claude engines in an isolated target context. */
+export function renderNonClaudeEngines(
+  cwd: string,
+  config: NavoriConfig,
+  engines: readonly string[],
+  dryRun: boolean,
+  options: Omit<NonNullable<Parameters<typeof prepareNonClaudeEngines>[4]>, "inventory"> = {},
+): EngineRenderSummary[] {
+  const inventory = new OwnedPathInventory();
+  const prepared = prepareNonClaudeEngines(cwd, config, engines, dryRun, {
+    ...options,
+    inventory,
+  });
+  inventory.seal();
+  prepared.finalize();
+  return prepared.commit();
 }
 
 /**
@@ -357,7 +470,9 @@ function appendCodexTrustHint(
   const hooks = resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded);
   const wsSubpath = relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/");
   const configTomlPath = join(resolve(cwd), ".codex", "config.toml");
-  const state = readCodexTrustState(resolve(repoRoot), configTomlPath, hooks, { wsSubpath });
+  const state = readCodexTrustState(resolve(repoRoot), configTomlPath, hooks, {
+    wsSubpath,
+  });
   const somethingMissing = !state.projectTrusted || state.hooks.some((h) => h.status !== "Trusted");
   if (somethingMissing) {
     warnings.push(tc(lang).engine.codexTrustCommandHint(minCodexVersion()));
@@ -653,7 +768,6 @@ function runRenderCore(
   // other engines[]. Now non-Claude engines are dispatched too — at the root
   // AND per workspace (#77).
   const engines: readonly string[] = config.engines ?? ["claude"];
-  const renderClaude = engines.includes("claude");
 
   // --workspace filter path: skip root, render only the matching workspace.
   if (workspaceFilter) {
@@ -696,39 +810,44 @@ function runRenderCore(
     const wsConfig = effectiveConfigForWorkspace(config, match);
     // Spec 0043: no root is rendered here, so only what the root already has on
     // disk can justify dropping a workspace copy.
-    const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: false });
-    const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: false });
-    const wsResult = renderClaude
-      ? renderClaudeEngine(wsCwd, wsConfig, {
-          dryRun,
-          force: forceFlag,
-          repoRoot: cwd,
-          monorepoContext: buildMonorepoContext(config, match),
-          // Spec 0018: the WORKSPACE render honors the scope; the root call
-          // below never passes it, so the root is never trimmed.
-          harnessScope: config.monorepo?.workspaceHarness,
-          workspaceSkills: {
-            omitted: decision.omitted.get(match.path) ?? new Set<string>(),
-            prune: true,
-          },
-        })
-      : undefined;
-    reportBlockedHoists(decision, match.name, wsResult, lang);
-    // #77: --workspace must also render the non-Claude engines for that
-    // workspace. There is no root render here, so the summaries land in the
-    // top-level `extraEngines` (same field the normal path uses for the root)
-    // and adapter-missing warnings stay on.
-    const wsExtraEngines = renderNonClaudeEngines(wsCwd, wsConfig, engines, dryRun, {
-      repoRoot: cwd,
-      lang,
-      codex: {
+    const decision = decideClaudeWorkspaceSkills(cwd, config, {
+      rootRendered: false,
+    });
+    const codexDecision = decideCodexWorkspaceSkills(cwd, config, {
+      rootRendered: false,
+    });
+    const wsPrepared = prepareRenderTarget(wsCwd, wsConfig, engines, dryRun, {
+      claude: {
+        force: forceFlag,
+        repoRoot: cwd,
+        monorepoContext: buildMonorepoContext(config, match),
+        // Spec 0018: the WORKSPACE render honors the scope; the root call
+        // below never passes it, so the root is never trimmed.
         harnessScope: config.monorepo?.workspaceHarness,
         workspaceSkills: {
-          omitted: codexDecision.omitted.get(match.path) ?? new Set<string>(),
+          omitted: decision.omitted.get(match.path) ?? new Set<string>(),
           prune: true,
         },
       },
+      // #77: --workspace must also render the non-Claude engines for that
+      // workspace. There is no root render here, so the summaries land in the
+      // top-level `extraEngines` (same field the normal path uses for the root)
+      // and adapter-missing warnings stay on.
+      additional: {
+        repoRoot: cwd,
+        lang,
+        codex: {
+          harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: codexDecision.omitted.get(match.path) ?? new Set<string>(),
+            prune: true,
+          },
+        },
+      },
     });
+    wsPrepared.finalize();
+    const { claude: wsResult, extraEngines: wsExtraEngines } = wsPrepared.commit();
+    reportBlockedHoists(decision, match.name, wsResult, lang);
     reportBlockedCodexHoists(codexDecision, match.name, wsExtraEngines, lang);
     // AFTER every engine rendered, so a run that fails to write never deletes (0018 R4)
     // and the empty-directory sweep sees what the Codex engine just removed (spec 0043).
@@ -771,28 +890,36 @@ function runRenderCore(
   // "will the root hold this skill" (the root is written first, in preview too,
   // where the disk does not have it yet), and the root receives what the
   // workspaces hand up.
-  const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: true });
-  const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: true });
-  const engineResult = renderClaude
-    ? renderClaudeEngine(cwd, config, {
-        dryRun,
-        force: forceFlag,
-        rootHoist: { skills: decision.hoisted, pruneCandidates: decision.rootPruneCandidates },
-      })
-    : undefined;
-
-  // The root's non-Claude engines go BEFORE the workspaces, like the root's Claude
-  // render: a workspace under `root` drops its Codex skills on the strength of the
-  // root holding them (spec 0043), so the root has to be written first.
-  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, {
-    lang,
-    codex: {
+  const decision = decideClaudeWorkspaceSkills(cwd, config, {
+    rootRendered: true,
+  });
+  const codexDecision = decideCodexWorkspaceSkills(cwd, config, {
+    rootRendered: true,
+  });
+  const rootPrepared = prepareRenderTarget(cwd, config, engines, dryRun, {
+    claude: {
+      force: forceFlag,
       rootHoist: {
-        skills: codexDecision.hoisted,
-        pruneCandidates: codexDecision.rootPruneCandidates,
+        skills: decision.hoisted,
+        pruneCandidates: decision.rootPruneCandidates,
+      },
+    },
+
+    // The root's non-Claude engines go BEFORE the workspaces, like the root's Claude
+    // render: a workspace under `root` drops its Codex skills on the strength of the
+    // root holding them (spec 0043), so the root has to be written first.
+    additional: {
+      lang,
+      codex: {
+        rootHoist: {
+          skills: codexDecision.hoisted,
+          pruneCandidates: codexDecision.rootPruneCandidates,
+        },
       },
     },
   });
+  rootPrepared.finalize();
+  const { claude: engineResult, extraEngines } = rootPrepared.commit();
 
   const workspaces: WorkspaceRenderResult[] = [];
   const orphanedWorkspaces: string[] = [];
@@ -808,35 +935,36 @@ function runRenderCore(
       continue;
     }
     const wsConfig = effectiveConfigForWorkspace(config, ws);
-    const wsResult = renderClaude
-      ? renderClaudeEngine(wsCwd, wsConfig, {
-          dryRun,
-          force: forceFlag,
-          repoRoot: cwd,
-          monorepoContext: buildMonorepoContext(config, ws),
-          harnessScope: config.monorepo?.workspaceHarness,
-          workspaceSkills: {
-            omitted: decision.omitted.get(ws.path) ?? new Set<string>(),
-            prune: true,
-          },
-        })
-      : undefined;
-    reportBlockedHoists(decision, ws.name, wsResult, lang);
-    // #77: non-Claude engines (AGENTS.md) render per workspace too. The root
-    // call below already warns once about adapterless engines (cursor/copilot),
-    // so those warnings are muted here.
-    const wsExtraEngines = renderNonClaudeEngines(wsCwd, wsConfig, engines, dryRun, {
-      repoRoot: cwd,
-      warnMissingAdapters: false,
-      lang,
-      codex: {
+    const wsPrepared = prepareRenderTarget(wsCwd, wsConfig, engines, dryRun, {
+      claude: {
+        force: forceFlag,
+        repoRoot: cwd,
+        monorepoContext: buildMonorepoContext(config, ws),
         harnessScope: config.monorepo?.workspaceHarness,
         workspaceSkills: {
-          omitted: codexDecision.omitted.get(ws.path) ?? new Set<string>(),
+          omitted: decision.omitted.get(ws.path) ?? new Set<string>(),
           prune: true,
         },
       },
+      // #77: non-Claude engines (AGENTS.md) render per workspace too. The root
+      // call below already warns once about adapterless engines (cursor/copilot),
+      // so those warnings are muted here.
+      additional: {
+        repoRoot: cwd,
+        warnMissingAdapters: false,
+        lang,
+        codex: {
+          harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: codexDecision.omitted.get(ws.path) ?? new Set<string>(),
+            prune: true,
+          },
+        },
+      },
     });
+    wsPrepared.finalize();
+    const { claude: wsResult, extraEngines: wsExtraEngines } = wsPrepared.commit();
+    reportBlockedHoists(decision, ws.name, wsResult, lang);
     reportBlockedCodexHoists(codexDecision, ws.name, wsExtraEngines, lang);
     const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
       ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config))
@@ -867,7 +995,11 @@ function runRenderCore(
 
   // #313: reconcile the harness `.gitignore` once at the repo root (it's a
   // repo-level file, not per-engine). Returns null in mode "off" (untouched).
-  const gitignore = renderGitignore(cwd, config, { dryRun, force: forceFlag, lang });
+  const gitignore = renderGitignore(cwd, config, {
+    dryRun,
+    force: forceFlag,
+    lang,
+  });
 
   // #1024/#1039: nested, versioned `.gitignore` files, unconditional (every
   // `gitignoreHarness` mode, including "off") — see nested-gitignore-harness.ts
@@ -972,7 +1104,9 @@ function runRenderCore(
       // for the render backup; this second entry point had been missed (#373).
       // Second guard, on purpose: `planOrphanRemoval` already skips the same
       // paths, so this holds the #348 invariant even if that skip ever narrows.
-      const handle = createBackup(cwd, removable, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
+      const handle = createBackup(cwd, removable, {
+        exclude: [...EPHEMERAL_HARNESS_PATHS],
+      });
       if (handle.files.length > 0) {
         prunedBackupPath = handle.path;
         purgeOldBackups();
@@ -1019,7 +1153,10 @@ export const renderCommand = defineCommand({
     description: "Render every configured engine from navori.config.json",
   },
   args: {
-    cwd: { type: "string", description: "Directory to render into (default: cwd)" },
+    cwd: {
+      type: "string",
+      description: "Directory to render into (default: cwd)",
+    },
     apply: {
       type: "boolean",
       description: "Write changes to disk. Without it, render only previews (no files touched).",
@@ -1088,7 +1225,12 @@ export const renderCommand = defineCommand({
     if (!existsSync(cwd)) {
       if (json) {
         console.log(
-          JSON.stringify({ command: "render", ok: false, reason: "directory-missing", cwd }),
+          JSON.stringify({
+            command: "render",
+            ok: false,
+            reason: "directory-missing",
+            cwd,
+          }),
         );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
@@ -1590,7 +1732,10 @@ function buildRenderJson(
   preview: boolean,
   provenance: CoreProvenance,
 ) {
-  const entryJson = (e: AssetPlanEntry) => ({ id: e.asset.id, status: e.status });
+  const entryJson = (e: AssetPlanEntry) => ({
+    id: e.asset.id,
+    status: e.status,
+  });
   const engineJson = (ee: EngineRenderSummary) => ({
     engine: ee.engine,
     written: ee.written.map((w) => ({ path: w.path, status: w.status })),
@@ -1608,14 +1753,24 @@ function buildRenderJson(
   // recomputed from this payload — which is precisely the audit a consumer needs
   // to trust the summary at all.
   const claudeFilesJson = (engineResult: ClaudeEngineResult | undefined) => ({
-    written: (engineResult?.written ?? []).map((w) => ({ path: w.path, status: w.status })),
-    skipped: (engineResult?.skipped ?? []).map((s) => ({ path: s.path, reason: s.reason })),
+    written: (engineResult?.written ?? []).map((w) => ({
+      path: w.path,
+      status: w.status,
+    })),
+    skipped: (engineResult?.skipped ?? []).map((s) => ({
+      path: s.path,
+      reason: s.reason,
+    })),
     unchangedFiles: countUnchangedEngineFiles(engineResult),
   });
   const pending = resultHasPendingWrites(result);
   const downgrades = result.downgrades
     .concat(...result.workspaces.map((w) => w.downgrades))
-    .map((d) => ({ id: d.id, fromVersion: d.fromVersion, toVersion: d.toVersion }));
+    .map((d) => ({
+      id: d.id,
+      fromVersion: d.fromVersion,
+      toVersion: d.toVersion,
+    }));
   return {
     command: "render",
     ok: true,
@@ -1967,7 +2122,10 @@ export function renderRepoRows(
       continue;
     }
     try {
-      const result = runRender(repo.path, { dryRun: opts.preview, force: opts.force });
+      const result = runRender(repo.path, {
+        dryRun: opts.preview,
+        force: opts.force,
+      });
       if (!result.ok) {
         rows.push({
           name: repo.name,
@@ -2184,7 +2342,13 @@ export function renderAllRepos(opts: {
             ok: true,
             mode,
             repos: [],
-            summary: { ok: 0, pending: 0, conflicts: 0, warnings: 0, failed: 0 },
+            summary: {
+              ok: 0,
+              pending: 0,
+              conflicts: 0,
+              warnings: 0,
+              failed: 0,
+            },
           },
           null,
           2,

@@ -205,7 +205,13 @@ const hookEntries = (): Array<[string, PiParity]> => {
   return [
     h("plan-gate", viaControl("plan-gate")),
     h("master-plan-context", viaControl("master-plan")),
-    h("implementer-no-markdown", viaControl("markdown-ownership")),
+    h("implementer-no-markdown", {
+      ...viaControl("markdown-ownership"),
+      boundary:
+        "Shared script via tool_call for child bash/edit/write when scribeOwnsMarkdown is enabled. " +
+        "Edit/write retain AI-doctrine exceptions; Bash is a textual seatbelt, not a sandbox: " +
+        "dynamic destinations, external scripts, ambient writes and unrecognized runners remain outside it.",
+    }),
     h("bash-outcome-watch", viaControl("repeat-failure-advice")),
     h("general-purpose-confirm", viaControl("general-purpose-confirm")),
     h("subagent-stop-handoff", viaControl("handoff-shape")),

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
+import { PI_HOOK_BINDINGS, type PiHookBinding } from "../hook-bindings.ts";
 import { PI_GATE_TIMEOUT_MS, PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS } from "../role-tools.ts";
 import { conditionOrchestration } from "../../../lib/render/render-plan.ts";
 import { missingPiChildFlags } from "../runtime-version.ts";
@@ -138,7 +139,10 @@ function load(
 }
 
 const dirs: string[] = [];
-function project(harness: Record<string, unknown> = { scribeOwnsMarkdown: true }): {
+function project(
+  harness: Record<string, unknown> = { scribeOwnsMarkdown: true },
+  hookBindings: readonly PiHookBinding[] = [],
+): {
   dir: string;
   warnings: string[];
 } {
@@ -155,8 +159,8 @@ function project(harness: Record<string, unknown> = { scribeOwnsMarkdown: true }
       models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
       harness,
     }),
-    // These tests drive the extension without a bash for the hook bridge: no scripts are bound.
-    { hookBindings: [] },
+    // Dispatch-only fixtures need no scripts; ownership verdicts opt into the real hook bridge.
+    { hookBindings },
   );
   return { dir, warnings };
 }
@@ -310,7 +314,10 @@ describe("Pi first-class roles", () => {
 
   // Covers: R18, R6
   it("code and documentation reviewed together", async () => {
-    const { dir } = project();
+    const { dir } = project(
+      { scribeOwnsMarkdown: true },
+      PI_HOOK_BINDINGS.filter((binding) => binding.script === "implementer-no-markdown"),
+    );
     const rt = load();
     await dispatch(rt, dir, "implementer");
     await dispatch(rt, dir, "scribe");
@@ -327,17 +334,22 @@ describe("Pi first-class roles", () => {
     expect(flag(scribe, "--tools")).toContain("write");
 
     // The implementer cannot write Markdown directly; the scribe's child is not blocked.
-    const implementer = load({
+    const implementer = loadWithScripts({
       env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
     });
-    const block = await implementer.handlers.get("tool_call")!(
+    const block = await implementer.get("tool_call")!(
       { toolName: "write", input: { path: "docs/a.md" } },
       { cwd: dir },
     );
-    expect(block).toMatchObject({ block: true });
-    const asScribe = load({ env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "scribe" } });
+    expect(block).toMatchObject({
+      block: true,
+      reason: expect.stringContaining("implementer-no-markdown"),
+    });
+    const asScribe = loadWithScripts({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "scribe" },
+    });
     expect(
-      await asScribe.handlers.get("tool_call")!(
+      await asScribe.get("tool_call")!(
         { toolName: "write", input: { path: "docs/a.md" } },
         { cwd: dir },
       ),

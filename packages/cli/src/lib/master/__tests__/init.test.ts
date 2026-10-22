@@ -263,7 +263,7 @@ describe("runMasterInit — recovery and preservation (0049 M1)", () => {
   // Covers: R2
   it("clears the ambient floor after a real render throws", (): void => {
     seedConfig({ harnessVersion: "999.0.0" });
-    const engine = vi.spyOn(claude, "renderClaudeEngine").mockImplementationOnce((): never => {
+    const engine = vi.spyOn(claude, "prepareClaudeEngine").mockImplementationOnce((): never => {
       throw new Error("engine interrupted");
     });
     expect(() => runMasterInit(cwd, "mvp")).toThrow("engine interrupted");

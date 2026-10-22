@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -41,7 +42,7 @@ afterEach(() => {
 });
 
 /** A git repo rendered for Pi with every shipped hook binding and the real shared guard copy. */
-function piProject(): string {
+function piProject(scribeOwnsMarkdown = false): string {
   const dir = mkdtempSync(join(tmpdir(), "navori-pi-guards-"));
   dirs.push(dir);
   execFileSync("git", ["init", "-q", dir]);
@@ -52,6 +53,7 @@ function piProject(): string {
       preset: "custom",
       engines: ["pi"],
       branchBase: "main",
+      ...(scribeOwnsMarkdown ? { harness: { scribe: true, scribeOwnsMarkdown: true } } : {}),
       // A gate that passes: these tests are about the guards, not about the gate (first-class-gate.test.ts).
       qualityGate: { fast: "true", full: "true" },
     }),
@@ -437,6 +439,129 @@ describe("Pi guards: edit and write of Navori-generated files", () => {
     expect(
       await verdict(PARENT, dir, call("write", { path: "src/a.ts", content: "x" })),
     ).toMatchObject({ block: true });
+  });
+});
+
+describe("Pi guards: shared implementer Markdown ownership", (): void => {
+  // Covers: R7
+  it("blocks Bash Markdown write/copy forms through the real bridge, without blocking reads or non-Markdown", async (): Promise<void> => {
+    const dir = piProject(true);
+    const blocked = [
+      "echo x > notes.md",
+      "echo x >> NOTES.MDX",
+      "echo x | tee docs/notes.md",
+      "sed -i 's/a/b/' notes.md",
+      "perl -i -pe 's/a/b/' notes.md",
+      "cp /tmp/source notes.md",
+      "mv /tmp/source notes.mdx",
+      "node -e \"require('fs').writeFileSync('notes.md','x')\"",
+      "python3 -c \"open('notes.md','w').write('x')\"",
+      "echo x > packages/core/core-assets/agents/new.md",
+    ];
+    for (const command of blocked) {
+      const result = await verdict(CHILD, dir, bash(command));
+      expect(result, command).toMatchObject({ block: true });
+      expect(reasonOf(result), command).toContain("BLOCKED by implementer-no-markdown");
+    }
+    for (const command of ["cat notes.md", "echo x > notes.txt", "cp source.ts target.ts"]) {
+      expect(await verdict(CHILD, dir, bash(command)), command).toBeUndefined();
+    }
+    for (const env of [
+      PARENT,
+      NESTED,
+      { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "scribe" },
+    ]) {
+      expect(await verdict(env, dir, bash("echo x > notes.md"))).toBeUndefined();
+      expect(
+        await verdict(env, dir, call("write", { path: "notes.md", content: "x" })),
+      ).toBeUndefined();
+    }
+    expect(await verdict(CHILD, piProject(), bash("echo x > notes.md"))).toBeUndefined();
+  });
+
+  // Covers: R7
+  it("uses the canonical script for edit/write and preserves its doctrine-only exception", async (): Promise<void> => {
+    const dir = piProject(true);
+    for (const tool of ["edit", "write"]) {
+      for (const path of [
+        "notes.md",
+        "@docs/notes.MDX",
+        "packages/core/core-assets/agents/../notes.md",
+      ]) {
+        const result = await verdict(
+          CHILD,
+          dir,
+          call(tool, { path, content: "x", oldText: "a", newText: "b" }),
+        );
+        expect(result, tool + " " + path).toMatchObject({ block: true });
+        expect(reasonOf(result)).toContain("implementer-no-markdown");
+      }
+      for (const path of [
+        "src/new.ts",
+        "packages/core/core-assets/agents/new.md",
+        join(realpathSync(dir), ".agents/skills/custom/SKILL.md"),
+      ]) {
+        expect(
+          await verdict(CHILD, dir, call(tool, { path, content: "x", oldText: "a", newText: "b" })),
+          tool + " " + path,
+        ).toBeUndefined();
+      }
+      if (dir !== realpathSync(dir)) {
+        const path = join(dir, ".agents/skills/custom/SKILL.md");
+        const result = await verdict(
+          CHILD,
+          dir,
+          call(tool, { path, content: "x", oldText: "a", newText: "b" }),
+        );
+        expect(result, tool + " symlinked " + path).toMatchObject({ block: true });
+        expect(reasonOf(result)).toContain("implementer-no-markdown");
+      }
+    }
+  });
+
+  // Covers: R7
+  it("fails closed for an old/partial/downgraded binding and an absent mirror", async (): Promise<void> => {
+    const dir = piProject(true);
+    const path = join(dir, ".pi/navori.json");
+    const manifest = JSON.parse(readFileSync(path, "utf8")) as {
+      hooks: Array<Record<string, unknown>>;
+      ownedPaths: string[];
+    };
+    const original = manifest.hooks.find(
+      (hook: Record<string, unknown>): boolean => hook.script === "implementer-no-markdown",
+    )!;
+    expect(original).toMatchObject({
+      on: "tool_call",
+      scope: "child",
+      class: "enforced",
+      tools: ["bash", "edit", "write"],
+    });
+    const others = manifest.hooks.filter(
+      (hook: Record<string, unknown>): boolean => hook !== original,
+    );
+    for (const hooks of [
+      others,
+      [...others, { ...original, class: "advisory" }],
+      [...others, { ...original, tools: ["edit", "write"] }],
+      [...others, { ...original, scope: "parent" }],
+      [...others, original, original],
+    ]) {
+      writeFileSync(path, JSON.stringify({ ...manifest, hooks }));
+      for (const tool of ["bash", "edit", "write"]) {
+        const result = await verdict(
+          CHILD,
+          dir,
+          call(tool, { command: "echo x > notes.md", path: "notes.md", content: "x" }),
+        );
+        expect(result).toMatchObject({ block: true });
+        expect(reasonOf(result)).toContain("hook binding is missing or incompatible");
+      }
+    }
+    writeFileSync(path, JSON.stringify(manifest));
+    rmSync(join(dir, ".pi/navori/hooks/implementer-no-markdown.sh"));
+    const result = await verdict(CHILD, dir, bash("echo x > notes.md"));
+    expect(result).toMatchObject({ block: true });
+    expect(reasonOf(result)).toMatch(/implementer-no-markdown.*could not evaluate/);
   });
 });
 

@@ -131,6 +131,8 @@ export function interpolate(
     // (`extraVars` overrides this). Every other copy renders the non-blank "no rules" sentinel,
     // because a blank value would render as "<not configured: ...>".
     piPermissionRules: "-",
+    // Spec 0053 R8: populated by resolved placements, never discovered by a hook.
+    navoriOwnedPaths: "-",
     ...options.extraVars,
   };
   if (!options.omitUnresolvedKeyLines) {

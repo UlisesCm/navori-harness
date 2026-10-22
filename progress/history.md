@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-22 13:33 Codex — Protege Markdown y copias sobre rutas administradas en #1364
+
+Reconstruye M3/T5–T7 de0053 desde el candidato preservado sobre dev3e5b7257, sin M1/M2/M4 ni compresión i18n. Pi usa el hook canónico para bash/edit/write y bloquea bindings ausentes o degradados. Las tres guardas reciben un inventario exacto por target, sellado antes de interpolar; sync conserva decisiones y bases. Añade catálogo por capa y regresiones. La revisión corrigió normalización de drives, falsos positivos de consultas y el piso antirretroceso perdido entre preparación y commit diferido. Trabajo y revisión directos por petición expresa del usuario.
+
+Full final `bun run check` exit0:10167aprobadas/2omitidas,476archivos,1048.7s; cobertura87.81/86.12/90.47/80.8%,piso160/0;bundle1623.1KiB<1650KiB. Goldens5/5; guardas/paridad764/764; sync/ownership/master73/73; SDK real5/5. Las variantes Windows son metadata/rutas en Bash macOS, no ejecución nativa Windows. Parser lexical contra toolcwd; cd interno, destinos dinámicos y aliases físicos fuera del seatbelt. Pregunta1600histórico vs1650vigente pendiente; no cerrar1364 ni inferir respuesta. Commit/push y PR manual son siguientes pasos; sin merge/despliegue. #1367 apartado, borrador sin publicar; #1326 preservado en checkout principal.
+
 ## 2026-10-22 11:55 Codex — Integra dev y resuelve conflicto del PR1372
 
 Merge normal de dev1c87ad14 en fix/1314-codex-orchestration-budget, sin reescribir historia. El único conflicto fue progress/history.md: conserva completas las entradas de1314 y1347. Los cambios fuente se integraron automáticamente y render verificó0pendientes. Trabajo local1326 preservado en el checkout original; resolución realizada en un worktree independiente, sin subagentes.

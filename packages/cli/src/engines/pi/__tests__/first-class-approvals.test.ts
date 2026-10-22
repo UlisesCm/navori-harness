@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { load as loadScripts } from "./fixtures/load-extension.ts";
+import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
 
 interface Child extends EventEmitter {
   pid: number;
@@ -82,8 +83,15 @@ function load(
   const spawn = (
     program: string,
     args: string[],
-    spawnOptions: { stdio?: unknown; env?: Record<string, string> } = {},
-  ): Child => {
+    spawnOptions: { cwd?: string; stdio?: unknown; env?: Record<string, string> } = {},
+  ): unknown => {
+    if (program === "/bin/bash") {
+      return spawnProcess(program, args, {
+        cwd: spawnOptions.cwd,
+        env: spawnOptions.env,
+        stdio: "pipe",
+      });
+    }
     const child = Object.assign(new EventEmitter(), {
       pid: 321,
       stdin: new PassThrough(),
@@ -103,13 +111,22 @@ function load(
   };
   const schema = new Proxy({}, { get: () => () => ({}) });
   const modules = new Map<string, unknown>([
-    ["node:child_process", { spawn }],
+    [
+      "node:child_process",
+      {
+        spawn,
+      },
+    ],
     ["node:fs", { existsSync, readFileSync, statSync }],
     ["node:path", { join }],
     ["@earendil-works/pi-ai", { Type: schema }],
     [
       "@earendil-works/pi-coding-agent",
-      { VERSION: "1.1.0", defineTool: (value: unknown) => value },
+      {
+        VERSION: "1.1.0",
+        defineTool: (value: unknown) => value,
+        getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
+      },
     ],
   ]);
   const exports: Record<string, unknown> = {};
@@ -135,6 +152,7 @@ function load(
       stderr: { write: () => true },
     },
     Buffer,
+    AbortController,
     setTimeout,
     clearTimeout,
   });
@@ -173,8 +191,12 @@ function project(): string {
       qualityGate: { fast: "bun test", full: "bun test" },
       harness: { scribeOwnsMarkdown: true },
     }),
-    // The approval contract is under test, not the hook bridge (it needs a real bash): no scripts are bound.
-    { hookBindings: [] },
+    // Keep the mandatory ownership binding; unrelated shell policies have their own bridge tests.
+    {
+      hookBindings: PI_HOOK_BINDINGS.filter(
+        (binding) => binding.script === "implementer-no-markdown",
+      ),
+    },
   );
   return dir;
 }

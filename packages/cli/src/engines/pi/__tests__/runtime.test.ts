@@ -183,7 +183,9 @@ describe("Pi 1.1.0 credential-free runtime", () => {
       ).toContain("navori_subagent");
       // Covers: R7, R9 — this is real SDK event dispatch; trust=true above is a loader seam.
       const previousRole = process.env.NAVORI_PI_CHILD_ROLE;
+      // Real children export both fields; role alone still describes a parent to the bridge.
       process.env.NAVORI_PI_CHILD_ROLE = "implementer";
+      process.env.NAVORI_PI_CHILD_DEPTH = "1";
       try {
         const blocked = await session.extensionRunner?.emitToolCall({
           type: "tool_call",
@@ -197,11 +199,26 @@ describe("Pi 1.1.0 credential-free runtime", () => {
           toolCallId: "typescript",
           input: { path: "src/index.ts" },
         });
-        expect(blocked).toMatchObject({ block: true });
+        expect(blocked).toMatchObject({
+          block: true,
+          reason: expect.stringContaining("implementer-no-markdown"),
+        });
+        const shellBlocked = await session.extensionRunner?.emitToolCall({
+          type: "tool_call",
+          toolName: "bash",
+          toolCallId: "markdown-shell",
+          input: { command: "echo x > README.md" },
+        });
+        expect(shellBlocked).toMatchObject({
+          block: true,
+          reason: expect.stringContaining("implementer-no-markdown"),
+        });
         expect(allowed).toBeUndefined();
       } finally {
         if (previousRole === undefined) delete process.env.NAVORI_PI_CHILD_ROLE;
         else process.env.NAVORI_PI_CHILD_ROLE = previousRole;
+        if (previousDepth === undefined) delete process.env.NAVORI_PI_CHILD_DEPTH;
+        else process.env.NAVORI_PI_CHILD_DEPTH = previousDepth;
       }
     },
   );

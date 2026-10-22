@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { interpolate } from "../render/interpolate.ts";
+import type { NavoriConfig } from "../config/config.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
@@ -39,7 +41,13 @@ const guardSource = resolve(getCoreRoot(), "core-assets/hooks/guard-destructive.
 const guardPath = (() => {
   const dir = mkdtempSync(join(tmpdir(), "navori-guard-src-"));
   const p = join(dir, "guard-destructive.sh");
-  writeFileSync(p, expandHookIncludes(readFileSync(guardSource, "utf-8")));
+  writeFileSync(
+    p,
+    expandHookIncludes(readFileSync(guardSource, "utf-8")).replace(
+      "{{shq:navoriOwnedPaths}}",
+      shellSingleQuote("-"),
+    ),
+  );
   chmodSync(p, 0o755);
   return p;
 })();
@@ -194,6 +202,173 @@ function renderGuardUncached(base: string): string {
 }
 
 describe.runIf(runsBash)("guard-destructive.sh", () => {
+  describe("exact render-owned copy destinations", () => {
+    const inventory = [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".claude/agents/reviewer.md",
+      ".claude/skills/owned/SKILL.md",
+      ".codex/hooks/guard.sh",
+      ".pi/navori/hooks/guard.sh",
+    ].join("\n");
+    const config = { branchBase: "main", qualityGate: { fast: "true" } } as NavoriConfig;
+    const ownedGuard = join(mkdtempSync(join(tmpdir(), "navori-owned-")), "guard.sh");
+    writeFileSync(
+      ownedGuard,
+      interpolate(expandHookIncludes(readFileSync(guardSource, "utf-8")), config, {
+        extraVars: { navoriOwnedPaths: inventory },
+      }),
+    );
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: "/tmp/root" };
+    const denied = [
+      "cp x CLAUDE.md",
+      "mv x ./CLAUDE.md",
+      "install -m 644 x AGENTS.md",
+      "ln -sf x CLAUDE.md",
+      "/bin/cp x CLAUDE.md",
+      "command cp x CLAUDE.md",
+      "command -- cp x CLAUDE.md",
+      "command -p -- cp x CLAUDE.md",
+      "/usr/bin/env -i cp x CLAUDE.md",
+      "env -i cp x CLAUDE.md",
+      "env --ignore-environment -- cp x CLAUDE.md",
+      "env -u HOME command -- cp x CLAUDE.md",
+      "env --unset=HOME nohup -- cp x CLAUDE.md",
+      "env --unsupported cp x CLAUDE.md",
+      "\\cp x CLAUDE.md",
+      "(cp x CLAUDE.md)",
+      "FOO=x cp x CLAUDE.md",
+      "cp x CLAUDE.md 2>&1",
+      "cp x CLAUDE.md &",
+      "cp x CLAUDE.md # note",
+      "cp x CLAUDE.md > /tmp/log",
+      "cp x CLAUDE.md &>/tmp/log",
+      "cp -t . /tmp/CLAUDE.md",
+      "cp -ft . /tmp/CLAUDE.md",
+      "ln -sft . /tmp/CLAUDE.md",
+      "cp -vft. /tmp/CLAUDE.md",
+      "ln -sft.claude/agents /tmp/reviewer.md",
+      "cp -Qt . /tmp/CLAUDE.md",
+      "cp -ft",
+      "cp -S . /tmp/CLAUDE.md",
+      "cp --target-directory=. /tmp/CLAUDE.md",
+      "cp /tmp/CLAUDE.md ./",
+      "cp /tmp/reviewer.md .claude/agents",
+      "mv CLAUDE.md /tmp/x",
+      "mv .claude /tmp/archive",
+      "git mv .codex backup",
+      "cp x /tmp/root/CLAUDE.md",
+      "cp x /tmp/root/sub/../CLAUDE.md",
+      'cp x "$CLAUDE_PROJECT_DIR"/CLAUDE.md',
+      'cp x "${CLAUDE_PROJECT_DIR}"/CLAUDE.md',
+      'cp x "$(git rev-parse --show-toplevel)"/CLAUDE.md',
+      "cp x $(git rev-parse --show-toplevel)/CLAUDE.md",
+      "cp x claude.MD",
+      "true && cp x CLAUDE.md",
+      "cp x /tmp/ok & cp x CLAUDE.md",
+      "sudo -u user cp x CLAUDE.md",
+      "env FOO=x cp x CLAUDE.md",
+      "cp x ${CLAUDE_PROJECT_DIR}/CLAUDE.md",
+      "cp x $CLAUDE_PROJECT_DIR/CLAUDE.md",
+      "cp -R /tmp/tree .claude",
+      "cp --unknown x CLAUDE.md",
+      "cp\tx\tCLAUDE.md",
+      "cp -t",
+      'cp x "CLAUDE.md',
+      "cp /tmp/SKILL.md --target-directory .claude/skills/owned",
+      "ln -s /tmp/reviewer.md .claude/agents/",
+      "git mv CLAUDE.md /tmp/x",
+      "git --no-pager mv CLAUDE.md /tmp/out",
+      "git -C /tmp/root mv CLAUDE.md /tmp/out",
+      "git -C/tmp/root mv .claude /tmp/archive",
+      "git -C docs -C .. --no-pager mv .claude /tmp/archive",
+      "git -c core.quotePath=false mv .claude /tmp/archive",
+      "git --work-tree=/tmp/root mv .claude /tmp/archive",
+      "git --unsupported mv .claude /tmp/archive",
+    ];
+    const allowed = [
+      "cp CLAUDE.md /tmp/x",
+      "command -- cp CLAUDE.md /tmp/x",
+      "env -i cp CLAUDE.md /tmp/x",
+      "env -u HOME command -p -- cp x .claude/skills/user/SKILL.md",
+      "cp -ft /tmp/root-other /tmp/CLAUDE.md",
+      "ln -sft /tmp/root-other /tmp/CLAUDE.md",
+      "cp -ft.claude/skills/user /tmp/SKILL.md",
+      "git --no-pager mv .claude/skills/user /tmp/archive",
+      "git -C /tmp/root-other mv CLAUDE.md /tmp/archive",
+      "git -C ../root-other mv CLAUDE.md /tmp/archive",
+      "git --no-pager status",
+      "install -m 644 CLAUDE.md /tmp/x",
+      "ln -s CLAUDE.md /tmp/link",
+      "cp x /tmp/root-other/CLAUDE.md",
+      "cp x ../worktree/CLAUDE.md",
+      "cp x docs/CLAUDE.md",
+      "cp x .claude/skills/user/SKILL.md",
+      "mv .claude/skills/user /tmp/archive",
+      "cp /tmp/other.md .claude/agents",
+      "cp x /tmp/x # CLAUDE.md",
+      "cp x /tmp/x 2>&1",
+      "cp x /tmp/x & echo CLAUDE.md",
+      "echo cp x CLAUDE.md",
+      "cp x /tmp/x < CLAUDE.md",
+      "cp x /tmp/x; echo CLAUDE.md",
+      "cp x /tmp/x >> /tmp/log",
+      "cp x /tmp/x &>/tmp/log",
+    ];
+    beforeAll(() =>
+      primeGuard(
+        ownedGuard,
+        [...denied, ...allowed].map((cmd) => ({ cmd, env })),
+      ),
+    );
+    // Covers: R8
+    it.each(denied)("blocks owned mutation: %s", (command: string) => {
+      expect(runGuardScript(ownedGuard, command, env)).toBe(2);
+    });
+    // Covers: R8
+    it("resolves relative operands against payload cwd with root containment", () => {
+      acrossShells((shell) => {
+        for (const [command, expected] of [
+          ["cp x ../CLAUDE.md", 2],
+          ["cp x CLAUDE.md", 0],
+          ["cp x ../../worktree/CLAUDE.md", 0],
+          ["git -C .. mv CLAUDE.md /tmp/out", 2],
+          ["git -C /tmp/root mv .claude /tmp/archive", 2],
+          ["git -C ../.. -C root mv CLAUDE.md /tmp/out", 2],
+          ["git -C ../../root-other mv CLAUDE.md /tmp/out", 0],
+        ] as const) {
+          const result = spawnSync(shell, [ownedGuard], {
+            input: JSON.stringify({ cwd: "/tmp/root/docs", tool_input: { command } }),
+            env,
+          });
+          expect(result.status).toBe(expected);
+        }
+        return true;
+      });
+    });
+    // Covers: R8
+    it("normalizes quoted absolute roots containing spaces", () => {
+      const spacedEnv = { ...process.env, CLAUDE_PROJECT_DIR: "/tmp/root with spaces/" };
+      expect(runGuardScript(ownedGuard, 'cp x "/tmp/root with spaces/CLAUDE.md"', spacedEnv)).toBe(
+        2,
+      );
+      expect(
+        runGuardScript(ownedGuard, 'cp x "/tmp/root with spaces-other/CLAUDE.md"', spacedEnv),
+      ).toBe(0);
+    });
+    // Covers: R8
+    it("retains Pi control-plane copy-out denial with an explicit inventory", () => {
+      const piDir = join(mkdtempSync(join(tmpdir(), "navori-copy-pi-")), ".pi/navori/hooks");
+      mkdirSync(piDir, { recursive: true });
+      const piGuard = join(piDir, "guard.sh");
+      writeFileSync(piGuard, readFileSync(ownedGuard, "utf-8"));
+      expect(runGuardScript(piGuard, "cp .pi/navori/hooks/guard.sh /tmp/x", env)).toBe(2);
+    });
+    // Covers: R8
+    it.each(allowed)("allows unowned destination: %s", (command: string) => {
+      expect(runGuardScript(ownedGuard, command, env)).toBe(0);
+    });
+  });
   // Mutation smoke (spec 0054 D4): a batch that cannot see a verdict change would
   // pass vacuously, so flip every block exit in a temp copy and require the primed
   // table to follow it. Covers: R7, R9

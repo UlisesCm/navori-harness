@@ -814,9 +814,15 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "When harness.masterPlan is on, Pi before_agent_start appends a bounded status line; this is context, not a permission boundary.",
       },
       "markdown-ownership": {
-        state: "advisory",
+        state: "enforced",
         reason:
-          "When harness.scribeOwnsMarkdown is on, Pi blocks direct edit/write Markdown in implementer children; bash and ambient process writes bypass it.",
+          "When harness.scribeOwnsMarkdown is on, the Pi tool_call bridge runs the shared implementer-no-markdown script for bash/edit/write in children, failing closed on missing or incompatible bindings. Bash inspection is a textual seatbelt, not a sandbox; ambient processes and unrecognized shell forms remain outside it.",
+        evidence: {
+          kind: "hook",
+          script: "implementer-no-markdown.sh",
+          event: "tool_call",
+          matcher: "bash|edit|write",
+        },
       },
       "handoff-shape": {
         state: "enforced",

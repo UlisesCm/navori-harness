@@ -32,6 +32,11 @@ import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { forcedManagedFileContent, renderManagedFile } from "./render-managed-file.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import type { HarnessPlan, PlannedAgent, PlannedHook, PlannedSkill } from "./harness-plan.ts";
+import {
+  OwnedPathInventory,
+  type OwnedPathAuthorship,
+  type SealedOwnedPaths,
+} from "./owned-path-inventory.ts";
 
 /**
  * Shared render pipeline (Spec 0007, Capa 3). Turns a HarnessPlan + an
@@ -42,7 +47,10 @@ import type { HarnessPlan, PlannedAgent, PlannedHook, PlannedSkill } from "./har
  * engines at once instead of being re-implemented per engine.
  */
 
-const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
+const CORE_META = {
+  source: "@navori/core" as const,
+  version: readCliVersion(),
+};
 
 /** One file the engine wants on disk, fully placed (output of Capa 2). */
 export interface PlacementRequest {
@@ -69,6 +77,13 @@ export interface PlacementRequest {
    * them to write to `.claude/progress/`.
    */
   transform?: (text: string) => string;
+  /** Opt-in: materialize guard input only after target ownership/decisions are sealed.
+   * Runs before interpolation and hashing, including forced resolution bodies.
+   * Placement identity is retained; this callback cannot select another path.
+   */
+  finalize?: (
+    inventory: SealedOwnedPaths,
+  ) => Pick<PlacementRequest, "body" | "extraVars" | "transform">;
 }
 
 export interface OrphanScan {
@@ -365,23 +380,139 @@ export function collectPlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { prune?: boolean; skipReason?: SkipReason; lang?: Lang } = {},
-): {
+  options: CollectPlanOptions = {},
+): CollectedPlan {
+  return retainPlan(plan, adapter, ctx, options, false).finalize();
+}
+
+/** Collection policy and optional target-local composition context. */
+export interface CollectPlanOptions {
+  prune?: boolean;
+  skipReason?: SkipReason;
+  lang?: Lang;
+  /** Share only within one target. Owners prepare all engines, decide, then seal. */
+  inventory?: OwnedPathInventory;
+}
+
+/** Final operations ready for existing engine composition and commitWrites. */
+export interface CollectedPlan {
   pending: PendingWrite[];
   removals: PendingRemoval[];
-  skipped: ExecuteResult["skipped"];
-  /** Orphan-scan matches that were NOT removed, with why (spec 0026 T10). */
+  skipped: SkippedFile[];
+  /** Orphan matches preserved by the existing removal policy. */
   kept: KeptOrphan[];
-  /** Marker-less existing core agent/skill files navori will adopt (#1114). */
+  /** Markerless core assets adopted under the existing render policy. */
   collisions: CollisionNotice[];
-} {
-  const prune = options.prune !== false;
-  const lang = options.lang ?? DEFAULT_LANG;
-  const skipReason = options.skipReason ?? makeDefaultSkipReason(lang);
-  const pending: PendingWrite[] = [];
-  const skipped: ExecuteResult["skipped"] = [];
-  const collisions: CollisionNotice[] = [];
+}
 
+/** Retained basis for acquisition decisions; no provisional guard body is needed. */
+export interface PreparedDestination {
+  readonly relPath: string;
+  readonly managedId: string;
+  readonly absPath: string;
+  readonly authorship: OwnedPathAuthorship;
+  readonly basis: string | null;
+}
+
+/** Retain a resolved placement's ownership and bytes without rendering it. */
+export function observeDestination(
+  inventory: OwnedPathInventory,
+  cwd: string,
+  relPath: string,
+  managedId: string,
+  classify?: (content: string) => OwnedPathAuthorship,
+): PreparedDestination {
+  const absPath = join(cwd, relPath);
+  const stats = lstatSync(absPath, { throwIfNoEntry: false });
+  const basis = stats?.isFile() && !stats.isSymbolicLink() ? readFileSync(absPath, "utf-8") : null;
+  const authorship =
+    stats === undefined
+      ? "missing"
+      : basis === null
+        ? "foreign"
+        : (classify?.(basis) ??
+          navoriAuthorship(absPath, managedId || undefined, {
+            verifyHash: true,
+          }));
+  inventory.observe(relPath, authorship, managedId);
+  return Object.freeze({ relPath, managedId, absPath, authorship, basis });
+}
+
+/** Reject a stale prepared target before any engine or forced resolution writes. */
+export function validateDestinations(destinations: readonly PreparedDestination[]): void {
+  for (const destination of destinations) {
+    const stats = lstatSync(destination.absPath, { throwIfNoEntry: false });
+    const basis =
+      stats?.isFile() && !stats.isSymbolicLink()
+        ? readFileSync(destination.absPath, "utf-8")
+        : null;
+    if (
+      basis !== destination.basis ||
+      (destination.authorship === "missing" && stats !== undefined)
+    )
+      throw new Error(`Prepared destination changed: ${destination.relPath}`);
+  }
+}
+
+/** A target owner selects once, finalizes without effects, then commits. */
+export interface PreparedEngine<Result> {
+  readonly inventory: OwnedPathInventory;
+  readonly destinations: readonly PreparedDestination[];
+  finalize(): CollectedPlan;
+  commit(): Result;
+}
+
+/** Add the exact sealed union to the canonical guard before interpolation/hash. */
+export function withOwnedGuard(adapter: EngineAdapter): EngineAdapter {
+  return {
+    ...adapter,
+    placeHook: (hook, ctx) => {
+      const request = adapter.placeHook(hook, ctx);
+      if (!request || hook.id !== "guard-destructive") return request;
+      return {
+        ...request,
+        finalize: (inventory: SealedOwnedPaths) => ({
+          extraVars: {
+            ...request.extraVars,
+            navoriOwnedPaths: inventory.value,
+          },
+        }),
+      };
+    },
+  };
+}
+
+/** One retained engine selection, with decisions open until target sealing. */
+export interface PreparedPlan {
+  readonly inventory: OwnedPathInventory;
+  readonly destinations: readonly PreparedDestination[];
+  readonly requests: readonly Readonly<PlacementRequest>[];
+  /** Seals before rendering; completes all operations/resolutions before commit. */
+  finalize(): CollectedPlan;
+}
+
+/** Select exactly once, retaining stateful adapter order and destination ownership.
+ * No renderer, orphan scan, backup, chmod or write runs during preparation.
+ * For composition, prepare every engine with the same target inventory before
+ * accepting acquisitions/vetoes and finalizing any of them.
+ */
+export function preparePlan(
+  plan: HarnessPlan,
+  adapter: EngineAdapter,
+  ctx: AdapterCtx,
+  options: CollectPlanOptions = {},
+): PreparedPlan {
+  return retainPlan(plan, adapter, ctx, options, true);
+}
+
+/** Retain legacy selection without extra ownership reads unless explicitly enabled. */
+function retainPlan(
+  plan: HarnessPlan,
+  adapter: EngineAdapter,
+  ctx: AdapterCtx,
+  options: CollectPlanOptions,
+  observe: boolean,
+): PreparedPlan {
   const requests: PlacementRequest[] = [];
   for (const agent of plan.agents) {
     const req = adapter.placeAgent(agent, ctx);
@@ -399,21 +530,71 @@ export function collectPlan(
   // agents/skills (e.g. Codex's AGENTS.md agent catalog) see the full set.
   requests.push(...adapter.extraFiles(ctx));
 
-  for (const req of requests)
-    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id, lang);
-
-  const { removals, kept } = prune
-    ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd, skipped)
-    : { removals: [], kept: [] };
-
-  return { pending, removals, skipped, kept, collisions };
+  const inventory = options.inventory ?? new OwnedPathInventory();
+  const destinations: PreparedDestination[] = [];
+  // Legacy callers retain their existing reads/policy. Opt-in guard producers
+  // and composed owners classify before rendering, never from pending writes.
+  if (
+    observe ||
+    options.inventory !== undefined ||
+    requests.some((req: PlacementRequest): boolean => req.finalize !== undefined)
+  ) {
+    for (const req of requests) {
+      destinations.push(observeDestination(inventory, ctx.cwd, req.destRelPath, req.managedId));
+    }
+  }
+  const retained = Object.freeze(
+    requests.map((req: PlacementRequest): Readonly<PlacementRequest> => Object.freeze({ ...req })),
+  );
+  let result: CollectedPlan | undefined;
+  return {
+    inventory,
+    destinations: Object.freeze(destinations),
+    requests: retained,
+    finalize: (): CollectedPlan => {
+      if (result !== undefined) return result;
+      validateDestinations(destinations);
+      const ownedPaths = inventory.seal();
+      const lang = options.lang ?? DEFAULT_LANG;
+      const skipReason = options.skipReason ?? makeDefaultSkipReason(lang);
+      const pending: PendingWrite[] = [];
+      const skipped: SkippedFile[] = [];
+      const collisions: CollisionNotice[] = [];
+      for (const req of retained) {
+        const finalInput = req.finalize?.(ownedPaths);
+        const materialized: PlacementRequest = { ...req };
+        if (finalInput !== undefined) {
+          if ("body" in finalInput) materialized.body = finalInput.body;
+          if ("extraVars" in finalInput) materialized.extraVars = finalInput.extraVars;
+          if ("transform" in finalInput) materialized.transform = finalInput.transform;
+        }
+        collectRequest(
+          materialized,
+          ctx,
+          pending,
+          skipped,
+          skipReason,
+          collisions,
+          adapter.id,
+          lang,
+        );
+      }
+      const { removals, kept } =
+        options.prune !== false
+          ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd, skipped)
+          : { removals: [], kept: [] };
+      result = { pending, removals, skipped, kept, collisions };
+      return result;
+    },
+  };
 }
 
+/** Collect/finalize a local engine before its existing atomic commit loop. */
 export function executePlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { dryRun?: boolean; prune?: boolean; lang?: Lang } = {},
+  options: CollectPlanOptions & { dryRun?: boolean } = {},
 ): ExecuteResult & { kept: KeptOrphan[] } {
   const { pending, removals, skipped, kept } = collectPlan(plan, adapter, ctx, options);
   const { written, backupPath } = commitWrites({
@@ -468,7 +649,9 @@ function collectRequest(
     const assetPath = req.assetPath;
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
     if (existing !== null && req.meta?.source.startsWith("@navori/plugin-")) {
-      const authorship = navoriAuthorship(path, req.managedId, { verifyHash: true });
+      const authorship = navoriAuthorship(path, req.managedId, {
+        verifyHash: true,
+      });
       if (authorship !== "ours") {
         const status = authorship === "newer" ? "downgrade-skipped" : "user-modified-skipped";
         const skip: SkippedFile = {
@@ -541,7 +724,10 @@ function collectRequest(
     };
     const result = renderManagedFile(renderInput);
     if (existing !== null) {
-      forced = { basis: existing, render: () => forcedManagedFileContent(renderInput) };
+      forced = {
+        basis: existing,
+        render: () => forcedManagedFileContent(renderInput),
+      };
     }
     content = result.content;
     status = result.status;
@@ -604,7 +790,13 @@ function collectRequest(
     );
     return;
   }
-  pending.push({ path, relPath: req.destRelPath, content, status, chmodExec: req.chmodExec });
+  pending.push({
+    path,
+    relPath: req.destRelPath,
+    content,
+    status,
+    chmodExec: req.chmodExec,
+  });
 }
 
 /**
@@ -670,7 +862,12 @@ function collectOrphans(
         const expected = scan.expected?.(relPath);
         const normalize = normalizeFor(scan, relPath);
         const pristine = expected != null ? { requirePristine: { expected, normalize } } : {};
-        if (navoriAuthorship(absPath, undefined, { verifyHash: true, ...pristine }) === "ours") {
+        if (
+          navoriAuthorship(absPath, undefined, {
+            verifyHash: true,
+            ...pristine,
+          }) === "ours"
+        ) {
           removals.push({ path: absPath, ...statusOf(scan) });
         } else {
           pushKept(kept, cwd, absPath, undefined, true, expected, normalize);
@@ -692,7 +889,10 @@ function collectOrphans(
         const parentDir = dirname(nestedAbs);
         const children = readDirSafe(parentDir);
         const onlyNested = children.length === 1 && children[0]?.name === basename(nestedRelPath);
-        removals.push({ path: onlyNested ? parentDir : nestedAbs, recursive: onlyNested });
+        removals.push({
+          path: onlyNested ? parentDir : nestedAbs,
+          recursive: onlyNested,
+        });
         continue;
       }
       // skill-dir
@@ -708,7 +908,12 @@ function collectOrphans(
       const skillNormalize = normalizeFor(scan, relPath);
       const skillPristine =
         skillExpected != null
-          ? { requirePristine: { expected: skillExpected, normalize: skillNormalize } }
+          ? {
+              requirePristine: {
+                expected: skillExpected,
+                normalize: skillNormalize,
+              },
+            }
           : undefined;
       if (!isRemovableNavoriFile(skillPath, undefined, skillPristine)) {
         pushKept(
@@ -855,7 +1060,10 @@ export function commitWrites(input: {
       if (!input.removalsBestEffort) {
         for (const removal of removals) {
           current = removal.path;
-          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          rmSync(removal.path, {
+            recursive: removal.recursive === true,
+            force: true,
+          });
           noteRealWrite();
           completed.push(relative(cwd, removal.path));
         }
@@ -876,7 +1084,10 @@ export function commitWrites(input: {
     if (input.removalsBestEffort) {
       for (const removal of removals) {
         try {
-          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          rmSync(removal.path, {
+            recursive: removal.recursive === true,
+            force: true,
+          });
           noteRealWrite();
         } catch {
           // Best effort — a read-only scripts dir shouldn't crash the render.

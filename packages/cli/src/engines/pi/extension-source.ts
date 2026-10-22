@@ -2,12 +2,7 @@ import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
-import {
-  PI_IMPLEMENTER_DOCTRINE_PREFIXES,
-  PI_ROLE_NAMES,
-  PI_ROLE_TIMEOUT_MS,
-  PI_ROLE_TOOLS,
-} from "./role-tools.ts";
+import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
 import { mcpServerStates } from "./mcp-diagnosis.ts";
 
 /**
@@ -37,8 +32,6 @@ ${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(PI_ROLE_TOOLS
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
 const ROLE_TIMEOUT_MS: Record<Role, number> = ${JSON.stringify(PI_ROLE_TIMEOUT_MS)};
-// Spec 0052 R49: Markdown the implementer may edit/write directly (AI doctrine), repo-root relative.
-const DOCTRINE_PREFIXES: readonly string[] = ${JSON.stringify(PI_IMPLEMENTER_DOCTRINE_PREFIXES)};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -64,49 +57,6 @@ function addUsage(acc: ChildUsage, raw: unknown): ChildUsage | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function relIsDoctrine(rel: string): boolean {
-  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
-  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
-}
-
-function gitOut(cwd: string, args: string[]): string | null {
-  const r = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8", timeout: 2000, maxBuffer: 1048576 });
-  return r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : null;
-}
-
-/** #1330: path relative to another REGISTERED worktree of cwd's repo (same common dir, no symlink component); null on any doubt. */
-function siblingWorktreeRel(cwd: string, target: string): string | null {
-  if (!isAbsolute(target)) return null;
-  let cursor = "/";
-  for (const part of target.split(sep).filter(Boolean)) {
-    cursor = join(cursor, part);
-    try { if (lstatSync(cursor).isSymbolicLink()) return null; }
-    catch (e) { if ((e as { code?: unknown } | null)?.code !== "ENOENT") return null; }
-  }
-  let dir = dirname(target);
-  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
-  const top = gitOut(dir, ["rev-parse", "--show-toplevel"]);
-  if (!top || !target.startsWith(top + sep)) return null;
-  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const session = gitOut(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!common || !session || gitOut(session, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) !== common) return null;
-  const list = gitOut(session, ["worktree", "list", "--porcelain"]);
-  if (list === null) return null;
-  const lines = list.split("\n");
-  if (!lines.includes("worktree " + top) || !lines.includes("worktree " + session)) return null;
-  return target.slice(top.length + 1);
-}
-
-/** True when a Markdown target is AI doctrine: under the repo root or another registered worktree of it, no ".." segment, under a DOCTRINE_PREFIXES entry. */
-function isDoctrinePath(cwd: string, target: string): boolean {
-  if (target.split(/[\\/]/).includes("..")) return false;
-  const rel = relative(cwd, resolve(cwd, target)).split(sep).join("/");
-  if (relIsDoctrine(rel)) return true;
-  if (!isAbsolute(target)) return false;
-  const sibling = siblingWorktreeRel(cwd, target);
-  return sibling !== null && relIsDoctrine(sibling);
 }
 
 function controls(cwd: string): Controls {
@@ -918,6 +868,18 @@ export default function (pi: ExtensionAPI): void {
     if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
       const manifest = bridgeManifest(ctx.cwd);
       if (!manifest.ok) return { block: true, reason: manifest.reason };
+      // R7: never replace the old inline guard with an absent, downgraded or partial script binding.
+      try {
+        if (controls(ctx.cwd).scribeOwnsMarkdown) {
+          const rows = manifest.hooks.filter((hook) => hook.script === "implementer-no-markdown");
+          const row = rows[0];
+          if (rows.length !== 1 || !row || row.on !== "tool_call" || row.scope !== "child" ||
+              row.class !== "enforced" || row.interactive || row.path !== ".pi/navori/hooks/implementer-no-markdown.sh" ||
+              !["bash", "edit", "write"].every((tool) => row.tools?.includes(tool)) || !manifest.ownedPaths.includes(row.path)) {
+            return { block: true, reason: "Navori Markdown ownership hook binding is missing or incompatible; " + BRIDGE_RENDER_ACTION + "." };
+          }
+        }
+      } catch { return { block: true, reason: "Navori cannot evaluate Markdown ownership controls; " + BRIDGE_RENDER_ACTION + "." }; }
       if (event.toolName !== "bash") {
         // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
         const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
@@ -939,13 +901,6 @@ export default function (pi: ExtensionAPI): void {
       if (JSON.stringify(event.input) !== sealed) {
         return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };
       }
-    }
-    if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;
-    if (event.toolName !== "edit" && event.toolName !== "write") return;
-    const input: unknown = event.input;
-    if (!isRecord(input) || typeof input.path !== "string") return;
-    if (/\.mdx?$/i.test(input.path) && !isDoctrinePath(ctx.cwd, input.path)) {
-      return { block: true, reason: "Navori scribe owns Markdown; direct Pi edit/write is allowed only for AI doctrine under: " + DOCTRINE_PREFIXES.join(", ") + ". Put the rest in markdownRequests. Bash is outside this advisory boundary." };
     }
   });
   // Registered before the parent-only return below: children and nested calls must be observed too.
