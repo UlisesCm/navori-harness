@@ -101,7 +101,8 @@ Estimated LOC: 1150
 ## E3 — La aceptación compara contra lo esperado — diferida (0054)
 Estimated LOC: 1000
 
-> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/). No se implementa en esta spec.
+> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/), salvo T20,
+> implementada por separado en #1275. T16–T19 y T21 siguen pendientes.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
@@ -130,7 +131,7 @@ Estimated LOC: 1000
 - **A12** — `plan check` y sus consumidores en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/check.test.ts src/lib/master/__tests__/slice.test.ts src/lib/master/__tests__/part.test.ts src/lib/plan/__tests__/plan-gate.test.ts`
   → exit 0, 0 failed
-- [ ] **T20** (R20) — `checkWorkplan` en modo evidencia: `cumplido` sin evidencia es finding sin
+- [x] **T20** (R20) — `checkWorkplan` en modo evidencia: `cumplido` sin evidencia es finding sin
   cambiar `ok` para master-plan ni bloquear el plan-gate · effect: behavior · test:
   `lib/plan/__tests__/check.test.ts`::"modo evidencia y consumidores"
 - [ ] **T21** (R16, R24) — `reviewer.md` Pass 1 compara el diff contra `request` cuando existe, en

@@ -715,7 +715,7 @@ const checkSubCommand = defineCommand({
     }
     const result: CheckResult =
       unreadable === undefined
-        ? checkWorkplan(raw, { cwd: root.cwd, feature: args.feature })
+        ? checkWorkplan(raw, { cwd: root.cwd, feature: args.feature, evidence: "finding" })
         : { ok: false, findings: [{ rule: "schema", message: unreadable }], warnings: [] };
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatCheckResult(result)}\n`);
     // Explicit on both branches — see `classifyDiff`'s comment on the same

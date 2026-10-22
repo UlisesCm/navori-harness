@@ -102,9 +102,8 @@ function checkStructural(plan: Workplan, feature: string | undefined): CheckFind
   return findings;
 }
 
-/** 0038 D4: a `cumplido` criterion without recorded evidence for its current
- * command is reported as a warning, never as a failure (`ok` stays intact so
- * old workplans keep passing plan-gate). */
+/** Collect evidence notes separately so structural consumers keep their legacy
+ * warnings while the CLI requests findings for missing or stale evidence (0045 R20). */
 function checkEvidence(plan: Workplan): CheckFinding[] {
   const warnings: CheckFinding[] = [];
   for (const criterion of plan.acceptance) {
@@ -165,9 +164,9 @@ function checkLevel(plan: Workplan, cwd: string | undefined): CheckFinding[] {
  * run can drive a full fix. */
 export function checkWorkplan(
   raw: unknown,
-  options: { cwd?: string; feature?: string } = {},
+  options: { cwd?: string; feature?: string; evidence?: "warning" | "finding" } = {},
 ): CheckResult {
-  const { cwd, feature } = options;
+  const { cwd, feature, evidence = "warning" } = options;
   const parsed = WorkplanSchema.safeParse(raw);
   if (!parsed.success) {
     const findings = parsed.error.issues.map((issue) => ({
@@ -184,7 +183,16 @@ export function checkWorkplan(
       : ["delivery source requires an explicit checkout context"];
     findings.push(...problems.map((message) => ({ rule: "delivery-source", message })));
   }
-  return { ok: findings.length === 0, findings, warnings: checkEvidence(parsed.data) };
+  const warnings: CheckFinding[] = [];
+  for (const note of checkEvidence(parsed.data)) {
+    if (
+      evidence === "finding" &&
+      (note.rule === "progress-unevidenced" || note.rule === "progress-evidence-stale")
+    )
+      findings.push(note);
+    else warnings.push(note);
+  }
+  return { ok: findings.length === 0, findings, warnings };
 }
 
 /** One line per finding, for CLI output. */
