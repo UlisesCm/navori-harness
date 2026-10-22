@@ -118,7 +118,7 @@ it("appends the future-child profile row only with explicit project opt-in", () 
   const { when, ...registration } = row.registration!;
   expect(registration).toEqual({
     event: "PreToolUse",
-    matcher: "^(Agent|spawn_agent)$",
+    matcher: "^(Agent|spawn_agent|collaborationspawn_agent)$",
     args: "codex-pretool-profile",
     timeout: 15,
     statusMessage: "navori: future child profile",

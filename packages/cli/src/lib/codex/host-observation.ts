@@ -100,12 +100,19 @@ export const profileProbeHookContext = z.strictObject({
 /** Source-checked candidates; a caller/imported event array is never an owned observation. */
 export function nativeProfileHookCalls(
   messages: readonly unknown[],
-  expected: { probe: string; checkout: string; sourcePath: string; principal: string },
+  expected: {
+    probe: string;
+    checkout: string;
+    sourcePath: string;
+    principal: string;
+    turn?: string;
+  },
 ): z.infer<typeof profileProbeHookContext>[] {
   const completion = z.object({
     method: z.literal("hook/completed"),
     params: z.object({
       threadId: z.literal(expected.principal),
+      ...(expected.turn ? { turnId: z.literal(expected.turn) } : {}),
       run: z.object({
         id: z.string().min(1),
         source: z.literal("project"),
@@ -191,8 +198,79 @@ export function nativeProfileCandidates(
     effort: string;
     unchanged: boolean;
     defaultsKnown: boolean;
+    v2?: {
+      turn: string;
+      hooks: readonly z.infer<typeof profileProbeHookContext>[];
+    };
   },
 ): NativeProfileCandidate[] {
+  if (parentSelection?.v2) {
+    const selected: NativeProfileCandidate[] = [];
+    const seen = new Set<string>();
+    for (const raw of messages) {
+      const activity = z
+        .object({
+          method: z.literal("item/started"),
+          params: z.object({
+            threadId: z.literal(principal),
+            turnId: z.literal(parentSelection.v2.turn),
+            item: activityItem,
+          }),
+        })
+        .safeParse(raw);
+      if (!activity.success) continue;
+      const item = activity.data.params.item;
+      const hooks = parentSelection.v2.hooks.filter((hook) => hook.call === item.id);
+      const hook = hooks.length === 1 ? hooks[0] : undefined;
+      const targets = rows.filter(
+        (row) => row.scope === "subagent" && row.nativeName === hook?.role,
+      );
+      const target = targets.length === 1 ? targets[0] : undefined;
+      if (
+        !hook ||
+        !target ||
+        target.diagnostics.length ||
+        seen.has(item.id) ||
+        seen.has(item.agentThreadId)
+      )
+        return [];
+      let intent: NativeProfileIntent;
+      try {
+        intent = profileSelectionIntent(target);
+      } catch {
+        return [];
+      }
+      if (
+        JSON.stringify(intent) !== JSON.stringify({ model: hook.model, effort: hook.effort }) ||
+        parentSelection.context !== principal ||
+        !parentSelection.unchanged ||
+        !parentSelection.defaultsKnown ||
+        item.model !== (intent.model.kind === "set" ? intent.model.value : parentSelection.model) ||
+        item.reasoningEffort !==
+          (intent.effort.kind === "set" ? intent.effort.value : parentSelection.effort) ||
+        item.agentThreadId === principal ||
+        seen.has(item.agentPath)
+      )
+        return [];
+      seen.add(item.id);
+      seen.add(item.agentThreadId);
+      seen.add(item.agentPath);
+      selected.push(
+        Object.freeze({
+          nativeName: target.nativeName,
+          context: item.agentThreadId,
+          parent: principal,
+          call: item.id,
+          activity: item.id,
+          model: item.model,
+          effort: item.reasoningEffort,
+          agentPath: item.agentPath,
+          intent,
+        }),
+      );
+    }
+    return selected;
+  }
   const threads: z.infer<typeof childThread>["thread"][] = [];
   const calls: z.infer<typeof spawnItem>[] = [];
   const activities: { parent: string; item: z.infer<typeof activityItem> }[] = [];
