@@ -98,8 +98,10 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 **The permission mode decides what you CAN do — read it before planning how.** The host sets it, you never change it. `dontAsk` isn't supported today (`Edit`/`Write` aren't pre-approved, so the implement/review cycle can't run). Reference: https://code.claude.com/docs/en/permission-modes
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="sdd" hash="f71ff3ca" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="e00db9af" version="0.12.2" source="@navori/core" -->
 ## Spec Driven Development (SDD)
+
+**Functional deliveries:** independently usable capabilities AND thresholds; runtime consumers/executable acceptance required. `prCount`≠proof.
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 

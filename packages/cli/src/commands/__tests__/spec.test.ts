@@ -97,6 +97,7 @@ describe("navori spec classify", () => {
       "formatVersion",
       "feature",
       "tasksPath",
+      "validation",
       "format",
       "shape",
       "prCount",
@@ -113,6 +114,7 @@ describe("navori spec classify", () => {
       format: "deliveries",
       shape: "split",
       prCount: 2,
+      validation: { scope: "structural", functionalDelivery: "unverified" },
       thresholds: {
         splitMinTasks: 12,
         splitMinLoc: 1500,
@@ -137,6 +139,7 @@ describe("navori spec classify", () => {
     const result = await run("classify", "demo");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("demo: single (1 PR)");
+    expect(result.stdout).toContain("structural only, functional delivery unverified");
     expect(result.stderr).toContain("WARN:");
   });
 
@@ -255,7 +258,9 @@ describe("navori spec check — strict requirements subprocess", () => {
       expect(json.stderr).toContain(`[${rule}]`);
       const human = runCheckProcess(false);
       expect(human.exitCode).toBe(2);
-      expect(human.stdout).toBe("demo: findings — 1 error(s), 0 warning(s)\n");
+      expect(human.stdout).toBe(
+        "demo: findings — 1 error(s), 0 warning(s); structural only, functional delivery unverified\n",
+      );
       for (const result of [json, human]) {
         expect(result.stderr).toContain("ERROR:");
         expect(result.stderr).toContain("WHY:");
@@ -312,10 +317,70 @@ describe("navori spec check", () => {
       "feature",
       "format",
       "ok",
+      "validation",
       "findings",
       "classification",
     ]);
-    expect(json).toMatchObject({ formatVersion: 1, feature: "demo", ok: true, findings: [] });
+    expect(json).toMatchObject({
+      formatVersion: 1,
+      feature: "demo",
+      ok: true,
+      validation: { scope: "structural", functionalDelivery: "unverified" },
+      findings: [],
+    });
+  });
+
+  // #1312: a declared consumer and passing helper tests cannot attest a runtime flow.
+  it("keeps a foundation with contracts and tests functionally unverified", async () => {
+    writeTasks(
+      "demo",
+      [
+        "## E1 — Contract (foundation)",
+        "Estimated LOC: 1800",
+        "### M1 — Contract and tests",
+        "- **Consumes:** helper → shared contract",
+        "- **A1** [observable] — helpers `node --test contract.test.mjs` → tests pass",
+        "- [x] **T1** (R1) — contract · effect: behavior",
+        "## E2 — Integrate later",
+        "### M2 — Runtime",
+        "- **A2** [observable] — command `node entry.mjs` → result",
+        "- [ ] **T2** (R1) — integration · effect: behavior",
+      ].join("\n"),
+    );
+    writeRequirements("demo", ["R1"]);
+    writeFileSync(join(cwd, "contract.mjs"), "export const contract = () => 'ready';\n");
+    writeFileSync(
+      join(cwd, "contract.test.mjs"),
+      "import assert from 'node:assert/strict'; import {contract} from './contract.mjs'; assert.equal(contract(), 'ready');\n",
+    );
+    const helperTests = spawnSync("node", ["--test", "contract.test.mjs"], {
+      cwd,
+      encoding: "utf8",
+    });
+    expect(helperTests.status).toBe(0);
+    const missingAcceptance = spawnSync("node", ["entry.mjs"], { cwd, encoding: "utf8" });
+    expect(missingAcceptance.status).not.toBe(0);
+    expect(missingAcceptance.stderr).toContain("MODULE_NOT_FOUND");
+    for (const command of ["classify", "check"]) {
+      const result = await run(command, "demo", "--json");
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        validation: { scope: "structural", functionalDelivery: "unverified" },
+      });
+    }
+
+    // A real entry point supplies observable evidence separately; it cannot upgrade a structural check.
+    writeFileSync(
+      join(cwd, "entry.mjs"),
+      "import {contract} from './contract.mjs'; process.stdout.write(contract() + '\\n');\n",
+    );
+    const acceptance = spawnSync("node", ["entry.mjs"], { cwd, encoding: "utf8" });
+    expect(acceptance.status).toBe(0);
+    expect(acceptance.stdout).toBe("ready\n");
+    expect(JSON.parse((await run("check", "demo", "--json")).stdout)).toMatchObject({
+      ok: true,
+      validation: { scope: "structural", functionalDelivery: "unverified" },
+    });
   });
 
   it("exits 2 with ERROR/WHY/FIX when a finding is an error", async () => {
