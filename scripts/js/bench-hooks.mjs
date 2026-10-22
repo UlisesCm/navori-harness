@@ -457,15 +457,18 @@ export function scenarioEnvironment(
 }
 
 /**
- * Comparability of a hook bench: the machine must have been mostly idle at the start. The
- * hook bench is single-process, so the bar is half the CPUs instead of a worker count.
+ * Comparability of a hook bench: cap initial load at four (spec 0055 / #1354),
+ * retaining the stricter half-CPU limit on smaller machines. Invalid metadata fails closed.
  *
  * @param {number[]} loadavgBefore
  * @param {number} cpus
  * @returns {boolean}
  */
 export function isComparable(loadavgBefore, cpus) {
-  return (loadavgBefore[0] ?? Number.POSITIVE_INFINITY) <= cpus / 2;
+  const initialLoad = loadavgBefore[0];
+  return Number.isFinite(initialLoad) && initialLoad >= 0 &&
+    Number.isFinite(cpus) && cpus > 0 &&
+    initialLoad <= Math.min(4, cpus / 2);
 }
 
 /** Registrations of the three engines, read from the checkout. */
