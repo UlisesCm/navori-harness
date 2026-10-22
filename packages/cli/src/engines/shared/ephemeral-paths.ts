@@ -19,7 +19,8 @@
  * - `engines/shared/execute-plan.ts` — `commitWrites` always excludes these
  *   from the pre-render backup, for EVERY engine (the per-engine opt-in let
  *   Codex snapshot `.codex/progress/` receipts — audit v0.5.1 A2).
- * - `commands/doctor.ts` — the git-hygiene "should be ignored" scan.
+ * - `commands/doctor.ts` — the git-hygiene "should be ignored" scan, and the
+ *   invariant scan (`readRenderedText`), which skips these directories (#1359).
  *
  * Order is load-bearing: it is the order these entries have always had in the
  * rendered `.gitignore` block, whose body is hashed for drift detection, so

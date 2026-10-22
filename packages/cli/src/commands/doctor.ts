@@ -2973,7 +2973,7 @@ function readRenderedText(cwd: string, config: NavoriConfig): string {
   const addDir = (path: string): void => {
     if (seen.has(path) || !existsSync(path)) return;
     seen.add(path);
-    collectText(path, parts);
+    collectText(path, parts, cwd);
   };
 
   for (const engine of config.engines ?? ["claude"]) {
@@ -2988,7 +2988,13 @@ function readRenderedText(cwd: string, config: NavoriConfig): string {
   return parts.join("\n");
 }
 
-function collectText(dir: string, parts: string[]): void {
+/**
+ * Recursively collect rendered text under `dir`. Skips ephemeral harness
+ * directories (`EPHEMERAL_HARNESS_PATHS` dir entries, relative to `cwd`: agent
+ * worktrees, progress, state) and any `node_modules`/`.git` — full checkouts
+ * there blew past V8's max string length (#1359) and are not harness output.
+ */
+function collectText(dir: string, parts: string[], cwd: string): void {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -2998,7 +3004,10 @@ function collectText(dir: string, parts: string[]): void {
   for (const entry of entries) {
     const abs = join(dir, entry.name);
     if (entry.isDirectory()) {
-      collectText(abs, parts);
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      const rel = `${relative(cwd, abs).split("\\").join("/")}/`;
+      if (EPHEMERAL_HARNESS_PATHS.includes(rel)) continue;
+      collectText(abs, parts, cwd);
     } else if (entry.isFile() && TEXT_EXTENSIONS.some((e) => entry.name.endsWith(e))) {
       try {
         parts.push(readFileSync(abs, "utf-8"));
