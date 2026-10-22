@@ -31,7 +31,9 @@ import {
   renderPiParityDoc,
 } from "../../shared/pi-parity.ts";
 import { MIN_PI_VERSION } from "../runtime-version.ts";
-import { serializePiManifest, serializePiSource } from "../owned-file.ts";
+import { serializePiSource } from "../owned-file.ts";
+import { renderPiEngine } from "../index.ts";
+import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
 import { load } from "./fixtures/load-extension.ts";
 import {
   createRepoTemplate,
@@ -484,7 +486,7 @@ describe("Pi credential-free first-class cycle", () => {
       const implemented = await turn("implementer child");
       await phase("implementer child", diagnostic, () => {
         expect(implemented[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
-        expect(implemented[0]?.text).toContain("scribe owns Markdown");
+        expect(implemented[0]?.text).toContain("BLOCKED by implementer-no-markdown");
         expect(implemented[0]?.text).toContain("headless Navori children cannot approve");
         // R17 relay: the child's approval request reached the parent with the exact command.
         expect(JSON.stringify(implemented[0]?.details)).toContain(CLAIM);
@@ -824,17 +826,19 @@ describe("Pi implementer doctrine in registered worktrees", () => {
       );
     }
     git(host, "worktree", "add", "-q", "-b", "delivery", sibling);
-    mkdirSync(join(host, ".pi"), { recursive: true });
-    writeFileSync(
-      join(host, ".pi/navori.json"),
-      serializePiManifest({
-        schemaVersion: 2,
-        agents: ["implementer"],
-        controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown: true },
-        hooks: [],
-        ownedPaths: [],
-        permissionRules: { ask: [], deny: [] },
+    renderPiEngine(
+      host,
+      NavoriConfigSchema.parse({
+        name: "sibling-doctrine",
+        preset: "custom",
+        engines: ["pi"],
+        harness: { scribeOwnsMarkdown: true },
       }),
+      {
+        hookBindings: PI_HOOK_BINDINGS.filter(
+          (binding) => binding.script === "implementer-no-markdown",
+        ),
+      },
     );
     symlinkSync(sibling, join(host, "link"));
     const handler = load({

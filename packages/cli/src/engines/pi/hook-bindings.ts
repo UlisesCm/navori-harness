@@ -121,6 +121,18 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     interactive: false,
     timeoutMs: 10_000,
   },
+  // Spec 0053 T5 (R7): the shared script owns Markdown policy for every implementer tool,
+  // including Bash write/copy forms; edit/write retain the canonical AI-doctrine exception.
+  {
+    script: "implementer-no-markdown",
+    on: "tool_call",
+    tools: ["bash", "edit", "write"],
+    scope: "child",
+    class: "enforced",
+    interactive: false,
+    timeoutMs: 10_000,
+    when: (config) => Boolean(config.harness?.scribeOwnsMarkdown),
+  },
   // Spec 0048 T6 (R9): a managed block left with drift after bash, edit or write. Advisory: its
   // exit 2 + stderr becomes a notice appended to the tool result, never a block.
   {

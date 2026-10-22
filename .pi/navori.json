@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "3e35a93cbf228ec431cbad92025d3c3e8b3743aa71161d41fa0cd09ae32bd622"
+    "hash": "bcf59132cd1e71db84b91ace3b7068ba7c00090748b865c1720a7cafc3ffb0e0"
   },
   "schemaVersion": 2,
   "agents": [
@@ -92,6 +92,20 @@
       "timeoutMs": 10000
     },
     {
+      "script": "implementer-no-markdown",
+      "path": ".pi/navori/hooks/implementer-no-markdown.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash",
+        "edit",
+        "write"
+      ],
+      "scope": "child",
+      "class": "enforced",
+      "interactive": false,
+      "timeoutMs": 10000
+    },
+    {
       "script": "managed-drift-watch",
       "path": ".pi/navori/hooks/managed-drift-watch.sh",
       "on": "tool_result",
@@ -137,6 +151,7 @@
     ".pi/navori/hooks/audit-mode-close.sh",
     ".pi/navori/hooks/comment-draft-confirm.sh",
     ".pi/navori/hooks/guard-destructive.sh",
+    ".pi/navori/hooks/implementer-no-markdown.sh",
     ".pi/navori/hooks/managed-drift-watch.sh",
     ".pi/navori/hooks/master-accept-confirm.sh",
     ".pi/navori/hooks/pr-publisher-confirm.sh",

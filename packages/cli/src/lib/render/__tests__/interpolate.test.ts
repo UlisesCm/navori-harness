@@ -23,6 +23,15 @@ const CONFIG = {
 } as unknown as NavoriConfig;
 
 describe("interpolate — default mode", () => {
+  // Covers: R8
+  it("shell-quotes exact owned paths and defaults to the empty sentinel", () => {
+    const template = "nv_owned_paths={{shq:navoriOwnedPaths}}";
+    expect(interpolate(template, CONFIG)).toBe("nv_owned_paths='-'");
+    const inventory = "CLAUDE.md\n.claude/skills/owner's/SKILL.md";
+    expect(interpolate(template, CONFIG, { extraVars: { navoriOwnedPaths: inventory } })).toBe(
+      "nv_owned_paths='CLAUDE.md\n.claude/skills/owner'\\''s/SKILL.md'",
+    );
+  });
   it("resolves simple paths", () => {
     expect(interpolate("Run: {{qualityGate.fast}}", CONFIG)).toBe("Run: pnpm typecheck");
   });

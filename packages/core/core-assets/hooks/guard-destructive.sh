@@ -107,6 +107,8 @@ base={{shq:branchBase}}
 # into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
 # uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
 nv_pi_rules={{shq:piPermissionRules}}
+# Exact, newline-delimited resolved render placements; `-` means no inventory.
+nv_owned_paths={{shq:navoriOwnedPaths}}
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -203,8 +205,8 @@ navori_inert_skeleton
 # WHY IT IS SOUND, which is the only part that matters in a security control:
 # every `block` in this file needs one of these literal substrings to survive
 # into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
-# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
-# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
+# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6), plus
+# `cp`/`mv`/`install`/`ln` (rule 6d), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
 # regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
 # inspects). No rule can fire without one.
 #
@@ -260,6 +262,7 @@ nv_pi_candidate() {
   done <<< "$nv_pi_rules"
   return 1
 }
+nv_copy_only=0
 if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${cmd//\'/}
   _fast=${_fast//\"/}
@@ -271,6 +274,9 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
     # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
     *grep*|*rg\ *|*rg) ;;
+    *cp[[:space:]]*|*mv[[:space:]]*|*install[[:space:]]*|*ln[[:space:]]*)
+      if ! nv_pi_candidate; then nv_copy_only=1; fi
+      ;;
     *)
       if ! nv_pi_candidate; then
         navori_audit_verdict="skip"
@@ -620,7 +626,8 @@ fi
 #        subagent's handoff (#389's rule caught it).
 #      .claude/settings.local.json · .claude/worktrees/   machine-local, never
 #        rendered, never marker-managed.
-#      cp/mv INTO a managed path, `python -c` writes, `awk > file`, `perl -i`.
+#      `python -c` writes, `awk > file`, `perl -i`. Copy/move/install/link
+#        into exact render-owned paths are checked separately in rule 6d.
 #        Enumerating write verbs is the losing half of this fight — the same
 #        "describe the danger by its textual form" pattern the blind audit found
 #        eight times. The PostToolUse watcher is the half that doesn't care about
@@ -715,6 +722,14 @@ if [ -n "${nv_project_dir:-}" ]; then
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
   fi
+fi
+
+# 6d. Copy/move/install/link protection uses exact render ownership, not the
+# directory-wide legacy redirect rules. Keep Pi 6c below: copy-out from its
+# control plane remains forbidden even when this destination-only lane allows.
+# navori:include copy-dest
+if [ "$nv_owned_paths" != "-" ] && ! navori_copy_dest_safe; then
+  block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
 fi
 
 # 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
@@ -933,6 +948,13 @@ if [ -n "$_dsc_cands" ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"
+fi
+
+# A copy-only probe must reach the exact inventory and all later rules first.
+# Preserve its former skip audit classification only after every guard passed.
+if [ "$nv_copy_only" = 1 ] && [ -z "$navori_pi_ask" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="no rule token in the command"
 fi
 
 # navori:user-section

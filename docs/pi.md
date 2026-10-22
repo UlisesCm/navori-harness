@@ -59,7 +59,7 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | --- | --- | --- |
 | `plan-gate` | enforced | When `harness.planTiers` is on, the extension gates only `navori_subagent` implementer calls. Direct Pi shell and tool calls bypass it. |
 | `master-plan` | advisory | When `harness.masterPlan` is on, a bounded status line is appended before each agent start. Context only, not a permission boundary. |
-| `markdown-ownership` | advisory | When `harness.scribeOwnsMarkdown` is on, direct Pi `edit`/`write` of Markdown in implementer children is blocked. Bash and ambient process writes bypass it. |
+| `markdown-ownership` | enforced | With `harness.scribeOwnsMarkdown`, the shared hook guards implementer child bash/edit/write; incompatible bindings block. Bash inspection is a textual seatbelt, not a sandbox: dynamic paths, external scripts and ambient writes remain outside it. |
 | `handoff-shape` | enforced | When an `implementer` or `reviewer` `navori_subagent` child ends, the trusted extension validates its canonical handoff (fresh against the dispatch snapshot). A missing, stale or invalid handoff returns `isError`. Direct shell/tool calls and other roles bypass it. |
 | `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
 | `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
@@ -109,6 +109,7 @@ The trusted extension runs the shared Navori hook scripts through a bridge. The 
   (`engines/pi/hook-bindings.ts`):
   - `guard-destructive`: `tool_call`, bash, `enforced`, parent and children.
   - `subagent-no-background`: `tool_call`, bash, `enforced`, children only.
+  - `implementer-no-markdown`: `tool_call`, bash, edit and write, `enforced`, children only; installed with `harness.scribeOwnsMarkdown`. Missing, partial or downgraded bindings block guarded tools until re-rendered.
   - `managed-drift-watch`: `tool_result`, bash, edit and write, `advisory`, parent and children.
   - `worktree-reclaim` and `audit-mode-close`: `session_shutdown`, parent only, `lifecycle`.
   - `stop-verify-reminder`: `agent_before_settle`, parent only, `advisory`, installed only with `hooks.verifyOnStop`.
@@ -210,6 +211,15 @@ The Pi copy adds three rules that exist only there:
 - **`pi --no-extensions`** (or `-ne`) from bash is blocked. That form starts a Pi with no extension, bridge or
   hooks.
 
+**Copy/move protection across engines.** All three guard copies block `cp`, `mv`, `install`, `ln` and
+`git mv` when their literal destination overwrites a selected Navori output. Moving an owned source or
+an ancestor containing owned outputs also blocks. Render resolves the exact per-target union across
+Claude, Codex and Pi before interpolating any guard; this protection inventory never grants overwrite
+authority. Foreign paths and user skills outside that union remain outside this copy rule. Supported
+forms include quoted/absolute paths, redirections, background separators and target-directory options.
+Paths are resolved lexically against the tool cwd. Command-local directory changes, dynamic shell
+destinations, arbitrary symlinks and external scripts remain outside this textual rule.
+
 **Managed files (`edit` and `write` lane).** The extension normalizes the path the way Pi's own tools do:
 it strips a leading `@`, expands `~`, turns unicode spaces into spaces, resolves against the project and follows
 symlinks. Then:
@@ -290,13 +300,15 @@ a failing dialog refuses the call. No selector is used, so no option can be pre-
 confirmation the extension re-checks the repository state and the body digests; a change in
 either refuses the call and asks for approval again.
 
-**Doctrine in registered worktrees (#1330).** The `markdown-ownership` check (`isDoctrinePath` in the trusted
-extension) accepts an absolute Markdown target under the doctrine prefixes of another worktree registered in
+**Doctrine in registered worktrees (#1330).** The shared `implementer-no-markdown` hook accepts an edit/write
+absolute Markdown target under the doctrine prefixes of another worktree registered in
 `git worktree list` of `ctx.cwd`'s repo, when it shares the same `--git-common-dir` and has no `..` or symlink
 component. Any git failure denies. Residual: every registered worktree of the repo is trusted for those
 prefixes, the same ceiling as the hook; no per-delivery grant exists before review begins. The relation to
 #1329 is the same as for the hook: shared identity primitives, earlier phase, no binding stamp. Bash and
-ambient process writes stay outside this advisory boundary.
+ambient process writes have different boundaries: recognizable Bash Markdown write forms are blocked,
+including doctrine paths; dynamic destinations, external scripts and ambient writes remain outside the
+textual guard. Read-only Bash and writes to non-Markdown files retain their existing policy.
 
 ## Doctor findings
 
@@ -398,7 +410,7 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred) |
 | `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
 | `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
-| `hook:implementer-no-markdown` | advisory | control `markdown-ownership` | — |
+| `hook:implementer-no-markdown` | enforced | control `markdown-ownership` | Shared script via tool_call for child bash/edit/write when scribeOwnsMarkdown is enabled. Edit/write retain AI-doctrine exceptions; Bash is a textual seatbelt, not a sandbox: dynamic destinations, external scripts, ambient writes and unrecognized runners remain outside it. |
 | `hook:managed-drift-watch` | advisory | — | never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent |
 | `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |

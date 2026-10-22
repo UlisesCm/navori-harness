@@ -132,6 +132,11 @@ describe("every shared partial is consumed and covered by a core hook", () => {
    * exercises the partial's behaviour. `title` must appear verbatim in `file`.
    */
   const PARTIAL_BEHAVIOUR_TESTS: Record<string, { hook: string; file: string; title: string }> = {
+    "copy-dest": {
+      hook: "guard-destructive",
+      file: "lib/__tests__/guard-destructive.test.ts",
+      title: "blocks owned mutation: %s",
+    },
     "review-edit-binding": {
       hook: "role-guard",
       file: "lib/__tests__/role-guard.test.ts",

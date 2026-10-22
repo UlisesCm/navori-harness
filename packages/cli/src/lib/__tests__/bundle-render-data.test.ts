@@ -92,7 +92,7 @@ describe("explicit Pi render-data codec", () => {
   it.each(["ordinary", "undefined", "symbol", "throw", "empty"])(
     "preserves intrinsic substitution evaluation/coercion/throws for %s",
     async (mode: string) => {
-      const substitutions = Array.from({ length: 11 }, (_, index) => "${pick(" + index + ")}").join(
+      const substitutions = Array.from({ length: 10 }, (_, index) => "${pick(" + index + ")}").join(
         "-",
       );
       const fixture = `import {PI_BRIDGE_SOURCE} from './bridge-source.ts';export const anchor=PI_BRIDGE_SOURCE;export const trace=[];function pick(n){trace.push('eval:'+n);if(n===2&&${JSON.stringify(mode)}==='symbol')return Symbol('x');if(n===2&&${JSON.stringify(mode)}==='undefined')return undefined;if(n===2&&${JSON.stringify(mode)}==='empty')return '';return {toString(){trace.push('coerce:'+n);if(n===0&&${JSON.stringify(mode)}==='throw')throw Error('coerce-failed');return 'v'+n;}};}export function renderPiExtensionSource(){return String.raw\`a${substitutions}z\`;}`;
@@ -108,13 +108,13 @@ describe("explicit Pi render-data codec", () => {
       };
       expect(call(encoded)).toBe(call(baseline));
       expect(encoded.testTrace).toEqual(baseline.testTrace);
-      expect(encoded.testTrace.slice(0, 11)).toEqual(
-        Array.from({ length: 11 }, (_, index) => `eval:${index}`),
+      expect(encoded.testTrace.slice(0, 10)).toEqual(
+        Array.from({ length: 10 }, (_, index) => `eval:${index}`),
       );
     },
   );
   // Covers: R16
-  it.each([10, 12])("rejects an unsupported renderer cardinality %i", async (count) => {
+  it.each([9, 11])("rejects an unsupported renderer cardinality %i", async (count) => {
     const substitutions = Array.from({ length: count }, () => "${1}").join("-");
     const fixture = `export function renderPiExtensionSource(){return String.raw\`a${substitutions}z\`;}`;
     await expect(renderer(true, fixture)).rejects.toThrow("cardinality");

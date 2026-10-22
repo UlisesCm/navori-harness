@@ -676,8 +676,8 @@ describe("bench scripts", () => {
         selectHooks(registrations, scenario, engine),
       ),
     );
-    // The context consumer iterates only SCENARIOS: its 45 groups stay separate from supplements.
-    expect(original).toHaveLength(45);
+    // The context consumer iterates only SCENARIOS: its 47 groups stay separate from supplements.
+    expect(original).toHaveLength(47);
     const scenarios = [
       ...Object.keys(hooksModule.SCENARIOS),
       ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),

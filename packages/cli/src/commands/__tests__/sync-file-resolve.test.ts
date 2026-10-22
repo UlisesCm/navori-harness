@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { hadRealWrites } from "../../engines/shared/execute-plan.ts";
 
 /**
  * #1240 — `sync` resolves whole-file conflicts of user-edited managed files
@@ -209,8 +210,8 @@ describe("sync interactive: resolve a user-edited managed file (#1240)", () => {
     expect(readFileSync(b!, "utf-8")).toBe(eb.edited);
   });
 
-  // Covers: I4 — a file changed after the diff is dropped, the others still proceed.
-  it("TOCTOU: a file edited again after the diff is dropped with a warning; the other is written", async () => {
+  // Covers: I4, R8 — ownership decisions must still match before any target writes.
+  it("TOCTOU: a file edited again after the diff aborts the target before any write", async () => {
     seed();
     const [a, b] = agentFiles();
     const ea = editAgent(a!);
@@ -221,15 +222,15 @@ describe("sync interactive: resolve a user-edited managed file (#1240)", () => {
       if (call === 2) writeFileSync(a!, `${ea.edited}\nlate edit\n`, "utf-8");
     };
 
-    await runSync({ interactive: true });
+    await expect(runSync({ interactive: true })).rejects.toThrow("changed since preview");
 
     expect(readFileSync(a!, "utf-8")).toBe(`${ea.edited}\nlate edit\n`);
-    expect(readFileSync(b!, "utf-8")).toBe(eb.pristine);
-    expect(ui.warns.some((w) => w.includes(".claude/agents/") && w.includes("cambió"))).toBe(true);
+    expect(readFileSync(b!, "utf-8")).toBe(eb.edited);
+    expect(hadRealWrites()).toBe(false);
   });
 
-  // Covers: I4 — lstat at write time: a file swapped for a symlink is never written through.
-  it("a file replaced by a symlink after the diff is dropped, the link target untouched", async () => {
+  // Covers: I4, R8 — a symlink swap aborts before writing any target or external file.
+  it("a file replaced by a symlink after the diff aborts with its target untouched", async () => {
     seed();
     const [agent] = agentFiles();
     const { edited } = editAgent(agent!);
@@ -240,10 +241,10 @@ describe("sync interactive: resolve a user-edited managed file (#1240)", () => {
       symlinkSync(real, agent!);
     };
 
-    await runSync({ interactive: true });
+    await expect(runSync({ interactive: true })).rejects.toThrow("changed since preview");
 
     expect(readFileSync(real, "utf-8")).toBe(edited);
-    expect(ui.warns.some((w) => w.includes("cambió"))).toBe(true);
+    expect(hadRealWrites()).toBe(false);
   });
 
   // Covers: I7 — after accept, sync converges to zero conflicts for that file.
@@ -424,7 +425,8 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
     expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(fresh);
   });
 
-  it("a markerless file changed after the diff is dropped, not written", async () => {
+  // Covers: R8 — an accepted acquisition cannot survive a changed preview basis.
+  it("a markerless file changed after the diff aborts before any target write", async () => {
     seed({ tgrep: { enabled: true } });
     makeMarkerless(SCRIPT);
     const abs = join(cwd, SCRIPT);
@@ -432,10 +434,10 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
     ui.answers = ["accept"];
     ui.onSelect = () => writeFileSync(abs, late, "utf-8");
 
-    await runSync({ interactive: true });
+    await expect(runSync({ interactive: true })).rejects.toThrow("changed since preview");
 
     expect(readFileSync(abs, "utf-8")).toBe(late);
-    expect(ui.warns.some((w) => w.includes("cambió"))).toBe(true);
+    expect(hadRealWrites()).toBe(false);
     expect(ui.messages.some((m) => m.includes("[root:sync]"))).toBe(false);
   });
 

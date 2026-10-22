@@ -4,13 +4,15 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { relative, resolve, join } from "node:path";
 import { type NavoriConfig } from "../lib/config/config.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
-import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import type { ClaudeEngineResult } from "../engines/claude/index.ts";
+import { loadEnabledPlugins } from "../lib/config/plugins.ts";
+import { applyHookExtension, hookExtensionTarget } from "../engines/shared/hook-extension.ts";
 import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
 import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
 import type { HoistedSkill, WorkspaceHarness } from "../engines/shared/workspace-skills.ts";
 import {
   recordHarnessVersionIfWritten,
-  renderNonClaudeEngines,
+  prepareRenderTarget,
   type CodexWorkspaceOptions,
   type EngineRenderSummary,
 } from "./render.ts";
@@ -66,7 +68,10 @@ export const syncCommand = defineCommand({
   args: {
     cwd: { type: "string", description: "Directory to sync (default: cwd)" },
     "dry-run": { type: "boolean", description: "Show plan, do not write" },
-    apply: { type: "boolean", description: "Apply changes (skip interactive prompt)" },
+    apply: {
+      type: "boolean",
+      description: "Apply changes (skip interactive prompt)",
+    },
     interactive: {
       type: "boolean",
       description:
@@ -120,7 +125,12 @@ export const syncCommand = defineCommand({
     if (!existsSync(cwd)) {
       if (json) {
         console.log(
-          JSON.stringify({ command: "sync", ok: false, reason: "directory-missing", cwd }),
+          JSON.stringify({
+            command: "sync",
+            ok: false,
+            reason: "directory-missing",
+            cwd,
+          }),
         );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
@@ -131,7 +141,12 @@ export const syncCommand = defineCommand({
     if (!existsSync(configPath)) {
       if (json) {
         console.log(
-          JSON.stringify({ command: "sync", ok: false, reason: "config-missing", configPath }),
+          JSON.stringify({
+            command: "sync",
+            ok: false,
+            reason: "config-missing",
+            configPath,
+          }),
         );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
@@ -217,11 +232,14 @@ export const syncCommand = defineCommand({
       const backups: Array<{ label: string; path: string }> = [];
       const resolvedPaths = new Set<string>();
       if (autoApply && !yesBlocked) {
-        // `--accept-new-files` answers the resolvable whole files; they are
-        // written (with backup) before the normal apply pass so it sees them as
-        // navori's own.
+        const resolutions = buildBulkResolutions(plans, bulkMode);
+        const prepared = prepareSyncApply(
+          targets,
+          acceptFiles ? conflicts.filter(isResolvableFile) : [],
+          resolutions,
+        );
         if (acceptFiles) {
-          const outcome = applyFileResolutions(conflicts.filter(isResolvableFile), lang);
+          const outcome = applyFileResolutions(prepared.accepted, lang);
           backups.push(...outcome.backups);
           if (outcome.error !== null) {
             console.log(
@@ -238,9 +256,7 @@ export const syncCommand = defineCommand({
           writtenTotal += outcome.applied.length;
           for (const c of outcome.applied) resolvedPaths.add(c.resolution.absPath);
         }
-        const resolutions = buildBulkResolutions(plans, bulkMode);
-        for (const t of targets) {
-          const applied = renderSyncTarget(t, false, resolutions.get(t.label));
+        for (const applied of prepared.commit()) {
           writtenTotal += countTargetWrites(applied);
           backups.push(...collectTargetBackups(applied));
         }
@@ -418,7 +434,8 @@ export const syncCommand = defineCommand({
 
     // Accepted whole files first, so the apply pass below sees them as navori's
     // own (`unchanged`) instead of conflicts again.
-    const fileOutcome = applyFileResolutions(acceptedFiles, lang);
+    const prepared = prepareSyncApply(targets, acceptedFiles, resolutions);
+    const fileOutcome = applyFileResolutions(prepared.accepted, lang);
     for (const c of fileOutcome.dropped) p.log.warn(ts.fileChangedSinceDiff(c.path));
     for (const backup of fileOutcome.backups) {
       p.log.message(`${dim(`${tc(lang).common.backupLabel} [${backup.label}]`)} ${backup.path}`);
@@ -441,9 +458,7 @@ export const syncCommand = defineCommand({
     // (user-modified-skipped never lands in `pending`); accept-new resolutions
     // are passed as forceIds so those CLAUDE.md blocks are overwritten.
     let writtenTotal = fileOutcome.applied.length;
-    for (const t of targets) {
-      const res = resolutions.get(t.label);
-      const applied = renderSyncTarget(t, false, res);
+    for (const applied of prepared.commit()) {
       writtenTotal += countTargetWrites(applied);
       for (const backup of collectTargetBackups(applied)) {
         p.log.message(`${dim(`${tc(lang).common.backupLabel} [${backup.label}]`)} ${backup.path}`);
@@ -526,12 +541,16 @@ export function resolveSyncTargets(
   // Taken once, before any target is rendered (spec 0043). The full sync writes
   // the root first, so its plan answers for the root; `--workspace` renders no
   // root, so only what is on disk counts.
-  const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: !workspaceFilter });
+  const decision = decideClaudeWorkspaceSkills(cwd, config, {
+    rootRendered: !workspaceFilter,
+  });
   const skillsFor = (path: string): SyncTarget["workspaceSkills"] => ({
     omitted: decision.omitted.get(path) ?? new Set<string>(),
     prune: false,
   });
-  const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: !workspaceFilter });
+  const codexDecision = decideCodexWorkspaceSkills(cwd, config, {
+    rootRendered: !workspaceFilter,
+  });
   const codexFor = (path: string): CodexWorkspaceOptions => ({
     harnessScope: config.monorepo?.workspaceHarness,
     workspaceSkills: {
@@ -714,10 +733,18 @@ export function resolveBulkMode(
   const ts = tc(lang).sync;
   const acceptFiles = flags.acceptNewFiles === true;
   if (flags.acceptNew && flags.keepMine) {
-    return { ok: false, reason: ts.bulkFlagsConflict, reasonCode: "bulk-flags-conflict" };
+    return {
+      ok: false,
+      reason: ts.bulkFlagsConflict,
+      reasonCode: "bulk-flags-conflict",
+    };
   }
   if (acceptFiles && flags.keepMine) {
-    return { ok: false, reason: ts.bulkFlagsConflictFiles, reasonCode: "bulk-flags-conflict" };
+    return {
+      ok: false,
+      reason: ts.bulkFlagsConflictFiles,
+      reasonCode: "bulk-flags-conflict",
+    };
   }
   if (acceptFiles && flags.interactive) {
     return {
@@ -732,7 +759,11 @@ export function resolveBulkMode(
       ? "keep-mine"
       : null;
   if (mode !== null && flags.interactive) {
-    return { ok: false, reason: ts.bulkFlagsInteractive, reasonCode: "bulk-flags-interactive" };
+    return {
+      ok: false,
+      reason: ts.bulkFlagsInteractive,
+      reasonCode: "bulk-flags-interactive",
+    };
   }
   return { ok: true, mode, acceptFiles };
 }
@@ -788,7 +819,10 @@ export function buildBulkResolutions(
       .filter((e) => e.status === "user-modified-skipped")
       .map((e) => e.asset.id);
     if (ids.length === 0) continue;
-    resolutions.set(tp.target.label, { skipIds: new Set(), forceIds: new Set(ids) });
+    resolutions.set(tp.target.label, {
+      skipIds: new Set(),
+      forceIds: new Set(ids),
+    });
   }
   return resolutions;
 }
@@ -813,24 +847,150 @@ function renderSyncTargetInner(
   resolution?: ConflictResolution,
 ): TargetPlan {
   const engines = target.config.engines ?? ["claude"];
-  const claude = engines.includes("claude")
-    ? renderClaudeEngine(target.cwd, target.config, {
-        dryRun,
-        skipIds: resolution?.skipIds,
-        forceIds: resolution?.forceIds,
-        repoRoot: target.repoRoot,
-        monorepoContext: target.monorepoContext,
-        harnessScope: target.harnessScope,
-        workspaceSkills: target.workspaceSkills,
-        rootHoist: target.rootHoist,
-      })
-    : undefined;
-  const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {
-    repoRoot: target.repoRoot,
-    warnMissingAdapters: target.label === "root",
-    codex: target.codex,
+  const prepared = prepareRenderTarget(target.cwd, target.config, engines, dryRun, {
+    claude: {
+      skipIds: resolution?.skipIds,
+      forceIds: resolution?.forceIds,
+      repoRoot: target.repoRoot,
+      monorepoContext: target.monorepoContext,
+      harnessScope: target.harnessScope,
+      workspaceSkills: target.workspaceSkills,
+      rootHoist: target.rootHoist,
+    },
+    additional: {
+      repoRoot: target.repoRoot,
+      warnMissingAdapters: target.label === "root",
+      codex: target.codex,
+    },
   });
-  return { target, claude, engines: additional };
+  prepared.finalize();
+  const result = prepared.commit();
+  return { target, claude: result.claude, engines: result.extraEngines };
+}
+
+/** Bind accepted preview decisions to a single prepared apply before the first write.
+ * Both interactive and JSON acceptance use this path; changed bases fail closed.
+ */
+export function prepareSyncApply(
+  targets: readonly SyncTarget[],
+  accepted: readonly ResolvableConflict[],
+  resolutions: ReadonlyMap<string, ConflictResolution>,
+): { accepted: ResolvableConflict[]; commit(): TargetPlan[] } {
+  const owners: Array<{
+    target: SyncTarget;
+    owner: ReturnType<typeof prepareRenderTarget>;
+  }> = [];
+  const refreshed: ResolvableConflict[] = [];
+  for (const target of targets) {
+    setMarkerFloorVersion(target.config.harnessVersion);
+    try {
+      const decisions = accepted.filter((conflict) => conflict.label === target.label);
+      for (const conflict of decisions) {
+        if (!stillMatchesBasis(conflict.resolution.absPath, conflict.resolution.basis))
+          throw new Error(`Sync destination changed since preview: ${conflict.path}`);
+      }
+      const resolution = resolutions.get(target.label);
+      const owner = prepareRenderTarget(
+        target.cwd,
+        target.config,
+        target.config.engines ?? ["claude"],
+        false,
+        {
+          claude: {
+            skipIds: resolution?.skipIds,
+            forceIds: resolution?.forceIds,
+            repoRoot: target.repoRoot,
+            monorepoContext: target.monorepoContext,
+            harnessScope: target.harnessScope,
+            workspaceSkills: target.workspaceSkills,
+            rootHoist: target.rootHoist,
+          },
+          additional: {
+            repoRoot: target.repoRoot,
+            warnMissingAdapters: target.label === "root",
+            codex: target.codex,
+          },
+        },
+      );
+      for (const conflict of decisions) {
+        const destination = owner.destinations.find(
+          (item) => item.absPath === conflict.resolution.absPath,
+        );
+        if (!destination || destination.basis !== conflict.resolution.basis)
+          throw new Error(`Sync acquisition no longer selected: ${conflict.path}`);
+        owner.inventory.accept(destination.relPath);
+      }
+      const plans = owner.finalize();
+      for (const conflict of decisions) {
+        const skip = plans
+          .flatMap((plan) => plan.skipped)
+          .find((item) =>
+            [item.resolution, item.markerlessResolution].some(
+              (proposal) => proposal?.absPath === conflict.resolution.absPath,
+            ),
+          );
+        const proposal = [skip?.resolution, skip?.markerlessResolution].find(
+          (item) => item?.absPath === conflict.resolution.absPath,
+        );
+        if (!proposal || proposal.basis !== conflict.resolution.basis)
+          throw new Error(`Sync proposal no longer resolvable: ${conflict.path}`);
+        const virtual: PendingWrite[] = [
+          {
+            path: proposal.absPath,
+            relPath: relative(target.cwd, proposal.absPath),
+            content: proposal.content,
+            status: "updated",
+            chmodExec: proposal.chmodExec,
+          },
+        ];
+        // Recompose extensions against the finalized forced base, before its hash is written.
+        const engine = virtual[0]!.relPath.startsWith(".codex/") ? "codex" : "claude";
+        for (const plugin of loadEnabledPlugins(target.config.plugins).loaded) {
+          for (const extension of plugin.hookExtensionAssets ?? []) {
+            const hookTarget = hookExtensionTarget(extension.target, engine);
+            if (hookTarget !== virtual[0]!.relPath) continue;
+            applyHookExtension({
+              cwd: target.cwd,
+              plugin,
+              extension,
+              target: hookTarget,
+              config: target.config,
+              pending: virtual,
+              skipped: [],
+              updatesAvailable: [],
+              downgrades: [],
+            });
+          }
+        }
+        refreshed.push({
+          ...conflict,
+          resolution: { ...proposal, content: virtual[0]!.content },
+        });
+        // This destination is committed only by the checked forced-resolution writer.
+        for (const plan of plans) {
+          const index = plan.pending.findIndex((write) => write.path === proposal.absPath);
+          if (index >= 0) plan.pending.splice(index, 1);
+        }
+      }
+      owners.push({ target, owner });
+    } finally {
+      setMarkerFloorVersion(undefined);
+    }
+  }
+  return {
+    accepted: refreshed,
+    commit: () =>
+      owners.map(({ target, owner }) => {
+        // Prose/context writers may materialize during commit, after preparation.
+        setMarkerFloorVersion(target.config.harnessVersion);
+        try {
+          const result = owner.commit();
+          return { target, claude: result.claude, engines: result.extraEngines };
+        } finally {
+          setMarkerFloorVersion(undefined);
+        }
+      }),
+  };
 }
 
 function countTargetWrites(plan: TargetPlan): number {
@@ -843,7 +1003,10 @@ function countTargetWrites(plan: TargetPlan): number {
 function collectTargetBackups(plan: TargetPlan): Array<{ label: string; path: string }> {
   const backups: Array<{ label: string; path: string }> = [];
   if (plan.claude?.backupPath) {
-    backups.push({ label: `${plan.target.label}:claude`, path: plan.claude.backupPath });
+    backups.push({
+      label: `${plan.target.label}:claude`,
+      path: plan.claude.backupPath,
+    });
   }
   for (const engine of plan.engines) {
     if (engine.backupPath) {
@@ -935,7 +1098,10 @@ export async function resolveFileConflictsInteractively(
       message: ts.conflictChoice(c.path),
       options: [
         { value: "keep", label: ts.optKeepMine },
-        { value: "accept", label: markerless ? ts.optReplaceWholeFile : ts.optAcceptNew },
+        {
+          value: "accept",
+          label: markerless ? ts.optReplaceWholeFile : ts.optAcceptNew,
+        },
       ],
       // Explicit, not positional: an accidental Enter must never write.
       initialValue: "keep",
@@ -987,7 +1153,12 @@ export function applyFileResolutions(
   accepted: readonly ResolvableConflict[],
   lang: Lang = DEFAULT_LANG,
 ): FileResolutionOutcome {
-  const outcome: FileResolutionOutcome = { applied: [], dropped: [], backups: [], error: null };
+  const outcome: FileResolutionOutcome = {
+    applied: [],
+    dropped: [],
+    backups: [],
+    error: null,
+  };
   const byTarget = new Map<string, ResolvableConflict[]>();
   for (const c of accepted) byTarget.set(c.label, [...(byTarget.get(c.label) ?? []), c]);
 
@@ -1013,7 +1184,12 @@ export function applyFileResolutions(
     const first = writable[0];
     if (first === undefined) continue;
     try {
-      const { backupPath } = commitWrites({ pending, removals: [], cwd: first.cwd, lang });
+      const { backupPath } = commitWrites({
+        pending,
+        removals: [],
+        cwd: first.cwd,
+        lang,
+      });
       outcome.applied.push(...writable);
       if (backupPath) outcome.backups.push({ label: `${label}:sync`, path: backupPath });
     } catch (error) {
@@ -1080,7 +1256,10 @@ function buildSyncJson(
       })),
       engines: engines.map((engine) => ({
         engine: engine.engine,
-        written: engine.written.map((w) => ({ path: w.path, status: w.status })),
+        written: engine.written.map((w) => ({
+          path: w.path,
+          status: w.status,
+        })),
         skipped: engine.skipped.filter(isStillSkipped).map((s) => ({
           path: s.path,
           reason: s.reason,
@@ -1095,7 +1274,12 @@ function buildSyncJson(
     // conflicts. `resolvable` never carries file bodies (`resolution` is dropped).
     conflicts: conflicts
       .filter((c) => !c.resolution || !resolvedPaths.has(c.resolution.absPath))
-      .map((c) => ({ path: c.path, reason: c.reason, kind: c.kind, resolvable: resolvableOf(c) })),
+      .map((c) => ({
+        path: c.path,
+        reason: c.reason,
+        kind: c.kind,
+        resolvable: resolvableOf(c),
+      })),
     orphanedWorkspaces: meta.orphanedWorkspaces,
     pending: meta.pending,
     written: meta.written,

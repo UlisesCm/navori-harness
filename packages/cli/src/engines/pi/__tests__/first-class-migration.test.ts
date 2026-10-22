@@ -56,6 +56,36 @@ const pruned = (result: ReturnType<typeof runRender>): string[] =>
   (result.prunedEngineOutputs ?? []).sort();
 const SCOUT = ".pi/agents/scout.md";
 
+/** Only the guard's exact target union and its dependent managed hash may change. */
+function expectInventoryOnlyChange(
+  before: Record<string, string>,
+  after: Record<string, string>,
+  engine: "claude" | "codex",
+): void {
+  const guard = `.${engine}/hooks/guard-destructive.sh`;
+  const inventory = /^nv_owned_paths='([^']*)'$/m;
+  const oldPaths = inventory.exec(before[guard]!)?.[1]?.split("\n");
+  const newPaths = inventory.exec(after[guard]!)?.[1]?.split("\n");
+  expect(oldPaths).toBeDefined();
+  expect(newPaths).toEqual(
+    oldPaths?.filter((path) =>
+      engine === "claude"
+        ? path.startsWith(".claude/") || path === "CLAUDE.md"
+        : !path.startsWith(".pi/"),
+    ),
+  );
+  expect(oldPaths?.some((path) => path.startsWith(".pi/"))).toBe(true);
+  expect(after[guard]).not.toBe(before[guard]);
+  const normalize = (content: string): string =>
+    content
+      .replace(inventory, "nv_owned_paths='<inventory>'")
+      .replace(/(id="guard-destructive-base" hash=")[a-f0-9]+"/, '$1<hash>"');
+  expect({ ...after, [guard]: normalize(after[guard]!) }).toEqual({
+    ...before,
+    [guard]: normalize(before[guard]!),
+  });
+}
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -186,10 +216,12 @@ describe("owned upgrade disable and other-engine preservation", () => {
   });
 
   // Covers: R11
-  it("Pi+Codex to Codex keeps the Codex-owned skills and outputs byte for byte", () => {
+  it("Pi+Codex to Codex changes only the guard inventory and preserves other bytes", () => {
     const dir = freshDir();
     setEngines(dir, ["codex", "pi"]);
     runRender(dir, { dryRun: false });
+    const guard = join(dir, ".codex/hooks/guard-destructive.sh");
+    writeFileSync(guard, `${readFileSync(guard, "utf-8")}\n# my guard note\n`);
     const owned = [".agents", ".codex", "AGENTS.md"];
     const before = snapshot(dir, owned);
     expect(Object.keys(before).some((p) => p.startsWith(".agents/skills/"))).toBe(true);
@@ -200,22 +232,24 @@ describe("owned upgrade disable and other-engine preservation", () => {
     expect(applied.prunedEngineOutputs ?? []).not.toContainEqual(
       expect.stringMatching(/^(\.agents|\.codex|AGENTS\.md)/),
     );
-    expect(snapshot(dir, owned)).toEqual(before);
+    expectInventoryOnlyChange(before, snapshot(dir, owned), "codex");
     expect(existsSync(join(dir, ".pi/navori.json"))).toBe(false);
   });
 
   // Covers: R11
-  it("Pi+Claude to Claude leaves the Claude outputs untouched", () => {
+  it("Pi+Claude to Claude changes only the guard inventory and preserves other bytes", () => {
     const dir = freshDir();
     setEngines(dir, ["claude", "pi"]);
     runRender(dir, { dryRun: false });
+    const guard = join(dir, ".claude/hooks/guard-destructive.sh");
+    writeFileSync(guard, `${readFileSync(guard, "utf-8")}\n# my guard note\n`);
     const owned = [".claude", "CLAUDE.md"];
     const before = snapshot(dir, owned);
     expect(Object.keys(before).length).toBeGreaterThan(0);
 
     setEngines(dir, ["claude"]);
     prune(dir, false);
-    expect(snapshot(dir, owned)).toEqual(before);
+    expectInventoryOnlyChange(before, snapshot(dir, owned), "claude");
     expect(existsSync(join(dir, ".pi/navori.json"))).toBe(false);
   });
 
