@@ -15,7 +15,9 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### The mechanics
 
-- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
+<!-- navori:if onCodex -->**Codex execution checkpoints:** before investigation, resume or status, apply `.claude/agents/orchestrator.md`'s bounded execution protocol. Preserve approved scope and required gates.
+
+<!-- /navori:if -->- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 <!-- /navori:if -->

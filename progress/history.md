@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-22 10:42 Codex — Acota investigación y estado del principal en #1314
+
+Corrige la ausencia de suficiencia de evidencia, presupuesto de investigación y respuesta inmediata de estado en el contrato Codex. Retoma la siguiente tarea aprobada, limita investigación activa a5min por pregunta sin reset al continuar, registra fases/tiempos/resultados y responde estado antes de otra herramienta. Conserva aprobaciones y presupuestos de tests/gates; las reglas nuevas sólo se entregan a Codex. Explicación histórica compactada para conservar límites; mirrors y snapshots regenerados oficialmente.
+
+Regresiones rojas previas; focal241casos y5snapshots verdes. Full final `bun run check` exit0:9900aprobadas/2omitidas,471archivos,554.5s; cobertura87.61/85.95/90.21/80.58%,piso159/0;bundle1603.2KiB<1650KiB. Tests de contrato/render no acreditan comportamiento de modelos vivos ni mejora de latencia; evaluación real sigue en1367. Trabajo/revisión directos por petición del usuario. Publicación a dev pendiente; sin merge/despliegue.
+
 ## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
 
 Cambios:
