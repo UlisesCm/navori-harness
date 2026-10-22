@@ -327,7 +327,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     script: "model-advisor",
     registration: {
       event: "PreToolUse",
-      matcher: "^(Agent|spawn_agent)$",
+      matcher: "^(Agent|spawn_agent|collaborationspawn_agent)$",
       args: "codex-pretool-profile",
       timeout: 15,
       statusMessage: "navori: future child profile",

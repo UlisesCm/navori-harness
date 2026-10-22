@@ -182,47 +182,68 @@ describe("fixed profile preflight refuses unsupported native constraints", () =>
 });
 
 describe("fresh metadata prepare/claim", () => {
-  // Covers: R13, R14, R16, R18
-  it("rewrites only the requested pair and burns the call despite another UUID/action/role", async () => {
-    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
-    writeFileSync(
-      join(cwd, ".codex/agents/local.toml"),
-      'name = "local"\nmodel = "gpt-6.1-sol"\nmodel_reasoning_effort = "medium"\n',
-    );
-    const payload = {
+  // Covers: R13, R16, R18
+  it("reports a fixed failure stage without echoing an invalid role or tool", async () => {
+    const result = await consumeCodexProfileHook({
       cwd,
-      session_id: "session",
-      tool_use_id: "call",
-      tool_name: "spawn_agent",
-      tool_input: {
-        agent_type: "local",
-        message: { encrypted: "opaque", values: [null, "ñ"] },
-        model: "old",
-        reasoning_effort: "low",
-        other: false,
-      },
-    };
-    expect(await consumeCodexProfileHook(payload)).toEqual({
-      navoriProfile: {
-        version: 1,
-        role: "local",
-        model: { kind: "set", value: "gpt-6.1-sol" },
-        effort: { kind: "set", value: "medium" },
-      },
+      session_id: "parent",
+      tool_use_id: "invalid-call",
+      tool_name: "PRIVATE_UNKNOWN_TOOL",
+      tool_input: { agent_type: "PRIVATE_UNKNOWN_ROLE" },
+    });
+    expect(result).toMatchObject({
       hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "allow",
-        updatedInput: { ...payload.tool_input, model: "gpt-6.1-sol", reasoning_effort: "medium" },
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          "profile-hook-unavailable-stale-invalid-or-consumed; profile-hook-stage-role; effective-selection-pending",
       },
     });
-    expect(
-      await consumeCodexProfileHook({
-        ...payload,
-        preparation: "new-uuid",
-        tool_input: { agent_type: "reviewer", message: "changed" },
-      }),
-    ).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_UNKNOWN");
   });
+  // Covers: R13, R14, R16, R18
+  it.each(["spawn_agent", "Agent", "collaborationspawn_agent"])(
+    "rewrites only the requested pair for %s and burns the call despite another UUID/action/role",
+    async (toolName: string) => {
+      mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".codex/agents/local.toml"),
+        'name = "local"\nmodel = "gpt-6.1-sol"\nmodel_reasoning_effort = "medium"\n',
+      );
+      const payload = {
+        cwd,
+        session_id: "session",
+        tool_use_id: "call",
+        tool_name: toolName,
+        tool_input: {
+          agent_type: "local",
+          message: { encrypted: "opaque", values: [null, "ñ"] },
+          model: "old",
+          reasoning_effort: "low",
+          other: false,
+        },
+      };
+      expect(await consumeCodexProfileHook(payload)).toEqual({
+        navoriProfile: {
+          version: 1,
+          role: "local",
+          model: { kind: "set", value: "gpt-6.1-sol" },
+          effort: { kind: "set", value: "medium" },
+        },
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          updatedInput: { ...payload.tool_input, model: "gpt-6.1-sol", reasoning_effort: "medium" },
+        },
+      });
+      expect(
+        await consumeCodexProfileHook({
+          ...payload,
+          preparation: "new-uuid",
+          tool_input: { agent_type: "reviewer", message: "changed" },
+        }),
+      ).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    },
+  );
   // Covers: R12, R13, R16, R18
   it("preserves inherited fields and opaque arguments while rejecting explicit/ambiguous inherited inputs", async () => {
     mkdirSync(join(cwd, ".codex/agents"), { recursive: true });

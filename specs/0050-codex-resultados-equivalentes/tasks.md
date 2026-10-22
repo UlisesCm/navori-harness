@@ -221,3 +221,80 @@ La unión de un hijo efímero exacto con su hook es unknown, no imposible demost
 implementación de aceptación V2 viable ni cambio aprobado de contrato/presupuesto. Una
 ejecución de inferencia de hasta 180 s permanece sin usar; no se hacen probes nuevos en esta
 enmienda. T6, T12, A10, A13 y E4 siguen pendientes.
+
+### Seguimiento #1347 — 2026-10-22
+
+La continuación V2 preservada se recuperó sobre `dev`. El usuario autorizó una sola
+prueba viva de hasta 180 segundos, con hijos únicamente como objeto de prueba y cero
+reintentos. La identidad consumida fue
+`bd73dc4e72a7318fa67b8250ead0d6e66284a0cfe6026858fe649e1a6d3a3975`.
+Resultado: un turno del principal, dos notificaciones `subAgentActivity`, ningún candidato
+unido ni contexto de hook verificado, refresh pendiente y cleanup sin verificar;
+`pending: native-profile-activity-conflict`. No se certifica selección o cierre del hijo.
+
+La regresión local incorporó los timestamps nativos y reprodujo ese conflicto antes del
+fix: el owner comparaba envelopes distintos por `startedAtMs`/`completedAtMs`. El fix
+compara identidad y selección, conservando controles negativos de hilo, turno, call,
+hijo, ruta, modelo y esfuerzo. El resultado vivo anterior al fix no constituye aceptación
+del código corregido. T11/A9, T6, T12, A10, A13 y E4 continúan pendientes; no se autorizó
+otra corrida ni se reinició el estado consumido.
+
+El usuario autorizó después una validación adicional sobre el fix, con el mismo límite
+de 180 segundos y sin reintentos. La identidad
+`6c1b82dc99bd0dc959c3feb6d2c4dda06ee85bcbe96a377ef33310b2f5a1071a`
+quedó consumida: exit 1, un turno del principal, cero actividades de hijos y cero hooks;
+`pending: native-profile-dispatch-missing`. El reporte del modelo fue
+`blocked/tool_unavailable`; no acredita ausencia de herramientas. Refresh y cleanup
+permanecieron sin verificar. No hubo actividad para validar la comparación corregida en
+el host; tampoco se reprodujo el conflicto de timestamps. No se reintentó.
+
+Antes de esta validación, `bun run check` pasó sobre el código corregido: 9,928 pruebas
+aprobadas, 2 omitidas en 471 archivos; cobertura verde en 159 módulos sin excepciones.
+Ese resultado determinista no satisface A9. La causa del no-dispatch sigue sin determinar;
+otro turno sin observación del inventario nativo añadiría la misma ambigüedad.
+
+Se preparó captura opcional del inventario de esa misma ejecución, ligada a principal y
+turnos nativos, con resumen de nombres permitidos y conteos antes de borrar la traza
+privada. Las pruebas locales cubren Responses Lite, inventario ausente/vacío, redacción,
+límites y referencias inválidas; la fixture de integración conserva `pending` aunque la
+solicitud contenga `spawn_agent`. Esta preparación no consumió inferencia ni completó A9;
+una ejecución real con captura requiere autorización nueva.
+
+La ejecución con captura fue autorizada después y consumió la identidad
+`50268bb3bc0059e18cd7b608d77b380e2400497d34087a7f90875a9a42cd225a`:
+exit 1, un turno del principal, dos notificaciones de actividad V2, un evento collab y
+cero hooks verificados. El primer inventario nativo incluía `collaboration.spawn_agent`;
+el segundo no contenía inventario y quedó `unverified`. Se detuvo con
+`unexpected-native-child-turn-or-control`; refresh/cleanup siguen sin verificar.
+Se confirmó la eliminación del directorio privado, sin reintentos.
+
+La revisión posterior reprodujo y corrigió dos defectos del adaptador: el rechazo de
+`wait_agent` V2 y el nombre canónico de hook `collaborationspawn_agent`, que no coincidía
+con el matcher ni era aceptado por el consumidor. Las pruebas conservan identidad exacta
+y rechazan controles ajenos; la fixture usa ahora el nombre nativo. No se ejecutó una
+prueba real adicional tras esos fixes y no se acredita A9.
+
+### Evidencia funcional final de #1347 — 2026-10-22
+
+El usuario autorizó todas las pruebas necesarias, conservando las identidades consumidas.
+Los intentos posteriores distinguieron bloqueo del supervisor, hook completado y rechazo
+del spawn: nunca se tomaron los reportes del modelo como causa. La diferencia Bun/Node
+del supervisor se reprodujo sin inferencia y se corrigió. El último rechazo conservó
+argumentos redactados (`fork_turns` omitido) y términos del error de rollout; la prueba
+fija solicita ahora hijos nuevos con `fork_turns: none`.
+
+El owner de producción, invocado mediante la captura opcional
+`bun .navori/state/handoffs/probe1347-with-tool-inventory.ts --live-once`, terminó exit 0 y
+`status: completed`, sin pendientes. Identidad:
+`bcb62a8b1ad1f8f5adab1f0857137534a269b191bcf40c54263e2922760e0e74`.
+Baseline verificó implementer, reviewer, scout, auditor, publisher, scribe y architect;
+cada fase unió un hook/contexto propio y un candidato de selección efectiva. Architect
+conservó herencia. El octavo turno verificó refresh de implementer high → low con un
+hijo nuevo. El cierre nativo fue exacto por hijo, cleanup `acknowledged` y se comprobó que
+el directorio privado había sido eliminado. Protocolo: 454640 B/682 frames, dentro de los
+límites originales, sin concurrencia adicional ni retries.
+
+Esta invocación instrumentada ejecutó el mismo owner que el CLI y sólo añadió resumen
+de diagnóstico. No se afirma haber reejecutado el comando compuesto exacto de A9 sobre
+una identidad ya consumida. La publicación/revisión de T11 sigue separada; T6, T12 y E4
+no se marcan completos por este resultado. #1347 conserva su cierre ligado al merge del fix.

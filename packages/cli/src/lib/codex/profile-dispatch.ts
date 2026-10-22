@@ -188,6 +188,8 @@ export async function consumeCodexProfileHook(
 ): Promise<ProfileHookOutput> {
   deadline = Math.min(deadline, Date.now() + 8_000);
   let fd: number | undefined;
+  let stage: "input" | "claim" | "role" | "catalog" | "selection" | "refresh" | "freshness" =
+    "input";
   try {
     const envelope = z
       .object({
@@ -202,6 +204,7 @@ export async function consumeCodexProfileHook(
     const config = readConfig(join(root.cwd, "navori.config.json"));
     if (!config.engines.includes("codex") || config.harness?.codexIntegration !== true) return {};
     if (Date.now() >= deadline) throw new Error("profile-hook-deadline");
+    stage = "claim";
     ensureStateDirectory(root);
     const key = createHash("sha256")
       .update(JSON.stringify([root.cwd, envelope.session_id, envelope.tool_use_id]))
@@ -211,11 +214,15 @@ export async function consumeCodexProfileHook(
     const burn = { key, action, application: "pending", status: "consumed-uncertain" };
     writeSync(fd, JSON.stringify(burn));
     fsyncSync(fd);
-    if (!["Agent", "spawn_agent"].includes(envelope.tool_name))
+    stage = "role";
+    // Codex 0.163.0 flattens the V2 collaboration namespace without a separator.
+    if (!["Agent", "spawn_agent", "collaborationspawn_agent"].includes(envelope.tool_name))
       throw new Error("unsupported-native-agent-tool");
     const input = z.record(z.string(), z.unknown()).parse(envelope.tool_input);
     const role = inputSchema.shape.name.parse(input.agent_type);
+    stage = "catalog";
     const before = await readNativeProfileView(root.cwd, undefined, deadline);
+    stage = "selection";
     const target = before.rows.find((row) => row.nativeName === role);
     if (target?.scope !== "subagent") throw new Error("profile-child-role-required");
     if (before.rows.filter((row) => row.nativeName === role).length !== 1)
@@ -237,7 +244,9 @@ export async function consumeCodexProfileHook(
       )
     )
       throw new Error("profile-selection-not-in-current-catalog");
+    stage = "refresh";
     const current = await readNativeProfileView(root.cwd, undefined, deadline);
+    stage = "freshness";
     const nextRow = current.rows.find((row) => row.nativeName === role);
     if (!nextRow || current.rows.filter((row) => row.nativeName === role).length !== 1)
       throw new Error("ambiguous-native-profile-role");
@@ -299,7 +308,7 @@ export async function consumeCodexProfileHook(
     };
   } catch {
     return denyProfileHook(
-      "profile-hook-unavailable-stale-invalid-or-consumed; effective-selection-pending",
+      `profile-hook-unavailable-stale-invalid-or-consumed; profile-hook-stage-${stage}; effective-selection-pending`,
     );
   } finally {
     if (fd !== undefined) closeSync(fd);
