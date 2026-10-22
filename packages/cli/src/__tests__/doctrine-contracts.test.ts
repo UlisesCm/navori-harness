@@ -246,6 +246,44 @@ const OFF = { scribeOwnsMarkdown: false };
 const ON = { scribeOwnsMarkdown: true };
 
 const ROWS: readonly ContractRow[] = [
+  // Covers: #1314 — protocol contracts, not behavioral claims about live models.
+  {
+    id: "Codex continuation reuses approved scope and current evidence",
+    file: asset(ORCHESTRATOR),
+    tokens: [
+      "next unfinished task in the approved scope",
+      "Once required evidence and gates are ready, implement",
+      "reopen only a named blocking question or stale evidence",
+      "Resume or a status question never restarts intake or changes the plan",
+    ],
+  },
+  {
+    id: "Codex investigation budget preserves mandatory verification and phase evidence",
+    file: asset(ORCHESTRATOR),
+    tokens: [
+      "5 minutes of active investigation per blocking question",
+      "before the first lookup",
+      "Rereading, delegation, resume and compaction do not reset",
+      "At the limit, implement with sufficient evidence or report the blocker",
+      "Mandatory tests and gates keep their own budgets",
+      "phase, startedAt, endedAt, outcome and evidence",
+    ],
+  },
+  {
+    id: "Codex status interrupts tools without replacing the active task",
+    file: asset(ORCHESTRATOR),
+    tokens: [
+      "before the next tool call, answer a status/time request",
+      "remaining deliverables",
+      "actual phase",
+      "latest test result",
+      "blocker",
+      "Unknown ETA stays unknown",
+      "then continue the active task unless the user stops it",
+      "native completion/wait surface",
+      "no process-table polling or repeated progress claims",
+    ],
+  },
   /* ---- orquestacion-doctrina (spec 0019) ---------------------------------- */
   // Covers: R4
   {

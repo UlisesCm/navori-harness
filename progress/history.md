@@ -1,5 +1,17 @@
 # History
 
+## 2026-10-22 11:55 Codex — Integra dev y resuelve conflicto del PR1372
+
+Merge normal de dev1c87ad14 en fix/1314-codex-orchestration-budget, sin reescribir historia. El único conflicto fue progress/history.md: conserva completas las entradas de1314 y1347. Los cambios fuente se integraron automáticamente y render verificó0pendientes. Trabajo local1326 preservado en el checkout original; resolución realizada en un worktree independiente, sin subagentes.
+
+Full del árbol combinado `bun run check` exit0:9963aprobadas/2omitidas,472archivos,906.7s; cobertura87.67/86/90.26/80.72%,piso160/0;bundle1614.7KiB<1650KiB. Sin conflictos restantes; publicación a la misma rama y verificación remota del PR1372 son los siguientes pasos. No merge del PR ni despliegue.
+
+## 2026-10-22 10:42 Codex — Acota investigación y estado del principal en #1314
+
+Corrige la ausencia de suficiencia de evidencia, presupuesto de investigación y respuesta inmediata de estado en el contrato Codex. Retoma la siguiente tarea aprobada, limita investigación activa a5min por pregunta sin reset al continuar, registra fases/tiempos/resultados y responde estado antes de otra herramienta. Conserva aprobaciones y presupuestos de tests/gates; las reglas nuevas sólo se entregan a Codex. Explicación histórica compactada para conservar límites; mirrors y snapshots regenerados oficialmente.
+
+Regresiones rojas previas; focal241casos y5snapshots verdes. Full final `bun run check` exit0:9900aprobadas/2omitidas,471archivos,554.5s; cobertura87.61/85.95/90.21/80.58%,piso159/0;bundle1603.2KiB<1650KiB. Tests de contrato/render no acreditan comportamiento de modelos vivos ni mejora de latencia; evaluación real sigue en1367. Trabajo/revisión directos por petición del usuario. Publicación a dev pendiente; sin merge/despliegue.
+
 ## 2026-10-22 10:12 Codex — Corrige y valida perfiles nativos V2 de #1347
 
 Recupera el owner V2 y corrige identidad sin timestamps, espera V2, hook `collaborationspawn_agent`, Node real para el supervisor bajo Bun y `fork_turns: none` para hijos de un padre efímero. Añade regresiones y diagnóstico opcional redactado. Trabajo y revisión directos por petición del usuario; hijos únicamente como sujetos de prueba autorizados.

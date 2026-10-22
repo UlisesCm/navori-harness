@@ -13,9 +13,17 @@ maxWords: 3365
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
-**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the agent that became `publisher` counted non-trivial files *in the shipping diff* under its pre-rename name, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
+**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
 
-One route removes the decision entirely. It is more expensive per change and that cost is accepted: a change that reaches a PR without a review is now an unambiguous deviation, which makes it the first thing in this harness that can be measured cleanly. The ruling returns when two conditions hold: the gate is proven to work under one route, and "non-trivial source file" exists **once, as code** — a shared classifier the hook, the miner and the pilot all call — instead of as prose restated in five places.
+<!-- navori:if onCodex -->
+## Codex execution checkpoints
+
+- **Continue:** take the next unfinished task in the approved scope. Once required evidence and gates are ready, implement; reopen only a named blocking question or stale evidence. Resume or a status question never restarts intake or changes the plan.
+- **Investigate:** allow 5 minutes of active investigation per blocking question, starting before the first lookup. Rereading, delegation, resume and compaction do not reset it. At the limit, implement with sufficient evidence or report the blocker and the exact missing fact; do not invent new questions to extend the budget. Mandatory tests and gates keep their own budgets; required approval remains required.
+- **Record:** retain phase, startedAt, endedAt, outcome and evidence in existing session state; endedAt stays open while running. Separate investigation from test/wait time; unknown duration stays unknown.
+- **Respond:** before the next tool call, answer a status/time request with remaining deliverables, actual phase, latest test result and blocker. Unknown ETA stays unknown; then continue the active task unless the user stops it.
+- **Wait:** use the native completion/wait surface; no process-table polling or repeated progress claims. Explain waits; updates are not completed work.
+<!-- /navori:if -->
 
 ## Startup protocol
 
