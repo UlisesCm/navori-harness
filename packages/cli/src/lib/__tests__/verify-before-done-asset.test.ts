@@ -47,3 +47,36 @@ describe("verify-before-done asset — single re-verification policy", () => {
     expect(orchestration).toMatch(/load-bearing claims/);
   });
 });
+
+describe("verify-before-done asset — verification cadence (issue #1325)", () => {
+  const skill = readCoreAsset("skills", "verify-before-done.md");
+  const row = (label: string): string => {
+    const line = skill.split("\n").find((l) => l.startsWith(`| ${label}`));
+    expect(line, `table row missing: ${label}`).toBeDefined();
+    return line ?? "";
+  };
+
+  it("forbids parallel runs sharing artifacts of the same checkout", () => {
+    const r = row("Suites, builds or coverage in the same checkout");
+    expect(r).toMatch(/one at a time/i);
+    expect(r).toMatch(/`dist`/);
+    expect(r).toMatch(/shared artifacts/);
+    expect(r).toMatch(/worktrees with their own `dist`/i);
+  });
+
+  it("never removes an active lock nor kills another session", () => {
+    const r = row("Active `dist` lock");
+    expect(r).toMatch(/owner/);
+    expect(r).toMatch(/verified-dead/);
+    expect(r).toMatch(/Deleting the lock/);
+    expect(r).toMatch(/killing another session/);
+  });
+
+  it("reruns the full gate once the fix set is stable, without weakening it", () => {
+    const r = row("Full gate red");
+    expect(r).toMatch(/focal tests/);
+    expect(r).toMatch(/once the fix set is stable/);
+    expect(r).toMatch(/mandatory before sign\/ship/i);
+    expect(r).toMatch(/after every edit/);
+  });
+});
