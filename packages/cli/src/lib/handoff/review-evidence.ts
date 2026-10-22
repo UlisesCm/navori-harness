@@ -20,7 +20,8 @@
  * no `gate` field, so it can never be correlated as a passing gate (D5).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import {
   createReviewEditBinding,
@@ -30,6 +31,8 @@ import {
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import type { ReviewCorrelation, ReviewOutcome, ReviewOutcomeVerdict } from "../audit/model.ts";
 import { evidenceIdentity } from "../diagnose/receipt.ts";
+import { runGate, type GateResult } from "../gate/run.ts";
+import { passSentinel } from "../gate/cache.ts";
 import {
   CONTENT_ALG,
   contentIdentity,
@@ -38,6 +41,7 @@ import {
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import {
   resolveStateRoot,
+  ensureStateDirectory,
   stateArtifactPath,
   writeStateFileAtomic,
   type StateRoot,
@@ -77,6 +81,7 @@ const ReviewStampSchema = z.strictObject({
   alg: z.literal(CONTENT_ALG),
   nonce: nonceSchema,
   feature: z.string().min(1),
+  target: z.string().optional(),
   editBinding: ReviewEditBindingSchema.optional(),
   ...IdentityShape,
 });
@@ -91,6 +96,8 @@ export const ReviewEvidenceSchema = z.strictObject({
   sealedFingerprint: hex64.optional(),
   sealedAt: isoUtc,
   seal: hex64,
+  /** Digest of an optional CLI-owned, completed gate run for this review. */
+  gateRun: hex64.optional(),
   ...IdentityShape,
 });
 export type ReviewEvidence = z.infer<typeof ReviewEvidenceSchema>;
@@ -122,7 +129,7 @@ function fail(error: string, why: string, fix: string): { status: "error"; messa
   return { status: "error", message: `ERROR: ${error}\nWHY: ${why}\nFIX: ${fix}` };
 }
 
-const sha256 = (input: string): string => createHash("sha256").update(input).digest("hex");
+const sha256 = (input: string | Buffer): string => createHash("sha256").update(input).digest("hex");
 
 /** Deterministic JSON: sorted keys, `undefined` dropped. */
 function canonical(value: unknown): string {
@@ -160,6 +167,132 @@ function readStamp(root: StateRoot, feature: string, nonce: string): ReviewStamp
   return parsed.success && parsed.data.nonce === nonce && parsed.data.feature === feature
     ? parsed.data
     : null;
+}
+
+const ReviewGateSchema = z.strictObject({
+  v: z.literal(1),
+  feature: z.string(),
+  nonce: nonceSchema,
+  cwd: z.string(),
+  target: z.string(),
+  fingerprint: hex64,
+  base: gitSha.nullable(),
+  gate: hex64,
+  inputs: hex64,
+  startedAt: isoUtc,
+  finishedAt: isoUtc,
+  executorPid: z.number().int().positive(),
+  /** Observed runtime context, never an authorization or reviewer identity. */
+  executorSession: z.string().optional(),
+  exitCode: z.literal(0),
+  log: z.string(),
+  logHash: hex64,
+});
+
+const gateRunName = (feature: string, nonce: string): string =>
+  `review_${feature}.${nonce}.gate.json`;
+
+/** Verify the finished run and its original log, never the gate cache. */
+function reviewGateDigest(root: StateRoot, stamp: ReviewStamp, target?: string): string {
+  const raw = readFileSync(
+    stateArtifactPath(root, gateRunName(stamp.feature, stamp.nonce)),
+    "utf8",
+  );
+  const run = ReviewGateSchema.parse(JSON.parse(raw));
+  if (
+    run.feature !== stamp.feature ||
+    run.nonce !== stamp.nonce ||
+    run.cwd !== root.cwd ||
+    run.target !== stamp.target ||
+    (target !== undefined && run.target !== target) ||
+    !sameIdentity(stamp, run) ||
+    run.startedAt < stamp.startedAt ||
+    run.finishedAt < run.startedAt ||
+    run.finishedAt > new Date().toISOString()
+  )
+    throw new Error("gate run does not match this review");
+  const path = resolve(root.cwd, run.log);
+  const rel = relative(root.cwd, path).split("\\").join("/");
+  if (isAbsolute(run.log) || rel.startsWith("..") || !rel.startsWith(".navori/state/gate/"))
+    throw new Error("gate log escapes this checkout");
+  const logRoot = resolveStateRoot({ cwd: root.cwd, feature: "gate", dir: ".navori/state/gate" });
+  const safePath = stateArtifactPath(logRoot, relative(logRoot.path, path));
+  const log = readFileSync(safePath);
+  if (
+    sha256(log) !== run.logHash ||
+    log.toString("utf8").trimEnd().split("\n").at(-1) !== passSentinel("full", stamp.fingerprint)
+  )
+    throw new Error("gate log is missing, changed or incomplete");
+  return sha256(raw);
+}
+
+/** Run in the calling process, allowing the principal to outlive a reviewer's tool timeout. */
+export async function runReviewGate(
+  options: EvidenceOptions & { nonce: string },
+): Promise<GateResult> {
+  const refused = (message: string): GateResult => ({
+    exitCode: 2,
+    stdout: "",
+    stderr: `navori gate full: ${message}`,
+  });
+  try {
+    if (!UUID.test(options.nonce)) return refused("invalid review nonce");
+    const root = resolveStateRoot(options);
+    const stamp = readStamp(root, options.feature, options.nonce);
+    if (!stamp || stamp.target !== options.target)
+      return refused("review begin stamp is missing, invalid or for another target");
+    // Never accept an injected identity when executing a gate.
+    const current = currentIdentity(root, { ...options, currentContent: undefined });
+    if (!current || !sameIdentity(stamp, current) || !stamp.gate)
+      return refused("review content, base, inputs or gate changed since begin");
+    if (existsSync(stateArtifactPath(root, `review_${options.feature}.json`))) {
+      const sidecar = ReviewSidecarSchema.safeParse(
+        readJson(stateArtifactPath(root, `review_${options.feature}.json`)),
+      );
+      const evidence = sidecar.success
+        ? ReviewEvidenceSchema.safeParse(sidecar.data.evidence)
+        : undefined;
+      if (evidence?.success && evidence.data.nonce === stamp.nonce)
+        return refused("review is already sealed; begin a new review");
+    }
+    ensureStateDirectory(root);
+    const name = gateRunName(options.feature, options.nonce);
+    // Exclusive reservation: retries and concurrent runners cannot replace this attempt.
+    const fd = openSync(stateArtifactPath(root, name), "wx", 0o644);
+    closeSync(fd);
+    const startedAt = new Date().toISOString();
+    const result = await runGate({ cwd: root.cwd, kind: "full", force: true });
+    if (result.exitCode !== 0) return result;
+    const after = currentIdentity(root, { ...options, currentContent: undefined });
+    if (!after || !sameIdentity(stamp, after))
+      return refused("review content changed during the gate");
+    const log = /^navori gate full: exit 0 — log (.+)$/m.exec(result.stdout)?.[1];
+    if (!log) return refused("gate returned no completed run log");
+    const record: z.infer<typeof ReviewGateSchema> = {
+      v: 1,
+      feature: options.feature,
+      nonce: options.nonce,
+      cwd: root.cwd,
+      target: options.target,
+      fingerprint: stamp.fingerprint,
+      base: stamp.base,
+      gate: stamp.gate,
+      inputs: stamp.inputs,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      executorPid: process.pid,
+      executorSession:
+        process.env.CODEX_THREAD_ID || process.env.CLAUDE_CODE_SESSION_ID || undefined,
+      exitCode: 0,
+      log,
+      logHash: sha256(readFileSync(resolve(root.cwd, log))),
+    };
+    writeStateFileAtomic(root, name, `${JSON.stringify(record)}\n`);
+    reviewGateDigest(root, stamp, options.target);
+    return result;
+  } catch (error) {
+    return refused(error instanceof Error ? error.message : "review gate unavailable");
+  }
 }
 
 type Identity = Pick<ReviewStamp, "fingerprint" | "base" | "head" | "gate" | "inputs"> & {
@@ -241,6 +374,7 @@ export function beginReview(options: EvidenceOptions): BeginResult {
       alg: CONTENT_ALG,
       nonce,
       feature: options.feature,
+      target: options.target,
       fingerprint: identity.fingerprint,
       base: identity.base,
       head: identity.head,
@@ -355,11 +489,17 @@ export function sealReview(options: EvidenceOptions & { nonce: string }): SealRe
           "begin a fresh independent review",
         );
     }
+    const gateRun =
+      parsed.data.verdict === "APPROVED" &&
+      existsSync(stateArtifactPath(root, gateRunName(options.feature, stamp.nonce)))
+        ? reviewGateDigest(root, stamp, options.target)
+        : undefined;
     const body: Omit<ReviewEvidence, "seal"> = {
       v: 1,
       alg: CONTENT_ALG,
       state: same ? "validated" : "changed-during-review",
       nonce: stamp.nonce,
+      ...(gateRun ? { gateRun } : {}),
       fingerprint: stamp.fingerprint,
       ...(current.fingerprint === stamp.fingerprint
         ? {}
@@ -424,6 +564,13 @@ export function checkSealedEvidence(root: StateRoot, sidecar: ReviewSidecar): Se
     return { status: "invalid" };
   const { seal, ...body } = evidence;
   if (sealDigest(sidecar, body) !== seal) return { status: "invalid" };
+  if (evidence.gateRun) {
+    try {
+      if (reviewGateDigest(root, stamp) !== evidence.gateRun) return { status: "invalid" };
+    } catch {
+      return { status: "invalid" };
+    }
+  }
   return { status: evidence.state === "validated" ? "sealed" : "changed-during-review", evidence };
 }
 
