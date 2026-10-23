@@ -749,6 +749,10 @@ export function addTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
 
 /** Every token that entered or left the model, for one subagent run. */
 export interface AgentRun {
+  /** Native parent tool result, never inferred from command failures inside a child. */
+  nativeOutcome?: "completed" | "failed";
+  /** Closed final handoff observation; absent on historical parsed sessions. */
+  handoffBlocked?: boolean;
   codex?: CodexRunFacts;
   /** Pi transcript observation, never actor authority; absent without a confirmed invocation. */
   piOutcome?: "completed" | "failed";
@@ -1130,6 +1134,8 @@ export function emptyOrchestrator(): SessionAudit["orchestrator"] {
 
 /** One audited session: the orchestrator plus every subagent it spawned. */
 export interface SessionAudit {
+  /** Native boundary/restore ordering, not a claim about context quality. */
+  compactionRecovery?: import("./engine-observations.ts").CompactionRecovery;
   /** Optional only for legacy in-memory inputs; absent evidence is unknown. */
   availability?: Record<string, MetricEvidence>;
   sources?: Partial<
