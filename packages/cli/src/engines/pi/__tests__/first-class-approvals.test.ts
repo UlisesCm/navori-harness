@@ -491,7 +491,6 @@ describe("Pi first-class approvals", () => {
     const refusal = { content: [{ type: "text", text: "Navori approval not granted: headless" }] };
     const parent = load();
     const run = childRun(parent, project());
-    const settled = run.catch((error: Error) => error);
     await vi.waitFor(() => expect(parent.children).toHaveLength(1));
     settle(parent.children[0]!.proc, [
       {
@@ -510,19 +509,22 @@ describe("Pi first-class approvals", () => {
         },
       },
     ]);
-    const error = await settled;
-    expect(error).toHaveProperty("message");
-    expect((error as Error).message).toContain(JSON.stringify(APPROVED));
-    expect((error as Error).message).not.toContain("rm -rf");
+    const error = await run;
+    expect(error).toMatchObject({ isError: true, details: { outcome: "failed", handoff: "none" } });
+    expect(error.content[0]!.text).toContain(JSON.stringify(APPROVED));
+    expect(error.content[0]!.text).not.toContain("rm -rf");
 
     // No start event for the call: not recoverable, still an error.
     const blind = load();
-    const blindRun = childRun(blind, project()).catch((e: Error) => e);
+    const blindRun = childRun(blind, project());
     await vi.waitFor(() => expect(blind.children).toHaveLength(1));
     settle(blind.children[0]!.proc, [
       { type: "tool_execution_end", toolCallId: "zz", isError: true, result: refusal },
     ]);
-    expect(((await blindRun) as Error).message).toMatch(/command not recoverable/);
+    await expect(blindRun).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringMatching(/command not recoverable/) }],
+    });
 
     // An unrelated tool error is not an approval request.
     const plain = load();

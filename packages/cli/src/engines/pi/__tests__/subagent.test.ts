@@ -251,7 +251,7 @@ describe("Pi extension executable policy", () => {
     expect(args.at(-1)).toContain("# Scout Agent");
     expect(args.at(-1)).toContain("Task: Check one scoped behavior");
     settle(child, "scout answer");
-    await expect(result).resolves.toEqual({
+    await expect(result).resolves.toMatchObject({
       content: [{ type: "text", text: "scout answer" }],
       details: { role: "scout", truncated: false },
     });
@@ -328,7 +328,13 @@ describe("Pi extension executable policy", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(child.kill).toHaveBeenCalledWith("SIGKILL");
       child.emit("close", null);
-      await expect(pending).rejects.toThrow("cancelled, timed out, or exceeded output limit");
+      await expect(pending).resolves.toMatchObject({
+        isError: true,
+        content: [
+          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
+        ],
+        details: { outcome: "failed" },
+      });
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
@@ -347,20 +353,34 @@ describe("Pi extension executable policy", () => {
       await vi.advanceTimersByTimeAsync(600_000);
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
       child.emit("close", null);
-      await expect(pending).rejects.toThrow("cancelled, timed out, or exceeded output limit");
+      await expect(pending).resolves.toMatchObject({
+        isError: true,
+        content: [
+          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
+        ],
+        details: { outcome: "failed" },
+      });
       // The SIGKILL escalation outlives the leader's close, then releases itself.
       await vi.advanceTimersByTimeAsync(5_000);
       expect(vi.getTimerCount()).toBe(0);
       const malformed = execute(runtime.tool!, dir, "scout");
       runtime.calls[1]!.child.stdout.write("not JSON\n");
       runtime.calls[1]!.child.emit("close", 0);
-      await expect(malformed).rejects.toThrow("Invalid Pi child JSONL event");
+      await expect(malformed).resolves.toMatchObject({
+        isError: true,
+        content: [{ text: expect.stringContaining("Invalid Pi child JSONL event") }],
+        details: { outcome: "failed" },
+      });
       const unsettled = execute(runtime.tool!, dir, "scout");
       runtime.calls[2]!.child.stdout.write(
         `${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "answer" }] } })}\n`,
       );
       runtime.calls[2]!.child.emit("close", 0);
-      await expect(unsettled).rejects.toThrow("before agent_settled");
+      await expect(unsettled).resolves.toMatchObject({
+        isError: true,
+        content: [{ text: expect.stringContaining("before agent_settled") }],
+        details: { outcome: "failed" },
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -382,7 +402,11 @@ describe("Pi extension executable policy", () => {
     runtime.calls[1]!.child.stdout.write("x");
     expect(runtime.calls[1]!.child.kill).toHaveBeenCalledWith("SIGTERM");
     runtime.calls[1]!.child.emit("close", null);
-    await expect(oversized).rejects.toThrow("exceeded output limit");
+    await expect(oversized).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining("exceeded output limit") }],
+      details: { outcome: "failed" },
+    });
   });
 
   // Covers: R4
@@ -395,7 +419,11 @@ describe("Pi extension executable policy", () => {
     child.stdout.write(Buffer.from("é".repeat(4 * 1024 * 1024 + 1)));
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     child.emit("close", 0);
-    await expect(pending).rejects.toThrow("exceeded output limit: event record");
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining("exceeded output limit: event record") }],
+      details: { outcome: "failed" },
+    });
   });
 
   // Covers: R4
@@ -510,7 +538,11 @@ describe("Pi extension executable policy", () => {
     const child = runtime.calls[0]!.child;
     child.stdout.write(output);
     child.emit("close", code);
-    await expect(pending).rejects.toThrow(error);
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining(error) }],
+      details: { outcome: "failed" },
+    });
   });
 
   // Covers: R4
