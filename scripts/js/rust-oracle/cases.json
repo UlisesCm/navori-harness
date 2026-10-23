@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "surfaceFixture": "empty",
+  "cases": [
+    { "id": "empty:status", "fixture": "empty", "args": ["status"] },
+    { "id": "empty:doctor", "fixture": "empty", "args": ["doctor"] },
+    { "id": "fresh-init:render-apply", "fixture": "fresh-init", "args": ["render", "--apply"] },
+    { "id": "fresh-init:render-dry-run", "fixture": "fresh-init", "args": ["render"] },
+    { "id": "fresh-init:doctor", "fixture": "fresh-init", "args": ["doctor"] },
+    { "id": "fresh-init:status", "fixture": "fresh-init", "args": ["status"] },
+    { "id": "fresh-init:status-with-stdin", "fixture": "fresh-init", "args": ["status"], "stdin": "ignored input\n" },
+    { "id": "fresh-init:scan", "fixture": "fresh-init", "args": ["scan"] },
+    { "id": "fresh-init:backup-list", "fixture": "fresh-init", "args": ["backup", "list"] },
+    { "id": "self-hosted:render-apply", "fixture": "self-hosted", "args": ["render", "--apply"] },
+    { "id": "self-hosted:doctor", "fixture": "self-hosted", "args": ["doctor"] },
+    { "id": "user-content-outside-markers", "fixture": "user-content", "args": ["render", "--apply"] },
+    { "id": "user-content:doctor", "fixture": "user-content", "args": ["doctor"] },
+    { "id": "user-content:sync", "fixture": "user-content", "args": ["sync"] },
+    { "id": "drifted-block:render-apply", "fixture": "drifted-block", "args": ["render", "--apply"] },
+    { "id": "drifted-block:doctor", "fixture": "drifted-block", "args": ["doctor"] },
+    { "id": "monorepo:render-apply", "fixture": "monorepo", "args": ["render", "--apply"] },
+    { "id": "monorepo:scan", "fixture": "monorepo", "args": ["scan"] },
+    { "id": "pi:render-apply", "fixture": "pi", "args": ["render", "--apply"] },
+    { "id": "delegation:ported-command-unported-flag", "fixture": "empty", "args": ["--version", "--bogus-flag"] }
+  ]
+}

@@ -1,9 +1,30 @@
 # Sesión actual
 
-#1361/T9, rama fix/1361-pi-event-correlation desde origin/dev e9e556f4. Correlación exacta de hijos Pi en K2, hooks, eventos CLI y evidencia, incluidos IDs nativos con `:`. Trabajo directo por solicitud del usuario, sin subagentes.
+Checkpoint de `0057-migracion-rust` hasta E2/M5 en `feat/rust-0057-avance-m5`.
+Destino del PR solicitado por el usuario: `migration/rust`, creado desde la base original
+`72908547` para incluir todo el avance M1–M5 en el diff. Ejecución directa sin subagentes.
 
-## Siguiente paso
+Ambas ramas ya están publicadas. La creación del PR fue bloqueada por el hook de consentimiento
+de Codex (`unsupported-or-unavailable`): exige que el humano ejecute el comando revisado.
+No se reintentó. Solicitud y descripción se preparan en `.navori/state/` para ejecución manual.
 
-Gate completo `bun run check` verde: 10184 aprobadas, 2 omitidas, 476 archivos, 946s; piso de cobertura 160 módulos sin excepciones; bundle 1626.2/1650KiB. Siguiente: abrir PR normal hacia dev con `.navori/state/1361-events-open-pr.sh`; creación automática bloqueada por consentimiento del host, no reintentar.
+## Estado y siguiente paso
 
-T10 (catálogo de denegaciones), T11 y A5 completo, M6–M7 siguen pendientes; no cerrar #1361. Pi mantiene startup capture y spool deshabilitados; la correlación no concede autoridad. Prueba SDK/CLI con modelo simulado, sin credenciales ni inferencia viva. Cambios locales de #1326 preservados en el checkout principal; #1367 sigue apartado por petición del usuario.
+- E1/M1–M3 completos localmente; versión, parser/delegación, oráculo y serializador JS.
+- E1/M4: CI, controles e instalación implementados. CONTRIBUTING en tres idiomas y CI remoto
+  pendientes; el hook bloqueó la escritura shell de las guías y no se reintentó.
+- E2/M5: runner e integridad implementados y probados como bibliotecas.
+- Siguiente: E2/M6 (T20/T21), integración CLI/renderer, escritura final y fallback seguro.
+  No hay hooks Rust activos; mantener el manifiesto sin hooks hasta T26 en sombra.
+- Aviso opcional de `NAVORI_TS_CLI` inexistente: no implementado.
+
+## Verificación
+
+`bun check`: exit 0, 10,218 aprobadas, 2 omitidas, 481 archivos; cobertura sobre el piso.
+El fallo Pi #1386 anterior no se reprodujo.
+Oráculo posterior a M5: 52 casos, 0 diferencias.
+Antes de publicar: `bun run check:fast`, Cargo fmt/clippy/workspace tests verdes;
+instalación local comprobó que `navori` conserva ruta y SHA-256.
+
+El oráculo de integridad escapa U+2028/U+2029 solo en el transporte JSONL hacia Node;
+JSON.parse recupera los caracteres originales para comparar. Tiene regresión determinista.

@@ -57,7 +57,7 @@ versionable project knowledge. This separation introduces no hidden persistent c
 
 Explicitly **out of scope** unless a strong new reason changes it:
 
-- **Product promotion, branding, marketing, monetization, product localization, or a Rust control plane.**
+- **Product promotion, branding, marketing, monetization, product localization.**
   Public documentation and website localization are an approved exception; CLI localization
   remains out of scope. Navori is a tool for its own team, not a market product (Spec 0003).
 - **Formalized public plugin ecosystem.** Plugins are internal bundles, not a
@@ -85,6 +85,28 @@ Today both are opt-in plugins again, with routing
 - **Doctrine floor per machine in `~/.claude`** (global layer, Spec 0010). It was not adopted: it cost
   ~5.5-6k LOC and retired with Spec 0046; sessions outside a repo with Navori are left without
   harness on purpose.
+
+## Rust migration
+
+navori is being migrated from TypeScript to Rust, subcommand by subcommand, on the long-lived branch
+`migration/rust` ([spec 0057](../specs/0057-migracion-rust/requirements.md)). The earlier non-goal
+"Rust control plane" no longer applies. The migration is bounded by these rules:
+
+- **Synchronization is one-way until cutover.** `dev` flows into `migration/rust` by merge, never
+  by rebase. Nothing flows back to `dev`, not even a cherry-pick.
+- **npm and `dev` stay TypeScript-only.** The npm package is published only from the TS build of
+  `dev`. No Rust artifact enters the tarball or the release flow, and `dev` carries no Rust code and
+  no coexistence notice. Cutover happens only after explicit approval.
+- **Every TS behavior change is born on `dev`.** `migration/rust` adds only the Rust workspace and
+  the minimal wiring needed for coexistence.
+- **The internal prerelease `0.13.0-rust.<n>` lives only in the cargo workspace.** It is declared in
+  the workspace `Cargo.toml`, reported only by `navori-rust --version`, and never published to npm
+  (R25). `packages/cli` keeps the version `dev` carries, and the oracle compares `--version`
+  against `Cargo.toml` instead of requiring parity with the TS (R26).
+
+Why: speed (native startup and hot hook paths), robustness (a fail-closed hook runtime and a
+compiler-checked core) and long-term developer experience, without risking the TS CLI that the Bonum
+repositories use. Coexistence keeps `dev` shippable while a differential oracle proves parity.
 
 ## Design principles and invariants (do not revisit without a new reason)
 

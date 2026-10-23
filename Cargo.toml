@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.13.0-rust.1"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+navori-core = { path = "crates/navori-core" }
+# Pinned to the versions named in specs/0057-migracion-rust/design.md (dependency table).
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+lexopt = "=0.3.2"
+ryu-js = "=1.0.3"
+proptest = "=1.12.0"
+sha1 = "=0.11.0"
+sha2 = "=0.11.1"
+
+# Deviations need `#[allow(<lint>, reason = "...")]` at the same site (R16).
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+panic = "unwind"
+lto = "thin"
+codegen-units = 1

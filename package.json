@@ -30,6 +30,7 @@
     "bench:context": "node scripts/js/bench-context.mjs",
     "check:links": "node scripts/js/check-links.mjs",
     "ensure-dist": "bun packages/cli/scripts/ensure-dist.ts",
+    "oracle:rust": "bun run ensure-dist && node scripts/js/rust-oracle.mjs",
     "check:render": "bun packages/cli/scripts/check-render-locked.ts",
     "check:assets": "node scripts/js/check-asset-commands.mjs",
     "check:assets:ci": "node scripts/js/check-asset-commands.mjs --strict",
