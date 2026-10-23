@@ -128,6 +128,95 @@ const report = (sessions = [parse()]) =>
   buildReport(sessions, { repo: "repo", version: "0.1.0", catalog: CATALOG });
 
 describe("Pi session audit (spec 0047 R12)", () => {
+  // Covers: R3 — overlapping children of one role must never be attributed by role or time window.
+  it("joins hooks and CLI events to exact Pi invocations while preserving public ordinal IDs", () => {
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        ["second", "first"]
+          .map((id: string, index: number): string =>
+            line(
+              result(index + 1, "navori_subagent", {
+                toolCallId: id,
+                details: { role: "scout" },
+                durationMs: 600_000,
+              }),
+            ),
+          )
+          .join(""),
+    );
+    const stamp = Date.parse("2026-10-10T10:00:00Z");
+    const records = [
+      ...view().records,
+      ...["first", "second", "unconfirmed"].flatMap((id: string, index: number) => [
+        {
+          event: "hook",
+          wireVersion: 1,
+          eventId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+          host: "pi",
+          rootSessionId: ID,
+          name: "probe",
+          source: "core",
+          phase: "PreToolUse",
+          verdict: "allow",
+          ms: 1,
+          tsMs: stamp + index,
+          agentId: "pi-scout-" + id,
+          toolUseId: "bash",
+        },
+        {
+          event: "cli",
+          name: "plan-gate",
+          verdict: "block",
+          tsMs: stamp + index,
+          agentId: "pi-scout-" + id,
+        },
+      ]),
+    ];
+    const logFile = join(dir, "owners.log");
+    writeFileSync(logFile, records.map(line).join(""));
+    const parsed = parsePiSession(ID, logFile, file, {
+      records,
+      reading: readAuditJsonl(logFile, (): void => {}),
+      budget: createAuditReadBudget(),
+    })!;
+    expect(
+      parsed.agents.map((agent) => [
+        agent.spawnToolUseId,
+        agent.hookEvents.map((hook) => hook.tsMs),
+      ]),
+    ).toEqual([
+      ["second", [stamp + 1]],
+      ["first", [stamp]],
+    ]);
+    expect(parsed.orchestrator.hookEvents).toHaveLength(1);
+    expect(parsed.cliEvents?.map((event) => event.agentId)).toEqual([
+      "pi-scout-2",
+      "pi-scout-1",
+      "unattributed-pi",
+    ]);
+    expect(JSON.stringify(publishReport(report([parsed])))).not.toContain("pi-scout-first");
+    // A duplicate invocation cannot alias the public ordinal of an unrelated child.
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        [1, 2]
+          .map((index: number): string =>
+            line(
+              result(index, "navori_subagent", { toolCallId: "first", details: { role: "scout" } }),
+            ),
+          )
+          .join(""),
+    );
+    const ambiguous = parsePiSession(ID, logFile, file, {
+      records,
+      reading: readAuditJsonl(logFile, (): void => {}),
+      budget: createAuditReadBudget(),
+    })!;
+    expect(ambiguous.agents.every((agent) => agent.hookEvents.length === 0)).toBe(true);
+    expect(ambiguous.orchestrator.hookEvents).toHaveLength(3);
+  });
+
   // Covers: R3
   it("retains all seven child roles and exact parent invocation IDs without publishing them", () => {
     const roles = [
@@ -444,12 +533,19 @@ describe("Pi session audit (spec 0047 R12)", () => {
         models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
       }),
     );
+    const environments: NodeJS.ProcessEnv[] = [];
     const run = async (
       messages: unknown[],
       exitCode = 0,
+      callId = "1",
     ): Promise<Awaited<ReturnType<Tool["execute"]>>> => {
       let tool: Tool | undefined;
-      const spawn = (): unknown => {
+      const spawn = (
+        _program: string,
+        _args: string[],
+        options: { env: NodeJS.ProcessEnv },
+      ): unknown => {
+        environments.push(options.env);
         const child = Object.assign(new EventEmitter(), {
           pid: 1,
           stdin: new PassThrough(),
@@ -487,7 +583,14 @@ describe("Pi session audit (spec 0047 R12)", () => {
         exports,
         require: (id: string) => modules[id],
         process: {
-          env: {},
+          env: {
+            NAVORI_AUDIT_HOST: "codex",
+            NAVORI_AUDIT_SESSION_ID: "outer-session",
+            NAVORI_AUDIT_AGENT_ID: "outer-agent",
+            CODEX_SESSION_ID: "outer-session",
+            CODEX_THREAD_ID: "outer-session",
+            CLAUDE_CODE_SESSION_ID: "outer-claude",
+          },
           platform: "win32",
           versions: { node: "22.19.0" },
           stderr: { write: () => true },
@@ -501,7 +604,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
         registerTool: (value: Tool) => (tool = value),
       });
       return tool!.execute(
-        "1",
+        callId,
         { role: "scout", task: "t" },
         new AbortController().signal,
         () => {},
@@ -548,6 +651,35 @@ describe("Pi session audit (spec 0047 R12)", () => {
     expect(published).not.toContain("exited 2");
     expect(parse().agents[0]).not.toHaveProperty("parentSession");
     expect(parse().agents[0]).not.toHaveProperty("failure");
+    // Covers: R3 — the spawned environment and K2 share one parent/invocation identity.
+    const concurrent = await Promise.all([
+      run([], 0, "first"),
+      run([], 0, "second"),
+      run([], 2, "failed"),
+    ]);
+    for (const [index, call] of ["first", "second", "failed"].entries()) {
+      const env = environments.at(index - 3)!;
+      expect(env).toMatchObject({
+        NAVORI_PI_PARENT_SESSION: ID,
+        NAVORI_PI_CHILD_ID: "pi-scout-" + call,
+        NAVORI_AUDIT_HOST: "pi",
+        NAVORI_AUDIT_SESSION_ID: ID,
+        NAVORI_AUDIT_AGENT_ID: "pi-scout-" + call,
+      });
+      for (const key of ["CODEX_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"])
+        expect(env).not.toHaveProperty(key);
+      expect(concurrent[index]!.details).toMatchObject({
+        agentId: env.NAVORI_AUDIT_AGENT_ID,
+        parentSession: ID,
+      });
+    }
+    const native = await run([], 2, "tool:1:native");
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        line(result(1, "navori_subagent", { ...native, toolCallId: "tool:1:native" })),
+    );
+    expect(parse().agents[0]!.spawnToolUseId).toBe("tool:1:native");
     rmSync(roles, { recursive: true, force: true });
   });
 });

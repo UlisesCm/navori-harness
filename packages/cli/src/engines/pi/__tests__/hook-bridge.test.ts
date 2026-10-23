@@ -94,6 +94,28 @@ async function decide(
 }
 
 describe("hook bridge verdict contract", () => {
+  // Covers: R3 — correlation never changes the child's permission mode.
+  it("uses the parent session and exact invocation ID for two children of the same role", async () => {
+    const cwd = project([{ script: "probe", body: 'cat > "$PWD/child-payload.json"\n' }]);
+    for (const call of ["call_1", "call_2"]) {
+      const agentId = "pi-scout-" + call;
+      await load({
+        env: {
+          NAVORI_PI_CHILD_DEPTH: "1",
+          NAVORI_PI_CHILD_ROLE: "scout",
+          NAVORI_PI_PARENT_SESSION: "parent-session",
+          NAVORI_PI_CHILD_ID: agentId,
+        },
+      }).get("tool_call")!(bash("git status"), ctxFor(cwd, true));
+      expect(JSON.parse(readFileSync(join(cwd, "child-payload.json"), "utf8"))).toMatchObject({
+        session_id: "parent-session",
+        agent_id: agentId,
+        agent_type: "scout",
+        permission_mode: "dontAsk",
+      });
+    }
+  });
+
   // Covers: R15
   it("verdict contract fails closed", async () => {
     // Allowed: exit 0 without JSON, and an explicit allow.

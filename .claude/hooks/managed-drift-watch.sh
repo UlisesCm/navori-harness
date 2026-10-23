@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="0b0a6340" version="0.12.2" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="f79ea19c" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -565,9 +565,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -646,12 +647,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}

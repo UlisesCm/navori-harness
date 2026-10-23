@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="4b727e086dc61496dd77e02df2e8ed7566ecd19af557ac2522c2ed70e5805920"
+// navori:managed-file id="pi-extension" hash="846b6cd89674f73c3cb9d0ce4a594ab51b20dbfcf96cc2199d2c668592a5c620"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -509,7 +509,8 @@ function parseParentApproval(raw: unknown): ParentApproval | undefined {
 
 type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string };
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
-function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildRun> {
+function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal,
+  parentSession: string, agentId: string): Promise<ChildRun> {
   // --no-mcp: ambient MCP must be unreachable from Navori children; --model is always explicit (omitting it is not inheriting).
   const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
@@ -517,7 +518,13 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
   args.push("--", role.instructions + "\n\nTask: " + task);
   return new Promise<ChildRun>((resolve, reject) => {
     // The "ipc" stdio slot is the D6 relay channel; the child's model-run bash does not inherit it.
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name };
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name,
+      NAVORI_PI_PARENT_SESSION: parentSession, NAVORI_PI_CHILD_ID: agentId,
+      NAVORI_AUDIT_HOST: "pi", NAVORI_AUDIT_SESSION_ID: parentSession, NAVORI_AUDIT_AGENT_ID: agentId };
+    // An outer host's identity cannot describe this Pi child. Correlation never grants actor authority.
+    delete childEnv.CLAUDE_CODE_SESSION_ID;
+    delete childEnv.CODEX_SESSION_ID;
+    delete childEnv.CODEX_THREAD_ID;
     delete childEnv.NODE_CHANNEL_FD;
     const child = spawn("pi", args, { cwd, env: childEnv,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
@@ -703,7 +710,9 @@ function matchingCriteria(cwd: string, command: string): Array<{ feature: string
 async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
   if (!isVerifiedBashSuccess(pi, event)) return;
   const command = event.input.command;
-  const sessionId = (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  const sessionId = process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
+    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
   const callKey = sessionId + "\0" + event.toolCallId;
   if (seenCalls.has(callKey)) return;
   const hits = matchingCriteria(ctx.cwd, command);
@@ -717,13 +726,15 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
   const worktreeTree = await fingerprintTree(tree);
   if (!worktreeTree) return;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
+  const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + role;
   const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   for (const hit of hits) {
     const file = join(hit.dir, "workplan_" + hit.feature + ".evidence.jsonl");
     try {
       if (existsSync(file) && lstatSync(file).isSymbolicLink()) continue;
       const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree, dirty: worktreeTree !== headTree,
-        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId: "pi-" + role } : {}) };
+        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}) };
       appendFileSync(file, JSON.stringify(line) + "\n");
     } catch { /* Fail-open: no line means plan update asks for a rerun. */ }
   }
@@ -895,6 +906,10 @@ function bridgeShell(): { ok: true; shell: string } | { ok: false; reason: strin
 function bridgePayload(call: BridgeCall): string {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
+  const sessionId = child && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession) ? parentSession : call.sessionId;
+  const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + (role || "child");
   const input = isRecord(call.input) ? call.input : {};
   const toolInput: Record<string, unknown> = {};
   if (typeof input.command === "string") toolInput.command = input.command;
@@ -907,10 +922,10 @@ function bridgePayload(call: BridgeCall): string {
     ...(call.hookEvent === "Stop" ? { stop_hook_active: false } : {}),
     ...(call.reason ? { reason: call.reason } : {}),
     cwd: call.cwd,
-    ...(call.sessionId ? { session_id: call.sessionId } : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
     // "default" only where a human can answer an ask; everywhere else the scripts must decide by themselves.
     permission_mode: !child && call.hasUI ? "default" : "dontAsk",
-    ...(child ? { agent_id: "pi-" + (role || "child"), agent_type: role || "child" } : {}),
+    ...(child ? { agent_id: agentId, agent_type: role || "child" } : {}),
   });
 }
 
@@ -1413,9 +1428,10 @@ export default function (pi: ExtensionAPI): void {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
           ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
-        const result = await runChild(ctx.cwd, spec, model, params.task, signal);
-        const identity = { role: params.role, agentId: "pi-" + params.role + "-" + _id,
-          parentSession: ctx.sessionManager?.getSessionId?.() ?? "", ...await childGitState(ctx.cwd, signal) };
+        const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";
+        const agentId = "pi-" + params.role + "-" + _id;
+        const result = await runChild(ctx.cwd, spec, model, params.task, signal, parentSession, agentId);
+        const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
         const details = { ...identity, truncated: result.truncated,
           ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
         const failed = (failure: string, handoff: "invalid" | "none" = "none") => ({

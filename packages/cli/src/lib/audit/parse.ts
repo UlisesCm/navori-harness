@@ -2728,10 +2728,25 @@ export function attachHookEvents(
   }
 
   const qualifiedMetadata = qualifyAuditMetadataRecords(rows, budget, session.sessionId);
+  // Pi wire identities contain the exact invocation. Keep public cards ordinal-based;
+  // only a unique, transcript-confirmed invocation can alias an observational owner.
+  const piOwners = new Map<string, string | null>();
+  if (session.host === "pi") {
+    for (const agent of session.agents) {
+      if (!agent.spawnToolUseId) continue;
+      const wireId = `pi-${agent.agentType}-${agent.spawnToolUseId}`;
+      piOwners.set(wireId, piOwners.has(wireId) ? null : agent.agentId);
+    }
+  }
   const otlpLines: Rec[] = [];
   const hookLines: Rec[] = [];
   const metadataLines: Rec[] = [];
-  for (const rec of qualifiedMetadata.records) {
+  for (const raw of qualifiedMetadata.records) {
+    const owner = typeof raw.agentId === "string" ? piOwners.get(raw.agentId) : undefined;
+    const rec =
+      session.host === "pi" && typeof raw.agentId === "string" && raw.agentId !== ORCHESTRATOR_OWNER
+        ? { ...raw, agentId: owner ?? "unattributed-pi" }
+        : raw;
     if (rec.event === "child-source") {
       metadataLines.push(rec);
       continue;

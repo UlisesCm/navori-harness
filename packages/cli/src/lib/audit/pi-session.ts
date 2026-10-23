@@ -219,7 +219,7 @@ export function parsePiSession(
           // A bare failure is not evidence of spawn. K2 must match this parent, role and call.
           ...(role !== "unknown" &&
           typeof m.toolCallId === "string" &&
-          SESSION_ID.test(m.toolCallId) &&
+          /^[A-Za-z0-9_:-]{1,256}$/.test(m.toolCallId) &&
           (m.isError === false ||
             (m.isError === true && isFailedChild(details, role, m.toolCallId, sessionId)))
             ? { spawnToolUseId: m.toolCallId }
