@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 navori-core.workspace = true
+regex.workspace = true
+serde_json = { workspace = true, features = ["raw_value", "arbitrary_precision"] }
 
 [lints]
 workspace = true
