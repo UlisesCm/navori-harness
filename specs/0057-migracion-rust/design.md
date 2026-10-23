@@ -151,7 +151,7 @@ Mediciones locales (mediana/p95 de 40 corridas):
   - markers: hash sha1/8 con `normalize` de JS e inject/remove guardados;
   - anti-rollback;
   - capa `Fs` (escritura atómica, backup, poda; D15);
-  - escritor de eventos de auditoría (D12);
+  - metadata de auditoría y bridge al escritor CLI (D12);
   - salida de UI no-TTY y prompts (D16);
   - tablas de engine y pipeline de render.
 
@@ -626,14 +626,21 @@ cada llamada.
 
 ### D12 — Escritor de eventos de auditoría, antes del primer hook que audita (R11, R19)
 
-E2 porta el **formato y la escritura de eventos de hook** que hoy hacen `_partials/audit-log.sh`,
-`audit-arm.sh` y `audit-signal.sh`. El subsistema completo `lib/audit` no entra:
+E2 porta la **metadata de eventos de hook y el bridge al escritor CLI existente** de
+`_partials/audit-log.sh`. El CLI TypeScript sigue siendo el único escritor del log:
 
-- la decisión de log activo;
-- la línea JSON del evento, serializada con D14;
-- el append con `O_APPEND`.
+- Rust detecta actividad mediante markers exactos y conserva el snapshot de inicio; un log que
+  aparece después produce `ms: 0`. El modo shadow no registra eventos.
+- El DTO cerrado conserva campos, categorías y serialización JS del shell (D14), sin contenido
+  humano. El bridge entrega argv de identidad y metadata por stdin a `audit --record-metadata`.
+- El CLI valida identidad, permisos y cabecera, asigna wire IDs y realiza el append seguro.
+  Rust no escribe logs, arms ni spool directamente. Un fallo del bridge no cambia el veredicto.
 
-El replay en modo `active` y el fuzz comparan los eventos. Los comandos `audit --arm` y
+M7 comprueba bytes contra el partial shell real y ejecuta el escritor TS real en pruebas aisladas
+(`cargo test -p navori-core --test audit --locked`). La aceptación anterior mediante replay con
+`--impl rust --audit active --only audit-writer` no era válida: el runner ignoraba esos flags y no
+tenía ese caso. El soporte real de replay/fuzz llega en M8; el fast path de spool queda pendiente.
+Los comandos `audit --arm` y
 `audit --capture-child` llegan en E6 junto con sus hooks, como entradas de manifiesto por flag
 (`{ "path": ["audit"], "flags": ["arm"] }`). El resto de `audit` queda para E8.
 
@@ -959,7 +966,7 @@ de D9.
   Integridad `file`/`impl`/`deps` (D8). Hash de marker sha1/8 con `normalize` de JS.
 - **M2 — Wiring.** `native-hook.ts` con conformidad, `nativeRunnerShell`, prólogo y brazo de Claude
   (D7). Golden independiente del wiring. T8 por engine.
-- **M3 — Auditoría.** Escritor de eventos de hook (D12).
+- **M3 — Auditoría.** Metadata de eventos de hook y bridge al escritor CLI único (D12).
 - **M4 — Herramientas.** Replay `--impl rust`, `fuzz:hooks`, modo sombra con su log y bench
   `--impl rust`. Aumento del corpus por engine. `divergences` con los 163 casos `shell-runtime`
   clasificados.

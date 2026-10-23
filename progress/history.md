@@ -1,5 +1,17 @@
 # History
 
+## 2026-10-23 16:46 Codex — Agrega metadata Rust y bridge de auditoría M7
+
+Implementa T22 en `navori-core` preservando el CLI TypeScript como único escritor del log.
+Compara bytes con el partial shell real y verifica identidad, permisos y wire IDs mediante el
+writer TS real. Corrige D12/A7: el replay anterior ignoraba los flags y no probaba audit-writer.
+No activa hooks ni escribe logs, arms o spool desde Rust. Trabajo paralelo por autorización del usuario.
+
+A7 seis pruebas verdes desde el principal; workspace Rust 47 pruebas, fmt, clippy y check:fast
+verdes. Primer full local: 10217 aprobadas, dos omitidas y timeout zsh de 300 s en 1326 s.
+Gate completo verde pendiente; el caso aislado pasó dos pruebas en 166.7 s sin alterar límites.
+Se prepara draft hacia `migration/rust`, dependiente del checkpoint #1389; sin merge ni corte.
+
 ## 2026-10-22 13:33 Codex — Protege Markdown y copias sobre rutas administradas en #1364
 
 Reconstruye M3/T5–T7 de0053 desde el candidato preservado sobre dev3e5b7257, sin M1/M2/M4 ni compresión i18n. Pi usa el hook canónico para bash/edit/write y bloquea bindings ausentes o degradados. Las tres guardas reciben un inventario exacto por target, sellado antes de interpolar; sync conserva decisiones y bases. Añade catálogo por capa y regresiones. La revisión corrigió normalización de drives, falsos positivos de consultas y el piso antirretroceso perdido entre preparación y commit diferido. Trabajo y revisión directos por petición expresa del usuario.

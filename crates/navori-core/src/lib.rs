@@ -3,6 +3,7 @@
 /// Internal prerelease of `navori-rust`, declared once in the workspace `Cargo.toml` (R25).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod audit;
 pub mod integrity;
 pub mod js_json;
 pub mod manifest;
