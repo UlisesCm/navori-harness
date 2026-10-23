@@ -28,6 +28,7 @@ import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { classify, matchesCriticalPaths, normalizeRepoPath } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
+import { parseExpected } from "./expected.ts";
 import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import { locateSpecDir } from "../spec/locate.ts";
@@ -524,7 +525,7 @@ const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature> | verify: `<cmd>` → <
 /**
  * The `verify:` clause of a `nivel-0:` line (R28): a code span of N backticks
  * (a `|` or `→` inside does not break it), a `→`/`->` separator and a non-empty,
- * free-text `<expected>`. It requires the criterion to exist, not to be good.
+ * structured or free-text `<expected>`. It validates syntax, not the criterion's substance.
  */
 const VERIFY_CLAUSE = /^verify:\s+(`+)(.+?)\1\s+(?:→|->)\s+(\S.*)$/;
 
@@ -572,8 +573,12 @@ function evaluateNivel0(
   if (verify === null || verify[2]!.trim() === "") {
     return deny(
       `\`nivel-0:\` needs a verification criterion (R28) — open with ${NIVEL0_FORM}; ` +
-        "`<expected>` is free text and must not be empty.",
+        "`<expected>` may be structured or free text and must not be empty.",
     );
+  }
+  const expected = parseExpected(verify[3]!);
+  if (expected.kind === "invalid") {
+    return deny(`\`nivel-0:\` invalid structured expected — ${expected.reason}.`);
   }
   let root: StateRoot;
   try {

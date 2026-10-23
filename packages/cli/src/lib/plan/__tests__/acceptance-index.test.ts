@@ -81,6 +81,17 @@ describe("acceptance-index", () => {
     );
     expect(capture).toHaveBeenCalledWith(cwd, slice.source);
     expect(bind).toHaveBeenCalledWith("A1", "bun check");
+    writeAcceptanceIndex(resolveStateRoot({ cwd, feature: slice.feature }));
+    expect(JSON.parse(readFileSync(join(dir, "acceptance-expected.jsonl"), "utf8"))).toEqual({
+      command: "bun check",
+      feature: slice.feature,
+      id: "A1",
+      dir,
+      binding,
+      stage: binding.stagePath,
+      expected: "exit 0",
+      spec: { kind: "exit", code: 0 },
+    });
     capture.mockImplementation(() => {
       throw new Error("stale current authority");
     });
