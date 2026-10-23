@@ -1,30 +1,47 @@
 # Sesión actual
 
-Checkpoint de `0057-migracion-rust` hasta E2/M5 en `feat/rust-0057-avance-m5`.
-Destino del PR solicitado por el usuario: `migration/rust`, creado desde la base original
-`72908547` para incluir todo el avance M1–M5 en el diff. Ejecución directa sin subagentes.
+Programa Rust (specs 0057–0060). Base remota estable: `migration/rust`; branches por spec/entrega
+y PR hacia esa base por instrucción del usuario. Paralelismo con clones autorizado.
 
-Ambas ramas ya están publicadas. La creación del PR fue bloqueada por el hook de consentimiento
-de Codex (`unsupported-or-unavailable`): exige que el humano ejecute el comando revisado.
-No se reintentó. Solicitud y descripción se preparan en `.navori/state/` para ejecución manual.
+## Trabajo activo
 
-## Estado y siguiente paso
+- PR1389: checkpoint M1–M5, abierto como draft contra migration/rust; todos los checks
+  requeridos y los seis jobs Rust verdes. No se ha mergeado.
+- M6: `feat/0057-rust-e2-m6`, worktree principal. Entrada CLI de hooks y emisión segura en Rust;
+  renderer compartido con firma exacta, selección de inventario y fallback. Registro/manifiesto
+  productivo siguen sin hooks. 62 focales TS y 54 pruebas Rust verdes, clippy/fmt verdes.
+  Revisión cerró ownership/coexist/antirollback/markers/symlinks y stamp legacy sin wrapper.
+  Full preliminar: roja del stamp y timeout doctor; fix focal verde, doctor aislado verde.
+  Oráculo final 52/0. Full final verde:10240aprobadas/2omitidas,483archivos,1369.1s,piso162/0.
+  Commitdf872f8c subido; draft pendiente de ejecución humana (request9698c747).
+- M7: `feat/0057-rust-e2-m7-audit`, worktree hermano `navori-harness-wt-0057-rust-audit`.
+  Clon implementa auditoría independiente: metadata y bridge best-effort al writer TS único,
+  sin append directo ni wire IDs propios. Seis focales iniciales verdes, incluyendo shell+jq
+  byte exacto y writer TS real. Workspace/clippy/fmt/fast y revisión verdes. Full: 10217 verdes,
+  un timeout zsh300s; aislado 2/2 verde en166.7s sin cambiar límites. Commitd62f12e8 subido;
+  creación draft pendiente de ejecución humana (request2dde538e). Full final en ejecución.
+- M8: `feat/0057-rust-e2-m8-tools`, worktree hermano `navori-harness-wt-0057-rust-tools`.
+  Replay/adapter Rust directo, bench wall-time y fuzz determinista: 57 focales y fast verdes.
+  Registro vacío, defer y auditoría active sin fixture válido fallan explícitamente.
+  T23–T25 siguen parciales hasta probar con portes reales; full de tools aún no iniciado.
 
-- E1/M1–M3 completos localmente; versión, parser/delegación, oráculo y serializador JS.
-- E1/M4: CI, controles e instalación implementados. CONTRIBUTING en tres idiomas y CI remoto
-  pendientes; el hook bloqueó la escritura shell de las guías y no se reintentó.
-- E2/M5: runner e integridad implementados y probados como bibliotecas.
-- Siguiente: E2/M6 (T20/T21), integración CLI/renderer, escritura final y fallback seguro.
-  No hay hooks Rust activos; mantener el manifiesto sin hooks hasta T26 en sombra.
-- Aviso opcional de `NAVORI_TS_CLI` inexistente: no implementado.
+## Contratos a conservar
 
-## Verificación
+- La firma file= está fuera del marker; prólogo dentro. Evita ciclo SHA1(marker)/SHA256(file).
+- Un noop previo no autoriza cambios: JSON final pasa otra vez por versión/floor/force.
+- No reabrir destinos skip/minimal ni reparar markers alterados al retirar wrappers.
+- Zsh puede devolver0 al printf con stdout cerrado: redirección explícita >&1 detecta fallo.
+- NAVORI_DELEGATED==pid da70 antes de toda ruta, incluido hook; descendiente legítimo difiere3.
+- D12 y A7 antiguos son obsoletos: replay ignora flags Rust/audit/only y no tiene audit-writer.
+  M7 preserva escritor TS único; aceptación debe probar metadata y bridge realmente.
+- Hooks con extraVars/transform no reproducidas siguen shell; argumentos Claude con expansión
+  conservan legacy para evitar doble evaluación. No activar hooks antes de sombra T26/D9.
 
-`bun check`: exit 0, 10,218 aprobadas, 2 omitidas, 481 archivos; cobertura sobre el piso.
-El fallo Pi #1386 anterior no se reprodujo.
-Oráculo posterior a M5: 52 casos, 0 diferencias.
-Antes de publicar: `bun run check:fast`, Cargo fmt/clippy/workspace tests verdes;
-instalación local comprobó que `navori` conserva ruta y SHA-256.
+## Siguiente paso
 
-El oráculo de integridad escapa U+2028/U+2029 solo en el transporte JSONL hacia Node;
-JSON.parse recupera los caracteres originales para comparar. Tiene regresión determinista.
+1. Cerrar full/oráculo de M6; marcar T20/T21 y publicar PR a migration/rust. Rama depende del
+   checkpoint PR1389; no mergearlo ni tocar dev/main sin pedido.
+2. Revisar y verificar M7 en su worktree, documentar corrección D12/A7, publicar PR separado.
+3. M4 sigue pendiente solo de CONTRIBUTING (escritura shell bloqueada; no reintentada).
+4. El host de Codex bloquea crear PRs por falta de consentimiento autenticado; preparar campos
+   revisados/solicitud canónica y pedir ejecución humana si vuelve a ocurrir. No eludirlo.

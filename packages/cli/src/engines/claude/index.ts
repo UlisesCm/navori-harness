@@ -1,4 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { finalizeNativeHooks } from "../../lib/render/native-hook-render.ts";
+import { applyNativeClaudeSettings } from "./build-settings.ts";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import { matchesLegacyFingerprint } from "../shared/legacy-plugin-script-fingerprints.ts";
@@ -1628,6 +1630,23 @@ export function prepareClaudeEngine(
       trimmedKept.push(...plan.kept.filter((k) => k.reason !== "foreign"));
     }
 
+    const nativeHooks = finalizeNativeHooks({
+      cwd,
+      engine: "claude",
+      config,
+      hooks: trimmedHarness ? [] : inventory.plan.hooks,
+      plugins: enabledPlugins,
+      pending,
+    });
+    if (!trimmedHarness)
+      applyNativeClaudeSettings(
+        cwd,
+        pending,
+        nativeHooks,
+        settingsResult.kind,
+        config.harnessVersion,
+        force,
+      );
     finalized = {
       pending: pending.map((write) => ({
         ...write,

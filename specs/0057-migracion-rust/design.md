@@ -443,6 +443,9 @@ calcula el test del job `manifest`.
 - **Panic y E/S.** El perfil release usa `panic = "unwind"`, `catch_unwind` en `main` y un
   `set_hook` que guarda el mensaje. En un hook `gating`, un panic o un error de E/S producen el
   veredicto seguro de la tabla. En un hook sin compuerta producen exit 1 más la causa (R12).
+  Si falla o entra en panic la escritura/flush final de stdout, un hook con compuerta sale con 2
+  incluso en Claude: por un canal roto ya no se puede entregar el JSON `ask`. Un advisory sale
+  con 1. El wrapper valida también su propia escritura con redirección explícita `>&1`.
 - **Payload ilegible:** Rust reproduce el veredicto del shell para ese payload (R12, segunda frase).
   El corpus y el fuzz lo prueban con payloads truncados, no-UTF-8 y vacíos.
 
@@ -470,10 +473,10 @@ integridad y el veredicto seguro se implementan una sola vez.
 
 ```sh
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ] && nv_native=$(command -v navori-rust 2>/dev/null); then
-  nv_out=$("$nv_native" hook --via-script "$0" "$@"; printf '.%s' "$?")
+  nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
   nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
   case "$nv_rc" in
-    0|1|2) printf '%s' "$nv_out"; exit "$nv_rc" ;;
+    0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
     3|126|127) : ;;
     *) <veredicto seguro de este hook y engine, renderizado como texto fijo> ;;
   esac
@@ -488,7 +491,9 @@ fi
   - **Cualquier otro código** (señal 128+n, abort, 101) produce el veredicto seguro de D6, escrito
     como texto fijo por el render. No depende del binario.
 - **Prólogo (Codex, Pi y cualquier `bash script`).** Va después del shebang y dentro de
-  `<hook>-base`, junto con la línea de integridad de D8. El comando registrado de Codex no cambia,
+  `<hook>-base`. La línea de integridad D8 queda fuera del marker, inmediatamente antes del bloque
+  base: si `file=` participara en su SHA-1, habría un ciclo entre el hash del marker y el del archivo.
+  El comando registrado de Codex no cambia,
   así que se conserva el trust, y el puente de Pi no se toca.
 - **Brazo de Claude.** El mismo fragmento con `--via-command PreToolUse "$f"` se antepone al comando
   actual de `claudeHookCommand`. Con 3/126/127 la ejecución sigue al `bash -n` y al `exec bash` de
@@ -502,6 +507,15 @@ fi
   - sin valor, modo automático.
 - **Nombre del binario:** `NATIVE_HOOK_BIN` vale `navori-rust` durante la convivencia y cambia en el
   corte (D17).
+- **Finalización tras los plugins.** `native-hook-render.ts` compara el script completo contra su
+  referencia fresca antes de firmar, y solo procesa destinos seleccionados por el inventario.
+  Los scripts hermanos de extensiones alojadas deben figurar en `deps`. La selección de settings
+  (`skip` y scope minimal incluidos), su tracking coexist y el anti-rollback se conservan al
+  introducir el brazo nativo; un `noop` anterior no autoriza un cambio posterior.
+- **Diferimientos conservadores de M6.** Hooks que necesitan `transform`/`extraVars` compiladas
+  distintas de la referencia fresca siguen en shell hasta portar su constructor específico.
+  Los argumentos Claude con expansiones shell conservan el comando legacy para no evaluarlos
+  dos veces al diferir. El manifiesto y el registro Rust de producción siguen sin hooks hasta T26.
 - **Descartado:**
   - la forma exec de Claude (`args`): no admite fallback;
   - cambiar el comando de Codex: desaprueba todos los hooks;
@@ -524,6 +538,7 @@ cada llamada.
   Si el usuario editó aunque sea el comentario de ejemplo, ese hook queda en shell. Es
   conservador, está documentado, y `NAVORI_RUST_TRACE=1` dice el motivo.
 - **Línea de integridad**, escrita por el render en el prólogo:
+  Se almacena como comentario externo antes del marker base, sin alterar el hash normal de markers.
 
   ```sh
   # navori:native-hook v=1 file=sha256:<64 hex> impl=sha256:<64 hex>

@@ -237,6 +237,7 @@ version = "0.13.0-rust.1"
 dependencies = [
  "lexopt",
  "navori-core",
+ "navori-hooks",
  "serde_json",
 ]
 

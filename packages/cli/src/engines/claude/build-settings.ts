@@ -9,6 +9,15 @@ import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { filterInventory, type FilteredInventory } from "../shared/native-overlap.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { deepMerge } from "./deep-merge.ts";
+import {
+  nativePathContained,
+  nativeRunnerShell,
+  type NativeHook,
+} from "../../lib/render/native-hook.ts";
+import type { HookExtensionPending } from "../shared/hook-extension.ts";
+import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { planStampedJson } from "../../lib/primitives/json-ownership.ts";
 
 /**
  * Build the final `.claude/settings.json` object the engine adapter will
@@ -124,8 +133,26 @@ const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
  * The parse check costs ~3ms on the largest hook (guard-destructive, ~1.4k
  * lines). The command is POSIX sh, and zsh-safe (#391).
  */
-export function claudeHookCommand(event: string, scriptRel: string, args?: string): string {
-  const run = `f="$CLAUDE_PROJECT_DIR/${scriptRel}"; bash -n "$f" 2>/dev/null && exec bash "$f"${args ? ` ${args}` : ""}; `;
+export function claudeHookCommand(
+  event: string,
+  scriptRel: string,
+  args?: string,
+  native?: NativeHook,
+): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  // Expanding arbitrary shell arguments twice would change stdin or side effects after defer.
+  const descriptor =
+    args && !/^[A-Za-z0-9._/-]+(?: [A-Za-z0-9._/-]+)*$/.test(args) ? undefined : native;
+  const nativeArm = descriptor
+    ? nativeRunnerShell({
+        engine: "claude",
+        hook: scriptRel.split("/").at(-1)?.replace(/\.sh$/, "") ?? scriptRel,
+        descriptor: { ...descriptor, gating: descriptor.gating && event === "PreToolUse" },
+        invocation: `--via-command ${quote(event)} "$f"`,
+        args,
+      }) + "\n"
+    : "";
+  const run = `f="$CLAUDE_PROJECT_DIR/${scriptRel}"; ${nativeArm}bash -n "$f" 2>/dev/null && exec bash "$f"${args ? ` ${args}` : ""}; `;
   const reason = `navori: ${scriptRel} cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply`;
   if (event === "PreToolUse") {
     const decision = JSON.stringify({
@@ -138,6 +165,104 @@ export function claudeHookCommand(event: string, scriptRel: string, args?: strin
     return `${run}printf '%s\\n' '${decision}'`;
   }
   return `${run}echo '${reason}' >&2; exit 1`;
+}
+
+/** Update only recognizable generated commands after final hook conformity is known. */
+export function applyNativeClaudeSettings(
+  cwd: string,
+  pending: HookExtensionPending[],
+  eligible: ReadonlyMap<string, NativeHook>,
+  decision: "noop" | "write" | "skip" = "skip",
+  floor?: string,
+  force = false,
+): void {
+  const path = join(cwd, ".claude/settings.json");
+  if (decision === "skip" || !nativePathContained(cwd, path)) return;
+  const planned = pending.find((entry: HookExtensionPending): boolean => entry.path === path);
+  const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
+  const content = planned?.content ?? existing;
+  if (
+    content === null ||
+    (eligible.size === 0 && !content.includes("# navori:native-runtime start"))
+  )
+    return;
+  const record = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  let settings: unknown;
+  try {
+    settings = JSON.parse(content) as unknown;
+  } catch {
+    return;
+  }
+  if (!record(settings) || !record(settings.hooks)) return;
+  let changed = false;
+  const replacements = new Map<string, string>();
+  for (const [event, buckets] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(buckets)) continue;
+    for (const bucket of buckets as unknown[]) {
+      if (!record(bucket) || !Array.isArray(bucket.hooks)) continue;
+      const seen = new Set<string>();
+      bucket.hooks = (bucket.hooks as unknown[]).filter((entry: unknown): boolean => {
+        if (!record(entry) || typeof entry.command !== "string") return true;
+        const command = entry.command;
+        const pathMatch = /^f="\$CLAUDE_PROJECT_DIR\/([^"\n]+)"; /.exec(command);
+        const argsMatch = /exec bash "\$f"([^;]*); /.exec(command);
+        if (!pathMatch?.[1] || !argsMatch) return true;
+        const script = pathMatch[1];
+        const args = argsMatch[1]?.trim() || undefined;
+        const legacy = claudeHookCommand(event, script, args);
+        const variants: string[] = [legacy];
+        for (const mode of ["shadow", "active"] as const)
+          for (const gating of [false, true]) {
+            variants.push(
+              claudeHookCommand(event, script, args, {
+                mode,
+                gating,
+                blocks: {},
+                deps: {},
+                impl: `sha256:${"0".repeat(64)}`,
+              }),
+            );
+          }
+        if (!variants.includes(command)) return true;
+        const desired = claudeHookCommand(event, script, args, eligible.get(script));
+        const key = JSON.stringify({ ...entry, command: desired });
+        changed ||= desired !== command;
+        replacements.set(command, desired);
+        entry.command = desired;
+        if (seen.has(key)) {
+          changed = true;
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+    }
+  }
+  if (!changed) return;
+  const ownership = settings.$navori;
+  if (record(ownership)) {
+    if (Array.isArray(ownership.managedHooks)) {
+      ownership.managedHooks = [
+        ...new Set(
+          (ownership.managedHooks as unknown[]).map((value: unknown): unknown =>
+            typeof value === "string" ? (replacements.get(value) ?? value) : value,
+          ),
+        ),
+      ];
+    }
+    if (ownership.managed === true) ownership.version = readCliVersion();
+  }
+  let output = JSON.stringify(settings, null, 2) + "\n";
+  if (record(ownership) && ownership.managed === true && existing !== null) {
+    const checked = planStampedJson(existing, output, readCliVersion(), floor, force);
+    if (checked.kind === "downgrade-skipped") return;
+    output = checked.kind === "noop" ? existing : checked.content;
+  }
+  if (output === existing) {
+    if (planned) pending.splice(pending.indexOf(planned), 1);
+  } else if (planned) planned.content = output;
+  else pending.push({ path, relPath: ".claude/settings.json", content: output, status: "updated" });
 }
 
 /** `bash "$CLAUDE_PROJECT_DIR/<path>" [args]`, the plugin manifest's command shape. */

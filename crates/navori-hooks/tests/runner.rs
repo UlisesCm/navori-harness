@@ -1,8 +1,8 @@
 //! Contract tests for the buffered runtime (spec 0057 D6).
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
-use navori_hooks::runner::{Context, Engine, Evaluation, Failure, Verdict, run};
+use navori_hooks::runner::{Context, Engine, Evaluation, Failure, Verdict, emit, run};
 
 fn context(engine: Engine, gating: bool) -> Context<'static> {
     Context {
@@ -152,4 +152,83 @@ fn non_gating_panics_exit_one_and_captures_do_not_leak_between_calls() {
     );
     assert_eq!(success.code(), 0);
     assert_eq!(success.stderr(), b"complete stderr\n");
+}
+
+struct BrokenWriter {
+    panic: bool,
+    partial: bool,
+    bytes: Vec<u8>,
+}
+
+impl Write for BrokenWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.partial && self.bytes.is_empty() && !bytes.is_empty() {
+            self.bytes.push(bytes[0]);
+            return Ok(1);
+        }
+        if self.panic {
+            panic!("fixture writer panic");
+        }
+        Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "fixture closed output",
+        ))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+// Covers: R12
+#[test]
+fn writer_failure_or_panic_never_permits_a_partial_gating_result() {
+    for engine in [Engine::Claude, Engine::Codex, Engine::Pi] {
+        for gating in [false, true] {
+            for panic in [false, true] {
+                let ctx = context(engine, gating);
+                let response = run(
+                    ctx,
+                    &mut &b"{}"[..],
+                    || Ok(true),
+                    |_| Ok(output(Verdict::Permit)),
+                );
+                let mut writer = BrokenWriter {
+                    panic,
+                    partial: true,
+                    bytes: Vec::new(),
+                };
+                let mut stderr = Vec::new();
+                assert_eq!(
+                    emit(ctx, &response, &mut writer, &mut stderr),
+                    if gating { 2 } else { 1 }
+                );
+                assert_eq!(writer.bytes.len(), 1);
+                assert!(String::from_utf8_lossy(&stderr).contains("could not publish"));
+            }
+        }
+    }
+}
+
+// Covers: R12
+#[test]
+fn emission_preserves_bytes_and_a_broken_diagnostic_channel_is_safe() {
+    let ctx = context(Engine::Codex, true);
+    let response = run(
+        ctx,
+        &mut &b"{}"[..],
+        || Ok(true),
+        |_| Ok(output(Verdict::Block)),
+    );
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    assert_eq!(emit(ctx, &response, &mut stdout, &mut stderr), 2);
+    assert_eq!(stdout, b"complete stdout\n");
+    assert_eq!(stderr, b"complete stderr\n");
+    for panic in [false, true] {
+        let mut stderr = BrokenWriter {
+            panic,
+            partial: false,
+            bytes: Vec::new(),
+        };
+        assert_eq!(emit(ctx, &response, &mut Vec::new(), &mut stderr), 2);
+    }
 }

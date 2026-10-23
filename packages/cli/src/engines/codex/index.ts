@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { finalizeNativeHooks } from "../../lib/render/native-hook-render.ts";
 import { join, relative, resolve, sep } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
@@ -686,6 +687,17 @@ export function prepareCodexEngine(
       }
     }
 
+    const nativeInstalled = rootScope ? new Set<string>() : codexInstalledScripts(config, plugins);
+    finalizeNativeHooks({
+      cwd,
+      engine: "codex",
+      config,
+      hooks: plan.hooks.filter((hook: PlannedHook): boolean =>
+        nativeInstalled.has(`.codex/hooks/${hook.id}.sh`),
+      ),
+      plugins,
+      pending,
+    });
     finalized = { pending, removals, skipped, kept, collisions };
     return finalized;
   };

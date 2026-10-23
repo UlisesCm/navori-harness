@@ -469,3 +469,20 @@ Prepara el PR de todo el avance de la spec 0057 hasta M5 hacia migration/rust, p
 Push de migration/rust y feat/rust-0057-avance-m5 confirmado. El hook de consentimiento Codex bloqueó crear el PR (unsupported-or-unavailable); exige ejecución humana del comando revisado. Sin reintentos ni rutas alternativas de publicación del PR.
 
 Verificación de la sesión: bun check exit 0, 10218 aprobadas y 2 omitidas en 481 archivos; cobertura sobre el piso. Oráculo posterior a M5: 52 casos y 0 diferencias. Prepublicación: check:fast, cargo fmt, clippy con warnings denegados y pruebas del workspace verdes. Instalación local conserva ruta y SHA-256 de navori. Siguiente pieza: M6 (T20/T21), wiring CLI/renderer y fallback seguro.
+
+## 2026-10-23 16:53 Codex — Conecta runtime Rust y wrappers de convivencia M6
+
+Agrega entrada interna de hooks con integridad antes de stdin, emisión segura y wrappers de
+Claude/Codex/Pi. El renderer firma sólo scripts conformes y preserva ownership, coexistencia,
+markers alterados, selección de inventario y protección contra downgrade. Golden manual y
+regresiones cubren fallos, señales, stdout cerrado y symlinks. Registro productivo vacío.
+Paralelismo con clones y ramas por entrega autorizado; base remota estable migration/rust.
+
+Verificación: 62 focales TS, 54 pruebas Rust, fmt/clippy verdes; oráculo final52casos/0diferencias.
+Full preliminar10238aprobadas/2omitidas: reprodujo stamp legacy sin wrapper y timeout doctor.
+Stamp corregido y revisado (12 focales verdes, tres engines); doctor aislado verde12.8s.
+Full final con dos workers exit0:10240aprobadas/2omitidas,483archivos,1369.1s; cobertura
+87.87/86.17/90.51/80.95%,piso162/0;bundle1637.7/1650KiB. T20/T21 cerrados.
+Commitdf872f8c subido; draft separado de M7/M8 pendiente de ejecución humana por bloqueo del
+host (request9698c747), dependiente de PR1389. Sin merge, activación de hooks ni corte.
+M4 conserva CONTRIBUTING pendiente.

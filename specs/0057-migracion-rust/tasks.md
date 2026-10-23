@@ -1,6 +1,6 @@
 # Migración de navori a Rust — Tasks
 
-**Estado:** E1 en progreso · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
+**Estado:** E2 en progreso; documentación de E1 pendiente · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
 "Fases del programa"): tres entregas, cada una un PR contra `migration/rust`. El LOC es una
 estimación, no una medición.
 
@@ -54,7 +54,7 @@ clippy y pruebas del workspace verdes. Ejecución directa por instrucción del u
 Implementados localmente T13–T16 y la parte CI de T17 en `.github/workflows/rust.yml`,
 los tres scripts `rust-*-check.mjs` / `rust-sync-age.mjs`, sus pruebas y `ci.yml`.
 Instalación local comprobada: `navori-rust` tiene ruta propia y `navori` conserva ruta y hash.
-Los jobs remotos aún no se han ejecutado; M4 sigue abierto. Las guías CONTRIBUTING de T17 no
+Los seis jobs remotos de Rust pasaron en PR1389; M4 sigue abierto por documentación. Las guías CONTRIBUTING de T17 no
 se editaron: `guard-destructive` bloqueó la escritura shell como archivo gestionado.
 - **A4** [observable] — `rust.yml` corre todos sus jobs y la instalación local no toca `navori` · `cargo install --path crates/navori-cli --locked && command -v navori-rust && command -v navori` → dos rutas distintas; la de `navori` igual que antes de instalar
 - [ ] **T13** (R15) — `.github/workflows/rust.yml` job `quality` (fmt, clippy `-D warnings`, test) para PRs y pushes a `migration/rust`, sin `schedule` · effect: behavior · test: `.github/workflows/rust.yml`::"quality"
@@ -77,9 +77,17 @@ Las propiedades escapan U+2028/U+2029 solo en el transporte JSONL hacia Node; no
 - [x] **T19** (R11, R13) — integridad `file`/`impl`/`deps` con sha256 de bytes exactos y hash de marker sha1/8 con `normalize` de JS (D8) · effect: behavior · test: `crates/navori-core/tests/integrity.rs`::"CRLF, espacio final o script hermano editado difieren al shell"
 
 ### M6 — Wiring de convivencia
+
+Implementado en `feat/0057-rust-e2-m6`, con Rust y TS divididos entre principal/clon y revisión
+independiente. Entrada interna de hooks, validación antes de stdin, wrappers compartidos y
+golden manual. 62 pruebas focalizadas verdes; Rust 54 casos, fmt y clippy verdes. Oráculo final
+52 casos sin diferencias. El full preliminar reprodujo el stamp legacy sin wrapper (corregido)
+y un timeout de doctor (caso aislado verde). Full final verde: 10240 aprobadas, dos omitidas,
+483 archivos en1369.1s; cobertura87.87/86.17/90.51/80.95%, piso162/0 y bundle1637.7/1650KiB.
+No hay hooks portados/activos todavía.
 - **A6** [observable] — ninguna salida anómala del binario termina en permitir · `bun run vitest run src/__tests__/native-hook-failclosed.test.ts` → exit 0 en Claude, Codex y Pi
-- [ ] **T20** (R13) — `packages/cli/src/lib/render/native-hook.ts` (`nativeRunnerShell`), puntos de llamada en `claudeHookCommand` y `expandHookIncludes`; sin hooks en el manifiesto la salida es idéntica a `dev` (D7) · effect: behavior · test: `packages/cli/src/__tests__/native-hook.test.ts`::"manifiesto sin hooks renderiza igual que dev"
-- [ ] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
+- [x] **T20** (R13) — `packages/cli/src/lib/render/native-hook.ts` (`nativeRunnerShell`), puntos de llamada en `claudeHookCommand` y `expandHookIncludes`; sin hooks en el manifiesto la salida es idéntica a `dev` (D7) · effect: behavior · test: `packages/cli/src/__tests__/native-hook.test.ts`::"manifiesto sin hooks renderiza igual que dev"
+- [x] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
 
 ### M7 — Auditoría
 - **A7** [observable] — el evento de auditoría de Rust es igual al de shell · `node scripts/js/hook-verdict-replay.mjs --impl rust --audit active --only audit-writer` → exit 0
