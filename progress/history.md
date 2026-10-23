@@ -12,6 +12,11 @@ verdes. Primer full local: 10217 aprobadas, dos omitidas y timeout zsh de 300 s 
 Gate completo verde pendiente; el caso aislado pasó dos pruebas en 166.7 s sin alterar límites.
 Se prepara draft hacia `migration/rust`, dependiente del checkpoint #1389; sin merge ni corte.
 
+PR1390 abierto. CI detectó que el bridge de prueba exigía Bun aunque Rustquality sólo provee
+Node24. Reproducido con PATH sinBun; el bridge usa ahora Node24 con transform-types para los
+parameter properties del writer TS real. Assertions intactos; workspace47,6audit,fmt/clippy
+verdes sinBun. Se sube la corrección al mismo PR; CI verde aún pendiente de confirmar.
+
 ## 2026-10-22 13:33 Codex — Protege Markdown y copias sobre rutas administradas en #1364
 
 Reconstruye M3/T5–T7 de0053 desde el candidato preservado sobre dev3e5b7257, sin M1/M2/M4 ni compresión i18n. Pi usa el hook canónico para bash/edit/write y bloquea bindings ausentes o degradados. Las tres guardas reciben un inventario exacto por target, sellado antes de interpolar; sync conserva decisiones y bases. Añade catálogo por capa y regresiones. La revisión corrigió normalización de drives, falsos positivos de consultas y el piso antirretroceso perdido entre preparación y commit diferido. Trabajo y revisión directos por petición expresa del usuario.
