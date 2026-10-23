@@ -128,6 +128,45 @@ const report = (sessions = [parse()]) =>
   buildReport(sessions, { repo: "repo", version: "0.1.0", catalog: CATALOG });
 
 describe("Pi session audit (spec 0047 R12)", () => {
+  // Covers: R3 — a native refusal before spawn is a denial, never a failed child.
+  it("counts native denials without retaining their text or manufacturing a dispatch", () => {
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        line(
+          result(1, "navori_subagent", {
+            isError: true,
+            content: [
+              { type: "text", text: "Navori plan gate unavailable; subagent blocked\n" + OUTPUT },
+            ],
+          }),
+        ) +
+        line(
+          result(2, "powershell", {
+            isError: true,
+            content: [{ type: "text", text: "Navori disabled Pi's powershell tool: " + OUTPUT }],
+          }),
+        ) +
+        line(
+          result(3, "bash", {
+            isError: true,
+            content: [{ type: "text", text: "Navori disabled Pi's powershell tool: " + OUTPUT }],
+          }),
+        ) +
+        line(
+          result(4, "powershell", {
+            isError: false,
+            content: [{ type: "text", text: "Navori disabled Pi's powershell tool: " + OUTPUT }],
+          }),
+        ),
+    );
+    const parsed = parse();
+    expect(parsed.piExtensionDenials).toEqual({ "plan-gate": 1, powershell: 1 });
+    expect(parsed.agents).toEqual([]);
+    expect(JSON.stringify(parsed)).not.toContain(OUTPUT);
+    expect(JSON.stringify(publishReport(report([parsed])))).not.toContain(OUTPUT);
+  });
+
   // Covers: R3 — overlapping children of one role must never be attributed by role or time window.
   it("joins hooks and CLI events to exact Pi invocations while preserving public ordinal IDs", () => {
     writeFileSync(
@@ -647,6 +686,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
         line(result(1, "navori_subagent", { ...failed, toolCallId: "1" })),
     );
     expect(parse().agents[0]!.spawnToolUseId).toBe("1");
+    expect(parse().agents[0]!.piOutcome).toBe("failed");
     const published = JSON.stringify(publishReport(report()));
     expect(published).not.toContain("exited 2");
     expect(parse().agents[0]).not.toHaveProperty("parentSession");

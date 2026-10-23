@@ -1,8 +1,7 @@
 # Pi: igualar los resultados de Claude — Tasks
 
-**Estado:** scaffold del 2026-10-14 (requirements con D-U1..D-U6, design revisado tras el challenge del
-auditor B1–B2, C1–C6). Ninguna tarea iniciada. Este PR publica solo la spec; la implementación requiere su
-propio workplan clasificado y aprobado.
+**Estado:** M5 implementado en #1361; M6 y M7 siguen pendientes. Las casillas de los demás milestones
+conservan su alcance propio; el cierre de M5 no publica los candidatos locales de M1, M2 o M4.
 
 Reglas de ejecución:
 
@@ -96,9 +95,9 @@ Estimated LOC: 3200
 
 ### M5 — Hijos atribuibles y razón del plan gate visible
 
-- **A5** [observable] — dos hijos concurrentes y uno fallido aparecen como tres dispatches distinguibles; el
+- **A5** [observable] — dos hijos seriales y uno fallido aparecen como tres dispatches distinguibles; el
   padre como proceso `pi` real recibe la razón del plan gate ·
-  `cd packages/cli && bun run test src/engines/pi/__tests__/first-class-audit.test.ts src/engines/pi/__tests__/first-class-e2e.test.ts`
+  `cd packages/cli && bun run test src/engines/pi/__tests__/first-class-audit.test.ts src/engines/pi/__tests__/first-class-e2e.test.ts src/engines/pi/__tests__/denials.test.ts`
   → exit 0, 0 failed
 - [x] **T9** (R3) — `runChild` exporta `NAVORI_PI_PARENT_SESSION`, `NAVORI_PI_CHILD_ID`,
       `NAVORI_AUDIT_HOST=pi`, `NAVORI_AUDIT_SESSION_ID` y `NAVORI_AUDIT_AGENT_ID`; `bridgePayload` usa la
@@ -109,21 +108,31 @@ Estimated LOC: 3200
         eventos CLI y evidencia de aceptación. La prueba SDK/CLI conserva IDs nativos con `:`;
         el lector sólo atribuye invocaciones únicas confirmadas por el transcript y conserva IDs
         públicos ordinales. El writer Pi usa el log privado existente; no crea spool ni actores.
-- [ ] **T10** (R3) — `execute` de `navori_subagent` devuelve `isError` con `details` (K2: `agentId`,
+- [x] **T10** (R3) — `execute` de `navori_subagent` devuelve `isError` con `details` (K2: `agentId`,
       `parentSession`, `head`, `worktreeTree`, `handoff`, `outcome`, `failure`) en toda falla posterior al spawn;
       `engines/pi/denials.ts` con `PI_EXTENSION_DENIALS` · effect: behavior · test:
       `engines/pi/__tests__/first-class-audit.test.ts`::"un hijo que falla tras el spawn cuenta como dispatch
       failed con su diagnóstico"
-      - Avance #1361: resultado K2 para éxito y fallas posteriores al spawn, incluidos cancelación,
+      - Verificado #1361: resultado K2 para éxito y fallas posteriores al spawn, incluidos cancelación,
         timeout, JSONL inválido, salida no cero, fallback de aprobación y handoff inválido. El lector
         correlaciona fallas sólo con K2 completo que coincide con padre, rol e invocación; no publica
-        diagnósticos ni metadatos de Git. Faltan el catálogo `PI_EXTENSION_DENIALS` y A5 completo;
-        M5 sigue pendiente.
-- [ ] **T11** (R4) — `runNavori` captura stderr acotado; `checkDispatch` lanza el texto exacto de
-      `navori plan gate`; `ENOENT` de `navori` da el mensaje de PATH; fase e2e con el padre como proceso
+        diagnósticos ni metadatos de Git. `PI_EXTENSION_DENIALS` comparte los prefijos entre la
+        extensión renderizada y el lector; sólo conserva IDs de control y conteos. Las denegaciones
+        anteriores al spawn no crean hijos; el resultado de un hijo confirmado conserva `completed`
+        o `failed`. La prueba real SDK/CLI verifica dos éxitos seriales y una falla con sus propios
+        hooks y eventos CLI. La concurrencia sigue cubierta con procesos simulados, sin afirmar
+        medición paralela real; esta aceptación serial sigue el alcance de #1361.
+- [x] **T11** (R4) — `runNavori` captura stderr acotado; `checkDispatch` entrega una razón conocida
+      reconstruida o un diagnóstico genérico seguro; `ENOENT` de `navori` da el mensaje de PATH; fase e2e con el padre como proceso
       `pi --mode json -p` y `harness.planTiers: true` · effect: behavior · test:
       `engines/pi/__tests__/first-class-e2e.test.ts`::"padre pi real sin plan aprobado recibe BLOCKED by
       plan-gate con la razón y con plan verde el hijo corre"
+      - Verificado #1361: `ENOENT` anterior al spawn identifica `navori` ausente en PATH sin publicar
+        detalles del sistema; errores de permisos o posteriores al spawn conservan el diagnóstico
+        genérico. Cuatro casos con padre `pi --mode json -p` real y modelo faux verifican PATH ausente,
+        plan inexistente, apertura incompatible con el workplan y plan aprobado que ejecuta un hijo
+        Pi real con handoff válido. Los tres rechazos prueban que ningún hijo arranca. El texto de
+        stderr no se publica de forma arbitraria ni se usa para autorizar actores.
 
 ### M6 — Comparación por engine en `navori audit`
 
