@@ -5,6 +5,7 @@ pub mod delegate;
 pub mod help;
 pub mod hook;
 pub mod parser;
+pub mod shadow;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
