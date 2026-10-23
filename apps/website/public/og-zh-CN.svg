@@ -31,12 +31,11 @@
             letter-spacing="3.4" fill="#64748b">开源 · 6 种引擎</text>
     </g>
 
-    <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
-          font-size="132" fill="url(#word)">navori</text>
+    <text x="0" y="265" font-family="Helvetica, Arial, sans-serif" font-size="100" font-weight="600" letter-spacing="-4" fill="#0f172a">navori</text>
 
     <g font-family="Helvetica, Arial, sans-serif" font-size="31" font-weight="500" fill="#0f172a">
-      <text x="4" y="332">多智能体 harness</text>
-      <text x="4" y="374">适用于任何代码仓库。</text>
+      <text x="4" y="332">AI 负责编写代码，</text>
+      <text x="4" y="374">navori 为它做好准备。</text>
     </g>
 
     <rect x="4" y="416" width="118" height="3" rx="1.5" fill="url(#word)"/>
@@ -76,5 +75,5 @@
     github.com/UlisesCm/navori-harness
   </text>
   <text x="1124" y="600" text-anchor="end" font-family="ui-monospace, monospace"
-        font-size="18" fill="#64748b">MIT · Node &gt;=22.12 · v0.12.2</text>
+        font-size="18" fill="#64748b">MIT · Node &gt;=22.12 · v0.12.3</text>
 </svg>

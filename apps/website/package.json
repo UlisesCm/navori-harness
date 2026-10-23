@@ -8,6 +8,7 @@
     "start": "astro dev",
     "build": "astro build && bun scripts/check-i18n.ts",
     "preview": "astro preview",
+    "assets:brand": "node scripts/gen-brand.mjs && node scripts/gen-og.mjs",
     "astro": "astro"
   },
   "dependencies": {

@@ -8,8 +8,8 @@
 
 | Skill 集合 | 支持的依赖/版本 | 官方来源 | 触发条件 | 验证证据 |
 |---|---|---|---|---|
-| Core：`verify-before-done`、`debug-failure`、`review-diff`、`security-invariants`、`locate-code` | Harness CLI 0.12.2 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
-| 工作流：`resolve-ticket`、`solution-design`、`spec-bootstrap`、`dominio`、`follow-up-prs` | Harness CLI 0.12.2 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
+| Core：`verify-before-done`、`debug-failure`、`review-diff`、`security-invariants`、`locate-code` | Harness CLI 0.12.3 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
+| 工作流：`resolve-ticket`、`solution-design`、`spec-bootstrap`、`dominio`、`follow-up-prs` | Harness CLI 0.12.3 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
 | `zod-validation` | Zod 4.4.3 | https://zod.dev | 信任边界验证 | 锁定的包及片段回归 |
 | `vitest` | Vitest 5.0.1 | https://vitest.dev | Vitest 测试 | 锁定的包及片段回归 |
 | `citty` | Citty 0.1.6 | https://github.com/unjs/citty | Citty CLI 变更 | 锁定的声明回归 |

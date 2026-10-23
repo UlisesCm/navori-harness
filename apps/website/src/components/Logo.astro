@@ -1,68 +1,10 @@
 ---
 import { getLangFromUrl, localizedPath, useTranslations } from "../i18n/utils";
-
-interface Props {
-  size?: number;
-  withWordmark?: boolean;
-  class?: string;
-}
-const { size = 28, withWordmark = true, class: className = "" } = Astro.props;
+interface Props { size?: number; withWordmark?: boolean; class?: string; }
+const { class: className = "" } = Astro.props;
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
-const homeHref = localizedPath(lang, "/");
 ---
-
-<a
-  href={homeHref}
-  class:list={["inline-flex items-center gap-2.5 group", className]}
-  aria-label={t("logo.home")}
->
-  <span
-    class="relative inline-flex items-center justify-center rounded-md"
-    style={`width:${size}px;height:${size}px;`}
-  >
-    <svg
-      viewBox="0 0 32 32"
-      width={size}
-      height={size}
-      fill="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="navori-mark" x1="0" y1="0" x2="32" y2="32">
-          <stop offset="0" stop-color="var(--color-sky-500)" />
-          <stop offset="1" stop-color="var(--color-violet-600)" />
-        </linearGradient>
-      </defs>
-      <rect
-        x="1.5"
-        y="1.5"
-        width="29"
-        height="29"
-        rx="7"
-        fill="url(#navori-mark)"
-      />
-      <path
-        d="M9 22 L9 10 L16 19 L16 10 M19 10 L23 22 L23 10"
-        stroke="white"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        fill="none"
-      />
-    </svg>
-  </span>
-  {
-    withWordmark && (
-      <span class="flex items-center gap-1.5">
-        <span class="font-sans font-semibold tracking-tight text-[15px]">
-          navori
-        </span>
-        <span class="hidden sm:inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300"
-          style="border-color: var(--color-border-soft);">
-          {t("logo.label")}
-        </span>
-      </span>
-    )
-  }
+<a href={localizedPath(lang, "/")} class:list={["brand-logo inline-flex items-center", className]} aria-label={t("logo.home")}>
+  <span class="brand-name">navori</span>
 </a>

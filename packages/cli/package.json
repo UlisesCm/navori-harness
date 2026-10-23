@@ -1,6 +1,6 @@
 {
   "name": "navori",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
   "type": "module",
   "bin": {
@@ -55,7 +55,7 @@
     "@navori/plugin-engram": "workspace:*",
     "@navori/plugin-gh": "workspace:*",
     "@navori/plugin-tgrep": "workspace:*",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^5.0.1",
     "citty": "^0.1.6",
     "picocolors": "^1.1.1",
