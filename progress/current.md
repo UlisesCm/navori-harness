@@ -1,9 +1,21 @@
 # Sesión actual
 
-#1361/T9, rama fix/1361-pi-event-correlation desde origin/dev e9e556f4. Correlación exacta de hijos Pi en K2, hooks, eventos CLI y evidencia, incluidos IDs nativos con `:`. Trabajo directo por solicitud del usuario, sin subagentes.
+Spec 0057-migracion-rust (fase 1 del programa de migración a Rust), rama `migration/rust` en el
+worktree `navori-harness-wt-0057-rust`, al día con `origin/dev` 72908547. Workplan
+`0057-migracion-rust-e1` (nivel 3, M1–M4) aprobado por el usuario. Sin commits ni push todavía; la
+rama no existe en GitHub.
 
 ## Siguiente paso
 
-Gate completo `bun run check` verde: 10184 aprobadas, 2 omitidas, 476 archivos, 946s; piso de cobertura 160 módulos sin excepciones; bundle 1626.2/1650KiB. Siguiente: abrir PR normal hacia dev con `.navori/state/1361-events-open-pr.sh`; creación automática bloqueada por consentimiento del host, no reintentar.
+M1 implementado y APPROVED en ronda 2 (`review_0057-migracion-rust-e1-m1.md`, recibo firmado). Falta:
 
-T10 (catálogo de denegaciones), T11 y A5 completo, M6–M7 siguen pendientes; no cerrar #1361. Pi mantiene startup capture y spool deshabilitados; la correlación no concede autoridad. Prueba SDK/CLI con modelo simulado, sin credenciales ni inferencia viva. Cambios locales de #1326 preservados en el checkout principal; #1367 sigue apartado por petición del usuario.
+1. Correr exacto `cargo build --locked -p navori-cli && ./target/debug/navori-rust --version` y luego
+   `navori plan update 0057-migracion-rust-e1 --progress A1=cumplido` (la sesión anterior no tenía
+   rustup en el PATH; ahora está en `~/.zshrc`).
+2. `navori handoff log-review 0057-migracion-rust-e1-m1` y commit de M1 vía `publisher`
+   (incluye los docs de la spec; sin PR hasta cerrar E1).
+3. M2 (delegación) con encargo `spec: 0057-migracion-rust E1 M2`.
+
+`navori gate full` sale 1 solo por `pi/first-class-e2e.test.ts`, preexistente en `dev` (#1386). La
+versión interna `0.13.0-rust.<n>` vive solo en el `Cargo.toml` del workspace; `packages/cli` conserva
+la de `dev`. No usar `navori-rust` en repos reales.

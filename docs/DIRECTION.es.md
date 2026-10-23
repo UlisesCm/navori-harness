@@ -59,8 +59,8 @@ oculta: `navori.config.json` sigue siendo la fuente de verdad del harness.
 
 Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo cambie:
 
-- **Popularizar / branding / marketing / monetización / i18n del producto / control plane
-  en Rust.** navori es tool-for-self, no un producto de mercado (Spec 0003).
+- **Popularizar / branding / marketing / monetización / i18n del producto.**
+  navori es tool-for-self, no un producto de mercado (Spec 0003).
 - **Ecosistema público formalizado de plugins.** Los plugins son bundles internos, no un
   marketplace.
 - **Arquitectura de instalación selectiva** estilo otras herramientas.
@@ -84,6 +84,29 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
 - **Piso de doctrina por máquina en `~/.claude`** (capa global, Spec 0010). No se adoptó: costaba
   ~5.5-6k LOC y se retiró con la Spec 0046; las sesiones fuera de un repo con navori quedan sin
   harness a propósito.
+
+## Migración a Rust
+
+navori se migra de TypeScript a Rust, subcomando por subcomando, en la rama de larga vida
+`migration/rust` ([spec 0057](../specs/0057-migracion-rust/requirements.md)). La no-meta anterior
+"control plane en Rust" ya no aplica. La migración se acota con estas reglas:
+
+- **La sincronización es de un solo sentido hasta el corte.** `dev` entra a `migration/rust` por
+  merge, nunca por rebase. Nada regresa a `dev`, ni siquiera un cherry-pick.
+- **npm y `dev` siguen solo en TypeScript.** El paquete npm se publica únicamente desde el build TS
+  de `dev`. Ningún artefacto Rust entra al tarball ni al flujo de release, y `dev` no lleva código
+  Rust ni aviso de convivencia. El corte ocurre solo tras aprobación explícita.
+- **Todo cambio de comportamiento TS nace en `dev`.** `migration/rust` solo agrega el workspace Rust
+  y el cableado mínimo de convivencia.
+- **La prerelease interna `0.13.0-rust.<n>` vive solo en el workspace cargo.** Se declara en el
+  `Cargo.toml` del workspace, solo la reporta `navori-rust --version` y nunca se publica en npm
+  (R25). `packages/cli` conserva la versión que trae `dev`, y el oráculo compara `--version` contra
+  `Cargo.toml` en lugar de exigir paridad con el TS (R26).
+
+Porqué: velocidad (arranque nativo y rutas calientes de hooks), robustez (runtime de hooks que falla
+cerrado y núcleo verificado por el compilador) y DX a largo plazo, sin arriesgar el CLI TS que usan
+los repos de Bonum. La convivencia mantiene `dev` publicable mientras un oráculo diferencial prueba
+la paridad.
 
 ## Principios de diseño / invariantes (NO se re-litigan sin razón nueva)
 
