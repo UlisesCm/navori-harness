@@ -7,6 +7,7 @@ import { evidenceCase } from "./render.ts";
 import { checkDeliveryPlanSource } from "../master/slice.ts";
 import { classify, declaredFlagsFromSignals, projectClassifyContext } from "./classify.ts";
 import { WorkplanSchema, type Workplan } from "./schema.ts";
+import { parseExpected } from "./expected.ts";
 
 export interface CheckFinding {
   /** A stable id for the violated rule, so a caller can filter/count by kind
@@ -63,6 +64,12 @@ function checkStructural(plan: Workplan, feature: string | undefined): CheckFind
         message: `${criterion.id} is missing expected output`,
       });
     }
+    const expected = parseExpected(criterion.expected);
+    if (expected.kind === "invalid")
+      findings.push({
+        rule: "acceptance-expected-invalid",
+        message: `${criterion.id}: ${expected.reason}`,
+      });
   }
 
   const acceptanceIds = new Set(plan.acceptance.map((a) => a.id));
@@ -110,6 +117,12 @@ function checkEvidence(plan: Workplan): CheckFinding[] {
     if (plan.progress[criterion.id] !== "cumplido") continue;
     switch (evidenceCase(plan, criterion)) {
       case "recorded":
+        break;
+      case "uncompared":
+        warnings.push({
+          rule: "progress-expected-unverified",
+          message: `${criterion.id} is cumplido but its expected value has no valid comparison`,
+        });
         break;
       case "unevidenced-accepted":
         warnings.push({
@@ -187,7 +200,9 @@ export function checkWorkplan(
   for (const note of checkEvidence(parsed.data)) {
     if (
       evidence === "finding" &&
-      (note.rule === "progress-unevidenced" || note.rule === "progress-evidence-stale")
+      (note.rule === "progress-unevidenced" ||
+        note.rule === "progress-evidence-stale" ||
+        note.rule === "progress-expected-unverified")
     )
       findings.push(note);
     else warnings.push(note);

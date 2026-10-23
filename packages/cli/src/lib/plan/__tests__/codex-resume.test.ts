@@ -134,6 +134,46 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
     expect(readFileSync(state("workplan_demo.json"), "utf8")).toBe(before);
   });
   // Covers: R8
+  it.each(["missing", "fail", "mismatch", "pass"])(
+    "revalidates structured expected on resume (%s)",
+    (mode: string) => {
+      const path = state("workplan_demo.json");
+      const raw = readFileSync(path, "utf8").replace(
+        '"expected":"pass"',
+        '"expected":"contains: ready"',
+      );
+      writeFileSync(path, raw);
+      const fp = fingerprintTree(cwd);
+      if (!fp.ok) throw new Error(fp.reason);
+      writeFileSync(
+        state("workplan_demo.evidence.jsonl"),
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          feature: "demo",
+          id: "A1",
+          command: "test",
+          tree: cwd,
+          cwd,
+          head: readHead(cwd),
+          worktreeTree: fp.tree,
+          fp: 2,
+          dirty: true,
+          ...(mode === "missing"
+            ? {}
+            : {
+                exit: 0,
+                expected: mode === "mismatch" ? "contains: different" : "contains: ready",
+                outcome: mode === "fail" ? "fail" : "pass",
+              }),
+        }) + "\n",
+      );
+      expect(resumePlans(cwd).plans[0]?.acceptance.A1?.status).toBe(
+        mode === "pass" ? "passed" : "pending",
+      );
+      expect(readFileSync(path, "utf8")).toBe(raw);
+    },
+  );
+  // Covers: R8
   it("evaluates multiple features separately and leaves missing review/receipt and timeout pending", () => {
     plan("second");
     const result = resumePlans(cwd);

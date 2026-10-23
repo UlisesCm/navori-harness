@@ -102,13 +102,15 @@ Estimated LOC: 1150
 Estimated LOC: 1000
 
 > Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/), salvo T17, T20 y T21,
-> implementadas por separado en #1275. T16, T18 y T19 siguen pendientes.
+> implementadas por separado en #1275. T16 y T19 añaden el parser y la validación de comparaciones
+> registradas. T18 sigue pendiente: los hooks distribuidos aún no capturan la comparación de salida;
+> `contains:` y `matches:` sin comparación se rechazan, no se declaran verificados.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/expected.test.ts src/lib/plan/__tests__/render.test.ts`
   → exit 0, 0 failed
-- [ ] **T16** (R17) — `parseExpected(text)` puro en `lib/plan/expected.ts`: `exit <n>` anclado,
+- [x] **T16** (R17) — `parseExpected(text)` puro en `lib/plan/expected.ts`: `exit <n>` anclado,
   `contains:` y `matches:`; texto libre sigue válido · effect: behavior · test:
   `lib/plan/__tests__/expected.test.ts`::"gramática y texto libre"
 - [x] **T17** (R15) — `request` opcional en `WorkplanSchema` (tope de 20000 caracteres) y
@@ -125,9 +127,12 @@ Estimated LOC: 1000
   código de salida y resultado de la comparación, nunca la salida; salida truncada o interrumpida
   da `unevaluated`; sin línea parcial · effect: behavior · test:
   `__tests__/bash-outcome.test.ts`::"secreto ausente, kill, truncado, binding"
-- [ ] **T19** (R19) — `validateEvidence`: gana la línea más nueva; `plan update
+- [x] **T19** (R19) — `validateEvidence`: gana la línea más nueva; `plan update
   --progress A<n>=cumplido` rechaza una comparación fallida o un `expected` editado · effect:
   behavior · test: `commands/__tests__/plan.test.ts`::"pass vieja no anula fail nueva"
+  - Compara el `expected` actual y lo revalida antes de escribir. `plan check`, resume y entregas
+    consumen el mismo veredicto; metadatos inválidos no recuperan una prueba anterior válida.
+    La evidencia histórica de éxito conserva su forma y sirve para texto libre y `exit 0`.
 
 ### M9 — `plan check` y prosa del reviewer
 - **A12** — `plan check` y sus consumidores en verde ·

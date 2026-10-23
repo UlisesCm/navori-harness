@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
+import { RecordedEvidenceSchema } from "../schema.ts";
 import {
   computeWorktreeTree,
   fingerprintTree,
@@ -83,14 +84,30 @@ function writeLog(lines: EvidenceLine[]): void {
   );
 }
 
-function validate(command = COMMAND) {
+function validate(command = COMMAND, expected = "passes") {
   return validateEvidence({
     root: resolveStateRoot({ cwd, feature: "demo" }),
     feature: "demo",
     id: "A1",
     command,
+    expected,
   });
 }
+
+it.each([false, true])(
+  "preserves proof identity across schema round trips (comparison=%s)",
+  (modern: boolean) => {
+    writeLog([logLine(modern ? { exit: 0, expected: "contains: ready", outcome: "pass" } : {})]);
+    const result = validate(COMMAND, modern ? "contains: ready" : "exit 0");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.why);
+    // Delivery identities hash JSON bytes, including property order.
+    expect(JSON.stringify(RecordedEvidenceSchema.parse(result.evidence))).toBe(
+      JSON.stringify(result.evidence),
+    );
+    if (!modern) expect(result.evidence).not.toHaveProperty("expected");
+  },
+);
 
 /** A physical fixture stage, never a generic state/STATUS exclusion. */
 function deliveryBinding(): DeliveryEvidenceBinding {
@@ -127,6 +144,7 @@ describe("delivery producer-bound fingerprint policy", () => {
       feature: "demo",
       id: "A1",
       command: COMMAND,
+      expected: "passes",
       deliveryBinding: binding,
     };
     const result = validateEvidence(input);
@@ -205,6 +223,7 @@ describe("delivery producer-bound fingerprint policy", () => {
       feature: "demo",
       id: "A1",
       command: COMMAND,
+      expected: "passes",
       deliveryBinding: binding,
     };
     expect(validateEvidence(input).ok).toBe(true);
@@ -236,6 +255,7 @@ describe("delivery producer-bound fingerprint policy", () => {
       feature: "demo",
       id: "A1",
       command: COMMAND,
+      expected: "passes",
       deliveryBinding: binding,
     };
     writeFileSync(join(cwd, "a.txt"), "committed change\n");
@@ -260,6 +280,7 @@ describe("delivery producer-bound fingerprint policy", () => {
       feature: "demo",
       id: "A1",
       command: COMMAND,
+      expected: "passes",
       deliveryBinding: binding,
     });
     expect(verdict.ok).toBe(false);
@@ -281,6 +302,7 @@ describe("delivery producer-bound fingerprint policy", () => {
       feature: "demo",
       id: "A1",
       command: COMMAND,
+      expected: "passes",
     };
     expect(validateEvidence({ ...input, deliveryBinding: reversed }).ok).toBe(true);
     // The log line itself carries the binding in another key order.

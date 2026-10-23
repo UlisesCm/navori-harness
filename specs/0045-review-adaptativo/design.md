@@ -483,6 +483,22 @@ Hay un test que corre `classify --diff` con el `navori.config.json` real.
 
 **Registro (R18).**
 
+**Estado de implementación (#1275).** El parser y los consumidores están implementados; la captura
+de salida descrita abajo (T18) sigue pendiente. El lector conserva la compatibilidad de los registros
+históricos: una línea sin los tres campos de comparación prueba éxito para texto libre y `exit 0`,
+sin inventar campos ni modificar los digests de pruebas guardadas. Las demás formas estructuradas
+exigen `expected` exacto, `outcome: "pass"` y `exit` coherente. `fail`, `unevaluated` o campos
+malformados en la última línea elegible impiden recuperar un éxito anterior. La validación nunca
+ejecuta el comando ni lee salida; `matches:` solo se compila para comprobar su sintaxis.
+
+Mientras T18 no esté implementada, `navori render --apply` no habilita la captura de comparación.
+Los predicados de salida se rechazan sin ella, también en motores sin señal verificable; no se
+aceptan como `unevidenced`. Los comandos que comprueban sus propias aserciones pueden seguir usando
+texto libre o `exit 0`. Los campos opcionales `exit`, `expected` y `outcome` se preservan en las
+pruebas guardadas. `plan check`, resume y master-plan aplican la misma validación de comparación.
+
+El resto de esta sección describe el registro previsto para T18 y sus requisitos de privacidad.
+
 - **Entrada.** El CLI escribe `acceptance-expected.jsonl` junto a `acceptance-index`. Lleva una
   línea por criterio pendiente con `expected` estructurado, con la **misma clave que la línea del
   índice**: `{ feature, id, binding, stage, expected, spec }`. `binding` y `stage` son los campos de

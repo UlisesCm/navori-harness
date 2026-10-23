@@ -15,7 +15,8 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import { IDENTITY_EXCLUDES } from "../primitives/content-identity.ts";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
-import type { RecordedEvidence } from "./schema.ts";
+import { RecordedEvidenceSchema, type RecordedEvidence } from "./schema.ts";
+import { expectedEvidenceProblem } from "./expected.ts";
 
 /** Paths excluded from the tree fingerprint so the evidence log, state files
  * and sibling worktrees never change the hash they are recorded against.
@@ -98,6 +99,10 @@ const EvidenceLineSchema = z.object({
   /** Fingerprint version (`2` = `FINGERPRINT_EXCLUDES`); absent on lines recorded before spec 0054. */
   fp: z.literal(FINGERPRINT_VERSION).optional(),
   dirty: z.boolean(),
+  // Keep malformed comparison scalars as rejecting sentinels: never skip the latest failed run.
+  exit: RecordedEvidenceSchema.shape.exit.catch(-1),
+  expected: RecordedEvidenceSchema.shape.expected.catch(""),
+  outcome: RecordedEvidenceSchema.shape.outcome.catch("unevaluated"),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   deliveryBinding: DeliveryEvidenceBindingSchema.optional(),
@@ -319,6 +324,8 @@ export interface ValidateEvidenceInput {
   id: string;
   /** The criterion's CURRENT command. */
   command: string;
+  /** The criterion's CURRENT predicate, never inferred from the recorded line. */
+  expected: string;
   /** `impl_<feature>.json`'s declared worktree, if any. */
   implWorktree?: string;
   /** Required current identity for source-backed slices; never synthesize from a log. */
@@ -496,6 +503,13 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
       memo,
     );
     if (problem === undefined) {
+      const comparison = expectedEvidenceProblem(input.expected, line);
+      if (comparison)
+        return {
+          ok: false,
+          why: comparison,
+          fix: `${rerun(line.tree)}\n       Structured output predicates require an exact host-recorded comparison; command success alone does not verify output. Current hooks do not capture contains:/matches: comparisons.`,
+        };
       return {
         ok: true,
         evidence: {
@@ -506,6 +520,10 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
           head: line.head,
           worktreeTree: line.worktreeTree,
           dirty: line.dirty,
+          // Preserve legacy proof digests; never synthesize a host comparison from implicit success.
+          ...(line.exit !== undefined ? { exit: line.exit } : {}),
+          ...(line.expected !== undefined ? { expected: line.expected } : {}),
+          ...(line.outcome !== undefined ? { outcome: line.outcome } : {}),
         },
       };
     }
