@@ -1,21 +1,26 @@
 # Sesión actual
 
-Spec 0057-migracion-rust (fase 1 del programa de migración a Rust), rama `migration/rust` en el
-worktree `navori-harness-wt-0057-rust`, al día con `origin/dev` 72908547. Workplan
-`0057-migracion-rust-e1` (nivel 3, M1–M4) aprobado por el usuario. Sin commits ni push todavía; la
-rama no existe en GitHub.
+Checkpoint de `0057-migracion-rust` hasta E2/M5 en `feat/rust-0057-avance-m5`.
+Destino del PR solicitado por el usuario: `migration/rust`, creado desde la base original
+`72908547` para incluir todo el avance M1–M5 en el diff. Ejecución directa sin subagentes.
 
-## Siguiente paso
+## Estado y siguiente paso
 
-M1 implementado y APPROVED en ronda 2 (`review_0057-migracion-rust-e1-m1.md`, recibo firmado). Falta:
+- E1/M1–M3 completos localmente; versión, parser/delegación, oráculo y serializador JS.
+- E1/M4: CI, controles e instalación implementados. CONTRIBUTING en tres idiomas y CI remoto
+  pendientes; el hook bloqueó la escritura shell de las guías y no se reintentó.
+- E2/M5: runner e integridad implementados y probados como bibliotecas.
+- Siguiente: E2/M6 (T20/T21), integración CLI/renderer, escritura final y fallback seguro.
+  No hay hooks Rust activos; mantener el manifiesto sin hooks hasta T26 en sombra.
+- Aviso opcional de `NAVORI_TS_CLI` inexistente: no implementado.
 
-1. Correr exacto `cargo build --locked -p navori-cli && ./target/debug/navori-rust --version` y luego
-   `navori plan update 0057-migracion-rust-e1 --progress A1=cumplido` (la sesión anterior no tenía
-   rustup en el PATH; ahora está en `~/.zshrc`).
-2. `navori handoff log-review 0057-migracion-rust-e1-m1` y commit de M1 vía `publisher`
-   (incluye los docs de la spec; sin PR hasta cerrar E1).
-3. M2 (delegación) con encargo `spec: 0057-migracion-rust E1 M2`.
+## Verificación
 
-`navori gate full` sale 1 solo por `pi/first-class-e2e.test.ts`, preexistente en `dev` (#1386). La
-versión interna `0.13.0-rust.<n>` vive solo en el `Cargo.toml` del workspace; `packages/cli` conserva
-la de `dev`. No usar `navori-rust` en repos reales.
+`bun check`: exit 0, 10,218 aprobadas, 2 omitidas, 481 archivos; cobertura sobre el piso.
+El fallo Pi #1386 anterior no se reprodujo.
+Oráculo posterior a M5: 52 casos, 0 diferencias.
+Antes de publicar: `bun run check:fast`, Cargo fmt/clippy/workspace tests verdes;
+instalación local comprobó que `navori` conserva ruta y SHA-256.
+
+El oráculo de integridad escapa U+2028/U+2029 solo en el transporte JSONL hacia Node;
+JSON.parse recupera los caracteres originales para comparar. Tiene regresión determinista.
