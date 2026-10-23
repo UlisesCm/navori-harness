@@ -579,8 +579,10 @@ cada llamada.
   1. El binario lee stdin y calcula su veredicto **sin efectos**: la capa `Fs` va en modo registro
      y la auditoría no se escribe.
   2. Ejecuta `bash <script>` con `NAVORI_HOOK_IMPL=shell` y le pasa el mismo stdin.
-  3. **Devuelve el resultado del shell.** Si el shell sale con un código que no es 0, 1 ni 2,
-     devuelve 1 (equivalente en los tres hosts, D6).
+  3. **Devuelve el resultado del shell** para códigos 0, 1 y 2. Una salida anómala, señal o fallo
+     de transporte produce el veredicto seguro del engine (D6/R12): Claude con compuerta recibe
+     JSON `ask`; Codex/Pi con compuerta reciben 2; advisory recibe 1. Se descarta stdout parcial
+     antes de emitir ese fallo. Normalizar todo a 1 permitiría un fallo abierto en Claude.
   4. Registra cada divergencia en `.navori/state/rust-shadow/<hook>.jsonl`, que es local y está en
      `.gitignore`. El payload solo se guarda en las divergencias, nunca se sube a CI ni al repo.
 
