@@ -90,8 +90,15 @@ No hay hooks portados/activos todavía.
 - [x] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
 
 ### M7 — Auditoría
-- **A7** [observable] — el evento de auditoría de Rust es igual al de shell · `node scripts/js/hook-verdict-replay.mjs --impl rust --audit active --only audit-writer` → exit 0
-- [ ] **T22** (R11) — `navori-core` (`audit`): escritor de eventos de hook con los campos y `tsMs` del shell (D12) · effect: behavior · test: `crates/navori-core/tests/audit.rs`::"evento con log activo igual al de la base"
+- **A7** [observable] — metadata byte exacta frente al partial shell y bridge al escritor TS real · `cargo test -p navori-core --test audit --locked` → exit 0, seis pruebas
+- [x] **T22** (R11) — `navori-core` (`audit`): actividad, metadata cerrada y bridge best-effort al escritor CLI único (D12); conserva campos y `tsMs` del shell sin append directo · effect: behavior · test: `crates/navori-core/tests/audit.rs`::`metadata_matches_the_real_shell_partial_without_human_content`, `real_ts_writer_remains_authoritative_for_identity_modes_and_wire_ids`
+
+Validado desde el hilo principal: seis pruebas A7 verdes; workspace, fmt, clippy y check:fast
+verdes en el worktree de M7. La aceptación anterior de replay ignoraba flags y no probaba
+audit-writer; replay/fuzz reales permanecen en M8. No activa hooks ni cambia el writer productivo.
+El primer full local terminó con 10217 aprobadas, dos omitidas y un timeout de 300 s en
+`hooks-zsh-parity.test.ts`; gate completo verde pendiente antes de cerrar la entrega.
+Paridad zsh aislada: dos pruebas verdes en 166.7 s, sin cambios de código ni timeout.
 
 ### M8 — Herramientas
 - **A8** [observable] — replay, fuzz y bench funcionan con `--impl rust` · `bun run fuzz:hooks --seed 1 --cases 1000 && bun run bench:hooks --impl rust --report-only` → exit 0
