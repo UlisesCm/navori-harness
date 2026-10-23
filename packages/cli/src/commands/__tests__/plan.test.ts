@@ -944,6 +944,68 @@ describe("navori plan render — acceptance index bootstrap on Pi", () => {
 });
 
 describe("navori plan check", () => {
+  // Covers: R20
+  it("reports completed criteria without evidence as findings and exits 2", async (): Promise<void> => {
+    writePlan("demo", { ...validPlan, progress: { A1: "cumplido" } });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    try {
+      await runCommand(planCommand, { rawArgs: ["check", "demo", "--json", "--cwd", cwd] });
+    } finally {
+      spy.restore();
+    }
+    expect(process.exitCode).toBe(2);
+    const result: unknown = JSON.parse(logs.join(""));
+    expect(result).toMatchObject({
+      ok: false,
+      findings: [{ rule: "progress-unevidenced" }],
+      warnings: [],
+    });
+  });
+
+  // Covers: R20
+  it("rejects stale evidence but preserves explicit unsupported-engine acceptance", async (): Promise<void> => {
+    const cases = [
+      {
+        evidence: {
+          A1: {
+            kind: "recorded",
+            command: "old command",
+            ranAt: "t",
+            tree: "/t",
+            head: "abc",
+            worktreeTree: "w",
+            dirty: false,
+          },
+        },
+        code: 2,
+        rule: "progress-evidence-stale",
+      },
+      {
+        evidence: { A1: { kind: "unevidenced", reason: "engine-without-signal" } },
+        code: 0,
+        rule: "progress-unevidenced-accepted",
+      },
+    ];
+    for (const { evidence, code, rule } of cases) {
+      writePlan("demo", { ...validPlan, progress: { A1: "cumplido" }, evidence });
+      const logs: string[] = [];
+      const spy = vi_spyConsole(logs);
+      try {
+        await runCommand(planCommand, { rawArgs: ["check", "demo", "--json", "--cwd", cwd] });
+      } finally {
+        spy.restore();
+      }
+      expect(process.exitCode).toBe(code);
+      const result: unknown = JSON.parse(logs.join(""));
+      expect(result).toMatchObject(
+        code === 2
+          ? { ok: false, findings: [{ rule }], warnings: [] }
+          : { ok: true, findings: [], warnings: [{ rule }] },
+      );
+    }
+  });
+
   it("exits 0 on a valid workplan (R15)", async () => {
     writePlan("demo", validPlan);
     await runCommand(planCommand, { rawArgs: ["check", "demo", "--cwd", cwd] });

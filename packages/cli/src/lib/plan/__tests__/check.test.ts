@@ -141,6 +141,70 @@ describe("checkWorkplan — evidence warnings", () => {
   });
 });
 
+// Covers: R20
+describe("checkWorkplan — evidence findings", () => {
+  const done: Workplan = { ...validLevel1, progress: { A1: "cumplido" } };
+  const recorded = (command: string): Workplan["evidence"] => ({
+    A1: {
+      kind: "recorded",
+      command,
+      ranAt: "t",
+      tree: "/t",
+      head: "abc",
+      worktreeTree: "w",
+      dirty: false,
+    },
+  });
+
+  it("rejects missing and stale evidence only in finding mode", (): void => {
+    const cases: Array<{ evidence: Workplan["evidence"]; rule: string }> = [
+      { evidence: undefined, rule: "progress-unevidenced" },
+      { evidence: recorded("other command"), rule: "progress-evidence-stale" },
+    ];
+    for (const { evidence, rule } of cases) {
+      const plan = { ...done, evidence };
+      const structural = checkWorkplan(plan);
+      expect(structural.ok).toBe(true);
+      expect(structural.warnings).toEqual([expect.objectContaining({ rule })]);
+      const strict = checkWorkplan(plan, { evidence: "finding" });
+      expect(strict.ok).toBe(false);
+      expect(strict.findings).toEqual([expect.objectContaining({ rule })]);
+      expect(strict.warnings).toEqual([]);
+      expect(formatCheckResult(strict)).not.toContain("OK");
+    }
+  });
+
+  it("accepts matching evidence and leaves pending criteria eligible", (): void => {
+    expect(
+      checkWorkplan(
+        { ...done, evidence: recorded(done.acceptance[0]!.command) },
+        {
+          evidence: "finding",
+        },
+      ),
+    ).toEqual({ ok: true, findings: [], warnings: [] });
+    expect(checkWorkplan(validLevel1, { evidence: "finding" })).toEqual({
+      ok: true,
+      findings: [],
+      warnings: [],
+    });
+  });
+
+  it("keeps explicit engine-without-signal acceptance as a warning in both modes", (): void => {
+    const plan: Workplan = {
+      ...done,
+      evidence: { A1: { kind: "unevidenced", reason: "engine-without-signal" } },
+    };
+    for (const evidence of ["warning", "finding"] as const) {
+      expect(checkWorkplan(plan, { evidence })).toMatchObject({
+        ok: true,
+        findings: [],
+        warnings: [{ rule: "progress-unevidenced-accepted" }],
+      });
+    }
+  });
+});
+
 describe("checkWorkplan — R15 rules shared with the gate", () => {
   // Covers: R15
   it("check reporta ids duplicados, feature ajeno, nivel bajo el recálculo y BLOCKED", () => {
