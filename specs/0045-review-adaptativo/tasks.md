@@ -98,13 +98,12 @@ Estimated LOC: 1150
   skills de semgrep y jscpd documentan la invocación desde un hook nativo · effect: docs · test:
   `engines/shared/__tests__/native-overlap.test.ts`::"native-git-hooks"
 
-## E3 — La aceptación compara contra lo esperado — diferida (0054)
+## E3 — La aceptación compara contra lo esperado
 Estimated LOC: 1000
 
-> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/), salvo T17, T20 y T21,
-> implementadas por separado en #1275. T16 y T19 añaden el parser y la validación de comparaciones
-> registradas. T18 sigue pendiente: los hooks distribuidos aún no capturan la comparación de salida;
-> `contains:` y `matches:` sin comparación se rechazan, no se declaran verificados.
+> Implementada por partes en #1275: parser, conservación de `request`, validación y captura de
+> comparación en hooks de Claude. Codex y Pi conservan su soporte previo; no capturan comparaciones
+> de salida. La entrega no acredita corridas con modelos vivos ni equivalencia entre motores.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
@@ -121,12 +120,17 @@ Estimated LOC: 1000
 
 ### M8 — Carril de evidencia
 - **A11** — carril y validación de evidencia en verde ·
-  `cd packages/cli && bun run test src/__tests__/bash-outcome.test.ts src/commands/__tests__/plan.test.ts`
+  `cd packages/cli && bun run test src/lib/__tests__/expected-capture.test.ts src/lib/__tests__/routing-watch.test.ts src/lib/__tests__/bash-outcome-watch.test.ts src/lib/plan/__tests__/acceptance-index.test.ts src/commands/__tests__/plan.test.ts`
   → exit 0, 0 failed
-- [ ] **T18** (R18) — `bash-outcome.sh`, `routing-watch.sh` y `bash-outcome-watch.sh` registran
+- [x] **T18** (R18) — `bash-outcome.sh`, `routing-watch.sh` y `bash-outcome-watch.sh` registran
   código de salida y resultado de la comparación, nunca la salida; salida truncada o interrumpida
   da `unevaluated`; sin línea parcial · effect: behavior · test:
-  `__tests__/bash-outcome.test.ts`::"secreto ausente, kill, truncado, binding"
+  `lib/__tests__/expected-capture.test.ts`::"Claude expected capture" y
+  `lib/__tests__/routing-watch.test.ts`::"leaves no partial line when the hook is killed mid-fingerprint"
+  - Índice de comparación con comando, directorio y binding exactos; regex acotada a 100 ms.
+    Fallos estructurados con código conocido invalidan éxitos anteriores sin leer su salida.
+    Respuestas mayores de 1 MiB usan el comando cacheado en el detector de escrituras para evitar
+    sustituciones cuadráticas de Bash sobre la salida. No se persiste salida ni hash de salida.
 - [x] **T19** (R19) — `validateEvidence`: gana la línea más nueva; `plan update
   --progress A<n>=cumplido` rechaza una comparación fallida o un `expected` editado · effect:
   behavior · test: `commands/__tests__/plan.test.ts`::"pass vieja no anula fail nueva"

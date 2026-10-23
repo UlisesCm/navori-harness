@@ -483,25 +483,25 @@ Hay un test que corre `classify --diff` con el `navori.config.json` real.
 
 **Registro (R18).**
 
-**Estado de implementación (#1275).** El parser y los consumidores están implementados; la captura
-de salida descrita abajo (T18) sigue pendiente. El lector conserva la compatibilidad de los registros
+**Estado de implementación (#1275).** El parser, los consumidores y la captura en hooks de Claude
+están implementados. Codex y Pi no capturan comparaciones de salida. El lector conserva la compatibilidad de los registros
 históricos: una línea sin los tres campos de comparación prueba éxito para texto libre y `exit 0`,
 sin inventar campos ni modificar los digests de pruebas guardadas. Las demás formas estructuradas
 exigen `expected` exacto, `outcome: "pass"` y `exit` coherente. `fail`, `unevaluated` o campos
 malformados en la última línea elegible impiden recuperar un éxito anterior. La validación nunca
 ejecuta el comando ni lee salida; `matches:` solo se compila para comprobar su sintaxis.
 
-Mientras T18 no esté implementada, `navori render --apply` no habilita la captura de comparación.
-Los predicados de salida se rechazan sin ella, también en motores sin señal verificable; no se
+`navori render --apply` actualiza los hooks de Claude; el CLI publica los predicados al escribir
+el workplan. Los predicados de salida se rechazan sin comparación, también en motores sin señal verificable; no se
 aceptan como `unevidenced`. Los comandos que comprueban sus propias aserciones pueden seguir usando
 texto libre o `exit 0`. Los campos opcionales `exit`, `expected` y `outcome` se preservan en las
 pruebas guardadas. `plan check`, resume y master-plan aplican la misma validación de comparación.
 
-El resto de esta sección describe el registro previsto para T18 y sus requisitos de privacidad.
+El resto de esta sección describe el registro implementado y sus requisitos de privacidad.
 
 - **Entrada.** El CLI escribe `acceptance-expected.jsonl` junto a `acceptance-index`. Lleva una
   línea por criterio pendiente con `expected` estructurado, con la **misma clave que la línea del
-  índice**: `{ feature, id, binding, stage, expected, spec }`. `binding` y `stage` son los campos de
+  índice**: `{ command, feature, id, dir, binding, stage, expected, spec }`. `binding` y `stage` son los campos de
   0044/master-plan que `linesForDir` ya escribe; quedan vacíos fuera de una entrega. Así un criterio
   `P1.A2` de `<spec>-e<n>` encuentra su `expected` y dos stages de una misma feature no chocan
   (H5).
@@ -514,16 +514,21 @@ El resto de esta sección describe el registro previsto para T18 y sus requisito
     - aparece el marcador de truncado de Claude Code (`/\[\d+ characters truncated\]/`). No pude
       confirmar si el host trunca el `stdout` de éxito; por eso el marcador se trata como señal y no
       como garantía (H5);
-    - `interrupted` es `true`.
+    - `interrupted` es `true`, falta salida textual o el resultado es una imagen;
+    - la expresión regular no termina en 100 ms (evaluación de código fijo con contexto de datos).
+  - Los datos de salida se reciben por stdin, nunca como argumentos ni variables de entorno.
+    Más de 32 MiB de payload también produce `unevaluated`, sin acumular el resto en memoria.
   - La línea sigue escribiéndose con un solo `printf >>` al final ("fail-open, sin línea parcial").
   - Sin node, o si falla el snippet, la línea sale sin `outcome`.
 - **Carril de fallo** (`bash-outcome-watch.sh`, PostToolUseFailure, solo Claude):
-  - Escribe línea **solo** para criterios cuyo `spec.kind` es `exit`.
+  - Escribe línea para predicados estructurados cuyo fallo tiene un código reconocido. `exit`
+    compara el código; `contains:` y `matches:` dan `fail` por exit distinto de cero. Registrar
+    también estos fallos impide recuperar un éxito anterior con el mismo árbol y comando.
   - El código sale de `^Exit code (\d+)(\n|$)` anclado al inicio de `error`. No reutiliza el
     `/exit code\s+(\d+)/i` sin anclar de `bash-outcome.sh`.
   - No escribe nada si `is_interrupt` es `true` o si `error` trae la línea de timeout del host
     (`Command timed out`).
-  - Texto libre, `contains` y `matches` siguen sin dejar línea al fallar.
+  - Texto libre y errores sin código reconocido siguen sin dejar línea al fallar.
 
 **Validación (R19).** `validateEvidence` recibe `expected`:
 
@@ -550,8 +555,9 @@ El resto de esta sección describe el registro previsto para T18 y sus requisito
   Un criterio inyectado podría sondearla bit a bit con `plan update` repetidos. El riesgo es bajo y
   queda anotado.
 
-**Codex.** `evidenceRequired` es falso fuera de una sesión hija de Claude, y ahí `cumplido` se acepta
-como `unevidenced` (spec 0039 R10). Con `expected` estructurado, la comparación la hace el reviewer.
+**Motores sin comparación.** Codex y Pi conservan sus señales previas de éxito; estos hooks no
+leen sus salidas ni les atribuyen comparaciones. Cuando `evidenceRequired` es falso, solo el texto
+libre puede aceptarse como `unevidenced` (spec 0039 R10); un predicado estructurado exige evidencia.
 
 ### D12 — `cumplido` sin evidencia es finding en `plan check`, sin cambiar `ok` (R20)
 
