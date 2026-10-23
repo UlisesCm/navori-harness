@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.13.0-rust.1"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+navori-core = { path = "crates/navori-core" }
+
+# Deviations need `#[allow(<lint>, reason = "...")]` at the same site (R16).
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+panic = "unwind"
+lto = "thin"
+codegen-units = 1

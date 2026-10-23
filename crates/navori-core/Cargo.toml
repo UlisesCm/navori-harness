@@ -1,0 +1,10 @@
+[package]
+name = "navori-core"
+description = "Shared core of the navori Rust migration: embedded assets and CLI version."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
