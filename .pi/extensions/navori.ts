@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="483bac44ec8f383d14cecf5dfa3de025157afd62452dce2d73da1bc4c91fa677"
+// navori:managed-file id="pi-extension" hash="875666bdb7a2cdf351b7aef3b1ef368a6fceca743c6f7d4c579a80d1eff757c6"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -539,6 +539,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       NAVORI_AUDIT_HOST: "pi", NAVORI_AUDIT_SESSION_ID: parentSession, NAVORI_AUDIT_AGENT_ID: agentId };
     // An outer host's identity cannot describe this Pi child. Correlation never grants actor authority.
     delete childEnv.CLAUDE_CODE_SESSION_ID;
+    delete childEnv.CLAUDE_CODE_CHILD_SESSION;
     delete childEnv.CODEX_SESSION_ID;
     delete childEnv.CODEX_THREAD_ID;
     delete childEnv.NODE_CHANNEL_FD;

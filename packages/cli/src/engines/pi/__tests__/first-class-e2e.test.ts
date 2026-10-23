@@ -98,6 +98,7 @@ const ENV_KEYS = [
   "NAVORI_PI_CHILD_ROLE",
   "PI_SESSION_ID",
   "NAVORI_AUDITS_ROOT",
+  "CLAUDE_CODE_CHILD_SESSION",
 ] as const;
 
 const dirs: string[] = [];
@@ -630,6 +631,8 @@ describe("Pi credential-free first-class cycle", () => {
     let session: AgentSession | undefined;
     try {
       Object.assign(process.env, cleanEnv);
+      // A Pi child must enforce Pi evidence even when its parent runs inside a Claude child.
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1";
       delete process.env.NAVORI_PI_CHILD_DEPTH;
       delete process.env.NAVORI_PI_CHILD_ROLE;
 
