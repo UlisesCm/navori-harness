@@ -2,53 +2,34 @@
 import SectionHeader from "../SectionHeader.astro";
 import { useTranslations, localizedPath } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
+import { landingCopy } from "../../content/landing";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-const steps = [
-  {
-    n: "01",
-    title: t("quickstart.step1.title"),
-    body: t("quickstart.step1.body"),
-    code: "npx navori init",
-  },
-  {
-    n: "02",
-    title: t("quickstart.step2.title"),
-    body: t("quickstart.step2.body"),
-    code: "? Project › my-app\n? Engine › claude\n? Preset › nextjs\n✓ Done — 5 created",
-  },
-  {
-    n: "03",
-    title: t("quickstart.step3.title"),
-    body: t("quickstart.step3.body"),
-    code: "$ vim navori.config.json\n$ npx navori render --apply\n$ git add . && git commit",
-  },
-];
+const steps = landingCopy[lang].quickstart.steps;
 ---
 
 <section id="quickstart" class="py-24 sm:py-28">
   <div class="container-prose">
     <SectionHeader
-      eyebrow={t("quickstart.eyebrow")}
-      title={t("quickstart.title")}
+      title={landingCopy[lang].quickstart.title}
     />
 
     <div class="mt-14 grid gap-6 md:grid-cols-3">
       {
-        steps.map((s) => (
+        steps.map((s, index) => (
           <article class="relative">
             <div
               class="rounded-xl border p-6 h-full flex flex-col"
               style="border-color: var(--color-border-soft); background: var(--color-ivory);"
             >
               <span
-                class="display-italic text-4xl gradient-text leading-none"
+                class="display-italic text-4xl text-sky-700 dark:text-sky-300 leading-none"
                 aria-hidden="true"
               >
-                {s.n}
+                {String(index + 1).padStart(2, "0")}
               </span>
               <h3 class="mt-4 text-lg font-semibold tracking-tight">
                 {s.title}

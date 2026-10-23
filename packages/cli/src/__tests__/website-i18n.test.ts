@@ -40,6 +40,15 @@ const { localeOrder, locales, localePath } = await websiteModule<{
   localePath: (lang: Lang, path: string, base?: string) => string;
 }>("i18n/locales.ts");
 const { ui } = await websiteModule<{ ui: Record<Lang, Record<string, string>> }>("i18n/ui.ts");
+const { sessionAnimation } = await websiteModule<{
+  sessionAnimation: Record<
+    Lang,
+    {
+      conversation: readonly { at: number; speaker: string; text: string }[];
+      beats: readonly string[];
+    }
+  >;
+}>("content/session-animation.ts");
 const { useTranslations } = await websiteModule<{
   useTranslations: (lang: Lang) => (key: UIKey) => string;
 }>("i18n/utils.ts");
@@ -239,14 +248,12 @@ describe("agent content completeness", () => {
   });
 
   // Covers: R8
-  it("exports all eight walkthrough states, all role details and each layer note", () => {
+  it("exports every animated conversation message and beat, all role details and each layer note", () => {
     for (const lang of localeOrder) {
       const home = interactiveMarkdown(lang, "home");
-      for (let stop = 1; stop <= 8; stop++)
-        for (const field of ["name", "title", "body"])
-          expect(home).toContain(ui[lang][("graph.s" + stop + "." + field) as "graph.s1.body"]);
-      for (const [key, text] of Object.entries(ui[lang]))
-        if (key.startsWith("graph.chip.") || key === "graph.loop") expect(home).toContain(text);
+      expect(sessionAnimation[lang].conversation).toHaveLength(7);
+      for (const line of sessionAnimation[lang].conversation) expect(home).toContain(line.text);
+      for (const beat of sessionAnimation[lang].beats) expect(home).toContain(beat);
       for (const layer of ["core", "preset", "workspace", "project"])
         expect(home).toContain(ui[lang][("flow." + layer + ".note") as "flow.core.note"]);
       const deep = interactiveMarkdown(lang, "deep-dive");

@@ -2,19 +2,13 @@
 import SectionHeader from "../SectionHeader.astro";
 import { useTranslations } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
+import { landingCopy } from "../../content/landing";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-const items = [
-  { q: t("faq.q1"), a: t("faq.a1") },
-  { q: t("faq.q2"), a: t("faq.a2") },
-  { q: t("faq.q3"), a: t("faq.a3") },
-  { q: t("faq.q4"), a: t("faq.a4") },
-  { q: t("faq.q5"), a: t("faq.a5") },
-  { q: t("faq.q6"), a: t("faq.a6") },
-];
+const items = landingCopy[lang].faq;
 ---
 
 <section
@@ -24,7 +18,6 @@ const items = [
 >
   <div class="container-narrow">
     <SectionHeader
-      eyebrow={t("faq.eyebrow")}
       title={t("faq.title")}
     />
 

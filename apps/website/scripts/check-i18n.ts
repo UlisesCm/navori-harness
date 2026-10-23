@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { commandDocs } from "../src/content/commands";
 import { narratives, narrativeExamples } from "../src/content/narratives";
+import { sessionAnimation } from "../src/content/session-animation";
 import { ui } from "../src/i18n/ui";
 import { INVENTORY } from "../src/consts";
 import { pageFragments } from "../src/content/pages";
@@ -253,19 +254,16 @@ for (const lang of langs) {
         assert.ok(markdown.includes(example), "Technical example changed in " + mdPath);
     }
     if (!topic) {
-      for (let stop = 1; stop <= 8; stop++) {
-        for (const field of ["name", "title", "body"] as const) {
-          const key = ("graph.s" + stop + "." + field) as "graph.s1.body";
+      for (const line of sessionAnimation[lang].conversation) {
+        for (const value of [line.text]) {
           assert.ok(
-            markdown.includes(ui[lang][key]),
-            "Missing walkthrough source " + key + "/" + lang,
+            markdown.includes(value),
+            "Missing conversation source " + line.speaker + "/" + lang,
           );
         }
       }
       for (const [key, text] of Object.entries(ui[lang]))
         if (
-          key.startsWith("graph.chip.") ||
-          key === "graph.loop" ||
           /^flow\.(?:core|preset|workspace|project)\.note$/.test(key)
         )
           assert.ok(markdown.includes(text), "Missing interactive source " + key + "/" + lang);

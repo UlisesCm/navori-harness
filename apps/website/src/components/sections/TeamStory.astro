@@ -1,0 +1,69 @@
+---
+import { landingCopy } from "../../content/landing";
+import type { Lang } from "../../i18n/ui";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const { benefits, adoption } = landingCopy[lang];
+---
+
+<section id="problem" class="team-story" aria-labelledby="team-title">
+  <div class="container-prose">
+    <div class="story-heading">
+      <h2 id="team-title">{benefits.title}</h2>
+      <p>{benefits.body}</p>
+    </div>
+    <div class="benefit-rows">
+      {benefits.rows.map((row) => (
+        <article class="benefit-row">
+          <h3>{row.title}</h3>
+          <dl>
+            <div><dt>{benefits.before}</dt><dd>{row.before}</dd></div>
+            <div><dt>{benefits.after}</dt><dd>{row.after}</dd></div>
+          </dl>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section id="scopes" class="team-adoption" aria-labelledby="adoption-title">
+  <div class="container-prose adoption-layout">
+    <div class="story-heading">
+      <h2 id="adoption-title">{adoption.title}</h2>
+      <p>{adoption.body}</p>
+    </div>
+    <div class="adoption-details">
+      <article><h3>{adoption.repo}</h3><p>{adoption.repoBody}</p><code>navori.config.json</code></article>
+      <article><h3>{adoption.team}</h3><p>{adoption.teamBody}</p><code>navori workspace</code></article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .team-story, .team-adoption { padding-block: 6rem; }
+  .story-heading { max-width: 44rem; }
+  h2 { font-size: clamp(2rem, 3.8vw, 3rem); line-height: 1.12; letter-spacing: -.03em; font-weight: 600; text-wrap: balance; }
+  .story-heading > p { margin-top: 1.25rem; max-width: 65ch; font-size: 1.1rem; line-height: 1.7; color: var(--landing-muted); }
+  .benefit-rows { margin-top: 3rem; }
+  .benefit-row { display: grid; grid-template-columns: 1fr 2fr; gap: 3rem; border-top: 1px solid var(--color-border-soft); padding-block: 2.25rem; }
+  .benefit-row h3 { max-width: 22ch; font-size: 1.35rem; font-weight: 500; line-height: 1.35; letter-spacing: -.02em; text-wrap: balance; }
+  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+  dt { font-size: .75rem; font-weight: 600; margin-bottom: .8rem; color: var(--landing-muted); }
+  dl > div:last-child dt { color: var(--landing-accent); }
+  dd { font-size: .95rem; line-height: 1.7; color: var(--landing-muted); }
+  dl > div:last-child dd { color: inherit; }
+  .team-adoption { border-block: 1px solid var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%); }
+  .adoption-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; }
+  .adoption-details article + article { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border-soft); }
+  .adoption-details h3 { font-size: 1.1rem; font-weight: 600; }
+  .adoption-details p { margin-top: .7rem; line-height: 1.7; font-size: .95rem; color: var(--landing-muted); }
+  code { display: block; margin-top: 1rem; font-size: .75rem; color: var(--landing-accent); }
+  @media (max-width: 760px) {
+    .team-story, .team-adoption { padding-block: 4rem; }
+    .benefit-row { grid-template-columns: 1fr; gap: 1.5rem; }
+    .benefit-row h3 { max-width: none; }
+    .adoption-layout { grid-template-columns: 1fr; gap: 2.5rem; }
+  }
+  @media (max-width: 480px) { dl { grid-template-columns: 1fr; gap: 1.5rem; } }
+</style>

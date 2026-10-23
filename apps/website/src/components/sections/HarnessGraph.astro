@@ -1,955 +1,306 @@
 ---
-/**
- * The walkthrough — a prompt travelling through the whole harness.
- *
- * This is the landing's centrepiece, and it answers the question everything
- * else on the page assumes you already answered: what does navori actually put
- * between your sentence and the model? So it is not a diagram of concepts, it
- * is a ROUTE: one prompt enters at stop 1 and comes out a commit at stop 8,
- * lighting up every piece it passes through — hooks, the four context sources,
- * the orchestrator, codegraph and tgrep, the three subagents, the guard and the
- * permission rules, gate/reviewer, and the memory write that
- * closes the loop back into stop 2.
- *
- * MECHANICS. One `<path>` is the route. A travelling token is positioned with
- * `getPointAtLength()` on every frame, and a second copy of the same path is
- * revealed behind it with `stroke-dashoffset` so the trail draws itself. Stop
- * positions are NOT hardcoded as fractions: `measureStops()` samples the path
- * once and finds the nearest length to each station's centre, so moving a node
- * in the layout constants below cannot desynchronise the animation from the
- * drawing.
- *
- * The motion is deliberately not linear — it travels between stops, then dwells
- * on one so you can read it. That rhythm is the whole point: a constant-speed
- * loop reads as decoration, a stop-and-explain loop reads as an explanation.
- *
- * DEGRADES. With no JS, or under `prefers-reduced-motion`, every stop renders
- * lit and the panel shows the first one; the stop buttons still navigate. The
- * diagram is legible as a static image — the animation is an enhancement, never
- * the only way to read it.
- */
-import SectionHeader from "../SectionHeader.astro";
-import { useTranslations } from "../../i18n/utils";
+import { landingCopy } from "../../content/landing";
+import { sessionAnimation } from "../../content/session-animation";
 import type { Lang } from "../../i18n/ui";
 
-interface Props {
-  lang: Lang;
-}
+interface Props { lang: Lang }
 const { lang } = Astro.props;
-const t = useTranslations(lang);
-
-/** Shorthand for the generated chip/station keys, which are typed in `ui.ts`. */
-type Key = Parameters<typeof t>[0];
-const tr = (k: string): string => t(k as Key);
-
-// ── layout ────────────────────────────────────────────────────────────
-// One coordinate system, three rows, serpentine. Everything else derives.
-//
-// Chip width is the binding constraint, not an aesthetic choice: row C carries
-// eight chips across three stations, so 128px is the widest that fits 1220px of
-// usable canvas with breathing room between stations. That is why the chip
-// description wraps to two lines instead of sitting on one.
-const VB = { w: 1260, h: 760 };
-const ROW = { a: 130, b: 350, c: 570 };
-const CHIP = { w: 128, h: 58, gap: 12 };
-/** Gap between two stations' chip groups on the same row. */
-const GROUP_GAP = 46;
-
-/** The route: left→right, down, right→left, down, left→right. */
-const ROUTE = [
-  `M 120 ${ROW.a}`,
-  `H 1150 Q 1196 ${ROW.a} 1196 ${ROW.a + 46}`,
-  `V ${ROW.b - 46} Q 1196 ${ROW.b} 1150 ${ROW.b}`,
-  `H 110 Q 64 ${ROW.b} 64 ${ROW.b + 46}`,
-  `V ${ROW.c - 46} Q 64 ${ROW.c} 110 ${ROW.c}`,
-  `H 1190`,
-].join(" ");
-
-interface Chip {
-  id: string;
-  label: string;
-  /** Tool-family colour, matching the toolbox section's grouping. */
-  tone: "ctx" | "agent" | "search" | "guard" | "quality" | "out";
-}
-
-interface Station {
-  n: number;
-  x: number;
-  y: number;
-  chips: Chip[];
-}
-
-const STATIONS: Station[] = [
-  { n: 1, x: 120, y: ROW.a, chips: [{ id: "sessionstart", label: "SessionStart", tone: "guard" }] },
-  {
-    n: 2,
-    x: 580,
-    y: ROW.a,
-    chips: [
-      { id: "claudemd", label: "CLAUDE.md", tone: "ctx" },
-      { id: "skills", label: "skills", tone: "ctx" },
-      { id: "dominio", label: "Dominio", tone: "ctx" },
-      { id: "engram", label: "engram", tone: "ctx" },
-    ],
-  },
-  { n: 3, x: 1030, y: ROW.a, chips: [{ id: "orchestrator", label: "orchestrator", tone: "agent" }] },
-  {
-    n: 4,
-    x: 1000,
-    y: ROW.b,
-    chips: [
-      { id: "codegraph", label: "codegraph", tone: "search" },
-      { id: "tgrep", label: "tgrep", tone: "search" },
-    ],
-  },
-  {
-    n: 5,
-    x: 420,
-    y: ROW.b,
-    chips: [
-      { id: "scout", label: "scout", tone: "agent" },
-      { id: "implementer", label: "implementer", tone: "agent" },
-      { id: "auditor", label: "auditor", tone: "agent" },
-    ],
-  },
-  {
-    n: 6,
-    x: 190,
-    y: ROW.c,
-    chips: [
-      { id: "guard", label: "PreToolUse", tone: "guard" },
-      { id: "permissions", label: "permissions", tone: "guard" },
-    ],
-  },
-  {
-    n: 7,
-    x: 620,
-    y: ROW.c,
-    chips: [
-      { id: "gate", label: "quality gate", tone: "quality" },
-      { id: "reviewer", label: "reviewer", tone: "quality" },
-    ],
-  },
-  {
-    n: 8,
-    x: 1075,
-    y: ROW.c,
-    chips: [
-      { id: "commit", label: "commit + PR", tone: "out" },
-      { id: "memory", label: "engram", tone: "out" },
-    ],
-  },
-];
-
-/** Chip row geometry: always below its station, centred on it. */
-const chipX = (st: Station, i: number): number => {
-  const total = st.chips.length * CHIP.w + (st.chips.length - 1) * CHIP.gap;
-  return st.x - total / 2 + i * (CHIP.w + CHIP.gap);
-};
-const chipY = (st: Station): number => st.y + 52;
-
-/**
- * Split a chip's description across two lines at the most balanced word break.
- * 128px of chip holds roughly 19 characters at 11px, and these descriptions are
- * the part that makes the diagram readable — shortening them to fit one line
- * would trade the explanation for the layout.
- */
-const wrap = (text: string): [string, string] => {
-  if (!text.includes(" ") && /[\u3400-\u9fff]/.test(text)) {
-    const characters = Array.from(text);
-    const middle = Math.ceil(characters.length / 2);
-    return [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
-  }
-  const words = text.split(" ");
-  let best = 1;
-  let bestDelta = Number.POSITIVE_INFINITY;
-  for (let i = 1; i < words.length; i++) {
-    const a = words.slice(0, i).join(" ").length;
-    const b = words.slice(i).join(" ").length;
-    if (Math.abs(a - b) < bestDelta) {
-      bestDelta = Math.abs(a - b);
-      best = i;
-    }
-  }
-  return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
-};
-
-const stops = STATIONS.map((st) => ({
-  ...st,
-  name: tr(`graph.s${st.n}.name`),
-  title: tr(`graph.s${st.n}.title`),
-  body: tr(`graph.s${st.n}.body`),
-}));
-
-/**
- * The narrator copy travels to the client as data attributes rather than being
- * re-rendered per stop: the panel swaps text on every step, and shipping the
- * eight strings once beats eight hidden DOM subtrees.
- */
-const copyJson = JSON.stringify(
-  Object.fromEntries(stops.map((st) => [st.n, { title: st.title, body: st.body }])),
-);
-const labelsJson = JSON.stringify({
-  pause: t("graph.pause"),
-  play: t("graph.play"),
-  counter: t("graph.stationOf"),
-});
+const controls = landingCopy[lang].session;
+const copy = sessionAnimation[lang];
+const drawers = [0, 1, 2];
+const papers = Array.from({ length: 8 }, (_: unknown, index: number): number => index);
 ---
 
-<section
-  id="anatomy"
-  class="relative py-24 sm:py-28 border-b overflow-hidden"
-  style="border-color: var(--color-border-soft);"
->
-  <div class="absolute inset-0 grid-bg pointer-events-none opacity-50"></div>
-  <div class="absolute inset-0 glow-hero pointer-events-none opacity-60"></div>
+<section id="anatomy" class="session-section" aria-labelledby="session-title">
+  <div class="container-prose">
+    <div class="session-intro">
+      <h2 id="session-title">{copy.title}</h2>
+      <p>{copy.introduction}</p>
+    </div>
 
-  <div class="container-prose relative">
-    <SectionHeader
-      eyebrow={t("graph.eyebrow")}
-      title={t("graph.title")}
-      subtitle={t("graph.subtitle")}
-    />
-  </div>
-
-  <div
-    class="relative mt-12"
-    data-walk
-    data-stop="1"
-    data-copy={copyJson}
-    data-labels={labelsJson}
-  >
-    {/* the prompt, entering */}
-    <div class="container-prose">
-      <div class="mx-auto max-w-2xl">
-        <div class="wk-prompt">
-          <span class="wk-prompt-label">{t("graph.promptLabel")}</span>
-          <div class="wk-prompt-box">
-            <span class="wk-caret" aria-hidden="true">❯</span>
-            <span class="wk-prompt-text">{t("graph.prompt")}</span>
-          </div>
-        </div>
+    <div class="session-demo" data-session data-playing="false"
+      data-play-label={controls.play} data-pause-label={controls.pause} data-replay-label={controls.replay}
+      data-beats={JSON.stringify(copy.beats)}>
+      <div class="demo-toolbar">
+        <p>{controls.example}</p>
+        <button type="button" data-toggle hidden>{controls.play}</button>
       </div>
-    </div>
 
-    {/* the route */}
-    <div class="mt-8 overflow-x-auto px-6 sm:px-8 pb-2">
-      <svg
-        viewBox={`0 0 ${VB.w} ${VB.h}`}
-        class="mx-auto w-full min-w-[1000px] max-w-[1260px] h-auto"
-        role="img"
-        aria-label={t("graph.aria")}
-      >
-        <defs>
-          <linearGradient id="wk-trail" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="var(--color-sky-500)"></stop>
-            <stop offset="100%" stop-color="var(--color-violet-600)"></stop>
-          </linearGradient>
-          <marker
-            id="wk-back"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-violet-400)"></path>
-          </marker>
-          <filter id="wk-glow" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="7" result="b"></feGaussianBlur>
-            <feMerge>
-              <feMergeNode in="b"></feMergeNode>
-              <feMergeNode in="SourceGraphic"></feMergeNode>
-            </feMerge>
-          </filter>
-        </defs>
-
-        {/* the loop-back arrow: stop 8 writes memory, stop 2 reads it */}
-        {/* out of stop 8's engram: the decision is written */}
-        <path
-          class="wk-loop"
-          d={`M 1145 ${ROW.c + 112} V ${ROW.c + 136} Q 1145 ${ROW.c + 150} 1131 ${ROW.c + 150} H 1016`}
-          marker-end="url(#wk-back)"
-        ></path>
-        <text class="wk-loop-label wk-loop-out" x="1000" y={ROW.c + 154}>
-          {t("graph.loop")}
-        </text>
-
-        {/* into stop 2's engram: the same memory, read back */}
-        <path
-          class="wk-loop"
-          d={`M 790 ${ROW.a + 168} V ${ROW.a + 116}`}
-          marker-end="url(#wk-back)"
-        ></path>
-        <text class="wk-loop-label wk-loop-in" x="790" y={ROW.a + 186}>
-          {t("graph.loopIn")}
-        </text>
-
-        {/* route: the unvisited track, then the trail that draws itself */}
-        <path class="wk-track" d={ROUTE}></path>
-        <path class="wk-trail" d={ROUTE} data-trail></path>
-
-        {/* chips — every tool the prompt passes through */}
-        {
-          stops.map((st) =>
-            st.chips.map((c, i) => (
-              <g class="wk-chip" data-chip-of={st.n}>
-                <rect
-                  class={`wk-chip-box wk-tone-${c.tone}`}
-                  x={chipX(st, i)}
-                  y={chipY(st)}
-                  width={CHIP.w}
-                  height={CHIP.h}
-                  rx="10"
-                />
-                <text class="wk-chip-name" x={chipX(st, i) + 10} y={chipY(st) + 19}>
-                  {c.label}
-                </text>
-                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 34}>
-                  {wrap(tr(`graph.chip.${c.id}`))[0]}
-                </text>
-                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 47}>
-                  {wrap(tr(`graph.chip.${c.id}`))[1]}
-                </text>
-                <line
-                  class="wk-chip-tie"
-                  x1={chipX(st, i) + CHIP.w / 2}
-                  y1={chipY(st)}
-                  x2={st.x}
-                  y2={st.y + 20}
-                />
-              </g>
-            )),
-          )
-        }
-
-        {/* the prompt token, travelling */}
-        <g data-token class="wk-token">
-          <circle r="9" filter="url(#wk-glow)"></circle>
-        </g>
-
-        {/* stations */}
-        {
-          stops.map((st) => (
-            <g class="wk-station" data-station={st.n} tabindex="0" role="button">
-              <circle class="wk-halo" cx={st.x} cy={st.y} r="30" />
-              <circle class="wk-dot" cx={st.x} cy={st.y} r="19" />
-              <text class="wk-dot-n" x={st.x} y={st.y + 5}>
-                {st.n}
-              </text>
-              <text class="wk-st-name" x={st.x} y={st.y - 32}>
-                {st.name}
-              </text>
-            </g>
-          ))
-        }
-
-
-      </svg>
-    </div>
-
-    {/* narrator */}
-    <div class="container-prose mt-10">
-      <div class="grid gap-8 lg:grid-cols-12 lg:gap-10 items-start">
-        <div class="lg:col-span-7">
-          <p class="wk-counter" data-counter></p>
-          <h3 class="mt-2 text-xl sm:text-2xl font-semibold tracking-tight" data-title>
-            {stops[0]?.title}
-          </h3>
-          <p
-            class="mt-3 text-base leading-relaxed text-slate-600 dark:text-slate-400 max-w-2xl"
-            data-body
-          >
-            {stops[0]?.body}
-          </p>
-        </div>
-
-        <div class="lg:col-span-5">
-          <ol class="flex flex-wrap gap-1.5">
-            {
-              stops.map((st) => (
-                <li>
-                  <button
-                    type="button"
-                    data-goto={st.n}
-                    aria-pressed={st.n === 1 ? "true" : "false"}
-                    class="wk-pill"
-                  >
-                    <span class="wk-pill-n">{st.n}</span>
-                    {st.name}
-                  </button>
-                </li>
-              ))
-            }
+      <div class="session-layout">
+        <aside class="session-console" aria-label={controls.console}>
+          <div class="console-heading">
+            <span class="console-light" aria-hidden="true"></span>
+            <span>navori — session</span>
+          </div>
+          <ol class="console-messages" data-transcript>
+            {copy.conversation.map((line) => (
+              <li class={`message-${line.speaker}`} data-message data-at={line.at} data-text={line.text}>
+                <span class="message-speaker">{line.speaker === "user" ? controls.user : line.speaker === "tool" ? "tools" : controls.assistant}</span>
+                <p data-message-text>{line.text}</p>
+              </li>
+            ))}
           </ol>
+          <div class="console-input" aria-hidden="true"><span>❯</span><span class="console-cursor"></span></div>
+        </aside>
 
-          <div class="mt-5 flex items-center gap-3">
-            <button type="button" class="btn btn-ghost !py-2 !px-3 text-xs" data-toggle>
-              <span data-toggle-label>{t("graph.pause")}</span>
-            </button>
-            <span class="text-xs text-slate-500 dark:text-slate-400">{t("graph.hint")}</span>
-          </div>
+        <div class="animation-stage">
+          <svg class="workshop" viewBox="0 0 960 620" role="img" aria-label={copy.scene}>
+            <defs>
+              <linearGradient id="cabinet-surface" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="var(--archive-front)" />
+                <stop offset="1" stop-color="var(--archive-side)" />
+              </linearGradient>
+              <linearGradient id="chip-surface" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#73e3f1" /><stop offset="1" stop-color="#268bb9" />
+              </linearGradient>
+            </defs>
+
+            <path class="floor-line" d="M65 530H895" />
+            <ellipse class="floor-shadow" cx="480" cy="537" rx="330" ry="23" />
+
+            <g class="filing-cabinet" data-cabinet="engram">
+              <path class="cabinet-side" d="M320 190l24 18v312l-24 10z" />
+              <rect class="cabinet-shell" x="130" y="190" width="190" height="340" rx="12" />
+              <rect class="cabinet-label" x="149" y="208" width="152" height="44" rx="5" />
+              <text class="cabinet-brand" x="225" y="237">engram</text>
+              {drawers.map((index: number) => (
+                <g transform={`translate(144 ${270 + index * 78})`}>
+                  <rect class="drawer-recess" width="162" height="66" rx="5" />
+                  <g data-drawer-left={index}>
+                    <path class="drawer-top" d="M0 0l22-20h162L162 0z" />
+                    <rect class="drawer-front" width="162" height="66" rx="5" />
+                    <rect class="drawer-tag" x="16" y="12" width="130" height="20" rx="3" />
+                    <text class="drawer-text" x="81" y="27">{index === 0 ? copy.labels.decisions : index === 1 ? copy.labels.context : "…"}</text>
+                    <path class="drawer-handle" d="M64 45v5h34v-5" />
+                  </g>
+                </g>
+              ))}
+              <path class="cabinet-foot" d="M151 530v9M299 530v9" />
+            </g>
+
+            <g class="filing-cabinet" data-cabinet="codegraph">
+              <path class="cabinet-side" d="M840 190l24 18v312l-24 10z" />
+              <rect class="cabinet-shell" x="650" y="190" width="190" height="340" rx="12" />
+              <rect class="cabinet-label" x="669" y="208" width="152" height="44" rx="5" />
+              <text class="cabinet-brand" x="745" y="237">codegraph</text>
+              {drawers.map((index: number) => (
+                <g transform={`translate(664 ${270 + index * 78})`}>
+                  <rect class="drawer-recess" width="162" height="66" rx="5" />
+                  <g data-drawer-right={index}>
+                    <path class="drawer-top" d="M0 0l-22-20h162L162 0z" />
+                    <rect class="drawer-front" width="162" height="66" rx="5" />
+                    <rect class="drawer-tag" x="16" y="12" width="130" height="20" rx="3" />
+                    <text class="drawer-text" x="81" y="27">{index === 0 ? copy.labels.relationships : index === 1 ? copy.labels.files : "tgrep"}</text>
+                    <path class="drawer-handle" d="M64 45v5h34v-5" />
+                  </g>
+                </g>
+              ))}
+              <path class="cabinet-foot" d="M671 530v9M819 530v9" />
+            </g>
+
+            <g transform="translate(225 345)">
+              {papers.map((index: number) => (
+                <g class="flying-file" data-file-left={index}>
+                  <rect x="-20" y="-26" width="40" height="52" rx="4" />
+                  <path d="M-10-11H10M-10 0H10M-10 11H3" />
+                </g>
+              ))}
+            </g>
+            <g transform="translate(720 345)">
+              {papers.map((index: number) => (
+                <g class="flying-file" data-file-right={index}>
+                  <rect x="-20" y="-26" width="40" height="52" rx="4" />
+                  <path d="M-10-11H10M-10 0H10M-10 11H3" />
+                </g>
+              ))}
+            </g>
+
+            <g transform="translate(480 520)">
+              <g data-portal>
+                <ellipse class="portal-shadow" rx="88" ry="14" />
+                <ellipse class="portal-ring" rx="68" ry="10" />
+              </g>
+            </g>
+            <g transform="translate(90 455)">
+              <g data-prompt-packet>
+                <rect class="prompt-packet" width="58" height="42" rx="9" />
+                <path class="packet-glyph" d="M15 13l8 8-8 8M31 29h13" />
+              </g>
+            </g>
+
+            <g transform="translate(400 320)">
+              <g data-robot-move>
+                <g data-robot-pop>
+                  <ellipse class="robot-shadow" cx="80" cy="211" rx="57" ry="10" />
+                  <g data-robot-body>
+                    <path class="robot-antenna" d="M80 29V10" />
+                    <circle class="robot-signal" cx="80" cy="8" r="6" />
+                    <rect class="robot-shell" x="18" y="30" width="124" height="92" rx="30" />
+                    <path class="robot-ear" d="M13 59v29M147 59v29" />
+                    <rect class="robot-face" x="30" y="43" width="100" height="62" rx="20" />
+                    <g data-robot-eyes>
+                      <rect class="robot-eye" x="51" y="60" width="12" height="23" rx="6" />
+                      <rect class="robot-eye" x="97" y="60" width="12" height="23" rx="6" />
+                      <path class="robot-smile" d="M72 88q8 7 16 0" />
+                    </g>
+                    <path class="robot-neck" d="M65 125v8h30v-8" />
+                    <rect class="robot-shell" x="40" y="134" width="80" height="54" rx="19" />
+                    <rect class="robot-slot" x="59" y="147" width="42" height="28" rx="7" />
+                    <g data-integrated-chip>
+                      <rect class="integrated-core" x="64" y="151" width="32" height="20" rx="4" />
+                      <path class="core-pins" d="M70 148v-4M80 148v-4M90 148v-4M70 174v4M80 174v4M90 174v4" />
+                    </g>
+                    <g data-arm-left>
+                      <path class="robot-arm" d="M40 144Q9 151 7 120" />
+                      <circle class="robot-hand" cx="7" cy="117" r="9" />
+                    </g>
+                    <g data-arm-right>
+                      <path class="robot-arm" d="M120 144q31 7 33-24" />
+                      <circle class="robot-hand" cx="153" cy="117" r="9" />
+                    </g>
+                    <g data-leg-left><path class="robot-leg" d="M61 188v16h-13" /></g>
+                    <g data-leg-right><path class="robot-leg" d="M99 188v16h13" /></g>
+                    <circle class="integration-ring" data-integration-ring cx="80" cy="161" r="35" />
+                  </g>
+                </g>
+              </g>
+            </g>
+
+            <g transform="translate(680 430)">
+              <g data-chip>
+                <path class="chip-edge" d="M-29-29l12-10h58v58L29 29z" />
+                <rect class="chip-front" x="-29" y="-29" width="58" height="58" rx="9" />
+                <path class="chip-pins" d="M-15-29v-8M0-29v-8M15-29v-8M-15 29v8M0 29v8M15 29v8M-29-15h-8M-29 0h-8M-29 15h-8M29-15h8M29 0h8M29 15h8" />
+                <path class="chip-mark" d="M-7-12H8M0-12v25M-8 13H8" />
+                <g data-chip-label><rect class="chip-nameplate" x="-45" y="-70" width="90" height="30" rx="6" /><text class="chip-label" y="-49">tgrep</text></g>
+              </g>
+            </g>
+
+            <g data-bubble>
+              <rect class="speech-bubble" x="370" y="224" width="220" height="58" rx="15" />
+              <path class="bubble-tail" d="M456 281l18 17 18-17" />
+              <text class="bubble-text" x="480" y="260">{copy.labels.processing}</text>
+            </g>
+            <g data-speed-lines class="speed-lines">
+              <path d="M370 350h-40M359 375h-60M371 400h-45M589 350h40M601 375h60M590 400h45" />
+            </g>
+            <g data-ready>
+              <rect class="ready-pill" x="352" y="552" width="256" height="44" rx="22" />
+              <path class="ready-check" d="M375 574l7 7 12-14" />
+              <text class="ready-text" x="494" y="580">{copy.labels.ready}</text>
+            </g>
+          </svg>
+          <div class="scene-caption"><span class="caption-dot" aria-hidden="true"></span><p data-caption>{copy.beats[0]}</p></div>
         </div>
       </div>
+      <div class="playback-controls" data-controls hidden>
+        <span data-clock aria-hidden="true">0:00</span>
+        <input type="range" min="0" max="21000" step="100" value="0" aria-label={copy.timeline} data-scrub />
+        <span aria-hidden="true">0:21</span>
+      </div>
+      <details class="transcript-details"><summary>{copy.transcript}</summary><ol>{copy.conversation.map((line) => <li><strong>{line.speaker === "user" ? controls.user : line.speaker === "tool" ? "tools" : controls.assistant}</strong> {line.text}</li>)}</ol></details>
+      <p class="scene-explanation">{copy.explanation}</p>
     </div>
   </div>
 </section>
 
 <style>
-  /* ── the prompt box ─────────────────────────────────────────────── */
-  .wk-prompt-label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-prompt-label {
-    color: var(--color-violet-300);
-  }
-
-  .wk-prompt-box {
-    margin-top: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    border-radius: 12px;
-    padding: 0.85rem 1rem;
-    background: var(--color-night);
-    color: rgb(226 232 240);
-    font-family: var(--font-mono);
-    font-size: 14px;
-    box-shadow:
-      0 18px 50px -24px rgba(14, 165, 233, 0.5),
-      0 24px 60px -30px rgba(124, 58, 237, 0.55);
-  }
-
-  .wk-caret {
-    color: var(--color-violet-400);
-  }
-
-  [data-walk][data-stop="1"] .wk-prompt-box {
-    outline: 2px solid var(--color-violet-500);
-    outline-offset: 2px;
-  }
-
-  /* ── route ──────────────────────────────────────────────────────── */
-  .wk-track {
-    fill: none;
-    stroke: var(--color-border-soft);
-    stroke-width: 2.5;
-    stroke-linecap: round;
-  }
-
-  .wk-trail {
-    fill: none;
-    stroke: url(#wk-trail);
-    stroke-width: 3.5;
-    stroke-linecap: round;
-  }
-
-  .wk-loop {
-    fill: none;
-    stroke: var(--color-violet-400);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 6;
-    opacity: 0.55;
-  }
-
-  .wk-loop-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    fill: var(--color-violet-700);
-    opacity: 0.85;
-  }
-
-  :global(html.dark) .wk-loop-label {
-    fill: var(--color-violet-300);
-  }
-
-  /* the outgoing label sits left of its arrow; the incoming one centres */
-  .wk-loop-out {
-    text-anchor: end;
-  }
-
-  .wk-loop-in {
-    text-anchor: middle;
-  }
-
-  /* ── stations ───────────────────────────────────────────────────── */
-  .wk-station {
-    cursor: pointer;
-  }
-
-  .wk-dot {
-    fill: var(--color-ivory);
-    stroke: var(--color-border-soft);
-    stroke-width: 2;
-    transition:
-      fill 0.3s ease,
-      stroke 0.3s ease;
-  }
-
-  .wk-dot-n {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 600;
-    text-anchor: middle;
-    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
-    transition: fill 0.25s ease;
-  }
-
-  :global(html.dark) .wk-dot-n {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-st-name {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    text-anchor: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
-    transition: fill 0.3s ease;
-  }
-
-  :global(html.dark) .wk-st-name {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-halo {
-    fill: none;
-    stroke: var(--color-violet-500);
-    stroke-width: 2;
-    opacity: 0;
-    transform-box: fill-box;
-    transform-origin: center;
-  }
-
-  /* visited stations keep their colour; the active one pulses */
-  .wk-station.is-visited .wk-dot {
-    fill: color-mix(in oklab, var(--color-sky-500), var(--color-ivory) 86%);
-    stroke: var(--color-sky-500);
-  }
-
-  .wk-station.is-active .wk-dot {
-    fill: var(--color-violet-500);
-    stroke: var(--color-violet-600);
-    stroke-width: 2.5;
-    filter: drop-shadow(0 0 12px color-mix(in oklab, var(--color-violet-500), transparent 45%));
-  }
-
-  /* on a solid violet disc the digit reads white, not violet-on-violet */
-  .wk-station.is-active .wk-dot-n {
-    fill: #fff;
-  }
-
-  .wk-station.is-active .wk-st-name {
-    fill: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-station.is-active .wk-st-name {
-    fill: var(--color-violet-300);
-  }
-
-  .wk-station.is-active .wk-halo {
-    opacity: 0.85;
-    animation: wkHalo 1.9s ease-out infinite;
-  }
-
-  .wk-station:focus-visible .wk-dot {
-    stroke: var(--color-sky-500);
-  }
-
-  @keyframes wkHalo {
-    0% {
-      transform: scale(0.72);
-      opacity: 0.8;
-    }
-    100% {
-      transform: scale(1.32);
-      opacity: 0;
-    }
-  }
-
-  /* ── chips ──────────────────────────────────────────────────────── */
-  .wk-chip {
-    opacity: 0.25;
-    transition: opacity 0.4s ease;
-  }
-
-  .wk-chip.is-on {
-    opacity: 1;
-  }
-
-  .wk-chip-box {
-    fill: color-mix(in oklab, var(--color-ivory), transparent 8%);
-    stroke: var(--color-border-soft);
-    stroke-width: 1.25;
-  }
-
-  .wk-chip.is-on .wk-tone-ctx {
-    stroke: var(--color-sky-500);
-  }
-  .wk-chip.is-on .wk-tone-agent {
-    stroke: var(--color-violet-500);
-  }
-  .wk-chip.is-on .wk-tone-search {
-    stroke: var(--color-sky-600);
-  }
-  .wk-chip.is-on .wk-tone-guard {
-    stroke: #f59e0b;
-  }
-  .wk-chip.is-on .wk-tone-quality {
-    stroke: #10b981;
-  }
-  .wk-chip.is-on .wk-tone-out {
-    stroke: var(--color-violet-600);
-  }
-
-  .wk-chip-name {
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    font-weight: 500;
-    fill: var(--color-ink);
-  }
-
-  :global(html.dark) .wk-chip-name {
-    fill: rgb(226 232 240);
-  }
-
-  .wk-chip-desc {
-    font-size: 11px;
-    fill: color-mix(in oklab, var(--color-ink), transparent 42%);
-  }
-
-  :global(html.dark) .wk-chip-desc {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-chip-tie {
-    stroke: var(--color-border-soft);
-    stroke-width: 1;
-    stroke-dasharray: 2 3;
-  }
-
-  /* ── the travelling token ───────────────────────────────────────── */
-  .wk-token {
-    transition: opacity 0.25s ease;
-  }
-
-  .wk-token circle {
-    fill: var(--color-violet-500);
-  }
-
-  /* parked on a station: the node itself carries the light */
-  [data-walk][data-moving="no"] .wk-token {
-    opacity: 0;
-  }
-
-  /* ── narrator ───────────────────────────────────────────────────── */
-  .wk-counter {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-counter {
-    color: var(--color-violet-300);
-  }
-
-  .wk-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border-radius: 9999px;
-    border: 1px solid var(--color-border-soft);
-    padding: 0.3rem 0.7rem;
-    font-size: 12px;
-    transition: all 0.2s ease;
-  }
-
-  .wk-pill:hover {
-    border-color: var(--color-sky-500);
-  }
-
-  .wk-pill-n {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    opacity: 0.55;
-  }
-
-  .wk-pill[aria-pressed="true"] {
-    border-color: var(--color-violet-500);
-    background: color-mix(in oklab, var(--color-violet-600), transparent 90%);
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-pill[aria-pressed="true"] {
-    color: var(--color-violet-300);
-  }
-
-  /* ── reduced motion: no travel, everything readable ─────────────── */
-  @media (prefers-reduced-motion: reduce) {
-    .wk-chip {
-      opacity: 1;
-    }
-    .wk-station.is-active .wk-halo {
-      animation: none;
-      opacity: 0;
-    }
-    .wk-token {
-      display: none;
-    }
-    .wk-trail {
-      stroke-dasharray: none !important;
-      stroke-dashoffset: 0 !important;
-    }
+  .session-section { padding-block: 6rem; border-bottom: 1px solid var(--color-border-soft); }
+  .session-intro { max-width: 48rem; }
+  h2 { font-size: clamp(2rem, 3.8vw, 3rem); font-weight: 600; line-height: 1.12; letter-spacing: -.03em; text-wrap: balance; }
+  .session-intro > p { margin-top: 1.25rem; max-width: 65ch; font-size: 1.125rem; line-height: 1.7; color: var(--landing-muted); }
+  .session-demo { margin-top: 2.5rem; }
+  .demo-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; padding-block: 1rem; }
+  .demo-toolbar > p { font-size: .75rem; color: var(--landing-muted); }
+  .demo-toolbar button { border: 1px solid var(--color-border-soft); border-radius: 6px; padding: .65rem .9rem; font-size: .75rem; cursor: pointer; }
+  .demo-toolbar button:hover { border-color: var(--landing-accent); }
+  .session-layout { display: grid; grid-template-columns: minmax(240px, 1fr) 3fr; min-height: 580px; border-radius: 14px; overflow: hidden; border: 1px solid var(--color-border-soft); }
+  .session-console { display: flex; flex-direction: column; min-width: 0; background: #0a1020; color: #dce6f5; }
+  .console-heading { display: flex; align-items: center; gap: .65rem; padding: 1rem; border-bottom: 1px solid #ffffff16; font: .68rem var(--font-mono); color: #aabbd4; }
+  .console-light { width: 6px; height: 6px; border-radius: 50%; background: #7dd3fc; }
+  .console-messages { padding: .35rem 1rem; height: 470px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #425575 #0a1020; }
+  .console-messages li { padding-block: 1rem; border-bottom: 1px solid #ffffff12; }
+  .message-speaker { font: .65rem var(--font-mono); color: #8ccee8; }
+  .message-user .message-speaker { color: #d4c5fd; }
+  .message-tool .message-speaker { color: #b3d8bf; }
+  .console-messages p { font: .76rem/1.8 var(--font-mono); margin-top: .5rem; min-height: 1.3em; overflow-wrap: anywhere; }
+  .console-input { display: flex; gap: .65rem; align-items: center; padding: 1rem; margin-top: auto; font: .85rem var(--font-mono); color: #7dd3fc; }
+  .console-cursor { width: 7px; height: 14px; background: #8ccee8; opacity: .65; }
+  .animation-stage { --archive-front: #e5edf1; --archive-side: #c0d0da; --archive-drawer: #f0f4f5; --archive-line: #8fa5b5; --archive-ink: #263e50; min-width: 0; display: flex; flex-direction: column; justify-content: center; background-color: var(--color-ivory-2); background-image: linear-gradient(to right, var(--landing-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--landing-grid) 1px, transparent 1px); background-size: 32px 32px; }
+  :global(html.dark) .animation-stage { --archive-front: #26384f; --archive-side: #16243a; --archive-drawer: #30445c; --archive-line: #58708b; --archive-ink: #d5e8f0; }
+  .workshop { display: block; width: 100%; height: auto; overflow: visible; }
+  .floor-line { stroke: var(--archive-line); stroke-width: 1; }
+  .floor-shadow, .robot-shadow { fill: var(--archive-line); opacity: .12; }
+  .cabinet-side { fill: var(--archive-side); }
+  .cabinet-shell { fill: url(#cabinet-surface); stroke: var(--archive-line); stroke-width: 2; }
+  .cabinet-label { fill: var(--archive-drawer); stroke: var(--archive-line); }
+  .cabinet-brand { fill: var(--archive-ink); text-anchor: middle; font: 600 23px var(--font-mono); }
+  .drawer-recess { fill: var(--archive-side); }
+  .drawer-front { fill: var(--archive-drawer); stroke: var(--archive-line); stroke-width: 1.5; }
+  .drawer-top { fill: var(--archive-front); stroke: var(--archive-line); stroke-width: 1.5; opacity: 0; }
+  .drawer-tag { fill: var(--archive-front); }
+  .drawer-text { fill: var(--archive-ink); text-anchor: middle; font: 13px var(--font-sans); }
+  .drawer-handle, .cabinet-foot { fill: none; stroke: var(--archive-line); stroke-width: 4; stroke-linecap: round; }
+  .flying-file rect { fill: var(--archive-drawer); stroke: var(--landing-accent); stroke-width: 2; }
+  .flying-file path { fill: none; stroke: var(--landing-accent); stroke-width: 2; }
+  .portal-shadow { fill: #0a1020; opacity: .13; }
+  .portal-ring { fill: none; stroke: var(--color-sky-500); stroke-width: 3; }
+  .prompt-packet { fill: #0a1020; stroke: #7dd3fc; stroke-width: 2; }
+  .packet-glyph { fill: none; stroke: #7dd3fc; stroke-width: 3; }
+  .robot-shell { fill: var(--archive-drawer); stroke: var(--landing-accent); stroke-width: 2.5; }
+  .robot-antenna, .robot-ear, .robot-neck { fill: none; stroke: var(--landing-accent); stroke-width: 4; stroke-linecap: round; }
+  .robot-signal { fill: #a78bfa; }
+  .robot-face, .robot-slot { fill: #0a1020; }
+  .robot-eye { fill: #7dd3fc; }
+  .robot-smile { fill: none; stroke: #7dd3fc; stroke-width: 2.5; stroke-linecap: round; }
+  .robot-arm, .robot-leg { fill: none; stroke: var(--landing-accent); stroke-width: 8; stroke-linecap: round; }
+  .robot-hand { fill: var(--archive-drawer); stroke: var(--landing-accent); stroke-width: 2.5; }
+  .integrated-core { fill: #63e0df; }
+  .core-pins { stroke: #63e0df; stroke-width: 2; }
+  .integration-ring { fill: none; stroke: #25b6c0; stroke-width: 3; }
+  .chip-edge { fill: #12688d; stroke: #0a506f; stroke-width: 2; }
+  .chip-front { fill: url(#chip-surface); stroke: #0a506f; stroke-width: 2; }
+  .chip-pins { fill: none; stroke: #33819a; stroke-width: 5; }
+  .chip-mark { fill: none; stroke: #0a3856; stroke-width: 4; stroke-linecap: round; }
+  .chip-nameplate { fill: #0a1020; }
+  .chip-label { text-anchor: middle; fill: #b9ecf4; font: 19px var(--font-mono); }
+  .speech-bubble, .bubble-tail { fill: var(--archive-drawer); stroke: var(--archive-line); stroke-width: 1.5; }
+  .bubble-text { text-anchor: middle; fill: var(--archive-ink); font: 20px var(--font-sans); }
+  .speed-lines { fill: none; stroke: #36a6b9; stroke-width: 4; stroke-linecap: round; }
+  .ready-pill { fill: var(--archive-drawer); stroke: var(--archive-line); }
+  .ready-check { fill: none; stroke: var(--landing-accent); stroke-width: 3; stroke-linecap: round; }
+  .ready-text { text-anchor: middle; fill: var(--archive-ink); font: 18px var(--font-sans); }
+  .scene-caption { display: flex; align-items: center; justify-content: center; gap: .6rem; min-height: 4rem; padding: 1rem; text-align: center; font-size: .85rem; color: var(--landing-muted); }
+  .caption-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--landing-accent); }
+  .playback-controls { display: flex; align-items: center; gap: .9rem; margin-top: 1.25rem; }
+  .playback-controls[hidden] { display: none; }
+  .playback-controls > span { font: .68rem var(--font-mono); color: var(--landing-muted); }
+  .playback-controls input { width: 100%; height: 24px; accent-color: var(--landing-accent); cursor: pointer; }
+  .scene-explanation { max-width: 95ch; margin-top: 1rem; color: var(--landing-muted); font-size: .75rem; line-height: 1.75; }
+  .transcript-details { margin-top: 1.25rem; font-size: .8rem; }
+  .transcript-details summary { color: var(--landing-accent); cursor: pointer; padding-block: .5rem; }
+  .transcript-details li { margin-top: .75rem; line-height: 1.7; color: var(--landing-muted); }
+  .transcript-details strong { font-weight: 600; margin-right: .35rem; }
+  .flying-file, [data-chip], [data-bubble], [data-speed-lines], [data-integrated-chip], [data-integration-ring], [data-prompt-packet], [data-portal] { opacity: 0; }
+  @media (max-width: 760px) {
+    .session-section { padding-block: 4rem; }
+    .session-layout { grid-template-columns: 1fr; min-height: 0; }
+    .console-messages { height: 210px; }
+    .console-heading { padding: .75rem 1rem; }
+    .console-input { padding: .5rem 1rem; }
+    .workshop { width: 115%; max-width: none; margin: -1rem -7.5% 0; }
+    .cabinet-brand { font-size: 28px; }
+    .drawer-text { font-size: 17px; }
+    .chip-label { font-size: 23px; }
+    .bubble-text { font-size: 24px; }
+    .scene-caption { min-height: 4.5rem; font-size: .8rem; }
   }
 </style>
 
 <script>
-  interface Stop {
-    n: number;
-    /** Length along the route where this station sits. */
-    at: number;
-    el: SVGGElement;
-    chips: SVGGElement[];
-    pill: HTMLButtonElement | null;
-  }
+  import { mountSessionAnimation } from "../../scripts/session-animation";
 
-  document.querySelectorAll<HTMLElement>("[data-walk]").forEach((root) => {
-    const svg = root.querySelector("svg");
-    const trail = root.querySelector<SVGPathElement>("[data-trail]");
-    const token = root.querySelector<SVGGElement>("[data-token]");
-    const counter = root.querySelector<HTMLElement>("[data-counter]");
-    const titleEl = root.querySelector<HTMLElement>("[data-title]");
-    const bodyEl = root.querySelector<HTMLElement>("[data-body]");
-    const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
-    const toggleLabel = root.querySelector<HTMLElement>("[data-toggle-label]");
-    if (!svg || !trail || !token) return;
-
-    const copy = JSON.parse(root.dataset.copy ?? "{}") as Record<
-      string,
-      { title: string; body: string }
-    >;
-    const labels = JSON.parse(root.dataset.labels ?? "{}") as {
-      pause?: string;
-      play?: string;
-      counter?: string;
-    };
-
-    const routeLength = trail.getTotalLength();
-    trail.style.strokeDasharray = String(routeLength);
-    trail.style.strokeDashoffset = String(routeLength);
-
-    /**
-     * Find where each station sits along the route by sampling, rather than
-     * trusting a hand-written fraction: the layout constants and the animation
-     * then cannot drift apart.
-     */
-    const measureStops = (): Stop[] => {
-      const SAMPLES = 900;
-      const pts: { len: number; x: number; y: number }[] = [];
-      for (let i = 0; i <= SAMPLES; i++) {
-        const len = (routeLength * i) / SAMPLES;
-        const p = trail.getPointAtLength(len);
-        pts.push({ len, x: p.x, y: p.y });
-      }
-
-      return [...root.querySelectorAll<SVGGElement>("[data-station]")].map((el) => {
-        const n = Number(el.dataset.station);
-        const dot = el.querySelector("circle");
-        const cx = Number(dot?.getAttribute("cx") ?? 0);
-        const cy = Number(dot?.getAttribute("cy") ?? 0);
-        let best = pts[0] ?? { len: 0, x: 0, y: 0 };
-        let bestD = Infinity;
-        for (const p of pts) {
-          const d = (p.x - cx) ** 2 + (p.y - cy) ** 2;
-          if (d < bestD) {
-            bestD = d;
-            best = p;
-          }
-        }
-        return {
-          n,
-          at: best.len,
-          el,
-          chips: [...root.querySelectorAll<SVGGElement>(`[data-chip-of="${n}"]`)],
-          pill: root.querySelector<HTMLButtonElement>(`[data-goto="${n}"]`),
-        };
-      });
-    };
-
-    const stops = measureStops().sort((a, b) => a.n - b.n);
-    if (stops.length === 0) return;
-
-    const place = (len: number): void => {
-      const p = trail.getPointAtLength(Math.max(0, Math.min(len, routeLength)));
-      token.setAttribute("transform", `translate(${p.x} ${p.y})`);
-      trail.style.strokeDashoffset = String(routeLength - len);
-    };
-
-    /** Whether the token is between stations; CSS hides it when parked. */
-    const setMoving = (moving: boolean): void => {
-      root.dataset.moving = moving ? "yes" : "no";
-    };
-
-    const render = (n: number): void => {
-      root.dataset.stop = String(n);
-      for (const s of stops) {
-        s.el.classList.toggle("is-active", s.n === n);
-        s.el.classList.toggle("is-visited", s.n < n);
-        for (const c of s.chips) c.classList.toggle("is-on", s.n <= n);
-        s.pill?.setAttribute("aria-pressed", s.n === n ? "true" : "false");
-      }
-      const text = copy[String(n)];
-      if (titleEl && text) titleEl.textContent = text.title;
-      if (bodyEl && text) bodyEl.textContent = text.body;
-      if (counter && labels.counter) {
-        counter.textContent = labels.counter
-          .replace("{n}", String(n))
-          .replace("{total}", String(stops.length));
-      }
-    };
-
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // Static fallback: everything lit, no travel, buttons still navigate.
-    if (reduced) {
-      trail.style.strokeDashoffset = "0";
-      setMoving(false);
-      for (const s of stops) for (const c of s.chips) c.classList.add("is-on");
-      render(1);
-      for (const s of stops) {
-        s.pill?.addEventListener("click", () => render(s.n));
-        s.el.addEventListener("click", () => render(s.n));
-      }
-      toggle?.setAttribute("hidden", "");
-      return;
-    }
-
-    const TRAVEL_MS = 900;
-    const DWELL_MS = 3400;
-    const easeInOut = (x: number): number =>
-      x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
-
-    let index = 0;
-    let phase: "dwell" | "travel" = "dwell";
-    let phaseStart = 0;
-    let running = false;
-    let raf = 0;
-
-    const frame = (now: number): void => {
-      if (!running) return;
-      if (phaseStart === 0) phaseStart = now;
-      const elapsed = now - phaseStart;
-
-      if (phase === "dwell") {
-        if (elapsed >= DWELL_MS) {
-          phase = "travel";
-          phaseStart = now;
-          setMoving(true);
-        }
-      } else {
-        const from = stops[index]?.at ?? 0;
-        const nextIndex = (index + 1) % stops.length;
-        const to = stops[nextIndex]?.at ?? 0;
-        const k = Math.min(1, elapsed / TRAVEL_MS);
-
-        // Wrapping from the last stop back to the first would drag the token
-        // backwards across the whole route; reset instead, which reads as the
-        // loop-back arrow the diagram already draws.
-        if (nextIndex === 0) {
-          if (k >= 1) {
-            index = 0;
-            place(stops[0]?.at ?? 0);
-            render(stops[0]?.n ?? 1);
-            for (const s of stops) {
-              s.el.classList.remove("is-visited");
-              for (const c of s.chips) c.classList.remove("is-on");
-            }
-            render(stops[0]?.n ?? 1);
-            phase = "dwell";
-            phaseStart = now;
-            setMoving(false);
-          } else {
-            token.setAttribute("opacity", String(1 - k));
-          }
-        } else {
-          place(from + (to - from) * easeInOut(k));
-          if (k >= 1) {
-            index = nextIndex;
-            render(stops[index]?.n ?? 1);
-            phase = "dwell";
-            phaseStart = now;
-            setMoving(false);
-          }
-        }
-      }
-      raf = requestAnimationFrame(frame);
-    };
-
-    const start = (): void => {
-      if (running) return;
-      running = true;
-      token.setAttribute("opacity", "1");
-      phaseStart = 0;
-      raf = requestAnimationFrame(frame);
-      toggle?.setAttribute("aria-pressed", "false");
-      if (toggleLabel && labels.pause) toggleLabel.textContent = labels.pause;
-    };
-
-    const stop = (): void => {
-      running = false;
-      cancelAnimationFrame(raf);
-      toggle?.setAttribute("aria-pressed", "true");
-      if (toggleLabel && labels.play) toggleLabel.textContent = labels.play;
-    };
-
-    const jumpTo = (n: number): void => {
-      stop();
-      index = stops.findIndex((s) => s.n === n);
-      if (index < 0) index = 0;
-      const target = stops[index];
-      if (!target) return;
-      token.setAttribute("opacity", "1");
-      setMoving(false);
-      place(target.at);
-      render(target.n);
-    };
-
-    for (const s of stops) {
-      s.pill?.addEventListener("click", () => jumpTo(s.n));
-      s.el.addEventListener("click", () => jumpTo(s.n));
-      s.el.addEventListener("keydown", (e) => {
-        if (e instanceof KeyboardEvent && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          jumpTo(s.n);
-        }
-      });
-    }
-
-    toggle?.addEventListener("click", () => (running ? stop() : start()));
-
-    setMoving(false);
-    place(stops[0]?.at ?? 0);
-    render(stops[0]?.n ?? 1);
-
-    // Never animate a diagram nobody is looking at.
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) start();
-          else stop();
-        }
-      },
-      { threshold: 0.2 },
-    );
-    io.observe(root);
+  document.querySelectorAll<HTMLElement>("[data-session]").forEach((demo: HTMLElement): void => {
+    mountSessionAnimation(demo);
   });
 </script>

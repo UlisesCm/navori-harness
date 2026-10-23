@@ -3,8 +3,7 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
 import Hero from "../Hero.astro";
 import Trustband from "../sections/Trustband.astro";
 import HarnessGraph from "../sections/HarnessGraph.astro";
-import Problem from "../sections/Problem.astro";
-import Scopes from "../sections/Scopes.astro";
+import TeamStory from "../sections/TeamStory.astro";
 import Layers from "../sections/Layers.astro";
 import Flow from "../sections/Flow.astro";
 import Toolbox from "../sections/Toolbox.astro";
@@ -16,24 +15,58 @@ import Quickstart from "../sections/Quickstart.astro";
 import FAQ from "../sections/FAQ.astro";
 
 import type { Lang } from "../../i18n/ui";
+import { landingCopy } from "../../content/landing";
 interface Props { lang: Lang; }
 const { lang } = Astro.props;
+const copy = landingCopy[lang].technical;
 ---
 
-<BaseLayout lang={lang}>
+<BaseLayout lang={lang} title={landingCopy[lang].hero.title} description={landingCopy[lang].hero.body}>
   <Hero lang={lang} />
-  <Trustband lang={lang} />
-  {/* the explainer comes before the pitch: what a harness IS, then why */}
   <HarnessGraph lang={lang} />
-  <Problem lang={lang} />
-  <Scopes lang={lang} />
-  <Layers lang={lang} />
-  <Flow lang={lang} />
-  <Toolbox lang={lang} />
-  <Audit lang={lang} />
-  <Commands lang={lang} />
+  <TeamStory lang={lang} />
   <Engines lang={lang} />
-  <Releases lang={lang} limit={3} />
   <Quickstart lang={lang} />
+  <section class="technical-section">
+    <div class="container-prose">
+      <h2>{copy.title}</h2>
+      <p>{copy.body}</p>
+    </div>
+    <details class="technical-details">
+      <summary class="container-prose">{copy.open}<span aria-hidden="true">+</span></summary>
+      <Trustband lang={lang} />
+      <Layers lang={lang} />
+      <Flow lang={lang} />
+      <Toolbox lang={lang} />
+      <Audit lang={lang} />
+      <Commands lang={lang} />
+      <Releases lang={lang} limit={3} />
+    </details>
+  </section>
   <FAQ lang={lang} />
 </BaseLayout>
+
+<style>
+  .technical-section { padding-block: 4rem; border-top: 1px solid var(--color-border-soft); }
+  .technical-section h2 { font-size: 1.75rem; font-weight: 600; letter-spacing: -.02em; }
+  .technical-section p { margin-top: .75rem; color: var(--landing-muted); max-width: 65ch; line-height: 1.7; }
+  .technical-details { margin-top: 2rem; }
+  .technical-details > summary { display: flex; justify-content: space-between; gap: 1rem; padding-block: 1rem; cursor: pointer; color: var(--landing-accent); font-weight: 500; }
+  .technical-details > summary::marker { content: ""; }
+  .technical-details > summary::-webkit-details-marker { display: none; }
+  .technical-details[open] > summary > span { transform: rotate(45deg); }
+</style>
+
+<script>
+  // Preserve inbound links to technical sections even while the disclosure is closed.
+  function revealLandingFragment(): void {
+    if (!window.location.hash) return;
+    let fragment: string;
+    try { fragment = decodeURIComponent(window.location.hash.slice(1)); } catch { return; }
+    const target = document.getElementById(fragment);
+    const disclosure = target?.closest<HTMLDetailsElement>(".technical-details");
+    if (disclosure) { disclosure.open = true; target?.scrollIntoView(); }
+  }
+  window.addEventListener("hashchange", revealLandingFragment);
+  revealLandingFragment();
+</script>

@@ -2,6 +2,7 @@ import { ui, type Lang } from "../i18n/ui";
 import { locales, localeOrder } from "../i18n/locales";
 import { commandDocs, commandOrder } from "./commands";
 import { narratives } from "./narratives";
+import { sessionAnimation } from "./session-animation";
 import { pageIds, pagePath, markdownPath, indexPath, type PageId } from "./pages";
 import { primaryGuides, guideUrl } from "./guides";
 import { INVENTORY, REPO_URL, NPM_URL } from "../consts";
@@ -75,17 +76,12 @@ export function htmlMarkdown(html: string, canonical: string): string {
 export function interactiveMarkdown(lang: Lang, page: PageId): string {
   const t = ui[lang];
   if (page === "home") {
-    const stops = Array.from({ length: 8 }, (_, index) => {
-      const key = `graph.s${index + 1}` as "graph.s1";
-      return `## ${t[`${key}.name`]}: ${t[`${key}.title`]}\n\n${t[`${key}.body`]}`;
-    });
-    const chips = Object.entries(t)
-      .filter(([key]) => key.startsWith("graph.chip."))
-      .map(([, value]) => value);
+    const session = sessionAnimation[lang];
     return [
-      ...stops,
-      ...chips,
-      t["graph.loop"],
+      session.scene,
+      ...session.conversation.map((line): string => `**${line.speaker}**: ${line.text}`),
+      ...session.beats,
+      session.explanation,
       ...["core", "preset", "workspace", "project"].map(
         (layer) => t[`flow.${layer}.note` as "flow.core.note"],
       ),
