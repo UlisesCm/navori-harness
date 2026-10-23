@@ -1,6 +1,6 @@
 # Migración de navori a Rust — Tasks
 
-**Estado:** borrador · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
+**Estado:** E1 en progreso · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
 "Fases del programa"): tres entregas, cada una un PR contra `migration/rust`. El LOC es una
 estimación, no una medición.
 
@@ -25,10 +25,10 @@ Estimated LOC: 3500
 
 ### M1 — Dirección y esqueleto
 - **A1** [observable] — DIRECTION enmendada, workspace compila y `--version` nativo · `cargo build --locked -p navori-cli && ./target/debug/navori-rust --version` → imprime `0.13.0-rust.1` (versión del workspace cargo), exit 0
-- [ ] **T1** (R1) — `docs/DIRECTION.md` § "Non-goals" y una sección nueva de convivencia: retira "Rust control plane", registra la migración, la rama `migration/rust`, el sentido único de sincronización y su porqué · effect: docs · test: `docs/DIRECTION.md`::"Rust migration"
-- [ ] **T2** (R2, R16) — `Cargo.toml` del workspace (`resolver = "3"`, `[workspace.lints]` con `unsafe_code`, `clippy::unwrap_used` y `clippy::expect_used` en deny), `rust-toolchain.toml` con `channel = "1.99.1"` y los cuatro targets, `Cargo.lock` versionado; crates `navori-core`, `navori-hooks`, `navori-cli` y `navori-oracle-tests` vacíos · effect: behavior · test: `crates/navori-cli/tests/lints.rs`::"un unwrap en código de producción no pasa clippy"
-- [ ] **T3** (R17) — `crates/navori-core/build.rs`: tabla `include_bytes!` de `packages/core/core-assets/` y `packages/plugins/*/`, `rerun-if-changed` por directorio; `--version` nativo en `navori-cli` con el formato de salida de citty · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"--version reporta la versión del workspace"
-- [ ] **T52** (R25, R26) — `[workspace.package] version = "0.13.0-rust.1"` heredada por los cuatro crates; `packages/cli/package.json` conserva la versión de `dev`; la sección de migración de `docs/DIRECTION.md` explica dónde vive la prerelease (la guía de instalación y sincronización de CONTRIBUTING llega con T17, en los tres idiomas). La regla del oráculo para `--version` llega con T9 · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"la versión tiene la forma 0.13.0-rust.<n>"
+- [x] **T1** (R1) — `docs/DIRECTION.md` § "Non-goals" y una sección nueva de convivencia: retira "Rust control plane", registra la migración, la rama `migration/rust`, el sentido único de sincronización y su porqué · effect: docs · test: `docs/DIRECTION.md`::"Rust migration"
+- [x] **T2** (R2, R16) — `Cargo.toml` del workspace (`resolver = "3"`, `[workspace.lints]` con `unsafe_code`, `clippy::unwrap_used` y `clippy::expect_used` en deny), `rust-toolchain.toml` con `channel = "1.99.1"` y los cuatro targets, `Cargo.lock` versionado; crates `navori-core`, `navori-hooks`, `navori-cli` y `navori-oracle-tests` vacíos · effect: behavior · test: `crates/navori-cli/tests/lints.rs`::"un unwrap en código de producción no pasa clippy"
+- [x] **T3** (R17) — `crates/navori-core/build.rs`: tabla `include_bytes!` de `packages/core/core-assets/` y `packages/plugins/*/`, `rerun-if-changed` por directorio; `--version` nativo en `navori-cli` con el formato de salida de citty · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"--version reporta la versión del workspace"
+- [x] **T52** (R25, R26) — `[workspace.package] version = "0.13.0-rust.1"` heredada por los cuatro crates; `packages/cli/package.json` conserva la versión de `dev`; la sección de migración de `docs/DIRECTION.md` explica dónde vive la prerelease (la guía de instalación y sincronización de CONTRIBUTING llega con T17, en los tres idiomas). La regla del oráculo para `--version` llega con T9 · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"la versión tiene la forma 0.13.0-rust.<n>"
 
 ### M2 — Delegación
 - **A2** [observable] — un subcomando no portado se ejecuta vía TS con el mismo exit code · `cargo test -p navori-cli --test delegation` → exit 0, todos los casos verdes
@@ -39,14 +39,23 @@ Estimated LOC: 3500
 - [x] **T8** (R7, R10) — esquema de `crates/ported.json` y `crates/ported-history.jsonl` (D4, D1) con su validador en `navori-core` · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"rechaza entradas sin flags normalizados o hashes incompletos"
 
 ### M3 — Oráculo diferencial
+
+Verificación local (2026-10-23): A3 `bun run oracle:rust` → 52 casos, 0 diferencias; fmt,
+clippy y pruebas del workspace verdes. Ejecución directa por instrucción del usuario.
 - **Consumes:** `bun run oracle:rust` → ejecuta `navori-rust` (versión nativa de M1 y delegación de M2) contra el CLI TS sobre los fixtures
 - **A3** [observable] — el oráculo compara ambos binarios sobre los fixtures con diferencial cero en lo delegado · `bun run oracle:rust` → exit 0, reporte con 0 diferencias
-- [ ] **T9** (R8) — `scripts/js/rust-oracle.mjs` y `bun run oracle:rust`: corrida secuencial en la misma ruta, entorno hermético, comparación de stdout, stderr, exit code y árbol de archivos (D5) · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"una diferencia de un byte en el árbol se reporta"
-- [ ] **T10** (R8, R9) — normalización por tokens estrictos (PID, rutas, hashes derivados de rutas, fechas) con un test de mutación por regla · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada regla de normalización tiene una mutación que la rompe"
-- [ ] **T11** (R9) — fixtures en `scripts/js/rust-oracle/fixtures/`, incluido un repo con contenido de usuario fuera de los markers, y casos de superficie desde `cli-surface.golden.json` · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"user-content-outside-markers"
-- [ ] **T12** (R9) — `navori-core` (`js_json`): serialización con semántica JS (claves enteras, `1.0`) con propiedades contra Node (D14) · effect: behavior · test: `crates/navori-oracle-tests/tests/js_json.rs`::"js_json coincide con JSON.stringify en valores generados"
+- [x] **T9** (R8) — `scripts/js/rust-oracle.mjs` y `bun run oracle:rust`: corrida secuencial en la misma ruta, entorno hermético, comparación de stdout, stderr, exit code y árbol de archivos (D5) · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"una diferencia de un byte en el árbol se reporta"
+- [x] **T10** (R8, R9) — normalización por tokens estrictos (PID, rutas, hashes derivados de rutas, fechas) con un test de mutación por regla · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada regla de normalización tiene una mutación que la rompe"
+- [x] **T11** (R9) — fixtures en `scripts/js/rust-oracle/fixtures/`, incluido un repo con contenido de usuario fuera de los markers, y casos de superficie desde `cli-surface.golden.json` · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"user-content-outside-markers"
+- [x] **T12** (R9) — `navori-core` (`js_json`): serialización con semántica JS (claves enteras, `1.0`) con propiedades contra Node (D14) · effect: behavior · test: `crates/navori-oracle-tests/tests/js_json.rs`::"js_json coincide con JSON.stringify en valores generados"
 
 ### M4 — CI e instalación
+
+Implementados localmente T13–T16 y la parte CI de T17 en `.github/workflows/rust.yml`,
+los tres scripts `rust-*-check.mjs` / `rust-sync-age.mjs`, sus pruebas y `ci.yml`.
+Instalación local comprobada: `navori-rust` tiene ruta propia y `navori` conserva ruta y hash.
+Los jobs remotos aún no se han ejecutado; M4 sigue abierto. Las guías CONTRIBUTING de T17 no
+se editaron: `guard-destructive` bloqueó la escritura shell como archivo gestionado.
 - **A4** [observable] — `rust.yml` corre todos sus jobs y la instalación local no toca `navori` · `cargo install --path crates/navori-cli --locked && command -v navori-rust && command -v navori` → dos rutas distintas; la de `navori` igual que antes de instalar
 - [ ] **T13** (R15) — `.github/workflows/rust.yml` job `quality` (fmt, clippy `-D warnings`, test) para PRs y pushes a `migration/rust`, sin `schedule` · effect: behavior · test: `.github/workflows/rust.yml`::"quality"
 - [ ] **T14** (R10) — jobs `oracle` y `manifest` (recalcula hashes, exige línea `unport` al quitar una entrada) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"quitar una entrada sin unport falla"
@@ -58,9 +67,14 @@ Estimated LOC: 3500
 Estimated LOC: 4000
 
 ### M5 — Runner
+
+Verificación local (2026-10-23): runner (5 casos), integridad exacta, propiedades contra Node,
+workspace completo, clippy y fmt verdes. A5 pasa. Son bibliotecas sin wiring nativo todavía:
+la integración del CLI, la escritura final y el fallback del renderer llegan en M6.
+Las propiedades escapan U+2028/U+2029 solo en el transporte JSONL hacia Node; no en los datos.
 - **A5** [observable] — el runner solo sale con 0/1/2/3 y un panic produce el veredicto seguro · `cargo test -p navori-hooks --test runner` → exit 0
-- [ ] **T18** (R12) — `navori-hooks` (`runner`): salida en búfer, `catch_unwind`, contrato 0/1/2/3 y veredicto seguro por engine para hooks con `gating` (D6) · effect: behavior · test: `crates/navori-hooks/tests/runner.rs`::"panic en hook con compuerta emite el veredicto seguro del engine"
-- [ ] **T19** (R11, R13) — integridad `file`/`impl`/`deps` con sha256 de bytes exactos y hash de marker sha1/8 con `normalize` de JS (D8) · effect: behavior · test: `crates/navori-hooks/tests/integrity.rs`::"CRLF, espacio final o script hermano editado difieren al shell"
+- [x] **T18** (R12) — `navori-hooks` (`runner`): salida en búfer, `catch_unwind`, contrato 0/1/2/3 y veredicto seguro por engine para hooks con `gating` (D6) · effect: behavior · test: `crates/navori-hooks/tests/runner.rs`::"panic en hook con compuerta emite el veredicto seguro del engine"
+- [x] **T19** (R11, R13) — integridad `file`/`impl`/`deps` con sha256 de bytes exactos y hash de marker sha1/8 con `normalize` de JS (D8) · effect: behavior · test: `crates/navori-core/tests/integrity.rs`::"CRLF, espacio final o script hermano editado difieren al shell"
 
 ### M6 — Wiring de convivencia
 - **A6** [observable] — ninguna salida anómala del binario termina en permitir · `bun run vitest run src/__tests__/native-hook-failclosed.test.ts` → exit 0 en Claude, Codex y Pi

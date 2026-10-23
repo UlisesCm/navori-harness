@@ -145,7 +145,7 @@ jobs:
         run: bun run check:tests-preserved
 
   plan:
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    if: github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'migration/rust')
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.plan.outputs.full }}
@@ -236,7 +236,7 @@ jobs:
 
   affected:
     needs: [plan]
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && needs.plan.result == 'success' && needs.plan.outputs.full == 'false'
+    if: github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'migration/rust') && needs.plan.result == 'success' && needs.plan.outputs.full == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

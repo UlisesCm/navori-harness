@@ -15,9 +15,28 @@ pub fn root_help(version: &str) -> String {
         "{ROOT_DESCRIPTION} (navori v{version})\n\nUSAGE navori {}\n\nCOMMANDS\n\n",
         names.join("|")
     );
+    // citty's `formatLineColumns`: names right-aligned to the longest name plus the two backticks
+    // it adds (the renderer then drops them), descriptions padded to the longest one plus the two
+    // trailing spaces TS emits (measured against `dist/`; the oracle checks every byte).
+    let name_width = ROOT_COMMANDS
+        .iter()
+        .map(|(n, _)| n.len())
+        .max()
+        .unwrap_or(0)
+        + 2;
+    let description_width = ROOT_COMMANDS
+        .iter()
+        .map(|(_, d)| d.len())
+        .max()
+        .unwrap_or(0);
     for (name, description) in ROOT_COMMANDS {
+        let pad = name_width - name.len();
         // Writing to a String cannot fail.
-        let _ = writeln!(out, "  {name}  {description}  ");
+        let _ = writeln!(
+            out,
+            "{:pad$}{name}    {description:<description_width$}  ",
+            ""
+        );
     }
     // citty trims the whole command block, so the last row loses its trailing padding.
     out.truncate(out.trim_end().len());

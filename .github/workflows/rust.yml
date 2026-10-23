@@ -1,0 +1,120 @@
+name: Rust coexistence
+
+on:
+  push:
+    branches: [migration/rust]
+  pull_request:
+    branches: [migration/rust]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      # rustup reads the pinned toolchain, components and targets from rust-toolchain.toml.
+      - run: rustup show active-toolchain
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: rustup show active-toolchain
+      - run: bun run oracle:rust
+
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - run: rustup show active-toolchain
+      - run: cargo test --locked -p navori-core --test manifest
+      - name: Verify hashes and append-only unport history
+        env:
+          MANIFEST_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$MANIFEST_BASE"
+          # A first push compares with dev, before the manifest was introduced.
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
+            base=$(git merge-base HEAD origin/dev)
+          fi
+          node scripts/js/rust-manifest-check.mjs "$base"
+
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - run: git fetch origin dev
+      - run: node scripts/js/rust-sync-age.mjs
+
+  tarball:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run ensure-dist
+      - run: node scripts/js/rust-tarball-check.mjs
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run ensure-dist
+      - run: rustup show active-toolchain
+      - name: Install alongside TS without replacing navori
+        run: |
+          # The TS binary keeps its npm name and path during coexistence.
+          mkdir -p "$RUNNER_TEMP/ts-bin"
+          ln -s "$PWD/packages/cli/dist/index.js" "$RUNNER_TEMP/ts-bin/navori"
+          export PATH="$RUNNER_TEMP/ts-bin:$PATH"
+          before=$(command -v navori)
+          before_hash=$(sha256sum "$before")
+          cargo install --path crates/navori-cli --locked
+          test "$(command -v navori)" = "$before"
+          test "$(sha256sum "$before")" = "$before_hash"
+          test "$(command -v navori-rust)" != "$before"
+          navori-rust --version

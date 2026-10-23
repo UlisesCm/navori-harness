@@ -276,7 +276,8 @@ declarativa. Cada comando portado trae su fila en esa tabla y la valida su caso 
   Un archivo `.js` se ejecuta con `node` resuelto desde `PATH`.
 - **Versión:** antes de `exec` se lee la versión del TS elegido (`package.json` junto a `dist/`, o
   `navori --version` en el caso 3). Si difiere de la de `navori-rust`, sale **una** línea de aviso en
-  stderr que nombra ambas versiones y la ruta. El oráculo nunca la ve, porque usa el mismo checkout.
+  stderr que nombra ambas versiones y la ruta. Durante la convivencia el oráculo enmascara solo
+  esta línea literal (D5), porque las versiones Rust y TS del mismo checkout difieren.
 - **Anti-bucle acotado:** al delegar se fija `NAVORI_DELEGATED=<pid propio>`. `exec` conserva el
   pid, así que solo hay bucle si al arrancar `NAVORI_DELEGATED == getpid()`; en ese caso sale con 70.
   Si el valor es otro pid (un descendiente legítimo), la variable se ignora y se borra antes de
@@ -344,6 +345,11 @@ calcula el test del job `manifest`.
   produce el veredicto de su categoría.
 - **El job `manifest` recalcula** `blocks`, `deps` e `impl`. Cualquier desajuste, típico después de
   sincronizar `dev`, falla CI hasta que se reporte el cambio a Rust o se despotee el hook (R10).
+  `scripts/js/rust-manifest-check.mjs` resuelve bloques del core y `hookExtensions` de plugins,
+  expande includes con el expansor TS y lee las dependencias desde los assets fuente.
+  `impl` recorre `navori-hooks/src/hooks/<id_con_guiones_bajos>/` y los fuentes comunes de `src/`
+  fuera de `hooks/`: orden lexicográfico por ruta relativa, ruta + NUL + bytes exactos + NUL.
+  E2 debe usar esta misma receta en el build antes de agregar el primer hook al manifiesto.
 - **Formato JSON:** lo leen Node y Rust sin un parser nuevo.
 
 ### D5 — Oráculo diferencial `bun run oracle:rust` (R8, R9, R10, R14)
@@ -356,7 +362,7 @@ calcula el test del job `manifest`.
   `NAVORI_BACKUP_ROOT` y `NAVORI_AUDITS_ROOT` en rutas fijas por caso, y además:
   - las variables `GIT_CONFIG_*`/`GIT_TEMPLATE_DIR`/`XDG_CONFIG_HOME` aisladas y ningún `GIT_*`
     heredado;
-  - `NAVORI_NO_UPDATE_NOTIFIER=1` y `NO_COLOR=1`;
+  - `NAVORI_NO_UPDATE_NOTIFIER=1`, `NO_COLOR=1` y `NODE_NO_WARNINGS=1`;
   - sin TTY;
   - `NAVORI_TS_CLI` apuntando al `dist/` del checkout;
   - `TZ=UTC` y `LC_ALL=C`.
@@ -376,7 +382,7 @@ calcula el test del job `manifest`.
   | `@ISO@` | `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z` | `toISOString()` |
   | `@EPOCHMS@` | 13 dígitos, solo como valor de las claves `tsMs` y `observedAt` | `Date.now()` |
   | `@UUID@` | UUID v4 en minúsculas, 8-4-4-4-12 | `randomUUID` |
-  | `@BACKUP@` | `<basename>-YYYYMMDD-HHMMSS-mmm-p<pid>-<seq>` con la gramática de `backup.ts` | nombre de backup |
+  | `@BACKUP@` | `<basename>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>` con la gramática de `backup.ts` | nombre de backup |
   | `@PID@` | `p\d+` solo dentro de `@BACKUP@` y en las claves JSON `pid` | `process.pid` |
   | `@MS@` | `\d+(\.\d+)?ms` solo en líneas de resumen de duración | duraciones |
 
@@ -397,6 +403,15 @@ calcula el test del job `manifest`.
   - la matriz anti-rollback de D15.
 
   Cada fixture es un árbol declarativo más un `git init` determinista.
+  En E1 los fixtures Markdown se guardan con sufijo `.md.fixture`, que se quita al copiar.
+  Los fixtures de escritura D15, `codex-trusted` y la matriz anti-rollback se incorporan cuando
+  se porte un comando que escriba; no se consideran cubiertos por el humo delegado de E1.
+
+  Durante la convivencia, Rust y TS tienen versiones diferentes: el oráculo quita de stderr
+  de Rust solo la línea literal de aviso de delegación D3 (incluye ambas versiones y la ruta).
+  Para `--version` y `--help` nativos sustituye el literal de versión de cada lado solo en stdout.
+  Estas excepciones no normalizan los archivos ni el resto de stderr. La paridad de `--help`
+  incluye el relleno exacto de columnas, que el golden de superficie normaliza.
 - **Golden independiente (circularidad):** el prólogo, el brazo de Claude y los comandos
   registrados de los tres engines se comparan además con
   `crates/navori-hooks/tests/golden/wiring.snap`. Ese snapshot se revisa a mano y **no** se deriva

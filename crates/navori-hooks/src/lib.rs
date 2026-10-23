@@ -1,1 +1,3 @@
-//! Native hook runtime for navori. Intentionally empty until the E2 hook runner lands.
+//! Native hook runtime for navori. Hooks stay delegated until their manifest wiring lands.
+
+pub mod runner;

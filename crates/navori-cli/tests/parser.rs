@@ -20,6 +20,25 @@ fn flags(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|n| (*n).to_owned()).collect()
 }
 
+/// The golden squashes runs of spaces to two (the column padding depends on the scratch dir
+/// length there); the byte-exact check lives in the differential oracle.
+fn squash(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut run = 0;
+    for c in text.chars() {
+        if c == ' ' {
+            run += 1;
+            if run <= 2 {
+                out.push(c);
+            }
+        } else {
+            run = 0;
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// The golden `--help` stdout with the TS version swapped for the one of this binary.
 fn golden_root_help() -> Result<String, Box<dyn Error>> {
     let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(GOLDEN)?)?;
@@ -47,13 +66,16 @@ fn golden_root_help() -> Result<String, Box<dyn Error>> {
 #[test]
 fn root_help_matches_cli_surface_golden() -> Result<(), Box<dyn Error>> {
     let expected = golden_root_help()?;
-    assert_eq!(navori_cli::help::root_help(navori_core::VERSION), expected);
+    assert_eq!(
+        squash(&navori_cli::help::root_help(navori_core::VERSION)),
+        expected
+    );
 
     let out = Command::new(env!("CARGO_BIN_EXE_navori-rust"))
         .arg("--help")
         .output()?;
     assert!(out.status.success());
-    assert_eq!(String::from_utf8(out.stdout)?, expected);
+    assert_eq!(squash(&String::from_utf8(out.stdout)?), expected);
     assert!(out.stderr.is_empty());
     Ok(())
 }
