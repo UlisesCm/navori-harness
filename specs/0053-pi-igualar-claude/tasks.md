@@ -140,19 +140,27 @@ Estimated LOC: 3200
   `inconclusive` por mínimos y publicaciones sin aprobación correlacionada contadas ·
   `cd packages/cli && bun run test src/lib/audit/__tests__/engine-benchmark.test.ts src/lib/audit/__tests__/publications.test.ts`
   → exit 0, 0 failed
-- [ ] **T12** (R1, R2) — `lib/audit/engine-benchmark.ts` (nuevo): `benchmarkByEngine` con las siete métricas,
+- [x] **T12** (R1, R2) — `lib/audit/engine-benchmark.ts` (nuevo): `benchmarkByEngine` con las siete métricas,
       `controlOf` para normalizar denegaciones y `result: pass | fail | inconclusive` con los mínimos de R2 ·
       effect: behavior · test: `lib/audit/__tests__/engine-benchmark.test.ts`::"métrica sin datos es
       unavailable, sin publicación o sin denegación dirigida el resultado es inconclusive"
-- [ ] **T13** (R1, R2) — `lib/audit/publications.ts` (nuevo): `readPublications` empareja tips publicados del
-      remoto con `pr-publisher-confirm` y `review-outcome` correlacionado por `contentIdentity`; commits con gate
+- [x] **T13** (R1, R2) — `lib/audit/publications.ts` (nuevo): `readPublications` asocia tips publicados a una
+      única ventana/ref y a `review-outcome` anterior de la misma identidad de contenido; commits con gate
       verde desde el reflog · effect: behavior · test: `lib/audit/__tests__/publications.test.ts`::"un push de un
       diff cambiado tras la aprobación cuenta como publicación sin aprobación correlacionada"
-- [ ] **T14** (R1) — `commands/audit.ts` agrega `--by-engine` y `--published-from` con salida Markdown y
-      `--json`; `pi-session.ts` lee hijos `pi-<role>-<toolCallId>`, `isError`, compactaciones y `navori-context`;
-      `collectInjectedContext` conserva la fuente de `SessionStart` en Claude · effect: behavior · test:
+- [x] **T14** (R1) — `commands/audit.ts` agrega `--by-engine` y `--published-from` con salida Markdown y
+      `--json`; consume las identidades confirmadas de M5, compactaciones y `navori-context` en Pi;
+      el lector conserva la fuente compact de `SessionStart` en Claude · effect: behavior · test:
       `lib/audit/__tests__/engine-benchmark.test.ts`::"sesiones Claude y Pi sintéticas producen la tabla lado a
       lado con compactaciones repuestas por engine"
+
+  - Asociación Git descriptiva, sin autoridad de actor: `pr-publisher-confirm` observa `gh pr create`,
+    no `git push`. El lector usa únicamente objetos y reflogs locales; no crea worktrees ni modifica
+    remotos. Ventanas/ref ambiguas, relojes de un mismo segundo, logs ausentes y sesiones sin sellar
+    producen `unavailable`, no un cero medido. M7 conserva la aceptación viva y la autorización de presupuesto.
+  - La identidad del commit se contrasta con `contentIdentity`, incluyendo ejecutables, enlaces y
+    exclusiones de estado. Un gate fallido posterior invalida el verde previo. En Pi, la restauración
+    sigue `id`/`parentId`: un marcador de otra rama no repone una compactación.
 
 ### M7 — Corrida en vivo y documentación
 

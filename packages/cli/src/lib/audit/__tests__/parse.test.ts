@@ -1375,6 +1375,31 @@ describe("context injected by a SessionStart hook (#728)", () => {
     });
   });
 
+  // Covers: R1 (0053)
+  it("counts only successful compact-source restoration after a boundary", () => {
+    const file = sessionWith([
+      injection(MEMORY, "SessionStart:compact"),
+      { type: "system", subtype: "compact_boundary" },
+      injection(MEMORY),
+      injection(MEMORY, "SessionStart:compact"),
+      injection(MEMORY, "SessionStart:compact"),
+      { type: "system", subtype: "compact_boundary" },
+    ]);
+    expect(parseSession(file).compactionRecovery).toEqual({
+      total: 2,
+      contextRestored: 1,
+      pending: 1,
+    });
+    expect(
+      parseSession(
+        sessionWith([
+          { type: "system", subtype: "compact_boundary" },
+          injection("", "SessionStart:compact"),
+        ]),
+      ).compactionRecovery,
+    ).toEqual({ total: 1, contextRestored: 0, pending: 1 });
+  });
+
   it("does not count an explicit mem_context result carrying the same heading", () => {
     // The tool result of a real `mem_context` call quotes the same body. It is
     // already in `mcpCalls`, so counting it here would report one read twice —

@@ -78,6 +78,80 @@ const view = (host = "pi") => ({
   budget: createAuditReadBudget(),
 });
 
+// Covers: R1 (0053)
+it("does not borrow a context marker from another Pi branch", () => {
+  appendFileSync(
+    file,
+    [
+      { type: "compaction", id: "compact-left", parentId: "e6" },
+      {
+        type: "custom_message",
+        id: "context-right",
+        parentId: "e6",
+        customType: "navori-context",
+        content: OUTPUT,
+      },
+    ]
+      .map(line)
+      .join(""),
+  );
+  expect(parsePiSession(ID, join(dir, "audit.log"), file, view())?.compactionRecovery).toEqual({
+    total: 1,
+    contextRestored: 0,
+    pending: 1,
+  });
+});
+
+// Covers: R1 (0053)
+it("observes Pi boundaries, restored context and closed child results without retaining text", () => {
+  appendFileSync(
+    file,
+    [
+      {
+        type: "compaction",
+        id: "compact-a",
+        parentId: "e6",
+        timestamp: "2026-10-10T11:00:00.000Z",
+      },
+      {
+        type: "custom_message",
+        id: "context-a",
+        parentId: "compact-a",
+        customType: "navori-context",
+        content: OUTPUT,
+      },
+      {
+        type: "custom_message",
+        id: "context-b",
+        parentId: "context-a",
+        customType: "navori-context",
+        content: OUTPUT,
+      },
+      {
+        type: "compaction",
+        id: "compact-b",
+        parentId: "context-b",
+        timestamp: "2026-10-10T11:01:00.000Z",
+      },
+      result(7, "navori_subagent", {
+        details: { role: "reviewer" },
+        content: [{ type: "text", text: "APPROVED\n" + OUTPUT }],
+      }),
+      result(8, "navori_subagent", {
+        details: { role: "implementer" },
+        content: [{ type: "text", text: "BLOCKED\n" + OUTPUT }],
+      }),
+    ]
+      .map(line)
+      .join(""),
+  );
+  const parsed = parsePiSession(ID, join(dir, "audit.log"), file, view());
+  expect(parsed?.compactionRecovery).toEqual({ total: 2, contextRestored: 1, pending: 1 });
+  expect(parsed?.agents.at(-2)?.verdict).toBe("APPROVED");
+  expect(parsed?.agents.at(-1)?.handoffBlocked).toBe(true);
+  expect(JSON.stringify(parsed)).not.toContain(OUTPUT);
+});
+
 beforeEach(() => {
   saved = process.env.PI_CODING_AGENT_SESSION_DIR;
   dir = mkdtempSync(join(tmpdir(), "navori-pi-audit-"));

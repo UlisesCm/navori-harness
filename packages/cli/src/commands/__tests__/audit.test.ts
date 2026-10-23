@@ -28,6 +28,7 @@ import { auditCommand } from "../audit.ts";
 import { parseCodexSession } from "../../lib/audit/parse.ts";
 import { encodeCwdToSlug } from "../../lib/audit/paths.ts";
 import { emptyRepo, type RepoTemplate } from "../../__tests__/helpers/repo-template.ts";
+import type { EngineBenchmark } from "../../lib/audit/engine-benchmark.ts";
 
 /** Repos built once per file and copied per case (spec 0055 D7). */
 let repoTplMaster: RepoTemplate;
@@ -57,6 +58,47 @@ const realPaths = await vi.importActual<typeof privatePaths>("../../lib/audit/pa
 
 const CLI = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "dist", "index.js");
 const REPO = "fixture-repo";
+
+describe("engine comparison CLI", () => {
+  // Covers: R1, R2 (0053)
+  it("renders an inconclusive empty comparison without creating report files", (): void => {
+    const before = readdirSync(auditsRoot, { recursive: true }).sort();
+    const result = runAudit(["--by-engine", "--json"]);
+    expect(result.status, result.combined).toBe(0);
+    const report = JSON.parse(result.combined) as EngineBenchmark;
+    expect(report.schemaVersion).toBe(1);
+    expect(report.result).toBe("inconclusive");
+    expect(report.engines.map((row): string => row.engine)).toEqual(["claude", "pi"]);
+    expect(readdirSync(auditsRoot, { recursive: true }).sort()).toEqual(before);
+  });
+  // Covers: R1 (0053)
+  it("accepts repeated selectors and prints only a Markdown table in text mode", (): void => {
+    markedSessionWithTranscript("engine-one", "2026-09-01");
+    markedSessionWithTranscript("engine-two", "2026-09-01");
+    const result = runAudit([
+      "--by-engine",
+      "--json",
+      "--session",
+      "engine-one",
+      "--session",
+      "engine-two",
+    ]);
+    expect(result.status, result.combined).toBe(0);
+    expect((JSON.parse(result.combined) as EngineBenchmark).engines[0]?.sessions).toBe(2);
+    const text = runAudit(["--by-engine", "--session", "engine-one"]);
+    expect(text.status, text.combined).toBe(0);
+    expect(text.combined).toContain("| Metric | Claude | Pi |");
+  });
+  // Covers: R1 (0053)
+  it("rejects writing actions and selectors that cannot resolve uniquely", (): void => {
+    const out = join(sandbox, "forbidden-output");
+    expect(runAudit(["--by-engine", "--out", out]).status).toBe(2);
+    expect(existsSync(out)).toBe(false);
+    expect(runAudit(["--published-from", sandbox]).status).toBe(2);
+    expect(runAudit(["--by-engine", "--published-from"]).status).toBe(2);
+    expect(runAudit(["--by-engine", "--session", "not-found"]).status).toBe(2);
+  });
+});
 
 let sandbox: string;
 /** `$NAVORI_AUDITS_ROOT` for the run. */
