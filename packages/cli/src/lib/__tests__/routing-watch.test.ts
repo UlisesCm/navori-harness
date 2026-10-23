@@ -872,9 +872,10 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
       expect(line.head).toBe(readHead(dir));
       // End to end: the CLI accepts what the hook recorded.
       const root = resolveStateRoot({ cwd: dir, feature: FEATURE });
-      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
-        true,
-      );
+      expect(
+        validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND, expected: "passes" })
+          .ok,
+      ).toBe(true);
       return lines.length;
     });
   });
@@ -975,9 +976,10 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
       expect(lines).toHaveLength(1);
       expect(lines[0]).toMatchObject({ id: "A1", tree: wt, cwd: wt });
       const root = resolveStateRoot({ cwd: wt, feature: FEATURE });
-      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
-        true,
-      );
+      expect(
+        validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND, expected: "passes" })
+          .ok,
+      ).toBe(true);
       return lines.length;
     });
   });

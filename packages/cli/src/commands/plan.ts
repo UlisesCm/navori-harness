@@ -42,6 +42,7 @@ import { validateEvidence } from "../lib/plan/evidence.ts";
 import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
 import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
+import { parseExpected } from "../lib/plan/expected.ts";
 import { resumePlans } from "../lib/plan/resume.ts";
 
 function splitList(value: string | undefined): string[] {
@@ -599,7 +600,7 @@ const updateSubCommand = defineCommand({
     // every `cumplido` before anything is written (all-or-nothing).
     const required = evidenceRequired(root.cwd);
     const mutations: RawMutation[] = [];
-    const validatedCommands = new Map<string, string>();
+    const validatedCriteria = new Map<string, { command: string; expected: string }>();
     for (const update of updates) {
       if (update.kind === "decision") {
         mutations.push(update);
@@ -612,8 +613,24 @@ const updateSubCommand = defineCommand({
       }
       const criterion = plan.acceptance.find((a) => a.id === update.id);
       if (!criterion) continue;
-      validatedCommands.set(update.id, criterion.command);
+      validatedCriteria.set(update.id, {
+        command: criterion.command,
+        expected: criterion.expected,
+      });
       if (!required) {
+        if (parseExpected(criterion.expected).kind !== "free") {
+          rejectCumplido(
+            root.cwd,
+            update.id,
+            criterion.command,
+            {
+              why: "comparison not recorded for the current expected value",
+              fix: "Structured expectations require host-recorded evidence; an unsupported-engine acknowledgement cannot verify them.",
+            },
+            args.json ?? false,
+          );
+          return;
+        }
         mutations.push({
           kind: "evidence",
           id: update.id,
@@ -630,6 +647,7 @@ const updateSubCommand = defineCommand({
         feature: args.feature,
         id: update.id,
         command: criterion.command,
+        expected: criterion.expected,
         implWorktree: readImplWorktree(root, args.feature),
       });
       if (!verdict.ok) {
@@ -652,16 +670,19 @@ const updateSubCommand = defineCommand({
           return false;
         }
         const rawAcceptance = (raw as { acceptance?: unknown } | null)?.acceptance;
-        const rawCommands = new Map<string, unknown>(
+        const rawCriteria = new Map<string, { command: unknown; expected: unknown }>(
           Array.isArray(rawAcceptance)
-            ? rawAcceptance.map((a: { id?: unknown; command?: unknown }) => [
+            ? rawAcceptance.map((a: { id?: unknown; command?: unknown; expected?: unknown }) => [
                 a?.id as string,
-                a?.command,
+                { command: a?.command, expected: a?.expected },
               ])
             : [],
         );
-        for (const [id, command] of validatedCommands) {
-          if (rawCommands.get(id) !== command) {
+        for (const [id, criterion] of validatedCriteria) {
+          if (
+            rawCriteria.get(id)?.command !== criterion.command ||
+            rawCriteria.get(id)?.expected !== criterion.expected
+          ) {
             failUsage("criterion changed concurrently; rerun");
             return false;
           }

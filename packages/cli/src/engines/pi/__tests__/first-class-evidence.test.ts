@@ -244,7 +244,9 @@ describe("parent and child evidence", () => {
     });
     expect(lines(cwd)[0]?.agentId).toBeUndefined();
     const root = resolveStateRoot({ cwd, feature: "demo" });
-    expect(validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND })).toMatchObject({
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({
       ok: true,
     });
   });
@@ -263,7 +265,9 @@ describe("parent and child evidence", () => {
     expect(recorded).toHaveLength(2);
     expect(recorded.every((line) => line.agentId === "pi-implementer")).toBe(true);
     const root = resolveStateRoot({ cwd, feature: "demo" });
-    expect(validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND })).toMatchObject({
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({
       ok: true,
     });
   });
