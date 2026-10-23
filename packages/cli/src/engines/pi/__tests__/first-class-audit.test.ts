@@ -703,6 +703,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
             CODEX_SESSION_ID: "outer-session",
             CODEX_THREAD_ID: "outer-session",
             CLAUDE_CODE_SESSION_ID: "outer-claude",
+            CLAUDE_CODE_CHILD_SESSION: "1",
           },
           platform: "win32",
           versions: { node: "22.19.0" },
@@ -780,7 +781,12 @@ describe("Pi session audit (spec 0047 R12)", () => {
         NAVORI_AUDIT_SESSION_ID: ID,
         NAVORI_AUDIT_AGENT_ID: "pi-scout-" + call,
       });
-      for (const key of ["CODEX_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"])
+      for (const key of [
+        "CODEX_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_CHILD_SESSION",
+      ])
         expect(env).not.toHaveProperty(key);
       expect(concurrent[index]!.details).toMatchObject({
         agentId: env.NAVORI_AUDIT_AGENT_ID,

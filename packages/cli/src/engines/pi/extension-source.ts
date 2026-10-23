@@ -529,6 +529,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       NAVORI_AUDIT_HOST: "pi", NAVORI_AUDIT_SESSION_ID: parentSession, NAVORI_AUDIT_AGENT_ID: agentId };
     // An outer host's identity cannot describe this Pi child. Correlation never grants actor authority.
     delete childEnv.CLAUDE_CODE_SESSION_ID;
+    delete childEnv.CLAUDE_CODE_CHILD_SESSION;
     delete childEnv.CODEX_SESSION_ID;
     delete childEnv.CODEX_THREAD_ID;
     delete childEnv.NODE_CHANNEL_FD;
