@@ -32,11 +32,11 @@ Estimated LOC: 3500
 
 ### M2 — Delegación
 - **A2** [observable] — un subcomando no portado se ejecuta vía TS con el mismo exit code · `cargo test -p navori-cli --test delegation` → exit 0, todos los casos verdes
-- [ ] **T4** (R5) — `navori-cli` (`parser`, `help`): parser citty mínimo sobre `lexopt` 0.3.2 para la raíz y `--help` (D2) · effect: behavior · test: `crates/navori-cli/tests/parser.rs`::"--help de la raíz coincide con cli-surface.golden.json"
-- [ ] **T5** (R5, R7) — `navori-cli` (`delegate`): selección por manifiesto (ruta + flags), `exec` al TS resuelto por `NAVORI_TS_CLI` → `dist/` del checkout → `PATH` sin el propio binario, aviso de versión en una línea (D3) · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"argv, stdin, cwd, entorno y exit code pasan tal cual"
-- [ ] **T6** (R6) — sin TS o sin `node`: exit 69 con subcomando, rutas probadas y causa · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"sin TS sale 69 y no lanza procesos"
-- [ ] **T7** (R7) — anti-bucle con `NAVORI_DELEGATED=<pid>` (70 solo con el propio pid) y test que recorre la tabla nativa contra el manifiesto · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"toda implementación sin entrada en el manifiesto se delega"
-- [ ] **T8** (R7, R10) — esquema de `crates/ported.json` y `crates/ported-history.jsonl` (D4, D1) con su validador en `navori-core` · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"rechaza entradas sin flags normalizados o hashes incompletos"
+- [x] **T4** (R5) — `navori-cli` (`parser`, `help`): parser citty mínimo sobre `lexopt` 0.3.2 para la raíz y `--help` (D2) · effect: behavior · test: `crates/navori-cli/tests/parser.rs`::"--help de la raíz coincide con cli-surface.golden.json"
+- [x] **T5** (R5, R7) — `navori-cli` (`delegate`): selección por manifiesto (ruta + flags), `exec` al TS resuelto por `NAVORI_TS_CLI` → `dist/` del checkout → `PATH` sin el propio binario, aviso de versión en una línea (D3) · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"argv, stdin, cwd, entorno y exit code pasan tal cual"
+- [x] **T6** (R6) — sin TS o sin `node`: exit 69 con subcomando, rutas probadas y causa · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"sin TS sale 69 y no lanza procesos"
+- [x] **T7** (R7) — anti-bucle con `NAVORI_DELEGATED=<pid>` (70 solo con el propio pid) y test que recorre la tabla nativa contra el manifiesto · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"toda implementación sin entrada en el manifiesto se delega"
+- [x] **T8** (R7, R10) — esquema de `crates/ported.json` y `crates/ported-history.jsonl` (D4, D1) con su validador en `navori-core` · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"rechaza entradas sin flags normalizados o hashes incompletos"
 
 ### M3 — Oráculo diferencial
 - **Consumes:** `bun run oracle:rust` → ejecuta `navori-rust` (versión nativa de M1 y delegación de M2) contra el CLI TS sobre los fixtures
