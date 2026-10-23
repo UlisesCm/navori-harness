@@ -508,7 +508,7 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
         return {
           ok: false,
           why: comparison,
-          fix: `${rerun(line.tree)}\n       Structured output predicates require an exact host-recorded comparison; command success alone does not verify output. Current hooks do not capture contains:/matches: comparisons.`,
+          fix: `${rerun(line.tree)}\n       Structured output predicates require an exact host-recorded comparison; command success alone does not verify output. Refresh Claude hooks with navori render --apply; other engines require a supported comparison signal.`,
         };
       return {
         ok: true,
