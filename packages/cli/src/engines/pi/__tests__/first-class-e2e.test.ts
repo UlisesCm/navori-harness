@@ -152,6 +152,120 @@ const bash = (command: string) => call("bash", { command });
 const dispatch = (role: string, task: string) =>
   call("navori_subagent", { role, task, feature: FEATURE });
 
+describe("Pi process parent plan diagnostics", () => {
+  // Covers: R4
+  it.each([false, true])(
+    "blocks before a child starts when navori is on PATH: %s",
+    { timeout: 60_000 },
+    (available: boolean) => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-pi-parent-gate-")));
+      dirs.push(root);
+      const cwd = join(root, "project");
+      const agentDir = join(root, "agent");
+      const home = join(root, "home");
+      const bin = join(root, "bin");
+      for (const dir of [cwd, agentDir, home, bin]) mkdirSync(dir);
+      symlinkSync(join(PKG, "node_modules"), join(root, "node_modules"));
+      repoTpl.copyInto(cwd);
+      const config = NavoriConfigSchema.parse({
+        name: "pi-parent-gate",
+        preset: "custom",
+        engines: ["pi"],
+        harness: { planTiers: true },
+      });
+      writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config));
+      renderPiEngine(cwd, config);
+      writeFileSync(join(cwd, ".pi/extensions/zz-faux.ts"), readFileSync(FAUX_FIXTURE, "utf8"));
+      mkdirSync(join(cwd, DIR), { recursive: true });
+      writeFileSync(join(cwd, DIR, "workplan_demo.json"), JSON.stringify({ feature: FEATURE }));
+      // A sentinel would record any attempted child process; the plan gate must stop before it.
+      const spawned = join(root, "child-started");
+      writeFileSync(join(bin, "pi"), `#!/bin/sh\ntouch "${spawned}"\nexit 1\n`);
+      chmodSync(join(bin, "pi"), 0o755);
+      if (available) {
+        writeFileSync(
+          join(bin, "navori"),
+          `#!/bin/sh\nexec "${process.execPath}" "${NAVORI_CLI}" "$@"\n`,
+        );
+        chmodSync(join(bin, "navori"), 0o755);
+      }
+      const script = join(root, "script.json");
+      const log = join(root, "model.log");
+      writeFileSync(
+        script,
+        JSON.stringify({
+          log,
+          scripts: {
+            parent: [
+              dispatch("implementer", "nivel-0: README.md demo | verify: `true` → exit0"),
+              { text: "parent completed" },
+            ],
+          },
+        }),
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          PI_CLI,
+          "--mode",
+          "json",
+          "--no-session",
+          "--approve",
+          "--no-mcp",
+          "--provider",
+          "faux",
+          "--model",
+          "parent-model",
+          "-p",
+          "test gate",
+        ],
+        {
+          cwd,
+          encoding: "utf8",
+          timeout: 45_000,
+          env: {
+            HOME: home,
+            PATH: `${bin}:/usr/bin:/bin`,
+            PI_CODING_AGENT_DIR: agentDir,
+            PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
+            NAVORI_FAUX_SCRIPT: script,
+          },
+        },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      const events = result.stdout
+        .split("\n")
+        .filter(Boolean)
+        .map(
+          (
+            line: string,
+          ): {
+            type?: string;
+            toolName?: string;
+            isError?: boolean;
+            result?: { content?: Array<{ type: string; text?: string }> };
+          } => JSON.parse(line),
+        );
+      const endings = events.filter(
+        (event) => event.type === "tool_execution_end" && event.toolName === "navori_subagent",
+      );
+      expect(endings, result.stdout).toHaveLength(1);
+      expect(endings[0]?.isError).toBe(true);
+      const text = endings[0]?.result?.content?.map((part) => part.text ?? "").join("");
+      expect(text).toContain(
+        available ? "already has a workplan" : "Navori executable not found on PATH",
+      );
+      expect(existsSync(spawned)).toBe(false);
+      const calls = readFileSync(log, "utf8")
+        .trim()
+        .split("\n")
+        .map((line: string): { role: string } => JSON.parse(line));
+      expect(calls.map((entry) => entry.role)).toEqual(["parent", "parent"]);
+    },
+  );
+});
+
 describe("Pi credential-free first-class cycle", () => {
   // Covers: R4, R5, R6, R15, R16, R17, R18, R19
   it("credential-free first-class cycle", { timeout: 180_000 }, async () => {

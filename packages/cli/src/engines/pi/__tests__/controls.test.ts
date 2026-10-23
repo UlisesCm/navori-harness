@@ -204,6 +204,30 @@ const workplanReason = (slug: string = "demo"): string =>
   `[navori] BLOCKED by plan-gate: feature "${slug}" already has a workplan — open with \`workplan: ${slug}\`, not nivel-0.\n`;
 
 describe("Pi control mappings", () => {
+  // Covers: R4
+  it.each(["ENOENT", "EACCES"])(
+    "classifies a pre-spawn %s without exposing OS details",
+    async (code: string) => {
+      const runtime = loadRuntime();
+      const pending = invoke(runtime.tool!, fixture({ planTiers: true }), "implementer", "demo");
+      const child = runtime.launches[0]!.child;
+      delete child.pid;
+      child.emit("error", Object.assign(new Error("/private/path synthetic-secret"), { code }));
+      child.emit("close", -2);
+      const message = await pending.then(
+        (): string => "unexpected success",
+        (error: Error): string => error.message,
+      );
+      expect(message).toBe(
+        code === "ENOENT"
+          ? "Navori executable not found on PATH; plan gate unavailable; subagent blocked"
+          : "Navori plan gate unavailable; subagent blocked",
+      );
+      expect(runtime.launches).toHaveLength(1);
+      expect(child.kill).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["demo", undefined, "other"])(
     "shows only a bound workplan identifier (%s)",
     async (feature: string | undefined) => {
@@ -272,7 +296,8 @@ describe("Pi control mappings", () => {
       if (code !== "throw") {
         const child = runtime.launches[0]!.child;
         child.stderr.write(workplanReason());
-        if (code === "error") child.emit("error", new Error("synthetic-secret"));
+        if (code === "error")
+          child.emit("error", Object.assign(new Error("synthetic-secret"), { code: "ENOENT" }));
         child.emit("close", typeof code === "number" ? code : null);
       }
       await expect(pending).rejects.toThrow("Navori plan gate unavailable; subagent blocked");

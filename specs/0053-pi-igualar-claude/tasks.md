@@ -124,6 +124,12 @@ Estimated LOC: 3200
       `pi --mode json -p` y `harness.planTiers: true` · effect: behavior · test:
       `engines/pi/__tests__/first-class-e2e.test.ts`::"padre pi real sin plan aprobado recibe BLOCKED by
       plan-gate con la razón y con plan verde el hijo corre"
+      - Avance #1361: `ENOENT` anterior al spawn identifica `navori` ausente en PATH sin publicar
+        detalles del sistema; errores de permisos o posteriores al spawn conservan el diagnóstico
+        genérico. Dos casos con padre `pi --mode json -p` real y modelo faux verifican PATH ausente
+        y la denegación segura por workplan existente, sin iniciar hijos. Siguen pendientes el
+        catálogo completo de razones y el caso con plan aprobado que ejecuta al hijo; T11 y A5
+        permanecen abiertos.
 
 ### M6 — Comparación por engine en `navori audit`
 

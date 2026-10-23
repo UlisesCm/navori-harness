@@ -72,6 +72,13 @@ function controls(cwd: string): Controls {
 }
 
 type NavoriResult = { code: number | null; stdout: string; stderr: string };
+class NavoriControlUnavailable extends Error {
+  readonly missingExecutable: boolean;
+  constructor(missingExecutable: boolean = false) {
+    super("Navori control unavailable");
+    this.missingExecutable = missingExecutable;
+  }
+}
 /** Capture bounded control output; stderr is opt-in so handoff keeps its stdout-only contract. */
 function runNavori(cwd: string, args: string[], input: string, signal: AbortSignal,
     captureStderr: boolean = false): Promise<NavoriResult> {
@@ -83,7 +90,7 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
     let stopped = false;
     let finished = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const failure = (): Error => new Error("Navori control unavailable");
+    const failure = (): Error => new NavoriControlUnavailable();
     const cleanup = (): void => {
       clearTimeout(timeout);
       if (killTimer) clearTimeout(killTimer);
@@ -115,11 +122,12 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
     };
     child.stdout.on("data", (chunk: Buffer): void => capture(stdout, chunk));
     if (captureStderr) child.stderr?.on("data", (chunk: Buffer): void => capture(stderr, chunk));
-    child.on("error", (): void => {
+    child.on("error", (error: unknown): void => {
       if (finished) return;
+      const missing = !child.pid && !stopped && !signal.aborted && isRecord(error) && error.code === "ENOENT";
       if (child.pid) stop();
       else { finished = true; cleanup(); }
-      reject(failure());
+      reject(new NavoriControlUnavailable(missing));
     });
     child.on("close", (code: number | null): void => {
       if (finished) return;
@@ -154,7 +162,12 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
-    catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
+    catch (error) {
+      if (error instanceof NavoriControlUnavailable && error.missingExecutable) {
+        throw new Error("Navori executable not found on PATH; plan gate unavailable; subagent blocked");
+      }
+      throw new Error("Navori plan gate unavailable; subagent blocked");
+    }
     if (result.code === 2) throw new Error(planDenial(result.stderr, feature));
     if (result.code !== 0) throw new Error("Navori plan gate unavailable; subagent blocked");
   }
