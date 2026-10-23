@@ -24,6 +24,19 @@ describe("WorkplanSchema", () => {
     ],
   };
 
+  // Covers: R15 (0045)
+  it("preserves the literal original request, with a bounded optional field", () => {
+    const request = "  Keep the original conditions.\n\nDo not publish.  ";
+    expect(WorkplanSchema.parse({ ...level1Plan, request }).request).toBe(request);
+    expect(WorkplanSchema.parse(level1Plan)).not.toHaveProperty("request");
+    expect(
+      WorkplanSchema.parse({ ...level1Plan, request: "x".repeat(20_000) }).request,
+    ).toHaveLength(20_000);
+    for (const invalid of ["", "x".repeat(20_001), null, 42]) {
+      expect(WorkplanSchema.safeParse({ ...level1Plan, request: invalid }).success).toBe(false);
+    }
+  });
+
   it("accepts a valid level-1 workplan (R10, R13)", () => {
     const result = WorkplanSchema.safeParse(level1Plan);
     expect(result.success).toBe(true);

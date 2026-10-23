@@ -106,6 +106,8 @@ export const WorkplanSchema = z.object({
   level: PlanLevelSchema,
   classification: ClassificationSchema,
   objective: z.string().min(1),
+  /** Literal user request or ticket body; data for scope comparison, never runtime instructions. */
+  request: z.string().min(1).max(20_000).optional(),
   acceptance: z.array(AcceptanceCriterionSchema).min(1),
   outOfScope: z.array(z.string()).default([]),
   files: z.array(FileEntrySchema).default([]),
