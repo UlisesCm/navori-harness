@@ -248,7 +248,11 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
     !fields.length ||
     record.wireVersion !== 1 ||
     (!["claude", "codex"].includes(String(record.host)) &&
-      !(record.host === "pi" && record.event === "session-end")) ||
+      !(
+        record.host === "pi" &&
+        (record.event === "session-end" ||
+          (record.event === "hook" && record.phase !== "SessionStart"))
+      )) ||
     typeof record.eventId !== "string" ||
     !record.eventId ||
     typeof record.rootSessionId !== "string" ||
@@ -1585,7 +1589,7 @@ export type OutcomePayload =
   | Omit<ReceiptOutcome, "name" | "verdict">
   | Omit<DispatchOutcome, "name" | "verdict">;
 
-const DISPATCH_SPAWN = /^[A-Za-z0-9_-]{1,256}$/;
+const DISPATCH_SPAWN = /^[A-Za-z0-9_:-]{1,256}$/;
 
 function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutcome | null {
   const allowed = new Set(["name", "verdict", "schemaVersion", "featureKey", "stage", "spawn"]);

@@ -45,8 +45,10 @@ export interface CliEvent {
 
 /** Explicit session identity, e.g. the hook payload's `session_id`; checked against every ambient variable. */
 export interface AuditContext {
-  host: "claude" | "codex";
+  host: "claude" | "codex" | "pi";
   sessionId: string;
+  /** Observational child identity only; never an authorization credential. */
+  agentId?: string;
 }
 
 /** Explicit capture diagnostics never expose the private path or identity fingerprint. */
@@ -205,8 +207,9 @@ function contextFromEnv(): AuditContext | null {
   const host = process.env.NAVORI_AUDIT_HOST?.trim();
   const sessionId = process.env.NAVORI_AUDIT_SESSION_ID?.trim();
   if (host !== undefined || sessionId !== undefined) {
-    if ((host !== "claude" && host !== "codex") || !sessionId) return null;
-    return { host, sessionId };
+    if ((host !== "claude" && host !== "codex" && host !== "pi") || !sessionId) return null;
+    const agentId = process.env.NAVORI_AUDIT_AGENT_ID;
+    return { host, sessionId, ...(agentId !== undefined ? { agentId } : {}) };
   }
   const claude = process.env.CLAUDE_CODE_SESSION_ID?.trim();
   if (claude) return { host: "claude", sessionId: claude };
@@ -218,8 +221,9 @@ function contextFromEnv(): AuditContext | null {
 }
 
 interface AuditTarget {
-  host: "claude" | "codex";
+  host: AuditContext["host"];
   sessionId: string;
+  agentId?: string;
   repo: string;
   logFile: string;
 }
@@ -229,7 +233,23 @@ function auditTarget(cwd: string, explicit?: AuditContext): AuditTarget | null {
   const context = explicit ?? contextFromEnv();
   if (!context) return null;
   const { host, sessionId } = context;
-  if (host !== "claude" && host !== "codex") return null;
+  const ambientAgent = process.env.NAVORI_AUDIT_AGENT_ID;
+  if (
+    explicit?.agentId !== undefined &&
+    ambientAgent !== undefined &&
+    explicit.agentId !== ambientAgent
+  )
+    return null;
+  const agentId = context.agentId ?? ambientAgent;
+  if (agentId !== undefined && !metadataAgentId(agentId)) return null;
+  if (host !== "claude" && host !== "codex" && host !== "pi") return null;
+  if (
+    host === "pi" &&
+    (process.env.CLAUDE_CODE_SESSION_ID?.trim() ||
+      process.env.CODEX_SESSION_ID?.trim() ||
+      process.env.CODEX_THREAD_ID?.trim())
+  )
+    return null;
   if (explicit) {
     // An explicit identity never overrides the ambient one: any contradiction writes nothing.
     const pairHost = process.env.NAVORI_AUDIT_HOST?.trim();
@@ -267,7 +287,7 @@ function auditTarget(cwd: string, explicit?: AuditContext): AuditTarget | null {
   const logFile = sessionLogPath(repo, sessionId);
   const st = lstatSync(logFile);
   if (!st.isFile() || st.isSymbolicLink()) return null;
-  return { host, sessionId, repo, logFile };
+  return { host, sessionId, repo, logFile, ...(agentId !== undefined ? { agentId } : {}) };
 }
 
 /** `sha256(repo + NUL + feature)`: the only form in which a feature slug appears in an outcome event. */
@@ -330,7 +350,7 @@ export function appendCliEvent(
   try {
     const target = auditTarget(cwd, context);
     if (!target) return false;
-    const { host, sessionId, repo, logFile } = target;
+    const { host, sessionId, repo, logFile, agentId } = target;
     const header = exactHeader(logFile);
     if (!header || !matchesAuditHeaderIdentity(header, host, sessionId, repo, cwd)) return false;
     /** Re-read bounded source identity; report caches must never authorize a live append. */
@@ -357,6 +377,7 @@ export function appendCliEvent(
       verdict: METADATA_VERDICTS.has(event.verdict) ? event.verdict : "unknown",
       ...(event.reason ? { reason: event.reason === "stale" ? "stale" : "unspecified" } : {}),
       ...(payload ?? {}),
+      ...(agentId !== undefined ? { agentId } : {}),
     };
     if (Buffer.byteLength(JSON.stringify(record)) > 2048) return false;
     return (
@@ -500,6 +521,14 @@ function metadataInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+/** Native Pi tool-call IDs may contain colons; session IDs retain their stricter grammar. */
+function metadataAgentId(value: unknown): value is string {
+  return (
+    metadataId(value) ||
+    (typeof value === "string" && value.length <= 256 && /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(value))
+  );
+}
+
 /** Closed scalar DTO normalization rejects extra keys before any filesystem call. */
 function metadataEvent(value: unknown): MetadataScalars | null {
   if (!metadataObject(value)) return null;
@@ -526,7 +555,10 @@ function metadataEvent(value: unknown): MetadataScalars | null {
           : [];
   if (!allowed.length || Object.keys(value).some((key: string): boolean => !allowed.includes(key)))
     return null;
-  if (!metadataInteger(value.tsMs) || (value.agentId !== undefined && !metadataId(value.agentId)))
+  if (
+    !metadataInteger(value.tsMs) ||
+    (value.agentId !== undefined && !metadataAgentId(value.agentId))
+  )
     return null;
   const out: MetadataScalars = { event: event as string, tsMs: value.tsMs };
   if (value.agentId !== undefined) out.agentId = value.agentId as string;
@@ -565,7 +597,8 @@ function metadataEvent(value: unknown): MetadataScalars | null {
       ? value.source
       : "unknown";
     if (value.toolUseId !== undefined) {
-      if (!metadataId(value.toolUseId)) return null;
+      if (typeof value.toolUseId !== "string" || !/^[A-Za-z0-9_:-]{1,256}$/.test(value.toolUseId))
+        return null;
       out.toolUseId = value.toolUseId;
     }
     if (value.kind !== undefined) {
@@ -644,12 +677,12 @@ export function matchesAuditHeaderIdentity(
 }
 function metadataTarget(
   request: Omit<AuditMetadataRequest, "event">,
-  piClose = false,
+  piDirect = false,
 ): string | null {
   if (
     (request.host !== "claude" &&
       request.host !== "codex" &&
-      !(piClose && request.host === "pi")) ||
+      !(piDirect && request.host === "pi")) ||
     !metadataId(request.rootSessionId) ||
     !/^[A-Za-z0-9_.-]{1,256}$/.test(request.repo) ||
     request.repo === "." ||
@@ -673,8 +706,11 @@ function metadataResult(
 export function recordAuditMetadata(request: AuditMetadataRequest): MetadataRecordResult {
   try {
     const event = metadataEvent(request.event);
-    // Pi close is direct-only: startup capture and spool APIs remain unsupported.
-    const target = metadataTarget(request, event?.event === "session-end");
+    // Pi observation is direct-only: startup capture and spool APIs remain unsupported.
+    const target = metadataTarget(
+      request,
+      event?.event === "session-end" || (event?.event === "hook" && event.phase !== "SessionStart"),
+    );
     if (!event || !target) return metadataResult("invalid", "invalid-metadata");
     // The session is closing (`audit-mode-close` sends this over the CLI, never the
     // spool): fold the spool in first so every event precedes the `session-end` line.
@@ -720,7 +756,7 @@ export function recordAuditMetadata(request: AuditMetadataRequest): MetadataReco
       if ((error as NodeJS.ErrnoException).code !== "ENOENT")
         return metadataResult("unavailable", "unsafe-target");
     }
-    if (event.event !== "hook" || event.phase !== "SessionStart")
+    if (request.host === "pi" || event.event !== "hook" || event.phase !== "SessionStart")
       return metadataResult("skipped", "unmarked");
     const arm = readPrivateAuditFile(join(request.auditRoot, request.repo, ".armed"), {
       ownedRoot: request.auditRoot,

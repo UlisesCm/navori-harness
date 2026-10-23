@@ -100,11 +100,15 @@ Estimated LOC: 3200
   padre como proceso `pi` real recibe la razón del plan gate ·
   `cd packages/cli && bun run test src/engines/pi/__tests__/first-class-audit.test.ts src/engines/pi/__tests__/first-class-e2e.test.ts`
   → exit 0, 0 failed
-- [ ] **T9** (R3) — `runChild` exporta `NAVORI_PI_PARENT_SESSION`, `NAVORI_PI_CHILD_ID`,
+- [x] **T9** (R3) — `runChild` exporta `NAVORI_PI_PARENT_SESSION`, `NAVORI_PI_CHILD_ID`,
       `NAVORI_AUDIT_HOST=pi`, `NAVORI_AUDIT_SESSION_ID` y `NAVORI_AUDIT_AGENT_ID`; `bridgePayload` usa la
       sesión padre y el id del hijo; `cli-event.ts` acepta `host: "pi"` y `agentId` opcional · effect: behavior
       · test: `engines/pi/__tests__/first-class-audit.test.ts`::"hooks y eventos cli de cada hijo llevan su
       agentId y la sesión padre"
+      - Verificado #1361: identidad exacta exportada al proceso hijo y compartida con K2, hooks,
+        eventos CLI y evidencia de aceptación. La prueba SDK/CLI conserva IDs nativos con `:`;
+        el lector sólo atribuye invocaciones únicas confirmadas por el transcript y conserva IDs
+        públicos ordinales. El writer Pi usa el log privado existente; no crea spool ni actores.
 - [ ] **T10** (R3) — `execute` de `navori_subagent` devuelve `isError` con `details` (K2: `agentId`,
       `parentSession`, `head`, `worktreeTree`, `handoff`, `outcome`, `failure`) en toda falla posterior al spawn;
       `engines/pi/denials.ts` con `PI_EXTENSION_DENIALS` · effect: behavior · test:
@@ -114,7 +118,7 @@ Estimated LOC: 3200
         timeout, JSONL inválido, salida no cero, fallback de aprobación y handoff inválido. El lector
         correlaciona fallas sólo con K2 completo que coincide con padre, rol e invocación; no publica
         diagnósticos ni metadatos de Git. Faltan el catálogo `PI_EXTENSION_DENIALS` y A5 completo;
-        T9 y M5 siguen pendientes.
+        M5 sigue pendiente.
 - [ ] **T11** (R4) — `runNavori` captura stderr acotado; `checkDispatch` lanza el texto exacto de
       `navori plan gate`; `ENOENT` de `navori` da el mensaje de PATH; fase e2e con el padre como proceso
       `pi --mode json -p` y `harness.planTiers: true` · effect: behavior · test:
