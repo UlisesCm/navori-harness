@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-23 09:07 Codex — Conserva borrador de landing y escena del coordinador
+
+Reorganiza la landing con lenguaje básico para desarrolladores y reclutadores no técnicos; conserva identidad y refuerza el cuadriculado. Escena GSAP de21s con consola25%, prompt progresivo, popup del robot, archiveros Engram/CodeGraph, recogida e integración del chip tgrep y búsqueda acelerada. Incluye controles, movimiento reducido, tres idiomas y exportaciones Markdown. Versiona GSAP3.15.0, tres skills oficiales con licencia/procedencia y una grabación de la escena. Usuario pidió estacionarlo en PR draft para continuar después; el chip todavía aparece en el cajón de CodeGraph y moverlo a un soporte independiente es el siguiente cambio acordado. Revisión directa, sin subagentes.
+
+Build133rutas/checker99HTML,26pruebas focales y check:fast verdes; reproducción real21s, controles, temas y tamaños320–1440 comprobados. Full previo sobre base dev:10165pass/24fail/2skip; fixtures role-guard estaban bajo /tmp y su suite pasó56/56 al reubicar el worktree. Full no repetido; pendiente sobre el diff final antes de ready/merge. Avance rebasado sobre main con sólo el commit de esta tarea; no merge ni despliegue. Continuidad en apps/website/docs/landing-draft.md.
+
 ## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
 
 Cambios:
