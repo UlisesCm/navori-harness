@@ -481,9 +481,9 @@ maxWords: 3365
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
-**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the agent that became `publisher` counted non-trivial files *in the shipping diff* under its pre-rename name, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
+**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
 
-One route removes the decision entirely. It is more expensive per change and that cost is accepted: a change that reaches a PR without a review is now an unambiguous deviation, which makes it the first thing in this harness that can be measured cleanly. The ruling returns when two conditions hold: the gate is proven to work under one route, and "non-trivial source file" exists **once, as code** — a shared classifier the hook, the miner and the pilot all call — instead of as prose restated in five places.
+
 
 ## Startup protocol
 
@@ -692,7 +692,7 @@ maxWords: 4200
 <!-- navori:managed id="publisher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Publisher Agent
 
-You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
+Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
 
 ## When to trigger
 
@@ -706,6 +706,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 - You are on `main`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
 - Harness active and THIS feature's review (`.navori/state/handoffs/review_<feature>.md`, identified by name in the pre-flight) contains `CHANGES_REQUESTED` → no PR is created.
 - Quality gate red this turn.
+- Spec delivery missing review **Functional delivery** evidence (entry → consumer → contract; executed acceptance) → no PR; return to review. Classification alone is insufficient.
 
 > **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
@@ -811,11 +812,11 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
      Count > 0 means your PR drags foreign commits: warn the user and suggest rebase.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or first commit.
    - `.navori/state/handoffs/impl_<feature>.md` — non-obvious decisions.
-   - **Spec deliveries** (only for shape `split`; read shape from `navori spec classify <spec> --json`): brief names `delivery: E<n>` and `after: <sha>`; after `git fetch`, verify `git merge-base --is-ancestor <sha> origin/main` (preapproved); if it fails (squash merge), use `gh pr list --state merged --base main` as a signal only and ASK the user rather than abort silently. Body carries `Spec-Delivery: <spec> E<n>/<total>`. Report `head: <sha>` at the end. Always `--base main`, one PR per delivery in tasks.md order, no integration branch.
+   - **Spec deliveries** (only for shape `split`; read shape from `navori spec classify <spec> --json`): brief names `delivery: E<n>` and, past `E1`, `after: <sha>` (previous delivery's head); a missing `after:` past `E1` (no head yet) → ASK. After `git fetch`, preapproved checks: merged = `git merge-base --is-ancestor <sha> origin/main` succeeds (fails after a squash merge; `gh pr list --state merged --base main` is a signal only); stacked = not merged and `git merge-base --is-ancestor <sha> HEAD` succeeds; overlap = `git diff --name-only origin/main...HEAD` shares a path with `git diff --name-only origin/main...<sha>`. Not merged is a warning, not a gate: state it in your report and still open the PR when not stacked, no overlap, and its `parts.json` `dependsOn` names no unmerged delivery. Stacked, a dependency on unmerged work, overlap or any ambiguous case → STOP and ASK the user. Body carries `Spec-Delivery: <spec> E<n>/<total>`. Report `head: <sha>` at the end. Always `--base main`, one PR per delivery (tasks.md order recommended), no integration branch.
 
 2. **Draft title and body**:
    - **Title**: follows the configured commit style (`conventional-es`), ≤70 chars, imperative and without a trailing period.
-   - **Body**: the repo's exact template (below). No empty sections. For spec deliveries, include references: `Refs #<issue>` on intermediate deliveries and `Closes #<issue>` on the last; shape `single` → `Closes #<issue>`.
+   - **Body**: the repo's exact template (below). No empty sections. For spec deliveries, include references: `Closes #<issue>` only if, at publish time, for every `E<k>` with k≠n some merged PR's body has a line matching `^\s*(- )?Spec-Delivery: <spec> E<k>/<total>\s*$` (the template's bullet form) (`gh pr list --state merged --base main --search "<spec>" --json number,body --limit 100` only narrows candidates: full-text search, not proof); otherwise, at 100 results, or if anything is ambiguous, `Refs #<issue>`, and the report tells the user the issue stays open: close it once the last delivery merges. Shape `single` → `Closes #<issue>`.
 
 3. **Validate** before firing `gh`:
    - Every claim in the title and body — path, command, count or decision — traces to the cycle's handoffs (`impl_<feature>.*`, `review_<feature>.md`), `git log`/`git diff` against the base, or the spec; nothing else backs a claim, so no inferred path, command, count or decision goes in. **No handoff on disk** → draft from the diff and the issue only. A fact you can't trace is omitted, or reported to the orchestrator — never filled in (#1001, #1028).
@@ -1017,7 +1018,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 3295
+maxWords: 3287
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -1031,7 +1032,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
 
 ### Setup (common to both passes)
 
-1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. Do NOT re-open the design (settled earlier); ask whether the code did what was agreed. Read it by `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge section — the whole file when those headings are absent.
+1. Ground yourself in `CLAUDE.md`; read from disk ONLY if your host did not inject it. Read `.navori/state/handoffs/impl_<feature>.md`, including `doubts` (`{file, reason}`), and any `audit_ticket_<ID>.md` / `solution_<scope>.md`. Judge the diff against the recorded solution: a different approach is `SPEC_MISS`. Do NOT re-open the design. Read `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge; read the whole file when those headings are absent.
 2. Identify modified files. Diff against `main`, **not** the fork point: it's the EXACT diff GitHub shows and publisher reviews.
 
    ```bash
@@ -1058,17 +1059,16 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
 
 3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code — the Pass 2 table sets the gate, so a `CHANGES_REQUESTED` round stays scoped; the Coverage table stays required on the signing round. If the previous verdict was already `APPROVED` and the diff only moved because of a later edit, that's the **delta re-sign** mode below.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
-5. **Closing cycle** (only for spec deliveries): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/main"`), the re-review narrowing (Setup 3) does not apply, run `navori spec check <spec> --json` (must be `"status":"ok"`), and run the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
+5. **Closing cycle** (only for spec deliveries): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/main"`), the re-review narrowing (Setup 3) does not apply, run `navori spec check <spec> --json` (must be `"ok":true`), and run the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
 
 ### Pass 1 — Spec compliance
 
 Does the diff do EXACTLY what was asked? You don't review style yet.
 
 - Does it resolve the ticket / audit / requirement described?
-- Is it within the agreed scope? (If it touched files outside the audit/ticket scope → flag)
-- Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)
+- Flag files outside the agreed scope and missing requested behavior.
 - If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?
-- **SDD traceability** (only if `specs/<feature>/tasks.md` exists): read `specs/<spec>/tasks.md` using the `<spec>` from the `spec:` line (handoff key is `<spec>-e<n>`), check the milestone's tasks and verify `effect`/`[observable]` against the diff; a `behavior` task without observable behavior → `SPEC_MISS`. Each `R<n>` is covered by ≥1 test with `// Covers: R<n>` → `SPEC_MISS` if missing.
+- **SDD traceability** (with a `spec:` line): read `specs/<spec>/tasks.md` from the `spec:` line (handoff key `<spec>-e<n>`). Each `R<n>` needs a test with `// Covers: R<n>`; missing coverage or a `behavior` task without observable behavior → `SPEC_MISS`. At delivery close, record **Functional delivery** evidence in your report: capability, runtime entry → consumer → contract (`file` + symbol), and executed `A<n>` command/result demonstrating that flow. Check call sites in the shipping diff; declarations, imports, tests and helper-to-helper calls alone are insufficient. A foundation requires its consumer in the same PR. Missing evidence → `SPEC_MISS`, no approval. `prCount`, LOC, `effect`, `[observable]` and `Consumes` are structural declarations, never functional proof.
 
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check do you confirm it happened (skipped → flag it); never escalate a screen change to a human for lacking one.
 
@@ -1490,7 +1490,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers, verification). Artifacts supplement it; approval gates unchanged.
 - **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review each output.
 
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. Merging `E<n>` before `E<n+1>` is recommended, not required; parallel deliveries need disjoint files and own PRs.
 - **Parallel implementers need disjoint files.**
 - **`pnpm test && pnpm lint` green** is Pass 2 on the shipping diff of the PR, once per PR.
 - **A verification brief names the probe criterion**, never an open "verify X"; track agents by artifact.
@@ -1891,9 +1891,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -1915,7 +1916,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -1968,12 +1973,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -2541,9 +2548,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -2565,7 +2573,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -2618,12 +2630,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -3472,9 +3486,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -3496,7 +3511,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -3549,12 +3568,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -4098,9 +4119,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -4122,7 +4144,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -4175,12 +4201,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -4858,9 +4886,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -4882,7 +4911,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -4935,12 +4968,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -5455,9 +5490,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -5479,7 +5515,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -5532,12 +5572,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -5593,6 +5635,60 @@ base='main'
 # into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
 # uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
 nv_pi_rules='-'
+# Exact, newline-delimited resolved render placements; `-` means no inventory.
+nv_owned_paths='.claude/agents/architect.md
+.claude/agents/auditor.md
+.claude/agents/implementer.md
+.claude/agents/orchestrator.md
+.claude/agents/publisher.md
+.claude/agents/reviewer.md
+.claude/agents/scout.md
+.claude/agents/scribe.md
+.claude/context/10-orquestacion.md
+.claude/context/20-agentes-disponibles.md
+.claude/context/30-arranque-sesion.md
+.claude/context/40-cierre-sesion.md
+.claude/hooks/audit-mode-close.sh
+.claude/hooks/audit-mode-trigger.sh
+.claude/hooks/bash-outcome-watch.sh
+.claude/hooks/comment-draft-confirm.sh
+.claude/hooks/general-purpose-confirm.sh
+.claude/hooks/guard-destructive.sh
+.claude/hooks/implementer-no-markdown.sh
+.claude/hooks/managed-drift-watch.sh
+.claude/hooks/master-accept-confirm.sh
+.claude/hooks/master-plan-context.sh
+.claude/hooks/model-advisor.sh
+.claude/hooks/pr-publisher-confirm.sh
+.claude/hooks/quality-gate-pre-commit.sh
+.claude/hooks/routing-watch.sh
+.claude/hooks/session-start-context.sh
+.claude/hooks/subagent-no-background.sh
+.claude/hooks/subagent-stop-handoff.sh
+.claude/hooks/worktree-reclaim.sh
+.claude/settings.json
+.claude/skills/author-skill/SKILL.md
+.claude/skills/context-intake/SKILL.md
+.claude/skills/debug-failure/SKILL.md
+.claude/skills/dominio/SKILL.md
+.claude/skills/follow-up-prs/SKILL.md
+.claude/skills/locate-code/SKILL.md
+.claude/skills/master-plan/SKILL.md
+.claude/skills/plan-advanced/SKILL.md
+.claude/skills/plan-simple/SKILL.md
+.claude/skills/quality-attributes/SKILL.md
+.claude/skills/resolve-ticket/SKILL.md
+.claude/skills/review-diff/SKILL.md
+.claude/skills/scoped-gate/SKILL.md
+.claude/skills/secure-by-design/SKILL.md
+.claude/skills/security-invariants/SKILL.md
+.claude/skills/solution-design/SKILL.md
+.claude/skills/spec-bootstrap/SKILL.md
+.claude/skills/verify-before-done/SKILL.md
+.claude/skills/vitest/SKILL.md
+.claude/skills/zod-validation/SKILL.md
+.mcp.json
+CLAUDE.md'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -6040,8 +6136,8 @@ navori_inert_skeleton
 # WHY IT IS SOUND, which is the only part that matters in a security control:
 # every `block` in this file needs one of these literal substrings to survive
 # into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
-# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
-# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
+# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6), plus
+# `cp`/`mv`/`install`/`ln` (rule 6d), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
 # regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
 # inspects). No rule can fire without one.
 #
@@ -6097,6 +6193,7 @@ nv_pi_candidate() {
   done <<< "$nv_pi_rules"
   return 1
 }
+nv_copy_only=0
 if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${cmd//\'/}
   _fast=${_fast//\"/}
@@ -6108,6 +6205,9 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
     # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
     *grep*|*rg\ *|*rg) ;;
+    *cp[[:space:]]*|*mv[[:space:]]*|*install[[:space:]]*|*ln[[:space:]]*)
+      if ! nv_pi_candidate; then nv_copy_only=1; fi
+      ;;
     *)
       if ! nv_pi_candidate; then
         navori_audit_verdict="skip"
@@ -7230,7 +7330,8 @@ fi
 #        subagent's handoff (#389's rule caught it).
 #      .claude/settings.local.json · .claude/worktrees/   machine-local, never
 #        rendered, never marker-managed.
-#      cp/mv INTO a managed path, `python -c` writes, `awk > file`, `perl -i`.
+#      `python -c` writes, `awk > file`, `perl -i`. Copy/move/install/link
+#        into exact render-owned paths are checked separately in rule 6d.
 #        Enumerating write verbs is the losing half of this fight — the same
 #        "describe the danger by its textual form" pattern the blind audit found
 #        eight times. The PostToolUse watcher is the half that doesn't care about
@@ -7325,6 +7426,247 @@ if [ -n "${nv_project_dir:-}" ]; then
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
   fi
+fi
+
+# 6d. Copy/move/install/link protection uses exact render ownership, not the
+# directory-wide legacy redirect rules. Keep Pi 6c below: copy-out from its
+# control plane remains forbidden even when this destination-only lane allows.
+# Exact render-owned copy/move destinations (spec 0053 R8). No filesystem discovery.
+# Parse the live text separately: the legacy segment splitter also splits >& and
+# removes parentheses from the trusted, literal git-toplevel prefix.
+# One awk pass, bounded by the caller's CMD_MAX; no eval or shell word expansion.
+# Paths are lexical against the tool cwd. Command-local directory changes,
+# dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
+navori_copy_dest_safe() {
+  NV_COPY_ROOT=${nv_project_dir:-} NV_COPY_CWD="$(payload_field cwd)" \
+    NV_COPY_OWNED="$nv_owned_paths" awk '
+  function slashes(p) { if (windows) gsub(/\\/, "/", p); return p }
+  function norm(p, context,    n,a,i,k,out) {
+    p = slashes(p)
+    if (index(p, "${CLAUDE_PROJECT_DIR}") == 1)
+      p = root substr(p, 22)
+    else if (index(p, "$CLAUDE_PROJECT_DIR") == 1)
+      p = root substr(p, 20)
+    else if (index(p, "$(git rev-parse --show-toplevel)") == 1)
+      p = root substr(p, 33)
+    # Git Bash accepts drive-qualified paths; do not prepend cwd to them.
+    if (p !~ /^([A-Za-z]:)?\//) p = (context == "" ? cwd : context) "/" p
+    # Pi supplies the physical Git root on macOS, but tool cwd and operands
+    # can retain /var or /tmp. Fold only these fixed aliases when the trusted
+    # root is under /private; never inspect or expand arbitrary symlinks.
+    if (root ~ /^\/private\/(var|tmp)(\/|$)/ && p ~ /^\/(var|tmp)(\/|$)/)
+      p = "/private" p
+    n = split(p, a, "/"); k = 0
+    for (i = 1; i <= n; i++) {
+      if (a[i] == "" || a[i] == ".") continue
+      if (a[i] == "..") { if (k > 0) k--; continue }
+      parts[++k] = a[i]
+    }
+    out = ""
+    for (i = 1; i <= k; i++) out = out "/" parts[i]
+    return tolower(out == "" ? "/" : out)
+  }
+  function owned(p, tree) {
+    return (p in files) || (tree && (p in dirs))
+  }
+  function base(p,    a,n) {
+    sub(/\/+$/, "", p); n = split(p, a, "/"); return a[n]
+  }
+  # Literal wrapper/global options only; unsupported copy contexts fail closed.
+  function check(    i,v,argc,target,dir,recursive,noopts,x,s,d,j,move,wrapper,context,uncertain,k,c) {
+    if (!nt) return
+    i = 1; context = cwd
+    while (i <= nt) {
+      if (tok[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
+      wrapper = base(tok[i])
+      if (wrapper != "command" && wrapper != "env" && wrapper != "nohup" && wrapper != "sudo") break
+      i++
+      while (i <= nt && tok[i] ~ /^-/) {
+        x = tok[i++]
+        if (x == "--") break
+        if (wrapper == "command" && x == "-p") continue
+        if (wrapper == "command" && (x == "-v" || x == "-V" || x == "--help")) return
+        if (wrapper == "env" && (x == "-i" || x == "--ignore-environment")) continue
+        if ((wrapper == "env" && (x == "-u" || x == "--unset")) || (wrapper == "sudo" && (x == "-u" || x == "-g"))) {
+          if (i > nt) { bad = 1; return }
+          i++; continue
+        }
+        if (wrapper == "env" && x ~ /^--unset=./) continue
+        # Unknown wrapper options must not turn unrelated read-only commands
+        # into managed-file rewrites. A recognizable copy still fails closed,
+        # including a literal split-string argument such as env -S.
+        for (j = i; j <= nt; j++)
+          if (tok[j] ~ /(^|[ \t\/])(cp|mv|install|ln)([ \t]|$)/) { bad = 1; return }
+        return
+      }
+    }
+    v = base(tok[i]); i++
+    if (v == "git") {
+      uncertain = 0
+      while (i <= nt && tok[i] ~ /^-/) {
+        x = tok[i++]
+        if (x == "--") break
+        if (x == "--no-pager" || x == "--paginate" || x == "--literal-pathspecs") continue
+        if (x == "-C") {
+          if (i > nt) { bad = 1; return }
+          if (tok[i] != "") context = norm(tok[i],context)
+          i++; continue
+        }
+        if (x ~ /^-C./) { context = norm(substr(x,3),context); continue }
+        if (x == "-c" || x == "--config-env" || x == "--git-dir" || x == "--work-tree" || x == "--namespace" || x == "--super-prefix") {
+          if (i > nt) { bad = 1; return }
+          i++; uncertain = 1; continue
+        }
+        # Config/work-tree/pathspec options may change operand interpretation.
+        # Never discover their effects from the filesystem or execute Git.
+        uncertain = 1
+      }
+      if (uncertain) {
+        if (tok[i] == "mv") bad = 1
+        return
+      }
+      if (tok[i] != "mv") return
+      v = "mv"; i++
+    }
+    if (v != "cp" && v != "mv" && v != "install" && v != "ln") return
+    move = (v == "mv"); argc = 0; target = ""; recursive = 0; noopts = 0
+    for (; i <= nt; i++) {
+      x = tok[i]
+      if (!noopts && x == "--") { noopts = 1; continue }
+      if (!noopts && (x == "--help" || x == "--version")) return
+      if (!noopts && (x == "-t" || x == "--target-directory")) {
+        if (++i > nt) { bad = 1; return }
+        target = tok[i]; continue
+      }
+      if (!noopts && x ~ /^--target-directory=/) { target = substr(x,20); continue }
+      if (!noopts && x ~ /^-t./) { target = substr(x,3); continue }
+      if (!noopts && v == "install" && (x == "-m" || x == "-o" || x == "-g" || x == "--mode" || x == "--owner" || x == "--group")) {
+        if (++i > nt) { bad = 1; return }; continue
+      }
+      if (!noopts && x ~ /^-/) {
+        if (x ~ /^--(mode|owner|group)=/ || x ~ /^-[mog].+/ && v == "install") continue
+        if (x ~ /^-[A-Za-z]/ && x !~ /^--/) {
+          # Walk flags in order: t consumes the cluster remainder or next word.
+          # Unknown/operand-taking flags cannot silently eat a source or target.
+          for (k = 2; k <= length(x); k++) {
+            c = substr(x,k,1)
+            if (c == "t") {
+              target = substr(x,k+1)
+              if (target == "") {
+                if (++i > nt) { bad = 1; return }
+                target = tok[i]
+              }
+              break
+            }
+            if (c !~ /^[fivnsrRaPTdHLPpuvx]$/) { bad = 1; return }
+            if (c ~ /^[rRa]$/) recursive = 1
+          }
+          continue
+        }
+        if (x ~ /^--(force|recursive|archive|no-target-directory|symbolic|verbose|remove-destination|preserve|no-clobber)$/) {
+          if (x == "--recursive" || x == "--archive") recursive = 1
+          continue
+        }
+        bad = 1; return
+      }
+      args[++argc] = x
+    }
+    if (target == "") {
+      if (argc < 2) return
+      target = args[argc--]
+      dir = (target ~ /\/$/ || argc > 1)
+    } else dir = 1
+    d = norm(target,context)
+    if (owned(d,0)) { bad = 1; return }
+    # A directory is inferred only from exact owned descendants, not a glob.
+    if (owned(d,1)) dir = 1
+    for (j = 1; j <= argc; j++) {
+      s = norm(args[j],context)
+      if (move && owned(s,1)) { bad = 1; return }
+      if (dir && owned(norm(target "/" base(args[j]),context),1)) { bad = 1; return }
+      # Contents of a recursive external tree are unknown without FS discovery.
+      if (recursive && owned(d,1)) { bad = 1; return }
+    }
+  }
+  function word() { if (have) tok[++nt] = buf; buf = ""; have = 0 }
+  function segment() { word(); check(); nt = 0 }
+  BEGIN {
+    root = ENVIRON["NV_COPY_ROOT"]
+    if (root == "") root = ENVIRON["PWD"]
+    # Backslashes are separators only for Windows roots; on Unix they may
+    # be literal filename characters inside shell quotes.
+    windows = (root ~ /^[A-Za-z]:/ || substr(root,1,2) == "\\\\")
+    root = slashes(root); cwd = slashes(ENVIRON["NV_COPY_CWD"])
+    # Use the same conservative spelling when Claude supplies the lexical root.
+    if (root ~ /^\/(var|tmp)(\/|$)/) root = "/private" root
+    if (cwd == "") cwd = root
+    count = split(ENVIRON["NV_COPY_OWNED"], paths, "\n")
+    for (z = 1; z <= count; z++) {
+      p = norm(root "/" paths[z]); files[p] = 1
+      # Ancestors come only from the trusted exact inventory, never a glob.
+      while (p != "/") {
+        sub(/\/[^\/]*$/, "", p)
+        if (p == "") p = "/"
+        dirs[p] = 1
+      }
+    }
+  }
+  {
+    line = $0
+    for (pos = 1; pos <= length(line); pos++) {
+      c = substr(line,pos,1)
+      if (escape) { buf = buf c; have = 1; escape = 0; continue }
+      if (c == "\\" && quote != "\047") {
+        # Within double quotes, Bash retains backslashes before ordinary
+        # characters (including drive-path components such as C:\repo).
+        if (quote == "\042" && pos < length(line) && substr(line,pos+1,1) !~ /[$`"\\]/) {
+          buf = buf c; have = 1; continue
+        }
+        escape = 1; continue
+      }
+      if (quote != "") {
+        if (c == quote) quote = ""
+        else buf = buf c
+        have = 1; continue
+      }
+      if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
+      if (substr(line,pos,21) == "${CLAUDE_PROJECT_DIR}") {
+        buf = buf substr(line,pos,21); have = 1; pos += 20; continue
+      }
+      # Preserve the one supported literal substitution, without executing it.
+      if (substr(line,pos,32) == "$(git rev-parse --show-toplevel)") {
+        buf = buf substr(line,pos,32); have = 1; pos += 31; continue
+      }
+      if (c == "#" && !have) break
+      if (c == ">" || c == "<" || (c == "&" && substr(line,pos+1,1) == ">")) {
+        if (have && buf ~ /^[0-9]+$/) { buf = ""; have = 0 } else word()
+        # Redirection operators and their single quoted/unquoted operand.
+        while (substr(line,pos,1) ~ /[<>&|]/ && pos <= length(line)) pos++
+        while (substr(line,pos,1) ~ /[ \t]/ && pos <= length(line)) pos++
+        rq = ""
+        for (; pos <= length(line); pos++) {
+          rc = substr(line,pos,1)
+          if (rq != "") { if (rc == rq) rq = ""; continue }
+          if (rc == "\047" || rc == "\042") { rq = rc; continue }
+          if (rc ~ /[ \t;&|]/) break
+        }
+        if (rq != "") bad = 1
+        pos--; continue
+      }
+      if (c ~ /[;&|(){}]/) { segment(); continue }
+      if (c ~ /[ \t]/) { word(); continue }
+      buf = buf c; have = 1
+    }
+    if (!escape) { if (quote != "") bad = 1; segment() }
+    else escape = 0
+  }
+  END { if (quote != "" || escape) bad = 1; segment(); exit (bad ? 2 : 0) }
+  ' <<EOF
+$live
+EOF
+}
+if [ "$nv_owned_paths" != "-" ] && ! navori_copy_dest_safe; then
+  block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
 fi
 
 # 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
@@ -7544,6 +7886,13 @@ if [ -n "$_dsc_cands" ]; then
     fi
   done <<< "$segments_dq"
 fi
+
+# A copy-only probe must reach the exact inventory and all later rules first.
+# Preserve its former skip audit classification only after every guard passed.
+if [ "$nv_copy_only" = 1 ] && [ -z "$navori_pi_ask" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="no rule token in the command"
+fi
 # navori:managed end id="guard-destructive-base"
 
 # user: add extra guards here. `$cmd` already holds the full command (compound
@@ -7614,7 +7963,7 @@ exit 0
 # Symlinks: same accepted limitation as above. Editing a generated mirror
 # (`.claude/agents/...`) is overwritten by the next render; the contract tells the
 # implementer to edit the source and run `navori render --apply` (contract, not
-# barrier). Pi keeps the same list in `engines/pi/role-tools.ts`.
+# barrier). Pi runs this same hook through its tool-call bridge.
 #
 # The managed block below is regenerated by `navori render` and must NOT be
 # edited by hand.
@@ -8045,9 +8394,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -8069,7 +8419,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -8122,12 +8476,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -9430,9 +9786,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -9454,7 +9811,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -9507,12 +9868,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -10196,9 +10559,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -10220,7 +10584,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -10273,12 +10641,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -10502,9 +10872,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -10526,7 +10897,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -10579,12 +10954,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -10808,9 +11185,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -10832,7 +11210,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -10885,12 +11267,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -11689,9 +12073,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -11713,7 +12098,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -11766,12 +12155,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -12601,9 +12992,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -12625,7 +13017,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -12678,12 +13074,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -14802,9 +15200,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -14826,7 +15225,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -14879,12 +15282,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -15765,9 +16170,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -15789,7 +16195,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -15842,12 +16252,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -16787,9 +17199,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -16811,7 +17224,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -16864,12 +17281,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -17874,9 +18293,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -17898,7 +18318,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -17951,12 +18375,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -18798,9 +19224,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -18822,7 +19249,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -18875,12 +19306,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -21053,45 +21486,47 @@ metadata:
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-If you didn't run the command THIS TURN, you can't make the claim. "Should work", "previous run was green" are inference, not evidence.
+No run THIS TURN, no claim. "Should work" and "previous run was green" are inference.
 
 ## Gate function
 
-BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it → RUN it this turn → READ output, exit code, failure count → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH the evidence visible).
+BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN it this turn → READ output, exit code, failures → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH evidence).
 ## Table: claim → required output → not sufficient
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
-| Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a run this turn |
-| Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `main` | "outside the diff" / "inside the diff" alone |
-| UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
+| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before" |
+| Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
+| Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
+| UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
-| Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0, this turn | "should still be green" |
-| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span, this turn | The exit code — `sed -i` exits 0 on no match, a misdirected `>` truncates the file |
-| Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
-| Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground, under the timeout | Backgrounding — a subagent never gets re-woken, the run orphans |
+| Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0 | "should still be green" |
+| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span | The exit code (`sed -i` exits 0 on no match) |
+| Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |
+| Active `dist` lock | Identify the owner, wait. Only a verified-dead owner's lock may be reclaimed | Deleting the lock, killing another session's process |
+| Full gate red | Fix with focal tests; rerun the full gate once the fix set is stable. Mandatory before sign/ship | Rerunning after every edit |
+| Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) |
+| Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground | Backgrounding — a subagent is never re-woken |
 
 ## Failure attribution
 
-A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only main` only orients — it never proves origin.
+A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only main` only orients; it never proves origin.
 
-Only the **same command**, run over the comparable base and over the change, demonstrates a state: the two runs disagree → introduced (demonstrated); they agree → pre-existing (demonstrated); no comparable run exists → origin not determined.
+Only the **same command**, run over the comparable base and the change, demonstrates a state: runs disagree → introduced; agree → pre-existing; no comparable run → origin not determined.
 
-Never `git stash` to measure it — it empties the shared tree while another agent reads it. No location → not measured; never exempts a red gate or skips review.
+Never `git stash` to measure it — it empties the shared tree. Never exempts a red gate.
 
 ## Red flags (STOP)
 
-- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED` without a fresh `pnpm lint` run and a full diff read. "Just this once" — NO.
-- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined ONCE in `.claude/agents/orchestrator.md` § Anti-broken-telephone, never a full re-read of an already-validated diff.
+- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED`, without a fresh `pnpm lint` run and a full diff read.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined in `.claude/agents/orchestrator.md` § Anti-broken-telephone, never a full re-read of a validated diff.
 
 ## Rationalization prevention
 
 | Excuse | Reality |
 |---|---|
-| "Confident" / "passed 10 min ago" | Confidence ≠ evidence. Re-run, fresh. |
-| "Trivial" / "the subagent said done" | Doesn't exempt verification. |
+| "Confident" / "passed 10 min ago" / "trivial" / "the subagent said done" | None exempts verification. Re-run. |
 
 ## When invoked
 
@@ -21099,7 +21534,7 @@ Never `git stash` to measure it — it empties the shared tree while another age
 
 ## Closing
 
-State the claim, the fresh evidence, and any sub-claim you COULD NOT verify — never inferred.
+State the claim, the fresh evidence, and any sub-claim you COULD NOT verify.
 <!-- /navori:managed id="verify-before-done-base" -->
 
 ## Project-specific checks
@@ -21386,6 +21821,8 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 
 <!-- navori:managed id="sdd" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Spec Driven Development (SDD)
+
+**Functional deliveries:** independently usable capabilities AND thresholds; runtime consumers/executable acceptance required. `prCount`≠proof.
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 

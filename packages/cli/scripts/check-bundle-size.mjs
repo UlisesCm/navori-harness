@@ -67,8 +67,11 @@ import { dirname, resolve } from "node:path";
  * new dependencies or lockfile changes. Measured at 1509.3KiB; restores
  * ~91KiB of headroom. This remains a temporary combined ceiling: split the
  * dependency ceiling from the first-party trend before another growth raise.
+ *
+ * Raised 1600 -> 1650 with explicit user approval for #1338's review-correlated
+ * gate execution. Measured at 1602.9 KiB, with no new dependency.
  */
-const LIMIT_KB = 1600;
+const LIMIT_KB = 1650;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, "..", "dist");

@@ -17,6 +17,21 @@ import {
 } from "../engine-capabilities.ts";
 import { codexCapabilityFor } from "../codex-parity.ts";
 
+describe("Pi Markdown ownership", (): void => {
+  // Covers: R7
+  it("declares the real shared bash/edit/write hook enforced with its textual boundary", (): void => {
+    const declaration = ENGINE_CAPABILITIES.pi.controls["markdown-ownership"];
+    expect(declaration.state).toBe("enforced");
+    expect(declaration.state === "enforced" && declaration.evidence).toEqual({
+      kind: "hook",
+      script: "implementer-no-markdown.sh",
+      event: "tool_call",
+      matcher: "bash|edit|write",
+    });
+    expect(declaration.reason).toContain("not a sandbox");
+  });
+});
+
 describe("spec 0050 result contract", () => {
   // Covers: R1
   it("result-contract: names five outcomes with owners, mechanisms and evidence, initially pending", () => {

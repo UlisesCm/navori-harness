@@ -102,6 +102,15 @@ describe("PI_PARITY inventory", () => {
 });
 
 describe("PI_PARITY rows", () => {
+  // Covers: R7
+  it("inherits enforced Markdown ownership without claiming a Bash sandbox", (): void => {
+    const row = PI_PARITY[piParityKey("hook", "implementer-no-markdown")]!;
+    expect(row).toMatchObject({ control: "markdown-ownership" });
+    expect(piParityState(row, resolveControl)).toBe("enforced");
+    expect(row.boundary).toContain("not a sandbox");
+    expect(row.boundary).toContain("dynamic destinations");
+  });
+
   const direct = Object.entries(PI_PARITY).filter(
     (entry): entry is [string, PiDirectParity] => !isControlRow(entry[1]),
   );

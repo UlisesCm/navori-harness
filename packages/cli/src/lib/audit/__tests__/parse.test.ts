@@ -2615,6 +2615,62 @@ it("attaches the validated payload of review and receipt outcome events without 
   ]);
 });
 
+// Covers: R3
+it("retains CLI child IDs as private metadata without invalidating closed outcome payloads", () => {
+  const before = parseSession(FIXTURE).parseErrors;
+  const s = parseLog([
+    { event: "cli", tsMs: 5, ...REVIEW_PAYLOAD, agentId: "private_child_1" },
+    { event: "cli", tsMs: 6, ...RECEIPT_PAYLOAD, agentId: "private_child_2" },
+  ]);
+  expect(s.parseErrors).toBe(before);
+  expect(s.cliEvents).toEqual([
+    {
+      tsMs: 5,
+      event: "cli",
+      name: "review-outcome",
+      verdict: "approved",
+      agentId: "private_child_1",
+      outcomePayload: REVIEW_PAYLOAD,
+    },
+    {
+      tsMs: 6,
+      event: "cli",
+      name: "receipt-outcome",
+      verdict: "ok",
+      agentId: "private_child_2",
+      outcomePayload: RECEIPT_PAYLOAD,
+    },
+  ]);
+  expect(
+    JSON.stringify(
+      publishReport(
+        buildReport([s], {
+          repo: "fixture",
+          version: "1",
+          catalog: EMPTY_CATALOG,
+        }),
+      ),
+    ),
+  ).not.toContain("private_child_");
+});
+
+// Covers: R3
+it("does not retain malformed CLI child IDs", () => {
+  const s = parseLog(
+    [undefined, "", "../private-path", "x".repeat(257), 42].map(
+      (agentId: unknown, index: number): Record<string, unknown> => ({
+        event: "cli",
+        tsMs: index + 5,
+        name: "plan-gate",
+        verdict: "allow",
+        agentId,
+      }),
+    ),
+  );
+  expect(s.cliEvents).toHaveLength(5);
+  expect(s.cliEvents?.every((event) => !("agentId" in event))).toBe(true);
+});
+
 // Covers: R16
 it("counts and drops an invalid outcome payload but keeps the CLI event", () => {
   const before = parseSession(FIXTURE).parseErrors;

@@ -661,6 +661,22 @@ describe("bench scripts", () => {
     }
   });
 
+  // Covers: R3, R29
+  it("bench:hooks limita la carga inicial a cuatro incluso con más CPUs", () => {
+    expect(hooksComparable([4, 90, 90], 10)).toBe(true);
+    expect(hooksComparable([4.01, 0, 0], 10)).toBe(false);
+    expect(hooksComparable([4.9, 0, 0], 10)).toBe(false);
+    expect(hooksComparable([4.01, 0, 0], 64)).toBe(false);
+    expect(hooksComparable([1, 0, 0], 2)).toBe(true);
+    expect(hooksComparable([1.01, 0, 0], 2)).toBe(false);
+    expect(hooksComparable([], 10)).toBe(false);
+    expect(hooksComparable([-1, 0, 0], 10)).toBe(false);
+    expect(hooksComparable([Number.NaN, 0, 0], 10)).toBe(false);
+    expect(hooksComparable([Number.POSITIVE_INFINITY, 0, 0], 10)).toBe(false);
+    expect(hooksComparable([1, 0, 0], Number.POSITIVE_INFINITY)).toBe(false);
+    expect(hooksComparable([0, 0, 0], 0)).toBe(false);
+  });
+
   // Covers: R3
   it("bench:hooks mide todos los nombres de hooks registrados en el checkout", () => {
     const registrations = hooksModule.readRegistrations();
@@ -676,8 +692,8 @@ describe("bench scripts", () => {
         selectHooks(registrations, scenario, engine),
       ),
     );
-    // The context consumer iterates only SCENARIOS: its 45 groups stay separate from supplements.
-    expect(original).toHaveLength(45);
+    // The context consumer iterates only SCENARIOS: its 47 groups stay separate from supplements.
+    expect(original).toHaveLength(47);
     const scenarios = [
       ...Object.keys(hooksModule.SCENARIOS),
       ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),
@@ -830,7 +846,7 @@ describe("bench scripts", () => {
       perl: 1,
       node: 0,
     });
-    expect(hooksComparable([4.9, 0, 0], 10)).toBe(true);
+    expect(hooksComparable([4, 0, 0], 10)).toBe(true);
     expect(hooksComparable([5.1, 0, 0], 10)).toBe(false);
 
     const sandbox = createSandbox();

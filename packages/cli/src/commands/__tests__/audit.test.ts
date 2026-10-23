@@ -267,7 +267,7 @@ describe("metadata transport", () => {
   const eventInput = JSON.stringify(metadata);
 
   /** Complete private marker independent of production creation APIs. */
-  function marker(host: "claude" | "codex" = "claude"): string {
+  function marker(host: "claude" | "codex" | "pi" = "claude"): string {
     chmodSync(auditsRoot, 0o700);
     mkdirSync(auditDir, { mode: 0o700 });
     const log = join(auditDir, `session-${sessionId}.log`);
@@ -324,7 +324,7 @@ describe("metadata transport", () => {
   }
 
   // Covers: R10, R11, R21
-  it.each(["claude", "codex"] as const)("appends one real private %s record", (host) => {
+  it.each(["claude", "codex", "pi"] as const)("appends one real private %s record", (host) => {
     const log = marker(host);
     silent(invoke(flags(host)), 0);
     const rows = readFileSync(log, "utf-8").trim().split("\n");

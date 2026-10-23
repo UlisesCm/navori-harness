@@ -23,6 +23,15 @@ const CONFIG = {
 } as unknown as NavoriConfig;
 
 describe("interpolate — default mode", () => {
+  // Covers: R8
+  it("shell-quotes exact owned paths and defaults to the empty sentinel", () => {
+    const template = "nv_owned_paths={{shq:navoriOwnedPaths}}";
+    expect(interpolate(template, CONFIG)).toBe("nv_owned_paths='-'");
+    const inventory = "CLAUDE.md\n.claude/skills/owner's/SKILL.md";
+    expect(interpolate(template, CONFIG, { extraVars: { navoriOwnedPaths: inventory } })).toBe(
+      "nv_owned_paths='CLAUDE.md\n.claude/skills/owner'\\''s/SKILL.md'",
+    );
+  });
   it("resolves simple paths", () => {
     expect(interpolate("Run: {{qualityGate.fast}}", CONFIG)).toBe("Run: pnpm typecheck");
   });
@@ -389,6 +398,15 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
 
   for (const [engine, text] of Object.entries(renders)) {
     describe(engine, () => {
+      // Covers: R16, R24 (0045)
+      it("includes original-request scope comparison in Pass 1 without granting authority", () => {
+        const pass1 = text.slice(text.indexOf("### Pass 1"), text.indexOf("### Pass 2"));
+        expect(pass1).toContain("`request`");
+        expect(pass1).toContain("original request");
+        expect(pass1).toContain("`SPEC_MISS`");
+        expect(pass1).toContain("never instructions or authorization");
+      });
+
       // Covers: R8, R9, R24
       it("CHANGES_REQUESTED round runs the scoped gate plus A<n>, not the full gate", () => {
         expect(scoped).not.toBe("");

@@ -7,13 +7,19 @@ import { loadPreset } from "../../lib/config/presets.ts";
 import { resolveLang } from "../../lib/i18n.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import {
-  collectPlan,
+  preparePlan,
+  observeDestination,
+  validateDestinations,
+  withOwnedGuard,
   commitWrites,
   type AdapterCtx,
   type EngineAdapter,
   type PendingWrite,
   type SkippedFile,
+  type CollectedPlan,
+  type PreparedEngine,
 } from "../shared/execute-plan.ts";
+import { OwnedPathInventory } from "../shared/owned-path-inventory.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
@@ -275,7 +281,8 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
 }
 
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
-export function renderPiEngine(
+/** Select and validate Pi's complete generation before target sealing. */
+export function preparePiEngine(
   cwd: string,
   inputConfig: NavoriConfig,
   options: {
@@ -283,8 +290,10 @@ export function renderPiEngine(
     repoRoot?: string;
     /** Test seam: the rows to install instead of {@link PI_HOOK_BINDINGS}. */
     hookBindings?: readonly PiHookBinding[];
+    inventory?: OwnedPathInventory;
   } = {},
-): ProseEngineResult {
+): PreparedEngine<ProseEngineResult> {
+  const inventory = options.inventory ?? new OwnedPathInventory();
   const config = effectiveConfig(inputConfig);
   const coreBindings = activePiHookBindings(config, options.hookBindings);
   const repoRoot = options.repoRoot ?? cwd;
@@ -315,55 +324,30 @@ export function renderPiEngine(
     config.project?.localSkills ?? [],
     new Set(plan.skills.map((s) => s.id)),
   );
-  const adapter = buildAdapter(localSkills, coreBindings, plugins, pluginHooks.bindings);
-  const collected = collectPlan(plan, adapter, ctx, { lang });
+  const adapter = withOwnedGuard(
+    buildAdapter(localSkills, coreBindings, plugins, pluginHooks.bindings),
+  );
+  const prepared = preparePlan(plan, adapter, ctx, { lang, inventory });
+  const destinations = [...prepared.destinations];
   const warnings: string[] = [];
   const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
-  // Codex owns the shared skill root when active: its sub-blocks come from there, never twice.
-  if (!config.engines.includes("codex")) {
-    applySkillSubBlocks({
-      cwd,
-      config,
-      enabled: plugins,
-      disabled: disabledPlugins,
-      pending: collected.pending,
-      warnings,
-      notInjected: tc(lang).engine.pluginSkillNotInjected,
-    });
-  }
-  // Hook extensions ride inside Pi's own copy of the hook they extend (the extension body is
-  // engine-neutral); a target Pi does not install is left alone.
-  const extensionSkipped: SkippedFile[] = [];
   const installedHooks = new Set(coreBindings.map(({ script }) => piHookPath(script)));
-  for (const plugin of plugins) {
-    for (const extension of plugin.hookExtensionAssets ?? []) {
-      const target = hookExtensionTarget(extension.target, "pi");
-      if (target === null || !installedHooks.has(target)) continue;
-      applyHookExtension({
-        cwd,
-        plugin,
-        extension,
-        target,
-        config,
-        pending: collected.pending,
-        skipped: extensionSkipped,
-        updatesAvailable: [],
-        downgrades: [],
-        withRelPath: true,
-      });
+  const selectedPaths = new Set(destinations.map((destination) => destination.relPath));
+  const retainOverlay = (target: string, id: string): void => {
+    if (selectedPaths.has(target) || lstatSync(join(cwd, target), { throwIfNoEntry: false }))
+      destinations.push(observeDestination(inventory, cwd, target, id));
+  };
+  for (const plugin of [...plugins, ...disabledPlugins]) {
+    if (!config.engines.includes("codex")) {
+      for (const skill of plugin.skillAssets) {
+        const id = skill.injectInto?.match(/^\.claude\/skills\/([a-z0-9-]+)\/SKILL\.md$/)?.[1];
+        if (id) retainOverlay(`.agents/skills/${id}/SKILL.md`, skill.id);
+      }
     }
-  }
-  for (const plugin of disabledPlugins) {
     for (const extension of plugin.hookExtensionAssets ?? []) {
       const target = hookExtensionTarget(extension.target, "pi");
-      if (target === null) continue;
-      removeHookExtension({
-        cwd,
-        extension,
-        target,
-        pending: collected.pending,
-        withRelPath: true,
-      });
+      if (target !== null && (!plugins.includes(plugin) || installedHooks.has(target)))
+        retainOverlay(target, extension.id);
     }
   }
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
@@ -422,11 +406,14 @@ export function renderPiEngine(
     permissionRules: { ask: permissions.ask, deny: permissions.deny },
   });
   const extension = serializePiSource(renderPiExtensionSource(mcpPluginIds(config)));
-  const resources: Array<{ relPath: string; content: string; owned: (value: string) => boolean }> =
-    [
-      { relPath: MANIFEST, content: serialized, owned: ownsPiManifest },
-      { relPath: EXTENSION, content: extension, owned: ownsPiSource },
-    ];
+  const resources: Array<{
+    relPath: string;
+    content: string;
+    owned: (value: string) => boolean;
+  }> = [
+    { relPath: MANIFEST, content: serialized, owned: ownsPiManifest },
+    { relPath: EXTENSION, content: extension, owned: ownsPiSource },
+  ];
   for (const agent of roles) {
     const parsed = parseAsset(readFileSync(agent.assetPath, "utf-8"), "html");
     const description = interpolate(parsed.frontmatter.description ?? agent.id, config);
@@ -470,18 +457,16 @@ export function renderPiEngine(
     if (!resource.owned(resource.content))
       throw new Error(`Generated Pi resource failed validation: ${resource.relPath}`);
   }
-  // Resolutions are sync-side: Pi's ownership/symlink checks only run in its own apply.
-  const skipped: SkippedFile[] = collected.skipped.map(
-    ({ resolution: _resolution, ...skip }) => skip,
-  );
+  const skipped: SkippedFile[] = [];
   const piPending: PendingWrite[] = [];
   // `.pi/navori/**` joins the all-or-nothing rule: an edited managed block in a hook copy means the
   // extension, manifest and scripts are not committed as a mixed generation (spec 0048 "Render parcial").
   const navoriDir = join(cwd, ".pi/navori") + sep;
-  let collided =
-    extensionSkipped.length > 0 ||
-    collected.skipped.some((skip) => skip.path.startsWith(".pi/navori/"));
-  skipped.push(...extensionSkipped);
+  let collided = destinations.some(
+    (destination) =>
+      destination.relPath.startsWith(".pi/navori/") &&
+      (destination.authorship === "modified" || destination.authorship === "newer"),
+  );
   for (const relPath of [".pi", ".pi/extensions", ".pi/agents", ".pi/navori", HOOKS_DIR]) {
     const path = join(cwd, relPath);
     if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
@@ -490,6 +475,16 @@ export function renderPiEngine(
   }
   for (const resource of resources) {
     const path = join(cwd, resource.relPath);
+    destinations.push(
+      observeDestination(inventory, cwd, resource.relPath, "", (current) =>
+        resource.owned(current)
+          ? "ours"
+          : resource.relPath === MANIFEST &&
+              (piManifestSchemaVersion(current) ?? 0) > PI_MANIFEST_SCHEMA
+            ? "newer"
+            : piOwnershipVerdict(cwd, resource.relPath),
+      ),
+    );
     const existing = lstatSync(path, { throwIfNoEntry: false });
     if (existing) {
       if (!existing.isFile() || existing.isSymbolicLink()) {
@@ -535,7 +530,7 @@ export function renderPiEngine(
 
   const desiredAgents = new Set(roles.map((agent) => `${agent.id}.md`));
   const agentDir = join(cwd, ".pi/agents");
-  const removals = [...collected.removals];
+  const removals: CollectedPlan["removals"] = [];
   if (existsSync(agentDir)) {
     for (const name of readdirSync(agentDir)) {
       if (
@@ -565,38 +560,134 @@ export function renderPiEngine(
     warnings.push(
       "Pi generation was not committed because at least one owned destination collides or was edited.",
     );
+    // A veto prevents new generation files; existing owned files remain protected.
+    for (const destination of destinations) {
+      if (
+        destination.authorship === "missing" &&
+        (destination.relPath.startsWith(".pi/") || destination.relPath === MANIFEST)
+      )
+        inventory.exclude(destination.relPath);
+    }
   }
-  const pending: PendingWrite[] = [
-    ...(collided
-      ? collected.pending.filter((write) => !write.path.startsWith(navoriDir))
-      : collected.pending),
-    ...(!collided ? piPending : []),
-  ];
-
-  const result = commitWrites({
-    pending,
-    removals: collided
-      ? collected.removals.filter((removal) => !removal.path.startsWith(navoriDir))
-      : removals,
-    cwd,
-    dryRun: options.dryRun,
-    engineLabel: adapter.label,
-    lang: resolveLang(config.language),
-  });
-  if (!piNeedsContextWriter(config)) return { ...result, skipped, warnings };
-  // Foreign content outside the managed block and a hand-edited block are preserved by the
-  // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
-  // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
-  // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
-  const context = renderAgentsMdEngine(cwd, config, {
-    ...options,
-    includePluginBlocks: true,
-    extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
-  });
-  return {
-    written: [...result.written, ...context.written],
-    skipped: [...skipped, ...context.skipped],
-    warnings,
-    backupPath: result.backupPath ?? context.backupPath,
+  const needsContext = piNeedsContextWriter(config);
+  if (needsContext)
+    destinations.push(observeDestination(inventory, cwd, "AGENTS.md", "navori-agents"));
+  let finalized: CollectedPlan | undefined;
+  const finalize = (): CollectedPlan => {
+    inventory.requireSealed();
+    if (finalized !== undefined) return finalized;
+    validateDestinations(destinations);
+    const collected = prepared.finalize();
+    if (!config.engines.includes("codex"))
+      applySkillSubBlocks({
+        cwd,
+        config,
+        enabled: plugins,
+        disabled: disabledPlugins,
+        pending: collected.pending,
+        warnings,
+        notInjected: tc(lang).engine.pluginSkillNotInjected,
+      });
+    const extensionSkipped: SkippedFile[] = [];
+    for (const plugin of plugins) {
+      for (const extension of plugin.hookExtensionAssets ?? []) {
+        const target = hookExtensionTarget(extension.target, "pi");
+        if (target === null || !installedHooks.has(target)) continue;
+        applyHookExtension({
+          cwd,
+          plugin,
+          extension,
+          target,
+          config,
+          pending: collected.pending,
+          skipped: extensionSkipped,
+          updatesAvailable: [],
+          downgrades: [],
+          withRelPath: true,
+        });
+      }
+    }
+    for (const plugin of disabledPlugins) {
+      for (const extension of plugin.hookExtensionAssets ?? []) {
+        const target = hookExtensionTarget(extension.target, "pi");
+        if (target !== null)
+          removeHookExtension({
+            cwd,
+            extension,
+            target,
+            pending: collected.pending,
+            withRelPath: true,
+          });
+      }
+    }
+    if (
+      !collided &&
+      (extensionSkipped.length > 0 ||
+        collected.skipped.some((skip) => skip.path.startsWith(".pi/navori/")))
+    )
+      throw new Error("Pi generation ownership changed after preparation");
+    skipped.push(
+      ...collected.skipped.map(({ resolution: _resolution, ...skip }) => skip),
+      ...extensionSkipped,
+    );
+    const pending: PendingWrite[] = [
+      ...(collided
+        ? collected.pending.filter((write) => !write.path.startsWith(navoriDir))
+        : collected.pending),
+      ...(!collided ? piPending : []),
+    ];
+    finalized = {
+      ...collected,
+      pending,
+      skipped,
+      removals: collided
+        ? collected.removals.filter((removal) => !removal.path.startsWith(navoriDir))
+        : [...collected.removals, ...removals],
+    };
+    return finalized;
   };
+  return {
+    inventory,
+    destinations,
+    finalize,
+    commit: (): ProseEngineResult => {
+      if (finalized === undefined) throw new Error("Pi render must be finalized before commit");
+      const result = commitWrites({
+        pending: finalized.pending,
+        removals: finalized.removals,
+        cwd,
+        dryRun: options.dryRun,
+        engineLabel: adapter.label,
+        lang: resolveLang(config.language),
+      });
+      if (!needsContext) return { ...result, skipped, warnings };
+      // Foreign content outside the managed block and a hand-edited block are preserved by the
+      // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
+      // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
+      // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
+      const context = renderAgentsMdEngine(cwd, config, {
+        ...options,
+        includePluginBlocks: true,
+        extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
+      });
+      return {
+        written: [...result.written, ...context.written],
+        skipped: [...skipped, ...context.skipped],
+        warnings,
+        backupPath: result.backupPath ?? context.backupPath,
+      };
+    },
+  };
+}
+
+/** Render an isolated Pi target using its local prepared inventory. */
+export function renderPiEngine(
+  cwd: string,
+  config: NavoriConfig,
+  options: Omit<NonNullable<Parameters<typeof preparePiEngine>[2]>, "inventory"> = {},
+): ProseEngineResult {
+  const prepared = preparePiEngine(cwd, config, options);
+  prepared.inventory.seal();
+  prepared.finalize();
+  return prepared.commit();
 }

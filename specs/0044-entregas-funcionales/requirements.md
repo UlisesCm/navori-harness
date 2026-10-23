@@ -31,7 +31,7 @@ unidad de PR de la spec:
   necesita más, se parte la spec.
 - **Umbrales.** Los iniciales se calibran por repo desde `navori.config.json`.
 - **Branch destino.** Cada entrega mergea en orden a la branch destino configurada del repo
-  (`main`, `dev` o `develop`), sin rama de integración.
+  (`main`, `dev` o `develop`), sin rama de integración. *(Enmendado: ver "Enmienda 2026-10-21".)*
 - **Master-plan.** Toda spec o parte que genere master-plan sigue esta misma filosofía.
 
 **Reglas que rigen todos los grupos:**
@@ -130,6 +130,8 @@ unidad de PR de la spec:
 - **R19** — WHEN la forma es `split`, the `publisher` SHALL usar `Refs #<issue>` en los PRs
   intermedios y `Closes #<issue>` en el PR de la última entrega. WHEN la forma es `single`, SHALL
   usar `Closes #<issue>` en el único PR.
+
+  *(R18 y R19 enmendados: ver "Enmienda 2026-10-21".)*
 - **R26** — WHILE el receipt vigente es de tipo `scoped`, o el brief del `publisher` declara
   `mode: commit-only`, the `publisher` SHALL hacer solo el commit y SHALL NOT publicar la rama
   ni abrir un PR.
@@ -159,3 +161,29 @@ unidad de PR de la spec:
 
   La fila de la primera spec que use este formato se llena después de su merge, como cierre de
   la siguiente spec. Esos datos no existen dentro del PR que la implementa.
+
+## Enmienda 2026-10-21 — orden de entregas recomendado
+
+Por decisión del usuario, el orden de merge de las entregas pasa de regla a recomendación. El
+texto original de la línea "Branch destino", R18 y R19 se conserva arriba como historia; rige lo
+siguiente:
+
+- **Branch destino.** Cada entrega mergea a la branch destino configurada en su propio PR, sin
+  rama de integración. Mergear en el orden de `tasks.md` se recomienda, no es obligatorio; una
+  entrega posterior puede avanzar en paralelo si sus archivos son disjuntos.
+- **R18** (enmendado) — WHEN la forma es `split`, the `publisher` SHALL abrir un PR por entrega
+  contra la branch `prTarget` configurada, sin rama de integración, y SHOULD seguir el orden de
+  `tasks.md`. IF la entrega anterior no está mergeada, la rama no la apila y los archivos son
+  disjuntos THEN the `publisher` SHALL abrir el PR y avisar en su reporte. IF la rama la apila,
+  la entrega declara en `parts.json` (`dependsOn`) una entrega sin mergear, los archivos se
+  solapan, falta el `after: <sha>` o el caso es ambiguo THEN the `publisher` SHALL preguntar al
+  usuario.
+- **R19** (enmendado) — WHEN la forma es `split`, the `publisher` SHALL usar `Closes #<issue>`
+  solo si, al publicar, todas las demás entregas de la spec ya están mergeadas en `prTarget`; en
+  cualquier otro caso, o si no lo puede confirmar, SHALL usar `Refs #<issue>` y avisar al usuario
+  que el issue queda abierto hasta cerrarlo tras el merge de la última. WHEN la forma es
+  `single`, SHALL usar `Closes #<issue>` en el único PR. Efecto: con merges fuera de orden, "la
+  última entrega" deja de ser la última de `tasks.md` y pasa a ser la última en mergear; el
+  issue nunca se cierra con entregas pendientes.
+
+Diseño de la enmienda: [design.md](design.md), "Enmienda 2026-10-21".

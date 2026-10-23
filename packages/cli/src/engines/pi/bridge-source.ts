@@ -99,6 +99,10 @@ function bridgeShell(): { ok: true; shell: string } | { ok: false; reason: strin
 function bridgePayload(call: BridgeCall): string {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
+  const sessionId = child && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession) ? parentSession : call.sessionId;
+  const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + (role || "child");
   const input = isRecord(call.input) ? call.input : {};
   const toolInput: Record<string, unknown> = {};
   if (typeof input.command === "string") toolInput.command = input.command;
@@ -111,10 +115,10 @@ function bridgePayload(call: BridgeCall): string {
     ...(call.hookEvent === "Stop" ? { stop_hook_active: false } : {}),
     ...(call.reason ? { reason: call.reason } : {}),
     cwd: call.cwd,
-    ...(call.sessionId ? { session_id: call.sessionId } : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
     // "default" only where a human can answer an ask; everywhere else the scripts must decide by themselves.
     permission_mode: !child && call.hasUI ? "default" : "dontAsk",
-    ...(child ? { agent_id: "pi-" + (role || "child"), agent_type: role || "child" } : {}),
+    ...(child ? { agent_id: agentId, agent_type: role || "child" } : {}),
   });
 }
 

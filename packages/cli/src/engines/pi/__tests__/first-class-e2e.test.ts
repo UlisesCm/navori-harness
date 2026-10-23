@@ -31,8 +31,11 @@ import {
   renderPiParityDoc,
 } from "../../shared/pi-parity.ts";
 import { MIN_PI_VERSION } from "../runtime-version.ts";
-import { serializePiManifest, serializePiSource } from "../owned-file.ts";
+import { serializePiSource } from "../owned-file.ts";
+import { renderPiEngine } from "../index.ts";
+import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
 import { load } from "./fixtures/load-extension.ts";
+import { repoFromCwd } from "../../../lib/audit/paths.ts";
 import {
   createRepoTemplate,
   emptyRepo,
@@ -90,6 +93,7 @@ const ENV_KEYS = [
   "NAVORI_PI_CHILD_DEPTH",
   "NAVORI_PI_CHILD_ROLE",
   "PI_SESSION_ID",
+  "NAVORI_AUDITS_ROOT",
 ] as const;
 
 const dirs: string[] = [];
@@ -113,6 +117,7 @@ async function phase<T>(
 
 interface ToolOutcome {
   toolName: string;
+  toolCallId?: string;
   isError: boolean;
   text: string;
   details?: { truncated?: boolean };
@@ -123,13 +128,22 @@ function outcomes(session: AgentSession, from: number): ToolOutcome[] {
     const m = message as unknown as {
       role: string;
       toolName?: string;
+      toolCallId?: string;
       isError?: boolean;
       details?: { truncated?: boolean };
       content?: Array<{ type: string; text?: string }>;
     };
     if (m.role !== "toolResult") return [];
     const text = (m.content ?? []).map((part) => part.text ?? "").join("");
-    return [{ toolName: m.toolName ?? "?", isError: m.isError === true, text, details: m.details }];
+    return [
+      {
+        toolName: m.toolName ?? "?",
+        toolCallId: m.toolCallId,
+        isError: m.isError === true,
+        text,
+        details: m.details,
+      },
+    ];
   });
 }
 
@@ -185,6 +199,7 @@ describe("Pi credential-free first-class cycle", () => {
       PI_CODING_AGENT_DIR: agentDir,
       PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
       NAVORI_FAUX_SCRIPT: join(root, "script.json"),
+      NAVORI_AUDITS_ROOT: join(root, "audits"),
     };
     const sh = (program: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
       spawnSync(program, args, {
@@ -376,6 +391,7 @@ describe("Pi credential-free first-class cycle", () => {
           ],
           reviewer: [
             bash("git status --porcelain --untracked-files=all"),
+            bash("navori plan update demo --progress A1=cumplido"),
             bash(A3),
             { echoAll: "reviewer results:" },
           ],
@@ -425,6 +441,12 @@ describe("Pi credential-free first-class cycle", () => {
       const parent = runtime.getModel("faux", "parent-model");
       if (!parent) throw new Error("faux provider not registered by the fixture extension");
       await active.setModel(parent);
+      // Covers: R3 — a real opted-in Pi log, with direct child hook/CLI writes and no spool.
+      const parentSession = active.sessionManager.getSessionId();
+      const started = navori(["audit", "--start", parentSession, "--host", "pi"]);
+      expect(started.status, started.stderr + started.stdout).toBe(0);
+      const auditDir = join(cleanEnv.NAVORI_AUDITS_ROOT!, repoFromCwd(cwd));
+      const auditLog = join(auditDir, "session-" + parentSession + ".log");
       await phase("context", diagnostic, () => {
         expect(active.systemPrompt).toContain("AGENTS.md");
         const tools = active.extensionRunner?.getAllRegisteredTools().map((t) => t.definition.name);
@@ -475,6 +497,16 @@ describe("Pi credential-free first-class cycle", () => {
         expect(BIG).toBeGreaterThan(256 * 1024);
         expect(scout[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
         expect(scout[0]?.details?.truncated).toBe(true);
+        // Covers: R3 — K2 from the real SDK parent and spawned CLI child, with local Git evidence.
+        expect(scout[0]?.details).toMatchObject({
+          role: "scout",
+          agentId: `pi-scout-${scout[0]?.toolCallId}`,
+          parentSession: active.sessionManager.getSessionId(),
+          outcome: "completed",
+          handoff: "none",
+          head: git("rev-parse", "HEAD"),
+          worktreeTree: expect.stringMatching(/^[a-f0-9]{40}$/),
+        });
         // Truncated to the 64 KiB contract, not cancelled for volume.
         expect(Buffer.byteLength(scout[0]!.text)).toBeLessThanOrEqual(65_536);
         expect(scout[0]!.text.length).toBeGreaterThan(60_000);
@@ -484,7 +516,7 @@ describe("Pi credential-free first-class cycle", () => {
       const implemented = await turn("implementer child");
       await phase("implementer child", diagnostic, () => {
         expect(implemented[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
-        expect(implemented[0]?.text).toContain("scribe owns Markdown");
+        expect(implemented[0]?.text).toContain("BLOCKED by implementer-no-markdown");
         expect(implemented[0]?.text).toContain("headless Navori children cannot approve");
         // R17 relay: the child's approval request reached the parent with the exact command.
         expect(JSON.stringify(implemented[0]?.details)).toContain(CLAIM);
@@ -500,9 +532,45 @@ describe("Pi credential-free first-class cycle", () => {
       await phase("joint review", diagnostic, () => {
         // The scripted reviewer writes no sealed review handoff: Pi reports the child as failed (R7).
         expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: true });
+        expect(reviewed[0]?.details).toMatchObject({
+          agentId: `pi-reviewer-${reviewed[0]?.toolCallId}`,
+          parentSession: active.sessionManager.getSessionId(),
+          outcome: "failed",
+          handoff: "invalid",
+          failure: expect.any(String),
+          head: git("rev-parse", "HEAD"),
+          worktreeTree: expect.stringMatching(/^[a-f0-9]{40}$/),
+        });
         expect(reviewed[0]?.text).toContain("reviewer handoff invalid");
         expect(reviewed[0]?.text).toContain("src/feature.ts");
         expect(reviewed[0]?.text).toContain(docsPath);
+        const events = readFileSync(auditLog, "utf8")
+          .trim()
+          .split("\n")
+          .map(
+            (row: string): Record<string, unknown> => JSON.parse(row) as Record<string, unknown>,
+          );
+        const childId = `pi-reviewer-${reviewed[0]?.toolCallId}`;
+        expect(
+          events.some(
+            (event) =>
+              event.event === "hook" &&
+              event.host === "pi" &&
+              event.rootSessionId === parentSession &&
+              event.agentId === childId,
+          ),
+          "child hook metadata",
+        ).toBe(true);
+        expect(events.filter((event) => event.event === "cli")).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              event: "cli",
+              verdict: "block",
+              agentId: childId,
+            }),
+          ]),
+        );
+        expect(existsSync(join(auditDir, "spool-" + parentSession))).toBe(false);
       });
 
       // R17: every child ran on the parent's exact provider/model, not the global default.
@@ -534,7 +602,8 @@ describe("Pi credential-free first-class cycle", () => {
         });
         expect(lines.find((line) => line.id === "A3")).toMatchObject({
           command: A3,
-          agentId: "pi-reviewer",
+          agentId: `pi-reviewer-${reviewed[0]?.toolCallId}`,
+          sessionId: parentSession,
         });
       });
 
@@ -824,17 +893,19 @@ describe("Pi implementer doctrine in registered worktrees", () => {
       );
     }
     git(host, "worktree", "add", "-q", "-b", "delivery", sibling);
-    mkdirSync(join(host, ".pi"), { recursive: true });
-    writeFileSync(
-      join(host, ".pi/navori.json"),
-      serializePiManifest({
-        schemaVersion: 2,
-        agents: ["implementer"],
-        controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown: true },
-        hooks: [],
-        ownedPaths: [],
-        permissionRules: { ask: [], deny: [] },
+    renderPiEngine(
+      host,
+      NavoriConfigSchema.parse({
+        name: "sibling-doctrine",
+        preset: "custom",
+        engines: ["pi"],
+        harness: { scribeOwnsMarkdown: true },
       }),
+      {
+        hookBindings: PI_HOOK_BINDINGS.filter(
+          (binding) => binding.script === "implementer-no-markdown",
+        ),
+      },
     );
     symlinkSync(sibling, join(host, "link"));
     const handler = load({

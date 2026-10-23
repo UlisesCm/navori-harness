@@ -3,6 +3,7 @@ import {
   nativeProfileCandidates,
   nativeProfileHookCalls,
   profileSelectionIntent,
+  profileProbeHookContext,
 } from "../host-observation.ts";
 import { isOwnedNativeObservation } from "../native-integration.ts";
 import { projectCodexProfiles, type CodexProfileProjection } from "../../assets/model-profile.ts";
@@ -87,7 +88,9 @@ describe("native profile joins are source-unverified candidates", () => {
     });
     const native = events();
     const call = native[1] as {
-      params: { item: { model: string | null; reasoningEffort: string | null } };
+      params: {
+        item: { model: string | null; reasoningEffort: string | null };
+      };
     };
     call.params.item.model = null;
     call.params.item.reasoningEffort = null;
@@ -275,10 +278,95 @@ describe("source-bound profile hook identity candidates", () => {
         handlerType: "command",
         executionMode: "sync",
         status: "completed",
-        entries: [{ kind: "context", text: `navori-profile-probe:${JSON.stringify(context)}` }],
+        entries: [
+          {
+            kind: "context",
+            text: `navori-profile-probe:${JSON.stringify(context)}`,
+          },
+        ],
       },
     },
   };
+  const v2Activity = {
+    method: "item/started",
+    params: {
+      threadId: "principal",
+      turnId: "parent-turn",
+      item: {
+        type: "subAgentActivity",
+        id: "call",
+        kind: "started",
+        agentThreadId: "child",
+        agentPath: "/root/task",
+        model: "gpt-6-sol",
+        reasoningEffort: "medium",
+      },
+    },
+  };
+  const v2Parent = {
+    context: "principal",
+    model: "gpt-6-sol",
+    effort: "medium",
+    unchanged: true,
+    defaultsKnown: true,
+    v2: {
+      turn: "parent-turn",
+      hooks: [profileProbeHookContext.parse(context)],
+    },
+  };
+  // Covers: R12, R13, R14, R16
+  it("joins V2 Started directly to the authenticated nested call without restored thread metadata or V1 collab rows", () => {
+    expect(nativeProfileCandidates(rows, "principal", [v2Activity], v2Parent)).toMatchObject([
+      {
+        nativeName: "role0",
+        call: "call",
+        activity: "call",
+        context: "child",
+        model: "gpt-6-sol",
+        effort: "medium",
+      },
+    ]);
+    expect(
+      nativeProfileCandidates(rows, "principal", [v2Activity], {
+        ...v2Parent,
+        v2: { ...v2Parent.v2, hooks: [] },
+      }),
+    ).toEqual([]);
+    expect(nativeProfileCandidates(rows, "principal", [v2Activity, v2Activity], v2Parent)).toEqual(
+      [],
+    );
+  });
+  // Covers: R12, R13, R14, R16
+  it.each(["wrapper-call", "parent", "turn", "pair", "role", "intent", "defaults"])(
+    "rejects V2 %s without borrowing identity from path or requested values",
+    (field: string) => {
+      const event = structuredClone(v2Activity);
+      const parent = structuredClone(v2Parent);
+      if (field === "wrapper-call") event.params.item.id = "wrapper-call";
+      if (field === "parent") event.params.threadId = "foreign";
+      if (field === "turn") event.params.turnId = "old-turn";
+      if (field === "pair") event.params.item.reasoningEffort = "high";
+      if (field === "role") parent.v2.hooks[0]!.role = "unknown";
+      if (field === "intent") parent.v2.hooks[0]!.model = { kind: "inherit" };
+      if (field === "defaults") parent.defaultsKnown = false;
+      expect(nativeProfileCandidates(rows, "principal", [event], parent)).toEqual([]);
+    },
+  );
+  // Covers: R13, R16
+  it("requires the V2 hook completion on the exact parent turn", () => {
+    expect(nativeProfileHookCalls([completed], { ...expected, turn: "parent-turn" })).toEqual([]);
+    expect(
+      nativeProfileHookCalls(
+        [
+          {
+            ...completed,
+            params: { ...completed.params, turnId: "parent-turn" },
+          },
+        ],
+        { ...expected, turn: "parent-turn" },
+      ),
+    ).toEqual([context]);
+  });
   // Covers: R13, R16, R18
   it("requires native hook completion and exact source/nonce/call context", () => {
     expect(nativeProfileHookCalls([completed], expected)).toEqual([context]);

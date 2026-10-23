@@ -13,7 +13,7 @@ import {
   existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join, delimiter, dirname } from "node:path";
 import {
   runNativeIntegration,
   preflightNativeProfileProbe,
@@ -59,8 +59,11 @@ const liveProcesses = new Set<ChildProcess>();
 const liveRuns = new Set<ReturnType<typeof startNativeProfileProbe>>();
 
 /** Keep ownership of asynchronous probes after a Vitest timeout so teardown cannot race their writes. */
-function runNativeProfileProbe(target: string): ReturnType<typeof startNativeProfileProbe> {
-  const run = startNativeProfileProbe(target);
+function runNativeProfileProbe(
+  target: string,
+  options?: Parameters<typeof startNativeProfileProbe>[1],
+): ReturnType<typeof startNativeProfileProbe> {
+  const run = startNativeProfileProbe(target, options);
   liveRuns.add(run);
   void run.then(
     () => liveRuns.delete(run),
@@ -186,7 +189,10 @@ function childDouble(): EventEmitter & {
     // Trigger completion only after the held callback resolves, just like the native stream.
   });
   child.stdin.on("data", (bytes: Buffer) => {
-    const message = JSON.parse(bytes.toString()) as { id?: number; method?: string };
+    const message = JSON.parse(bytes.toString()) as {
+      id?: number;
+      method?: string;
+    };
     if (message.id === undefined || message.method !== undefined) return;
     queueMicrotask(() => {
       if (scenario === "closed-after-effect" && responses.length === 2) {
@@ -389,7 +395,7 @@ async function liveOwnerFixture(
   const hook = {
     script: "model-advisor",
     event: "PreToolUse",
-    matcher: "^(Agent|spawn_agent)$",
+    matcher: "^(Agent|spawn_agent|collaborationspawn_agent)$",
     args: "codex-pretool-profile",
     timeout: 15,
     statusMessage: "navori: future child profile",
@@ -403,6 +409,7 @@ async function liveOwnerFixture(
     `
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
 const mode=${JSON.stringify(mode)},trace=${JSON.stringify(trace)};
+const v2=mode.startsWith('v2');
 const disabled=['shell_tool','apps','plugins','browser_use','computer_use','memories','request_permissions_tool','image_generation','skill_mcp_dependency_install','remote_plugin','worktrees'];
 const emit=m=>process.stdout.write(JSON.stringify(m)+'\\n');
 let phase=0;
@@ -414,27 +421,42 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  if(r.method==='turn/start')fs.appendFileSync(trace,JSON.stringify({schema:true,outputSchema:r.params.outputSchema,fixedMessage:r.params.input[0].text})+String.fromCharCode(10));
  fs.appendFileSync(trace,JSON.stringify({method:r.method,cwd:process.cwd()})+'\\n');
  let result={};
- if(r.method==='initialize')result={platformOs:'macos',userAgent:'codex/0.162.1'};
+ if(r.method==='initialize')result={platformOs:'macos',userAgent:v2?'codex/0.163.0':'codex/0.162.1'};
  if(r.method==='experimentalFeature/list')result={data:[...disabled.filter(n=>mode!=='unknown-key'||n!=='shell_tool').map(name=>({name,enabled:false,stage:'stable'})),...['hooks','multi_agent'].map(name=>({name,enabled:true,stage:'stable'}))],nextCursor:null};
  if(r.method==='config/read'){
    const agents={enabled:agentsEnabled,max_concurrent_threads_per_session:null,max_depth:null,default_subagent_model:null,default_subagent_reasoning_effort:null,job_max_runtime_seconds:null,interrupt_message:null,...${JSON.stringify(agentDefaults)}};
    if(mode==='agents-missing')delete agents.enabled;
    if(mode==='agents-false')agents.enabled=false;
    if(mode==='defaults')agents.default={model:'unknown'};
-   result={config:{sandbox_mode:mode==='policy'?'danger-full-access':'read-only',approval_policy:'never',web_search:'disabled',features:Object.fromEntries(disabled.map(n=>[n,false])),mcp_servers:fs.readFileSync(path.join(process.cwd(),'.codex/config.toml'),'utf8').includes('mcp_servers')?{target_only:{command:'never-launch-target-mcp'}}:{},agents}};
+   result={config:{thread_unload_delay_secs:mode==='v2-delay'?1800:2,sandbox_mode:mode==='policy'?'danger-full-access':'read-only',approval_policy:'never',web_search:'disabled',features:Object.fromEntries(disabled.map(n=>[n,false])),mcp_servers:fs.readFileSync(path.join(process.cwd(),'.codex/config.toml'),'utf8').includes('mcp_servers')?{target_only:{command:'never-launch-target-mcp'}}:{},agents}};
    fs.appendFileSync(trace,JSON.stringify({loadedAgentsEnabled:agents.enabled??null})+String.fromCharCode(10));
  }
  if(r.method==='hooks/list')result={data:[{cwd:process.cwd(),errors:[],warnings:[],hooks:[{enabled:true,trustStatus:'trusted',source:'project',sourcePath:path.join(process.cwd(),'.codex/config.toml'),currentHash:mode==='hook'?'foreign':${JSON.stringify(hash)},eventName:'preToolUse',handlerType:'command',command:${JSON.stringify(command)}}]}]};
  if(r.method==='model/list'){
+   if(v2)fs.writeFileSync(path.join(process.env.CODEX_HOME,'models_cache.json'),JSON.stringify({client_version:'0.163.0',models:[{slug:'gpt-6.1-sol',multi_agent_version:mode==='v2-registry'?'v1':'v2'}]}));
    result={data:[{id:'gpt-6.1-sol',model:'gpt-6.1-sol',supportedReasoningEfforts:[{reasoningEffort:'medium'},{reasoningEffort:'high'}]}],nextCursor:null};
    if(mode==='bytes')result.padding='x'.repeat(750000);
    if(mode==='frames')for(let i=0;i<2049;i++)emit({method:'unexpected/event',params:{}});
  }
  if(r.method==='thread/start')result={thread:{id:'native-main'},model:'gpt-6.1-sol',reasoningEffort:'medium',sandbox:{type:'readOnly',networkAccess:false},approvalPolicy:'never',approvalsReviewer:'user'};
  if(r.method==='turn/start')result={turn:{id:'turn-'+(++phase)}};
+ if(r.method==='thread/unsubscribe')result={status:mode==='v2-unsubscribe'?'notSubscribed':'unsubscribed'};
  emit({id:r.id,result});
+ if(r.method==='thread/unsubscribe'&&mode!=='v2-unsubscribe')emit({method:'thread/closed',params:{threadId:mode==='v2-foreign-close'?'foreign':r.params.threadId}});
  if(r.method!=='turn/start')return;
+ if(process.env.CODEX_ROLLOUT_TRACE_ROOT){
+   const bundle=path.join(process.env.CODEX_ROLLOUT_TRACE_ROOT,'parent-'+phase);
+   fs.mkdirSync(bundle,{recursive:true});
+   fs.writeFileSync(path.join(bundle,'request.json'),JSON.stringify({input:[{text:'PRIVATE_NATIVE_REQUEST'},{type:'additional_tools',tools:[{type:'namespace',name:'collaboration',tools:[{name:'spawn_agent'}]}]}]}));
+   fs.writeFileSync(path.join(bundle,'trace.jsonl'),JSON.stringify({payload:{type:'inference_started',thread_id:'native-main',codex_turn_id:'turn-'+phase,inference_call_id:'inference-'+phase,request_payload:{kind:{type:'inference_request'},path:'request.json'}}})+'\\n');
+ }
  if(mode==='timeout')return;
+ if(mode.startsWith('v2-no-dispatch')){
+   const blocked=mode.endsWith('blocked');
+   emit({method:'item/completed',params:{threadId:'native-main',turnId:'turn-'+phase,item:{type:'agentMessage',phase:'final_answer',text:JSON.stringify({outcome:blocked?'blocked':'completed',reason:blocked?'tool_unavailable':'none'})}}});
+   emit({method:'turn/completed',params:{threadId:'native-main',turn:{id:'turn-'+phase,status:'completed'}}});
+   fs.appendFileSync(trace,JSON.stringify({nativeParentTerminal:true})+String.fromCharCode(10));return;
+ }
  if(mode==='self-report'){
    emit({method:'item/completed',params:{threadId:'native-main',turnId:'turn-'+phase,item:{type:'agentMessage',phase:'final_answer',text:JSON.stringify({outcome:'completed',reason:'none'})}}});
    emit({method:'turn/completed',params:{threadId:'native-main',turn:{status:'completed'}}});return;
@@ -444,16 +466,41 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  let deferred;
  for(const [index,role]of roles.entries()){
    const call='call-'+phase+'-'+index,child='child-'+phase+'-'+index;
-   const input={agent_type:role,message:'PROFILE_PROBE_OK'};
-   const hook=cp.spawnSync('/bin/bash',[path.join(process.cwd(),'.codex/hooks/model-advisor.sh'),'codex-pretool-profile'],{input:JSON.stringify({cwd:process.cwd(),session_id:'native-main',tool_use_id:call,tool_name:'spawn_agent',tool_input:input}),encoding:'utf8',timeout:12000,env:process.env});
+   const input={agent_type:role,message:'PROFILE_PROBE_OK',...(v2?{fork_turns:'none'}:{})};
+   const hook=cp.spawnSync('/bin/bash',[path.join(process.cwd(),'.codex/hooks/model-advisor.sh'),'codex-pretool-profile'],{input:JSON.stringify({cwd:process.cwd(),session_id:'native-main',tool_use_id:call,tool_name:v2?'collaborationspawn_agent':'spawn_agent',tool_input:input}),encoding:'utf8',timeout:12000,env:process.env});
    let wire;try{wire=JSON.parse(hook.stdout);}catch{wire={};}
    const output=wire.hookSpecificOutput;
    if(output?.permissionDecision!=='allow'){emit({method:'turn/completed',params:{threadId:'native-main',turn:{status:'failed'}}});return;}
-   emit({method:'hook/completed',params:{threadId:'native-main',run:{id:'hook-'+call,source:'project',sourcePath:mode==='source'?'/foreign/config.toml':path.join(process.cwd(),'.codex/config.toml'),eventName:'preToolUse',handlerType:'command',executionMode:'sync',status:'completed',entries:output.additionalContext?[{kind:'context',text:output.additionalContext}]:[]}}});
+   emit({method:'hook/completed',params:{threadId:'native-main',turnId:mode==='v2-hook-turn'?'foreign-turn':'turn-'+phase,run:{id:'hook-'+call,source:'project',sourcePath:mode==='source'?'/foreign/config.toml':path.join(process.cwd(),'.codex/config.toml'),eventName:'preToolUse',handlerType:'command',executionMode:'sync',status:'completed',entries:output.additionalContext?[{kind:'context',text:output.additionalContext}]:[]}}});
    const updated=output.updatedInput;
    const text=fs.readFileSync(path.join(process.cwd(),'.codex/agents',role+'.toml'),'utf8');
    const model=text.match(/^model\\s*=\\s*"([^"]+)"/m)?.[1]??'gpt-6.1-sol';
    const effort=text.match(/^model_reasoning_effort\\s*=\\s*"([^"]+)"/m)?.[1]??'medium';
+   if(v2){
+     const activity={threadId:'native-main',turnId:'turn-'+phase,item:{type:'subAgentActivity',id:mode==='v2-wrapper-call'?'wrapper-'+call:call,kind:'started',agentThreadId:child,agentPath:'/root/task-'+phase,model,reasoningEffort:mode==='v2-pair'?'max':effort}};
+     emit({method:'item/started',params:{...activity,startedAtMs:1000}});
+     const completedActivity={...activity,item:{...activity.item}};
+     if(mode==='v2-completion-thread')completedActivity.threadId='foreign';
+     if(mode==='v2-completion-turn')completedActivity.turnId='foreign';
+     for(const [suffix,key]of Object.entries({call:'id',child:'agentThreadId',path:'agentPath',model:'model',effort:'reasoningEffort'})){
+       if(mode==='v2-completion-'+suffix)completedActivity.item[key]='foreign';
+     }
+     emit({method:'item/completed',params:{...completedActivity,completedAtMs:1001}});
+     emit({method:'turn/started',params:{threadId:child,turn:{id:'child-turn-'+phase,status:'inProgress'}}});
+     if(mode.startsWith('v2-wait')){
+       const wait={threadId:mode==='v2-wait-foreign-parent'?'foreign':'native-main',turnId:mode==='v2-wait-foreign-turn'?'foreign':'turn-'+phase,item:{type:'collabAgentToolCall',id:'wait-'+phase,tool:mode==='v2-wait-control'?'closeAgent':'wait',status:'inProgress',senderThreadId:mode==='v2-wait-foreign-sender'?'foreign':'native-main',receiverThreadIds:mode==='v2-wait-receiver'?[child]:[],prompt:null,model:mode==='v2-wait-selection'?model:null,reasoningEffort:null,agentsStates:{}}};
+       if(mode!=='v2-wait-unstarted')emit({method:'item/started',params:{...wait,startedAtMs:1002}});
+       if(mode==='v2-wait-duplicate')emit({method:'item/started',params:wait});
+       if(mode!=='v2-wait-incomplete')emit({method:'item/completed',params:{...wait,item:{...wait.item,id:mode==='v2-wait-foreign-call'?'foreign':wait.item.id,status:'completed'},completedAtMs:1003}});
+     }
+     if(mode==='v2-child-terminal-late')emit({method:'turn/completed',params:{threadId:'native-main',turn:{id:'turn-'+phase,status:'completed'}}});
+     emit({method:'turn/completed',params:{threadId:child,turn:{id:mode==='v2-child-turn'?'foreign-turn':'child-turn-'+phase,status:'completed'}}});
+     const completion={...activity,item:{...activity.item,id:'completion-'+call,kind:mode==='v2-interacted'?'interacted':mode==='v2-interrupted'?'interrupted':'completed',agentThreadId:mode==='v2-completed-foreign'?'foreign':child,model:mode==='v2-completed-pair'?model:null,reasoningEffort:null}};
+     emit({method:'item/started',params:completion});
+     emit({method:'item/completed',params:completion});
+     if(mode==='v2-extra')emit({method:'item/started',params:{threadId:'native-main',turnId:'turn-'+phase,item:{type:'subAgentActivity',id:'extra-'+call,kind:'started',agentThreadId:'extra',agentPath:'/root/extra',model,reasoningEffort:effort}}});
+     continue;
+   }
    emit({method:'thread/started',params:{thread:{id:child,parentThreadId:'native-main',agentRole:role}}});
    emit({method:'item/started',params:{threadId:'native-main',item:{type:'collabAgentToolCall',id:call,tool:'spawnAgent',senderThreadId:'native-main',receiverThreadIds:[child],status:'inProgress'}}});
    emit({method:'item/completed',params:{threadId:'native-main',item:{type:'collabAgentToolCall',id:call,tool:'spawnAgent',senderThreadId:'native-main',receiverThreadIds:[child],model:updated.model??null,reasoningEffort:updated.reasoning_effort??null,status:'completed'}}});
@@ -464,7 +511,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  if(deferred)emit(deferred);
  emit({method:'item/completed',params:{threadId:'native-main',turnId:'turn-'+phase,item:{type:'agentMessage',phase:'final_answer',text:JSON.stringify({outcome:'completed',reason:'none'})}}});
  if(mode==='changed-target')fs.appendFileSync(${JSON.stringify(join(cwd, ".codex/agents/local.toml"))},'\\n# changed during native observation\\n');
- emit({method:'turn/completed',params:{threadId:'native-main',turn:{status:'completed'}}});
+ if(mode!=='v2-child-terminal-late')emit({method:'turn/completed',params:{threadId:'native-main',turn:{id:'turn-'+phase,status:'completed'}}});
 });
 `,
   );
@@ -704,6 +751,10 @@ describe("fixed live profile owner boundaries, no inference", () => {
         sourceMatched: 1,
         completed: 1,
         failed: 0,
+        running: 0,
+        blocked: 0,
+        stopped: 0,
+        failureStages: [],
         otherStatus: 1,
         missingIdentity: 1,
         validContexts: 0,
@@ -723,6 +774,40 @@ describe("fixed live profile owner boundaries, no inference", () => {
       "child",
     ])
       expect(wire).not.toContain(value);
+  });
+  // Covers: R13, R16, R18
+  it("reports native hook states and only allowlisted failure stages from the exact source", () => {
+    const make = (status: string, text: string, sourcePath = "/owned"): unknown => ({
+      method: "hook/completed",
+      params: {
+        threadId: "parent",
+        run: {
+          id: "hook",
+          eventName: "preToolUse",
+          handlerType: "command",
+          status,
+          source: "project",
+          sourcePath,
+          entries: [{ kind: "feedback", text }],
+        },
+      },
+    });
+    const result = summarizeNativeProfilePhase(
+      [
+        make("blocked", "PRIVATE_TEXT profile-hook-stage-catalog; effective-selection-pending"),
+        make("running", "profile-hook-stage-PRIVATE_TEXT"),
+        make("stopped", "profile-hook-stage-selection", "/foreign"),
+      ],
+      [],
+      { sourcePath: "/owned", principal: "parent", joinedCandidates: 0, validContexts: 0 },
+    );
+    expect(result.hooks).toMatchObject({
+      blocked: 1,
+      running: 1,
+      stopped: 1,
+      failureStages: ["catalog"],
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_TEXT");
   });
   // Covers: R13, R16, R18
   it("drains an interrupted asynchronous owner before test fixture deletion", async () => {
@@ -794,7 +879,11 @@ describe("fixed live profile owner boundaries, no inference", () => {
       .split("\n")
       .map(
         (line) =>
-          JSON.parse(line) as { schema?: boolean; outputSchema?: unknown; fixedMessage?: string },
+          JSON.parse(line) as {
+            schema?: boolean;
+            outputSchema?: unknown;
+            fixedMessage?: string;
+          },
       )
       .filter((entry) => entry.schema);
     expect(turns).toHaveLength(2);
@@ -836,6 +925,167 @@ describe("fixed live profile owner boundaries, no inference", () => {
     });
     expect(readFileSync(trace, "utf8")).toBe(recorded);
   }, 20000);
+  // Covers: R12, R13, R14, R16
+  it("uses a real Node hook supervisor when the profile owner runs under Bun", async () => {
+    await liveOwnerFixture("v2");
+    const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const entry = new URL("../native-integration.ts", import.meta.url).href;
+    const source = `import { runNativeProfileProbe } from ${JSON.stringify(entry)}; const result = await runNativeProfileProbe(${JSON.stringify(cwd)}); process.stdout.write(JSON.stringify(result));`;
+    const child = actual.spawnSync("bun", ["-e", source], {
+      cwd,
+      env: process.env,
+      encoding: "utf8",
+      timeout: 20000,
+    });
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout) as unknown).toMatchObject({
+      status: "completed",
+      refresh: "verified",
+      cleanup: "acknowledged",
+    });
+  }, 25000);
+  // Covers: R12, R13, R14, R16
+  it("captures the same pending principal request before deleting private data, without certifying dispatch", async () => {
+    await liveOwnerFixture("v2-no-dispatch-blocked");
+    const result = await runNativeProfileProbe(cwd, { captureToolInventory: true });
+    expect(result).toMatchObject({
+      status: "pending",
+      pending: ["native-profile-dispatch-missing"],
+      toolInventory: {
+        status: "captured",
+        requests: [
+          {
+            turn: 1,
+            source: "additional",
+            knownTools: ["collaboration.spawn_agent"],
+            spawnAgent: "present",
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_NATIVE_REQUEST");
+    expect(existsSync(dirname(result.execution!))).toBe(false);
+  });
+  // Covers: R12, R13, R14, R16
+  it.each(["v2-no-dispatch-completed", "v2-no-dispatch-blocked"])(
+    "rejects %s at the native parent terminal before the deadline",
+    async (mode: string) => {
+      const trace = await liveOwnerFixture(mode);
+      vi.useFakeTimers();
+      let settled = false;
+      const run = runNativeProfileProbe(cwd).then((result) => {
+        settled = true;
+        return result;
+      });
+      for (let count = 0; count < 200; count++) {
+        if (existsSync(trace) && readFileSync(trace, "utf8").includes("nativeParentTerminal"))
+          break;
+        await delay(10);
+      }
+      expect(readFileSync(trace, "utf8")).toContain("nativeParentTerminal");
+      for (let count = 0; count < 200 && !settled; count++) await delay(10);
+      const settledBeforeDeadline = settled;
+      if (!settled) await vi.advanceTimersByTimeAsync(PROFILE_PROBE_BOUNDS.wallTimeMs);
+      const result = await run;
+      expect(result.pending).toEqual(["native-profile-dispatch-missing"]);
+      expect(settledBeforeDeadline).toBe(true);
+      expect(result).toMatchObject({
+        status: "pending",
+        consumed: true,
+        principalTurnRequests: 1,
+        children: [],
+        refresh: "pending",
+        cleanup: "unverified",
+      });
+      expect(readFileSync(trace, "utf8").match(/turn\/start/g)).toHaveLength(1);
+      expect(readFileSync(trace, "utf8")).not.toContain("thread/unsubscribe");
+    },
+  );
+  // Covers: R12, R13, R14, R16
+  it.each(["v2", "v2-child-terminal-late", "v2-wait"])(
+    "uses %s automatic child events and exact shutdown before the next role, preserving ephemeral inputs",
+    async (mode: string) => {
+      const trace = await liveOwnerFixture(mode);
+      const before = readFileSync(join(cwd, ".codex/config.toml"));
+      const result = await runNativeProfileProbe(cwd);
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: "completed",
+        principalTurnRequests: 3,
+        refresh: "verified",
+        cleanup: "acknowledged",
+        phases: { baselinePrincipalTurns: 2 },
+      });
+      expect(result.children).toHaveLength(2);
+      expect(result.refreshChild).toMatchObject({
+        nativeName: "local",
+        effort: "high",
+      });
+      const methods = readFileSync(trace, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { method?: string })
+        .flatMap((entry) => (entry.method ? [entry.method] : []));
+      expect(readFileSync(trace, "utf8")).toContain("fork_turns set to none");
+      expect(
+        methods.filter((method) => ["turn/start", "thread/unsubscribe"].includes(method)),
+      ).toEqual([
+        "turn/start",
+        "thread/unsubscribe",
+        "turn/start",
+        "thread/unsubscribe",
+        "turn/start",
+        "thread/unsubscribe",
+      ]);
+      expect(methods).not.toContain("thread/resume");
+      expect(methods).not.toContain("thread/inject_items");
+      expect(readFileSync(join(cwd, ".codex/config.toml"))).toEqual(before);
+      expect(existsSync(result.execution!)).toBe(false);
+    },
+    20000,
+  );
+  // Covers: R12, R13, R14, R16
+  it.each([
+    "v2-delay",
+    "v2-registry",
+    "v2-wrapper-call",
+    "v2-pair",
+    "v2-child-turn",
+    "v2-extra",
+    "v2-unsubscribe",
+    "v2-foreign-close",
+    "v2-hook-turn",
+    "v2-interacted",
+    "v2-interrupted",
+    "v2-completed-pair",
+    "v2-completed-foreign",
+    "v2-completion-thread",
+    "v2-completion-turn",
+    "v2-completion-call",
+    "v2-completion-child",
+    "v2-completion-path",
+    "v2-completion-model",
+    "v2-completion-effort",
+    "v2-wait-foreign-parent",
+    "v2-wait-foreign-turn",
+    "v2-wait-foreign-sender",
+    "v2-wait-receiver",
+    "v2-wait-selection",
+    "v2-wait-control",
+    "v2-wait-unstarted",
+    "v2-wait-duplicate",
+    "v2-wait-incomplete",
+    "v2-wait-foreign-call",
+  ])(
+    "rejects %s without advancing to another role",
+    async (mode: string) => {
+      await liveOwnerFixture(mode);
+      const result = await runNativeProfileProbe(cwd);
+      expect(result.status, JSON.stringify(result)).toBe("pending");
+      expect(result.principalTurnRequests).toBeLessThanOrEqual(1);
+      expect(result.refresh).toBe("pending");
+    },
+    20000,
+  );
   // Covers: R13, R14, R16, R18
   it("admits a new relevant snapshot with a distinct fixture after a consumed refusal", async () => {
     await liveOwnerFixture("policy");

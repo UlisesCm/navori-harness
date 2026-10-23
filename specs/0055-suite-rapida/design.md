@@ -538,6 +538,9 @@ archivo que el hook no creó.
 - **Protocolo en reposo** (R29, R30): tres corridas por lado, alternando base y rama, cada una
   comparable; se reporta la mediana. La base es un worktree temporal del merge-base con `bun install
   --frozen-lockfile --ignore-scripts`, eliminado al terminar.
+  Para hooks, el límite inicial es `min(4, CPU/2)`; carga negativa, ausente o no finita y CPU
+  inválida rechazan comparabilidad. El límite previo `CPU/2` admitía carga >4 en máquinas de más
+  de ocho CPUs; la corrección de #1354 no reclasifica muestras históricas automáticamente.
 - **Presupuesto (R30).** `check-test-budget.mjs --propose <bench.json…>` valida exactamente tres
   reportes exitosos, comparables y con `generatedAt` distintos; exige workers iguales, timings y
   carga finitos/no negativos, totales coherentes, y el inventario completo actual de tests en cada
@@ -1001,7 +1004,7 @@ incompleta hasta cerrar las demás métricas de D10, la pared real de CI y las v
 | Suite local, pared | 380 s (0054 T43, reposo) | 847.029 s | 828.643 s | baja (sin cifra fija en R) |
 | Suite local, suma por archivo | 1 438 s (0054 T43) | 3 177.592 s | 2 680.946 s | — |
 | Procesos por corrida | ~6 000 | 35 256 | 34 754 | — |
-| CI, paso de tests | ~447 s (preliminar, run `38945840400`) | 457 s (base exacta `a251417b`, run [`39051363851`](https://github.com/UlisesCm/navori-harness/actions/runs/39051363851)) | — | 4 shards + merge |
+| CI, paso de tests | ~447 s (preliminar, run `38945840400`) | 457 s (base exacta `a251417b`, run [`39051363851`](https://github.com/UlisesCm/navori-harness/actions/runs/39051363851)) | shards 101/158/127/85 s; merge 5 s, run [`39269619834`](https://github.com/UlisesCm/navori-harness/actions/runs/39269619834), merge de prueba `ebfb3d72` | 4 shards + merge; detalle y límites en [seguimiento #1354](../../docs/research/1354-hook-comparability.md) |
 | `guard-destructive` | 41 ms (raíz de auditoría) / 10 ms sin raíz | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; objetivo ~10 ms con raíz y sin log (R8) |
 | `routing-watch` | 53 ms (jq ×5, git, perl) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 (R10) |
 | `role-guard` | 54 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | solo escenarios Codex; jq ≤ 1 |
@@ -1022,7 +1025,7 @@ incompleta hasta cerrar las demás métricas de D10, la pared real de CI y las v
 | Potencial restante de carga perezosa `tools` / `plan` | — | 44.8 / 37.7 ms | 4.7 / 12.8 ms | separado del arranque observado |
 | Gate real: bytes de salida (mismo test) | — | 283 B ×3 | 126 B ×3 | solo bytes funcionales; tiempos no admitidos |
 | Hubs medidos (fan-in de tests ≥ 40 %) | `config.ts`, `permission-rules.ts` (0045) | base 29 (257 módulos) | rama 29 (269 módulos) | lista de D12 |
-| Pared por shard / archivo más lento en CI | — | — | — | piso declarado (D13) |
+| Pared por shard / archivo más lento en CI | — | — | 101/158/127/85 s; archivos máximos 52.397/76.036/62.462/45.378 s | [corrida final #1352 y hashes](../../docs/research/1354-hook-comparability.md#archivos-más-lentos-por-shard); no acredita fuentes posteriores |
 
 
 

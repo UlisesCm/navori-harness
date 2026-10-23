@@ -1,4 +1,4 @@
-# navori:managed start id="general-purpose-confirm-base" hash="b40ac904" version="0.12.1" source="@navori/core"
+# navori:managed start id="general-purpose-confirm-base" hash="1d5ca63d" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Agent|spawn_agent): dispatching `general-purpose` is raised to a user
@@ -297,9 +297,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -321,7 +322,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -374,12 +379,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}

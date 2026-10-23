@@ -2,12 +2,7 @@ import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
-import {
-  PI_IMPLEMENTER_DOCTRINE_PREFIXES,
-  PI_ROLE_NAMES,
-  PI_ROLE_TIMEOUT_MS,
-  PI_ROLE_TOOLS,
-} from "./role-tools.ts";
+import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
 import { mcpServerStates } from "./mcp-diagnosis.ts";
 
 /**
@@ -37,8 +32,6 @@ ${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(PI_ROLE_TOOLS
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
 const ROLE_TIMEOUT_MS: Record<Role, number> = ${JSON.stringify(PI_ROLE_TIMEOUT_MS)};
-// Spec 0052 R49: Markdown the implementer may edit/write directly (AI doctrine), repo-root relative.
-const DOCTRINE_PREFIXES: readonly string[] = ${JSON.stringify(PI_IMPLEMENTER_DOCTRINE_PREFIXES)};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -64,49 +57,6 @@ function addUsage(acc: ChildUsage, raw: unknown): ChildUsage | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function relIsDoctrine(rel: string): boolean {
-  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
-  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
-}
-
-function gitOut(cwd: string, args: string[]): string | null {
-  const r = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8", timeout: 2000, maxBuffer: 1048576 });
-  return r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : null;
-}
-
-/** #1330: path relative to another REGISTERED worktree of cwd's repo (same common dir, no symlink component); null on any doubt. */
-function siblingWorktreeRel(cwd: string, target: string): string | null {
-  if (!isAbsolute(target)) return null;
-  let cursor = "/";
-  for (const part of target.split(sep).filter(Boolean)) {
-    cursor = join(cursor, part);
-    try { if (lstatSync(cursor).isSymbolicLink()) return null; }
-    catch (e) { if ((e as { code?: unknown } | null)?.code !== "ENOENT") return null; }
-  }
-  let dir = dirname(target);
-  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
-  const top = gitOut(dir, ["rev-parse", "--show-toplevel"]);
-  if (!top || !target.startsWith(top + sep)) return null;
-  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const session = gitOut(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!common || !session || gitOut(session, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) !== common) return null;
-  const list = gitOut(session, ["worktree", "list", "--porcelain"]);
-  if (list === null) return null;
-  const lines = list.split("\n");
-  if (!lines.includes("worktree " + top) || !lines.includes("worktree " + session)) return null;
-  return target.slice(top.length + 1);
-}
-
-/** True when a Markdown target is AI doctrine: under the repo root or another registered worktree of it, no ".." segment, under a DOCTRINE_PREFIXES entry. */
-function isDoctrinePath(cwd: string, target: string): boolean {
-  if (target.split(/[\\/]/).includes("..")) return false;
-  const rel = relative(cwd, resolve(cwd, target)).split(sep).join("/");
-  if (relIsDoctrine(rel)) return true;
-  if (!isAbsolute(target)) return false;
-  const sibling = siblingWorktreeRel(cwd, target);
-  return sibling !== null && relIsDoctrine(sibling);
 }
 
 function controls(cwd: string): Controls {
@@ -548,21 +498,34 @@ function parseParentApproval(raw: unknown): ParentApproval | undefined {
   } catch { return undefined; }
 }
 
+type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string };
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
-function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult & { approvals: ParentApproval[] }> {
+function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal,
+  parentSession: string, agentId: string): Promise<ChildRun> {
   // --no-mcp: ambient MCP must be unreachable from Navori children; --model is always explicit (omitting it is not inheriting).
   const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");
   args.push("--", role.instructions + "\n\nTask: " + task);
-  return new Promise<ChildResult & { approvals: ParentApproval[] }>((resolve, reject) => {
+  return new Promise<ChildRun>((resolve, reject) => {
     // The "ipc" stdio slot is the D6 relay channel; the child's model-run bash does not inherit it.
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name };
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name,
+      NAVORI_PI_PARENT_SESSION: parentSession, NAVORI_PI_CHILD_ID: agentId,
+      NAVORI_AUDIT_HOST: "pi", NAVORI_AUDIT_SESSION_ID: parentSession, NAVORI_AUDIT_AGENT_ID: agentId };
+    // An outer host's identity cannot describe this Pi child. Correlation never grants actor authority.
+    delete childEnv.CLAUDE_CODE_SESSION_ID;
+    delete childEnv.CODEX_SESSION_ID;
+    delete childEnv.CODEX_THREAD_ID;
     delete childEnv.NODE_CHANNEL_FD;
     const child = spawn("pi", args, { cwd, env: childEnv,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
     const parser = childParser();
     const approvals: ParentApproval[] = [];
+    // A pid is host evidence that spawn succeeded. ENOENT and other pre-spawn errors still reject.
+    const fail = (failure: string): void => {
+      if (!child.pid) reject(new Error(failure));
+      else resolve({ text: "", truncated: false, approvals, failure });
+    };
     child.on("message", (raw: unknown) => {
       const accepted = parseParentApproval(raw);
       if (accepted && approvals.length < MAX_RELAYS) approvals.push(accepted);
@@ -602,14 +565,15 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       if (!child.pid) { stopping = true; if (killTimer) clearTimeout(killTimer); }
       else stop();
       release();
-      reject(cause);
+      if (!child.pid) reject(cause);
+      else fail("Pi child process failed");
     });
     child.on("close", (code: number | null) => {
       release();
-      if (parseError) reject(parseError);
-      else if (stopping) reject(new Error("Pi child cancelled, timed out, or exceeded output limit"));
-      else if (code !== 0) reject(new Error("Pi child exited " + code + "; inspect Pi auth with /login openai-codex"));
-      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { reject(cause); } }
+      if (parseError) fail(parseError instanceof Error ? parseError.message : "Invalid Pi child JSONL event");
+      else if (stopping) fail("Pi child cancelled, timed out, or exceeded output limit");
+      else if (code !== 0) fail("Pi child exited " + code + "; inspect Pi auth with /login openai-codex");
+      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); } }
     });
   });
 }
@@ -674,6 +638,22 @@ async function fingerprintTree(tree: string): Promise<string | undefined> {
   return (await git(tree, ["write-tree"], { env }))?.trim() || undefined;
 }
 
+/** Best-effort K2 snapshot after settlement. Missing or incomplete Git evidence stays null. */
+async function childGitState(cwd: string, signal: AbortSignal): Promise<{ head: string | null; worktreeTree: string | null }> {
+  const missing = { head: null, worktreeTree: null };
+  if (signal.aborted) return missing;
+  try {
+    const state = spawnSync("git", [...GIT_HARDENING, "rev-parse", "--show-toplevel", "HEAD"],
+      { cwd, encoding: "utf8", timeout: 2_000, maxBuffer: 65_536, stdio: ["ignore", "pipe", "ignore"] });
+    if (state.status !== 0 || state.error) return missing;
+    const [tree, head, ...extra] = state.stdout.trim().split("\n");
+    if (!tree || extra.length || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head ?? "")) return missing;
+    let worktreeTree: string | undefined;
+    try { worktreeTree = await fingerprintTree(tree); } catch { /* No partial fingerprint. */ }
+    return { head, worktreeTree: worktreeTree && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(worktreeTree) ? worktreeTree : null };
+  } catch { return missing; }
+}
+
 type EvidenceEvent = { toolName: string; toolCallId: string; input: unknown; isError: boolean; structuredContent?: unknown };
 type EvidenceContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
 type ToolRegistry = { getAllTools?: () => Array<{ name: string; sourceInfo?: { path?: string; source?: string } }> };
@@ -721,7 +701,9 @@ function matchingCriteria(cwd: string, command: string): Array<{ feature: string
 async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
   if (!isVerifiedBashSuccess(pi, event)) return;
   const command = event.input.command;
-  const sessionId = (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  const sessionId = process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
+    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
   const callKey = sessionId + "\0" + event.toolCallId;
   if (seenCalls.has(callKey)) return;
   const hits = matchingCriteria(ctx.cwd, command);
@@ -735,13 +717,15 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
   const worktreeTree = await fingerprintTree(tree);
   if (!worktreeTree) return;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
+  const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + role;
   const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   for (const hit of hits) {
     const file = join(hit.dir, "workplan_" + hit.feature + ".evidence.jsonl");
     try {
       if (existsSync(file) && lstatSync(file).isSymbolicLink()) continue;
       const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree, dirty: worktreeTree !== headTree,
-        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId: "pi-" + role } : {}) };
+        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}) };
       appendFileSync(file, JSON.stringify(line) + "\n");
     } catch { /* Fail-open: no line means plan update asks for a rerun. */ }
   }
@@ -918,6 +902,18 @@ export default function (pi: ExtensionAPI): void {
     if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
       const manifest = bridgeManifest(ctx.cwd);
       if (!manifest.ok) return { block: true, reason: manifest.reason };
+      // R7: never replace the old inline guard with an absent, downgraded or partial script binding.
+      try {
+        if (controls(ctx.cwd).scribeOwnsMarkdown) {
+          const rows = manifest.hooks.filter((hook) => hook.script === "implementer-no-markdown");
+          const row = rows[0];
+          if (rows.length !== 1 || !row || row.on !== "tool_call" || row.scope !== "child" ||
+              row.class !== "enforced" || row.interactive || row.path !== ".pi/navori/hooks/implementer-no-markdown.sh" ||
+              !["bash", "edit", "write"].every((tool) => row.tools?.includes(tool)) || !manifest.ownedPaths.includes(row.path)) {
+            return { block: true, reason: "Navori Markdown ownership hook binding is missing or incompatible; " + BRIDGE_RENDER_ACTION + "." };
+          }
+        }
+      } catch { return { block: true, reason: "Navori cannot evaluate Markdown ownership controls; " + BRIDGE_RENDER_ACTION + "." }; }
       if (event.toolName !== "bash") {
         // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
         const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
@@ -939,13 +935,6 @@ export default function (pi: ExtensionAPI): void {
       if (JSON.stringify(event.input) !== sealed) {
         return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };
       }
-    }
-    if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;
-    if (event.toolName !== "edit" && event.toolName !== "write") return;
-    const input: unknown = event.input;
-    if (!isRecord(input) || typeof input.path !== "string") return;
-    if (/\.mdx?$/i.test(input.path) && !isDoctrinePath(ctx.cwd, input.path)) {
-      return { block: true, reason: "Navori scribe owns Markdown; direct Pi edit/write is allowed only for AI doctrine under: " + DOCTRINE_PREFIXES.join(", ") + ". Put the rest in markdownRequests. Bash is outside this advisory boundary." };
     }
   });
   // Registered before the parent-only return below: children and nested calls must be observed too.
@@ -1023,23 +1012,33 @@ export default function (pi: ExtensionAPI): void {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
           ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
-        const result = await runChild(ctx.cwd, spec, model, params.task, signal);
+        const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";
+        const agentId = "pi-" + params.role + "-" + _id;
+        const result = await runChild(ctx.cwd, spec, model, params.task, signal, parentSession, agentId);
+        const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
+        const details = { ...identity, truncated: result.truncated,
+          ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
+        const failed = (failure: string, handoff: "invalid" | "none" = "none") => ({
+          isError: true, content: [{ type: "text" as const, text: failure }],
+          details: { ...details, outcome: "failed" as const, failure: failure.slice(0, 2048), handoff },
+          ...(result.usage ? { usage: result.usage } : {}) });
+        if (result.failure) return failed(result.failure);
         // D6: the exact commands come from the child's hook input (IPC) or structured JSONL args, never from model text.
         if (!result.approvals.length && result.refusals?.length) {
-          throw new Error("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
+          return failed("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
             + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
         }
         if (snapshot) {
           const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
           if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
-            details: { role: params.role, truncated: result.truncated, handoff: "invalid", ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) } };
+            details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length
           ? "\n\nParent approval required for " + result.approvals.length + " operation(s) the child could not run; run them in this session so the user is asked: "
             + result.approvals.map((a) => JSON.stringify(a.command)).join(", ")
           : "";
         return { content: [{ type: "text", text: result.text + relay }],
-          details: { role: params.role, truncated: result.truncated, ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) },
+          details: { ...details, outcome: "completed", handoff: snapshot ? "valid" : "none" },
           ...(result.usage ? { usage: result.usage } : {}) };
       } finally { active--; }
     },

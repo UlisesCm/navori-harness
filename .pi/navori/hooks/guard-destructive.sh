@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="56face6a" version="0.12.1" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="d3f03f83" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -464,9 +464,10 @@ navori_audit_record_metadata() {
   command -v jq >/dev/null 2>&1 || return 0
   navori_audit_fields=$(printf '%s' "$payload" | jq -er '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
     select(.session_id | id) |
     [.session_id, (if (.cwd | type) == "string" then .cwd else "" end),
-     ([.agent_id, .subagent_id] | map(select(id)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+     ([.agent_id, .subagent_id] | map(select(agent)) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -488,7 +489,11 @@ navori_audit_record_metadata() {
   fi
   case "${nv_engine:-}" in
     claude | codex | pi) navori_audit_host=$nv_engine ;;
-    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in
+      *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;;
+      *".pi/navori/hooks/"* | *".pi/navori/scripts/"*) navori_audit_host=pi ;;
+      *) navori_audit_host=claude ;;
+    esac ;;
   esac
   # Spool lane (spec 0054 R26, D8): when `navori audit --start` created this session's
   # spool dir, drop ONE event file there instead of starting the CLI. The dir must be a
@@ -541,12 +546,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
+    def agent: id or (type == "string" and length <= 256 and test("^pi-[a-z]+-[A-Za-z0-9_:-]+$"));
+    def invocation: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_:-]+$");
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
      verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
-     agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
-     + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
+     agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
+     + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
         elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
@@ -769,6 +776,141 @@ ask navori plan escalation-reset
 ask navori workspace link
 ask navori workspace add-repo
 ask navori workspace init'
+# Exact, newline-delimited resolved render placements; `-` means no inventory.
+nv_owned_paths='.agents/skills/author-agent/SKILL.md
+.agents/skills/author-skill/SKILL.md
+.agents/skills/citty/SKILL.md
+.agents/skills/clack/SKILL.md
+.agents/skills/context-intake/SKILL.md
+.agents/skills/context-intake/agents/openai.yaml
+.agents/skills/debug-failure/SKILL.md
+.agents/skills/dominio/SKILL.md
+.agents/skills/follow-up-prs/SKILL.md
+.agents/skills/locate-code/SKILL.md
+.agents/skills/master-plan/SKILL.md
+.agents/skills/plan-advanced/SKILL.md
+.agents/skills/plan-simple/SKILL.md
+.agents/skills/playwright-cli/SKILL.md
+.agents/skills/quality-attributes/SKILL.md
+.agents/skills/rebase-rerender/SKILL.md
+.agents/skills/resolve-ticket/SKILL.md
+.agents/skills/review-diff/SKILL.md
+.agents/skills/scoped-gate/SKILL.md
+.agents/skills/secure-by-design/SKILL.md
+.agents/skills/security-invariants/SKILL.md
+.agents/skills/solution-design/SKILL.md
+.agents/skills/spec-bootstrap/SKILL.md
+.agents/skills/verify-before-done/SKILL.md
+.agents/skills/vitest/SKILL.md
+.agents/skills/worktree-hygiene/SKILL.md
+.agents/skills/zod-validation/SKILL.md
+.claude/agents/architect.md
+.claude/agents/auditor.md
+.claude/agents/implementer.md
+.claude/agents/orchestrator.md
+.claude/agents/publisher.md
+.claude/agents/reviewer.md
+.claude/agents/scout.md
+.claude/agents/scribe.md
+.claude/context/05-planificacion.md
+.claude/context/10-orquestacion.md
+.claude/context/20-agentes-disponibles.md
+.claude/context/30-arranque-sesion.md
+.claude/context/40-cierre-sesion.md
+.claude/hooks/audit-mode-close.sh
+.claude/hooks/audit-mode-trigger.sh
+.claude/hooks/bash-outcome-watch.sh
+.claude/hooks/comment-draft-confirm.sh
+.claude/hooks/general-purpose-confirm.sh
+.claude/hooks/guard-destructive.sh
+.claude/hooks/implementer-no-markdown.sh
+.claude/hooks/managed-drift-watch.sh
+.claude/hooks/master-accept-confirm.sh
+.claude/hooks/master-plan-context.sh
+.claude/hooks/model-advisor.sh
+.claude/hooks/plan-gate.sh
+.claude/hooks/pr-publisher-confirm.sh
+.claude/hooks/quality-gate-pre-commit.sh
+.claude/hooks/routing-watch.sh
+.claude/hooks/session-start-context.sh
+.claude/hooks/subagent-no-background.sh
+.claude/hooks/subagent-stop-handoff.sh
+.claude/hooks/worktree-reclaim.sh
+.claude/scripts/guard-search-routing.sh
+.claude/settings.json
+.claude/skills/author-skill/SKILL.md
+.claude/skills/citty/SKILL.md
+.claude/skills/clack/SKILL.md
+.claude/skills/context-intake/SKILL.md
+.claude/skills/debug-failure/SKILL.md
+.claude/skills/dominio/SKILL.md
+.claude/skills/follow-up-prs/SKILL.md
+.claude/skills/locate-code/SKILL.md
+.claude/skills/master-plan/SKILL.md
+.claude/skills/plan-advanced/SKILL.md
+.claude/skills/plan-simple/SKILL.md
+.claude/skills/quality-attributes/SKILL.md
+.claude/skills/resolve-ticket/SKILL.md
+.claude/skills/review-diff/SKILL.md
+.claude/skills/scoped-gate/SKILL.md
+.claude/skills/secure-by-design/SKILL.md
+.claude/skills/security-invariants/SKILL.md
+.claude/skills/solution-design/SKILL.md
+.claude/skills/spec-bootstrap/SKILL.md
+.claude/skills/verify-before-done/SKILL.md
+.claude/skills/vitest/SKILL.md
+.claude/skills/zod-validation/SKILL.md
+.codex/agents/architect.toml
+.codex/agents/auditor.toml
+.codex/agents/implementer.toml
+.codex/agents/publisher.toml
+.codex/agents/reviewer.toml
+.codex/agents/scout.toml
+.codex/agents/scribe.toml
+.codex/config.toml
+.codex/hooks/audit-mode-close.sh
+.codex/hooks/audit-mode-trigger.sh
+.codex/hooks/comment-draft-confirm.sh
+.codex/hooks/engram-write-guard.sh
+.codex/hooks/general-purpose-confirm.sh
+.codex/hooks/guard-destructive.sh
+.codex/hooks/implementer-no-markdown.sh
+.codex/hooks/managed-drift-watch.sh
+.codex/hooks/model-advisor.sh
+.codex/hooks/plan-gate.sh
+.codex/hooks/pr-publisher-confirm.sh
+.codex/hooks/quality-gate-pre-commit.sh
+.codex/hooks/role-guard.sh
+.codex/hooks/routing-watch.sh
+.codex/hooks/session-start-context.sh
+.codex/hooks/subagent-stop-handoff.sh
+.codex/hooks/worktree-reclaim.sh
+.codex/orchestrator.md
+.codex/rules/navori.rules
+.codex/scripts/guard-search-routing.sh
+.mcp.json
+.pi/agents/architect.md
+.pi/agents/auditor.md
+.pi/agents/implementer.md
+.pi/agents/publisher.md
+.pi/agents/reviewer.md
+.pi/agents/scout.md
+.pi/agents/scribe.md
+.pi/extensions/navori.ts
+.pi/navori.json
+.pi/navori/hooks/audit-mode-close.sh
+.pi/navori/hooks/comment-draft-confirm.sh
+.pi/navori/hooks/guard-destructive.sh
+.pi/navori/hooks/implementer-no-markdown.sh
+.pi/navori/hooks/managed-drift-watch.sh
+.pi/navori/hooks/master-accept-confirm.sh
+.pi/navori/hooks/pr-publisher-confirm.sh
+.pi/navori/hooks/quality-gate-pre-commit.sh
+.pi/navori/hooks/subagent-no-background.sh
+.pi/navori/hooks/worktree-reclaim.sh
+.pi/navori/scripts/guard-search-routing.sh
+AGENTS.md
+CLAUDE.md'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -1216,8 +1358,8 @@ navori_inert_skeleton
 # WHY IT IS SOUND, which is the only part that matters in a security control:
 # every `block` in this file needs one of these literal substrings to survive
 # into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
-# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
-# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
+# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6), plus
+# `cp`/`mv`/`install`/`ln` (rule 6d), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
 # regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
 # inspects). No rule can fire without one.
 #
@@ -1273,6 +1415,7 @@ nv_pi_candidate() {
   done <<< "$nv_pi_rules"
   return 1
 }
+nv_copy_only=0
 if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${cmd//\'/}
   _fast=${_fast//\"/}
@@ -1284,6 +1427,9 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
     # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
     *grep*|*rg\ *|*rg) ;;
+    *cp[[:space:]]*|*mv[[:space:]]*|*install[[:space:]]*|*ln[[:space:]]*)
+      if ! nv_pi_candidate; then nv_copy_only=1; fi
+      ;;
     *)
       if ! nv_pi_candidate; then
         navori_audit_verdict="skip"
@@ -2406,7 +2552,8 @@ fi
 #        subagent's handoff (#389's rule caught it).
 #      .claude/settings.local.json · .claude/worktrees/   machine-local, never
 #        rendered, never marker-managed.
-#      cp/mv INTO a managed path, `python -c` writes, `awk > file`, `perl -i`.
+#      `python -c` writes, `awk > file`, `perl -i`. Copy/move/install/link
+#        into exact render-owned paths are checked separately in rule 6d.
 #        Enumerating write verbs is the losing half of this fight — the same
 #        "describe the danger by its textual form" pattern the blind audit found
 #        eight times. The PostToolUse watcher is the half that doesn't care about
@@ -2501,6 +2648,247 @@ if [ -n "${nv_project_dir:-}" ]; then
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
   fi
+fi
+
+# 6d. Copy/move/install/link protection uses exact render ownership, not the
+# directory-wide legacy redirect rules. Keep Pi 6c below: copy-out from its
+# control plane remains forbidden even when this destination-only lane allows.
+# Exact render-owned copy/move destinations (spec 0053 R8). No filesystem discovery.
+# Parse the live text separately: the legacy segment splitter also splits >& and
+# removes parentheses from the trusted, literal git-toplevel prefix.
+# One awk pass, bounded by the caller's CMD_MAX; no eval or shell word expansion.
+# Paths are lexical against the tool cwd. Command-local directory changes,
+# dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
+navori_copy_dest_safe() {
+  NV_COPY_ROOT=${nv_project_dir:-} NV_COPY_CWD="$(payload_field cwd)" \
+    NV_COPY_OWNED="$nv_owned_paths" awk '
+  function slashes(p) { if (windows) gsub(/\\/, "/", p); return p }
+  function norm(p, context,    n,a,i,k,out) {
+    p = slashes(p)
+    if (index(p, "${CLAUDE_PROJECT_DIR}") == 1)
+      p = root substr(p, 22)
+    else if (index(p, "$CLAUDE_PROJECT_DIR") == 1)
+      p = root substr(p, 20)
+    else if (index(p, "$(git rev-parse --show-toplevel)") == 1)
+      p = root substr(p, 33)
+    # Git Bash accepts drive-qualified paths; do not prepend cwd to them.
+    if (p !~ /^([A-Za-z]:)?\//) p = (context == "" ? cwd : context) "/" p
+    # Pi supplies the physical Git root on macOS, but tool cwd and operands
+    # can retain /var or /tmp. Fold only these fixed aliases when the trusted
+    # root is under /private; never inspect or expand arbitrary symlinks.
+    if (root ~ /^\/private\/(var|tmp)(\/|$)/ && p ~ /^\/(var|tmp)(\/|$)/)
+      p = "/private" p
+    n = split(p, a, "/"); k = 0
+    for (i = 1; i <= n; i++) {
+      if (a[i] == "" || a[i] == ".") continue
+      if (a[i] == "..") { if (k > 0) k--; continue }
+      parts[++k] = a[i]
+    }
+    out = ""
+    for (i = 1; i <= k; i++) out = out "/" parts[i]
+    return tolower(out == "" ? "/" : out)
+  }
+  function owned(p, tree) {
+    return (p in files) || (tree && (p in dirs))
+  }
+  function base(p,    a,n) {
+    sub(/\/+$/, "", p); n = split(p, a, "/"); return a[n]
+  }
+  # Literal wrapper/global options only; unsupported copy contexts fail closed.
+  function check(    i,v,argc,target,dir,recursive,noopts,x,s,d,j,move,wrapper,context,uncertain,k,c) {
+    if (!nt) return
+    i = 1; context = cwd
+    while (i <= nt) {
+      if (tok[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
+      wrapper = base(tok[i])
+      if (wrapper != "command" && wrapper != "env" && wrapper != "nohup" && wrapper != "sudo") break
+      i++
+      while (i <= nt && tok[i] ~ /^-/) {
+        x = tok[i++]
+        if (x == "--") break
+        if (wrapper == "command" && x == "-p") continue
+        if (wrapper == "command" && (x == "-v" || x == "-V" || x == "--help")) return
+        if (wrapper == "env" && (x == "-i" || x == "--ignore-environment")) continue
+        if ((wrapper == "env" && (x == "-u" || x == "--unset")) || (wrapper == "sudo" && (x == "-u" || x == "-g"))) {
+          if (i > nt) { bad = 1; return }
+          i++; continue
+        }
+        if (wrapper == "env" && x ~ /^--unset=./) continue
+        # Unknown wrapper options must not turn unrelated read-only commands
+        # into managed-file rewrites. A recognizable copy still fails closed,
+        # including a literal split-string argument such as env -S.
+        for (j = i; j <= nt; j++)
+          if (tok[j] ~ /(^|[ \t\/])(cp|mv|install|ln)([ \t]|$)/) { bad = 1; return }
+        return
+      }
+    }
+    v = base(tok[i]); i++
+    if (v == "git") {
+      uncertain = 0
+      while (i <= nt && tok[i] ~ /^-/) {
+        x = tok[i++]
+        if (x == "--") break
+        if (x == "--no-pager" || x == "--paginate" || x == "--literal-pathspecs") continue
+        if (x == "-C") {
+          if (i > nt) { bad = 1; return }
+          if (tok[i] != "") context = norm(tok[i],context)
+          i++; continue
+        }
+        if (x ~ /^-C./) { context = norm(substr(x,3),context); continue }
+        if (x == "-c" || x == "--config-env" || x == "--git-dir" || x == "--work-tree" || x == "--namespace" || x == "--super-prefix") {
+          if (i > nt) { bad = 1; return }
+          i++; uncertain = 1; continue
+        }
+        # Config/work-tree/pathspec options may change operand interpretation.
+        # Never discover their effects from the filesystem or execute Git.
+        uncertain = 1
+      }
+      if (uncertain) {
+        if (tok[i] == "mv") bad = 1
+        return
+      }
+      if (tok[i] != "mv") return
+      v = "mv"; i++
+    }
+    if (v != "cp" && v != "mv" && v != "install" && v != "ln") return
+    move = (v == "mv"); argc = 0; target = ""; recursive = 0; noopts = 0
+    for (; i <= nt; i++) {
+      x = tok[i]
+      if (!noopts && x == "--") { noopts = 1; continue }
+      if (!noopts && (x == "--help" || x == "--version")) return
+      if (!noopts && (x == "-t" || x == "--target-directory")) {
+        if (++i > nt) { bad = 1; return }
+        target = tok[i]; continue
+      }
+      if (!noopts && x ~ /^--target-directory=/) { target = substr(x,20); continue }
+      if (!noopts && x ~ /^-t./) { target = substr(x,3); continue }
+      if (!noopts && v == "install" && (x == "-m" || x == "-o" || x == "-g" || x == "--mode" || x == "--owner" || x == "--group")) {
+        if (++i > nt) { bad = 1; return }; continue
+      }
+      if (!noopts && x ~ /^-/) {
+        if (x ~ /^--(mode|owner|group)=/ || x ~ /^-[mog].+/ && v == "install") continue
+        if (x ~ /^-[A-Za-z]/ && x !~ /^--/) {
+          # Walk flags in order: t consumes the cluster remainder or next word.
+          # Unknown/operand-taking flags cannot silently eat a source or target.
+          for (k = 2; k <= length(x); k++) {
+            c = substr(x,k,1)
+            if (c == "t") {
+              target = substr(x,k+1)
+              if (target == "") {
+                if (++i > nt) { bad = 1; return }
+                target = tok[i]
+              }
+              break
+            }
+            if (c !~ /^[fivnsrRaPTdHLPpuvx]$/) { bad = 1; return }
+            if (c ~ /^[rRa]$/) recursive = 1
+          }
+          continue
+        }
+        if (x ~ /^--(force|recursive|archive|no-target-directory|symbolic|verbose|remove-destination|preserve|no-clobber)$/) {
+          if (x == "--recursive" || x == "--archive") recursive = 1
+          continue
+        }
+        bad = 1; return
+      }
+      args[++argc] = x
+    }
+    if (target == "") {
+      if (argc < 2) return
+      target = args[argc--]
+      dir = (target ~ /\/$/ || argc > 1)
+    } else dir = 1
+    d = norm(target,context)
+    if (owned(d,0)) { bad = 1; return }
+    # A directory is inferred only from exact owned descendants, not a glob.
+    if (owned(d,1)) dir = 1
+    for (j = 1; j <= argc; j++) {
+      s = norm(args[j],context)
+      if (move && owned(s,1)) { bad = 1; return }
+      if (dir && owned(norm(target "/" base(args[j]),context),1)) { bad = 1; return }
+      # Contents of a recursive external tree are unknown without FS discovery.
+      if (recursive && owned(d,1)) { bad = 1; return }
+    }
+  }
+  function word() { if (have) tok[++nt] = buf; buf = ""; have = 0 }
+  function segment() { word(); check(); nt = 0 }
+  BEGIN {
+    root = ENVIRON["NV_COPY_ROOT"]
+    if (root == "") root = ENVIRON["PWD"]
+    # Backslashes are separators only for Windows roots; on Unix they may
+    # be literal filename characters inside shell quotes.
+    windows = (root ~ /^[A-Za-z]:/ || substr(root,1,2) == "\\\\")
+    root = slashes(root); cwd = slashes(ENVIRON["NV_COPY_CWD"])
+    # Use the same conservative spelling when Claude supplies the lexical root.
+    if (root ~ /^\/(var|tmp)(\/|$)/) root = "/private" root
+    if (cwd == "") cwd = root
+    count = split(ENVIRON["NV_COPY_OWNED"], paths, "\n")
+    for (z = 1; z <= count; z++) {
+      p = norm(root "/" paths[z]); files[p] = 1
+      # Ancestors come only from the trusted exact inventory, never a glob.
+      while (p != "/") {
+        sub(/\/[^\/]*$/, "", p)
+        if (p == "") p = "/"
+        dirs[p] = 1
+      }
+    }
+  }
+  {
+    line = $0
+    for (pos = 1; pos <= length(line); pos++) {
+      c = substr(line,pos,1)
+      if (escape) { buf = buf c; have = 1; escape = 0; continue }
+      if (c == "\\" && quote != "\047") {
+        # Within double quotes, Bash retains backslashes before ordinary
+        # characters (including drive-path components such as C:\repo).
+        if (quote == "\042" && pos < length(line) && substr(line,pos+1,1) !~ /[$`"\\]/) {
+          buf = buf c; have = 1; continue
+        }
+        escape = 1; continue
+      }
+      if (quote != "") {
+        if (c == quote) quote = ""
+        else buf = buf c
+        have = 1; continue
+      }
+      if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
+      if (substr(line,pos,21) == "${CLAUDE_PROJECT_DIR}") {
+        buf = buf substr(line,pos,21); have = 1; pos += 20; continue
+      }
+      # Preserve the one supported literal substitution, without executing it.
+      if (substr(line,pos,32) == "$(git rev-parse --show-toplevel)") {
+        buf = buf substr(line,pos,32); have = 1; pos += 31; continue
+      }
+      if (c == "#" && !have) break
+      if (c == ">" || c == "<" || (c == "&" && substr(line,pos+1,1) == ">")) {
+        if (have && buf ~ /^[0-9]+$/) { buf = ""; have = 0 } else word()
+        # Redirection operators and their single quoted/unquoted operand.
+        while (substr(line,pos,1) ~ /[<>&|]/ && pos <= length(line)) pos++
+        while (substr(line,pos,1) ~ /[ \t]/ && pos <= length(line)) pos++
+        rq = ""
+        for (; pos <= length(line); pos++) {
+          rc = substr(line,pos,1)
+          if (rq != "") { if (rc == rq) rq = ""; continue }
+          if (rc == "\047" || rc == "\042") { rq = rc; continue }
+          if (rc ~ /[ \t;&|]/) break
+        }
+        if (rq != "") bad = 1
+        pos--; continue
+      }
+      if (c ~ /[;&|(){}]/) { segment(); continue }
+      if (c ~ /[ \t]/) { word(); continue }
+      buf = buf c; have = 1
+    }
+    if (!escape) { if (quote != "") bad = 1; segment() }
+    else escape = 0
+  }
+  END { if (quote != "" || escape) bad = 1; segment(); exit (bad ? 2 : 0) }
+  ' <<EOF
+$live
+EOF
+}
+if [ "$nv_owned_paths" != "-" ] && ! navori_copy_dest_safe; then
+  block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
 fi
 
 # 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
@@ -2719,6 +3107,13 @@ if [ -n "$_dsc_cands" ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"
+fi
+
+# A copy-only probe must reach the exact inventory and all later rules first.
+# Preserve its former skip audit classification only after every guard passed.
+if [ "$nv_copy_only" = 1 ] && [ -z "$navori_pi_ask" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="no rule token in the command"
 fi
 # navori:managed end id="guard-destructive-base"
 

@@ -1,0 +1,86 @@
+---
+import type { Lang } from "../i18n/ui";
+import { walkthrough } from "../content/walkthrough";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const copy = walkthrough[lang];
+const labels = {
+  es: { shared: "Una base para todos", local: "Detalles de este proyecto", find: "Botón de acceso", found: "Aquí está el botón", roles: ["Investigar", "Implementar", "Revisar"], skills: "Skills: instrucciones para cada tarea", scope: "Dentro del alcance", outside: "Fuera del alcance", guard: "Revisar antes de continuar", checks: ["El botón responde", "El acceso sigue funcionando", "Cambio revisado"], saved: "Decisión guardada", next: "La siguiente tarea empieza con contexto", note: "Qué se cambió y por qué", tech: ["Tecnologías", "Decisiones", "Pruebas del proyecto"], request: "Petición recibida" },
+  en: { shared: "One shared foundation", local: "This project's details", find: "Sign-in button", found: "Here is the button", roles: ["Investigate", "Implement", "Review"], skills: "Skills: guidance for each task", scope: "Within scope", outside: "Outside scope", guard: "Check before continuing", checks: ["The button responds", "Sign-in still works", "Change reviewed"], saved: "Decision saved", next: "The next task starts with context", note: "What changed and why", tech: ["Technologies", "Decisions", "Project checks"], request: "Request received" },
+  "zh-CN": { shared: "共同的工作基础", local: "这个项目的具体信息", find: "登录按钮", found: "找到了按钮", roles: ["调查", "实现", "审查"], skills: "Skills：每项任务的具体指导", scope: "范围之内", outside: "范围之外", guard: "继续之前先检查", checks: ["按钮可以响应", "登录功能正常", "修改已审查"], saved: "决策已保存", next: "下一个任务带着上下文开始", note: "修改内容与原因", tech: ["技术", "决策", "项目检查"], request: "已收到请求" },
+}[lang];
+---
+<div class="story-stage" aria-hidden="true">
+  <div class="story-companion">
+    <div class="story-speech">{copy.assistant}<span class="story-thinking"><i></i><i></i><i></i></span></div>
+    <svg class="story-robot" viewBox="0 0 120 150" fill="none">
+      <ellipse class="robot-ground" cx="60" cy="140" rx="35" ry="4" />
+      <g class="robot-body">
+        <path class="robot-antenna" d="M60 29V17m0 0 10-6" />
+        <circle class="robot-antenna-light" cx="72" cy="10" r="5" />
+        <rect class="robot-shell" x="23" y="30" width="74" height="62" rx="24" />
+        <rect class="robot-visor" x="31" y="42" width="58" height="34" rx="13" />
+        <g class="robot-eyes"><path d="M45 54v9M72 54v9" /><path class="robot-smile" d="M54 65q6 5 12 0" /></g>
+        <path class="robot-shell" d="M38 94h44l-5 29H43z" />
+        <path class="robot-chest" d="m54 105 5 5 9-10" />
+        <path class="robot-arm robot-arm-left" d="M35 99 20 111l-6-8" />
+        <path class="robot-arm robot-arm-right" d="m85 100 17-9 4-12" />
+        <path class="robot-feet" d="M47 124v8H36m38-8v8h11" />
+      </g>
+    </svg>
+    <span class="story-request">{labels.request}</span>
+  </div>
+  <div class="story-action">
+    <div class="story-frame" data-stage-scene="workspace">
+      <div class="story-scene-label">{copy.workspace}</div>
+      <div class="shared-folder story-reveal" style="--order:0"><span class="folder-tab"></span><strong>{labels.shared}</strong><p>{copy.workspaceNote}</p>
+        <div class="story-rules">{copy.rules.map((rule, index) => <span class="story-reveal" style={`--order:${index + 1}`}><i class="rule-tick"></i>{rule}</span>)}</div>
+      </div>
+      <div class="workspace-branches"><i></i><i></i><i></i></div>
+      <div class="project-folders">{[0, 1, 2].map((index) => <span class="story-reveal" style={`--order:${index + 4}`}><i class="mini-folder"></i><span>{copy.project} {index + 1}</span></span>)}</div>
+    </div>
+    <div class="story-frame" data-stage-scene="context" hidden>
+      <div class="story-scene-label">{copy.project}</div>
+      <div class="context-book story-reveal" style="--order:0"><span class="book-spine"></span><strong>{labels.local}</strong><div class="context-pages">{labels.tech.map((item, index) => <span class="story-reveal" style={`--order:${index + 1}`}><i></i>{item}</span>)}</div></div>
+      <div class="context-transfer"><span class="context-packet"></span><span class="context-packet"></span><span class="context-packet"></span></div>
+      <div class="context-ready story-reveal" style="--order:4">{copy.workspace} + {copy.project}</div>
+    </div>
+    <div class="story-frame" data-stage-scene="text" hidden>
+      <div class="story-scene-label">tgrep</div>
+      <div class="search-query story-reveal" style="--order:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><span>{labels.find}</span><i class="search-caret"></i></div>
+      <div class="search-files">{copy.files.map((file, index) => <div class:list={["search-file", "story-reveal", { "search-match": index === 0 }]} style={`--order:${index + 1}`}><span class="mini-sheet"></span><span>{file}<i class="search-line"></i></span>{index === 0 && <b class="search-hit">{labels.found}</b>}</div>)}</div>
+      <span class="search-sweep"></span>
+    </div>
+    <div class="story-frame" data-stage-scene="connections" hidden>
+      <div class="story-scene-label">CodeGraph</div>
+      <div class="connection-map">
+        <svg class="connection-path" viewBox="0 0 420 180" preserveAspectRatio="none"><path d="M75 42H210V138H350"/></svg>
+        {copy.files.map((file, index) => <div class={`connection-node connection-node-${index} story-reveal`} style={`--order:${index}`}><span class="mini-sheet"></span><strong>{file}</strong></div>)}
+      </div>
+      <p class="scene-result story-reveal" style="--order:4">{copy.graphSearch}</p>
+    </div>
+    <div class="story-frame" data-stage-scene="team" hidden>
+      <div class="story-scene-label">{copy.steps[4]?.name}</div>
+      <div class="specialist-line">{labels.roles.map((role, index) => <div class="specialist story-reveal" style={`--order:${index}`}><span class={`specialist-face specialist-face-${index}`}><i></i><i></i></span><strong>{role}</strong><span class="specialist-handoff"></span></div>)}</div>
+      <div class="skills-manual story-reveal" style="--order:4"><span class="mini-sheet"></span>{labels.skills}</div>
+      <p class="scene-result story-reveal" style="--order:5">{copy.change}</p>
+    </div>
+    <div class="story-frame" data-stage-scene="limits" hidden>
+      <div class="story-scene-label">{copy.steps[5]?.name}</div>
+      <div class="scope-boundary story-reveal" style="--order:0"><span>{labels.scope}</span><div class="scope-change story-reveal" style="--order:1"><span class="mini-sheet"></span>{copy.change}</div><svg class="guard-shield" viewBox="0 0 48 56" fill="none"><path d="m24 3 20 8v16c0 11-20 24-20 24S4 38 4 27V11z"/><path d="m15 26 6 6 12-14"/></svg></div>
+      <div class="outside-action story-reveal" style="--order:3"><span>{labels.outside}</span><span class="guard-stop"></span></div>
+      <p class="scene-result story-reveal" style="--order:4">{labels.guard}</p>
+    </div>
+    <div class="story-frame" data-stage-scene="checks" hidden>
+      <div class="story-scene-label">{copy.steps[6]?.name}</div>
+      <div class="verification-preview story-reveal" style="--order:0"><div class="preview-bar"><i></i><i></i><i></i></div><span class="preview-input"></span><span class="preview-input"></span><span class="preview-button">{labels.find}<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 10 4 4 8-8"/></svg></span><span class="preview-pointer"></span></div>
+      <div class="verification-list">{labels.checks.map((check, index) => <span class="story-reveal" style={`--order:${index + 2}`}><i class="rule-tick"></i>{check}</span>)}</div>
+    </div>
+    <div class="story-frame" data-stage-scene="memory" hidden>
+      <div class="story-scene-label">engram</div>
+      <div class="memory-note story-reveal" style="--order:0"><span class="mini-sheet"></span><strong>{labels.note}</strong><i></i><i></i></div>
+      <div class="memory-vault story-reveal" style="--order:2"><span class="memory-slot"></span><strong>{labels.saved}</strong><span class="memory-lights"><i></i><i></i><i></i></span></div>
+      <div class="memory-next story-reveal" style="--order:5"><i class="rule-tick"></i>{labels.next}</div>
+    </div>
+  </div>
+</div>

@@ -26,6 +26,17 @@ const classify = (text: string, over = {}) =>
 
 // Covers: R5, R6
 describe("classifySpec — bordes 12/13, 1500/1501, 1 y 2 entregas, tope", () => {
+  // #1312: headings and estimates cannot establish independent capabilities.
+  it.each([
+    ["Contracts", "Tests"],
+    ["Create report", "Export report"],
+  ])("does not attest functionality for %s / %s", (first: string, second: string): void => {
+    const text = spec(2, 2, 2800).replace("d1", first).replace("d2", second);
+    const result = classify(text);
+    expect(result.prCount).toBe(2);
+    expect(result.validation).toEqual({ scope: "structural", functionalDelivery: "unverified" });
+  });
+
   it("is split only past 12 tasks (strict), with two deliveries", () => {
     expect(classify(spec(2, 12, undefined)).shape).toBe("single");
     const over = classify(spec(2, 13, undefined));

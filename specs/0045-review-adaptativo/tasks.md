@@ -101,7 +101,8 @@ Estimated LOC: 1150
 ## E3 — La aceptación compara contra lo esperado — diferida (0054)
 Estimated LOC: 1000
 
-> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/). No se implementa en esta spec.
+> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/), salvo T17, T20 y T21,
+> implementadas por separado en #1275. T16, T18 y T19 siguen pendientes.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
@@ -110,9 +111,11 @@ Estimated LOC: 1000
 - [ ] **T16** (R17) — `parseExpected(text)` puro en `lib/plan/expected.ts`: `exit <n>` anclado,
   `contains:` y `matches:`; texto libre sigue válido · effect: behavior · test:
   `lib/plan/__tests__/expected.test.ts`::"gramática y texto libre"
-- [ ] **T17** (R15) — `request` opcional en `WorkplanSchema` (tope de 20000 caracteres) y
+- [x] **T17** (R15) — `request` opcional en `WorkplanSchema` (tope de 20000 caracteres) y
   `renderWorkplan` lo muestra junto a `goal` · effect: behavior · test:
   `lib/plan/__tests__/render.test.ts`::"request"
+  - Campo literal validado sin recortar espacios; cada línea se muestra citada después de `objective`.
+    El CLI conserva el texto al renderizar y actualizar el plan. Los planes sin `request` siguen válidos.
 
 ### M8 — Carril de evidencia
 - **A11** — carril y validación de evidencia en verde ·
@@ -130,10 +133,10 @@ Estimated LOC: 1000
 - **A12** — `plan check` y sus consumidores en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/check.test.ts src/lib/master/__tests__/slice.test.ts src/lib/master/__tests__/part.test.ts src/lib/plan/__tests__/plan-gate.test.ts`
   → exit 0, 0 failed
-- [ ] **T20** (R20) — `checkWorkplan` en modo evidencia: `cumplido` sin evidencia es finding sin
+- [x] **T20** (R20) — `checkWorkplan` en modo evidencia: `cumplido` sin evidencia es finding sin
   cambiar `ok` para master-plan ni bloquear el plan-gate · effect: behavior · test:
   `lib/plan/__tests__/check.test.ts`::"modo evidencia y consumidores"
-- [ ] **T21** (R16, R24) — `reviewer.md` Pass 1 compara el diff contra `request` cuando existe, en
+- [x] **T21** (R16, R24) — `reviewer.md` Pass 1 compara el diff contra `request` cuando existe, en
   Claude y Codex · effect: docs · test: `lib/render/__tests__/interpolate.test.ts`::"reviewer
   request claude y codex"
 

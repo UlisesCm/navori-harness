@@ -37,6 +37,7 @@ import {
 } from "../../engines/codex/hook-registrations.ts";
 import { requestBrowserDecision, type NativeApprovalIdentity } from "./approval-controller.ts";
 import { approvalSourceIsolationAvailable } from "./approval-ui.ts";
+import { readProfileToolInventory, type ProfileToolInventory } from "./profile-tool-inventory.ts";
 import {
   readNativeProfileView,
   nativeProfileCandidates,
@@ -254,6 +255,10 @@ interface NativeProfilePhaseDiagnostic {
     sourceMatched: number;
     completed: number;
     failed: number;
+    running: number;
+    blocked: number;
+    stopped: number;
+    failureStages: string[];
     otherStatus: number;
     missingIdentity: number;
     validContexts: number;
@@ -296,6 +301,10 @@ export function summarizeNativeProfilePhase(
       sourceMatched: 0,
       completed: 0,
       failed: 0,
+      running: 0,
+      blocked: 0,
+      stopped: 0,
+      failureStages: [],
       otherStatus: 0,
       missingIdentity: 0,
       validContexts: expected.validContexts,
@@ -371,7 +380,29 @@ export function summarizeNativeProfilePhase(
         summary.hooks.sourceMatched++;
       if (run.status === "completed") summary.hooks.completed++;
       else if (run.status === "failed") summary.hooks.failed++;
+      else if (run.status === "running") summary.hooks.running++;
+      else if (run.status === "blocked") summary.hooks.blocked++;
+      else if (run.status === "stopped") summary.hooks.stopped++;
       else summary.hooks.otherStatus++;
+      if (
+        event.method === "hook/completed" &&
+        run.source === "project" &&
+        run.sourcePath === expected.sourcePath &&
+        params.threadId === expected.principal &&
+        Array.isArray(run.entries)
+      ) {
+        for (const entry of run.entries) {
+          const text = object.safeParse(entry).data?.text;
+          const stage =
+            typeof text === "string"
+              ? /\bprofile-hook-stage-(input|claim|role|catalog|selection|refresh|freshness)\b/.exec(
+                  text,
+                )?.[1]
+              : undefined;
+          if (stage && !summary.hooks.failureStages.includes(stage))
+            summary.hooks.failureStages.push(stage);
+        }
+      }
       if (!present(run.id) || !present(params.threadId) || !present(run.sourcePath))
         summary.hooks.missingIdentity++;
     }
@@ -381,6 +412,7 @@ export function summarizeNativeProfilePhase(
 
 /** Owned stdio transport with bounded messages and exact ID correlation (including ID zero). */
 class NativeConnection {
+  version = "0.162.1";
   readonly child: ChildProcessWithoutNullStreams;
   readonly events: string[] = [];
   private sequence = 0;
@@ -541,15 +573,18 @@ class NativeConnection {
 }
 
 /** Handshake must complete before subsequent messages; connections never attach to another session. */
-async function initialize(connection: NativeConnection): Promise<void> {
+async function initialize(connection: NativeConnection, profileOnly = false): Promise<void> {
   const response = z.object({ platformOs: z.literal("macos"), userAgent: z.string() }).parse(
     await connection.rpc("initialize", {
       clientInfo: { name: "navori_bounded_integration", version: "0.12.0" },
       capabilities: { experimentalApi: true },
     }),
   );
-  // Ceiling: verified CLI 0.162.1 only; admit a later protocol after fresh native isolation probes.
-  if (!/\/0\.162\.1(?:\s|$)/.test(response.userAgent)) throw new Error("unverified-native-version");
+  // Ceiling: generic T6 remains 0.162.1; only the confined profile owner/hook catalog admits verified 0.163.0.
+  const version = response.userAgent.match(/\/(0\.162\.1|0\.163\.0)(?:\s|$)/)?.[1];
+  if (!version || (!profileOnly && version !== "0.162.1"))
+    throw new Error("unverified-native-version");
+  connection.version = version;
   connection.send({ method: "initialized" });
 }
 
@@ -579,7 +614,7 @@ export async function queryNativeCatalog(
   const connection = new NativeConnection(cwd, [], end, budget);
   let snapshot: NativeCatalogSnapshot;
   try {
-    snapshot = await readConnectionCatalog(connection, cwd, "closed");
+    snapshot = await readConnectionCatalog(connection, cwd, "closed", false, Boolean(budget));
   } finally {
     if (budget) await connection.closeAcknowledged(end);
     else connection.close();
@@ -595,6 +630,7 @@ async function readConnectionCatalog(
   cwd: string,
   lifecycle: NativeCatalogSnapshot["lifecycle"],
   initialized = false,
+  profileOnly = false,
 ): Promise<NativeCatalogSnapshot> {
   const identity = randomUUID();
   const pageSchema = z.object({
@@ -608,7 +644,7 @@ async function readConnectionCatalog(
     nextCursor: z.string().nullable().optional(),
   });
   try {
-    if (!initialized) await initialize(connection);
+    if (!initialized) await initialize(connection, profileOnly);
     const queries: string[] = [];
     const models: NativeCatalogSnapshot["models"][number][] = [];
     const cursors = new Set<string>();
@@ -642,7 +678,7 @@ async function readConnectionCatalog(
     const snapshot: NativeCatalogSnapshot = Object.freeze({
       source: "codex-app-server",
       checkout: cwd,
-      version: "0.162.1",
+      version: connection.version,
       connection: identity,
       context: identity,
       checkedAt: new Date().toISOString(),
@@ -954,7 +990,7 @@ export async function preflightNativeProfileProbe(
   });
 }
 
-const LIVE_PROFILE_SCENARIO = "target-snapshot-profile-dispatch-refresh-v1-0.162.1";
+const LIVE_PROFILE_SCENARIO = "target-snapshot-profile-dispatch-refresh-v1-v2-autoattach";
 const LIVE_RESTRICTIONS = [
   "shell_tool",
   "apps",
@@ -989,11 +1025,12 @@ export interface NativeLiveProfileProbe {
   readonly refreshChild?: NativeProfileCandidate;
   readonly events: readonly string[];
   readonly diagnostics: readonly NativeProfilePhaseDiagnostic[];
+  readonly toolInventory?: ProfileToolInventory;
   readonly cleanup: "acknowledged" | "unverified" | "not-started";
   readonly bounds: typeof PROFILE_PROBE_BOUNDS;
   readonly protocol: { bytes: number; frames: number };
   readonly phases: {
-    readonly baselinePrincipalTurns: 1;
+    readonly baselinePrincipalTurns: number;
     readonly refreshPrincipalTurns: 1;
     readonly extraRefreshDispatches: 1;
   };
@@ -1058,6 +1095,7 @@ function liveProfileSnapshot(cwd: string): {
     for (const path of [
       "host-observation.ts",
       "profile-dispatch.ts",
+      "profile-tool-inventory.ts",
       "../../commands/codex-profile.ts",
     ])
       implementation.add(fileURLToPath(new URL(path, import.meta.url)));
@@ -1070,6 +1108,7 @@ async function verifyLiveProfileAdmission(
   connection: NativeConnection,
   cwd: string,
   hook: { command: string; hash: string; sourcePath: string },
+  v2: boolean,
 ): Promise<void> {
   const features = z
     .object({
@@ -1101,6 +1140,8 @@ async function verifyLiveProfileAdmission(
     .object({ config: object })
     .parse(await connection.rpc("config/read", { cwd, includeLayers: false })).config;
   const loaded = object.parse(policy.features);
+  if (v2 && policy.thread_unload_delay_secs !== 2)
+    throw new Error("loaded-native-unload-delay-unverified");
   const defaults = object.safeParse(policy.agents).data;
   if (defaults?.enabled !== true) throw new Error("loaded-native-agents-enabled-unverified");
   const nativeDefaults = z.strictObject({
@@ -1171,12 +1212,19 @@ async function runProfileProbePhase(
   roles: readonly string[],
   deadline: number,
   observe: (messages: readonly unknown[], turn: string | null) => void,
+  v2 = false,
 ): Promise<unknown[]> {
   const messages: unknown[] = [];
   let turn: string | null = null;
+  let failed = false;
   let finish: (error?: Error) => void = () => {};
   const completed = new Promise<void>((resolve, reject) => {
-    finish = (error?: Error): void => (error ? reject(error) : resolve());
+    finish = (error?: Error): void => {
+      if (error) {
+        failed = true;
+        reject(error);
+      } else if (!failed) resolve();
+    };
   });
   void completed.catch(() => {});
   const timer = setTimeout(
@@ -1186,9 +1234,65 @@ async function runProfileProbePhase(
   const spawns = new Set<string>();
   const active = new Set<string>();
   const receivers = new Map<string, string>();
+  const childTurns = new Map<string, string>();
+  const terminalChildren = new Set<string>();
+  const waitCalls = new Set<string>();
+  let pendingWait: string | undefined;
+  let parentTerminal: string | undefined;
+  let unsubscribeRequested = false;
+  let unsubscribeAcknowledged = false;
+  let childClosed = false;
+  let activityTurn: string | undefined;
+  let activitySnapshot: string | undefined;
+  const activityIdentity = (params: RecordValue): string => {
+    const item = object.parse(params.item);
+    // Native start/completion envelopes carry different lifecycle timestamps.
+    return JSON.stringify([
+      params.threadId,
+      params.turnId,
+      item.type,
+      item.id,
+      item.kind,
+      item.agentThreadId,
+      item.agentPath,
+      item.model,
+      item.reasoningEffort,
+    ]);
+  };
+  const completeV2 = (): void => {
+    if (unsubscribeAcknowledged && childClosed) finish();
+  };
+  /** Only the proven idle child may be unsubscribed; native eviction acknowledgement completes the phase. */
+  const closeV2 = (): void => {
+    if (!v2 || failed || !turn || parentTerminal !== turn) return;
+    if (pendingWait) {
+      finish(new Error("unexpected-native-child-turn-or-control"));
+      return;
+    }
+    if (!receivers.size) {
+      finish(new Error("native-profile-dispatch-missing"));
+      return;
+    }
+    if (activityTurn !== turn || receivers.size !== 1 || unsubscribeRequested) return;
+    const child = [...receivers.keys()][0]!;
+    if (!terminalChildren.has(child)) return;
+    unsubscribeRequested = true;
+    void connection
+      .rpc("thread/unsubscribe", { threadId: child })
+      .then((response: unknown) => {
+        if (!z.object({ status: z.literal("unsubscribed") }).safeParse(response).success)
+          throw new Error("native-child-unsubscribe-unverified");
+        unsubscribeAcknowledged = true;
+        completeV2();
+      })
+      .catch((error: unknown) =>
+        finish(error instanceof Error ? error : new Error("native-child-unsubscribe-unverified")),
+      );
+  };
   connection.onClose = (): void => finish(new Error("native-profile-connection-closed"));
   connection.onMessage = (message: RpcMessage): void => {
     messages.push(message);
+    if (failed) return;
     if (message.id !== undefined && message.method !== undefined) {
       connection.send({
         id: message.id,
@@ -1200,6 +1304,133 @@ async function runProfileProbePhase(
     const params = object.safeParse(message.params);
     if (!params.success) return;
     const item = object.safeParse(params.data.item);
+    if (v2 && item.success && item.data.type === "collabAgentToolCall") {
+      const value = item.data;
+      const states = object.safeParse(value.agentsStates);
+      // V2 wait_agent observes the mailbox; its native receivers/states are empty.
+      if (
+        value.tool !== "wait" ||
+        params.data.threadId !== principal ||
+        params.data.turnId !== activityTurn ||
+        value.senderThreadId !== principal ||
+        receivers.size !== 1 ||
+        unsubscribeRequested ||
+        typeof value.id !== "string" ||
+        !value.id ||
+        !Array.isArray(value.receiverThreadIds) ||
+        value.receiverThreadIds.length !== 0 ||
+        !states.success ||
+        Object.keys(states.data).length !== 0 ||
+        value.prompt != null ||
+        value.model != null ||
+        value.reasoningEffort != null
+      ) {
+        finish(new Error("unexpected-native-child-turn-or-control"));
+        return;
+      }
+      if (
+        message.method === "item/started" &&
+        value.status === "inProgress" &&
+        !pendingWait &&
+        !waitCalls.has(value.id)
+      ) {
+        waitCalls.add(value.id);
+        pendingWait = value.id;
+      } else if (
+        message.method === "item/completed" &&
+        value.status === "completed" &&
+        pendingWait === value.id
+      ) {
+        pendingWait = undefined;
+      } else finish(new Error("unexpected-native-child-turn-or-control"));
+      return;
+    }
+    if (
+      v2 &&
+      item.success &&
+      item.data.type === "subAgentActivity" &&
+      item.data.kind !== "started"
+    ) {
+      // Native kinds are started/interacted/interrupted/completed; only no-input completion is permitted.
+      if (
+        item.data.kind !== "completed" ||
+        params.data.threadId !== principal ||
+        params.data.turnId !== activityTurn ||
+        !receivers.has(String(item.data.agentThreadId)) ||
+        item.data.model != null ||
+        item.data.reasoningEffort != null
+      )
+        finish(new Error("unexpected-native-child-turn-or-control"));
+    }
+    if (
+      v2 &&
+      item.success &&
+      item.data.type === "subAgentActivity" &&
+      item.data.kind === "started"
+    ) {
+      const value = item.data;
+      if (message.method === "item/completed") {
+        if (activitySnapshot !== activityIdentity(params.data))
+          finish(new Error("native-profile-activity-conflict"));
+      } else if (
+        message.method !== "item/started" ||
+        params.data.threadId !== principal ||
+        typeof params.data.turnId !== "string" ||
+        typeof value.id !== "string" ||
+        typeof value.agentThreadId !== "string" ||
+        receivers.size ||
+        spawns.has(value.id)
+      ) {
+        finish(new Error("unexpected-native-profile-dispatch"));
+        return;
+      } else {
+        activityTurn = params.data.turnId;
+        activitySnapshot = activityIdentity(params.data);
+        spawns.add(value.id);
+        receivers.set(value.agentThreadId, value.id);
+        closeV2();
+      }
+    }
+    if (v2 && (message.method === "turn/started" || message.method === "turn/completed")) {
+      const nativeTurn = z
+        .object({ id: z.string().min(1), status: z.string().optional() })
+        .safeParse(params.data.turn);
+      if (!nativeTurn.success || typeof params.data.threadId !== "string") {
+        finish(new Error("native-profile-turn-identity-unverified"));
+        return;
+      }
+      const context = params.data.threadId;
+      if (context === principal) {
+        if (message.method === "turn/completed") {
+          if (nativeTurn.data.status !== "completed")
+            finish(new Error("native-profile-turn-incomplete"));
+          else parentTerminal = nativeTurn.data.id;
+        }
+      } else if (message.method === "turn/started") {
+        if (childTurns.has(context)) finish(new Error("unexpected-native-child-turn-or-control"));
+        childTurns.set(context, nativeTurn.data.id);
+      } else if (
+        nativeTurn.data.status !== "completed" ||
+        childTurns.get(context) !== nativeTurn.data.id ||
+        terminalChildren.has(context)
+      ) {
+        finish(new Error("native-child-terminal-unverified"));
+      } else terminalChildren.add(context);
+      if (
+        childTurns.size > 1 ||
+        (receivers.size && [...childTurns.keys()].some((id) => !receivers.has(id)))
+      )
+        finish(new Error("unexpected-native-child-turn-or-control"));
+      closeV2();
+    }
+    if (v2 && message.method === "thread/closed") {
+      if (!unsubscribeRequested || !receivers.has(String(params.data.threadId)) || childClosed)
+        finish(new Error("native-child-shutdown-unverified"));
+      else {
+        childClosed = true;
+        completeV2();
+      }
+    }
     if (item.success && message.method === "item/started") {
       const value = item.data;
       if (
@@ -1255,7 +1486,7 @@ async function runProfileProbePhase(
               active.delete(receivers.get(context) ?? "");
       }
     }
-    if (message.method === "turn/completed" && params.data.threadId === principal) {
+    if (!v2 && message.method === "turn/completed" && params.data.threadId === principal) {
       const turn = z.object({ status: z.literal("completed") }).safeParse(params.data.turn);
       finish(turn.success ? undefined : new Error("native-profile-turn-incomplete"));
     }
@@ -1286,11 +1517,12 @@ async function runProfileProbePhase(
       input: [
         {
           type: "text",
-          text: `This is the fixed native profile diagnostic. Sequentially spawn exactly one native child of each exact agent_type in ${JSON.stringify(roles)}. Preserve each role's configured instructions and profile: do not override model or effort in the spawn. Give each child only this no-effect task: reply PROFILE_PROBE_OK and do not use tools or delegate. Wait for each child to finish and close it with close_agent before starting the next. Do not create other children, resume children, use shell, edit files, browse, or request permissions. Finish after every listed child is closed. Return only the final JSON report required by outputSchema: outcome completed with reason none if you executed this exact scenario; otherwise outcome blocked with reason tool_unavailable, role_unavailable, workflow_prerequisite or other. This report is your diagnostic statement only; do not include explanations, tool names, role names or other text.`,
+          text: `This is the fixed native profile diagnostic. Sequentially spawn exactly one native child of each exact agent_type in ${JSON.stringify(roles)}. Preserve each role's configured instructions and profile: do not override model or effort in the spawn. Give each child only this no-effect task: reply PROFILE_PROBE_OK and do not use tools or delegate. ${v2 ? "Use the native spawn_agent with agent_type, a unique task_name, and fork_turns set to none: this ephemeral diagnostic parent has no durable history to fork. Wait for this sole child to finish, then finish your turn; the host owns child shutdown. Do not send messages, followups, interrupts, or other control calls." : "Wait for each child to finish and close it with close_agent before starting the next."} Do not create other children, resume children, use shell, edit files, browse, or request permissions. Return only the final JSON report required by outputSchema: outcome completed with reason none if you executed this exact scenario; otherwise outcome blocked with reason tool_unavailable, role_unavailable, workflow_prerequisite or other. This report is your diagnostic statement only; do not include explanations, tool names, role names or other text.`,
         },
       ],
     });
     turn = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(started).turn.id;
+    if (v2) closeV2();
     await completed;
     return messages;
   } finally {
@@ -1341,7 +1573,10 @@ function nativeProfileChildrenClosed(
  * One authorized target snapshot, isolated native fixture and named refresh subphase. Missing admission/evidence stays pending.
  * Operational bounds detect excess dispatch/output; no hard inference-token or pre-effect model-turn cap is claimed.
  */
-export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProfileProbe> {
+export async function runNativeProfileProbe(
+  cwd: string,
+  options: { readonly captureToolInventory?: boolean } = {},
+): Promise<NativeLiveProfileProbe> {
   const root = resolveStateRoot({ cwd, feature: "codex-profile" });
   const deadline = Date.now() + PROFILE_PROBE_BOUNDS.wallTimeMs;
   const operationDeadline = deadline - 10_000;
@@ -1354,6 +1589,9 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
   const pending: string[] = [];
   let consumed = false;
   let temporary: string | undefined;
+  let traceDirectory: string | undefined;
+  let toolInventory: ProfileToolInventory | undefined;
+  const observedTurns: string[] = [];
   let execution: string | undefined;
   let identity: string | undefined;
   let connection: NativeConnection | undefined;
@@ -1361,10 +1599,12 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
   let refresh: NativeLiveProfileProbe["refresh"] = "pending";
   let targetIntegration = false;
   let principalTurnRequests = 0;
+  let baselinePrincipalTurns = 1;
+  let v2 = false;
   let principalSelection: NativeLiveProfileProbe["principal"];
   let refreshChild: NativeProfileCandidate | undefined;
   let allPhasesClosed = true;
-  let children: NativeProfileCandidate[] = [];
+  const children: NativeProfileCandidate[] = [];
   const diagnostics: NativeProfilePhaseDiagnostic[] = [];
   try {
     const snapshot = liveProfileSnapshot(root.cwd);
@@ -1412,6 +1652,10 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     const home = join(temporary, "codex-home");
     const bin = join(temporary, "bin");
     for (const path of [execution, home, bin]) mkdirSync(path, { mode: 0o700 });
+    if (options.captureToolInventory) {
+      traceDirectory = join(home, "private-request-traces");
+      mkdirSync(traceDirectory, { mode: 0o700 });
+    }
     for (const path of snapshot.paths) {
       mkdirSync(dirname(join(execution, path)), { recursive: true });
       copyFileSync(join(root.cwd, path), join(execution, path));
@@ -1446,7 +1690,7 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     const hook: ResolvedCodexHook = {
       script: "model-advisor",
       event: "PreToolUse",
-      matcher: "^(Agent|spawn_agent)$",
+      matcher: "^(Agent|spawn_agent|collaborationspawn_agent)$",
       args: "codex-pretool-profile",
       timeout: 15,
       statusMessage: "navori: future child profile",
@@ -1470,10 +1714,15 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     writeFileSync(
       join(home, "config.toml"),
       stringifyToml({
+        thread_unload_delay_secs: 2,
         projects: { [execution]: { trust_level: "trusted" } },
         agents: { enabled: true },
         hooks: {
-          state: { [codexHookKey(nativePath, "PreToolUse", 0, 0)]: { trusted_hash: hash } },
+          state: {
+            [codexHookKey(nativePath, "PreToolUse", 0, 0)]: {
+              trusted_hash: hash,
+            },
+          },
         },
       }),
       { mode: 0o600 },
@@ -1498,7 +1747,8 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     writeFileSync(join(bin, "navori"), `#!/bin/sh\nexec ${quote(runtime)} ${quote(entry)} "$@"\n`, {
       mode: 0o700,
     });
-    symlinkSync(process.execPath, join(bin, "node"));
+    // The owner may run in Bun; the stdin-based hook supervisor requires Node itself.
+    symlinkSync(installedBinary("node"), join(bin, "node"));
     symlinkSync(installedBinary("codex"), join(bin, "codex"));
     if (
       spawnSync("git", ["init", "-q", execution], {
@@ -1510,6 +1760,7 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       CODEX_HOME: home,
+      ...(traceDirectory ? { CODEX_ROLLOUT_TRACE_ROOT: traceDirectory } : {}),
       NAVORI_CODEX_PROFILE_PROBE: probe,
       NAVORI_CODEX_PROFILE_PROBE_ROOT: temporary,
       NAVORI_CODEX_PROFILE_PROBE_DEADLINE: String(operationDeadline),
@@ -1525,13 +1776,36 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     ];
     connection = new NativeConnection(execution, overrides, operationDeadline, limits, env);
     cleanup = "unverified";
-    await initialize(connection);
-    await verifyLiveProfileAdmission(connection, execution, {
-      command,
-      hash,
-      sourcePath: nativePath,
-    });
+    await initialize(connection, true);
+    v2 = connection.version === "0.163.0";
+    await verifyLiveProfileAdmission(
+      connection,
+      execution,
+      {
+        command,
+        hash,
+        sourcePath: nativePath,
+      },
+      v2,
+    );
     const catalog = await readConnectionCatalog(connection, execution, "open", true);
+    if (v2) {
+      const cache = z
+        .object({
+          client_version: z.literal("0.163.0"),
+          models: z.array(z.object({ slug: z.string(), multi_agent_version: z.string() })),
+        })
+        .parse(JSON.parse(readFileSync(join(home, "models_cache.json"), "utf8")) as unknown);
+      if (
+        !cache.models.some(
+          (model) =>
+            model.slug ===
+              snapshot.rows.find((row) => row.scope === "principal")?.model.wouldRender &&
+            model.multi_agent_version === "v2",
+        )
+      )
+        throw new Error("native-v2-principal-registry-unverified");
+    }
     const view = await readNativeProfileView(execution, catalog, operationDeadline);
     const comparable = (rows: readonly CodexProfileProjection[]): string =>
       JSON.stringify(
@@ -1589,23 +1863,48 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
       rows: readonly CodexProfileProjection[],
       phase: { configuration: string; inventory: string },
     ): NativeProfileCandidate[] => {
+      const parentTurns = messages.flatMap((message) => {
+        const parsed = z
+          .object({
+            method: z.literal("turn/completed"),
+            params: z.object({
+              threadId: z.literal(started.thread.id),
+              turn: z.object({
+                id: z.string(),
+                status: z.literal("completed"),
+              }),
+            }),
+          })
+          .safeParse(message);
+        return parsed.success ? [parsed.data.params.turn.id] : [];
+      });
+      if (v2 && parentTurns.length !== 1)
+        throw new Error("native-profile-turn-identity-unverified");
+      const calls = nativeProfileHookCalls(messages, {
+        probe,
+        checkout: execution!,
+        sourcePath: nativePath,
+        principal: started.thread.id,
+        ...(v2 ? { turn: parentTurns[0]! } : {}),
+      });
       const selected = nativeProfileCandidates(rows, started.thread.id, messages, {
         context: started.thread.id,
         model: started.model!,
         effort: started.reasoningEffort!,
-        // Both fixed parent turns omit pair overrides; fixture role/default keys were checked before startup.
+        // Every fixed parent turn omits pair overrides; fixture role/default keys were checked before startup.
         unchanged: true,
         defaultsKnown: true,
+        ...(v2 ? { v2: { turn: parentTurns[0]!, hooks: calls } } : {}),
       });
       const spawns = new Set<string>();
       for (const message of messages) {
         const spawn = z
           .object({
-            method: z.literal("item/completed"),
+            method: z.literal(v2 ? "item/started" : "item/completed"),
             params: z.object({
               item: z.object({
-                type: z.literal("collabAgentToolCall"),
-                tool: z.literal("spawnAgent"),
+                type: z.literal(v2 ? "subAgentActivity" : "collabAgentToolCall"),
+                ...(v2 ? { kind: z.literal("started") } : { tool: z.literal("spawnAgent") }),
                 id: z.string(),
               }),
             }),
@@ -1613,12 +1912,6 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
           .safeParse(message);
         if (spawn.success) spawns.add(spawn.data.params.item.id);
       }
-      const calls = nativeProfileHookCalls(messages, {
-        probe,
-        checkout: execution!,
-        sourcePath: nativePath,
-        principal: started.thread.id,
-      });
       if (
         selected.length !== rows.length ||
         spawns.size !== rows.length ||
@@ -1652,13 +1945,14 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
         )
       )
         throw new Error("native-child-pair-not-in-current-catalog");
-      if (!nativeProfileChildrenClosed(messages, selected))
+      if (!v2 && !nativeProfileChildrenClosed(messages, selected))
         throw new Error("native-child-shutdown-unverified");
       return selected;
     };
     const observe =
       (rows: readonly CodexProfileProjection[]) =>
       (messages: readonly unknown[], turn: string | null): void => {
+        if (turn) observedTurns.push(turn);
         diagnostics.push(
           summarizeNativeProfilePhase(
             messages,
@@ -1673,6 +1967,20 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
                 effort: started.reasoningEffort!,
                 unchanged: true,
                 defaultsKnown: true,
+                ...(v2 && turn
+                  ? {
+                      v2: {
+                        turn,
+                        hooks: nativeProfileHookCalls(messages, {
+                          probe,
+                          checkout: execution!,
+                          sourcePath: nativePath,
+                          principal: started.thread.id,
+                          turn,
+                        }),
+                      },
+                    }
+                  : {}),
               }).length,
               validContexts: nativeProfileHookCalls(messages, {
                 probe,
@@ -1684,20 +1992,36 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
           ),
         );
       };
-    principalTurnRequests++;
-    allPhasesClosed = false;
-    children = accept(
-      await runProfileProbePhase(
-        connection,
-        started.thread.id,
-        roles.map((row) => row.nativeName),
-        operationDeadline,
-        observe(roles),
-      ),
-      roles,
-      view,
-    );
-    allPhasesClosed = true;
+    baselinePrincipalTurns = v2 ? roles.length : 1;
+    for (const phaseRoles of v2 ? roles.map((role) => [role]) : [roles]) {
+      principalTurnRequests++;
+      allPhasesClosed = false;
+      const phaseChildren = accept(
+        await runProfileProbePhase(
+          connection,
+          started.thread.id,
+          phaseRoles.map((row) => row.nativeName),
+          operationDeadline,
+          observe(phaseRoles),
+          v2,
+        ),
+        phaseRoles,
+        view,
+      );
+      if (
+        children.some((old) =>
+          phaseChildren.some(
+            (next) =>
+              old.context === next.context ||
+              old.call === next.call ||
+              old.agentPath === next.agentPath,
+          ),
+        )
+      )
+        throw new Error("refresh-native-context-reused");
+      children.push(...phaseChildren);
+      allPhasesClosed = true;
+    }
     const changed = roles.find(
       (row) =>
         profileSelectionIntent(row).model.kind === "set" &&
@@ -1754,6 +2078,7 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
         [changed.nativeName],
         operationDeadline,
         observe([refreshed]),
+        v2,
       ),
       [refreshed],
       refreshView,
@@ -1765,11 +2090,16 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
       throw new Error("refresh-native-context-reused");
     refresh = "verified";
     refreshChild = next[0];
-    await verifyLiveProfileAdmission(connection, execution, {
-      command,
-      hash,
-      sourcePath: nativePath,
-    });
+    await verifyLiveProfileAdmission(
+      connection,
+      execution,
+      {
+        command,
+        hash,
+        sourcePath: nativePath,
+      },
+      v2,
+    );
     if (liveProfileSnapshot(root.cwd).identity !== identity)
       throw new Error("target-profile-inputs-changed");
   } catch (error) {
@@ -1788,6 +2118,10 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     }
     if (!accountProtocol(limits, 0, 0))
       pending.push("aggregate-protocol-budget-unverified-or-exceeded");
+    if (traceDirectory)
+      toolInventory = principalSelection
+        ? readProfileToolInventory(traceDirectory, principalSelection.context, observedTurns)
+        : { status: "unavailable", reason: "missing" };
     // These paths are created by this owner outside the target and global home.
     if (temporary) rmSync(temporary, { recursive: true, force: true });
   }
@@ -1806,11 +2140,12 @@ export async function runNativeProfileProbe(cwd: string): Promise<NativeLiveProf
     refreshChild,
     events: Object.freeze(connection?.events.slice() ?? []),
     diagnostics: Object.freeze(diagnostics),
+    ...(toolInventory ? { toolInventory } : {}),
     cleanup,
     bounds: PROFILE_PROBE_BOUNDS,
     protocol: { bytes: limits.usedBytes, frames: limits.usedEvents },
     phases: {
-      baselinePrincipalTurns: 1,
+      baselinePrincipalTurns,
       refreshPrincipalTurns: 1,
       extraRefreshDispatches: 1,
     } as const,

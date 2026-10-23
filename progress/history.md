@@ -1,5 +1,31 @@
 # History
 
+## 2026-10-22 13:33 Codex — Protege Markdown y copias sobre rutas administradas en #1364
+
+Reconstruye M3/T5–T7 de0053 desde el candidato preservado sobre dev3e5b7257, sin M1/M2/M4 ni compresión i18n. Pi usa el hook canónico para bash/edit/write y bloquea bindings ausentes o degradados. Las tres guardas reciben un inventario exacto por target, sellado antes de interpolar; sync conserva decisiones y bases. Añade catálogo por capa y regresiones. La revisión corrigió normalización de drives, falsos positivos de consultas y el piso antirretroceso perdido entre preparación y commit diferido. Trabajo y revisión directos por petición expresa del usuario.
+
+Full final `bun run check` exit0:10167aprobadas/2omitidas,476archivos,1048.7s; cobertura87.81/86.12/90.47/80.8%,piso160/0;bundle1623.1KiB<1650KiB. Goldens5/5; guardas/paridad764/764; sync/ownership/master73/73; SDK real5/5. Las variantes Windows son metadata/rutas en Bash macOS, no ejecución nativa Windows. Parser lexical contra toolcwd; cd interno, destinos dinámicos y aliases físicos fuera del seatbelt. Pregunta1600histórico vs1650vigente pendiente; no cerrar1364 ni inferir respuesta. Commit/push y PR manual son siguientes pasos; sin merge/despliegue. #1367 apartado, borrador sin publicar; #1326 preservado en checkout principal.
+
+## 2026-10-22 11:55 Codex — Integra dev y resuelve conflicto del PR1372
+
+Merge normal de dev1c87ad14 en fix/1314-codex-orchestration-budget, sin reescribir historia. El único conflicto fue progress/history.md: conserva completas las entradas de1314 y1347. Los cambios fuente se integraron automáticamente y render verificó0pendientes. Trabajo local1326 preservado en el checkout original; resolución realizada en un worktree independiente, sin subagentes.
+
+Full del árbol combinado `bun run check` exit0:9963aprobadas/2omitidas,472archivos,906.7s; cobertura87.67/86/90.26/80.72%,piso160/0;bundle1614.7KiB<1650KiB. Sin conflictos restantes; publicación a la misma rama y verificación remota del PR1372 son los siguientes pasos. No merge del PR ni despliegue.
+
+## 2026-10-22 10:42 Codex — Acota investigación y estado del principal en #1314
+
+Corrige la ausencia de suficiencia de evidencia, presupuesto de investigación y respuesta inmediata de estado en el contrato Codex. Retoma la siguiente tarea aprobada, limita investigación activa a5min por pregunta sin reset al continuar, registra fases/tiempos/resultados y responde estado antes de otra herramienta. Conserva aprobaciones y presupuestos de tests/gates; las reglas nuevas sólo se entregan a Codex. Explicación histórica compactada para conservar límites; mirrors y snapshots regenerados oficialmente.
+
+Regresiones rojas previas; focal241casos y5snapshots verdes. Full final `bun run check` exit0:9900aprobadas/2omitidas,471archivos,554.5s; cobertura87.61/85.95/90.21/80.58%,piso159/0;bundle1603.2KiB<1650KiB. Tests de contrato/render no acreditan comportamiento de modelos vivos ni mejora de latencia; evaluación real sigue en1367. Trabajo/revisión directos por petición del usuario. Publicación a dev pendiente; sin merge/despliegue.
+
+## 2026-10-22 10:12 Codex — Corrige y valida perfiles nativos V2 de #1347
+
+Recupera el owner V2 y corrige identidad sin timestamps, espera V2, hook `collaborationspawn_agent`, Node real para el supervisor bajo Bun y `fork_turns: none` para hijos de un padre efímero. Añade regresiones y diagnóstico opcional redactado. Trabajo y revisión directos por petición del usuario; hijos únicamente como sujetos de prueba autorizados.
+
+Prueba nativa final completed/pending[]: siete roles y refresh implementer high→low en hijo nuevo, ocho turnos, cierre exacto y cleanup confirmado; 454640B/682frames dentro de180s. Identidad bcb62a8b1ad1f8f5adab1f0857137534a269b191bcf40c54263e2922760e0e74. Invocación instrumentada del owner, no repetición del composite A9 consumido. T6/T12/E4 permanecen pendientes.
+
+`bun run check` exit0:9958aprobadas/2omitidas,472archivos,510.2s; cobertura87.67/86/90.26/80.72%,piso160/0. Formato,lint,tipos,AST,duplicación,enlaces,render,assets,presupuestos,preservación verdes;bundle1614.7KiB<1650KiB. Pendiente publicar PR contra dev; sin merge ni despliegue.
+
 ## 2026-10-17 21:58 Codex — Documentación pública y web multilingües
 
 Cambios:
@@ -429,3 +455,9 @@ Resuelve seis overrides de45s antiguos; prueba de migración confirma cinco arch
 Verificación final: A1 464/464 en11archivos (120.8s); A3 57/57 en6archivos; A4 build133páginas,99HTML y alternativasMarkdown,3índices válidos. Reparación de estado15casos; golden5/5; render90unchanged; preservación10tests cambiados/0borrados. Fast nativo fresco verde fast-20261019T165920585Z.log. Productor y scribe atestados genuinamente contra main en mismoHEAD; JSON canónico inmutable tras scribe.
 
 Pendiente: usuario crea el mergecommit concreto para integrar main en HEAD; reglas locales impiden commit de código por agente antes de revisión y reviewer exige ancestry antes de revisar. Después, reviewer independiente ejecuta su único full y sella receipt main; publisher hace push normal HEAD:dev y verifica CI del nuevoSHA. Sin mergePR, deploy ni npm.
+
+## 2026-10-22 20:41 Codex — Correlación por invocación de hijos Pi (#1361/T9)
+
+Los hijos Pi heredan la sesión padre y su ID exacto en resultados K2, hooks, eventos CLI y evidencia de aceptación. Se conservan IDs nativos con `:` y se eliminan identidades heredadas del host exterior. El lector atribuye sólo invocaciones únicas confirmadas y mantiene IDs públicos ordinales. El writer usa el log privado existente; startup capture y spool permanecen deshabilitados, sin conceder actores ni permisos. Mirrors oficiales y snapshots actualizados. Trabajo directo por solicitud del usuario, sin subagentes.
+
+Gate final `bun run check` exit0: 10184 aprobadas, 2 omitidas, 476 archivos, 946s; cobertura87.81/86.13/90.46/80.89%, piso160/0; bundle1626.2/1650KiB. Los casos focales confirman el ciclo SDK/CLI sin credenciales, rechazo de raíz ajena, ausencia de spool y atribución conservadora de duplicados. El primer full detectó dos snapshots y la frontera SessionStart; se conservó el rechazo original y se revisaron las diferencias antes del full final. T9 cerrado; T10/T11/A5 completo y M6–M7 pendientes. PR normal a dev mediante script manual por bloqueo de consentimiento del host; #1326 local intacto y #1367 apartado.

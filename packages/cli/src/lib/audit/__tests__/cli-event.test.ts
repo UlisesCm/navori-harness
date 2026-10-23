@@ -104,12 +104,14 @@ beforeEach(() => {
     CLAUDE_CODE_SESSION_ID: process.env.CLAUDE_CODE_SESSION_ID,
     NAVORI_AUDIT_HOST: process.env.NAVORI_AUDIT_HOST,
     NAVORI_AUDIT_SESSION_ID: process.env.NAVORI_AUDIT_SESSION_ID,
+    NAVORI_AUDIT_AGENT_ID: process.env.NAVORI_AUDIT_AGENT_ID,
     CODEX_SESSION_ID: process.env.CODEX_SESSION_ID,
     CODEX_THREAD_ID: process.env.CODEX_THREAD_ID,
     CODEX_HOME: process.env.CODEX_HOME,
   };
   delete process.env.NAVORI_AUDIT_HOST;
   delete process.env.NAVORI_AUDIT_SESSION_ID;
+  delete process.env.NAVORI_AUDIT_AGENT_ID;
   delete process.env.CODEX_SESSION_ID;
   delete process.env.CODEX_THREAD_ID;
   root = mkdtempSync(join(tmpdir(), "navori-cli-event-"));
@@ -466,6 +468,49 @@ const OUTCOME = {
   fp: "c".repeat(64),
   alg: "navori-content/v1",
 };
+
+describe("Pi child CLI correlation", () => {
+  // Covers: R3
+  it("writes distinct child IDs only to the exact private Pi parent log", () => {
+    const log = markSession();
+    writeFileSync(log, readFileSync(log, "utf8").replace('"claude"', '"pi"'));
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.NAVORI_AUDIT_HOST = "pi";
+    process.env.NAVORI_AUDIT_SESSION_ID = "sess-1";
+    for (const id of ["pi-scout-tool:1:first", "pi-scout-tool:2:second"]) {
+      process.env.NAVORI_AUDIT_AGENT_ID = id;
+      expect(appendCliEvent(repo, { name: "plan-gate", verdict: "block" })).toBe(true);
+    }
+    const rows = readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map((row: string): Record<string, unknown> => JSON.parse(row) as Record<string, unknown>);
+    expect(rows.slice(1).map((row: Record<string, unknown>): unknown => row.agentId)).toEqual([
+      "pi-scout-tool:1:first",
+      "pi-scout-tool:2:second",
+    ]);
+    const previous = readFileSync(log, "utf8");
+    process.env.NAVORI_AUDIT_AGENT_ID = "../secret";
+    expect(appendCliEvent(repo, { name: "plan-gate", verdict: "block" })).toBe(false);
+    process.env.NAVORI_AUDIT_AGENT_ID = "pi-scout-call_1";
+    expect(
+      appendCliEvent(repo, { name: "plan-gate", verdict: "block" }, undefined, {
+        host: "pi",
+        sessionId: "other",
+      }),
+    ).toBe(false);
+    writeFileSync(
+      log,
+      previous.replace(
+        '"cwd":' + JSON.stringify(repo),
+        '"cwd":' + JSON.stringify(join(root, "other", "myrepo")),
+      ),
+    );
+    const foreign = readFileSync(log, "utf8");
+    expect(appendCliEvent(repo, { name: "plan-gate", verdict: "block" })).toBe(false);
+    expect(readFileSync(log, "utf8")).toBe(foreign);
+  });
+});
 
 describe("review-outcome events", () => {
   // Covers: R16
@@ -975,6 +1020,36 @@ describe("private metadata recorder and replay", () => {
     });
     expect(readFileSync(log, "utf-8")).not.toContain(secret);
     expect(fs.statSync(log).mode & 0o777).toBe(0o600);
+  });
+
+  // Covers: R3 — Pi writes only into an existing matching marker, never a startup spool.
+  it("records Pi child hooks directly and refuses spool creation or foreign markers", () => {
+    const log = markSession();
+    writeFileSync(log, readFileSync(log, "utf8").replace('"claude"', '"pi"'));
+    const piRequest = {
+      ...request({ ...hook(), agentId: "pi-scout-call_1" }),
+      host: "pi" as const,
+    };
+    expect(recordAuditMetadata(piRequest)).toMatchObject({ status: "recorded", recorded: 1 });
+    expect(events(log)[1]).toMatchObject({
+      host: "pi",
+      rootSessionId: "sess-1",
+      agentId: "pi-scout-call_1",
+    });
+    expect(ensureAuditSpoolDir(piRequest)).toBe(false);
+    expect(fs.existsSync(join(piRequest.auditRoot, "myrepo", "spool-sess-1"))).toBe(false);
+    const before = readFileSync(log, "utf8");
+    writeFileSync(log, before.replace('"pi"', '"claude"'));
+    expect(recordAuditMetadata(piRequest)).toMatchObject({
+      status: "invalid",
+      reason: "identity-conflict",
+    });
+    rmSync(log);
+    const spool = arm();
+    expect(
+      recordAuditMetadata({ ...piRequest, event: { ...hook(), phase: "SessionStart" } }),
+    ).toMatchObject({ status: "invalid", reason: "invalid-metadata" });
+    expect(fs.existsSync(spool)).toBe(false);
   });
 
   // Covers: R10, R11

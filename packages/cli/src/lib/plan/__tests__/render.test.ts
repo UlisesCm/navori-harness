@@ -32,6 +32,24 @@ const level2: Workplan = {
 
 /** Covers: R11, R12 */
 describe("renderWorkplan", () => {
+  // Covers: R15 (0045)
+  it("quotes the original request after the objective and preserves it through updates", () => {
+    const request = "  First condition.\n\n## Another condition\n> Keep this literal.  ";
+    const plan: Workplan = { ...level1, request };
+    const quoted = request
+      .split("\n")
+      .map((line: string): string => "> " + line)
+      .join("\n");
+    const output = renderWorkplan(plan);
+    expect(output).toContain(
+      `${plan.objective}\n\n## Solicitud original\n${quoted}\n\n## Criterios`,
+    );
+    expect(renderWorkplan(level1)).not.toContain("## Solicitud original");
+    const updated = applyWorkplanUpdate(plan, { kind: "progress", id: "A1", status: "bloqueado" });
+    expect(updated.request).toBe(request);
+    expect(renderWorkplan(updated)).toContain(quoted);
+  });
+
   it("renders the same bytes twice for the same input (R11)", () => {
     expect(renderWorkplan(level1)).toBe(renderWorkplan(level1));
     expect(renderWorkplan(level2)).toBe(renderWorkplan(level2));

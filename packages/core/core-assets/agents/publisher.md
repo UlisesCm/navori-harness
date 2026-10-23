@@ -12,7 +12,7 @@ maxWords: 4200
 
 # Publisher Agent
 
-You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
+Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
 
 ## When to trigger
 
@@ -26,6 +26,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 - You are on `{{prTarget}}`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
 - Harness active and THIS feature's review (`.navori/state/handoffs/review_<feature>.md`, identified by name in the pre-flight) contains `CHANGES_REQUESTED` → no PR is created.
 - Quality gate red this turn.
+- Spec delivery missing review **Functional delivery** evidence (entry → consumer → contract; executed acceptance) → no PR; return to review. Classification alone is insufficient.
 
 > **Two branches, one that decides:** `{{prTarget}}` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
@@ -137,11 +138,11 @@ Present the repository, base, current head, title, body-file reference and draft
      Count > 0 means your PR drags foreign commits: warn the user and suggest rebase.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or first commit.
    - `.navori/state/handoffs/impl_<feature>.md` — non-obvious decisions.
-   - **Spec deliveries** (only for shape `split`; read shape from `navori spec classify <spec> --json`): brief names `delivery: E<n>` and `after: <sha>`; after `git fetch`, verify `git merge-base --is-ancestor <sha> origin/{{prTarget}}` (preapproved); if it fails (squash merge), use `gh pr list --state merged --base {{prTarget}}` as a signal only and ASK the user rather than abort silently. Body carries `Spec-Delivery: <spec> E<n>/<total>`. Report `head: <sha>` at the end. Always `--base {{prTarget}}`, one PR per delivery in tasks.md order, no integration branch.
+   - **Spec deliveries** (only for shape `split`; read shape from `navori spec classify <spec> --json`): brief names `delivery: E<n>` and, past `E1`, `after: <sha>` (previous delivery's head); a missing `after:` past `E1` (no head yet) → ASK. After `git fetch`, preapproved checks: merged = `git merge-base --is-ancestor <sha> origin/{{prTarget}}` succeeds (fails after a squash merge; `gh pr list --state merged --base {{prTarget}}` is a signal only); stacked = not merged and `git merge-base --is-ancestor <sha> HEAD` succeeds; overlap = `git diff --name-only origin/{{prTarget}}...HEAD` shares a path with `git diff --name-only origin/{{prTarget}}...<sha>`. Not merged is a warning, not a gate: state it in your report and still open the PR when not stacked, no overlap, and its `parts.json` `dependsOn` names no unmerged delivery. Stacked, a dependency on unmerged work, overlap or any ambiguous case → STOP and ASK the user. Body carries `Spec-Delivery: <spec> E<n>/<total>`. Report `head: <sha>` at the end. Always `--base {{prTarget}}`, one PR per delivery (tasks.md order recommended), no integration branch.
 
 2. **Draft title and body**:
    - **Title**: follows the configured commit style (`{{commits}}`), ≤70 chars, imperative and without a trailing period.
-   - **Body**: the repo's exact template (below). No empty sections. For spec deliveries, include references: `Refs #<issue>` on intermediate deliveries and `Closes #<issue>` on the last; shape `single` → `Closes #<issue>`.
+   - **Body**: the repo's exact template (below). No empty sections. For spec deliveries, include references: `Closes #<issue>` only if, at publish time, for every `E<k>` with k≠n some merged PR's body has a line matching `^\s*(- )?Spec-Delivery: <spec> E<k>/<total>\s*$` (the template's bullet form) (`gh pr list --state merged --base {{prTarget}} --search "<spec>" --json number,body --limit 100` only narrows candidates: full-text search, not proof); otherwise, at 100 results, or if anything is ambiguous, `Refs #<issue>`, and the report tells the user the issue stays open: close it once the last delivery merges. Shape `single` → `Closes #<issue>`.
 
 3. **Validate** before firing `gh`:
    - Every claim in the title and body — path, command, count or decision — traces to the cycle's handoffs (`impl_<feature>.*`, `review_<feature>.md`), `git log`/`git diff` against the base, or the spec; nothing else backs a claim, so no inferred path, command, count or decision goes in. **No handoff on disk** → draft from the diff and the issue only. A fact you can't trace is omitted, or reported to the orchestrator — never filled in (#1001, #1028).

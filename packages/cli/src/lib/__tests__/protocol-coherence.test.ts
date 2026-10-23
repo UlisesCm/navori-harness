@@ -3,6 +3,9 @@ import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync, rmSy
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { renderCodexEngine } from "../../engines/codex/index.ts";
+import { renderClaudeEngine } from "../../engines/claude/index.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Single-copy invariants of the protocol prose.
@@ -22,6 +25,46 @@ const here = dirname(fileURLToPath(import.meta.url));
 const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 const read = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
+
+describe("Codex execution checkpoints (#1314)", () => {
+  it.each(["codex", "claude"] as const)(
+    "delivers the checkpoint protocol only to Codex (%s render)",
+    (engine: "codex" | "claude") => {
+      const cwd = mkdtempSync(join(tmpdir(), "navori-checkpoint-"));
+      try {
+        const config = NavoriConfigSchema.parse({
+          name: "checkpoint",
+          preset: "custom",
+          engines: [engine],
+        });
+        if (engine === "codex") renderCodexEngine(cwd, config);
+        else renderClaudeEngine(cwd, config);
+        const principal = readFileSync(
+          join(cwd, engine === "codex" ? "AGENTS.md" : ".claude/context/10-orquestacion.md"),
+          "utf8",
+        );
+        const reference = readFileSync(
+          join(
+            cwd,
+            engine === "codex" ? ".codex/orchestrator.md" : ".claude/agents/orchestrator.md",
+          ),
+          "utf8",
+        );
+        if (engine === "codex") {
+          expect(principal).toContain("Codex execution checkpoints");
+          expect(principal).toContain(".codex/orchestrator.md");
+          expect(reference).toContain("5 minutes of active investigation");
+          expect(reference).toContain("before the next tool call");
+        } else {
+          expect(principal).not.toContain("Codex execution checkpoints");
+          expect(reference).not.toContain("5 minutes of active investigation");
+        }
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+});
 
 /** The line of `file` that contains `needle` (for row/bullet-scoped assertions). */
 function lineWith(file: string, needle: string): string {

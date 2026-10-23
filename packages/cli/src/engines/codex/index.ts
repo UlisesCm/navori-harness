@@ -59,7 +59,10 @@ import {
   type PlannedSkill,
 } from "../shared/harness-plan.ts";
 import {
-  collectPlan,
+  preparePlan,
+  type CollectedPlan,
+  type PreparedDestination,
+  type PreparedPlan,
   collisionWarnings,
   commitWrites,
   type AdapterCtx,
@@ -97,6 +100,9 @@ import {
   projectCodexProfiles,
   readNativeCodexProfile,
 } from "../../lib/assets/model-profile.ts";
+
+import { OwnedPathInventory, type SealedOwnedPaths } from "../shared/owned-path-inventory.ts";
+import { navoriAuthorship } from "../../lib/render/removable.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -289,12 +295,14 @@ interface CodexScope {
  * durable guidance from `AGENTS.md`. This module only maps each planned asset
  * to a destination + serialization; the render pipeline lives in executePlan.
  */
-export function renderCodexEngine(
+export function prepareCodexEngine(
   cwd: string,
   inputConfig: NavoriConfig,
   options: {
     dryRun?: boolean;
     repoRoot?: string;
+    /** Shared only by renderers writing into this same target. */
+    inventory?: OwnedPathInventory;
     /**
      * Spec 0043 R8: only `root` trims a Codex workspace. `minimal` and `full`
      * leave it exactly as it was (Codex under `minimal` is the user's decision).
@@ -312,7 +320,8 @@ export function renderCodexEngine(
       pruneCandidates: readonly HoistedSkill[];
     };
   } = {},
-): CodexEngineResult {
+): PreparedCodexEngine {
+  const inventory = options.inventory ?? new OwnedPathInventory();
   const config = effectiveConfig(inputConfig);
   const lang = resolveLang(config.language);
   const dryRun = options.dryRun === true;
@@ -435,219 +444,304 @@ export function renderCodexEngine(
   // appended as a managed sub-block BEFORE the single write — mirroring the
   // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
   // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
-  const { pending, removals, skipped, kept, collisions } = collectPlan(plan, adapter, ctx, {
+  const main = preparePlan(plan, adapter, ctx, {
     prune: presetLoadedSafely && (!rootScope || (options.workspaceSkills?.prune ?? true)),
     lang,
+    inventory,
   });
+  const hoistedPlans: PreparedPlan[] = [];
   // Spec 0043 R5: skills a workspace hands up, each rendered with ITS config under its final name.
   for (const h of options.rootHoist?.skills ?? []) {
     const hoistConfig = effectiveConfig(h.config);
-    const hoisted = collectPlan(
+    const hoisted = preparePlan(
       { agents: [], hooks: [], skills: [hoistedPlannedSkill(h)] },
       createHoistAdapter(h, hoistConfig),
       { ...ctx, config: hoistConfig },
-      { prune: false, lang },
+      { prune: false, lang, inventory },
     );
-    pending.push(...hoisted.pending);
-    skipped.push(...hoisted.skipped);
-    collisions.push(...hoisted.collisions);
+    hoistedPlans.push(hoisted);
   }
-  warnings.push(...codexWarnings);
-  for (const write of pending) {
-    if (!write.relPath.startsWith(".codex/scripts/") || write.status !== "updated") continue;
-    const old = readFileSync(write.path, "utf-8");
-    const oldBody = extractManagedContent(old, scriptManagedId(old), "shell");
-    const newBody = extractManagedContent(write.content, scriptManagedId(write.content), "shell");
-    if (oldBody !== null && newBody !== null && oldBody !== newBody) {
-      warnings.push(tc(lang).engine.codexPluginScriptChanged(write.relPath));
-    }
-  }
-  if (skipped.some((item) => item.path === ".codex/config.toml")) {
-    const configPath = join(cwd, ".codex/config.toml");
-    if (existsSync(configPath)) {
-      const configText = readFileSync(configPath, "utf-8");
-      const registered = projectHookCommands(configText);
-      for (const hook of resolvePluginCodexHooks(loadDisabledPlugins(config.plugins).loaded)
-        .hooks) {
-        const command = codexHookCommand(hook, wsSubpath);
-        if (registered.has(command) || configText.includes(command)) {
-          warnings.push(tc(lang).engine.codexResidualPluginHook(hook.scriptPath ?? hook.script));
-        }
-      }
-      // A RETIRED plugin has no manifest to resolve hooks from, so the loop above
-      // cannot see it: name its script directly (the registration embeds the path).
-      for (const name of retiredScriptBasenames()) {
-        const scriptPath = `.codex/scripts/${name}`;
-        if (configText.includes(scriptPath)) {
-          warnings.push(tc(lang).engine.codexResidualPluginHook(scriptPath));
-        }
-      }
-    }
-  }
-  // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
-  // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
-  // never silently skipped. Generic over every orphan scan (agents/skills/
-  // hooks), a superset of "retired ids" that stays correct once T11 starts
-  // pruning old agent ids here too.
-  for (const k of kept) {
-    warnings.push(tc(lang).engine.keptOrphanCodex(k.path, k.reason));
-  }
-  for (const plugin of plugins) {
+  const destinations = [main, ...hoistedPlans].flatMap((prepared) => prepared.destinations);
+  const selectedPaths = new Set(destinations.map((destination) => destination.relPath));
+  const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
+  // Retain effective extension targets and their basis, not a second renderer pass.
+  const overlays = new Map<string, string | null>();
+  const retainOverlay = (targetRel: string, managedId: string): void => {
+    const targetAbs = join(cwd, targetRel);
+    const basis = existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null;
+    if (!selectedPaths.has(targetRel) && basis === null) return;
+    overlays.set(targetAbs, basis);
+    const authorship =
+      basis === null ? "missing" : navoriAuthorship(targetAbs, managedId, { verifyHash: true });
+    inventory.observe(targetRel, authorship, managedId);
+    destinations.push(
+      Object.freeze({ relPath: targetRel, managedId, absPath: targetAbs, authorship, basis }),
+    );
+  };
+  for (const plugin of [...plugins, ...disabledPlugins]) {
     for (const skill of plugin.skillAssets) {
-      const m = skill.injectInto?.match(SKILL_INJECT_RE);
-      if (!m) continue;
-      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
-      const targetAbs = join(cwd, targetRel);
-      // The base skill may not be in `pending` if it's unchanged this render
-      // (e.g. `navori add <plugin>` on an already-rendered repo). Fall back to
-      // the on-disk copy and add it back to the write set, like the Claude adapter.
-      const inPending = pending.find((p) => p.path === targetAbs);
-      const baseContent =
-        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
-      if (baseContent === null) {
-        warnings.push(
-          tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, targetRel),
-        );
-        continue;
-      }
-      const injected = injectManagedSection(
-        baseContent,
-        skill.id,
-        codexSubBlockBody(skill, config),
-        { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
-        "html",
-      );
-      if (inPending) {
-        inPending.content = injected.output;
-      } else if (injected.status === "created" || injected.status === "updated") {
-        pending.push({
-          path: targetAbs,
-          relPath: targetRel,
-          content: injected.output,
-          status: injected.status,
-        });
-      }
+      const id = skill.injectInto?.match(SKILL_INJECT_RE)?.[1];
+      if (id !== undefined) retainOverlay(`.agents/skills/${id}/SKILL.md`, skill.id);
+    }
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "codex");
+      if (target !== null) retainOverlay(target, extension.id);
     }
   }
-
-  // Reconcile DISABLED plugins — mirror of the Claude engine's §8.5 (#80), here
-  // for Codex (#211). A plugin turned off via `navori remove` (phase 1 renders
-  // with `enabled: false` BEFORE phase 2 drops the config key) still has its
-  // injectInto sub-block sitting in `.agents/skills/<id>/SKILL.md`: that file was
-  // only ever touched on the enabled path above, so without this it would orphan
-  // permanently — no future render could see the plugin to clean it. Strip the
-  // sub-block by id while the disabled entry still declares the plugin.
-  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
-    for (const skill of plugin.skillAssets) {
-      const m = skill.injectInto?.match(SKILL_INJECT_RE);
-      if (!m) continue;
-      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
-      const targetAbs = join(cwd, targetRel);
-      const inPending = pending.find((p) => p.path === targetAbs);
-      const currentContent =
-        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
-      if (currentContent === null) continue; // target file gone — nothing to strip
-      const stripped = removeManagedSection(currentContent, skill.id, "html");
-      if (stripped === currentContent) continue; // sub-block not present
-      if (inPending) {
-        inPending.content = stripped;
-      } else {
-        pending.push({ path: targetAbs, relPath: targetRel, content: stripped, status: "updated" });
-      }
-    }
-  }
-
-  // Retired plugins' skill sub-blocks (mirror of Claude's 8.5-ter, #1013). The
-  // disabled loop above needs a loaded manifest, so a plugin whose package is gone
-  // leaves its `injectInto` block in `.agents/skills/<id>/SKILL.md` forever.
-  // Guarded (#1273): an edited block or one from a newer navori is kept and
-  // reported. Agent targets are skipped: Codex agent TOML is regenerated whole.
   for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
     for (const entry of retired.entries) {
-      const m = entry.targetPath.match(SKILL_INJECT_RE);
-      if (!m) continue;
-      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
-      const targetAbs = join(cwd, targetRel);
-      const inPending = pending.find((p) => p.path === targetAbs);
-      const currentContent =
-        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
-      if (currentContent === null) continue; // target file gone — nothing to strip
-      const result = removeManagedSectionGuarded(currentContent, entry.id, "html");
-      if ("kept" in result) {
-        warnings.push(
-          `kept ${targetRel} — retired block ${entry.id} is ${
-            result.kept === "newer" ? "from a newer navori" : "edited by hand"
-          }`,
-        );
-        continue;
+      const id = entry.targetPath.match(SKILL_INJECT_RE)?.[1];
+      if (id !== undefined) retainOverlay(`.agents/skills/${id}/SKILL.md`, entry.id);
+    }
+  }
+  let finalized: CollectedPlan | undefined;
+  const finalize = (): CollectedPlan => {
+    inventory.requireSealed();
+    if (finalized !== undefined) return finalized;
+    for (const [path, basis] of overlays) {
+      if ((existsSync(path) ? readFileSync(path, "utf-8") : null) !== basis)
+        throw new Error(`Prepared extension target changed: ${path}`);
+    }
+    const collected = main.finalize();
+    const pending = collected.pending.map((write) => ({ ...write }));
+    const { removals, kept } = collected;
+    const skipped = [...collected.skipped];
+    const collisions = [...collected.collisions];
+    for (const prepared of hoistedPlans) {
+      const hoisted = prepared.finalize();
+      pending.push(...hoisted.pending);
+      skipped.push(...hoisted.skipped);
+      collisions.push(...hoisted.collisions);
+    }
+    warnings.push(...codexWarnings);
+    for (const write of pending) {
+      if (!write.relPath.startsWith(".codex/scripts/") || write.status !== "updated") continue;
+      const old = readFileSync(write.path, "utf-8");
+      const oldBody = extractManagedContent(old, scriptManagedId(old), "shell");
+      const newBody = extractManagedContent(write.content, scriptManagedId(write.content), "shell");
+      if (oldBody !== null && newBody !== null && oldBody !== newBody) {
+        warnings.push(tc(lang).engine.codexPluginScriptChanged(write.relPath));
       }
-      if (result.content === currentContent) continue; // sub-block not present
-      if (inPending) {
-        inPending.content = result.content;
-      } else {
-        pending.push({
-          path: targetAbs,
-          relPath: targetRel,
-          content: result.content,
-          status: "updated",
+    }
+    if (skipped.some((item) => item.path === ".codex/config.toml")) {
+      const configPath = join(cwd, ".codex/config.toml");
+      if (existsSync(configPath)) {
+        const configText = readFileSync(configPath, "utf-8");
+        const registered = projectHookCommands(configText);
+        for (const hook of resolvePluginCodexHooks(disabledPlugins).hooks) {
+          const command = codexHookCommand(hook, wsSubpath);
+          if (registered.has(command) || configText.includes(command)) {
+            warnings.push(tc(lang).engine.codexResidualPluginHook(hook.scriptPath ?? hook.script));
+          }
+        }
+        // A RETIRED plugin has no manifest to resolve hooks from, so the loop above
+        // cannot see it: name its script directly (the registration embeds the path).
+        for (const name of retiredScriptBasenames()) {
+          const scriptPath = `.codex/scripts/${name}`;
+          if (configText.includes(scriptPath)) {
+            warnings.push(tc(lang).engine.codexResidualPluginHook(scriptPath));
+          }
+        }
+      }
+    }
+    // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
+    // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
+    // never silently skipped. Generic over every orphan scan (agents/skills/
+    // hooks), a superset of "retired ids" that stays correct once T11 starts
+    // pruning old agent ids here too.
+    for (const k of kept) {
+      warnings.push(tc(lang).engine.keptOrphanCodex(k.path, k.reason));
+    }
+    for (const plugin of plugins) {
+      for (const skill of plugin.skillAssets) {
+        const m = skill.injectInto?.match(SKILL_INJECT_RE);
+        if (!m) continue;
+        const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+        const targetAbs = join(cwd, targetRel);
+        // The base skill may not be in `pending` if it's unchanged this render
+        // (e.g. `navori add <plugin>` on an already-rendered repo). Fall back to
+        // the on-disk copy and add it back to the write set, like the Claude adapter.
+        const inPending = pending.find((p) => p.path === targetAbs);
+        const baseContent = inPending?.content ?? overlays.get(targetAbs) ?? null;
+        if (baseContent === null) {
+          warnings.push(
+            tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, targetRel),
+          );
+          continue;
+        }
+        const injected = injectManagedSection(
+          baseContent,
+          skill.id,
+          codexSubBlockBody(skill, config),
+          { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+          "html",
+        );
+        if (inPending) {
+          inPending.content = injected.output;
+        } else if (injected.status === "created" || injected.status === "updated") {
+          pending.push({
+            path: targetAbs,
+            relPath: targetRel,
+            content: injected.output,
+            status: injected.status,
+          });
+        }
+      }
+    }
+
+    // Reconcile DISABLED plugins — mirror of the Claude engine's §8.5 (#80), here
+    // for Codex (#211). A plugin turned off via `navori remove` (phase 1 renders
+    // with `enabled: false` BEFORE phase 2 drops the config key) still has its
+    // injectInto sub-block sitting in `.agents/skills/<id>/SKILL.md`: that file was
+    // only ever touched on the enabled path above, so without this it would orphan
+    // permanently — no future render could see the plugin to clean it. Strip the
+    // sub-block by id while the disabled entry still declares the plugin.
+    for (const plugin of disabledPlugins) {
+      for (const skill of plugin.skillAssets) {
+        const m = skill.injectInto?.match(SKILL_INJECT_RE);
+        if (!m) continue;
+        const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+        const targetAbs = join(cwd, targetRel);
+        const inPending = pending.find((p) => p.path === targetAbs);
+        const currentContent = inPending?.content ?? overlays.get(targetAbs) ?? null;
+        if (currentContent === null) continue; // target file gone — nothing to strip
+        const stripped = removeManagedSection(currentContent, skill.id, "html");
+        if (stripped === currentContent) continue; // sub-block not present
+        if (inPending) {
+          inPending.content = stripped;
+        } else {
+          pending.push({
+            path: targetAbs,
+            relPath: targetRel,
+            content: stripped,
+            status: "updated",
+          });
+        }
+      }
+    }
+
+    // Retired plugins' skill sub-blocks (mirror of Claude's 8.5-ter, #1013). The
+    // disabled loop above needs a loaded manifest, so a plugin whose package is gone
+    // leaves its `injectInto` block in `.agents/skills/<id>/SKILL.md` forever.
+    // Guarded (#1273): an edited block or one from a newer navori is kept and
+    // reported. Agent targets are skipped: Codex agent TOML is regenerated whole.
+    for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
+      for (const entry of retired.entries) {
+        const m = entry.targetPath.match(SKILL_INJECT_RE);
+        if (!m) continue;
+        const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+        const targetAbs = join(cwd, targetRel);
+        const inPending = pending.find((p) => p.path === targetAbs);
+        const currentContent = inPending?.content ?? overlays.get(targetAbs) ?? null;
+        if (currentContent === null) continue; // target file gone — nothing to strip
+        const result = removeManagedSectionGuarded(currentContent, entry.id, "html");
+        if ("kept" in result) {
+          warnings.push(
+            `kept ${targetRel} — retired block ${entry.id} is ${
+              result.kept === "newer" ? "from a newer navori" : "edited by hand"
+            }`,
+          );
+          continue;
+        }
+        if (result.content === currentContent) continue; // sub-block not present
+        if (inPending) {
+          inPending.content = result.content;
+        } else {
+          pending.push({
+            path: targetAbs,
+            relPath: targetRel,
+            content: result.content,
+            status: "updated",
+          });
+        }
+      }
+    }
+
+    // Spec 0041 R29: plugin hook extensions (the tgrep search lane) ride inside the
+    // Codex copy of the hook they extend, so no hook of their own is registered.
+    // The extension body is engine-neutral; only the hook path moves.
+    for (const plugin of plugins) {
+      for (const extension of plugin.hookExtensionAssets ?? []) {
+        const target = hookExtensionTarget(extension.target, "codex");
+        if (target === null) continue;
+        applyHookExtension({
+          cwd,
+          plugin,
+          extension,
+          target,
+          config,
+          pending,
+          skipped,
+          updatesAvailable: [],
+          downgrades: [],
+          withRelPath: true,
         });
       }
     }
-  }
-
-  // Spec 0041 R29: plugin hook extensions (the tgrep search lane) ride inside the
-  // Codex copy of the hook they extend, so no hook of their own is registered.
-  // The extension body is engine-neutral; only the hook path moves.
-  for (const plugin of plugins) {
-    for (const extension of plugin.hookExtensionAssets ?? []) {
-      const target = hookExtensionTarget(extension.target, "codex");
-      if (target === null) continue;
-      applyHookExtension({
-        cwd,
-        plugin,
-        extension,
-        target,
-        config,
-        pending,
-        skipped,
-        updatesAvailable: [],
-        downgrades: [],
-        withRelPath: true,
-      });
+    for (const plugin of disabledPlugins) {
+      for (const extension of plugin.hookExtensionAssets ?? []) {
+        const target = hookExtensionTarget(extension.target, "codex");
+        if (target === null) continue;
+        removeHookExtension({ cwd, extension, target, pending, withRelPath: true });
+      }
     }
-  }
-  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
-    for (const extension of plugin.hookExtensionAssets ?? []) {
-      const target = hookExtensionTarget(extension.target, "codex");
-      if (target === null) continue;
-      removeHookExtension({ cwd, extension, target, pending, withRelPath: true });
-    }
-  }
 
-  const { written, backupPath } = commitWrites({
-    pending,
-    removals,
-    cwd,
-    dryRun,
-    writeLast: (p) => p.path.endsWith("/AGENTS.md"),
-    engineLabel: adapter.label ?? adapter.id,
-    lang,
-  });
-  // #1114: after commitWrites so the backup path is known (null in a dry run).
-  warnings.push(...collisionWarnings(collisions, backupPath, lang));
-
-  return {
-    written,
-    skipped,
-    // A workspace render drops the repo-level advisories (the root run already said
-    // them), except under `root`: what a workspace keeps is only ITS to report.
-    warnings: rootScope
-      ? kept.map((k) => tc(lang).engine.keptOrphanCodex(k.path, k.reason))
-      : isWorkspace
-        ? []
-        : warnings,
-    backupPath,
+    finalized = { pending, removals, skipped, kept, collisions };
+    return finalized;
   };
+  return {
+    inventory,
+    destinations,
+    finalize,
+    commit: (): CodexEngineResult => {
+      if (finalized === undefined) throw new Error("Codex render must be finalized before commit");
+      const { pending, removals, skipped, kept, collisions } = finalized;
+      const { written, backupPath } = commitWrites({
+        pending,
+        removals,
+        cwd,
+        dryRun,
+        writeLast: (p) => p.path.endsWith("/AGENTS.md"),
+        engineLabel: adapter.label ?? adapter.id,
+        lang,
+      });
+      // #1114: after commitWrites so the backup path is known (null in a dry run).
+      warnings.push(...collisionWarnings(collisions, backupPath, lang));
+
+      return {
+        written,
+        skipped,
+        // A workspace render drops the repo-level advisories (the root run already said
+        // them), except under `root`: what a workspace keeps is only ITS to report.
+        warnings: rootScope
+          ? kept.map((k) => tc(lang).engine.keptOrphanCodex(k.path, k.reason))
+          : isWorkspace
+            ? []
+            : warnings,
+        backupPath,
+      };
+    },
+  };
+}
+
+/** A retained Codex selection; finalization never writes, commit never selects. */
+export interface PreparedCodexEngine {
+  readonly inventory: OwnedPathInventory;
+  readonly destinations: readonly PreparedDestination[];
+  finalize(): CollectedPlan;
+  commit(): CodexEngineResult;
+}
+
+/** Render a standalone target using the same prepare/seal/finalize/commit seam. */
+export function renderCodexEngine(
+  cwd: string,
+  inputConfig: NavoriConfig,
+  options: Omit<NonNullable<Parameters<typeof prepareCodexEngine>[2]>, "inventory"> = {},
+): CodexEngineResult {
+  const prepared = prepareCodexEngine(cwd, inputConfig, options);
+  prepared.inventory.seal();
+  prepared.finalize();
+  return prepared.commit();
 }
 
 /**
@@ -1119,6 +1213,13 @@ function hookRequest(hook: PlannedHook, config: NavoriConfig): PlacementRequest 
     managedId: hook.managedId,
     commentStyle: "shell",
     chmodExec: true,
+    ...(hook.id === "guard-destructive"
+      ? {
+          finalize: (inventory: SealedOwnedPaths) => ({
+            extraVars: { navoriOwnedPaths: inventory.value },
+          }),
+        }
+      : {}),
     // Spec 0041 D6: `role-guard`'s per-role prefixes are compiled from the roster.
     ...(hook.id === "role-guard"
       ? { extraVars: { rolePolicy: buildRolePolicyShell(config) } }

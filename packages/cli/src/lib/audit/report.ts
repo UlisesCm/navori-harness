@@ -703,6 +703,7 @@ function metadataPublication(
       const childInOutcomes = inOutcomes || (key === "" && child === "outcomes");
       if (["ownerKey", "sourceHeaderFingerprint", "sourcePath", "identity"].includes(child))
         continue;
+      if (key === "cliEvents" && child === "agentId") continue;
       if (["responses", "activity", "blockedCommands", "repeatedCommands"].includes(child)) {
         out[child] = Array.isArray(item) ? [] : {};
         continue;

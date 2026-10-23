@@ -432,6 +432,29 @@ describe("navori plan classify --diff", () => {
 });
 
 describe("navori plan render", () => {
+  // Covers: R15 (0045)
+  it("renders a literal request from JSON and retains it across a CLI update", async () => {
+    const request = "  Keep both conditions.\n\nDo not publish this change.  ";
+    writePlan("demo", { ...validPlan, request });
+    await runCommand(planCommand, { rawArgs: ["render", "demo", "--cwd", cwd] });
+    const rendered = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
+    const requestSection = rendered
+      .split("## Solicitud original\n")[1]
+      ?.split("\n\n## Criterios")[0];
+    expect(requestSection).toBe(">   Keep both conditions.\n> \n> Do not publish this change.  ");
+    await runCommand(planCommand, {
+      rawArgs: ["update", "demo", "--decision", "Keep scope", "--cwd", cwd],
+    });
+    const updated: Record<string, unknown> = JSON.parse(
+      readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(updated.request).toBe(request);
+    const rerendered = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
+    expect(rerendered.split("## Solicitud original\n")[1]?.split("\n\n## Criterios")[0]).toBe(
+      requestSection,
+    );
+  });
+
   it("renders workplan_<feature>.md from the JSON source (R11)", async () => {
     writePlan("demo", validPlan);
     await runCommand(planCommand, {
@@ -944,6 +967,68 @@ describe("navori plan render — acceptance index bootstrap on Pi", () => {
 });
 
 describe("navori plan check", () => {
+  // Covers: R20
+  it("reports completed criteria without evidence as findings and exits 2", async (): Promise<void> => {
+    writePlan("demo", { ...validPlan, progress: { A1: "cumplido" } });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    try {
+      await runCommand(planCommand, { rawArgs: ["check", "demo", "--json", "--cwd", cwd] });
+    } finally {
+      spy.restore();
+    }
+    expect(process.exitCode).toBe(2);
+    const result: unknown = JSON.parse(logs.join(""));
+    expect(result).toMatchObject({
+      ok: false,
+      findings: [{ rule: "progress-unevidenced" }],
+      warnings: [],
+    });
+  });
+
+  // Covers: R20
+  it("rejects stale evidence but preserves explicit unsupported-engine acceptance", async (): Promise<void> => {
+    const cases = [
+      {
+        evidence: {
+          A1: {
+            kind: "recorded",
+            command: "old command",
+            ranAt: "t",
+            tree: "/t",
+            head: "abc",
+            worktreeTree: "w",
+            dirty: false,
+          },
+        },
+        code: 2,
+        rule: "progress-evidence-stale",
+      },
+      {
+        evidence: { A1: { kind: "unevidenced", reason: "engine-without-signal" } },
+        code: 0,
+        rule: "progress-unevidenced-accepted",
+      },
+    ];
+    for (const { evidence, code, rule } of cases) {
+      writePlan("demo", { ...validPlan, progress: { A1: "cumplido" }, evidence });
+      const logs: string[] = [];
+      const spy = vi_spyConsole(logs);
+      try {
+        await runCommand(planCommand, { rawArgs: ["check", "demo", "--json", "--cwd", cwd] });
+      } finally {
+        spy.restore();
+      }
+      expect(process.exitCode).toBe(code);
+      const result: unknown = JSON.parse(logs.join(""));
+      expect(result).toMatchObject(
+        code === 2
+          ? { ok: false, findings: [{ rule }], warnings: [] }
+          : { ok: true, findings: [], warnings: [{ rule }] },
+      );
+    }
+  });
+
   it("exits 0 on a valid workplan (R15)", async () => {
     writePlan("demo", validPlan);
     await runCommand(planCommand, { rawArgs: ["check", "demo", "--cwd", cwd] });

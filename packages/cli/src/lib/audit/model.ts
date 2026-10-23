@@ -247,7 +247,12 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
   if (
     !fields.length ||
     record.wireVersion !== 1 ||
-    !["claude", "codex"].includes(String(record.host)) ||
+    (!["claude", "codex"].includes(String(record.host)) &&
+      !(
+        record.host === "pi" &&
+        (record.event === "session-end" ||
+          (record.event === "hook" && record.phase !== "SessionStart"))
+      )) ||
     typeof record.eventId !== "string" ||
     !record.eventId ||
     typeof record.rootSessionId !== "string" ||
@@ -754,8 +759,9 @@ export interface AgentRun {
   durationMs: number;
   spawnDepth: number;
   /**
-   * `tool_use_id` of the parent's `Agent` call that created this run (spec 0042
-   * T10a). Private join key, absent for Codex, nested runs and unlinked runs;
+   * `tool_use_id` of the parent's Claude `Agent` call, or `toolCallId` of its Pi
+   * `navori_subagent` call (spec 0042 T10a / spec 0053 R3). Private join key,
+   * absent for Codex, nested runs and unlinked runs;
    * never allowlisted, so it is not published.
    */
   spawnToolUseId?: string;
@@ -1450,6 +1456,8 @@ export interface CliEvent {
   name: string;
   verdict: string;
   reason?: string;
+  /** Private correlation metadata only; never authorizes a producer or reviewer. */
+  agentId?: string;
   /**
    * The validated closed payload of a `review-outcome` / `receipt-outcome`
    * event (spec 0042 D5). Named apart from `outcome`, which the public
@@ -1581,7 +1589,7 @@ export type OutcomePayload =
   | Omit<ReceiptOutcome, "name" | "verdict">
   | Omit<DispatchOutcome, "name" | "verdict">;
 
-const DISPATCH_SPAWN = /^[A-Za-z0-9_-]{1,256}$/;
+const DISPATCH_SPAWN = /^[A-Za-z0-9_:-]{1,256}$/;
 
 function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutcome | null {
   const allowed = new Set(["name", "verdict", "schemaVersion", "featureKey", "stage", "spawn"]);

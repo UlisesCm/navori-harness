@@ -12,6 +12,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { PI_TRUST_SOURCE } from "../trust-source.ts";
 import { serializePiAgent, serializePiManifest } from "../owned-file.ts";
+import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
+import { renderPiEngine } from "../index.ts";
+import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
+import { load as loadWithScripts } from "./fixtures/load-extension.ts";
 
 type Role = "scout" | "implementer" | "reviewer";
 type Tool = {
@@ -49,6 +53,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/** Creates a control fixture with the real ownership hook whenever its policy is enabled. */
 function fixture(
   flags: { planTiers?: boolean; masterPlan?: boolean; scribeOwnsMarkdown?: boolean } = {},
 ): string {
@@ -70,6 +75,22 @@ function fixture(
       permissionRules: { ask: [], deny: [] },
     }),
   );
+  if (flags.scribeOwnsMarkdown) {
+    renderPiEngine(
+      cwd,
+      NavoriConfigSchema.parse({
+        name: "pi-controls",
+        preset: "custom",
+        engines: ["pi"],
+        harness: flags,
+      }),
+      {
+        hookBindings: PI_HOOK_BINDINGS.filter(
+          (binding) => binding.script === "implementer-no-markdown",
+        ),
+      },
+    );
+  }
   for (const role of ["scout", "implementer", "reviewer"] as const) {
     writeFileSync(
       join(cwd, `.pi/agents/${role}.md`),
@@ -487,9 +508,13 @@ describe("Pi control mappings", () => {
       keep: "x",
       "navori-master-plan": "Plan maestro — etapa activa",
     });
-    const child = loadRuntime({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" });
-    expect(child.tool).toBeUndefined();
-    const call = child.handlers.get("tool_call")!;
+    const child = loadWithScripts({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
+    });
+    expect(
+      loadRuntime({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" }).tool,
+    ).toBeUndefined();
+    const call = child.get("tool_call")!;
     expect(
       await call({ toolName: "write", input: { path: "specs/task.md" } }, { cwd }),
     ).toMatchObject({ block: true });
@@ -498,14 +523,19 @@ describe("Pi control mappings", () => {
     ).toBeUndefined();
     expect(
       await call({ toolName: "bash", input: { command: "cat > task.md" } }, { cwd }),
-    ).toBeUndefined();
+    ).toMatchObject({
+      block: true,
+      reason: expect.stringContaining("implementer-no-markdown"),
+    });
   });
 
   // Covers: R49
   it("Pi deja al implementer escribir doctrina de IA y bloquea el resto del Markdown", async () => {
     const cwd = fixture({ scribeOwnsMarkdown: true });
-    const child = loadRuntime({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" });
-    const call = child.handlers.get("tool_call")!;
+    const child = loadWithScripts({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
+    });
+    const call = child.get("tool_call")!;
     for (const path of [
       "packages/core/core-assets/agents/implementer.md",
       ".claude/skills/x/SKILL.md",
