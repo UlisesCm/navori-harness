@@ -110,6 +110,11 @@ Estimated LOC: 3200
       `engines/pi/denials.ts` con `PI_EXTENSION_DENIALS` · effect: behavior · test:
       `engines/pi/__tests__/first-class-audit.test.ts`::"un hijo que falla tras el spawn cuenta como dispatch
       failed con su diagnóstico"
+      - Avance #1361: resultado K2 para éxito y fallas posteriores al spawn, incluidos cancelación,
+        timeout, JSONL inválido, salida no cero, fallback de aprobación y handoff inválido. El lector
+        correlaciona fallas sólo con K2 completo que coincide con padre, rol e invocación; no publica
+        diagnósticos ni metadatos de Git. Faltan el catálogo `PI_EXTENSION_DENIALS` y A5 completo;
+        T9 y M5 siguen pendientes.
 - [ ] **T11** (R4) — `runNavori` captura stderr acotado; `checkDispatch` lanza el texto exacto de
       `navori plan gate`; `ENOENT` de `navori` da el mensaje de PATH; fase e2e con el padre como proceso
       `pi --mode json -p` y `harness.planTiers: true` · effect: behavior · test:

@@ -199,6 +199,23 @@ describe("Pi session audit (spec 0047 R12)", () => {
             toolCallId: "unknown_role",
             details: { role: "unregistered" },
           }),
+        ) +
+        line(
+          result(6, "navori_subagent", {
+            toolCallId: "failed_with_k2",
+            isError: true,
+            details: {
+              role: "implementer",
+              agentId: "pi-implementer-failed_with_k2",
+              parentSession: ID,
+              outcome: "failed",
+              failure: "Pi child exited 2",
+              head: null,
+              worktreeTree: null,
+              handoff: "none",
+              truncated: false,
+            },
+          }),
         ),
     );
     const logFile = join(dir, "session.log");
@@ -210,6 +227,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
         "unknown_state",
         "unknown_role",
         "missing_call",
+        "failed_with_k2",
         "call_first",
       ].map((spawn: string, index: number): Record<string, unknown> => ({
         event: "cli",
@@ -235,11 +253,12 @@ describe("Pi session audit (spec 0047 R12)", () => {
       undefined,
       undefined,
       undefined,
+      "failed_with_k2",
     ]);
     const published = publishReport(report([parsed]));
     expect(published.outcomes?.dispatch).toMatchObject({
-      events: 6,
-      confirmed: 2,
+      events: 7,
+      confirmed: 3,
       unconfirmed: 4,
       unlinkable: 0,
     });
@@ -260,6 +279,49 @@ describe("Pi session audit (spec 0047 R12)", () => {
       expect(parsed.agents[0]).toMatchObject({ agentId: "pi-unknown-1", agentType: "unknown" });
       expect(parsed.agents[0]?.spawnToolUseId).toBeUndefined();
       expect(JSON.stringify(parsed)).not.toContain("private-path");
+    }
+  });
+
+  // Covers: R3
+  it("requires the complete K2 identity before attributing a post-spawn failure", () => {
+    const details = {
+      role: "scout",
+      agentId: "pi-scout-failed_call",
+      parentSession: ID,
+      outcome: "failed",
+      failure: "Pi child exited 2",
+      head: null,
+      worktreeTree: null,
+      handoff: "none",
+      truncated: false,
+    };
+    for (const [patch, attributed] of [
+      [{}, true],
+      [{ parentSession: "another-parent" }, false],
+      [{ agentId: "pi-scout-another-call" }, false],
+      [{ role: "reviewer" }, false],
+      [{ outcome: "completed" }, false],
+      [{ failure: undefined }, false],
+      [{ failure: "x".repeat(2049) }, false],
+      [{ head: "partial" }, false],
+      [{ worktreeTree: undefined }, false],
+      [{ handoff: "valid" }, false],
+      [{ truncated: undefined }, false],
+    ] as const) {
+      writeFileSync(
+        file,
+        line({ type: "session", id: ID, cwd: CWD }) +
+          line(
+            result(1, "navori_subagent", {
+              toolCallId: "failed_call",
+              isError: true,
+              details: { ...details, ...patch },
+            }),
+          ),
+      );
+      const parsed = parse();
+      expect(parsed.agents[0]!.spawnToolUseId).toBe(attributed ? "failed_call" : undefined);
+      expect(JSON.stringify(publishReport(report([parsed])))).not.toContain("Pi child exited 2");
     }
   });
 
@@ -365,7 +427,11 @@ describe("Pi session audit (spec 0047 R12)", () => {
 
   // Covers: R12
   it("the extension returns the summed child usage, and none when a message lacks it", async () => {
-    type Tool = { execute: (...args: unknown[]) => Promise<{ details: unknown; usage?: unknown }> };
+    type Tool = {
+      execute: (
+        ...args: unknown[]
+      ) => Promise<{ isError?: boolean; details: unknown; usage?: unknown }>;
+    };
     const roles = mkdtempSync(join(tmpdir(), "navori-pi-audit-roles-"));
     renderPiEngine(
       roles,
@@ -378,7 +444,10 @@ describe("Pi session audit (spec 0047 R12)", () => {
         models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
       }),
     );
-    const run = async (messages: unknown[]): Promise<Awaited<ReturnType<Tool["execute"]>>> => {
+    const run = async (
+      messages: unknown[],
+      exitCode = 0,
+    ): Promise<Awaited<ReturnType<Tool["execute"]>>> => {
       let tool: Tool | undefined;
       const spawn = (): unknown => {
         const child = Object.assign(new EventEmitter(), {
@@ -396,7 +465,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
               }),
             );
           child.stdout.write(line({ type: "agent_settled" }));
-          child.emit("close", 0);
+          child.emit("close", exitCode);
         });
         return child;
       };
@@ -436,7 +505,12 @@ describe("Pi session audit (spec 0047 R12)", () => {
         { role: "scout", task: "t" },
         new AbortController().signal,
         () => {},
-        { cwd: roles, isProjectTrusted: () => true, model: { provider: "p", id: "m" } },
+        {
+          cwd: roles,
+          isProjectTrusted: () => true,
+          model: { provider: "p", id: "m" },
+          sessionManager: { getSessionId: () => ID },
+        },
       );
     };
     const summed = await run([{ usage: usage(10, 2) }, { usage: usage(5, 1) }]);
@@ -447,8 +521,33 @@ describe("Pi session audit (spec 0047 R12)", () => {
       totalTokens: 30,
       cost: { total: 0.6 },
     });
-    expect(summed.details).toEqual({ role: "scout", truncated: false });
+    expect(summed.details).toEqual({
+      role: "scout",
+      truncated: false,
+      agentId: "pi-scout-1",
+      parentSession: ID,
+      outcome: "completed",
+      head: null,
+      worktreeTree: null,
+      handoff: "none",
+    });
     expect((await run([{ usage: usage(10, 2) }, {}])).usage).toBeUndefined();
+    // Covers: R3 — consume the actual failed extension result, not a hand-authored success fixture.
+    const failed = await run([], 2);
+    expect(failed).toMatchObject({
+      isError: true,
+      details: { outcome: "failed", failure: expect.stringContaining("exited 2") },
+    });
+    writeFileSync(
+      file,
+      line({ type: "session", id: ID, cwd: CWD }) +
+        line(result(1, "navori_subagent", { ...failed, toolCallId: "1" })),
+    );
+    expect(parse().agents[0]!.spawnToolUseId).toBe("1");
+    const published = JSON.stringify(publishReport(report()));
+    expect(published).not.toContain("exited 2");
+    expect(parse().agents[0]).not.toHaveProperty("parentSession");
+    expect(parse().agents[0]).not.toHaveProperty("failure");
     rmSync(roles, { recursive: true, force: true });
   });
 });

@@ -172,7 +172,11 @@ describe("Pi child bounded incremental stream and cancellation", () => {
       const pending = rt.run();
       rt.children[0]!.stdout.write(output);
       rt.children[0]!.emit("close", code);
-      await expect(pending).rejects.toThrow(message);
+      await expect(pending).resolves.toMatchObject({
+        isError: true,
+        content: [{ text: expect.stringContaining(message) }],
+        details: { outcome: "failed", agentId: "pi-scout-c" },
+      });
     }
     const rt = load(null);
     const pending = rt.run();
@@ -191,7 +195,10 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     child.stdout.write("x");
     expect(rt.groupKills).toEqual([[-GROUP, "SIGTERM"]]);
     child.emit("close", null);
-    await expect(pending).rejects.toThrow("exceeded output limit");
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      details: { outcome: "failed", failure: expect.stringContaining("exceeded output limit") },
+    });
   });
 
   // Covers: R19
@@ -201,7 +208,10 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     const rt = load();
     const controller = new AbortController();
     const pending = rt.run(controller.signal);
-    const assertion = expect(pending).rejects.toThrow("cancelled, timed out");
+    const assertion = expect(pending).resolves.toMatchObject({
+      isError: true,
+      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+    });
     controller.abort();
     controller.abort();
     expect(rt.groupKills).toEqual([[-GROUP, "SIGTERM"]]);
@@ -223,7 +233,10 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     freshProject();
     const rt = load();
     const pending = rt.run();
-    const assertion = expect(pending).rejects.toThrow("cancelled, timed out");
+    const assertion = expect(pending).resolves.toMatchObject({
+      isError: true,
+      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+    });
     await vi.advanceTimersByTimeAsync(599_999);
     expect(rt.groupKills).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);

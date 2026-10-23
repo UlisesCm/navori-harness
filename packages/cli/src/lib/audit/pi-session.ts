@@ -34,6 +34,29 @@ const MAX_DIRS = 5_000;
 const MAX_CHILDREN = 1_000;
 const TOKEN_KEYS = ["input", "output", "cacheRead", "cacheCreation", "thinking"] as const;
 
+/** A failed tool call proves a spawned child only with the parent's complete, matching K2 envelope. */
+function isFailedChild(
+  details: Record<string, unknown> | undefined,
+  role: string,
+  call: string,
+  parentSession: string,
+): boolean {
+  const hashOrNull = (value: unknown): boolean =>
+    value === null || (typeof value === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value));
+  return (
+    details?.outcome === "failed" &&
+    details.agentId === `pi-${role}-${call}` &&
+    details.parentSession === parentSession &&
+    typeof details.failure === "string" &&
+    details.failure.length > 0 &&
+    details.failure.length <= 2048 &&
+    typeof details.truncated === "boolean" &&
+    (details.handoff === "none" || details.handoff === "invalid") &&
+    hashOrNull(details.head) &&
+    hashOrNull(details.worktreeTree)
+  );
+}
+
 /** Directories Pi writes sessions to: the documented override first, then the default root. */
 export function piSessionRoots(): string[] {
   const override = process.env.PI_CODING_AGENT_SESSION_DIR?.trim();
@@ -193,11 +216,12 @@ export function parsePiSession(
           typeof details?.role === "string" && ROLES.has(details.role) ? details.role : "unknown";
         children.push({
           role,
-          // Failed/unknown tool results do not establish that a child actually spawned.
-          ...(m.isError === false &&
-          role !== "unknown" &&
+          // A bare failure is not evidence of spawn. K2 must match this parent, role and call.
+          ...(role !== "unknown" &&
           typeof m.toolCallId === "string" &&
-          SESSION_ID.test(m.toolCallId)
+          SESSION_ID.test(m.toolCallId) &&
+          (m.isError === false ||
+            (m.isError === true && isFailedChild(details, role, m.toolCallId, sessionId)))
             ? { spawnToolUseId: m.toolCallId }
             : {}),
           tokens: tokensOf(m.usage),

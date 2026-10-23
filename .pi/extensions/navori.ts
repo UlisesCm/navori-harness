@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="11fe06901f410767a054058db0afe8d7db32790dc9f3edfcebd86e3ac1113d1a"
+// navori:managed-file id="pi-extension" hash="4b727e086dc61496dd77e02df2e8ed7566ecd19af557ac2522c2ed70e5805920"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -507,14 +507,15 @@ function parseParentApproval(raw: unknown): ParentApproval | undefined {
   } catch { return undefined; }
 }
 
+type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string };
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
-function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult & { approvals: ParentApproval[] }> {
+function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildRun> {
   // --no-mcp: ambient MCP must be unreachable from Navori children; --model is always explicit (omitting it is not inheriting).
   const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");
   args.push("--", role.instructions + "\n\nTask: " + task);
-  return new Promise<ChildResult & { approvals: ParentApproval[] }>((resolve, reject) => {
+  return new Promise<ChildRun>((resolve, reject) => {
     // The "ipc" stdio slot is the D6 relay channel; the child's model-run bash does not inherit it.
     const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name };
     delete childEnv.NODE_CHANNEL_FD;
@@ -522,6 +523,11 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
     const parser = childParser();
     const approvals: ParentApproval[] = [];
+    // A pid is host evidence that spawn succeeded. ENOENT and other pre-spawn errors still reject.
+    const fail = (failure: string): void => {
+      if (!child.pid) reject(new Error(failure));
+      else resolve({ text: "", truncated: false, approvals, failure });
+    };
     child.on("message", (raw: unknown) => {
       const accepted = parseParentApproval(raw);
       if (accepted && approvals.length < MAX_RELAYS) approvals.push(accepted);
@@ -561,14 +567,15 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       if (!child.pid) { stopping = true; if (killTimer) clearTimeout(killTimer); }
       else stop();
       release();
-      reject(cause);
+      if (!child.pid) reject(cause);
+      else fail("Pi child process failed");
     });
     child.on("close", (code: number | null) => {
       release();
-      if (parseError) reject(parseError);
-      else if (stopping) reject(new Error("Pi child cancelled, timed out, or exceeded output limit"));
-      else if (code !== 0) reject(new Error("Pi child exited " + code + "; inspect Pi auth with /login openai-codex"));
-      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { reject(cause); } }
+      if (parseError) fail(parseError instanceof Error ? parseError.message : "Invalid Pi child JSONL event");
+      else if (stopping) fail("Pi child cancelled, timed out, or exceeded output limit");
+      else if (code !== 0) fail("Pi child exited " + code + "; inspect Pi auth with /login openai-codex");
+      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); } }
     });
   });
 }
@@ -631,6 +638,22 @@ async function fingerprintTree(tree: string): Promise<string | undefined> {
   if ((await git(tree, ["read-tree", "--empty"], { env })) === undefined) return undefined;
   if (entries.length && (await git(tree, ["update-index", "--add", "-z", "--index-info"], { env, input: entries.join("") })) === undefined) return undefined;
   return (await git(tree, ["write-tree"], { env }))?.trim() || undefined;
+}
+
+/** Best-effort K2 snapshot after settlement. Missing or incomplete Git evidence stays null. */
+async function childGitState(cwd: string, signal: AbortSignal): Promise<{ head: string | null; worktreeTree: string | null }> {
+  const missing = { head: null, worktreeTree: null };
+  if (signal.aborted) return missing;
+  try {
+    const state = spawnSync("git", [...GIT_HARDENING, "rev-parse", "--show-toplevel", "HEAD"],
+      { cwd, encoding: "utf8", timeout: 2_000, maxBuffer: 65_536, stdio: ["ignore", "pipe", "ignore"] });
+    if (state.status !== 0 || state.error) return missing;
+    const [tree, head, ...extra] = state.stdout.trim().split("\n");
+    if (!tree || extra.length || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head ?? "")) return missing;
+    let worktreeTree: string | undefined;
+    try { worktreeTree = await fingerprintTree(tree); } catch { /* No partial fingerprint. */ }
+    return { head, worktreeTree: worktreeTree && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(worktreeTree) ? worktreeTree : null };
+  } catch { return missing; }
 }
 
 type EvidenceEvent = { toolName: string; toolCallId: string; input: unknown; isError: boolean; structuredContent?: unknown };
@@ -1391,22 +1414,31 @@ export default function (pi: ExtensionAPI): void {
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
           ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
         const result = await runChild(ctx.cwd, spec, model, params.task, signal);
+        const identity = { role: params.role, agentId: "pi-" + params.role + "-" + _id,
+          parentSession: ctx.sessionManager?.getSessionId?.() ?? "", ...await childGitState(ctx.cwd, signal) };
+        const details = { ...identity, truncated: result.truncated,
+          ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
+        const failed = (failure: string, handoff: "invalid" | "none" = "none") => ({
+          isError: true, content: [{ type: "text" as const, text: failure }],
+          details: { ...details, outcome: "failed" as const, failure: failure.slice(0, 2048), handoff },
+          ...(result.usage ? { usage: result.usage } : {}) });
+        if (result.failure) return failed(result.failure);
         // D6: the exact commands come from the child's hook input (IPC) or structured JSONL args, never from model text.
         if (!result.approvals.length && result.refusals?.length) {
-          throw new Error("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
+          return failed("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
             + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
         }
         if (snapshot) {
           const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
           if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
-            details: { role: params.role, truncated: result.truncated, handoff: "invalid", ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) } };
+            details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length
           ? "\n\nParent approval required for " + result.approvals.length + " operation(s) the child could not run; run them in this session so the user is asked: "
             + result.approvals.map((a) => JSON.stringify(a.command)).join(", ")
           : "";
         return { content: [{ type: "text", text: result.text + relay }],
-          details: { role: params.role, truncated: result.truncated, ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) },
+          details: { ...details, outcome: "completed", handoff: snapshot ? "valid" : "none" },
           ...(result.usage ? { usage: result.usage } : {}) };
       } finally { active--; }
     },

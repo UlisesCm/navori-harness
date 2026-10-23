@@ -115,6 +115,7 @@ async function phase<T>(
 
 interface ToolOutcome {
   toolName: string;
+  toolCallId?: string;
   isError: boolean;
   text: string;
   details?: { truncated?: boolean };
@@ -125,13 +126,22 @@ function outcomes(session: AgentSession, from: number): ToolOutcome[] {
     const m = message as unknown as {
       role: string;
       toolName?: string;
+      toolCallId?: string;
       isError?: boolean;
       details?: { truncated?: boolean };
       content?: Array<{ type: string; text?: string }>;
     };
     if (m.role !== "toolResult") return [];
     const text = (m.content ?? []).map((part) => part.text ?? "").join("");
-    return [{ toolName: m.toolName ?? "?", isError: m.isError === true, text, details: m.details }];
+    return [
+      {
+        toolName: m.toolName ?? "?",
+        toolCallId: m.toolCallId,
+        isError: m.isError === true,
+        text,
+        details: m.details,
+      },
+    ];
   });
 }
 
@@ -477,6 +487,16 @@ describe("Pi credential-free first-class cycle", () => {
         expect(BIG).toBeGreaterThan(256 * 1024);
         expect(scout[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
         expect(scout[0]?.details?.truncated).toBe(true);
+        // Covers: R3 — K2 from the real SDK parent and spawned CLI child, with local Git evidence.
+        expect(scout[0]?.details).toMatchObject({
+          role: "scout",
+          agentId: `pi-scout-${scout[0]?.toolCallId}`,
+          parentSession: active.sessionManager.getSessionId(),
+          outcome: "completed",
+          handoff: "none",
+          head: git("rev-parse", "HEAD"),
+          worktreeTree: expect.stringMatching(/^[a-f0-9]{40}$/),
+        });
         // Truncated to the 64 KiB contract, not cancelled for volume.
         expect(Buffer.byteLength(scout[0]!.text)).toBeLessThanOrEqual(65_536);
         expect(scout[0]!.text.length).toBeGreaterThan(60_000);
@@ -502,6 +522,15 @@ describe("Pi credential-free first-class cycle", () => {
       await phase("joint review", diagnostic, () => {
         // The scripted reviewer writes no sealed review handoff: Pi reports the child as failed (R7).
         expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: true });
+        expect(reviewed[0]?.details).toMatchObject({
+          agentId: `pi-reviewer-${reviewed[0]?.toolCallId}`,
+          parentSession: active.sessionManager.getSessionId(),
+          outcome: "failed",
+          handoff: "invalid",
+          failure: expect.any(String),
+          head: git("rev-parse", "HEAD"),
+          worktreeTree: expect.stringMatching(/^[a-f0-9]{40}$/),
+        });
         expect(reviewed[0]?.text).toContain("reviewer handoff invalid");
         expect(reviewed[0]?.text).toContain("src/feature.ts");
         expect(reviewed[0]?.text).toContain(docsPath);
