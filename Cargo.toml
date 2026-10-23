@@ -10,6 +10,10 @@ publish = false
 
 [workspace.dependencies]
 navori-core = { path = "crates/navori-core" }
+# Pinned to the versions named in specs/0057-migracion-rust/design.md (dependency table).
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+lexopt = "=0.3.2"
 
 # Deviations need `#[allow(<lint>, reason = "...")]` at the same site (R16).
 [workspace.lints.rust]
