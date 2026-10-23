@@ -82,11 +82,12 @@ Implementado en `feat/0057-rust-e2-m6`, con Rust y TS divididos entre principal/
 independiente. Entrada interna de hooks, validación antes de stdin, wrappers compartidos y
 golden manual. 62 pruebas focalizadas verdes; Rust 54 casos, fmt y clippy verdes. Oráculo final
 52 casos sin diferencias. El full preliminar reprodujo el stamp legacy sin wrapper (corregido)
-y un timeout de doctor (caso aislado verde). Gate full final en ejecución antes de cerrar el
-milestone. No hay hooks portados/activos todavía.
+y un timeout de doctor (caso aislado verde). Full final verde: 10240 aprobadas, dos omitidas,
+483 archivos en1369.1s; cobertura87.87/86.17/90.51/80.95%, piso162/0 y bundle1637.7/1650KiB.
+No hay hooks portados/activos todavía.
 - **A6** [observable] — ninguna salida anómala del binario termina en permitir · `bun run vitest run src/__tests__/native-hook-failclosed.test.ts` → exit 0 en Claude, Codex y Pi
-- [ ] **T20** (R13) — `packages/cli/src/lib/render/native-hook.ts` (`nativeRunnerShell`), puntos de llamada en `claudeHookCommand` y `expandHookIncludes`; sin hooks en el manifiesto la salida es idéntica a `dev` (D7) · effect: behavior · test: `packages/cli/src/__tests__/native-hook.test.ts`::"manifiesto sin hooks renderiza igual que dev"
-- [ ] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
+- [x] **T20** (R13) — `packages/cli/src/lib/render/native-hook.ts` (`nativeRunnerShell`), puntos de llamada en `claudeHookCommand` y `expandHookIncludes`; sin hooks en el manifiesto la salida es idéntica a `dev` (D7) · effect: behavior · test: `packages/cli/src/__tests__/native-hook.test.ts`::"manifiesto sin hooks renderiza igual que dev"
+- [x] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
 
 ### M7 — Auditoría
 - **A7** [observable] — el evento de auditoría de Rust es igual al de shell · `node scripts/js/hook-verdict-replay.mjs --impl rust --audit active --only audit-writer` → exit 0

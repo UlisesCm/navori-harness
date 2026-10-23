@@ -12,7 +12,8 @@ y PR hacia esa base por instrucción del usuario. Paralelismo con clones autoriz
   productivo siguen sin hooks. 62 focales TS y 54 pruebas Rust verdes, clippy/fmt verdes.
   Revisión cerró ownership/coexist/antirollback/markers/symlinks y stamp legacy sin wrapper.
   Full preliminar: roja del stamp y timeout doctor; fix focal verde, doctor aislado verde.
-  Oráculo final 52/0. Gate full final en ejecución (2 workers).
+  Oráculo final 52/0. Full final verde:10240aprobadas/2omitidas,483archivos,1369.1s,piso162/0.
+  Commitdf872f8c subido; draft pendiente de ejecución humana (request9698c747).
 - M7: `feat/0057-rust-e2-m7-audit`, worktree hermano `navori-harness-wt-0057-rust-audit`.
   Clon implementa auditoría independiente: metadata y bridge best-effort al writer TS único,
   sin append directo ni wire IDs propios. Seis focales iniciales verdes, incluyendo shell+jq

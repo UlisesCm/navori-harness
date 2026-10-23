@@ -481,5 +481,8 @@ Paralelismo con clones y ramas por entrega autorizado; base remota estable migra
 Verificación: 62 focales TS, 54 pruebas Rust, fmt/clippy verdes; oráculo final52casos/0diferencias.
 Full preliminar10238aprobadas/2omitidas: reprodujo stamp legacy sin wrapper y timeout doctor.
 Stamp corregido y revisado (12 focales verdes, tres engines); doctor aislado verde12.8s.
-Full final en ejecución con dos workers, sin cierre del gate todavía. Draft separado de M7/M8,
-dependiente de PR1389; sin merge, activación de hooks ni corte. M4 conserva CONTRIBUTING pendiente.
+Full final con dos workers exit0:10240aprobadas/2omitidas,483archivos,1369.1s; cobertura
+87.87/86.17/90.51/80.95%,piso162/0;bundle1637.7/1650KiB. T20/T21 cerrados.
+Commitdf872f8c subido; draft separado de M7/M8 pendiente de ejecución humana por bloqueo del
+host (request9698c747), dependiente de PR1389. Sin merge, activación de hooks ni corte.
+M4 conserva CONTRIBUTING pendiente.
