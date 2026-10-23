@@ -4,6 +4,10 @@ Checkpoint de `0057-migracion-rust` hasta E2/M5 en `feat/rust-0057-avance-m5`.
 Destino del PR solicitado por el usuario: `migration/rust`, creado desde la base original
 `72908547` para incluir todo el avance M1–M5 en el diff. Ejecución directa sin subagentes.
 
+Ambas ramas ya están publicadas. La creación del PR fue bloqueada por el hook de consentimiento
+de Codex (`unsupported-or-unavailable`): exige que el humano ejecute el comando revisado.
+No se reintentó. Solicitud y descripción se preparan en `.navori/state/` para ejecución manual.
+
 ## Estado y siguiente paso
 
 - E1/M1–M3 completos localmente; versión, parser/delegación, oráculo y serializador JS.

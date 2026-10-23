@@ -466,4 +466,6 @@ Gate final `bun run check` exit0: 10184 aprobadas, 2 omitidas, 476 archivos, 946
 
 Prepara el PR de todo el avance de la spec 0057 hasta M5 hacia migration/rust, por solicitud explícita del usuario, mediante ejecución directa sin subagentes. Incluye workspace y CLI delegado (M1/M2), oráculo y serialización JS (M3), CI y controles de manifiesto/frescura/tarball/instalación (M4 parcial), runner e integridad exacta con propiedades Node (M5). No activa hooks nativos. CONTRIBUTING y CI remoto siguen pendientes; la escritura shell de las guías fue bloqueada y no se reintentó.
 
+Push de migration/rust y feat/rust-0057-avance-m5 confirmado. El hook de consentimiento Codex bloqueó crear el PR (unsupported-or-unavailable); exige ejecución humana del comando revisado. Sin reintentos ni rutas alternativas de publicación del PR.
+
 Verificación de la sesión: bun check exit 0, 10218 aprobadas y 2 omitidas en 481 archivos; cobertura sobre el piso. Oráculo posterior a M5: 52 casos y 0 diferencias. Prepublicación: check:fast, cargo fmt, clippy con warnings denegados y pruebas del workspace verdes. Instalación local conserva ruta y SHA-256 de navori. Siguiente pieza: M6 (T20/T21), wiring CLI/renderer y fallback seguro.
