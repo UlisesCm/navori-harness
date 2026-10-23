@@ -101,6 +101,16 @@ export function renderWorkplan(plan: Workplan): string {
     heading("Objetivo"),
     plan.objective,
     "",
+    ...(plan.request === undefined
+      ? []
+      : [
+          heading("Solicitud original"),
+          plan.request
+            .split("\n")
+            .map((line: string): string => `> ${line}`)
+            .join("\n"),
+          "",
+        ]),
     heading("Criterios"),
     renderAcceptance(plan),
     "",

@@ -432,6 +432,29 @@ describe("navori plan classify --diff", () => {
 });
 
 describe("navori plan render", () => {
+  // Covers: R15 (0045)
+  it("renders a literal request from JSON and retains it across a CLI update", async () => {
+    const request = "  Keep both conditions.\n\nDo not publish this change.  ";
+    writePlan("demo", { ...validPlan, request });
+    await runCommand(planCommand, { rawArgs: ["render", "demo", "--cwd", cwd] });
+    const rendered = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
+    const requestSection = rendered
+      .split("## Solicitud original\n")[1]
+      ?.split("\n\n## Criterios")[0];
+    expect(requestSection).toBe(">   Keep both conditions.\n> \n> Do not publish this change.  ");
+    await runCommand(planCommand, {
+      rawArgs: ["update", "demo", "--decision", "Keep scope", "--cwd", cwd],
+    });
+    const updated: Record<string, unknown> = JSON.parse(
+      readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(updated.request).toBe(request);
+    const rerendered = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
+    expect(rerendered.split("## Solicitud original\n")[1]?.split("\n\n## Criterios")[0]).toBe(
+      requestSection,
+    );
+  });
+
   it("renders workplan_<feature>.md from the JSON source (R11)", async () => {
     writePlan("demo", validPlan);
     await runCommand(planCommand, {
