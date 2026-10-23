@@ -35,7 +35,9 @@ import { serializePiSource } from "../owned-file.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
 import { load } from "./fixtures/load-extension.ts";
-import { repoFromCwd } from "../../../lib/audit/paths.ts";
+import { readAuditJsonl, repoFromCwd } from "../../../lib/audit/paths.ts";
+import { createAuditReadBudget, type AgentRun } from "../../../lib/audit/model.ts";
+import { parsePiSession } from "../../../lib/audit/pi-session.ts";
 import {
   createRepoTemplate,
   emptyRepo,
@@ -78,6 +80,8 @@ const FEATURE = "demo";
 const A1 = "echo e2e-a1";
 const A2 = "exit 3";
 const A3 = "echo e2e-a3";
+// Rejected evidence writes emit a real CLI event and leave the plan unchanged.
+const CHILD_AUDIT_PROBE = "navori plan update demo --progress A2=cumplido";
 const CLAIM = "echo operator-approved --approved-by tester";
 const PR = "gh pr create --title T --body-file pr-body.txt";
 const PR_BODY = "Reviewed body of the e2e pull request\n";
@@ -154,10 +158,12 @@ const dispatch = (role: string, task: string) =>
 
 describe("Pi process parent plan diagnostics", () => {
   // Covers: R4
-  it.each([false, true])(
-    "blocks before a child starts when navori is on PATH: %s",
+  it.each(["missing", "missing-plan", "denied", "approved"] as const)(
+    "admits a child only through the real parent plan gate: %s",
     { timeout: 60_000 },
-    (available: boolean) => {
+    (mode: "missing" | "missing-plan" | "denied" | "approved") => {
+      const available = mode !== "missing";
+      const approved = mode === "approved";
       const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-pi-parent-gate-")));
       dirs.push(root);
       const cwd = join(root, "project");
@@ -171,16 +177,22 @@ describe("Pi process parent plan diagnostics", () => {
         name: "pi-parent-gate",
         preset: "custom",
         engines: ["pi"],
-        harness: { planTiers: true },
+        harness: { planTiers: true, scribeOwnsMarkdown: true },
       });
       writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config));
       renderPiEngine(cwd, config);
       writeFileSync(join(cwd, ".pi/extensions/zz-faux.ts"), readFileSync(FAUX_FIXTURE, "utf8"));
       mkdirSync(join(cwd, DIR), { recursive: true });
-      writeFileSync(join(cwd, DIR, "workplan_demo.json"), JSON.stringify({ feature: FEATURE }));
-      // A sentinel would record any attempted child process; the plan gate must stop before it.
+      if (mode !== "missing-plan") {
+        writeFileSync(join(cwd, DIR, "workplan_demo.json"), JSON.stringify({ feature: FEATURE }));
+      }
+      // A sentinel records admission; the approved case then runs the real pinned Pi child.
       const spawned = join(root, "child-started");
-      writeFileSync(join(bin, "pi"), `#!/bin/sh\ntouch "${spawned}"\nexit 1\n`);
+      writeFileSync(
+        join(bin, "pi"),
+        `#!/bin/sh\ntouch "${spawned}"\n` +
+          (approved ? `exec "${process.execPath}" "${PI_CLI}" "$@"\n` : "exit 1\n"),
+      );
       chmodSync(join(bin, "pi"), 0o755);
       if (available) {
         writeFileSync(
@@ -191,14 +203,92 @@ describe("Pi process parent plan diagnostics", () => {
       }
       const script = join(root, "script.json");
       const log = join(root, "model.log");
+      if (approved) {
+        writeFileSync(
+          join(cwd, DIR, "workplan_demo.json"),
+          JSON.stringify({
+            feature: FEATURE,
+            level: 1,
+            classification: { score: 2, level: 1, signals: [] },
+            objective: "Admit the approved child",
+            files: [],
+            outOfScope: [],
+            acceptance: [
+              { id: "A1", description: "child runs", command: "true", expected: "exit 0" },
+            ],
+            progress: { A1: "pendiente" },
+            decisions: [],
+          }),
+        );
+        const decision = spawnSync(
+          process.execPath,
+          [
+            NAVORI_CLI,
+            "plan",
+            "update",
+            FEATURE,
+            "--decision",
+            "approved",
+            "--date",
+            "2026-10-23",
+            "--cwd",
+            cwd,
+          ],
+          {
+            cwd,
+            encoding: "utf8",
+            env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+          },
+        );
+        expect(decision.status, decision.stderr + decision.stdout).toBe(0);
+        execFileSync("git", ["add", "-A"], { cwd });
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "baseline",
+          ],
+          { cwd },
+        );
+      }
       writeFileSync(
         script,
         JSON.stringify({
           log,
           scripts: {
             parent: [
-              dispatch("implementer", "nivel-0: README.md demo | verify: `true` → exit0"),
+              dispatch(
+                "implementer",
+                approved || mode === "missing-plan"
+                  ? "workplan: demo"
+                  : "nivel-0: README.md demo | verify: `true` → exit0",
+              ),
               { text: "parent completed" },
+            ],
+            implementer: [
+              bash("true"),
+              call("write", {
+                path: `${DIR}/impl_${FEATURE}.json`,
+                content: JSON.stringify({
+                  feature: FEATURE,
+                  status: "DONE",
+                  worktree: cwd,
+                  branch: "main",
+                  commits: [],
+                  head: approved
+                    ? execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim()
+                    : "",
+                  filesTouched: [],
+                  verification: { command: "true", exitCode: 0, summary: "admission fixture" },
+                  markdownRequests: [],
+                }),
+              }),
+              { text: "child completed" },
             ],
           },
         }),
@@ -244,24 +334,39 @@ describe("Pi process parent plan diagnostics", () => {
             type?: string;
             toolName?: string;
             isError?: boolean;
-            result?: { content?: Array<{ type: string; text?: string }> };
+            result?: { content?: Array<{ type: string; text?: string }>; details?: unknown };
           } => JSON.parse(line),
         );
       const endings = events.filter(
         (event) => event.type === "tool_execution_end" && event.toolName === "navori_subagent",
       );
       expect(endings, result.stdout).toHaveLength(1);
-      expect(endings[0]?.isError).toBe(true);
+      expect(endings[0]?.isError).toBe(!approved);
       const text = endings[0]?.result?.content?.map((part) => part.text ?? "").join("");
       expect(text).toContain(
-        available ? "already has a workplan" : "Navori executable not found on PATH",
+        approved
+          ? "child completed"
+          : available
+            ? mode === "missing-plan"
+              ? "Navori plan gate blocked the implementer"
+              : "already has a workplan"
+            : "Navori executable not found on PATH",
       );
-      expect(existsSync(spawned)).toBe(false);
+      expect(existsSync(spawned)).toBe(approved);
+      if (approved)
+        expect(endings[0]?.result?.details).toMatchObject({
+          outcome: "completed",
+          handoff: "valid",
+        });
       const calls = readFileSync(log, "utf8")
         .trim()
         .split("\n")
         .map((line: string): { role: string } => JSON.parse(line));
-      expect(calls.map((entry) => entry.role)).toEqual(["parent", "parent"]);
+      expect(calls.map((entry) => entry.role)).toEqual(
+        approved
+          ? ["parent", "implementer", "implementer", "implementer", "parent"]
+          : ["parent", "parent"],
+      );
     },
   );
 });
@@ -490,6 +595,7 @@ describe("Pi credential-free first-class cycle", () => {
           architect: [{ text: "design complete" }],
           scout: [{ bigText: BIG }],
           implementer: [
+            bash(CHILD_AUDIT_PROBE),
             call("write", { path: "src/feature.ts", content: "export const feature = 1;\n" }),
             call("write", { path: "README.md", content: "# direct markdown\n" }),
             bash(CLAIM),
@@ -500,10 +606,12 @@ describe("Pi credential-free first-class cycle", () => {
             { echoAll: "implementer results:" },
           ],
           scribe: [
+            bash(CHILD_AUDIT_PROBE),
             call("write", { path: docsPath, content: "# Feature\n\nIt exists.\n" }),
             { echoAll: "scribe results:" },
           ],
           reviewer: [
+            bash(CHILD_AUDIT_PROBE),
             bash("git status --porcelain --untracked-files=all"),
             bash("navori plan update demo --progress A1=cumplido"),
             bash(A3),
@@ -875,6 +983,58 @@ describe("Pi credential-free first-class cycle", () => {
           : {};
         expect(stored).toEqual({});
         expect(new Set(modelLog().map((entry) => entry.provider))).toEqual(new Set(["faux"]));
+      });
+
+      // Covers: R3 — consume actual parent entries and child events, never hand-authored K2 results.
+      await phase("audit serial children and native denials", diagnostic, () => {
+        const transcript = join(root, "parent-transcript.jsonl");
+        writeFileSync(
+          transcript,
+          [{ type: "session", id: parentSession, cwd }, ...active.sessionManager.getBranch()]
+            .map((entry: unknown): string => JSON.stringify(entry))
+            .join("\n") + "\n",
+        );
+        const events: Array<Record<string, unknown>> = [];
+        const reading = readAuditJsonl(auditLog, (value: unknown): void => {
+          if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+            events.push(value as Record<string, unknown>);
+          }
+        });
+        const parsed = parsePiSession(parentSession, auditLog, transcript, {
+          records: events,
+          reading,
+          budget: createAuditReadBudget(),
+        });
+        expect(parsed).not.toBeNull();
+        const expected = [
+          [implemented[0], "implementer", "completed"],
+          [scribed[0], "scribe", "completed"],
+          [reviewed[0], "reviewer", "failed"],
+        ] as const;
+        const ids = expected.map(
+          ([child]: (typeof expected)[number]): string | undefined => child?.toolCallId,
+        );
+        expect(new Set(ids).size).toBe(3);
+        for (const [child, role, outcome] of expected) {
+          expect(child?.toolCallId).toEqual(expect.any(String));
+          const agent = parsed?.agents.find(
+            (run: AgentRun): boolean => run.spawnToolUseId === child?.toolCallId,
+          );
+          expect(agent).toMatchObject({ agentType: role, piOutcome: outcome });
+          expect(agent?.hookEvents.length).toBeGreaterThan(0);
+          expect(
+            events.some(
+              (event: Record<string, unknown>): boolean =>
+                event.event === "cli" &&
+                event.verdict === "block" &&
+                event.agentId === `pi-${role}-${child?.toolCallId}`,
+            ),
+            `CLI event for ${role}: ${child?.text.slice(0, 2400)}`,
+          ).toBe(true);
+        }
+        expect(parsed?.piExtensionDenials?.["handoff-check"]).toBeGreaterThan(0);
+        expect(parsed?.piExtensionDenials?.["managed-lane"]).toBeGreaterThan(0);
+        expect(existsSync(join(auditDir, "spool-" + parentSession))).toBe(false);
       });
     } finally {
       session?.dispose();

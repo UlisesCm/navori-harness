@@ -26,6 +26,7 @@ import {
 } from "./model.ts";
 import { attachHookEvents } from "./parse.ts";
 import { PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
+import { classifyPiExtensionDenial, type PiExtensionControl } from "../../engines/pi/denials.ts";
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -162,9 +163,11 @@ export function parsePiSession(
   const tokens = emptyTokens();
   const models: Record<string, number> = {};
   const toolCounts: Record<string, number> = {};
+  const piExtensionDenials: Partial<Record<PiExtensionControl, number>> = {};
   const children: Array<{
     role: string;
     spawnToolUseId?: string;
+    outcome?: "completed" | "failed";
     tokens: ReturnType<typeof emptyTokens> | null;
     at: string | null;
     ms: number;
@@ -210,19 +213,26 @@ export function parsePiSession(
     } else if (m.role === "toolResult") {
       const name = typeof m.toolName === "string" && NAME.test(m.toolName) ? m.toolName : "unknown";
       toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+      const denial = classifyPiExtensionDenial(name, m.isError, m.content);
+      if (denial) piExtensionDenials[denial] = (piExtensionDenials[denial] ?? 0) + 1;
       if (name === "navori_subagent" && children.length < MAX_CHILDREN) {
         const details = m.details as Record<string, unknown> | undefined;
         const role =
           typeof details?.role === "string" && ROLES.has(details.role) ? details.role : "unknown";
+        const failedChild =
+          typeof m.toolCallId === "string" &&
+          role !== "unknown" &&
+          isFailedChild(details, role, m.toolCallId, sessionId);
+        // A recognized native refusal has no child unless the matching K2 proves it started.
+        if (denial && !failedChild) return;
         children.push({
           role,
           // A bare failure is not evidence of spawn. K2 must match this parent, role and call.
           ...(role !== "unknown" &&
           typeof m.toolCallId === "string" &&
           /^[A-Za-z0-9_:-]{1,256}$/.test(m.toolCallId) &&
-          (m.isError === false ||
-            (m.isError === true && isFailedChild(details, role, m.toolCallId, sessionId)))
-            ? { spawnToolUseId: m.toolCallId }
+          (m.isError === false || (m.isError === true && failedChild))
+            ? { spawnToolUseId: m.toolCallId, outcome: m.isError ? "failed" : "completed" }
             : {}),
           tokens: tokensOf(m.usage),
           at: iso(m.timestamp),
@@ -232,7 +242,7 @@ export function parsePiSession(
     }
   });
   // Only counters and names were retained above; reserve them once against the shared budget.
-  retainAuditFact(budget, sessionId, { tokens, models, toolCounts });
+  retainAuditFact(budget, sessionId, { tokens, models, toolCounts, piExtensionDenials });
 
   const failed = reading.sourceStatus !== "observed";
   const state: SourceHealth["state"] = failed
@@ -305,6 +315,7 @@ export function parsePiSession(
       toolResultBytes: null,
     },
     agents: [],
+    ...(failed ? {} : { piExtensionDenials }),
     signals: [],
     hookLogFrom: null,
     otelFrom: null,
@@ -316,6 +327,7 @@ export function parsePiSession(
     linesRead: reading.lines,
     availability: {
       ...own(measured > 0, measured < assistants),
+      piExtensionDenials: evidence(!failed),
       wallClockMs: evidence(first !== null && last !== null),
     },
     sources: { transcript: health },
@@ -328,6 +340,7 @@ export function parsePiSession(
       // Identity: parent session id + role + ordinal; a child shares the parent's worktree (session.cwd).
       agentId: `pi-${child.role}-${index + 1}`,
       ...(child.spawnToolUseId ? { spawnToolUseId: child.spawnToolUseId } : {}),
+      ...(child.outcome ? { piOutcome: child.outcome } : {}),
       agentType: child.role,
       model: null,
       description: "",

@@ -1,7 +1,7 @@
 /**
  * Spec 0048 D1/D2/D10: the hook bridge that lets Pi run the shared hook scripts, as a fragment of
  * `PI_EXTENSION_SOURCE`. It relies on the extension scope (`spawn`, `readFileSync`, `join`, `isRecord`,
- * `getShellConfig`) and declares nothing that collides with it. The fragment contains no backtick and no
+ * `getShellConfig`, `PI_EXTENSION_DENIALS`) and declares nothing that collides with it. The fragment contains no backtick and no
  * placeholder so it can be spliced into the extension template as-is.
  *
  * Verdict contract (design.md "Contracts", F4/F5):
@@ -70,7 +70,7 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
 function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[]; ownedPaths: string[] } | { ok: false; reason: string } {
-  const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: "Navori cannot evaluate its Pi controls (" + why + "); " + BRIDGE_RENDER_ACTION + "." });
+  const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: PI_EXTENSION_DENIALS.manifest.prefix + why + "); " + BRIDGE_RENDER_ACTION + "." });
   let manifest: unknown;
   try { manifest = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8")); }
   catch { return cannot("the manifest is missing or unreadable"); }

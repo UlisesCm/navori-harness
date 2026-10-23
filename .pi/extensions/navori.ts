@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="1bd20d8a6b66148189a4d0de390f1512d08174481d015bd61dd3e626e6b72abf"
+// navori:managed-file id="pi-extension" hash="483bac44ec8f383d14cecf5dfa3de025157afd62452dce2d73da1bc4c91fa677"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -15,6 +15,8 @@ function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void 
   }
   if (!trusted) throw new Error("Navori Pi subagent requires a trusted parent project");
 }
+
+const PI_EXTENSION_DENIALS = {"planBlocked":{"control":"plan-gate","tools":["navori_subagent"],"prefix":"Navori plan gate blocked the implementer"},"planUnavailable":{"control":"plan-gate","tools":["navori_subagent"],"prefix":"Navori plan gate unavailable; subagent blocked"},"planMissing":{"control":"plan-gate","tools":["navori_subagent"],"prefix":"Navori executable not found on PATH; plan gate unavailable; subagent blocked"},"handoffUnavailable":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori handoff check unavailable; "},"handoffJson":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Invalid Navori handoff check JSON; "},"handoffDenied":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori handoff check did not pass; "},"implementerFeature":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori implementer requires an explicit Navori feature slug for handoff check"},"reviewerFeature":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori reviewer requires an explicit Navori feature slug for handoff check"},"scribeFeature":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori scribe requires an explicit Navori feature slug for handoff check"},"implementerHandoff":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori implementer handoff invalid: "},"reviewerHandoff":{"control":"handoff-check","tools":["navori_subagent"],"prefix":"Navori reviewer handoff invalid: "},"managedBlocked":{"control":"managed-lane","tools":["write","edit"],"prefix":"Navori blocked this "},"managedPath":{"control":"managed-lane","tools":["write","edit"],"prefix":"Navori cannot tell which file this "},"managedEvaluate":{"control":"managed-lane","tools":["write","edit"],"prefix":"Navori cannot evaluate "},"managedInspect":{"control":"managed-lane","tools":["write","edit"],"prefix":"Navori cannot inspect "},"managedError":{"control":"managed-lane","tools":["write","edit"],"prefix":"Navori could not evaluate this "},"powershell":{"control":"powershell","tools":["powershell"],"prefix":"Navori disabled Pi's powershell tool: "},"runtime":{"control":"runtime-restricted","tools":["bash","edit","write","powershell"],"prefix":"Navori does not verify Pi "},"manifest":{"control":"manifest-skew","tools":["bash","edit","write"],"prefix":"Navori cannot evaluate its Pi controls ("},"markdownBinding":{"control":"manifest-skew","tools":["bash","edit","write"],"prefix":"Navori Markdown ownership hook binding is missing or incompatible; "},"markdownControls":{"control":"manifest-skew","tools":["bash","edit","write"],"prefix":"Navori cannot evaluate Markdown ownership controls; "}};
 
 const MCP_PLUGIN_IDS: readonly string[] = ["engram","codegraph"];
 const mcpServerStates = function(e,t,n){let r=e=>e.replaceAll(`-`,`_`),i=e=>{let t=new Map,n=typeof e==`object`&&e&&!Array.isArray(e)?e.mcpServers:void 0;if(typeof n!=`object`||!n||Array.isArray(n))return t;for(let[e,i]of Object.entries(n))typeof i==`object`&&i&&!Array.isArray(i)&&t.set(r(e),{enabled:i.enabled!==!1,replaces:[`command`,`url`,`type`].some(e=>e in i)});return t},a=i(t),o=i(n);return e.map(e=>{let t=a.get(r(e)),n=o.get(r(e)),i=n===void 0?t:n.replaces?n:t&&{...t,enabled:n.enabled};return t?.enabled===!0&&i?.enabled?`global`:i?.enabled?`project-only`:i===void 0?`missing`:`disabled`})};
@@ -159,10 +161,10 @@ function planDenial(stderr: string, feature: string | undefined): string {
   const match = /^\[navori\] BLOCKED by plan-gate: feature "([a-z0-9][a-z0-9._-]{0,127})" already has a workplan — open with \x60workplan: \1\x60, not nivel-0\.\n?$/.exec(stderr);
   if (match && match[0] === stderr) {
     const slug = match[1] === feature ? feature : "<feature>";
-    return "Navori plan gate blocked the implementer: this feature already has a workplan; open with \x60workplan: " +
+    return PI_EXTENSION_DENIALS.planBlocked.prefix + ": this feature already has a workplan; open with \x60workplan: " +
       slug + "\x60, not \x60nivel-0:\x60. Review the existing workplan and its approval before another dispatch.";
   }
-  return "Navori plan gate blocked the implementer. The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
+  return PI_EXTENSION_DENIALS.planBlocked.prefix + ". The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
 }
 
 async function checkDispatch(cwd: string, role: Role, task: string,
@@ -173,27 +175,28 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
     catch (error) {
       if (error instanceof NavoriControlUnavailable && error.missingExecutable) {
-        throw new Error("Navori executable not found on PATH; plan gate unavailable; subagent blocked");
+        throw new Error(PI_EXTENSION_DENIALS.planMissing.prefix);
       }
-      throw new Error("Navori plan gate unavailable; subagent blocked");
+      throw new Error(PI_EXTENSION_DENIALS.planUnavailable.prefix);
     }
     if (result.code === 2) throw new Error(planDenial(result.stderr, feature));
-    if (result.code !== 0) throw new Error("Navori plan gate unavailable; subagent blocked");
+    if (result.code !== 0) throw new Error(PI_EXTENSION_DENIALS.planUnavailable.prefix);
   }
   if (role === "implementer" || role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {
-      throw new Error("Navori " + role + " requires an explicit Navori feature slug for handoff check");
+      throw new Error(PI_EXTENSION_DENIALS[role === "implementer" ? "implementerFeature" :
+        role === "reviewer" ? "reviewerFeature" : "scribeFeature"].prefix);
     }
     if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
       "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
       "", signal); }
-    catch { throw new Error("Navori handoff check unavailable; " + role + " blocked"); }
+    catch { throw new Error(PI_EXTENSION_DENIALS.handoffUnavailable.prefix + role + " blocked"); }
     let parsed: unknown;
-    try { parsed = JSON.parse(result.stdout); } catch { throw new Error("Invalid Navori handoff check JSON; " + role + " blocked"); }
+    try { parsed = JSON.parse(result.stdout); } catch { throw new Error(PI_EXTENSION_DENIALS.handoffJson.prefix + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
-        parsed.feature !== feature) throw new Error("Navori handoff check did not pass; " + role + " blocked");
+        parsed.feature !== feature) throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked");
   }
 }
 
@@ -890,7 +893,7 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
 function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[]; ownedPaths: string[] } | { ok: false; reason: string } {
-  const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: "Navori cannot evaluate its Pi controls (" + why + "); " + BRIDGE_RENDER_ACTION + "." });
+  const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: PI_EXTENSION_DENIALS.manifest.prefix + why + "); " + BRIDGE_RENDER_ACTION + "." });
   let manifest: unknown;
   try { manifest = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8")); }
   catch { return cannot("the manifest is missing or unreadable"); }
@@ -1212,7 +1215,7 @@ function managedLaneVerdict(cwd: string, toolName: string, rawInput: unknown, ow
   try {
     const input = isRecord(rawInput) ? rawInput : {};
     const given = typeof input.path === "string" ? input.path : typeof input.file_path === "string" ? input.file_path : undefined;
-    if (given === undefined || given.length === 0) return "Navori cannot tell which file this " + toolName + " targets, so it is blocked. Pass a path.";
+    if (given === undefined || given.length === 0) return PI_EXTENSION_DENIALS.managedPath.prefix + toolName + " targets, so it is blocked. Pass a path.";
     const expanded = laneExpand(given);
     const target = laneReal(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
     const rel = relative(laneReal(resolve(cwd)), target);
@@ -1222,32 +1225,32 @@ function managedLaneVerdict(cwd: string, toolName: string, rawInput: unknown, ow
     const plane = key === ".pi/settings.json" || key === ".pi/navori.json" || key === ".pi/navori" || key.startsWith(".pi/navori/")
       || key === ".pi/extensions" || key.startsWith(".pi/extensions/");
     if (plane || owned) {
-      return "Navori blocked this " + toolName + ": " + rel + (plane ? " is part of the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json), which decides whether the guards run. " : " is generated by Navori. ")
+      return PI_EXTENSION_DENIALS.managedBlocked.prefix + toolName + ": " + rel + (plane ? " is part of the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json), which decides whether the guards run. " : " is generated by Navori. ")
         + (owned ? LANE_RENDER + " " : "") + (plane ? "Anything else in the control plane is for the user to edit outside the agent." : "");
     }
     if (!LANE_MIXED.test(key)) return undefined;
     const stats = lstatSync(target, { throwIfNoEntry: false });
     if (!stats) return undefined;
-    if (!stats.isFile()) return "Navori cannot evaluate " + rel + " (not a regular file), so this " + toolName + " is blocked.";
-    if (stats.size > LANE_MAX_BYTES) return "Navori cannot inspect " + rel + " for managed blocks (it is larger than 4 MiB), so this " + toolName + " is blocked.";
+    if (!stats.isFile()) return PI_EXTENSION_DENIALS.managedEvaluate.prefix + rel + " (not a regular file), so this " + toolName + " is blocked.";
+    if (stats.size > LANE_MAX_BYTES) return PI_EXTENSION_DENIALS.managedInspect.prefix + rel + " for managed blocks (it is larger than 4 MiB), so this " + toolName + " is blocked.";
     const text = readFileSync(target, "utf8").replace(/\r\n?/g, "\n");
     const blocks = laneBlocks(text);
     if (!blocks.length) return undefined;
     const ids = blocks.map((block) => block.id).join(", ");
-    if (toolName === "write") return "Navori blocked this write: " + rel + " holds managed blocks (" + ids + ") and write replaces the whole file. Use edit on text outside them. " + LANE_RENDER;
+    if (toolName === "write") return PI_EXTENSION_DENIALS.managedBlocked.prefix + "write: " + rel + " holds managed blocks (" + ids + ") and write replaces the whole file. Use edit on text outside them. " + LANE_RENDER;
     const olds = laneOldTexts(input);
-    if (olds === undefined) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and the edit arrived in a shape Navori cannot inspect. Send edits as a list of oldText/newText.";
+    if (olds === undefined) return PI_EXTENSION_DENIALS.managedBlocked.prefix + "edit: " + rel + " holds managed blocks (" + ids + ") and the edit arrived in a shape Navori cannot inspect. Send edits as a list of oldText/newText.";
     for (const old of olds) {
       let from = text.indexOf(old);
-      if (from < 0) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and an oldText was not found exactly, so Navori cannot tell whether it falls inside one. Use the exact text, outside them.";
+      if (from < 0) return PI_EXTENSION_DENIALS.managedBlocked.prefix + "edit: " + rel + " holds managed blocks (" + ids + ") and an oldText was not found exactly, so Navori cannot tell whether it falls inside one. Use the exact text, outside them.";
       for (; from >= 0; from = text.indexOf(old, from + 1)) {
         const hit = blocks.find((block) => from < block.end && from + old.length > block.start);
-        if (hit) return "Navori blocked this edit: it changes the managed block " + hit.id + " in " + rel + ". " + LANE_RENDER;
+        if (hit) return PI_EXTENSION_DENIALS.managedBlocked.prefix + "edit: it changes the managed block " + hit.id + " in " + rel + ". " + LANE_RENDER;
       }
     }
     return undefined;
   } catch {
-    return "Navori could not evaluate this " + toolName + " (an unexpected error), so it is blocked.";
+    return PI_EXTENSION_DENIALS.managedError.prefix + toolName + " (an unexpected error), so it is blocked.";
   }
 }
 
@@ -1263,13 +1266,13 @@ function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
   try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
 }
 
-const POWERSHELL_REASON = "Navori disabled Pi's powershell tool: it would run commands outside the shared shell policy. "
+const POWERSHELL_REASON = PI_EXTENSION_DENIALS.powershell.prefix + "it would run commands outside the shared shell policy. "
   + "Install Git for Windows and use the bash tool (see docs/pi.md), or run the command yourself.";
 
 /** Registers ONLY the write block for a Pi this extension has not verified: reads stay intact, one notice per process. */
 function registerUnverifiedBlock(pi: ExtensionAPI): void {
   let noticed = false;
-  const reason = "Navori does not verify Pi " + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
+  const reason = PI_EXTENSION_DENIALS.runtime.prefix + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
   pi.on("tool_call", (event, ctx) => {
     if (!UNVERIFIED_BLOCKED_TOOLS.has(event.toolName)) return;
     noticeOnce(ctx, noticed, reason);
@@ -1339,10 +1342,10 @@ export default function (pi: ExtensionAPI): void {
           if (rows.length !== 1 || !row || row.on !== "tool_call" || row.scope !== "child" ||
               row.class !== "enforced" || row.interactive || row.path !== ".pi/navori/hooks/implementer-no-markdown.sh" ||
               !["bash", "edit", "write"].every((tool) => row.tools?.includes(tool)) || !manifest.ownedPaths.includes(row.path)) {
-            return { block: true, reason: "Navori Markdown ownership hook binding is missing or incompatible; " + BRIDGE_RENDER_ACTION + "." };
+            return { block: true, reason: PI_EXTENSION_DENIALS.markdownBinding.prefix + BRIDGE_RENDER_ACTION + "." };
           }
         }
-      } catch { return { block: true, reason: "Navori cannot evaluate Markdown ownership controls; " + BRIDGE_RENDER_ACTION + "." }; }
+      } catch { return { block: true, reason: PI_EXTENSION_DENIALS.markdownControls.prefix + BRIDGE_RENDER_ACTION + "." }; }
       if (event.toolName !== "bash") {
         // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
         const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
@@ -1459,7 +1462,7 @@ export default function (pi: ExtensionAPI): void {
         }
         if (snapshot) {
           const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
-          if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
             details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length

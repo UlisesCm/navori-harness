@@ -1,3 +1,5 @@
+import type { PiExtensionControl } from "../../engines/pi/denials.ts";
+
 /**
  * Domain model for `navori audit`.
  *
@@ -748,6 +750,8 @@ export function addTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
 /** Every token that entered or left the model, for one subagent run. */
 export interface AgentRun {
   codex?: CodexRunFacts;
+  /** Pi transcript observation, never actor authority; absent without a confirmed invocation. */
+  piOutcome?: "completed" | "failed";
   availability?: Record<string, MetricEvidence>;
   agentId: string;
   /** From `agent-<id>.meta.json`; falls back to the parent's `subagent_type`. */
@@ -1346,6 +1350,8 @@ export interface SessionAudit {
     blockedCommands?: Record<string, string>;
   };
   agents: AgentRun[];
+  /** Closed native Pi control IDs only; raw tool text is never retained. */
+  piExtensionDenials?: Partial<Record<PiExtensionControl, number>>;
   signals: Signal[];
   /**
    * First hook execution the session log recorded, or `null` when it recorded
