@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod delegate;
 pub mod help;
+pub mod hook;
 pub mod parser;
 
 use std::ffi::OsString;
@@ -70,6 +71,10 @@ pub fn run(args: &[OsString]) -> ExitCode {
             std::process::id()
         );
         return ExitCode::from(delegate::EXIT_LOOP);
+    }
+    // Internal hooks never delegate, but still obey the global same-process loop guard.
+    if args.first().is_some_and(|arg| arg == "hook") {
+        return hook::run(&args[1..]);
     }
     let manifest = match Manifest::embedded() {
         Ok(manifest) => manifest,

@@ -5,7 +5,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::fmt;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Once;
 
@@ -229,4 +229,32 @@ fn safe_failure(context: Context<'_>, cause: &str) -> Response {
             stderr: format!("{reason}\n").into_bytes(),
         }
     }
+}
+
+/// Publish a complete response and return only a protocol exit code.
+///
+/// Once a writer fails it is impossible to retract its partial bytes or reliably emit an `ask`.
+/// A gating hook therefore exits 2, including Claude; advisory hooks exit 1. The outer wrapper
+/// captures stdout and preserves this blocking code. Writer panics follow the same contract.
+pub fn emit<W: Write, E: Write>(
+    context: Context<'_>,
+    response: &Response,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
+    let _capture = Capture::start();
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        stdout.write_all(response.stdout())?;
+        stdout.flush()?;
+        stderr.write_all(response.stderr())?;
+        stderr.flush()
+    }));
+    if matches!(result, Ok(Ok(()))) {
+        return response.code();
+    }
+    // A diagnostic channel may be broken too; never panic while reporting that failure.
+    let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+        stderr.write_all(b"navori: could not publish hook result\n")
+    }));
+    if context.gating { 2 } else { 1 }
 }

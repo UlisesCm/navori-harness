@@ -1,0 +1,60 @@
+=== claude-script ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: example could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== codex-script ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: example could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== pi-script ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: example could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== claude-command ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/example.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'PreToolUse' "$f" --shadow first; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: example could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: example native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f" first; printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: .claude/hooks/example.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply"}}'

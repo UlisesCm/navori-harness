@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { finalizeNativeHooks } from "../../lib/render/native-hook-render.ts";
 import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 import { join, resolve, sep } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
@@ -636,6 +637,17 @@ export function preparePiEngine(
         : collected.pending),
       ...(!collided ? piPending : []),
     ];
+    if (!collided)
+      finalizeNativeHooks({
+        cwd,
+        engine: "pi",
+        config,
+        hooks: plan.hooks.filter((hook: (typeof plan.hooks)[number]): boolean =>
+          installedHooks.has(piHookPath(hook.id)),
+        ),
+        plugins,
+        pending,
+      });
     finalized = {
       ...collected,
       pending,

@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 navori-core = { path = "crates/navori-core" }
+navori-hooks = { path = "crates/navori-hooks" }
 # Pinned to the versions named in specs/0057-migracion-rust/design.md (dependency table).
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
