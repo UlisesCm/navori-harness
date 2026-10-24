@@ -71,8 +71,8 @@ fn shell_source() -> Result<String, Box<dyn Error>> {
     Ok(expanded)
 }
 
-/// Compare all observable policy fields with a real audit-disabled shell invocation.
-fn compare_shell(bytes: &[u8], profile: Profile) -> TestResult {
+/// Capture the real, audit-disabled shell oracle without relaxing any observable output.
+fn shell_output(bytes: &[u8], profile: Profile) -> Result<std::process::Output, Box<dyn Error>> {
     let temp = Temp::new()?;
     let script = temp.0.join("subagent-no-background.sh");
     fs::write(&script, shell_source()?)?;
@@ -114,7 +114,12 @@ fn compare_shell(bytes: &[u8], profile: Profile) -> TestResult {
         .stderr(Stdio::piped())
         .spawn()?;
     child.stdin.take().ok_or("stdin")?.write_all(bytes)?;
-    let expected = child.wait_with_output()?;
+    Ok(child.wait_with_output()?)
+}
+
+/// Compare all observable policy fields with a real audit-disabled shell invocation.
+fn compare_shell(bytes: &[u8], profile: Profile) -> TestResult {
+    let expected = shell_output(bytes, profile)?;
     let actual = evaluate(bytes, Engine::Claude, profile)?;
     assert_eq!(
         i32::from(code(actual.verdict)),
@@ -132,6 +137,66 @@ fn compare_shell(bytes: &[u8], profile: Profile) -> TestResult {
         "payload bytes {}",
         bytes.len()
     );
+    Ok(())
+}
+
+// Covers: R11, R12
+#[test]
+fn consumed_depth_limit_is_an_explicit_failure_not_an_empty_permitted_command() -> TestResult {
+    let command = format!(
+        "{}\"{}\"{}",
+        "[".repeat(130),
+        "x".repeat(131_000),
+        "]".repeat(130)
+    );
+    assert_eq!(command.len(), 131_262);
+    let bytes =
+        format!(r#"{{"agent_id":"x","tool_name":"Bash","tool_input":{{"command":{command}}}}}"#)
+            .into_bytes();
+    assert_eq!(bytes.len(), 131_323);
+    let profile = Profile {
+        extractor: Extractor::JqAndNode,
+        locale: Locale::C,
+    };
+    let legacy = shell_output(&bytes, profile)?;
+    assert_eq!(legacy.status.code(), Some(2));
+    assert!(legacy.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&legacy.stderr).contains("131262 > 131072"));
+    let failure = match evaluate(&bytes, Engine::Claude, profile) {
+        Err(failure) => failure,
+        Ok(output) => {
+            return Err(format!(
+                "consumed decoding error returned {:?} instead of explicit failure",
+                output.verdict
+            )
+            .into());
+        }
+    };
+    assert!(failure.0.contains("recursion limit exceeded"));
+    // This is the supported safe failure route, not a claim of legacy verdict parity. A bounded
+    // deep-value implementation is still needed before enabling a productive native handler.
+    for engine in [Engine::Claude, Engine::Pi] {
+        let response = navori_hooks::runner::run(
+            navori_hooks::runner::Context {
+                engine,
+                hook: "subagent-no-background",
+                gating: true,
+            },
+            &mut bytes.as_slice(),
+            || Ok(true),
+            |payload| evaluate(payload, engine, profile),
+        );
+        if engine == Engine::Claude {
+            assert_eq!(response.code(), 0);
+            assert_eq!(
+                serde_json::from_slice::<Value>(response.stdout())?["hookSpecificOutput"]["permissionDecision"],
+                "ask"
+            );
+        } else {
+            assert_eq!(response.code(), 2);
+            assert!(response.stdout().is_empty());
+        }
+    }
     Ok(())
 }
 

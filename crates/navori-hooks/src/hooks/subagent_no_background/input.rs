@@ -107,11 +107,15 @@ type Object = BTreeMap<String, Box<RawValue>>;
 
 /// Decode only consumed values. Unknown fields remain raw, including non-finite numeric
 /// literals; serde_json validates all syntax before the bounded string-escape adaptation.
-fn selected(text: &str, mode: Extractor) -> Option<([Value; 3], bool)> {
-    let valid: &RawValue = serde_json::from_str(text).ok()?;
+/// A consumed-value decoding failure is distinct from a missing/null field and must not permit.
+fn selected(text: &str, mode: Extractor) -> Result<Option<([Value; 3], bool)>, Failure> {
+    let valid: &RawValue = match serde_json::from_str(text) {
+        Ok(valid) => valid,
+        Err(_) => return Ok(None),
+    };
     let (node_text, high_surrogate, changed) = node_strings(valid.get());
     if high_surrogate && matches!(mode, Extractor::JqOnly) {
-        return None;
+        return Ok(None);
     }
     let node = matches!(mode, Extractor::Node) || high_surrogate;
     let text = if changed {
@@ -124,16 +128,21 @@ fn selected(text: &str, mode: Extractor) -> Option<([Value; 3], bool)> {
         .get("tool_input")
         .and_then(|v| serde_json::from_str::<Object>(v.get()).ok())
         .unwrap_or_default();
-    let fields = [
-        object.get("tool_name"),
-        tool_input.get("run_in_background"),
-        tool_input.get("command"),
+    let [tool, background, command] = [
+        ("tool_name", object.get("tool_name")),
+        (
+            "tool_input.run_in_background",
+            tool_input.get("run_in_background"),
+        ),
+        ("tool_input.command", tool_input.get("command")),
     ]
-    .map(|v| {
-        v.and_then(|v| serde_json::from_str::<Value>(v.get()).ok())
-            .unwrap_or(Value::Null)
+    .map(|(field, value)| {
+        value.map_or(Ok(Value::Null), |raw| {
+            serde_json::from_str::<Value>(raw.get())
+                .map_err(|error| Failure(format!("hook field {field} decoding failed: {error}")))
+        })
     });
-    Some((fields, node))
+    Ok(Some(([tool?, background?, command?], node)))
 }
 
 /// Format retained jq decimal literals, including scientific notation. Keeping decimal width
@@ -315,7 +324,7 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
     let mode = profile.extractor;
     let text = String::from_utf8_lossy(payload);
     if !matches!(mode, Extractor::Sed)
-        && let Some((fields, node)) = selected(&text, mode)
+        && let Some((fields, node)) = selected(&text, mode)?
     {
         let bulk = fields.each_ref().map(|v| structured(v, false, node));
         let values = if bulk.iter().any(|v| v.contains('\0')) {
