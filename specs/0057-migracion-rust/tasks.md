@@ -101,9 +101,20 @@ El primer full local terminó con 10217 aprobadas, dos omitidas y un timeout de 
 Paridad zsh aislada: dos pruebas verdes en 166.7 s, sin cambios de código ni timeout.
 
 ### M8 — Herramientas
+
+Incremento de tooling en `feat/0057-rust-e2-m8-tools`: adapter Rust directo con binario/rutas
+fijados antes del sandbox, parser estricto, replay, fuzz determinista y benchmark wall-time/p95
+separado del CPU de shell. 59 pruebas focales y check:fast verdes. Fuzz acepta hasta100000 casos
+(D9), pero con el registro real vacío termina con error y cero casos ejecutados.
+Auditoría active Rust falla explícitamente hasta disponer de fixtures CLI válidos.
+El benchmark conserva el evento registrado y rechaza wrappers/argumentos de shell que no
+pueda representar mediante argv exacto; no mide silenciosamente otra rama del hook.
+T23–T25 y A8 siguen pendientes: portes reales, clasificación del corpus, gramática ampliada,
+log shadow y medición de rendimiento nativo. Gate completo del incremento pendiente.
+
 - **A8** [observable] — replay, fuzz y bench funcionan con `--impl rust` · `bun run fuzz:hooks --seed 1 --cases 1000 && bun run bench:hooks --impl rust --report-only` → exit 0
 - [ ] **T23** (R11) — `hook-verdict-replay.mjs --impl rust`, `divergences` con los 163 casos `shell-runtime` clasificados, corpus ampliado (al menos un caso por clase de veredicto y engine) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"rust reproduce el corpus o la categoría de su divergencia"
-- [ ] **T24** (R11, R12) — `scripts/js/hook-fuzz.mjs` (`fuzz:hooks`) y modo `shadow` con log local de divergencias (D9) · effect: behavior · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"una divergencia sembrada se reporta con su payload"
+- [ ] **T24** (R11, R12) — `scripts/js/hook-fuzz.mjs` (`fuzz:hooks`) y modo `shadow` con log local de divergencias (D9) · effect: behavior · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"reports a seeded divergence with the exact reproducible payload"
 - [ ] **T25** (R17) — `bench-hooks.mjs --impl rust`: p95 de la invocación directa del binario con comparabilidad de 0055 · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench --impl rust mide el binario sin wrapper"
 
 ### M9 — Primer hook en sombra

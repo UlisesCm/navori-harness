@@ -16,6 +16,7 @@ import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { withoutRepoGitEnv } from "./git-env.mjs";
+import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 
 /**
  * Spec 0054 R27 / spec 0055 R3 — `bun run bench:hooks`.
@@ -38,18 +39,36 @@ import { withoutRepoGitEnv } from "./git-env.mjs";
  * HOME and NAVORI_AUDITS_ROOT. The repo is never written, except `.navori/state/bench/`.
  * A command invoked by absolute path escapes the shim count (D10).
  *
- * Usage: node scripts/js/bench-hooks.mjs [--report-only] [--runs N] [--scenario NAME ...]
+ * Rust mode times the binary directly (wall median/p95, never the shell CPU budget).
+ * NAVORI_RUST_BIN selects the binary; NAVORI_RUST_HOOKS_DIR supplies renderer-prepared scripts.
+ * Unavailable/deferred native execution always fails, including with --report-only.
+ * Rust currently supports only --audit absent (default); root/active require CLI-writer fixtures.
+ * Usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N] [--scenario NAME ...]
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PAYLOADS = join(dirname(fileURLToPath(import.meta.url)), "bench-payloads");
 export const BASH_BUDGET_MS = 300;
+/** R17 budget for direct native invocation, measured as wall p95 in milliseconds. */
+export const RUST_P95_BUDGET_MS = 5;
 
 /** Tool name each scenario uses per engine, and the payload file it sends. */
 export const SCENARIOS = {
-  Bash: { payload: "bash.json", events: ["PreToolUse", "PostToolUse"], tools: { claude: "Bash", codex: "Bash", pi: "Bash" } },
-  Edit: { payload: "edit.json", events: ["PreToolUse", "PostToolUse"], tools: { claude: "Edit", codex: "apply_patch", pi: "Edit" } },
-  Agent: { payload: "agent.json", events: ["PreToolUse", "PostToolUse"], tools: { claude: "Agent", codex: "spawn_agent", pi: "Agent" } },
+  Bash: {
+    payload: "bash.json",
+    events: ["PreToolUse", "PostToolUse"],
+    tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
+  },
+  Edit: {
+    payload: "edit.json",
+    events: ["PreToolUse", "PostToolUse"],
+    tools: { claude: "Edit", codex: "apply_patch", pi: "Edit" },
+  },
+  Agent: {
+    payload: "agent.json",
+    events: ["PreToolUse", "PostToolUse"],
+    tools: { claude: "Agent", codex: "spawn_agent", pi: "Agent" },
+  },
   SessionStart: { payload: "session-start.json", events: ["SessionStart"], source: "startup" },
   UserPromptSubmit: { payload: "user-prompt.json", events: ["UserPromptSubmit"] },
 };
@@ -87,7 +106,12 @@ export function parseClaudeRegistrations(settings) {
     for (const group of groups) {
       for (const hook of group.hooks ?? []) {
         if (typeof hook.command === "string") {
-          out.push({ engine: "claude", event, matcher: group.matcher ?? null, command: hook.command });
+          out.push({
+            engine: "claude",
+            event,
+            matcher: group.matcher ?? null,
+            command: hook.command,
+          });
         }
       }
     }
@@ -132,7 +156,12 @@ export function parseCodexRegistrations(toml) {
     if (!kv || !group) continue;
     if (kv[1] === "matcher" && !inHook) group.matcher = str(kv[2]);
     if (kv[1] === "command" && inHook) {
-      out.push({ engine: "codex", event: group.event, matcher: group.matcher, command: str(kv[2]) });
+      out.push({
+        engine: "codex",
+        event: group.event,
+        matcher: group.matcher,
+        command: str(kv[2]),
+      });
     }
   }
   return out;
@@ -199,7 +228,9 @@ export function evaluateBudget(sums, budgetMs = BASH_BUDGET_MS) {
   for (const [engine, scenarios] of Object.entries(sums)) {
     const bash = scenarios.Bash;
     if (bash && bash.totalMs > budgetMs) {
-      violations.push(`${engine} Bash: ${bash.totalMs.toFixed(0)} ms > ${budgetMs} ms (${bash.hooks} hooks)`);
+      violations.push(
+        `${engine} Bash: ${bash.totalMs.toFixed(0)} ms > ${budgetMs} ms (${bash.hooks} hooks)`,
+      );
     }
   }
   return { ok: violations.length === 0, violations };
@@ -225,14 +256,11 @@ const PI_TOOL_NAMES = { bash: "Bash", edit: "Edit", write: "Write" };
 export function parsePiRegistrations(source, exists = () => true) {
   /** @type {Registration[]} */
   const out = [];
-  const row =
-    /script:\s*"([\w-]+)",\s*on:\s*"(\w+)",\s*(?:tools:\s*\[([^\]]*)\],)?/g;
+  const row = /script:\s*"([\w-]+)",\s*on:\s*"(\w+)",\s*(?:tools:\s*\[([^\]]*)\],)?/g;
   for (const [, script, on, tools] of source.matchAll(row)) {
     const event = PI_EVENTS[on];
     if (event === undefined || !exists(script)) continue;
-    const names = [...(tools ?? "").matchAll(/"(\w+)"/g)].map(
-      (m) => PI_TOOL_NAMES[m[1]] ?? m[1],
-    );
+    const names = [...(tools ?? "").matchAll(/"(\w+)"/g)].map((m) => PI_TOOL_NAMES[m[1]] ?? m[1]);
     out.push({
       engine: "pi",
       event,
@@ -244,7 +272,20 @@ export function parsePiRegistrations(source, exists = () => true) {
 }
 
 /** Programs whose execs are counted (spec 0055 D10). */
-export const SHIMMED_PROGRAMS = ["jq", "node", "perl", "git", "navori", "date", "sed", "grep", "tr", "head", "tail", "basename"];
+export const SHIMMED_PROGRAMS = [
+  "jq",
+  "node",
+  "perl",
+  "git",
+  "navori",
+  "date",
+  "sed",
+  "grep",
+  "tr",
+  "head",
+  "tail",
+  "basename",
+];
 
 /**
  * Counts the lines of an exec log per program.
@@ -261,7 +302,10 @@ export function countExecs(log) {
 
 /** `command -v` through the original PATH; `null` when the program does not exist. */
 function resolveProgram(name, path) {
-  const run = spawnSync("sh", ["-c", `command -v ${name}`], { env: { PATH: path }, encoding: "utf8" });
+  const run = spawnSync("sh", ["-c", `command -v ${name}`], {
+    env: { PATH: path },
+    encoding: "utf8",
+  });
   const found = (run.stdout ?? "").trim();
   return run.status === 0 && found.startsWith("/") ? found : null;
 }
@@ -280,7 +324,8 @@ export function createSandbox() {
   const project = join(root, "project");
   mkdirSync(project, { recursive: true });
   for (const tree of [".claude/hooks", ".codex/hooks", ".pi/navori"]) {
-    if (existsSync(join(REPO_ROOT, tree))) cpSync(join(REPO_ROOT, tree), join(project, tree), { recursive: true });
+    if (existsSync(join(REPO_ROOT, tree)))
+      cpSync(join(REPO_ROOT, tree), join(project, tree), { recursive: true });
   }
   if (existsSync(join(REPO_ROOT, "navori.config.json"))) {
     copyFileSync(join(REPO_ROOT, "navori.config.json"), join(project, "navori.config.json"));
@@ -328,7 +373,10 @@ export function createSandbox() {
       if (audit !== "absent") mkdirSync(auditsRoot, { recursive: true });
       if (audit === "active") {
         // `bench-session` is the session_id of every payload; the repo is the project dir name.
-        mkdirSync(join(auditsRoot, "project", "spool-bench-session"), { recursive: true, mode: 0o700 });
+        mkdirSync(join(auditsRoot, "project", "spool-bench-session"), {
+          recursive: true,
+          mode: 0o700,
+        });
         writeFileSync(join(auditsRoot, "project", "session-bench-session.log"), "");
       }
       const path = [counting ? shimDir : null, binDir, originalPath].filter(Boolean).join(":");
@@ -364,8 +412,7 @@ function timeOnce(command, payloadPath, cwd, env) {
     },
   );
   const match = /(\d+\.\d+) (\d+\.\d+) (\d+\.\d+)\s*$/.exec(run.stderr ?? "");
-  if (!match)
-    throw new Error(`cannot read time output for: ${command}\n${run.stderr}`);
+  if (!match) throw new Error(`cannot read time output for: ${command}\n${run.stderr}`);
   return {
     wallMs: Math.round(Number(match[1]) * 1000),
     cpuMs: Math.round((Number(match[2]) + Number(match[3])) * 1000),
@@ -388,11 +435,7 @@ function countOnce(command, payloadPath, cwd, env, capture = false) {
   writeFileSync(log, "");
   const run = spawnSync(
     "bash",
-    [
-      "-c",
-      'bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD"' +
-        (capture ? "" : " >/dev/null 2>/dev/null"),
-    ],
+    ["-c", 'bash -c "$BENCH_CMD" <"$BENCH_PAYLOAD"' + (capture ? "" : " >/dev/null 2>/dev/null")],
     {
       cwd,
       env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
@@ -418,23 +461,13 @@ function countOnce(command, payloadPath, cwd, env, capture = false) {
  * @param {boolean} [counting]
  * @returns {NodeJS.ProcessEnv}
  */
-export function scenarioEnvironment(
-  sandbox,
-  scenario,
-  reg,
-  audit,
-  counting = false,
-) {
+export function scenarioEnvironment(sandbox, scenario, reg, audit, counting = false) {
   const env = sandbox.env(audit, counting);
   if (scenario === "BashFailure") {
     env.CLAUDE_CODE_SESSION_ID = "bench-session";
-    rmSync(
-      join(
-        sandbox.project,
-        ".navori/state/hooks/bash-outcome-watch/bench-session",
-      ),
-      { force: true },
-    );
+    rmSync(join(sandbox.project, ".navori/state/hooks/bash-outcome-watch/bench-session"), {
+      force: true,
+    });
   }
   if (scenario === "SessionEnd" && audit === "active") {
     const repo = join(env.NAVORI_AUDITS_ROOT, "project");
@@ -466,16 +499,22 @@ export function scenarioEnvironment(
  */
 export function isComparable(loadavgBefore, cpus) {
   const initialLoad = loadavgBefore[0];
-  return Number.isFinite(initialLoad) && initialLoad >= 0 &&
-    Number.isFinite(cpus) && cpus > 0 &&
-    initialLoad <= Math.min(4, cpus / 2);
+  return (
+    Number.isFinite(initialLoad) &&
+    initialLoad >= 0 &&
+    Number.isFinite(cpus) &&
+    cpus > 0 &&
+    initialLoad <= Math.min(4, cpus / 2)
+  );
 }
 
 /** Registrations of the three engines, read from the checkout. */
 export function readRegistrations() {
   const piBindings = join(REPO_ROOT, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
   return [
-    ...parseClaudeRegistrations(JSON.parse(readFileSync(join(REPO_ROOT, ".claude", "settings.json"), "utf8"))),
+    ...parseClaudeRegistrations(
+      JSON.parse(readFileSync(join(REPO_ROOT, ".claude", "settings.json"), "utf8")),
+    ),
     ...parseCodexRegistrations(readFileSync(join(REPO_ROOT, ".codex", "config.toml"), "utf8")),
     ...parsePiRegistrations(readFileSync(piBindings, "utf8"), (script) =>
       existsSync(join(REPO_ROOT, ".pi", "navori", "hooks", `${script}.sh`)),
@@ -493,10 +532,7 @@ export function readRegistrations() {
  */
 export function writePayload(sandbox, scenario, reg) {
   const spec = SCENARIOS[scenario];
-  const payloadPath = join(
-    sandbox.root,
-    `${reg.engine}-${scenario}-${reg.event}.json`,
-  );
+  const payloadPath = join(sandbox.root, `${reg.engine}-${scenario}-${reg.event}.json`);
   const supplemental = {
     BashFailure: {
       session_id: "bench-session",
@@ -537,30 +573,216 @@ export function writePayload(sandbox, scenario, reg) {
   return payloadPath;
 }
 
-/**
+/** Parse the implementation selector without silently falling back to shell.
+ * @param {string[]} argv
+ * @returns {{ impl: "shell" | "rust", reportOnly: boolean, runs: number, scenarios: string[], audit?: AuditScenario }}
+ */
+export function parseBenchArgs(argv) {
+  /** @type {"shell" | "rust"} */
+  let impl = "shell";
+  let selectedImpl = false;
+  let reportOnly = false;
+  let audit;
+  let runs;
+  const requested = [];
+  const allScenarios = { ...SCENARIOS, ...SUPPLEMENTAL_SCENARIOS };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--impl") {
+      const value = argv[++index];
+      if (selectedImpl || (value !== "shell" && value !== "rust")) {
+        throw new Error("--impl needs shell or rust exactly once");
+      }
+      impl = value;
+      selectedImpl = true;
+    } else if (arg === "--report-only") {
+      reportOnly = true;
+    } else if (arg === "--audit") {
+      const value = argv[++index];
+      if (audit !== undefined || !["absent", "root", "active"].includes(value)) {
+        throw new Error("--audit needs absent, root or active exactly once");
+      }
+      audit = value;
+    } else if (arg === "--runs") {
+      const value = argv[++index];
+      if (!/^[1-9]\d*$/.test(value ?? "") || !Number.isSafeInteger(Number(value))) {
+        throw new Error("--runs needs a positive integer");
+      }
+      runs = Number(value);
+    } else if (arg === "--scenario") {
+      const value = argv[++index];
+      if (!Object.hasOwn(allScenarios, value ?? "")) {
+        throw new Error("--scenario needs a known scenario name");
+      }
+      requested.push(value);
+    } else {
+      throw new Error(`unknown option: ${arg}`);
+    }
+  }
+  if (audit !== undefined && impl !== "rust") throw new Error("--audit requires --impl rust");
+  return {
+    impl,
+    reportOnly,
+    audit,
+    runs: runs ?? (impl === "rust" ? 40 : 3),
+    scenarios: requested.length > 0 ? [...new Set(requested)] : Object.keys(allScenarios),
+  };
+}
+
+/** Nearest-rank p95 in the same units as the samples.
+ * @param {number[]} values
+ * @returns {number}
+ */
+export function p95(values) {
+  if (values.length === 0) throw new Error("p95 of an empty list");
+  return [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1];
+}
+
+/** Time native process startup and verdict directly, without a Bash wrapper or CPU estimate.
+ * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv }} options
+ * @returns {{ wallMs: number, exitCode: number }}
+ */
+export function timeRustOnce(options) {
+  const start = process.hrtime.bigint();
+  const result = runRustHook(options);
+  const wallMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+  if (!result.available) throw new Error(`native unavailable: ${result.reason}`);
+  return { wallMs, exitCode: result.status };
+}
+
+/** Native reporting deliberately keeps R17 wall p95 separate from the shell CPU budget.
+ * Prepared scripts and the executable are pinned before entering the scratch cwd.
+ * @param {ReturnType<typeof parseBenchArgs>} options
+ * @returns {number}
+ */
+function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
+  if (audit !== "absent") {
+    throw new Error(
+      `native audit ${audit} unsupported: CLI-writer fixtures and log validation are pending`,
+    );
+  }
+  const native = prepareRustReplay({
+    manifestPath: join(REPO_ROOT, "crates", "ported.json"),
+    binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
+    scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR,
+  });
+  const registrations = readRegistrations();
+  const sandbox = createSandbox();
+  const loadBefore = loadavg();
+  const measurements = [];
+  try {
+    for (const scenario of scenarios) {
+      for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
+        for (const reg of selectHooks(registrations, scenario, engine)) {
+          const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
+          const directory = {
+            claude: ".claude/hooks",
+            codex: ".codex/hooks",
+            pi: ".pi/navori/hooks",
+          }[engine];
+          // Only the canonical no-argument form is supported; extend when registrations expose declarative argv.
+          if (reg.command !== `bash "${directory}/${hook}"`) {
+            throw new Error(
+              `native registration unsupported: ${engine}/${hook} has no verified argument-free invocation`,
+            );
+          }
+          const script = native.resolveHook(hook, engine);
+          const input = readFileSync(writePayload(sandbox, scenario, reg), "utf8");
+          const timed = Array.from({ length: runs }, () =>
+            timeRustOnce({
+              binary: native.binary,
+              script,
+              input,
+              event: reg.event,
+              cwd: sandbox.project,
+              env: scenarioEnvironment(sandbox, scenario, reg, audit),
+            }),
+          );
+          const runsMs = timed.map((time) => time.wallMs);
+          measurements.push({
+            ...reg,
+            scenario,
+            hook,
+            audit,
+            wallMsMedian: median(runsMs),
+            wallMsP95: p95(runsMs),
+            runsMs,
+            exitCodes: timed.map((time) => time.exitCode),
+          });
+        }
+      }
+    }
+  } finally {
+    sandbox.cleanup();
+  }
+  if (measurements.length === 0)
+    throw new Error("native unavailable: no registered hooks selected");
+  const cpus = availableParallelism();
+  const result = {
+    generatedAt: new Date().toISOString(),
+    impl: "rust",
+    metric: "wall",
+    unit: "ms",
+    audit,
+    cpus,
+    loadavgBefore: loadBefore,
+    loadavgAfter: loadavg(),
+    workers: 1,
+    comparable: isComparable(loadBefore, cpus),
+    runs,
+    scenarios,
+    budget: { metric: "wallMsP95", limitMs: RUST_P95_BUDGET_MS },
+    measurements,
+  };
+  const dir = join(REPO_ROOT, ".navori", "state", "bench");
+  mkdirSync(dir, { recursive: true });
+  const stamped = join(dir, `hooks-rust-${result.generatedAt.replace(/[:.]/g, "-")}.json`);
+  writeFileSync(stamped, `${JSON.stringify(result, null, 2)}\n`);
+  copyFileSync(stamped, join(dir, "hooks-rust-latest.json"));
+  for (const row of measurements) {
+    process.stdout.write(
+      `bench:hooks rust ${row.engine} ${row.scenario} ${row.hook} audit=${row.audit}: ` +
+        `${row.wallMsMedian.toFixed(3)} ms wall median / ${row.wallMsP95.toFixed(3)} ms wall p95\n`,
+    );
+  }
+  process.stdout.write(
+    `bench:hooks impl=rust measurements=${measurements.length} comparable=${result.comparable}\n`,
+  );
+  if (!result.comparable)
+    process.stderr.write("bench:hooks NOT comparable: the machine was not idle at the start\n");
+  const over = measurements.filter((row) => row.wallMsP95 > RUST_P95_BUDGET_MS);
+  if (over.length > 0)
+    process.stderr.write(
+      `bench:hooks rust over wall p95 budget (${RUST_P95_BUDGET_MS} ms): ${over.length} measurements\n`,
+    );
+  return over.length > 0 && !reportOnly ? 1 : 0;
+}
+
+/** Run one benchmark implementation; native unavailability is never report-only success.
  * @param {string[]} argv
  * @returns {number}
  */
-function main(argv) {
-  const reportOnly = argv.includes("--report-only");
-  const runsAt = argv.indexOf("--runs");
-  const runs = runsAt === -1 ? 3 : Number(argv[runsAt + 1]);
-  if (!Number.isInteger(runs) || runs < 1) {
-    process.stderr.write("bench:hooks: --runs needs a positive integer\n");
-    return 2;
-  }
-  const allScenarios = { ...SCENARIOS, ...SUPPLEMENTAL_SCENARIOS };
-  const requested = argv.flatMap((arg, index) =>
-    arg === "--scenario" ? [argv[index + 1]] : [],
-  );
-  if (requested.some((scenario) => !Object.hasOwn(allScenarios, scenario))) {
+export function main(argv) {
+  let options;
+  try {
+    options = parseBenchArgs(argv);
+  } catch (error) {
     process.stderr.write(
-      "bench:hooks: --scenario needs a known scenario name\n",
+      `bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     return 2;
   }
-  const scenarios =
-    requested.length > 0 ? [...new Set(requested)] : Object.keys(allScenarios);
+  const { reportOnly, runs, scenarios } = options;
+  if (options.impl === "rust") {
+    try {
+      return benchRust(options);
+    } catch (error) {
+      process.stderr.write(
+        `bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      return 1;
+    }
+  }
   const registrations = readRegistrations();
   const sandbox = createSandbox();
   const loadBefore = loadavg();
@@ -568,19 +790,11 @@ function main(argv) {
   const measurements = [];
   try {
     for (const scenario of scenarios) {
-      for (const engine of /** @type {Engine[]} */ ([
-        "claude",
-        "codex",
-        "pi",
-      ])) {
+      for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
         for (const reg of selectHooks(registrations, scenario, engine)) {
           const payloadPath = writePayload(sandbox, scenario, reg);
           const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
-          for (const audit of /** @type {AuditScenario[]} */ ([
-            "absent",
-            "root",
-            "active",
-          ])) {
+          for (const audit of /** @type {AuditScenario[]} */ (["absent", "root", "active"])) {
             const timed = Array.from({ length: runs }, () =>
               timeOnce(
                 reg.command,
@@ -589,10 +803,7 @@ function main(argv) {
                 scenarioEnvironment(sandbox, scenario, reg, audit),
               ),
             );
-            const supplemental = Object.hasOwn(
-              SUPPLEMENTAL_SCENARIOS,
-              scenario,
-            );
+            const supplemental = Object.hasOwn(SUPPLEMENTAL_SCENARIOS, scenario);
             const counted = countOnce(
               reg.command,
               payloadPath,
@@ -654,10 +865,7 @@ function main(argv) {
   };
   const dir = join(REPO_ROOT, ".navori", "state", "bench");
   mkdirSync(dir, { recursive: true });
-  const stamped = join(
-    dir,
-    `hooks-${result.generatedAt.replace(/[:.]/g, "-")}.json`,
-  );
+  const stamped = join(dir, `hooks-${result.generatedAt.replace(/[:.]/g, "-")}.json`);
   writeFileSync(stamped, `${JSON.stringify(result, null, 2)}\n`);
   copyFileSync(stamped, join(dir, "hooks-latest.json"));
   for (const [engine, scenarios] of Object.entries(sums)) {
@@ -672,9 +880,7 @@ function main(argv) {
       `load=${loadBefore.map((n) => n.toFixed(2)).join("/")} cpus=${cpus}\n`,
   );
   if (!result.comparable)
-    process.stderr.write(
-      "bench:hooks NOT comparable: the machine was not idle at the start\n",
-    );
+    process.stderr.write("bench:hooks NOT comparable: the machine was not idle at the start\n");
   if (!verdict.ok) {
     process.stderr.write(
       `bench:hooks over budget:\n${verdict.violations.map((v) => `  - ${v}`).join("\n")}\n`,
@@ -684,9 +890,6 @@ function main(argv) {
   return 0;
 }
 
-if (
-  process.argv[1] &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }
