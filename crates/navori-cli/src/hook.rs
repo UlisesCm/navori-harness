@@ -11,7 +11,9 @@ use std::process::ExitCode;
 
 use navori_core::integrity;
 use navori_core::manifest::{HookMode, Manifest};
-use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure};
+use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
+
+use crate::shadow;
 
 /// One hook implementation actually compiled into this binary.
 pub struct NativeHook {
@@ -33,7 +35,7 @@ pub enum Mode {
     Auto,
     /// Force the shell without consuming stdin.
     Shell,
-    /// Make a deferral an explicit error for replay and fuzz.
+    /// Evaluate native only, including shadow descriptors, and make deferral explicit for parity.
     Rust,
 }
 
@@ -177,8 +179,8 @@ fn dependencies(root: &Path, names: impl Iterator<Item = impl AsRef<str>>) -> Op
 
 /// Select and evaluate a native hook using an explicit registry and owned I/O handles.
 ///
-/// Registration and integrity precede stdin. Shadow currently defers until its shell executor
-/// lands with the first port, rather than accidentally returning an active Rust verdict.
+/// Registration and integrity precede stdin. Automatic shadow calls return the shell result;
+/// forced Rust evaluates only the native callback and never starts the shadow shell.
 pub fn run_with<R: Read, W: Write, E: Write>(
     args: &[OsString],
     manifest: &Manifest,
@@ -201,9 +203,6 @@ pub fn run_with<R: Read, W: Write, E: Write>(
     let Some(handler) = registry.iter().find(|handler| handler.id == invocation.id) else {
         return defer(mode, "hook has no compiled implementation", stderr);
     };
-    if invocation.shadow || hook.mode == HookMode::Shadow {
-        return defer(mode, "shadow executor is not available", stderr);
-    }
     if hook.r#impl != handler.implementation {
         return defer(
             mode,
@@ -231,11 +230,52 @@ pub fn run_with<R: Read, W: Write, E: Write>(
                     .as_deref()
                     .is_none_or(|event| event == "PreToolUse")),
     };
+    let use_shadow = mode == Mode::Auto && (invocation.shadow || hook.mode == HookMode::Shadow);
+    // Capture before stdin/native evaluation. A shadow callback cannot change the shell's
+    // environment snapshot. Unavailable setup still defers before input is consumed.
+    let shell_environment = if use_shadow {
+        let Ok(cwd) = std::env::current_dir() else {
+            return defer(mode, "shadow working directory unavailable", stderr);
+        };
+        Some((cwd, std::env::vars_os().collect::<Vec<_>>()))
+    } else {
+        None
+    };
     let response = runner::run(
         context,
         input,
         || Ok(true),
-        |payload| (handler.evaluate)(payload, &invocation),
+        |payload| {
+            if let Some((cwd, env)) = &shell_environment {
+                let observed = shadow::run(
+                    context,
+                    payload,
+                    shadow::ShellInvocation {
+                        script: &invocation.script,
+                        args: &invocation.args,
+                        cwd,
+                        env,
+                    },
+                    |bytes| (handler.evaluate)(bytes, &invocation),
+                );
+                let verdict = match observed.shell.code() {
+                    0 => Verdict::Permit,
+                    1 => Verdict::Error,
+                    2 => Verdict::Block,
+                    _ => {
+                        return Err(Failure(
+                            "shadow returned a non-terminal response".to_owned(),
+                        ));
+                    }
+                };
+                return Ok(Evaluation {
+                    verdict,
+                    stdout: observed.shell.stdout().to_vec(),
+                    stderr: observed.shell.stderr().to_vec(),
+                });
+            }
+            (handler.evaluate)(payload, &invocation)
+        },
     );
     runner::emit(context, &response, stdout, stderr)
 }

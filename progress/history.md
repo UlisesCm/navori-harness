@@ -503,3 +503,92 @@ Full final con dos workers exit0:10240aprobadas/2omitidas,483archivos,1369.1s; c
 Commitdf872f8c subido; draft separado de M7/M8 pendiente de ejecución humana por bloqueo del
 host (request9698c747), dependiente de PR1389. Sin merge, activación de hooks ni corte.
 M4 conserva CONTRIBUTING pendiente.
+
+## 2026-10-23 17:36 Codex — Conserva checkpoint Rust y trabajo T26
+
+### Goal
+Guardar un checkpoint recuperable de la migración Rust y preparar la compactación solicitada.
+
+### Instructions
+Base remota estable migration/rust; branches por spec/entregable y PR hacia esa base. Usuario autoriza clones paralelos y mergear automáticamente PRs Rust con todos los checks requeridos verdes, verificando SHA exacto. Sin doctrina del harness por petición previa; conservar controles técnicos y respetar bloqueos del host. Comandos manuales por chat, nunca tarjetas de pregunta. No activar hooks, cortar TS ni tocar dev/main.
+
+### Discoveries
+- Rustquality sólo instala Node24: el test del writer TS real usa --experimental-transform-types para parameter properties; Bun era una dependencia accidental. Fix fc4bfee3 validado sinBun y CIverde.
+- Jq/Node/sed difieren en locale, NUL, UTF16 y overflow. Handler usa perfiles explícitos y serde_json raw_value/arbitrary_precision; falta validar workspace completo y portabilidad Bash5/GNU-BSD.
+- Shadow conserva shell0/1/2. Señales/salidas anómalas deben usar D6 por engine, descartando stdout parcial; normalizar siempre a1 abre Claude. Corrección D9 está en checkpoint del executor.
+- D9 aún necesita contador técnico por invocación para500/14d porengine; un log sólo de divergencias no lo demuestra.
+- M8 no acredita paridad con registro vacío. Audit active Rust sigue unsupported hasta fixtures/header/lector del writer CLI válidos. Evitar solapar gates TS pesados; origen del timeout zsh pendiente, sin subir límites.
+
+### Accomplished
+PR1389,1391,1390 mergeados con CIverde y merge commits; migration/rust=51d4367cbfb21c59a1ea51bf54a7cf764fb1bf73. M6 full10240/2omitidas,483archivos,1369.1s,oráculo52/0,Rust54. M7 full10218/2omitidas,481archivos,1915.7s,Rust47 y6audit.
+M8 branch feat/0057-rust-e2-m8-tools commit4fed8109 subido,59focales/fastverdes. Full terminó rojo:10237aprobadas,2omitidas,timeout zsh300s,482archivos,2068.9s. PR no creado.
+Handler branch feat/0057-rust-e2-m9-handler checkpoint2e93d58a subido:7grupos verdes desde principal en11.77s,232corpus+148comparaciones shelllocales; fmt y precommitfast verdes. T26/A9 abiertos; no workspace/clippy finales.
+Executor branch feat/0057-rust-e2-m9-shadow-runtime checkpoint75c65024 subido:8shadow/36CLI,fmt/clippy y revisión verdes. No CLIwiring/registry/hash/ledger activados.
+Trabajo detenido para checkpoint; productores y gates largos terminados. Estimación comunicada aproximada25% implementación/22% cerrado.
+
+### Next Steps
+Resolver/validar timeout zsh M8, crear PR con comando ya entregado y mergearlo sólo con CIverde. Cerrar workspace/clippy/portabilidad del handler. Integrar handler+executor, hashes D8, registro y forced-native para paridad de shadow. Falta diseñar contador D9 y completar CONTRIBUTING M4 (escritura shell bloqueada, sin reintentos). Worktree hashes está vacío y sin productor asignado. No declarar T23–T26/A8/A9 completos.
+
+### Relevant Files
+progress/current.md y progress/history.md guardan estado y evidencia. Worktrees hermanos -rust-tools, -rust-handler, -rust-shadow; -rust-audit conserva M7. -rust-hashes sólo branch vacía desde M6. Handoffs JSON ignorados bajo .navori/state/handoffs/ de cada worktree. Rama central de checkpoint checkpoint/0057-rust-20261023 parte de origin/migration/rust.
+
+## 2026-10-23 18:21 Codex — Integra infraestructura de sombra M9 en paralelo
+
+Rama `feat/0057-rust-e2-m9-integration` subida en `01a83eae` antes de este registro, desde
+`migration/rust`51d4367c. Incorpora ancestry de M8 y conserva checkpoint anterior. Hashes D8
+`96800fde` (original b84c7433 subido), dispatch `7ba49a8f`, fix profundidad `d2ef3263` y tooling
+`5518dedd`; los tres frentes tuvieron revisión independiente y se integraron sin activar hooks.
+
+Principal ejecutó workspace Rust combinado:88/88, Node24 sin Bun en PATH; formato/clippy y
+fast verdes. Herramientas63/63; handler232 casos y149 comparaciones shell locales. Hashes5/5
+también repetidos desde principal: exactos frente Node, orden UTF16, NUL/bytes y rebuild ante
+add/remove/edit, sin ciclo OUT_DIR. Auto-shadow conserva shell una vez; forced Rust ignora
+shadow routing para comparar nativo. Integridad y snapshot cwd preceden stdin; cwd eliminado
+difiere3 y falla de lectura parcial usa D6 según engine/evento, sin ejecutar lanes.
+
+Revisión encontró fail-open fuera del corpus: command130 arrays alrededor de131000 caracteres
+produce longitud131262; serde_json::Value agotaba recursión y `.ok().unwrap_or(Null)` lo borraba,
+permitiendo mientras shell bloquea2. Regresión roja→verde, ahora Failure explícito y D6
+Claude ask/Pi2. No desactiva recursión; paridad exacta de esa entrada permanece pendiente.
+Tooling permite shadow sólo vía NAVORI_HOOK_IMPL=rust y conserva defer/error como unavailable;
+selector slug/`.sh` selecciona los mismos232 casos y no cambia default audit off+active.
+
+Gate completo M8 sigue pendiente: full anterior10237/2omitidas y timeout zsh300s; focal nuevo2/2
+en162.56s, origen no determinado. Nuevo full con un worker iniciado17:55CST continúa al18:21,
+exec54824/log `.navori/state/m8-full-resume.log` en worktree tools. Full final M9 pendiente.
+PRs M8/M9 aún no creados; cuerpos preparados y comandos directos entregados por chat porque
+el hook exige creación humana. No reintentar deny ni atribuir timeout al diff sin comparación.
+
+T23–T26/A8/A9 siguen abiertos. A9 principal devuelve error por fixtures active y, al pedir off,
+por registry vacío. Bash5/GNU no acreditado: guard bloqueó pruebas Docker antes de ejecutar.
+Próximos pasos: recuperar gates/CI, perfil explícito de elegibilidad antes de stdin, registro y
+fixtures active. Reconocimiento D9 identifica writer privado CLI audit/paths.ts reutilizable,
+pero faltan esquema/identidad del ledger por invocación y evidencia500/14d por engine. No hay
+productores activos ni hooks nativos productivos; se conserva la base remota migration/rust.
+
+## 2026-10-23 18:49 Codex — Corrige portabilidad del handler en CI1393
+
+Usuario creó PR1393 draft contra migration/rust. En head18235009 todos los checks salvo Rust
+quality quedaron verdes, incluidos cuatro shards JS y test-merge. Quality falló cuatro pruebas
+por dos diferencias reales: clases POSIX GNU frente a la aproximación Unicode del handler y
+warnings Bash5 cuando una sustitución elimina NUL, incluso NUL decodificado de campos JSON.
+
+Separa perfiles explícitos GNU21/BSD24/C6, compartidos por regex/trim. Tabla GNU proviene de
+glibc2.41 i18n_ctype; el focal ampliado halló otra divergencia BSDNEL, confirmada por principal
+contra iswspace de libc local en todos los escalares Unicode y por shell real. NEL no es espacio
+BSD; conserva NBSP/FIGURE/narrow-NBSP como diferencias explícitas. Sin omitir filas ni normalizar.
+
+API pura evaluate_with_capture recibe dialecto/pathbytes/líneas originales. Cuenta una advertencia
+por captura raw con NUL antes del gate y por cada salida individual afectada cuando bulk rechaza;
+campos cacheados no duplican warnings. Conserva errores Failure, stdout/exit y stderr byte a byte,
+incluidos paths Unix no UTF8. No IO/probes dentro del handler ni registro productivo nuevo.
+
+Principal: paquete hooks30/30, workspace98/98, fmt0 y clippy workspace/all-targets/locked/Dwarnings0.
+Revisión independiente final favorable; ocho regresiones NUL y matriz de clases/C-VT/heredoc.
+Fuentes congeladas antes de verificar. Ubuntu/Bash5 real queda pendiente del nuevo push1393.
+
+M8 full completado exit0:10238 passed/2 skipped,482files,2281.8s; cobertura líneas87.83%,
+statements86.15%, functions90.46%, branches80.94%, floor160/0. Fuente y timeout intactos, un worker;
+no determina origen del timeout anterior. Exec54824 terminó, log m8-full-resume.log en tools.
+M8 ancestry incluida en1393, sin PR adicional creado. T23–T26/A8/A9 y elegibilidad runtime siguen
+abiertos; siguiente paso CI del fix y merge sólo con checks verdes sobre SHA exacto.

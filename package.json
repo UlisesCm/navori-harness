@@ -27,6 +27,7 @@
     "test:affected": "node packages/cli/scripts/test-affected.mjs",
     "bench:tests": "node packages/cli/scripts/bench-tests.mjs",
     "bench:hooks": "node scripts/js/bench-hooks.mjs",
+    "fuzz:hooks": "node scripts/js/hook-fuzz.mjs",
     "bench:context": "node scripts/js/bench-context.mjs",
     "check:links": "node scripts/js/check-links.mjs",
     "ensure-dist": "bun packages/cli/scripts/ensure-dist.ts",

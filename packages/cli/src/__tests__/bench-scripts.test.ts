@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
   globSync,
   mkdirSync,
@@ -85,6 +87,13 @@ interface Sandbox {
   cleanup: () => void;
 }
 interface BenchHooks {
+  parseBenchArgs: (argv: string[]) => {
+    impl: "shell" | "rust";
+    runs: number;
+    scenarios: string[];
+    reportOnly: boolean;
+  };
+  p95: (samples: number[]) => number;
   SCENARIOS: Record<string, unknown>;
   SUPPLEMENTAL_SCENARIOS: Record<string, unknown>;
   readRegistrations: () => Registration[];
@@ -130,7 +139,357 @@ const {
   sumByEvent,
 } = hooksModule;
 
+/** Builds process-only tooling fixtures; the fake binary is never evidence of a ported hook. */
+function nativeBenchFixture(event = "SessionStart"): {
+  root: string;
+  manifest: string;
+  binary: string;
+  run: (args?: string[], env?: NodeJS.ProcessEnv) => SpawnSyncReturns<string>;
+  cleanup: () => void;
+} {
+  const root = mkdtempSync(join(tmpdir(), "navori-native-bench-"));
+  const scripts = join(root, "scripts/js");
+  const hooks = join(root, ".claude/hooks");
+  for (const dir of [
+    scripts,
+    hooks,
+    join(root, ".codex"),
+    join(root, "crates"),
+    join(root, "packages/cli/src/engines/pi"),
+  ]) {
+    mkdirSync(dir, { recursive: true });
+  }
+  for (const file of ["bench-hooks.mjs", "git-env.mjs", "rust-hook-adapter.mjs"]) {
+    copyFileSync(fileURLToPath(scriptUrl(file)), join(scripts, file));
+  }
+  mkdirSync(join(scripts, "bench-payloads"));
+  const payload = JSON.parse(
+    readFileSync(fileURLToPath(scriptUrl("bench-payloads/session-start.json")), "utf8"),
+  ) as Record<string, unknown>;
+  payload.hook_event_name = event;
+  writeFileSync(join(scripts, "bench-payloads/session-start.json"), JSON.stringify(payload));
+  writeFileSync(
+    join(root, ".claude/settings.json"),
+    JSON.stringify({
+      hooks: { [event]: [{ hooks: [{ command: 'bash ".claude/hooks/probe.sh"' }] }] },
+    }),
+  );
+  writeFileSync(join(root, ".codex/config.toml"), "");
+  writeFileSync(join(root, "packages/cli/src/engines/pi/hook-bindings.ts"), "");
+  writeFileSync(join(hooks, "probe.sh"), "exit 0\n");
+  const manifest = join(root, "crates/ported.json");
+  writeFileSync(manifest, JSON.stringify({ schema: 1, hooks: { probe: { mode: "active" } } }));
+  const binary = join(root, "native fixture");
+  writeFileSync(
+    binary,
+    [
+      `#!${process.execPath}`,
+      'import { appendFileSync, readFileSync } from "node:fs";',
+      "if (process.ppid !== Number(process.env.BENCH_EXPECT_PARENT)) process.exit(99);",
+      'appendFileSync(process.env.BENCH_NATIVE_LOG, JSON.stringify({argv:process.argv.slice(2), mode:process.env.NAVORI_HOOK_IMPL, input:readFileSync(0,"utf8"), cwd:process.cwd()})+"\\n");',
+      'if (process.env.BENCH_NATIVE_DEFER) process.stderr.write("navori-rust: hook deferred: fixture unavailable\\n");',
+      'process.exit(Number(process.env.BENCH_NATIVE_EXIT ?? "1"));',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(binary, 0o755);
+  const driver = join(root, "driver.mjs");
+  writeFileSync(
+    driver,
+    [
+      'import { main, SCENARIOS } from "./scripts/js/bench-hooks.mjs";',
+      "SCENARIOS.SessionStart.events = [process.env.BENCH_EVENT];",
+      "process.env.BENCH_EXPECT_PARENT = String(process.pid);",
+      "process.exitCode = main(process.argv.slice(2));",
+      "",
+    ].join("\n"),
+  );
+  return {
+    root,
+    manifest,
+    binary,
+    run(args = ["--impl", "rust"], env = {}) {
+      return spawnSync(
+        process.execPath,
+        [driver, ...args, "--scenario", "SessionStart", "--runs", "2", "--report-only"],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            NAVORI_RUST_BIN: binary,
+            NAVORI_RUST_HOOKS_DIR: root,
+            BENCH_NATIVE_LOG: join(root, "native.jsonl"),
+            BENCH_EVENT: event,
+            ...env,
+          },
+          encoding: "utf8",
+        },
+      );
+    },
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
 describe("bench scripts", () => {
+  // Covers: R17
+  it("bench --impl rust mide el binario sin wrapper", () => {
+    const fixture = nativeBenchFixture();
+    try {
+      const run = fixture.run();
+      expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
+      expect(run.stdout).toContain("ms wall median /");
+      expect(run.stdout).toContain("ms wall p95");
+      const calls = readFileSync(join(fixture.root, "native.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as { argv: string[]; mode: string; input: string; cwd: string },
+        );
+      expect(calls).toHaveLength(2);
+      for (const call of calls) {
+        expect(call.argv).toEqual([
+          "hook",
+          "--via-command",
+          "SessionStart",
+          join(fixture.root, ".claude/hooks/probe.sh"),
+        ]);
+        expect(call.mode).toBe("rust");
+        expect(JSON.parse(call.input)).toMatchObject({
+          hook_event_name: "SessionStart",
+          session_id: "bench-session",
+        });
+        expect(call.cwd).not.toBe(fixture.root);
+      }
+      const report = JSON.parse(
+        readFileSync(join(fixture.root, ".navori/state/bench/hooks-rust-latest.json"), "utf8"),
+      ) as {
+        impl: string;
+        metric: string;
+        unit: string;
+        comparable: boolean;
+        budget: { metric: string; limitMs: number };
+        measurements: {
+          wallMsMedian: number;
+          wallMsP95: number;
+          runsMs: number[];
+          exitCodes: number[];
+          cpuMsMedian?: number;
+        }[];
+      };
+      expect(report).toMatchObject({
+        impl: "rust",
+        metric: "wall",
+        unit: "ms",
+        audit: "absent",
+        budget: { metric: "wallMsP95", limitMs: 5 },
+      });
+      expect(typeof report.comparable).toBe("boolean");
+      expect(report.measurements).toHaveLength(1);
+      for (const row of report.measurements) {
+        expect(row.wallMsP95).toBe(hooksModule.p95(row.runsMs));
+        expect(row.wallMsMedian).toBe(median(row.runsMs));
+        expect(row.runsMs.every((sample) => Number.isFinite(sample) && sample > 0)).toBe(true);
+        expect(row.exitCodes).toEqual([1, 1]);
+        expect(row.cpuMsMedian).toBeUndefined();
+      }
+      expect(existsSync(join(fixture.root, ".navori/state/bench/hooks-latest.json"))).toBe(false);
+      expect(hooksModule.p95(Array.from({ length: 20 }, (_, index) => index + 1))).toBe(19);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  // Covers: R17
+  it("bench Rust conserva PreToolUse y Stop por timeRustOnce hasta argv nativo", () => {
+    for (const event of ["PreToolUse", "Stop"]) {
+      const fixture = nativeBenchFixture(event);
+      try {
+        const run = fixture.run();
+        expect(run.status, `${event}: ${run.stdout}\n${run.stderr}`).toBe(0);
+        const calls = readFileSync(join(fixture.root, "native.jsonl"), "utf8").trim().split("\n");
+        expect(calls).toHaveLength(2);
+        for (const line of calls) {
+          const call = JSON.parse(line) as { argv: string[]; input: string };
+          expect(call.argv).toEqual([
+            "hook",
+            "--via-command",
+            event,
+            join(fixture.root, ".claude/hooks/probe.sh"),
+          ]);
+          expect(JSON.parse(call.input)).toMatchObject({ hook_event_name: event });
+        }
+      } finally {
+        fixture.cleanup();
+      }
+    }
+  });
+
+  // Covers: R17
+  it("bench Rust rechaza registrations con argv no acreditado aun con report-only", () => {
+    const commands = [
+      'bash ".claude/hooks/probe.sh" claude-session-start',
+      'bash ".claude/hooks/probe.sh" claude-post-model-switch',
+      'bash ".claude/hooks/probe.sh" claude-stop',
+      'f="$CLAUDE_PROJECT_DIR/.claude/hooks/probe.sh"; bash -n "$f" 2>/dev/null && exec bash "$f" claude-session-start; exit 1',
+    ];
+    for (const command of commands) {
+      const fixture = nativeBenchFixture();
+      try {
+        writeFileSync(
+          join(fixture.root, ".claude/settings.json"),
+          JSON.stringify({
+            hooks: { SessionStart: [{ hooks: [{ command }] }] },
+          }),
+        );
+        const run = fixture.run();
+        expect(run.status, `${command}: ${run.stdout}\n${run.stderr}`).toBe(1);
+        expect(run.stderr).toContain("native registration unsupported");
+        expect(existsSync(join(fixture.root, "native.jsonl"))).toBe(false);
+        expect(existsSync(join(fixture.root, ".navori/state/bench/hooks-rust-latest.json"))).toBe(
+          false,
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    }
+  });
+
+  // Covers: R17
+  it("bench Rust rechaza root y active sin fixtures CLI válidas aun con report-only", () => {
+    for (const audit of ["root", "active"]) {
+      const fixture = nativeBenchFixture();
+      try {
+        const run = fixture.run(["--impl", "rust", "--audit", audit]);
+        expect(run.status, run.stderr).toBe(1);
+        expect(run.stderr).toContain(`native audit ${audit} unsupported`);
+        expect(run.stderr).toContain("CLI-writer fixtures");
+        expect(existsSync(join(fixture.root, "native.jsonl"))).toBe(false);
+        expect(existsSync(join(fixture.root, ".navori/state/bench/hooks-rust-latest.json"))).toBe(
+          false,
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    }
+  });
+
+  // Covers: R17
+  it("bench Rust falla unavailable incluso con report-only y no confunde exit1 legítimo", () => {
+    const cases = [
+      "missing",
+      "empty",
+      "unsupported-mode",
+      "unregistered",
+      "defer",
+      "forced-defer",
+      "shadow-defer",
+      "shadow-forced-defer",
+    ] as const;
+    for (const mode of cases) {
+      const fixture = nativeBenchFixture();
+      try {
+        const env: NodeJS.ProcessEnv = {};
+        if (mode === "missing") env.NAVORI_RUST_BIN = join(fixture.root, "missing");
+        if (mode === "empty")
+          writeFileSync(fixture.manifest, JSON.stringify({ schema: 1, hooks: {} }));
+        if (mode === "unsupported-mode")
+          writeFileSync(
+            fixture.manifest,
+            JSON.stringify({ schema: 1, hooks: { probe: { mode: "unknown" } } }),
+          );
+        if (mode === "unregistered")
+          writeFileSync(
+            fixture.manifest,
+            JSON.stringify({ schema: 1, hooks: { other: { mode: "active" } } }),
+          );
+        if (mode === "defer") env.BENCH_NATIVE_EXIT = "3";
+        if (mode === "forced-defer") env.BENCH_NATIVE_DEFER = "1";
+        if (mode === "shadow-defer" || mode === "shadow-forced-defer") {
+          writeFileSync(
+            fixture.manifest,
+            JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+          );
+          if (mode === "shadow-defer") env.BENCH_NATIVE_EXIT = "3";
+          else env.BENCH_NATIVE_DEFER = "1";
+        }
+        const run = fixture.run(undefined, env);
+        expect(run.status, `${mode}: ${run.stdout}\n${run.stderr}`).toBe(1);
+        expect(run.stderr).toContain("native unavailable");
+        expect(existsSync(join(fixture.root, ".navori/state/bench/hooks-rust-latest.json"))).toBe(
+          false,
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    }
+  });
+
+  // Covers: R17
+  it("bench permite descriptor shadow sólo con argv de ejecución nativa forzada", () => {
+    const fixture = nativeBenchFixture();
+    try {
+      writeFileSync(
+        fixture.manifest,
+        JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+      );
+      const run = fixture.run(undefined, { NAVORI_HOOK_IMPL: "shell" });
+      expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
+      const calls = readFileSync(join(fixture.root, "native.jsonl"), "utf8").trim().split("\n");
+      expect(calls).toHaveLength(2);
+      for (const line of calls) {
+        const call = JSON.parse(line) as { argv: string[]; mode: string };
+        expect(call.mode).toBe("rust");
+        expect(call.argv).toEqual([
+          "hook",
+          "--via-command",
+          "SessionStart",
+          join(fixture.root, ".claude/hooks/probe.sh"),
+        ]);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  // Covers: R17
+  it("bench valida impl estrictamente y conserva shell por default y su API CPU", () => {
+    expect(hooksModule.parseBenchArgs([])).toMatchObject({
+      impl: "shell",
+      runs: 3,
+      reportOnly: false,
+    });
+    expect(hooksModule.parseBenchArgs(["--impl", "rust"])).toMatchObject({
+      impl: "rust",
+      runs: 40,
+    });
+    const fixture = nativeBenchFixture();
+    try {
+      for (const args of [
+        ["--impl"],
+        ["--impl", "typo"],
+        ["--impl", "rust", "--impl", "shell"],
+        ["--impl=rust"],
+      ]) {
+        const run = fixture.run(args);
+        expect(run.status, run.stderr).toBe(2);
+      }
+      for (const args of [[], ["--impl", "shell"]]) {
+        const run = fixture.run(args);
+        expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
+        const report = JSON.parse(
+          readFileSync(join(fixture.root, ".navori/state/bench/hooks-latest.json"), "utf8"),
+        ) as { budgetMs: number; measurements: { cpuMsMedian: number }[] };
+        expect(report.budgetMs).toBe(BASH_BUDGET_MS);
+        expect(report.measurements).toHaveLength(3);
+        expect(report.measurements.every((row) => typeof row.cpuMsMedian === "number")).toBe(true);
+      }
+      expect(existsSync(join(fixture.root, "native.jsonl"))).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   // Covers: R30
   it("propone solo excepciones sobre el default desde el máximo de tres mediciones en reposo", () => {
     const observations = budgetObservations();

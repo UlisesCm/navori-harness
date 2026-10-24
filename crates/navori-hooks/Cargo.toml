@@ -8,6 +8,14 @@ publish.workspace = true
 
 [dependencies]
 navori-core.workspace = true
+regex.workspace = true
+serde_json = { workspace = true, features = ["raw_value", "arbitrary_precision"] }
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
 
 [lints]
 workspace = true
