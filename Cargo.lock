@@ -257,6 +257,7 @@ name = "navori-hooks"
 version = "0.13.0-rust.1"
 dependencies = [
  "navori-core",
+ "sha2",
 ]
 
 [[package]]
