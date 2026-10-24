@@ -376,7 +376,16 @@ describe("bench scripts", () => {
 
   // Covers: R17
   it("bench Rust falla unavailable incluso con report-only y no confunde exit1 legítimo", () => {
-    const cases = ["missing", "empty", "shadow", "unregistered", "defer", "forced-defer"] as const;
+    const cases = [
+      "missing",
+      "empty",
+      "unsupported-mode",
+      "unregistered",
+      "defer",
+      "forced-defer",
+      "shadow-defer",
+      "shadow-forced-defer",
+    ] as const;
     for (const mode of cases) {
       const fixture = nativeBenchFixture();
       try {
@@ -384,10 +393,10 @@ describe("bench scripts", () => {
         if (mode === "missing") env.NAVORI_RUST_BIN = join(fixture.root, "missing");
         if (mode === "empty")
           writeFileSync(fixture.manifest, JSON.stringify({ schema: 1, hooks: {} }));
-        if (mode === "shadow")
+        if (mode === "unsupported-mode")
           writeFileSync(
             fixture.manifest,
-            JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+            JSON.stringify({ schema: 1, hooks: { probe: { mode: "unknown" } } }),
           );
         if (mode === "unregistered")
           writeFileSync(
@@ -396,6 +405,14 @@ describe("bench scripts", () => {
           );
         if (mode === "defer") env.BENCH_NATIVE_EXIT = "3";
         if (mode === "forced-defer") env.BENCH_NATIVE_DEFER = "1";
+        if (mode === "shadow-defer" || mode === "shadow-forced-defer") {
+          writeFileSync(
+            fixture.manifest,
+            JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+          );
+          if (mode === "shadow-defer") env.BENCH_NATIVE_EXIT = "3";
+          else env.BENCH_NATIVE_DEFER = "1";
+        }
         const run = fixture.run(undefined, env);
         expect(run.status, `${mode}: ${run.stdout}\n${run.stderr}`).toBe(1);
         expect(run.stderr).toContain("native unavailable");
@@ -405,6 +422,33 @@ describe("bench scripts", () => {
       } finally {
         fixture.cleanup();
       }
+    }
+  });
+
+  // Covers: R17
+  it("bench permite descriptor shadow sólo con argv de ejecución nativa forzada", () => {
+    const fixture = nativeBenchFixture();
+    try {
+      writeFileSync(
+        fixture.manifest,
+        JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+      );
+      const run = fixture.run(undefined, { NAVORI_HOOK_IMPL: "shell" });
+      expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
+      const calls = readFileSync(join(fixture.root, "native.jsonl"), "utf8").trim().split("\n");
+      expect(calls).toHaveLength(2);
+      for (const line of calls) {
+        const call = JSON.parse(line) as { argv: string[]; mode: string };
+        expect(call.mode).toBe("rust");
+        expect(call.argv).toEqual([
+          "hook",
+          "--via-command",
+          "SessionStart",
+          join(fixture.root, ".claude/hooks/probe.sh"),
+        ]);
+      }
+    } finally {
+      fixture.cleanup();
     }
   });
 

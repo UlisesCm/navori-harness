@@ -585,6 +585,7 @@ export function parseReplayArgs(argv) {
       case "--hook":
         options.only = value.split(",");
         if (options.only.some((hook) => !/^[A-Za-z0-9_-]+(?:\.sh)?$/.test(hook))) throw new Error("hook selection must contain nonempty hook names");
+        options.only = options.only.map((hook) => hook.endsWith(".sh") ? hook : `${hook}.sh`);
         break;
       case "--shell":
         if (!["bash", "zsh"].includes(value)) throw new Error("--shell must be bash or zsh");

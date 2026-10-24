@@ -72,8 +72,10 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, timeo
 }
 
 /**
- * Read-only replay preflight. The producer must supply scripts already signed by the renderer;
- * this tool never creates a signature, guesses an implementation or activates shadow hooks.
+ * Read-only preflight exclusively for runRustHook's forced-native transport. Active and shadow
+ * descriptors are eligible because the transport forces Rust without passing --shadow; an old
+ * or missing implementation must still defer and become unavailable. Callers supply renderer-
+ * prepared scripts; this tool never signs, activates a hook or evaluates automatic shadow output.
  *
  * @param {{ manifestPath: string, binary: string, scriptsRoot?: string }} options
  * @returns {{ binary: string, resolveHook: (hook: string, engine: string) => string }}
@@ -97,7 +99,7 @@ export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
       const id = hook.slice(0, -3);
       if (!Object.hasOwn(hooks, id)) throw new Error(`native unavailable: ${hook} is not registered`);
       const entry = hooks[id];
-      if (!record(entry) || entry.mode !== "active") throw new Error(`native unavailable: ${hook} is not active (shadow cannot supply a verdict)`);
+      if (!record(entry) || (entry.mode !== "active" && entry.mode !== "shadow")) throw new Error(`native unavailable: ${hook} has an unsupported hook mode`);
       if (scripts === undefined) {
         throw new Error("native unavailable: prepared scripts are missing; renderer integration is pending");
       }

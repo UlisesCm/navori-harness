@@ -179,7 +179,7 @@ process.stdout.write(JSON.stringify(value));`;
     const active = await fuzzer.fuzzHooks({ ...options, cases: 1000, audit: "active" }, transport);
     expect(active).toMatchObject({ ok: false, completed: 0 });
     expect(active.failure).toContain("audit active requires CLI-writer fixtures");
-    for (const hooks of [{}, { fixture: { mode: "shadow" } }]) {
+    for (const hooks of [{}, { fixture: { mode: "unknown" } }]) {
       writeFileSync(transport.manifestPath, JSON.stringify({ schema: 1, hooks }));
       expect(await fuzzer.fuzzHooks({ ...options, cases: 100000 }, transport)).toMatchObject({
         ok: false,
@@ -215,5 +215,27 @@ process.stdout.write(JSON.stringify(value));`;
     expect(result.stderr).toContain("native unavailable");
     expect(result.stdout).not.toContain("identical");
     expect(existsSync(capture)).toBe(false);
+  });
+
+  // Covers: R11, R12
+  it("fuzzes shadow descriptors through forced Rust and never counts native deferral as parity", async () => {
+    const transport = fixtures(`
+const args = process.argv.slice(2);
+if (process.env.NAVORI_HOOK_IMPL !== 'rust' || args.length !== 3 || args[0] !== 'hook' || args[1] !== '--via-script' || !args[2].endsWith('/.claude/hooks/fixture.sh')) process.exit(101);
+${echo}`);
+    writeFileSync(
+      transport.manifestPath,
+      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+    );
+    expect(await fuzzer.fuzzHooks(options, transport)).toEqual({ ok: true, seed: 7, completed: 3 });
+    for (const source of [
+      "process.exit(3);",
+      "process.stderr.write('navori-rust: hook deferred: shadow execution is unavailable\\n'); process.exit(1);",
+    ]) {
+      writeFileSync(transport.binary, `#!${process.execPath}\n${source}\n`);
+      const result = await fuzzer.fuzzHooks(options, transport);
+      expect(result).toMatchObject({ ok: false, completed: 0, index: 1 });
+      expect(result.failure).toContain("native unavailable");
+    }
   });
 });

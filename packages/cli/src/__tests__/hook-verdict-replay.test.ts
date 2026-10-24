@@ -40,6 +40,7 @@ interface Verdict {
   stderr: string;
 }
 interface Replay {
+  readCorpus: () => Case[];
   parseReplayArgs: (args: string[]) => {
     impl: "shell" | "rust";
     modes: string[];
@@ -175,6 +176,35 @@ function nativeFixture(dir: string, source: string): string {
 }
 
 describe("native hook replay transport", () => {
+  // Covers: R11
+  it("selects the same 232 corpus cases for a bare hook id and its .sh filename", () => {
+    const short = replay.parseReplayArgs([
+      "--impl",
+      "rust",
+      "--audit",
+      "off",
+      "--only",
+      "subagent-no-background",
+    ]);
+    const full = replay.parseReplayArgs([
+      "--impl",
+      "rust",
+      "--audit",
+      "off",
+      "--only",
+      "subagent-no-background.sh",
+    ]);
+    expect(short.only).toEqual(["subagent-no-background.sh"]);
+    const corpus = replay.readCorpus();
+    const selected = corpus.filter((entry) => short.only?.includes(entry.hook));
+    expect(selected).toHaveLength(232);
+    expect(selected).toEqual(corpus.filter((entry) => full.only?.includes(entry.hook)));
+    expect(short.modes).toEqual(["off"]);
+    expect(
+      replay.parseReplayArgs(["--impl", "rust", "--only", "subagent-no-background"]).modes,
+    ).toEqual(["off", "active"]);
+  });
+
   // Covers: R11
   it("parses implementation, audit and hook selection explicitly", () => {
     expect(replay.parseReplayArgs([])).toMatchObject({ impl: "shell", modes: ["off", "active"] });
@@ -383,7 +413,7 @@ process.exit(1);`,
   });
 
   // Covers: R11
-  it("requires a registered active hook and an existing prepared script", () => {
+  it("requires a registered supported hook mode and an existing prepared script", () => {
     const dir = tmp();
     const manifestPath = join(dir, "ported.json");
     const prepare = (): ReturnType<RustAdapter["prepareRustReplay"]> =>
@@ -392,11 +422,9 @@ process.exit(1);`,
     expect(prepare).toThrow("hook registry is empty");
     writeFileSync(
       manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "unknown" } } }),
     );
-    expect(() => prepare().resolveHook("fixture.sh", "claude")).toThrow(
-      "shadow cannot supply a verdict",
-    );
+    expect(() => prepare().resolveHook("fixture.sh", "claude")).toThrow("unsupported hook mode");
     writeFileSync(
       manifestPath,
       JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
@@ -413,6 +441,54 @@ process.exit(1);`,
     const script = join(dir, ".claude", "hooks", "fixture.sh");
     writeFileSync(script, "transport fixture only");
     expect(prepare().resolveHook("fixture.sh", "claude")).toBe(script);
+  });
+
+  // Covers: R11, R12
+  it("runs a shadow descriptor only through forced native argv and rejects an old deferring binary", () => {
+    const dir = tmp();
+    const binary = nativeFixture(
+      dir,
+      `
+const args = process.argv.slice(2);
+if (process.env.NAVORI_HOOK_IMPL !== 'rust' || args.length !== 3 || args[0] !== 'hook' || args[1] !== '--via-script') process.exit(101);
+process.stdout.write(JSON.stringify({ args, impl: process.env.NAVORI_HOOK_IMPL }));
+process.exit(1);`,
+    );
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    mkdirp(dirname(script));
+    writeFileSync(script, "transport fixture only; no real handler parity");
+    const manifestPath = join(dir, "ported.json");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+    );
+    const prepared = rustAdapter.prepareRustReplay({ manifestPath, binary, scriptsRoot: dir });
+    const resolved = prepared.resolveHook("fixture.sh", "claude");
+    const options = {
+      binary: prepared.binary,
+      script: resolved,
+      input: "payload",
+      env: { NAVORI_HOOK_IMPL: "shell" },
+    };
+    const result = rustAdapter.runRustHook(options);
+    expect(result.available).toBe(true);
+    if (!result.available) throw new Error(result.reason);
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout.toString("utf8"))).toEqual({
+      args: ["hook", "--via-script", script],
+      impl: "rust",
+    });
+    for (const source of [
+      "process.stdout.write('automatic shell verdict'); process.exit(3);",
+      "process.stderr.write('navori-rust: hook deferred: shadow execution is unavailable\\n'); process.exit(1);",
+    ]) {
+      writeFileSync(binary, `#!${process.execPath}\n${source}\n`);
+      expect(rustAdapter.runRustHook(options)).toMatchObject({
+        available: false,
+        reason: expect.stringContaining("deferred"),
+      });
+      expect(rustAdapter.runRustHook(options)).not.toHaveProperty("stdout");
+    }
   });
 
   // Covers: R11, R12
