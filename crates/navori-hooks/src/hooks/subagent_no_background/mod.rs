@@ -7,6 +7,7 @@
 mod capture;
 mod inert;
 mod input;
+pub mod prepare;
 
 pub use capture::{CaptureContext, ShellDialect};
 pub use input::{Extractor, Locale, Profile};
