@@ -531,3 +531,37 @@ Resolver/validar timeout zsh M8, crear PR con comando ya entregado y mergearlo s
 
 ### Relevant Files
 progress/current.md y progress/history.md guardan estado y evidencia. Worktrees hermanos -rust-tools, -rust-handler, -rust-shadow; -rust-audit conserva M7. -rust-hashes sólo branch vacía desde M6. Handoffs JSON ignorados bajo .navori/state/handoffs/ de cada worktree. Rama central de checkpoint checkpoint/0057-rust-20261023 parte de origin/migration/rust.
+
+## 2026-10-23 18:21 Codex — Integra infraestructura de sombra M9 en paralelo
+
+Rama `feat/0057-rust-e2-m9-integration` subida en `01a83eae` antes de este registro, desde
+`migration/rust`51d4367c. Incorpora ancestry de M8 y conserva checkpoint anterior. Hashes D8
+`96800fde` (original b84c7433 subido), dispatch `7ba49a8f`, fix profundidad `d2ef3263` y tooling
+`5518dedd`; los tres frentes tuvieron revisión independiente y se integraron sin activar hooks.
+
+Principal ejecutó workspace Rust combinado:88/88, Node24 sin Bun en PATH; formato/clippy y
+fast verdes. Herramientas63/63; handler232 casos y149 comparaciones shell locales. Hashes5/5
+también repetidos desde principal: exactos frente Node, orden UTF16, NUL/bytes y rebuild ante
+add/remove/edit, sin ciclo OUT_DIR. Auto-shadow conserva shell una vez; forced Rust ignora
+shadow routing para comparar nativo. Integridad y snapshot cwd preceden stdin; cwd eliminado
+difiere3 y falla de lectura parcial usa D6 según engine/evento, sin ejecutar lanes.
+
+Revisión encontró fail-open fuera del corpus: command130 arrays alrededor de131000 caracteres
+produce longitud131262; serde_json::Value agotaba recursión y `.ok().unwrap_or(Null)` lo borraba,
+permitiendo mientras shell bloquea2. Regresión roja→verde, ahora Failure explícito y D6
+Claude ask/Pi2. No desactiva recursión; paridad exacta de esa entrada permanece pendiente.
+Tooling permite shadow sólo vía NAVORI_HOOK_IMPL=rust y conserva defer/error como unavailable;
+selector slug/`.sh` selecciona los mismos232 casos y no cambia default audit off+active.
+
+Gate completo M8 sigue pendiente: full anterior10237/2omitidas y timeout zsh300s; focal nuevo2/2
+en162.56s, origen no determinado. Nuevo full con un worker iniciado17:55CST continúa al18:21,
+exec54824/log `.navori/state/m8-full-resume.log` en worktree tools. Full final M9 pendiente.
+PRs M8/M9 aún no creados; cuerpos preparados y comandos directos entregados por chat porque
+el hook exige creación humana. No reintentar deny ni atribuir timeout al diff sin comparación.
+
+T23–T26/A8/A9 siguen abiertos. A9 principal devuelve error por fixtures active y, al pedir off,
+por registry vacío. Bash5/GNU no acreditado: guard bloqueó pruebas Docker antes de ejecutar.
+Próximos pasos: recuperar gates/CI, perfil explícito de elegibilidad antes de stdin, registro y
+fixtures active. Reconocimiento D9 identifica writer privado CLI audit/paths.ts reutilizable,
+pero faltan esquema/identidad del ledger por invocación y evidencia500/14d por engine. No hay
+productores activos ni hooks nativos productivos; se conserva la base remota migration/rust.

@@ -1,40 +1,46 @@
-# Checkpoint Rust — 2026-10-23
+# Migración Rust — 2026-10-23
 
-Base remota estable `migration/rust` en `51d4367c`. PRs por spec/entrega y clones paralelos
-autorizados. El usuario autoriza mergear PRs Rust con todos los checks requeridos verdes.
-Comandos manuales siempre por chat, nunca tarjetas de pregunta. No activar hooks ni cortar TS.
+Base remota estable `migration/rust` en `51d4367c`; #1389/#1391/#1390 integrados con CI verde.
+Clones paralelos y merge de PRs Rust con todos los checks requeridos verdes autorizados.
+Comandos manuales por chat; no tarjetas. No activar hooks ni cortar TS.
 
-## Integrado
+## Entrega preparada
 
-- #1389 (M1–M5), #1391 (M6) y #1390 (M7) mergeados con CI verde, conservando ancestry.
-- M6: full10240/2omitidas,483archivos; Rust54; oráculo52/0; T20/T21 cerrados.
-- M7: full10218/2omitidas,481archivos,1915.7s; Rust47 y seis audit verdes.
-  Test del writer real usa Node24 transform-types; Bun no existe en Rustquality.
+`feat/0057-rust-e2-m9-integration`, worktree hermano `-rust-integration`, subida en `01a83eae`
+antes de este registro. Incorpora M8, handler, executor y hashes. Commits propios:
+`96800fde` hashes D8, `7ba49a8f` dispatch, `d2ef3263` profundidad, `5518dedd` tooling.
 
-## Trabajo preservado (worktrees hermanos)
+- Workspace combinado desde principal:88/88, Node24 sin Bun en PATH. Formato y clippy verdes.
+- Herramientas:63/63; fast final y precommits verdes. Revisión independiente sin hallazgos
+  abiertos en el alcance. Handler:232 casos y149 comparaciones shell locales.
+- Auto-shadow devuelve el shell una vez; Rust forzado evalúa nativo incluso descriptor shadow.
+  Integridad/cwd preceden stdin; cwd eliminado difiere3; lectura fallida usa D6 por engine/evento.
+- Error de profundidad consumido ya no se convierte en Null/Permit: Failure→Claude ask/Pi2.
+  Es un fix seguro, no paridad exacta de esa entrada. Límites de recursión conservados.
+- Hashes coinciden con Node, orden UTF16 y bytes/NUL; watches detectan add/remove/edit.
+  Original `feat/0057-rust-e2-m9-hashes` conserva `b84c7433`, subido.
+- Registro y manifiesto productivos vacíos. A9 real falla explícitamente por auditoría activa;
+  con `--audit off`, por registro vacío. T23–T26/A8/A9 siguen abiertos.
 
-- `feat/0057-rust-e2-m8-tools` / `-rust-tools`: `4fed8109`, subido; PR aún no creado.
-  Replay/fuzz/bench59focales y fast verdes. Full:10237verdes/2omitidas y timeout zsh300s,
-  origen pendiente. No atribuirlo al diff ni declarar gate completo verde.
-  Registro vacío y auditoría active Rust sin fixture válido fallan explícitamente.
-- `feat/0057-rust-e2-m9-handler` / `-rust-handler`: `2e93d58a`, checkpoint WIP.
-  Siete grupos verdes desde principal (11.77s):232corpus y148comparaciones shell locales.
-  Perfiles jq/Node/sed, locale, UTF16 y overflow; serde_json raw_value/arbitrary_precision.
-  Workspace/clippy finales y portabilidad Bash5/GNU-BSD pendientes. T26/A9 abiertos.
-- `feat/0057-rust-e2-m9-shadow-runtime` / `-rust-shadow`: `75c65024`, checkpoint.
-  Ocho shadow tests y36CLI verdes; fmt/clippy y revisión verdes. Callback puro, shell0/1/2
-  autoritativo, transporte binario concurrente y EPIPE temprano. Sin wiring/registro/ledger.
-- `-rust-hashes`: branch creada desde M6, vacía; no implementación ni agente asignado.
+PRs M8/M9 aún sin crear al consultar GitHub. Cuerpos ignorados preparados:
+`-rust-tools/.navori/state/m8-pr.md`, `-rust-integration/.navori/state/m9-pr.md`.
+El hook exige creación humana; comandos completos ya entregados en chat, sin reintentar deny.
+M9 incorpora ancestry M8; integrar M8 primero cuando ambos existan. No declarar shipping verde.
 
-## Retomar
+## Verificación en curso
 
-1. Resolver/validar timeout zsh de M8 y crear su PR con el comando ya entregado; mergear sólo
-   con CI verde. T23–T25 siguen parciales hasta portes reales/audit activa/shadow log.
-2. Cerrar workspace/clippy y portabilidad del handler; integrar handler y executor, hashes D8,
-   registro y forced-native para comparar shadow sin devolver shell como resultado Rust.
-3. D9 necesita contador técnico por invocación: sólo divergencias no prueba500/14d por engine.
-   Fallos anómalos shadow usan D6 por engine; nunca1 universal (Claude fail-open).
-4. M4 CONTRIBUTING sigue pendiente: escritura shell bloqueada y no reintentada.
+M8 sigue en `4fed8109`/`-rust-tools`. Full anterior:10237 verdes/2 omitidas y timeout zsh300s.
+Focal nuevo:2/2,162.56s. Origen no determinado; fuente/timeout intactos.
+Nuevo `NAVORI_TEST_WORKERS=1 bun check` iniciado17:55CST, exec session54824 aún en ejecución
+al registrar18:21CST. Log: `-rust-tools/.navori/state/m8-full-resume.log`. No arrancar otro full
+pesado antes de recuperar su resultado. Full sobre diff final M9 también pendiente.
 
-No gates largos ni productores activos al checkpoint. Estimación comunicada:25% implementación,
-22% cerrado por hitos; no equivale a hooks activos. Detalle y evidencia en progress/history.md.
+## Siguiente paso
+
+Recuperar gate M8 y CI tras creación humana; merge sólo con checks verdes sobre SHA exacto.
+Cerrar perfil de elegibilidad antes de stdin y portabilidad Bash5/GNU; prueba Docker bloqueada
+por guard, sin ejecutar contenedor ni buscar alternativa. No asumir JqAndNode/Utf8 por defecto.
+Para D9, evaluar writer CLI con primitivas privadas `audit/paths.ts`: ledger técnico por
+invocación/engine sin payload en matches, payload sólo divergencias; esquema/identidad aún pendientes.
+Faltan registro/manifest, fixtures active y evidencia500/14d por engine antes de activar.
+CONTRIBUTING M4 pendiente por bloqueo previo. Detalle histórico en progress/history.md.
