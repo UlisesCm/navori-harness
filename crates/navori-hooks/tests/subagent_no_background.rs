@@ -5,9 +5,12 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use navori_hooks::hooks::subagent_no_background::{Extractor, Locale, Profile, evaluate};
+use navori_hooks::hooks::subagent_no_background::{
+    CaptureContext, Extractor, Locale, Profile, ShellDialect, evaluate, evaluate_with_capture,
+};
 use navori_hooks::runner::{Engine, Verdict};
 use serde_json::{Value, json};
 
@@ -52,6 +55,54 @@ fn code(verdict: Verdict) -> u8 {
     }
 }
 
+/// The live oracle uses the host's system sed/grep, not a cross-platform UTF-8 approximation.
+fn host_utf8_locale() -> Locale {
+    if cfg!(target_os = "linux") {
+        Locale::GnuUtf8
+    } else {
+        Locale::Utf8
+    }
+}
+
+fn host_profile() -> Profile {
+    Profile {
+        extractor: Extractor::JqAndNode,
+        locale: host_utf8_locale(),
+    }
+}
+
+/// Identify the actual oracle binary; unsupported diagnostic dialects fail instead of guessing.
+fn bash_dialect() -> Result<ShellDialect, Box<dyn Error>> {
+    static DIALECT: OnceLock<Result<ShellDialect, String>> = OnceLock::new();
+    let result = DIALECT.get_or_init(|| {
+        let output = Command::new("/bin/bash")
+            .arg("--version")
+            .output()
+            .map_err(|error| error.to_string())?;
+        let version = String::from_utf8_lossy(&output.stdout);
+        if output.status.success() && version.starts_with("GNU bash, version 3.") {
+            Ok(ShellDialect::Bash3)
+        } else if output.status.success() && version.starts_with("GNU bash, version 5.") {
+            Ok(ShellDialect::Bash5)
+        } else {
+            Err(format!("unsupported oracle Bash dialect: {version}"))
+        }
+    });
+    result
+        .as_ref()
+        .copied()
+        .map_err(|error| error.clone().into())
+}
+
+struct ShellOracle {
+    output: std::process::Output,
+    script: PathBuf,
+    input_line: usize,
+    fallback_line: usize,
+    shell: ShellDialect,
+    _temp: Temp,
+}
+
 /// Expand the real include partials into a scratch shell oracle, without Node/Bun or signatures.
 fn shell_source() -> Result<String, Box<dyn Error>> {
     let hooks = repo().join("packages/core/core-assets/hooks");
@@ -72,10 +123,24 @@ fn shell_source() -> Result<String, Box<dyn Error>> {
 }
 
 /// Capture the real, audit-disabled shell oracle without relaxing any observable output.
-fn shell_output(bytes: &[u8], profile: Profile) -> Result<std::process::Output, Box<dyn Error>> {
+fn shell_oracle(bytes: &[u8], profile: Profile) -> Result<ShellOracle, Box<dyn Error>> {
     let temp = Temp::new()?;
     let script = temp.0.join("subagent-no-background.sh");
-    fs::write(&script, shell_source()?)?;
+    let source = shell_source()?;
+    let input_line = source
+        .lines()
+        .position(|line| line == "payload=${payload-$(cat)}")
+        .ok_or("initial capture not found in expanded oracle")?
+        + 1;
+    let fallback_line = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("printf -v") && line.contains("$(payload_field"))
+        .map(|(index, _)| index + 1)
+        .last()
+        .ok_or("individual fallback not found in expanded oracle")?;
+    let shell = bash_dialect()?;
+    fs::write(&script, source)?;
     let mut command = Command::new("/bin/bash");
     command
         .arg(&script)
@@ -83,7 +148,7 @@ fn shell_output(bytes: &[u8], profile: Profile) -> Result<std::process::Output, 
     command.env(
         "LC_ALL",
         match profile.locale {
-            Locale::Utf8 => "en_US.UTF-8",
+            Locale::Utf8 | Locale::GnuUtf8 => "en_US.UTF-8",
             Locale::C => "C",
         },
     );
@@ -114,13 +179,35 @@ fn shell_output(bytes: &[u8], profile: Profile) -> Result<std::process::Output, 
         .stderr(Stdio::piped())
         .spawn()?;
     child.stdin.take().ok_or("stdin")?.write_all(bytes)?;
-    Ok(child.wait_with_output()?)
+    Ok(ShellOracle {
+        output: child.wait_with_output()?,
+        script,
+        input_line,
+        fallback_line,
+        shell,
+        _temp: temp,
+    })
+}
+
+fn shell_output(bytes: &[u8], profile: Profile) -> Result<std::process::Output, Box<dyn Error>> {
+    Ok(shell_oracle(bytes, profile)?.output)
 }
 
 /// Compare all observable policy fields with a real audit-disabled shell invocation.
 fn compare_shell(bytes: &[u8], profile: Profile) -> TestResult {
-    let expected = shell_output(bytes, profile)?;
-    let actual = evaluate(bytes, Engine::Claude, profile)?;
+    let oracle = shell_oracle(bytes, profile)?;
+    let expected = &oracle.output;
+    let actual = evaluate_with_capture(
+        bytes,
+        Engine::Claude,
+        profile,
+        CaptureContext {
+            shell: oracle.shell,
+            script: &oracle.script,
+            input_line: oracle.input_line,
+            fallback_line: oracle.fallback_line,
+        },
+    )?;
     assert_eq!(
         i32::from(code(actual.verdict)),
         expected.status.code().ok_or("shell signal")?,
@@ -324,6 +411,72 @@ fn unknown_and_consumed_surrogates_and_large_numbers_preserve_each_extractor() -
 
 // Covers: R11, R12
 #[test]
+fn gnu_bsd_and_c_space_classes_remain_explicit_in_extraction_and_policy() -> TestResult {
+    let c_profile = Profile {
+        extractor: Extractor::JqAndNode,
+        locale: Locale::C,
+    };
+    // POSIX C space has six members, including vertical tab (unlike is_ascii_whitespace).
+    for space in ['\t', '\n', '\u{000b}', '\u{000c}', '\r', ' '] {
+        let command = payload(&format!("{space}nohup x"));
+        assert_eq!(
+            code(evaluate(&command, Engine::Claude, c_profile)?.verdict),
+            2
+        );
+        compare_shell(&command, c_profile)?;
+    }
+    // A vertical-tab-trimmed closing delimiter must expose the subsequent live command.
+    let vertical_tab_heredoc = payload("cat <<'EOF'\ntext\n\u{000b}EOF\u{000b}\nnohup x");
+    assert_eq!(
+        code(evaluate(&vertical_tab_heredoc, Engine::Claude, c_profile)?.verdict),
+        2
+    );
+    compare_shell(&vertical_tab_heredoc, c_profile)?;
+    // glibc-2.41 localedata/locales/i18n_ctype:520–522 excludes four Unicode
+    // White_Space characters. BSD excludes NEL too, but includes the other three.
+    for (space, bsd_space, gnu_space) in [
+        ('\u{0085}', false, false),
+        ('\u{00a0}', true, false),
+        ('\u{2007}', true, false),
+        ('\u{202f}', true, false),
+        ('\u{2003}', true, true),
+    ] {
+        let raw = format!(r#"{{"agent_id":"x","tool_name":{space}"Monitor"}}"#);
+        let command = payload(&format!("{space}nohup x"));
+        for (locale, is_space) in [
+            (Locale::Utf8, bsd_space),
+            (Locale::GnuUtf8, gnu_space),
+            (Locale::C, false),
+        ] {
+            for (bytes, extractor) in [
+                (raw.as_bytes(), Extractor::JqOnly),
+                (command.as_slice(), Extractor::JqAndNode),
+            ] {
+                let actual = evaluate(bytes, Engine::Claude, Profile { extractor, locale })?;
+                assert_eq!(
+                    code(actual.verdict),
+                    if is_space { 2 } else { 0 },
+                    "U+{:04X}, {locale:?}, {extractor:?}",
+                    u32::from(space)
+                );
+                assert!(actual.stdout.is_empty());
+                assert_eq!(actual.stderr.is_empty(), !is_space);
+            }
+        }
+        compare_shell(
+            raw.as_bytes(),
+            Profile {
+                extractor: Extractor::JqOnly,
+                locale: host_utf8_locale(),
+            },
+        )?;
+        compare_shell(&command, host_profile())?;
+    }
+    Ok(())
+}
+
+// Covers: R11, R12
+#[test]
 fn raw_fallback_whitespace_and_escaped_strings_preserve_locale_rules() -> TestResult {
     for text in [
         "{\"agent_id\":\"x\",\"tool_name\": \"Monitor\"}",
@@ -336,7 +489,7 @@ fn raw_fallback_whitespace_and_escaped_strings_preserve_locale_rules() -> TestRe
             Extractor::Node,
             Extractor::Sed,
         ] {
-            for locale in [Locale::C, Locale::Utf8] {
+            for locale in [Locale::C, host_utf8_locale()] {
                 compare_shell(text.as_bytes(), Profile { extractor, locale })?;
             }
         }
@@ -376,7 +529,7 @@ fn complete_inert_and_prefix_frontier_matches_the_real_partial() -> TestResult {
         "\\nohup job",
         "(nohup job)",
     ] {
-        compare_shell(&payload(command), Profile::default())?;
+        compare_shell(&payload(command), host_profile())?;
     }
     Ok(())
 }
@@ -394,7 +547,7 @@ fn original_work_limits_and_locale_character_counts_are_preserved() -> TestResul
         " nohup x".to_owned(),
         " nohup x".to_owned(),
     ] {
-        for locale in [Locale::C, Locale::Utf8] {
+        for locale in [Locale::C, host_utf8_locale()] {
             compare_shell(
                 &payload(&command),
                 Profile {

@@ -25,11 +25,48 @@ pub enum Extractor {
 /// Shell text/character-count convention, supplied instead of inspecting LC_ALL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Locale {
-    /// UTF-8 shell locale: Unicode whitespace classes and scalar-value command lengths.
+    /// BSD UTF-8 shell locale: POSIX space classes and scalar-value command lengths.
     #[default]
     Utf8,
+    /// glibc i18n UTF-8 locale: POSIX space classes and scalar-value command lengths.
+    GnuUtf8,
     /// LC_ALL=C: ASCII whitespace classes and encoded-byte command lengths.
     C,
+}
+
+impl Locale {
+    /// Character-class contents shared by sed extraction and inert-policy expressions.
+    pub(super) fn space_class(self) -> &'static str {
+        match self {
+            // BSD en_US.UTF-8 has 24 space characters; U+0085 is not a member.
+            Self::Utf8 => {
+                r"\x{0009}-\x{000D}\x{0020}\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}-\x{2029}\x{202F}\x{205F}\x{3000}"
+            }
+            // glibc-2.41/localedata/locales/i18n_ctype, space (lines 520–522).
+            // en_US copies i18n -> i18n_ctype; C.UTF-8 also copies i18n_ctype.
+            Self::GnuUtf8 => {
+                r"\x{0009}-\x{000D}\x{0020}\x{1680}\x{2000}-\x{2006}\x{2008}-\x{200A}\x{2028}-\x{2029}\x{205F}\x{3000}"
+            }
+            Self::C => "[:space:]",
+        }
+    }
+
+    /// Match the same POSIX class when the policy trims a segment or heredoc delimiter.
+    pub(super) fn whitespace(self, c: char) -> bool {
+        match self {
+            Self::Utf8 => matches!(c,
+                '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}' |
+                '\u{2000}'..='\u{200a}' | '\u{2028}'..='\u{2029}' |
+                '\u{202f}' | '\u{205f}' | '\u{3000}'
+            ),
+            Self::GnuUtf8 => matches!(c,
+                '\u{0009}'..='\u{000d}' | ' ' | '\u{1680}' |
+                '\u{2000}'..='\u{2006}' | '\u{2008}'..='\u{200a}' |
+                '\u{2028}'..='\u{2029}' | '\u{205f}' | '\u{3000}'
+            ),
+            Self::C => matches!(c, '\u{0009}'..='\u{000d}' | ' '),
+        }
+    }
 }
 
 /// The caller's original shell environment; discovery/selection is outside the pure policy.
@@ -46,6 +83,7 @@ pub(super) struct Fields {
     pub background: String,
     pub command: String,
     pub command_bytes: usize,
+    pub nul_substitutions: usize,
 }
 
 /// Command substitution drops NUL bytes and every final newline before the cheap presence gate.
@@ -299,13 +337,9 @@ fn structured(value: &Value, individual: bool, node: bool) -> String {
 /// legacy fallback cannot extract JSON strings containing a backslash (even a valid escape).
 fn sed_field(payload: &[u8], leaf: &str, locale: Locale) -> Result<(String, usize), Failure> {
     let pattern = format!(r#".*"{leaf}"[[:space:]]*:[[:space:]]*"([^"\\]*)".*"#);
-    let pattern = if locale == Locale::Utf8 {
-        pattern.replace("[:space:]", r"\s")
-    } else {
-        pattern
-    };
+    let pattern = pattern.replace("[:space:]", locale.space_class());
     let re = RegexBuilder::new(&pattern)
-        .unicode(locale == Locale::Utf8)
+        .unicode(locale != Locale::C)
         .build()
         .map_err(|e| Failure(format!("field pattern: {e}")))?;
     let mut output = Vec::new();
@@ -327,10 +361,15 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
         && let Some((fields, node)) = selected(&text, mode)?
     {
         let bulk = fields.each_ref().map(|v| structured(v, false, node));
-        let values = if bulk.iter().any(|v| v.contains('\0')) {
-            fields.each_ref().map(|v| structured(v, true, node))
+        let (values, nul_substitutions) = if bulk.iter().any(|v| v.contains('\0')) {
+            let individual = fields.each_ref().map(|v| structured(v, true, node));
+            let count = individual
+                .iter()
+                .filter(|value| value.contains('\0'))
+                .count();
+            (individual, count)
         } else {
-            bulk
+            (bulk, 0)
         };
         let [tool, background, command] = values.map(shell_string);
         return Ok(Fields {
@@ -338,6 +377,7 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
             background,
             command_bytes: command.len(),
             command,
+            nul_substitutions,
         });
     }
     if matches!(mode, Extractor::Sed | Extractor::JqOnly) {
@@ -349,6 +389,7 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
             background,
             command,
             command_bytes,
+            nul_substitutions: 0,
         });
     }
     Ok(Fields {
@@ -356,5 +397,56 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
         background: String::new(),
         command: String::new(),
         command_bytes: 0,
+        nul_substitutions: 0,
     })
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::Locale;
+
+    // Covers: R11, R12
+    #[test]
+    fn locale_space_tables_and_regex_agree_for_members_and_nonmembers() -> Result<(), regex::Error>
+    {
+        // GNU primary source: glibc-2.41/localedata/locales/i18n_ctype, space.
+        // BSD table also checked against macOS libc.iswspace in en_US.UTF-8.
+        let tables: [(Locale, &[u32]); 3] = [
+            (Locale::C, &[0x9, 0xa, 0xb, 0xc, 0xd, 0x20]),
+            (
+                Locale::GnuUtf8,
+                &[
+                    0x9, 0xa, 0xb, 0xc, 0xd, 0x20, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004,
+                    0x2005, 0x2006, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x205f, 0x3000,
+                ],
+            ),
+            (
+                Locale::Utf8,
+                &[
+                    0x9, 0xa, 0xb, 0xc, 0xd, 0x20, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003,
+                    0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f,
+                    0x205f, 0x3000,
+                ],
+            ),
+        ];
+        for (locale, expected) in tables {
+            let re = regex::Regex::new(&format!("^[{}]$", locale.space_class()))?;
+            for value in 0..=0x3001 {
+                let c = char::from_u32(value).ok_or_else(|| {
+                    regex::Error::Syntax("non-scalar locale test value".to_owned())
+                })?;
+                assert_eq!(
+                    locale.whitespace(c),
+                    expected.contains(&value),
+                    "{locale:?}, U+{value:04X}"
+                );
+                assert_eq!(
+                    re.is_match(&c.to_string()),
+                    expected.contains(&value),
+                    "{locale:?}, U+{value:04X}"
+                );
+            }
+        }
+        Ok(())
+    }
 }

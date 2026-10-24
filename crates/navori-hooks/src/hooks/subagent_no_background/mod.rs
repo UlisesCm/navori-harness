@@ -4,9 +4,11 @@
 //! The caller supplies the original shell's extraction/locale profile. Native registration,
 //! shadow execution and audit integration are deliberately separate capabilities.
 
+mod capture;
 mod inert;
 mod input;
 
+pub use capture::{CaptureContext, ShellDialect};
 pub use input::{Extractor, Locale, Profile};
 
 use crate::runner::{Engine, Evaluation, Failure, Verdict};
@@ -35,16 +37,42 @@ fn result(reason: Option<&str>) -> Evaluation {
 /// verdict. `profile` must describe the original shell environment, not Rust tool availability.
 ///
 /// # Errors
-/// Returns an internal failure only if the fixed policy patterns cannot be initialized.
+/// Returns an internal extraction or policy-initialization failure.
 pub fn evaluate(payload: &[u8], _engine: Engine, profile: Profile) -> Result<Evaluation, Failure> {
+    evaluate_captured(payload, profile).map(|(evaluation, _)| evaluation)
+}
+
+/// Evaluate policy plus the original Bash command-substitution diagnostics without effects.
+/// The caller provides the real shell dialect, script bytes and expanded-source line locations.
+///
+/// # Errors
+/// Propagates the same internal extraction/policy failures as `evaluate`; no error permits a call.
+pub fn evaluate_with_capture(
+    payload: &[u8],
+    _engine: Engine,
+    profile: Profile,
+    context: CaptureContext<'_>,
+) -> Result<Evaluation, Failure> {
+    let (mut evaluation, fields) = evaluate_captured(payload, profile)?;
+    evaluation.stderr = capture::prepend(context, payload.contains(&0), fields, evaluation.stderr);
+    Ok(evaluation)
+}
+
+/// Capture once and retain only the count of individual substitutions that dropped a NUL.
+fn evaluate_captured(payload: &[u8], profile: Profile) -> Result<(Evaluation, usize), Failure> {
     let captured = input::capture(payload);
     if !captured
         .windows(b"\"agent_id\"".len())
         .any(|w| w == b"\"agent_id\"")
     {
-        return Ok(result(None));
+        return Ok((result(None), 0));
     }
     let fields = input::extract(&captured, profile)?;
+    Ok((evaluate_fields(&fields, profile)?, fields.nul_substitutions))
+}
+
+/// Preserve the pure policy after extraction, independently of runtime diagnostic formatting.
+fn evaluate_fields(fields: &input::Fields, profile: Profile) -> Result<Evaluation, Failure> {
     if fields.tool == "Monitor" {
         return Ok(result(Some("Monitor dentro de un subagente")));
     }
@@ -60,7 +88,7 @@ pub fn evaluate(payload: &[u8], _engine: Engine, profile: Profile) -> Result<Eva
         return Ok(result(None));
     }
     let length = match profile.locale {
-        Locale::Utf8 => fields.command.chars().count(),
+        Locale::Utf8 | Locale::GnuUtf8 => fields.command.chars().count(),
         Locale::C => fields.command_bytes,
     };
     if length > inert::CMD_MAX {

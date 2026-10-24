@@ -565,3 +565,30 @@ Próximos pasos: recuperar gates/CI, perfil explícito de elegibilidad antes de 
 fixtures active. Reconocimiento D9 identifica writer privado CLI audit/paths.ts reutilizable,
 pero faltan esquema/identidad del ledger por invocación y evidencia500/14d por engine. No hay
 productores activos ni hooks nativos productivos; se conserva la base remota migration/rust.
+
+## 2026-10-23 18:49 Codex — Corrige portabilidad del handler en CI1393
+
+Usuario creó PR1393 draft contra migration/rust. En head18235009 todos los checks salvo Rust
+quality quedaron verdes, incluidos cuatro shards JS y test-merge. Quality falló cuatro pruebas
+por dos diferencias reales: clases POSIX GNU frente a la aproximación Unicode del handler y
+warnings Bash5 cuando una sustitución elimina NUL, incluso NUL decodificado de campos JSON.
+
+Separa perfiles explícitos GNU21/BSD24/C6, compartidos por regex/trim. Tabla GNU proviene de
+glibc2.41 i18n_ctype; el focal ampliado halló otra divergencia BSDNEL, confirmada por principal
+contra iswspace de libc local en todos los escalares Unicode y por shell real. NEL no es espacio
+BSD; conserva NBSP/FIGURE/narrow-NBSP como diferencias explícitas. Sin omitir filas ni normalizar.
+
+API pura evaluate_with_capture recibe dialecto/pathbytes/líneas originales. Cuenta una advertencia
+por captura raw con NUL antes del gate y por cada salida individual afectada cuando bulk rechaza;
+campos cacheados no duplican warnings. Conserva errores Failure, stdout/exit y stderr byte a byte,
+incluidos paths Unix no UTF8. No IO/probes dentro del handler ni registro productivo nuevo.
+
+Principal: paquete hooks30/30, workspace98/98, fmt0 y clippy workspace/all-targets/locked/Dwarnings0.
+Revisión independiente final favorable; ocho regresiones NUL y matriz de clases/C-VT/heredoc.
+Fuentes congeladas antes de verificar. Ubuntu/Bash5 real queda pendiente del nuevo push1393.
+
+M8 full completado exit0:10238 passed/2 skipped,482files,2281.8s; cobertura líneas87.83%,
+statements86.15%, functions90.46%, branches80.94%, floor160/0. Fuente y timeout intactos, un worker;
+no determina origen del timeout anterior. Exec54824 terminó, log m8-full-resume.log en tools.
+M8 ancestry incluida en1393, sin PR adicional creado. T23–T26/A8/A9 y elegibilidad runtime siguen
+abiertos; siguiente paso CI del fix y merge sólo con checks verdes sobre SHA exacto.

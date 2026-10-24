@@ -37,13 +37,7 @@ struct Rules {
 impl Rules {
     /// Compile literal ERE equivalents once; newline exclusions model sed's line-by-line input.
     fn new(locale: Locale) -> Result<Self, regex::Error> {
-        let re = |pattern: &str| {
-            Regex::new(&if locale == Locale::Utf8 {
-                pattern.replace("[:space:]", r"\s")
-            } else {
-                pattern.to_owned()
-            })
-        };
+        let re = |pattern: &str| Regex::new(&pattern.replace("[:space:]", locale.space_class()));
         Ok(Self {
             single: re(r"'[^'\n]*'")?,
             double: re(r#""[^"\n]*""#)?,
@@ -79,13 +73,12 @@ impl Rules {
 
 static UTF8_RULES: LazyLock<Result<Rules, regex::Error>> =
     LazyLock::new(|| Rules::new(Locale::Utf8));
+static GNU_UTF8_RULES: LazyLock<Result<Rules, regex::Error>> =
+    LazyLock::new(|| Rules::new(Locale::GnuUtf8));
 static C_RULES: LazyLock<Result<Rules, regex::Error>> = LazyLock::new(|| Rules::new(Locale::C));
 
 fn whitespace(c: char, locale: Locale) -> bool {
-    match locale {
-        Locale::Utf8 => c.is_whitespace(),
-        Locale::C => c.is_ascii_whitespace(),
-    }
+    locale.whitespace(c)
 }
 
 /// sed processes independent lines; an ERE whitespace class cannot consume the next line.
@@ -175,6 +168,7 @@ fn has_expansion(text: &str, rules: &Rules) -> bool {
 pub(super) fn reason(cmd: &str, locale: Locale) -> Result<Option<String>, Failure> {
     let rules = match locale {
         Locale::Utf8 => &UTF8_RULES,
+        Locale::GnuUtf8 => &GNU_UTF8_RULES,
         Locale::C => &C_RULES,
     }
     .as_ref()
