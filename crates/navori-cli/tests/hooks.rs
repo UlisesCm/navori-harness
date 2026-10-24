@@ -7,6 +7,7 @@ use std::io::{self, Read};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -35,10 +36,19 @@ impl Scratch {
     }
 
     fn script(&self, engine: &str, deps: &[&[u8]]) -> Result<PathBuf, Box<dyn Error>> {
+        self.script_body(engine, "#!/bin/sh\nexit 0\n", deps)
+    }
+
+    fn script_body(
+        &self,
+        engine: &str,
+        body: &str,
+        deps: &[&[u8]],
+    ) -> Result<PathBuf, Box<dyn Error>> {
         let path = self.0.join(engine).join("hooks/example.sh");
         fs::create_dir_all(path.parent().ok_or("hooks parent")?)?;
         let source = format!(
-            "# navori:native-hook v=1 file=sha256:{} impl={HASH}\n#!/bin/sh\nexit 0\n",
+            "# navori:native-hook v=1 file=sha256:{} impl={HASH}\n{body}",
             "0".repeat(64)
         );
         let hash = script_hash(source.as_bytes(), deps).ok_or("metadata")?;
@@ -112,6 +122,455 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
         implementation: HASH,
         evaluate,
     }]
+}
+
+mod shadow_dispatch {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStringExt;
+
+    static SERIAL: Mutex<()> = Mutex::new(());
+    static OBSERVED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+    fn observe(payload: &[u8], invocation: &Invocation) -> Result<Evaluation, Failure> {
+        OBSERVED
+            .lock()
+            .map_err(|_| Failure("observation lock".to_owned()))?
+            .push(payload.to_vec());
+        record(payload, invocation)
+    }
+
+    fn native_error(payload: &[u8], invocation: &Invocation) -> Result<Evaluation, Failure> {
+        observe(payload, invocation)?;
+        Err(Failure("native fixture error".to_owned()))
+    }
+
+    fn native_panic(payload: &[u8], invocation: &Invocation) -> Result<Evaluation, Failure> {
+        observe(payload, invocation)?;
+        panic!("native fixture panic")
+    }
+
+    fn shadow_manifest(gating: bool) -> Result<Manifest, Box<dyn Error>> {
+        let mut manifest = manifest(gating, &[])?;
+        manifest.hooks.get_mut("example").ok_or("hook")?.mode =
+            navori_core::manifest::HookMode::Shadow;
+        Ok(manifest)
+    }
+
+    struct Once<'a> {
+        remaining: &'a [u8],
+        eof: bool,
+    }
+    impl Read for Once<'_> {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            if self.eof {
+                return Err(io::Error::other("stdin traversed twice"));
+            }
+            let size = bytes.len().min(self.remaining.len());
+            bytes[..size].copy_from_slice(&self.remaining[..size]);
+            self.remaining = &self.remaining[size..];
+            self.eof = size == 0;
+            Ok(size)
+        }
+    }
+
+    struct PartialFailure {
+        delivered: bool,
+        reads: usize,
+    }
+    impl Read for PartialFailure {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            if self.delivered {
+                return Err(io::Error::other("fixture partial read failure"));
+            }
+            let data = b"partial payload";
+            let size = bytes.len().min(data.len());
+            bytes[..size].copy_from_slice(&data[..size]);
+            self.delivered = true;
+            Ok(size)
+        }
+    }
+
+    /// Assert the explicit D6 engine/event expectation, without accepting leaked lane output.
+    fn assert_safe(code: u8, stdout: &[u8], stderr: &[u8], expected: u8) -> TestResult {
+        assert_eq!(code, expected);
+        if expected == 0 {
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(stdout)?["hookSpecificOutput"]["permissionDecision"],
+                "ask"
+            );
+            assert!(stderr.is_empty());
+        } else {
+            assert!(stdout.is_empty());
+            assert!(!stderr.is_empty());
+        }
+        assert!(!String::from_utf8_lossy(stdout).contains("unsafe-shell"));
+        assert!(!String::from_utf8_lossy(stderr).contains("unsafe-shell"));
+        Ok(())
+    }
+
+    // Covers: R11, R12, R13
+    #[test]
+    fn auto_shadow_returns_one_shell_with_the_same_payload_cwd_env_and_exact_arguments()
+    -> TestResult {
+        let _serial = SERIAL.lock()?;
+        let scratch = Scratch::new()?;
+        let counter = scratch.0.join("shell-count");
+        let script = scratch.script_body(".claude", "printf x >> \"$1\"\nprintf '%s\\0' \"$PWD\" \"$PATH\" \"$NAVORI_HOOK_IMPL\" \"$@\"\ncat\nprintf 'shell-only\\n\\n' >&2\nexit 2\n", &[])?;
+        let payload = b"payload\0\xff\n\n";
+        let own_args = [
+            counter.as_os_str().to_owned(),
+            "".into(),
+            "space value".into(),
+            "literal;$(never)".into(),
+            OsString::from_vec(vec![0xff, b'x']),
+            "--shadow".into(),
+        ];
+        for (index, (descriptor_shadow, explicit)) in [(true, false), (false, true), (true, true)]
+            .into_iter()
+            .enumerate()
+        {
+            OBSERVED.lock()?.clear();
+            let manifest = if descriptor_shadow {
+                shadow_manifest(true)?
+            } else {
+                manifest(true, &[])?
+            };
+            let mut args = argv(&script);
+            if explicit {
+                args.push("--shadow".into());
+            }
+            args.extend(own_args.iter().cloned());
+            let mut input = Once {
+                remaining: payload,
+                eof: false,
+            };
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            assert_eq!(
+                run_with(
+                    &args,
+                    &manifest,
+                    &registry(observe),
+                    Mode::Auto,
+                    &mut input,
+                    &mut stdout,
+                    &mut stderr
+                ),
+                2
+            );
+            assert!(input.eof);
+            assert_eq!(OBSERVED.lock()?.as_slice(), &[payload.to_vec()]);
+            assert_eq!(fs::read(&counter)?, vec![b'x'; index + 1]);
+            let cwd = std::env::current_dir()?;
+            let path = std::env::var_os("PATH").ok_or("test PATH")?;
+            let mut expected = Vec::new();
+            for field in [cwd.as_os_str(), path.as_os_str(), OsStr::new("shell")]
+                .into_iter()
+                .chain(own_args.iter().map(OsString::as_os_str))
+            {
+                expected.extend_from_slice(field.as_encoded_bytes());
+                expected.push(0);
+            }
+            expected.extend_from_slice(payload);
+            assert_eq!(stdout, expected);
+            assert_eq!(stderr, b"shell-only\n\n");
+        }
+        assert!(navori_cli::hook::NATIVE_HOOKS.is_empty());
+        Ok(())
+    }
+
+    // Covers: R11, R12, R13
+    #[test]
+    fn forced_native_ignores_shadow_dispatch_but_shell_override_defers_without_reading()
+    -> TestResult {
+        let _serial = SERIAL.lock()?;
+        let scratch = Scratch::new()?;
+        let counter = scratch.0.join("must-not-exist");
+        let script =
+            scratch.script_body(".claude", "printf x >> \"$1\"\nprintf shell\nexit 0\n", &[])?;
+        for (descriptor_shadow, explicit) in [(true, false), (false, true), (true, true)] {
+            let manifest = if descriptor_shadow {
+                shadow_manifest(true)?
+            } else {
+                manifest(true, &[])?
+            };
+            let mut args = argv(&script);
+            if explicit {
+                args.push("--shadow".into());
+            }
+            let own_args = [counter.as_os_str().to_owned(), "own-arg".into()];
+            args.extend(own_args.iter().cloned());
+            OBSERVED.lock()?.clear();
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            assert_eq!(
+                run_with(
+                    &args,
+                    &manifest,
+                    &registry(observe),
+                    Mode::Rust,
+                    &mut &b"native input"[..],
+                    &mut stdout,
+                    &mut stderr
+                ),
+                2
+            );
+            assert_eq!(
+                stdout,
+                format!("native input|Claude|None|{own_args:?}").as_bytes()
+            );
+            assert_eq!(stderr, b"recorded\n");
+            assert_eq!(OBSERVED.lock()?.len(), 1);
+            assert!(!counter.exists());
+            OBSERVED.lock()?.clear();
+            assert_eq!(
+                run_with(
+                    &args,
+                    &manifest,
+                    &registry(observe),
+                    Mode::Shell,
+                    &mut NeverRead,
+                    &mut Vec::new(),
+                    &mut Vec::new()
+                ),
+                3
+            );
+            assert!(OBSERVED.lock()?.is_empty());
+            assert!(!counter.exists());
+        }
+        Ok(())
+    }
+
+    // Covers: R12, R13
+    #[test]
+    fn invalid_shadow_signature_defers_before_stdin_native_or_shell() -> TestResult {
+        let _serial = SERIAL.lock()?;
+        OBSERVED.lock()?.clear();
+        let scratch = Scratch::new()?;
+        let counter = scratch.0.join("must-not-exist");
+        let script = scratch.script_body(".claude", "printf x >> \"$1\"\n", &[])?;
+        fs::write(
+            &script,
+            format!("{}# edited\n", fs::read_to_string(&script)?),
+        )?;
+        let mut args = argv(&script);
+        args.extend(["--shadow".into(), counter.as_os_str().to_owned()]);
+        for mode in [Mode::Auto, Mode::Rust] {
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            assert_eq!(
+                run_with(
+                    &args,
+                    &shadow_manifest(true)?,
+                    &registry(observe),
+                    mode,
+                    &mut NeverRead,
+                    &mut stdout,
+                    &mut stderr
+                ),
+                if mode == Mode::Auto { 3 } else { 1 }
+            );
+            assert!(stdout.is_empty());
+            assert!(OBSERVED.lock()?.is_empty());
+            assert!(!counter.exists());
+        }
+        Ok(())
+    }
+
+    // Covers: R12, R13
+    #[test]
+    fn missing_shadow_cwd_defers_before_capture_in_an_isolated_child() -> TestResult {
+        if std::env::var_os("NAVORI_SHADOW_CWD_TEST_CHILD").as_deref() == Some(OsStr::new("1")) {
+            let script =
+                PathBuf::from(std::env::var_os("NAVORI_SHADOW_TEST_SCRIPT").ok_or("child script")?);
+            let counter = PathBuf::from(
+                std::env::var_os("NAVORI_SHADOW_TEST_COUNTER").ok_or("child counter")?,
+            );
+            fs::remove_dir(std::env::current_dir()?)?;
+            assert!(std::env::current_dir().is_err());
+            let mut args = argv(&script);
+            args.extend(["--shadow".into(), counter.as_os_str().to_owned()]);
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            assert_eq!(
+                run_with(
+                    &args,
+                    &shadow_manifest(true)?,
+                    &registry(observe),
+                    Mode::Auto,
+                    &mut NeverRead,
+                    &mut stdout,
+                    &mut stderr
+                ),
+                3
+            );
+            assert!(stdout.is_empty() && stderr.is_empty());
+            assert!(OBSERVED.lock()?.is_empty());
+            assert!(!counter.exists());
+            assert_eq!(
+                run_with(
+                    &args,
+                    &shadow_manifest(true)?,
+                    &registry(observe),
+                    Mode::Rust,
+                    &mut &b"forced"[..],
+                    &mut stdout,
+                    &mut stderr
+                ),
+                2
+            );
+            assert!(stdout.starts_with(b"forced|Claude|"));
+            assert_eq!(OBSERVED.lock()?.as_slice(), &[b"forced".to_vec()]);
+            assert!(!counter.exists());
+            return Ok(());
+        }
+        let scratch = Scratch::new()?;
+        let counter = scratch.0.join("must-not-exist");
+        let script = scratch.script_body(".claude", "printf x >> \"$1\"\n", &[])?;
+        let cwd = scratch.0.join("removed-child-cwd");
+        fs::create_dir(&cwd)?;
+        let output = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "shadow_dispatch::missing_shadow_cwd_defers_before_capture_in_an_isolated_child",
+                "--nocapture",
+            ])
+            .current_dir(&cwd)
+            .env("NAVORI_SHADOW_CWD_TEST_CHILD", "1")
+            .env("NAVORI_SHADOW_TEST_SCRIPT", script)
+            .env("NAVORI_SHADOW_TEST_COUNTER", &counter)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "isolated child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!counter.exists());
+        Ok(())
+    }
+
+    // Covers: R12, R13
+    #[test]
+    fn partial_input_failure_never_runs_a_lane_and_uses_engine_event_gating() -> TestResult {
+        let _serial = SERIAL.lock()?;
+        let scratch = Scratch::new()?;
+        let counter = scratch.0.join("must-not-exist");
+        for (engine, event, gating, expected) in [
+            (".claude", "PreToolUse", true, 0),
+            (".claude", "Stop", true, 1),
+            (".claude", "PreToolUse", false, 1),
+            (".codex", "PreToolUse", true, 2),
+            (".pi/navori", "tool_call", true, 2),
+            (".pi/navori", "tool_call", false, 1),
+        ] {
+            let script = scratch.script_body(engine, "printf x >> \"$1\"\n", &[])?;
+            let args = vec![
+                "--via-command".into(),
+                event.into(),
+                script.into_os_string(),
+                "--shadow".into(),
+                counter.as_os_str().to_owned(),
+            ];
+            for mode in [Mode::Auto, Mode::Rust] {
+                OBSERVED.lock()?.clear();
+                let mut input = PartialFailure {
+                    delivered: false,
+                    reads: 0,
+                };
+                let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+                let code = run_with(
+                    &args,
+                    &shadow_manifest(gating)?,
+                    &registry(observe),
+                    mode,
+                    &mut input,
+                    &mut stdout,
+                    &mut stderr,
+                );
+                assert_safe(code, &stdout, &stderr, expected)?;
+                assert!(input.delivered && input.reads >= 2);
+                assert!(OBSERVED.lock()?.is_empty());
+                assert!(!counter.exists());
+            }
+        }
+        Ok(())
+    }
+
+    // Covers: R11, R12
+    #[test]
+    fn native_errors_and_panics_leave_valid_shell_verdicts_authoritative() -> TestResult {
+        let _serial = SERIAL.lock()?;
+        let scratch = Scratch::new()?;
+        for evaluate in [
+            native_error as fn(&[u8], &Invocation) -> Result<Evaluation, Failure>,
+            native_panic,
+        ] {
+            for code in [0, 1, 2] {
+                OBSERVED.lock()?.clear();
+                let counter = scratch.0.join(format!("shell-{code}"));
+                let script = scratch.script_body(".claude", &format!("printf x >> \"$1\"\nprintf 'shell-output\\n'\nprintf shell-diagnostic >&2\nexit {code}\n"), &[])?;
+                let mut args = argv(&script);
+                args.push(counter.as_os_str().to_owned());
+                let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+                assert_eq!(
+                    run_with(
+                        &args,
+                        &shadow_manifest(true)?,
+                        &registry(evaluate),
+                        Mode::Auto,
+                        &mut &b"input"[..],
+                        &mut stdout,
+                        &mut stderr
+                    ),
+                    code
+                );
+                assert_eq!(stdout, b"shell-output\n");
+                assert_eq!(stderr, b"shell-diagnostic");
+                assert_eq!(OBSERVED.lock()?.as_slice(), &[b"input".to_vec()]);
+                assert!(!fs::read(&counter)?.is_empty());
+            }
+        }
+        Ok(())
+    }
+
+    // Covers: R12
+    #[test]
+    fn shell_anomalies_use_the_dispatch_derived_engine_event_gating() -> TestResult {
+        let _serial = SERIAL.lock()?;
+        let scratch = Scratch::new()?;
+        for (engine, event, expected) in [
+            (".claude", "PreToolUse", 0),
+            (".claude", "Stop", 1),
+            (".codex", "PreToolUse", 2),
+            (".pi/navori", "tool_call", 2),
+        ] {
+            OBSERVED.lock()?.clear();
+            let counter = scratch.0.join(format!("shell-{event}"));
+            let script = scratch.script_body(
+                engine,
+                "printf x >> \"$1\"\nprintf unsafe-shell\nexit 101\n",
+                &[],
+            )?;
+            let args = vec![
+                "--via-command".into(),
+                event.into(),
+                script.into_os_string(),
+                counter.as_os_str().to_owned(),
+            ];
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let code = run_with(
+                &args,
+                &shadow_manifest(true)?,
+                &registry(observe),
+                Mode::Auto,
+                &mut &b"input"[..],
+                &mut stdout,
+                &mut stderr,
+            );
+            assert_safe(code, &stdout, &stderr, expected)?;
+            assert_eq!(OBSERVED.lock()?.as_slice(), &[b"input".to_vec()]);
+            assert!(!fs::read(&counter)?.is_empty());
+        }
+        Ok(())
+    }
 }
 
 // Covers: R12, R13
@@ -315,7 +774,7 @@ fn input_and_handler_panics_use_the_host_safe_verdict() -> TestResult {
 
 // Covers: R12, R13
 #[test]
-fn changed_or_escaping_dependencies_and_shadow_never_consume_stdin() -> TestResult {
+fn changed_or_escaping_dependencies_defer_before_stdin_even_for_shadow() -> TestResult {
     let scratch = Scratch::new()?;
     let dep = b"dependency\n";
     let script = scratch.script(".codex", &[dep])?;
@@ -369,6 +828,7 @@ fn changed_or_escaping_dependencies_and_shadow_never_consume_stdin() -> TestResu
         );
     }
     let mut shadow_args = argv(&script);
+    // The dependency is still edited: shadow selection must not bypass integrity preflight.
     shadow_args.extend(["--shadow".into(), "own-arg".into()]);
     assert_eq!(
         run_with(
