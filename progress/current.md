@@ -1,47 +1,40 @@
-# Sesión actual
+# Checkpoint Rust — 2026-10-23
 
-Programa Rust (specs 0057–0060). Base remota estable: `migration/rust`; branches por spec/entrega
-y PR hacia esa base por instrucción del usuario. Paralelismo con clones autorizado.
+Base remota estable `migration/rust` en `51d4367c`. PRs por spec/entrega y clones paralelos
+autorizados. El usuario autoriza mergear PRs Rust con todos los checks requeridos verdes.
+Comandos manuales siempre por chat, nunca tarjetas de pregunta. No activar hooks ni cortar TS.
 
-## Trabajo activo
+## Integrado
 
-- PR1389: checkpoint M1–M5, abierto como draft contra migration/rust; todos los checks
-  requeridos y los seis jobs Rust verdes. No se ha mergeado.
-- M6: `feat/0057-rust-e2-m6`, worktree principal. Entrada CLI de hooks y emisión segura en Rust;
-  renderer compartido con firma exacta, selección de inventario y fallback. Registro/manifiesto
-  productivo siguen sin hooks. 62 focales TS y 54 pruebas Rust verdes, clippy/fmt verdes.
-  Revisión cerró ownership/coexist/antirollback/markers/symlinks y stamp legacy sin wrapper.
-  Full preliminar: roja del stamp y timeout doctor; fix focal verde, doctor aislado verde.
-  Oráculo final 52/0. Full final verde:10240aprobadas/2omitidas,483archivos,1369.1s,piso162/0.
-  Commitdf872f8c subido; draft pendiente de ejecución humana (request9698c747).
-- M7: `feat/0057-rust-e2-m7-audit`, worktree hermano `navori-harness-wt-0057-rust-audit`.
-  Clon implementa auditoría independiente: metadata y bridge best-effort al writer TS único,
-  sin append directo ni wire IDs propios. Seis focales iniciales verdes, incluyendo shell+jq
-  byte exacto y writer TS real. Workspace/clippy/fmt/fast y revisión verdes. Full: 10217 verdes,
-  un timeout zsh300s; aislado 2/2 verde en166.7s sin cambiar límites. Commitd62f12e8 subido;
-  creación draft pendiente de ejecución humana (request2dde538e). Full final en ejecución.
-- M8: `feat/0057-rust-e2-m8-tools`, worktree hermano `navori-harness-wt-0057-rust-tools`.
-  Replay/adapter Rust directo, bench wall-time y fuzz determinista: 57 focales y fast verdes.
-  Registro vacío, defer y auditoría active sin fixture válido fallan explícitamente.
-  T23–T25 siguen parciales hasta probar con portes reales; full de tools aún no iniciado.
+- #1389 (M1–M5), #1391 (M6) y #1390 (M7) mergeados con CI verde, conservando ancestry.
+- M6: full10240/2omitidas,483archivos; Rust54; oráculo52/0; T20/T21 cerrados.
+- M7: full10218/2omitidas,481archivos,1915.7s; Rust47 y seis audit verdes.
+  Test del writer real usa Node24 transform-types; Bun no existe en Rustquality.
 
-## Contratos a conservar
+## Trabajo preservado (worktrees hermanos)
 
-- La firma file= está fuera del marker; prólogo dentro. Evita ciclo SHA1(marker)/SHA256(file).
-- Un noop previo no autoriza cambios: JSON final pasa otra vez por versión/floor/force.
-- No reabrir destinos skip/minimal ni reparar markers alterados al retirar wrappers.
-- Zsh puede devolver0 al printf con stdout cerrado: redirección explícita >&1 detecta fallo.
-- NAVORI_DELEGATED==pid da70 antes de toda ruta, incluido hook; descendiente legítimo difiere3.
-- D12 y A7 antiguos son obsoletos: replay ignora flags Rust/audit/only y no tiene audit-writer.
-  M7 preserva escritor TS único; aceptación debe probar metadata y bridge realmente.
-- Hooks con extraVars/transform no reproducidas siguen shell; argumentos Claude con expansión
-  conservan legacy para evitar doble evaluación. No activar hooks antes de sombra T26/D9.
+- `feat/0057-rust-e2-m8-tools` / `-rust-tools`: `4fed8109`, subido; PR aún no creado.
+  Replay/fuzz/bench59focales y fast verdes. Full:10237verdes/2omitidas y timeout zsh300s,
+  origen pendiente. No atribuirlo al diff ni declarar gate completo verde.
+  Registro vacío y auditoría active Rust sin fixture válido fallan explícitamente.
+- `feat/0057-rust-e2-m9-handler` / `-rust-handler`: `2e93d58a`, checkpoint WIP.
+  Siete grupos verdes desde principal (11.77s):232corpus y148comparaciones shell locales.
+  Perfiles jq/Node/sed, locale, UTF16 y overflow; serde_json raw_value/arbitrary_precision.
+  Workspace/clippy finales y portabilidad Bash5/GNU-BSD pendientes. T26/A9 abiertos.
+- `feat/0057-rust-e2-m9-shadow-runtime` / `-rust-shadow`: `75c65024`, checkpoint.
+  Ocho shadow tests y36CLI verdes; fmt/clippy y revisión verdes. Callback puro, shell0/1/2
+  autoritativo, transporte binario concurrente y EPIPE temprano. Sin wiring/registro/ledger.
+- `-rust-hashes`: branch creada desde M6, vacía; no implementación ni agente asignado.
 
-## Siguiente paso
+## Retomar
 
-1. Cerrar full/oráculo de M6; marcar T20/T21 y publicar PR a migration/rust. Rama depende del
-   checkpoint PR1389; no mergearlo ni tocar dev/main sin pedido.
-2. Revisar y verificar M7 en su worktree, documentar corrección D12/A7, publicar PR separado.
-3. M4 sigue pendiente solo de CONTRIBUTING (escritura shell bloqueada; no reintentada).
-4. El host de Codex bloquea crear PRs por falta de consentimiento autenticado; preparar campos
-   revisados/solicitud canónica y pedir ejecución humana si vuelve a ocurrir. No eludirlo.
+1. Resolver/validar timeout zsh de M8 y crear su PR con el comando ya entregado; mergear sólo
+   con CI verde. T23–T25 siguen parciales hasta portes reales/audit activa/shadow log.
+2. Cerrar workspace/clippy y portabilidad del handler; integrar handler y executor, hashes D8,
+   registro y forced-native para comparar shadow sin devolver shell como resultado Rust.
+3. D9 necesita contador técnico por invocación: sólo divergencias no prueba500/14d por engine.
+   Fallos anómalos shadow usan D6 por engine; nunca1 universal (Claude fail-open).
+4. M4 CONTRIBUTING sigue pendiente: escritura shell bloqueada y no reintentada.
+
+No gates largos ni productores activos al checkpoint. Estimación comunicada:25% implementación,
+22% cerrado por hitos; no equivale a hooks activos. Detalle y evidencia en progress/history.md.

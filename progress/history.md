@@ -503,3 +503,31 @@ Full final con dos workers exit0:10240aprobadas/2omitidas,483archivos,1369.1s; c
 Commitdf872f8c subido; draft separado de M7/M8 pendiente de ejecución humana por bloqueo del
 host (request9698c747), dependiente de PR1389. Sin merge, activación de hooks ni corte.
 M4 conserva CONTRIBUTING pendiente.
+
+## 2026-10-23 17:36 Codex — Conserva checkpoint Rust y trabajo T26
+
+### Goal
+Guardar un checkpoint recuperable de la migración Rust y preparar la compactación solicitada.
+
+### Instructions
+Base remota estable migration/rust; branches por spec/entregable y PR hacia esa base. Usuario autoriza clones paralelos y mergear automáticamente PRs Rust con todos los checks requeridos verdes, verificando SHA exacto. Sin doctrina del harness por petición previa; conservar controles técnicos y respetar bloqueos del host. Comandos manuales por chat, nunca tarjetas de pregunta. No activar hooks, cortar TS ni tocar dev/main.
+
+### Discoveries
+- Rustquality sólo instala Node24: el test del writer TS real usa --experimental-transform-types para parameter properties; Bun era una dependencia accidental. Fix fc4bfee3 validado sinBun y CIverde.
+- Jq/Node/sed difieren en locale, NUL, UTF16 y overflow. Handler usa perfiles explícitos y serde_json raw_value/arbitrary_precision; falta validar workspace completo y portabilidad Bash5/GNU-BSD.
+- Shadow conserva shell0/1/2. Señales/salidas anómalas deben usar D6 por engine, descartando stdout parcial; normalizar siempre a1 abre Claude. Corrección D9 está en checkpoint del executor.
+- D9 aún necesita contador técnico por invocación para500/14d porengine; un log sólo de divergencias no lo demuestra.
+- M8 no acredita paridad con registro vacío. Audit active Rust sigue unsupported hasta fixtures/header/lector del writer CLI válidos. Evitar solapar gates TS pesados; origen del timeout zsh pendiente, sin subir límites.
+
+### Accomplished
+PR1389,1391,1390 mergeados con CIverde y merge commits; migration/rust=51d4367cbfb21c59a1ea51bf54a7cf764fb1bf73. M6 full10240/2omitidas,483archivos,1369.1s,oráculo52/0,Rust54. M7 full10218/2omitidas,481archivos,1915.7s,Rust47 y6audit.
+M8 branch feat/0057-rust-e2-m8-tools commit4fed8109 subido,59focales/fastverdes. Full terminó rojo:10237aprobadas,2omitidas,timeout zsh300s,482archivos,2068.9s. PR no creado.
+Handler branch feat/0057-rust-e2-m9-handler checkpoint2e93d58a subido:7grupos verdes desde principal en11.77s,232corpus+148comparaciones shelllocales; fmt y precommitfast verdes. T26/A9 abiertos; no workspace/clippy finales.
+Executor branch feat/0057-rust-e2-m9-shadow-runtime checkpoint75c65024 subido:8shadow/36CLI,fmt/clippy y revisión verdes. No CLIwiring/registry/hash/ledger activados.
+Trabajo detenido para checkpoint; productores y gates largos terminados. Estimación comunicada aproximada25% implementación/22% cerrado.
+
+### Next Steps
+Resolver/validar timeout zsh M8, crear PR con comando ya entregado y mergearlo sólo con CIverde. Cerrar workspace/clippy/portabilidad del handler. Integrar handler+executor, hashes D8, registro y forced-native para paridad de shadow. Falta diseñar contador D9 y completar CONTRIBUTING M4 (escritura shell bloqueada, sin reintentos). Worktree hashes está vacío y sin productor asignado. No declarar T23–T26/A8/A9 completos.
+
+### Relevant Files
+progress/current.md y progress/history.md guardan estado y evidencia. Worktrees hermanos -rust-tools, -rust-handler, -rust-shadow; -rust-audit conserva M7. -rust-hashes sólo branch vacía desde M6. Handoffs JSON ignorados bajo .navori/state/handoffs/ de cada worktree. Rama central de checkpoint checkpoint/0057-rust-20261023 parte de origin/migration/rust.
