@@ -455,6 +455,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/remote-version-cache.ts":
       "releases only its exclusively acquired empty lock directory with nonrecursive rmdirSync, and removes a lock directory orphaned for over a minute",
+    "lib/bench/live.ts":
+      "non-recursive rmdirSync releases only the empty launch.lock directory this invocation created with mkdirSync, under the validated private run root",
     "lib/workspace/tickets.ts":
       "deletes a ticket from navori's workspace store on an explicit command",
 
