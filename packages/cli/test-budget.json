@@ -3,238 +3,133 @@
   "exceptions": [
     {
       "file": "src/__tests__/audit-hooks.test.ts",
-      "ms": 175000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 102783, 136918, 108626 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 80000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 52574, 60317, 54703 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/__tests__/cli.e2e.test.ts",
-      "ms": 135000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 74806, 105697, 91216 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 65000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 39543, 49405, 39709 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/__tests__/doctor-json-checks.e2e.test.ts",
-      "ms": 100000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 51258, 76724, 64960 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 45000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 27451, 30610, 34667 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/__tests__/hooks-zsh-parity.test.ts",
-      "ms": 215000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 109549, 170633, 151873 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/__tests__/payload-cache.test.ts",
-      "ms": 30000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 19508, 21657, 15407 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/__tests__/render-drift-check.test.ts",
-      "ms": 45000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 16461, 32588, 15052 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/__tests__/temp-lifecycle.integration.test.ts",
-      "ms": 30000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 16348, 23886, 15837 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 85000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 58269, 65446, 58517 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/commands/__tests__/audit.test.ts",
-      "ms": 95000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 48629, 72779, 62003 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/commands/__tests__/master-delivery.test.ts",
-      "ms": 50000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 17188, 37904, 22693 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/commands/__tests__/master-first-use.test.ts",
       "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 28615, 20446, 14462 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/commands/__tests__/plan.test.ts",
-      "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 16991, 30442, 18256 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 24775, 28803, 26666 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/commands/__tests__/render-workspace-harness.test.ts",
-      "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 28187, 31975, 15129 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 35000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 27088, 12551, 13284 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/commands/__tests__/sync-bulk-resolve.test.ts",
-      "ms": 35000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 21256, 24864, 19441 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 25000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 12751, 16164, 19405 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/engines/claude/__tests__/preset-extras.test.ts",
       "ms": 35000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 24801, 24964, 16558 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 25247, 11092, 5487 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/engines/claude/__tests__/render-engine.test.ts",
       "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 31084, 24454, 19778 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 28931, 22876, 27286 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/engines/claude/__tests__/search-v2-render.test.ts",
-      "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 21540, 30095, 16327 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/engines/claude/__tests__/session-start-budget.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 13853, 17268, 13367 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/engines/codex/__tests__/render-codex.test.ts",
-      "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 30047, 23518, 20124 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/engines/pi/__tests__/first-class-approvals.test.ts",
       "ms": 35000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 21234, 25579, 18022 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 27609, 12436, 12660 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/engines/pi/__tests__/first-class-e2e.test.ts",
       "ms": 50000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 18578, 36900, 22130 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/engines/pi/__tests__/first-class-gate.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 13472, 17589, 14194 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 33255, 32965, 36941 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/engines/pi/__tests__/first-class-guards.test.ts",
-      "ms": 90000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 42374, 62231, 68551 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/codex-approval-route.test.ts",
       "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 20059, 29510, 26653 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 26293, 29529, 30681 ms; max × 1.25 rounded up to 5 s"
     },
     {
-      "file": "src/lib/__tests__/gate-exit-contract.test.ts",
-      "ms": 45000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 18426, 32700, 17077 ms; max \u00d7 1.25 rounded up to 5 s"
+      "file": "src/engines/shared/__tests__/guard-catalog-parity.test.ts",
+      "ms": 30000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 15968, 22302, 17796 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/__tests__/gate-hook-kill.test.ts",
-      "ms": 45000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 29569, 32549, 31302 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 35000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 25661, 26644, 26426 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/__tests__/guard-destructive.test.ts",
-      "ms": 105000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 51362, 80882, 66418 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/guard-search-routing.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 13507, 19579, 15136 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 45000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 31352, 31223, 34492 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/__tests__/implementer-no-markdown.test.ts",
-      "ms": 70000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 40640, 53670, 54899 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/quality-gate-foreign.test.ts",
       "ms": 40000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 21132, 29293, 24535 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/quality-gate-hook.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 12974, 16568, 13179 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/quality-gate-worktree-resolve.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 13513, 18996, 13736 ms; max \u00d7 1.25 rounded up to 5 s"
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 26329, 29458, 30131 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/__tests__/role-guard.test.ts",
-      "ms": 85000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 43100, 65585, 54150 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/routing-watch.test.ts",
-      "ms": 35000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 19708, 27317, 21430 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/__tests__/session-start-hook.test.ts",
-      "ms": 35000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 19202, 24672, 20326 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 55000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 34462, 42652, 36688 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/codex/__tests__/native-integration.test.ts",
-      "ms": 50000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 31491, 38515, 36875 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/diagnose/__tests__/distribution.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 14826, 19504, 14232 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 60000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 45353, 47095, 44885 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/diagnose/__tests__/receipt.test.ts",
-      "ms": 105000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 55649, 81524, 71210 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 50000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 28550, 36105, 31705 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/handoff/__tests__/parallel.test.ts",
-      "ms": 175000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 65152, 137480, 91686 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 60000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 34616, 47237, 37837 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/handoff/__tests__/review-edit-binding.test.ts",
-      "ms": 160000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 64165, 124393, 86332 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/master/__tests__/checks.test.ts",
-      "ms": 55000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 17775, 41610, 19954 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/master/__tests__/delivery.test.ts",
-      "ms": 55000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 17837, 40637, 26280 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 60000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 40944, 45609, 46966 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/master/__tests__/init.test.ts",
-      "ms": 75000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 35100, 54333, 56932 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 40000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 20840, 22677, 30063 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/master/__tests__/slice.test.ts",
-      "ms": 300000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 131135, 239648, 176432 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 110000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 65366, 85525, 70491 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/master/__tests__/status.test.ts",
-      "ms": 50000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 30038, 38457, 38412 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 25000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 16444, 17754, 17749 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/plan/__tests__/escalation.test.ts",
-      "ms": 145000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 76634, 115287, 91419 ms; max \u00d7 1.25 rounded up to 5 s"
-    },
-    {
-      "file": "src/lib/plan/__tests__/evidence.test.ts",
-      "ms": 25000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 15451, 19250, 15450 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 65000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 31298, 48359, 33180 ms; max × 1.25 rounded up to 5 s"
     },
     {
       "file": "src/lib/plan/__tests__/plan-gate.test.ts",
-      "ms": 80000,
-      "reason": "Idle bench observations 2026-10-18T19:12:45.220Z, 2026-10-18T20:33:29.868Z, 2026-10-18T21:19:05.212Z: 32819, 48056, 60834 ms; max \u00d7 1.25 rounded up to 5 s"
+      "ms": 35000,
+      "reason": "Idle bench observations 2026-10-26T17:36:16.660Z, 2026-10-26T17:44:49.609Z, 2026-10-26T17:53:59.397Z: 19914, 24078, 20126 ms; max × 1.25 rounded up to 5 s"
     }
   ]
 }

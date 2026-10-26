@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -87,7 +88,11 @@ interface Sandbox {
 interface BenchHooks {
   SCENARIOS: Record<string, unknown>;
   SUPPLEMENTAL_SCENARIOS: Record<string, unknown>;
-  readRegistrations: () => Registration[];
+  readRegistrations: (sourceRoot?: string) => Registration[];
+  summarizeObservations: (reports: { name: string; report: unknown }[]) => {
+    errors: string[];
+    groups: { head: string; reports: number; cells: Record<string, unknown>[] }[];
+  };
   writePayload: (sandbox: Sandbox, scenario: string, reg: Registration) => string;
   scenarioEnvironment: (
     sandbox: Sandbox,
@@ -97,7 +102,7 @@ interface BenchHooks {
     counting?: boolean,
   ) => NodeJS.ProcessEnv;
   countExecs: (log: string) => Record<string, number>;
-  createSandbox: () => Sandbox;
+  createSandbox: (sourceRoot?: string, options?: { requireDist?: boolean }) => Sandbox;
   isComparable: (loadavgBefore: number[], cpus: number) => boolean;
   parsePiRegistrations: (source: string, exists?: (script: string) => boolean) => Registration[];
   BASH_BUDGET_MS: number;
@@ -969,5 +974,379 @@ describe("bench scripts", () => {
     ]);
     expect(graph.hubs(result)).toEqual(["src/lib/config.ts", "src/lib/leaf.ts"]);
     expect(graph.hubs(result, 0.6)).toEqual(["src/lib/config.ts"]);
+  });
+
+  describe("provenance (#1354)", async () => {
+    interface Provenance {
+      head: string | null;
+      dirty: boolean;
+      distSha256: string | null;
+      assetsSha256: string | null;
+    }
+    const provenanceModule = (await import(scriptUrl("bench-provenance.mjs"))) as {
+      readProvenance: (root: string) => Provenance;
+    };
+    const { withoutRepoGitEnv } = (await import(scriptUrl("git-env.mjs"))) as {
+      withoutRepoGitEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+    };
+    const git = (cwd: string, ...args: string[]): string => {
+      const run = spawnSync("git", args, {
+        cwd,
+        env: withoutRepoGitEnv(process.env),
+        encoding: "utf8",
+      });
+      expect(run.status, run.stderr).toBe(0);
+      return run.stdout.trim();
+    };
+    const realHead = git(here, "rev-parse", "HEAD");
+    const OTHER_HEAD = "0".repeat(40);
+
+    /** Temp git repo with a built-looking `packages/cli/dist` (gitignored, like the real one). */
+    function fixtureCheckout(): string {
+      const root = mkdtempSync(join(tmpdir(), "navori-provenance-"));
+      git(root, "init", "-q");
+      mkdirSync(join(root, "packages", "cli", "dist", "assets", "core"), { recursive: true });
+      writeFileSync(join(root, ".gitignore"), "dist/\n");
+      writeFileSync(join(root, "tracked.txt"), "one\n");
+      writeFileSync(join(root, "packages", "cli", "dist", "index.js"), "// bundle\n");
+      writeFileSync(
+        join(root, "packages", "cli", "dist", "assets", "core", "asset.txt"),
+        "asset\n",
+      );
+      git(root, "add", "-A");
+      git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+      return root;
+    }
+
+    // Covers: R3, R29
+    it("readProvenance: limpio, sucio y sin git", () => {
+      const root = fixtureCheckout();
+      const plain = mkdtempSync(join(tmpdir(), "navori-provenance-nogit-"));
+      try {
+        const clean = provenanceModule.readProvenance(root);
+        expect(clean.head).toBe(git(root, "rev-parse", "HEAD"));
+        expect(clean.dirty).toBe(false);
+        expect(clean.distSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(clean.assetsSha256).toMatch(/^[0-9a-f]{64}$/);
+
+        writeFileSync(
+          join(root, "packages", "cli", "dist", "assets", "core", "asset.txt"),
+          "changed\n",
+        );
+        const assetsChanged = provenanceModule.readProvenance(root);
+        expect(assetsChanged.dirty).toBe(false); // dist is gitignored: only the hash sees it
+        expect(assetsChanged.assetsSha256).not.toBe(clean.assetsSha256);
+        expect(assetsChanged.distSha256).toBe(clean.distSha256);
+        writeFileSync(join(root, "packages", "cli", "dist", "index.js"), "// other bundle\n");
+        expect(provenanceModule.readProvenance(root).distSha256).not.toBe(clean.distSha256);
+
+        writeFileSync(join(root, "tracked.txt"), "two\n");
+        expect(provenanceModule.readProvenance(root).dirty).toBe(true);
+        git(root, "checkout", "--", "tracked.txt");
+        writeFileSync(join(root, "untracked.txt"), "x\n");
+        expect(provenanceModule.readProvenance(root).dirty).toBe(true);
+
+        expect(provenanceModule.readProvenance(plain)).toEqual({
+          head: null,
+          dirty: true,
+          distSha256: null,
+          assetsSha256: null,
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(plain, { recursive: true, force: true });
+      }
+    });
+
+    // Covers: R3
+    it("bench:hooks --root lee registros, arboles y dist del otro checkout y falla cerrado sin dist", () => {
+      const root = fixtureCheckout();
+      try {
+        mkdirSync(join(root, ".claude", "hooks"), { recursive: true });
+        mkdirSync(join(root, ".codex"), { recursive: true });
+        mkdirSync(join(root, "packages", "cli", "src", "engines", "pi"), { recursive: true });
+        writeFileSync(join(root, ".claude", "hooks", "only-here.sh"), "#!/bin/sh\n");
+        writeFileSync(
+          join(root, ".claude", "settings.json"),
+          JSON.stringify({
+            hooks: {
+              SessionStart: [{ hooks: [{ command: 'bash ".claude/hooks/only-here.sh"' }] }],
+            },
+          }),
+        );
+        writeFileSync(join(root, ".codex", "config.toml"), "");
+        writeFileSync(
+          join(root, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts"),
+          "",
+        );
+
+        expect(hooksModule.readRegistrations(root)).toEqual([
+          {
+            engine: "claude",
+            event: "SessionStart",
+            matcher: null,
+            command: 'bash ".claude/hooks/only-here.sh"',
+          },
+        ]);
+        expect(hooksModule.readRegistrations().length).toBeGreaterThan(1);
+
+        const sandbox = hooksModule.createSandbox(root, { requireDist: true });
+        try {
+          expect(existsSync(join(sandbox.project, ".claude", "hooks", "only-here.sh"))).toBe(true);
+          expect(readlinkSync(join(sandbox.root, "bin", "navori"))).toBe(
+            join(root, "packages", "cli", "dist", "index.js"),
+          );
+        } finally {
+          sandbox.cleanup();
+        }
+
+        rmSync(join(root, "packages", "cli", "dist"), { recursive: true, force: true });
+        expect(() => hooksModule.createSandbox(root, { requireDist: true })).toThrow(
+          /dist\/index\.js is missing/,
+        );
+        const run = spawnSync(
+          process.execPath,
+          [
+            fileURLToPath(scriptUrl("bench-hooks.mjs")),
+            "--root",
+            root,
+            "--scenario",
+            "SessionStart",
+            "--runs",
+            "1",
+          ],
+          { encoding: "utf8" },
+        );
+        expect(run.status).toBe(2);
+        expect(run.stderr).toContain("dist/index.js is missing");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    interface HooksReport {
+      generatedAt: string;
+      comparable: boolean;
+      provenance?: Record<string, unknown>;
+      measurements: Record<string, unknown>[];
+    }
+    const hooksReport = (
+      head: string,
+      cpu: number,
+      patch: Partial<HooksReport> = {},
+    ): HooksReport => ({
+      generatedAt: "2026-10-26T00:00:00.000Z",
+      comparable: true,
+      provenance: {
+        head,
+        dirty: false,
+        distSha256: "a".repeat(64),
+        assetsSha256: "b".repeat(64),
+        observer: realHead,
+      },
+      measurements: [
+        {
+          engine: "claude",
+          scenario: "BashFailure",
+          hook: "bash-outcome-watch.sh",
+          audit: "root",
+          wallMsMedian: cpu * 2,
+          cpuMsMedian: cpu,
+        },
+      ],
+      ...patch,
+    });
+    const summarize = hooksModule.summarizeObservations;
+
+    // Covers: R3
+    it("bench:hooks --summarize agrupa por head y calcula medianas por celda", () => {
+      const result = summarize([
+        ...[10, 30, 20].map((cpu, i) => ({
+          name: `base-${i}`,
+          report: hooksReport("a".repeat(40), cpu),
+        })),
+        ...[5, 7, 6].map((cpu, i) => ({
+          name: `final-${i}`,
+          report: hooksReport("b".repeat(40), cpu),
+        })),
+      ]);
+      expect(result.errors).toEqual([]);
+      expect(result.groups.map(({ head, reports }) => [head, reports])).toEqual([
+        ["a".repeat(40), 3],
+        ["b".repeat(40), 3],
+      ]);
+      expect(result.groups[0]!.cells).toEqual([
+        {
+          engine: "claude",
+          scenario: "BashFailure",
+          hook: "bash-outcome-watch.sh",
+          audit: "root",
+          samples: 3,
+          wallMsMedian: 40,
+          cpuMsMedian: 20,
+        },
+      ]);
+      expect(result.groups[1]!.cells[0]).toMatchObject({ cpuMsMedian: 6 });
+    });
+
+    // Covers: R3
+    it.each([
+      ["non-comparable", hooksReport("a".repeat(40), 1, { comparable: false }), /not comparable/],
+      [
+        "missing provenance",
+        hooksReport("a".repeat(40), 1, { provenance: undefined }),
+        /no provenance/,
+      ],
+      [
+        "dirty",
+        hooksReport("a".repeat(40), 1, {
+          provenance: {
+            head: "a".repeat(40),
+            dirty: true,
+            distSha256: "a",
+            assetsSha256: "b",
+            observer: realHead,
+          },
+        }),
+        /dirty/,
+      ],
+      [
+        "without dist hash",
+        hooksReport("a".repeat(40), 1, {
+          provenance: {
+            head: "a".repeat(40),
+            dirty: false,
+            distSha256: null,
+            assetsSha256: "b",
+            observer: realHead,
+          },
+        }),
+        /dist\/assets hash/,
+      ],
+    ])("bench:hooks --summarize rechaza un reporte %s", (_id, report, message) => {
+      const result = summarize([{ name: "bad.json", report }]);
+      expect(result.errors.join("\n")).toMatch(message);
+      expect(result.errors[0]).toContain("bad.json");
+    });
+
+    // Covers: R3
+    it("bench:hooks --summarize rechaza observadores distintos y sale distinto de cero por CLI", () => {
+      const mixed = summarize([
+        { name: "one", report: hooksReport("a".repeat(40), 1) },
+        {
+          name: "two",
+          report: hooksReport("a".repeat(40), 1, {
+            provenance: {
+              head: "a".repeat(40),
+              dirty: false,
+              distSha256: "a",
+              assetsSha256: "b",
+              observer: OTHER_HEAD,
+            },
+          }),
+        },
+      ]);
+      expect(mixed.errors.join("\n")).toMatch(/different observers/);
+
+      const dir = mkdtempSync(join(tmpdir(), "navori-summarize-"));
+      try {
+        const good = join(dir, "good.json");
+        const bad = join(dir, "bad.json");
+        writeFileSync(good, JSON.stringify(hooksReport("a".repeat(40), 1)));
+        writeFileSync(bad, JSON.stringify(hooksReport("a".repeat(40), 1, { comparable: false })));
+        const script = fileURLToPath(scriptUrl("bench-hooks.mjs"));
+        const ok = spawnSync(process.execPath, [script, "--summarize", good], { encoding: "utf8" });
+        expect(ok.status, ok.stderr).toBe(0);
+        expect(ok.stdout).toContain("bash-outcome-watch.sh");
+        const rejected = spawnSync(process.execPath, [script, "--summarize", good, bad], {
+          encoding: "utf8",
+        });
+        expect(rejected.status).toBe(1);
+        expect(rejected.stderr).toContain("bad.json: not comparable");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    describe("check-test-budget con evidencia", () => {
+      const budget = JSON.stringify({ defaultMs: 20_000, exceptions: [] });
+      const clean = (head: string): Provenance => ({
+        head,
+        dirty: false,
+        distSha256: "a".repeat(64),
+        assetsSha256: "b".repeat(64),
+      });
+      const run = (dir: string, args: string[]): SpawnSyncReturns<string> =>
+        spawnSync("node", [BUDGET_SCRIPT, "--budget", join(dir, "budget.json"), ...args], {
+          encoding: "utf8",
+          env: { ...process.env, NAVORI_TEST_BUDGET_FACTOR: "" },
+        });
+      const withDir = (body: (dir: string) => void): void => {
+        const dir = mkdtempSync(join(tmpdir(), "navori-budget-evidence-"));
+        try {
+          writeFileSync(join(dir, "budget.json"), budget);
+          body(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      };
+      const write = (dir: string, name: string, report: object): string => {
+        const path = join(dir, name);
+        writeFileSync(path, JSON.stringify(report));
+        return path;
+      };
+
+      // Covers: R3, R30
+      it("--report rechaza corridas fallidas, sucias o de otro head y acepta la limpia del head actual", () => {
+        withDir((dir) => {
+          const [base] = budgetObservations(["src/a.test.ts"]);
+          const ok = write(dir, "ok.json", { ...base, provenance: clean(realHead) });
+          const accepted = run(dir, ["--report", ok]);
+          expect(accepted.status, accepted.stderr).toBe(0);
+          for (const [id, report, message] of [
+            ["success-false", { ...base, success: false }, /success is not true/],
+            ["vitest-exit", { ...base, vitestExit: 1 }, /vitestExit is 1/],
+            ["dirty", { ...base, provenance: { ...clean(realHead), dirty: true } }, /dirty/],
+            ["head", { ...base, provenance: clean(OTHER_HEAD) }, /not the current HEAD/],
+          ] as const) {
+            const rejected = run(dir, ["--report", write(dir, `${id}.json`, report)]);
+            expect(rejected.status, id).toBe(1);
+            expect(rejected.stderr, id).toMatch(message);
+          }
+        });
+      });
+
+      // Covers: R30
+      it("--propose rechaza mezcla con/sin provenance, heads distintos y sucios; acepta tres limpias", () => {
+        withDir((dir) => {
+          const root = resolve(here, "..", "..");
+          const inventory = globSync("src/**/*.test.ts", { cwd: root });
+          const rows = budgetObservations(inventory);
+          const paths = (provenance: (Provenance | undefined)[]): string[] =>
+            rows.map((row, i) => write(dir, `p${i}.json`, { ...row, provenance: provenance[i] }));
+          const good = clean(realHead);
+          const accepted = run(dir, ["--propose", ...paths([good, good, good])]);
+          expect(accepted.status, accepted.stderr).toBe(0);
+          expect(run(dir, ["--propose", ...paths([undefined, undefined, undefined])]).status).toBe(
+            0,
+          );
+          const mixed = run(dir, ["--propose", ...paths([good, good, undefined])]);
+          expect(mixed.status).toBe(1);
+          expect(mixed.stderr).toContain("mix with and without provenance");
+          const heads = run(dir, ["--propose", ...paths([good, good, clean(OTHER_HEAD)])]);
+          expect(heads.status).toBe(1);
+          expect(heads.stderr).toContain("different heads");
+          const dirty = run(dir, ["--propose", ...paths([good, good, { ...good, dirty: true }])]);
+          expect(dirty.status).toBe(1);
+          expect(dirty.stderr).toContain("dirty");
+          const stale = run(dir, [
+            "--propose",
+            ...paths([clean(OTHER_HEAD), clean(OTHER_HEAD), clean(OTHER_HEAD)]),
+          ]);
+          expect(stale.status).toBe(1);
+          expect(stale.stderr).toContain("not the current HEAD");
+        });
+      });
+    });
   });
 });

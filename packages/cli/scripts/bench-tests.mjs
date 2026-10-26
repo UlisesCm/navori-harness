@@ -125,6 +125,8 @@ export function summarizeReport(report, wallMs, root, spawnsByFile = {}) {
  */
 async function main() {
   const { withoutRepoGitEnv } = await import(pathToFileURL(join(REPO_ROOT, "scripts", "js", "git-env.mjs")).href);
+  const { readProvenance } = await import(pathToFileURL(join(REPO_ROOT, "scripts", "js", "bench-provenance.mjs")).href);
+  const provenance = readProvenance(REPO_ROOT);
   const scratch = mkdtempSync(join(tmpdir(), "navori-bench-tests-"));
   const reportPath = join(scratch, "report.json");
   const procDir = join(scratch, "procs");
@@ -158,13 +160,19 @@ async function main() {
       workers,
       comparable,
       vitestExit: run.status,
+      provenance,
+      args: process.argv.slice(2),
       ...summary,
     };
+    // Only a complete, green run is accreditable: a failed, signalled or filtered run keeps its
+    // stamped file for diagnosis but never becomes `latest.json`.
+    const accreditable = run.status === 0 && summary.success && result.args.length === 0;
     const dir = join(REPO_ROOT, ".navori", "state", "bench");
     mkdirSync(dir, { recursive: true });
     const stamped = join(dir, `tests-${result.generatedAt.replace(/[:.]/g, "-")}.json`);
     writeFileSync(stamped, `${JSON.stringify(result, null, 2)}\n`);
-    copyFileSync(stamped, join(dir, "latest.json"));
+    if (accreditable) copyFileSync(stamped, join(dir, "latest.json"));
+    else process.stderr.write("bench:tests run is not accreditable (failed or filtered): latest.json not updated\n");
     process.stdout.write(
       `bench:tests wall=${(summary.wallMs / 1000).toFixed(1)}s files=${summary.totalFiles} ` +
         `tests=${summary.totalTests} sumFiles=${(summary.sumFilesMs / 1000).toFixed(1)}s ` +
