@@ -243,6 +243,67 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - 无头子进程无法批准操作。扩展会拒绝子进程发出的审批请求，并将命令返回给父会话，由用户在那里批准。信任并不等于批准：只有在受信任的父会话加载扩展后，子进程才会收到进程范围内的 `--approve`。
 - 这些限制、工具列表和 `--no-mcp` 都不会创建操作系统沙箱。子进程会继承用户的环境、文件系统和网络权限，以及 Pi 代理目录。
 
+## 与 Claude 的实时比较
+
+M5 读取器会把已确认的 Pi 子进程与其调用 ID 关联，并在派生之后保留失败记录。
+M6 新增 `navori audit --by-engine --published-from <bare>`：不可用的 Git 或转录证据保持不可用，缺少最低观测数量时输出 `inconclusive`。关联是描述性的；它不授予行为者权限，也不构成独立审查者。
+
+仓库中仅供开发者使用的驱动是 [scripts/bench/run-live.ts](../scripts/bench/run-live.ts)。
+它从同一个 fixture 准备两个真实的 Git 检出副本、60 个搜索文件、一个本地裸远程仓库，以及一个本地 `gh` 测试替身。
+其 `auth status` 预检说明本地发布不需要 GitHub 认证；它既不读取凭据，也不对 GitHub 进行认证。
+不受支持的命令仍以状态码 64 退出。fixture 使用 `npm test` 作为安全的 gate 命令；包的测试脚本
+无依赖地运行 `node --test`。发布的引用为 `claude/benchmark` 和 `pi/benchmark`。
+Git 配置和模板仅限于 fixture 本地。原生引擎仍保留其正常的
+文件系统/网络访问权限和原生权限；此驱动不是操作系统沙箱。
+
+准备阶段不会启动模型：
+
+```bash
+bun scripts/bench/run-live.ts prepare
+```
+
+将返回的物理 `root` 复制到 `NAVORI_BENCH_ROOT`。在取得账户、模型和支出预算的单独授权后，从操作员自己的 POSIX 终端启动一个引擎：
+
+```bash
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine claude --model sonnet
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine pi --model provider/model
+```
+
+按顺序运行它们。驱动要求原生支持 `--session-id`（在 Claude Code
+2.1.309 和 Pi 1.3.0 中观察到）；此观察不会扩展固定 SDK 测试所验证的运行时准入范围。
+Claude 的 fixture 角色使用 Sonnet；Pi 继承明确选定的 provider/model。
+执行标志不是金额上限。操作员控制原生审批和经授权的支出限额。
+本次比较中禁用了 MCP 工具；原生安全设置仍然生效。
+
+父进程打开期间，在另一个终端获取下一条精确提示：
+
+```bash
+bun scripts/bench/run-live.ts task --root "$NAVORI_BENCH_ROOT" --engine claude --task 2
+```
+
+对任务 3–5 以及 Pi 重复此操作，将每条返回的提示粘贴到对应引擎中。任务 2 会在**已跟踪的字节**中激活
+已存在且失败的分页测试，从而使任务 1 的缓存 gate 失效。在任务 5 期间，
+父进程暂停时运行 `/compact`，然后发送另一轮。每个父进程在完成其五个任务后退出。
+驱动从不提供审批响应，也从不使用权限绕过标志。
+
+```bash
+bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
+```
+
+收集阶段针对本次运行的私有审计根目录（`NAVORI_AUDITS_ROOT`）执行 `navori audit --by-engine --published-from`，
+不带 `--all-repos`，因为审计读取器会拒绝与 `--by-engine` 同时使用该标志。
+作用域队列仅接纳分配给本次运行的会话头。原生来源验证仍由审计读取器负责。
+部分观测会保留其指标和失败记录；缺失的阶段标签无法获得 `pass`。
+标签并不证明任务已执行。`comparisonVerification: unverified` 使操作员对五个真实任务和实际模型的验证
+与 K1 指标结果保持分离。
+未启动任何模型或缺少来源时，结果为 `inconclusive`。
+将真实结果、原生版本、实际解析的模型以及脚本化的一致性结果记录到
+`specs/0053-pi-igualar-claude/evals.md`。该比较的 n = 1，允许使用不同的模型，并且不等同于相关审批或独立审查。
+本地准备不构成实时验收。
+
+部分实时结果（仅 Claude Code，未运行 Pi，`inconclusive`，无一致性声明）记录于
+[evals.md](../specs/0053-pi-igualar-claude/evals.md)。
+
 ## 兼容性清单
 
 `PI_PARITY`（`packages/cli/src/engines/shared/pi-parity.ts`）列出 Navori 为其他引擎输出的每个单元（核心 hooks、共享权限规则、插件 manifest 片段），以及 Pi 当前对每个单元提供的能力。
