@@ -12,12 +12,13 @@ runtime admissions) is parsed by `packages/cli/src/engines/pi/__tests__/first-cl
 ## Requirements and setup
 
 - Minimum supported Pi version: **1.1.0**
-- Tested Pi version: **1.1.0**
+- Tested Pi version: **1.4.0**
 
 The floor is `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). The tested version is
 the pinned `@earendil-works/pi-coding-agent` devDependency of `packages/cli`. The floor also covers
 acceptance evidence, which reads Pi's built-in bash `structuredContent.exit_code`, and the admitted child
-runtime capabilities (see [Runtime admissions](#runtime-admissions)), which are verified only on 1.1.0.
+runtime capabilities (see [Runtime admissions](#runtime-admissions)), which are verified only on 1.4.0. Pi 1.1–1.3 loads the full extension, but `navori_subagent` refuses
+children with an "upgrade Pi" message.
 
 A Pi is **unverified** when it is below the floor, is a prerelease (for example `1.2.0-rc.1`), or reports a
 version that cannot be parsed. An unverified Pi loads the extension in write-block mode only: `bash`,
@@ -76,7 +77,7 @@ scripts are not copied or run by Pi.
 ## Runtime admissions
 
 Each row is one child runtime capability from `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. `admitted`
-capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available.
+capabilities are verified on Pi 1.4.0; `deferred` capabilities are not available.
 
 | Capability | Decision | Boundary |
 | --- | --- | --- |
@@ -627,7 +628,7 @@ The verified cycle, in order:
 ## Credential-free e2e result
 
 Executed by automation with `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`
-on the pinned Pi 1.1.0 runtime. The test runs the compiled CLI (render, approved plan, `plan update`), the
+on the pinned Pi 1.4.0 runtime. The test runs the compiled CLI (render, approved plan, `plan update`), the
 real Pi SDK agent loop and tool pipeline in process, real `pi` child processes spawned by the rendered
 extension, Pi's built-in bash and write tools, git, and the filesystem. It covers install, approval
 without UI, denial, a >256 KiB child stream, implementer/scribe/reviewer dispatch on the parent's model,
@@ -708,7 +709,7 @@ The live smoke is the only evidence that the TUI dialog renders and that the mod
 contract. The credential-free e2e proves neither. Run it in a project whose Pi resources you trust, and
 record each step in [evals.md](../specs/0048-pi-paridad/evals.md).
 
-1. Check `pi --version`; it must be 1.1.0 or newer.
+1. Check `pi --version`; it must be 1.4.0 or newer.
 2. Start Pi interactively and run `/login`, selecting the `openai-codex` ChatGPT Plus/Pro subscription
    login. Navori does not inspect credential files.
 3. Run `/model` and select the model the children will use.

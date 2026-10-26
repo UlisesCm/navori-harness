@@ -47,8 +47,8 @@
   },
   "devDependencies": {
     "@clack/prompts": "^1.8.1",
-    "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@navori/core": "workspace:*",
     "@navori/plugin-acli": "workspace:*",
     "@navori/plugin-codegraph": "workspace:*",
