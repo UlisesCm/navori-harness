@@ -57,4 +57,61 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       }
     },
   );
+
+  // Covers: R8
+  it("tokenizes accented text and multi-line quotes, and never skips lines after <<", () => {
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      ["echo diacríticos", 0],
+      ['git commit -m "función"', 0],
+      ["cp source CLAUDE.md # función", 2],
+      ["cp source función CLAUDE.md", 2],
+      ["git commit -m \"$(cat <<'EOF'\nfeat: título\n\nsegunda línea\nEOF\n)\"", 0],
+      ['echo "uno\ndos"', 0],
+      ["cat <<'EOF'\nbody\nEOF\ncp source CLAUDE.md", 2],
+      ["cat <<'A' <<'B'\nx\nA\ny\nB\ncp source CLAUDE.md", 2],
+      ["cat <<'EOF'\nbody\nEOF\ncp source CLAUDE.md\n", 2],
+      ["bash <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
+      ["sudo -u me bash <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
+      ["cat <<'EOF' | sh\ncp source CLAUDE.md\nEOF", 2],
+      ["python3 - <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
+      ["cat <<EOF\n$(cp source CLAUDE.md)\nEOF", 2],
+      ["cat <<< 'cp source CLAUDE.md'", 0],
+      // `<<` as an arithmetic shift must never swallow the next line.
+      [": $((1<<2))\ncp source CLAUDE.md", 2],
+      ["echo $(( 1<<2 ))\ncp source CLAUDE.md", 2],
+      ["x=$((1<<2))\ncp source CLAUDE.md", 2],
+      ["let x=1<<3\ncp source CLAUDE.md", 2],
+      ["let x = 1 << 3\ncp source CLAUDE.md", 2],
+      [": $((1<<x))\nx\ncp source CLAUDE.md", 2],
+      [": $(( 1 << x ))\nx\ncp source CLAUDE.md", 2],
+      ["(( y = 1 << z ))\nz\ncp source CLAUDE.md", 2],
+      ["((y=1<<z))\nz\ncp source CLAUDE.md", 2],
+      ["a[1<<2]=x\ncp source CLAUDE.md", 2],
+      ["echo ${x:1 << 2}\n2}\ncp source CLAUDE.md", 2],
+      ["cat <<'EOF'\ncp source CLAUDE.md", 2],
+      ["echo '<<EOF'\ncp source CLAUDE.md", 2],
+      ["echo 'unclosed", 2],
+      ['echo "unclosed\nstill open', 2],
+      ["cp source \\\nCLAUDE.md", 2],
+    ];
+    for (const [command, expected] of cases) {
+      // The UTF-8 locale reproduces the macOS awk multibyte abort; the guard must not depend on it.
+      for (const locale of ["en_US.UTF-8", "C.UTF-8", "C"]) {
+        const result = spawnSync("bash", ["-c", script], {
+          env: {
+            ...process.env,
+            LC_ALL: locale,
+            NAVORI_TEST_ROOT: "/repo",
+            NAVORI_TEST_COMMAND: command,
+          },
+          encoding: "utf8",
+          timeout: 5_000,
+        });
+        expect(result.error, command).toBeUndefined();
+        expect(result.status, `${locale} ${JSON.stringify(command)} ${result.stderr}`).toBe(
+          expected,
+        );
+      }
+    }
+  });
 });
