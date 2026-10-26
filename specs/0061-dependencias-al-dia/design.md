@@ -254,3 +254,13 @@ Each new test answers a risk named above:
 - Splitting `check:size` into a dependency ceiling and a first-party trend.
 - Raising the CLI's Node floor or `MIN_PI_VERSION`.
 - Running CI on Node 22.12 or 26 (a pre-existing gap). The floors of the new bundled dependencies were checked by declaration (D2).
+
+## Amendments (2026-10-26)
+
+What diverged from the design during implementation:
+
+- **citty 0.2.2 typing.** String-arg typing is fixed at the declaration with `required: true as const`, which cleared 38 errors (not the ~216 estimated). Three parser regressions (camelCase alias keys, repeated flags resolving last-wins, a bare value flag swallowing the next flag) are handled by the helpers in `packages/cli/src/lib/primitives/args.ts`, used by `audit` and `plan`.
+- **clack 1.x.** An empty Enter no longer writes the placeholder. This is kept as a fix for the workspace description and the scan preset. The fast quality-gate prompt passes its suggestion as `defaultValue` (`fastGatePromptOptions`).
+- **M1 lockfile.** The lockfile diff also fixed the stale workspace version and re-hoisted dependencies, with no version changes.
+- **Astro 7.** CSS chunks are now named by entry (BaseLayout/LandingPage). `compare-dist` normalizes stylesheet names only; counts, selectors and property names stay gated. Tailwind output dropped two `-webkit-backdrop-filter` prefixes, so Safari 17 and earlier loses the blur; this is accepted.
+- **Bundle size.** The bundle ended at ~1570 KB (limit 1650 KB), so the stop rule never fired.
