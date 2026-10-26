@@ -96,21 +96,23 @@ No hay hooks portados/activos todavía.
 Validado desde el hilo principal: seis pruebas A7 verdes; workspace, fmt, clippy y check:fast
 verdes en el worktree de M7. La aceptación anterior de replay ignoraba flags y no probaba
 audit-writer; replay/fuzz reales permanecen en M8. No activa hooks ni cambia el writer productivo.
-El primer full local terminó con 10217 aprobadas, dos omitidas y un timeout de 300 s en
-`hooks-zsh-parity.test.ts`; gate completo verde pendiente antes de cerrar la entrega.
-Paridad zsh aislada: dos pruebas verdes en 166.7 s, sin cambios de código ni timeout.
+El primer full local tuvo un timeout zsh de 300 s; el focal pasó dos pruebas en166.7s.
+Full final verde:10218 aprobadas, dos omitidas,481 archivos en1915.7s. Integrado en #1390.
+El test del writer real usa Node24 transform-types; el job Rust quality no dispone de Bun.
 
 ### M8 — Herramientas
 
 Incremento de tooling en `feat/0057-rust-e2-m8-tools`: adapter Rust directo con binario/rutas
 fijados antes del sandbox, parser estricto, replay, fuzz determinista y benchmark wall-time/p95
-separado del CPU de shell. 59 pruebas focales y check:fast verdes. Fuzz acepta hasta100000 casos
+separado del CPU de shell. 59 pruebas focales iniciales y63 al integrar #1393, check:fast verde.
+Fuzz acepta hasta100000 casos
 (D9), pero con el registro real vacío termina con error y cero casos ejecutados.
 Auditoría active Rust falla explícitamente hasta disponer de fixtures CLI válidos.
 El benchmark conserva el evento registrado y rechaza wrappers/argumentos de shell que no
 pueda representar mediante argv exacto; no mide silenciosamente otra rama del hook.
 T23–T25 y A8 siguen pendientes: portes reales, clasificación del corpus, gramática ampliada,
-log shadow y medición de rendimiento nativo. Gate completo del incremento pendiente.
+log shadow y medición de rendimiento nativo. Full M8 final verde:10238 aprobadas, dos omitidas,
+482 archivos en2281.8s; piso160 módulos sin excepciones. Ancestry integrada mediante #1393.
 
 - **A8** [observable] — replay, fuzz y bench funcionan con `--impl rust` · `bun run fuzz:hooks --seed 1 --cases 1000 && bun run bench:hooks --impl rust --report-only` → exit 0
 - [ ] **T23** (R11) — `hook-verdict-replay.mjs --impl rust`, `divergences` con los 163 casos `shell-runtime` clasificados, corpus ampliado (al menos un caso por clase de veredicto y engine) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"rust reproduce el corpus o la categoría de su divergencia"
@@ -118,6 +120,23 @@ log shadow y medición de rendimiento nativo. Gate completo del incremento pendi
 - [ ] **T25** (R17) — `bench-hooks.mjs --impl rust`: p95 de la invocación directa del binario con comparabilidad de 0055 · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench --impl rust mide el binario sin wrapper"
 
 ### M9 — Primer hook en sombra
+
+Infraestructura integrada en #1393: handler puro, hashes compilados D8 y dispatch shadow
+con shell autoritativo. Rust forzado devuelve sólo el resultado nativo y conserva defer como
+unavailable. Perfiles explícitos BSD/GNU/C y diagnósticos NUL de Bash3/5, sin normalizar stderr.
+CI final verde:98 pruebas Rust y10265 JS, una omitida; cobertura162 módulos sin excepciones.
+Los232 casos del handler prueban política pura; no sustituyen A9 ni acreditan auditoría activa.
+Registro/manifiesto productivos vacíos: faltan preparación de elegibilidad antes de stdin,
+registro, fixtures de auditoría activa y journal D9. T26 permanece abierto.
+
+Journal D9 preparado como biblioteca privada del CLI: pares begin/complete, append con
+creación exclusiva vacía, payload sólo en divergencias y reporte por hash/engine registrado.
+Exige500 matches/14d por engine, cero divergencias/pendientes y al menos un host no-Claude.
+Quince pruebas focales verdes incluyen concurrencia real, privacidad y payload binario de4MiB;
+la validación base64 canónica evita el desbordamiento de pila de la regex anterior.
+Pendientes el bridge Rust, la resolución de registros reales y el comando público de reporte;
+estas pruebas sintéticas no acreditan uso vivo ni completan T26/A9.
+
 - **A9** [observable] — `subagent-no-background` reproduce el corpus en Claude y Pi · `node scripts/js/hook-verdict-replay.mjs --impl rust --only subagent-no-background` → exit 0, 232 casos
 - [ ] **T26** (R11) — `navori-hooks` (`hooks/subagent_no_background`) en `mode: "shadow"` en `ported.json` · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"veredictos del corpus"
 
