@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildRecommendedQualityGate,
+  fastGatePromptOptions,
   buildRecommendedProject,
   buildFullPlugins,
   FULL_PLUGIN_EXCLUSIONS,
@@ -278,5 +279,25 @@ describe("RECOMMENDED_EFFORT", () => {
   it("only uses valid effort levels", () => {
     const valid = new Set(["low", "medium", "high", "xhigh", "max"]);
     for (const e of Object.values(RECOMMENDED_EFFORT)) expect(valid.has(e)).toBe(true);
+  });
+});
+
+describe("fastGatePromptOptions (init / update / configure fast-gate prompt)", () => {
+  // Covers: R4
+  it("passes the suggested command as defaultValue so Enter accepts it (clack 1.x)", () => {
+    expect(fastGatePromptOptions("fast?", undefined, "bun")).toEqual({
+      message: "fast?",
+      placeholder: "bun tsc --noEmit",
+      defaultValue: "bun tsc --noEmit",
+    });
+    expect(fastGatePromptOptions("fast?", undefined, "npm").defaultValue).toBe("npx tsc --noEmit");
+    expect(fastGatePromptOptions("fast?", undefined, null).defaultValue).toBe("pnpm tsc --noEmit");
+  });
+
+  // Covers: R4
+  it("prefers the already-configured command over the suggestion", () => {
+    const o = fastGatePromptOptions("fast?", "make check", "bun");
+    expect(o.placeholder).toBe("make check");
+    expect(o.defaultValue).toBe("make check");
   });
 });

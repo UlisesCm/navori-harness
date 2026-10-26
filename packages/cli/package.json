@@ -46,7 +46,7 @@
     "prepack": "bun run build"
   },
   "devDependencies": {
-    "@clack/prompts": "^0.10.0",
+    "@clack/prompts": "^1.8.1",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@navori/core": "workspace:*",

@@ -12,6 +12,7 @@ import {
 import { createBackup } from "../lib/render/backup.ts";
 import { listRegistryRepos, registryPath } from "../lib/workspace/registry.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
+import { fastGatePromptOptions } from "../lib/config/recommended.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render/render-plan.ts";
 import { accent, brand, dim } from "../lib/primitives/style.ts";
@@ -178,11 +179,9 @@ const qualityGateSubCommand = defineCommand({
     let full = args.full as string | undefined;
 
     if (!fast || !full) {
-      const fastVal = await p.text({
-        message: tcfg.fastGatePrompt,
-        placeholder: config.qualityGate?.fast ?? "pnpm tsc --noEmit",
-        defaultValue: config.qualityGate?.fast ?? "",
-      });
+      const fastVal = await p.text(
+        fastGatePromptOptions(tcfg.fastGatePrompt, config.qualityGate?.fast, null),
+      );
       if (p.isCancel(fastVal)) {
         p.cancel(tcfg.cancelled);
         return;

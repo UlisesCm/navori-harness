@@ -13,7 +13,7 @@
 | `zod-validation` | Zod 4.6.5 | https://zod.dev | Validación en límites de confianza | Paquete bloqueado y regresión de fragmento |
 | `vitest` | Vitest 5.0.5 | https://vitest.dev | Pruebas de Vitest | Paquete bloqueado y regresión de fragmento |
 | `citty` | Citty 0.2.2 | https://github.com/unjs/citty | Cambios de CLI con Citty | Regresión de declaraciones bloqueadas |
-| `clack` | @clack/prompts 0.10.1 | https://clack.cc | Flujos interactivos de CLI | Paquete bloqueado y regresión de recursos |
+| `clack` | @clack/prompts 1.8.1 | https://clack.cc | Flujos interactivos de CLI | Paquete bloqueado y regresión de recursos |
 
 La entrada anterior de la versión 0.8.7 es la línea base de auditoría. Esta tabla registra los recursos generados para la versión actual, no conserva la versión anterior como versión compatible.
 

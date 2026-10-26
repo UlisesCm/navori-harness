@@ -16,7 +16,7 @@ standard or a default installation authorization.
 | `zod-validation` | Zod 4.6.5 | https://zod.dev | Trust-boundary validation | Locked package + snippet regression |
 | `vitest` | Vitest 5.0.5 | https://vitest.dev | Vitest tests | Locked package + snippet regression |
 | `citty` | Citty 0.2.2 | https://github.com/unjs/citty | Citty CLI changes | Locked declaration regression |
-| `clack` | @clack/prompts 0.10.1 | https://clack.cc | Interactive CLI flows | Locked package + asset regression |
+| `clack` | @clack/prompts 1.8.1 | https://clack.cc | Interactive CLI flows | Locked package + asset regression |
 
 The previous 0.8.7 entry is the audit baseline; this table records the current
 release's generated assets rather than preserving it as a supported version.
