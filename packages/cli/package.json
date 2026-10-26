@@ -59,11 +59,11 @@
     "@vitest/coverage-v8": "^5.0.5",
     "citty": "^0.2.2",
     "picocolors": "^1.1.1",
-    "smol-toml": "^1.9.0",
-    "tsdown": "^0.23.0",
+    "smol-toml": "^1.9.1",
+    "tsdown": "^0.23.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "engines": {
     "node": ">=22.12"
