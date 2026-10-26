@@ -69,4 +69,27 @@ describe("toolchain pins", () => {
       for (const v of mentions) expect(v, rel).toBe(bun);
     }
   });
+
+  // Covers: R3
+  it("pins the static analysis tools at their latest versions", () => {
+    const dev = (JSON.parse(read("package.json")) as { devDependencies: Record<string, string> })
+      .devDependencies;
+    expect(dev["@ast-grep/cli"]).toBe("0.51.0");
+    expect(dev["oxlint"]).toBe("1.89.0");
+    expect(dev["oxfmt"]).toBe("^0.74.0");
+    expect(dev["jscpd"]).toBe("5.4.2");
+  });
+
+  // Covers: R6
+  it("disables no oxlint rule", () => {
+    const config = JSON.parse(read(".oxlintrc.json")) as {
+      rules?: Record<string, unknown>;
+      overrides?: unknown[];
+    };
+    const off = (v: unknown): boolean => v === "off" || v === 0 || (Array.isArray(v) && off(v[0]));
+    for (const [rule, setting] of Object.entries(config.rules ?? {}))
+      expect(off(setting), `${rule} is disabled`).toBe(false);
+    expect(config.overrides ?? []).toEqual([]);
+    expect(read(".oxlintrc.json")).not.toMatch(/"off"/);
+  });
 });
