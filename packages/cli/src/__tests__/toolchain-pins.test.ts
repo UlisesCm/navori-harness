@@ -49,6 +49,17 @@ describe("toolchain pins", () => {
     expect(readJson("packages/cli/package.json").engines?.node).toBe(">=22.12");
   });
 
+  // Covers: R5
+  it("pins every workflow action to a full commit SHA with a release comment", () => {
+    const uses = workflows.flatMap(({ text }) =>
+      [...text.matchAll(/^\s*(?:- )?uses: (.+)$/gm)].map((m) => (m[1] as string).trim()),
+    );
+    expect(uses.length).toBeGreaterThan(0);
+    for (const u of uses) expect(u).toMatch(/@[0-9a-f]{40} # v\d+\.\d+\.\d+$/);
+    for (const { text } of workflows)
+      expect(text).not.toContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24");
+  });
+
   // Covers: R1
   it("states the pinned Bun version in every README that names one", () => {
     const bun = /^bun@(.+)$/.exec(readJson("package.json").packageManager ?? "")?.[1] as string;
