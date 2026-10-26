@@ -227,7 +227,11 @@ function validTranscriptContent(content: unknown): boolean {
 /** Validate adapter record and supported block semantics without retaining content. */
 function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
   // Timestamp validity qualifies source health, not retention of hook facts.
-  if (source === "transcript")
+  if (source === "transcript") {
+    // 2.1.310 `api-request-blob.message` is the raw API request body, not a transcript turn: it
+    // may carry block types the transcript allowlist does not know, and every reader filters by
+    // `type`, so it contributes no measurement. Only its shape is required; content is not judged.
+    if (rec.type === "api-request-blob") return isRec(rec.message);
     return (
       typeof rec.type === "string" &&
       [
@@ -250,11 +254,15 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
         "cost-state",
         "continued-in",
         "agent-name",
+        // Claude Code 2.1.310 request records: metadata only (blob handled above).
+        "api-request",
+        "api-request-shape",
       ].includes(rec.type) &&
       (rec.message === undefined ||
         (isRec(rec.message) &&
           (rec.message.content === undefined || validTranscriptContent(rec.message.content))))
     );
+  }
   if (source === "rollout")
     return (
       ["session_meta", "event_msg", "response_item", "turn_context", "token_usage_record"].includes(
@@ -1678,7 +1686,7 @@ export function parseAgentRun(
   const { first, last } = timestamps(lines);
   const uses = toolUses(lines);
   const model = lines
-    .map((l) => str(path(l, "message", "model")))
+    .map((l) => (str(l.type) === "assistant" ? str(path(l, "message", "model")) : null))
     .find((m): m is string => m !== null);
 
   const skills = collectSkills(uses, lines);
@@ -2550,7 +2558,7 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
   );
   const nativeResults = new Map<string, "completed" | "failed" | null>();
   for (const line of lines)
-    for (const block of arr(path(line, "message", "content"))) {
+    for (const block of str(line.type) === "user" ? arr(path(line, "message", "content")) : []) {
       if (!isRec(block) || block.type !== "tool_result" || typeof block.tool_use_id !== "string")
         continue;
       const id = block.tool_use_id;
