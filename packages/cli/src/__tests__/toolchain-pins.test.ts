@@ -92,4 +92,12 @@ describe("toolchain pins", () => {
     expect(config.overrides ?? []).toEqual([]);
     expect(read(".oxlintrc.json")).not.toMatch(/"off"/);
   });
+
+  // Covers: R3
+  it("tracks @types/node on major 24", () => {
+    const dev = (
+      JSON.parse(read("packages/cli/package.json")) as { devDependencies: Record<string, string> }
+    ).devDependencies;
+    expect(dev["@types/node"]).toMatch(/^\^24\.\d+\.\d+$/);
+  });
 });
