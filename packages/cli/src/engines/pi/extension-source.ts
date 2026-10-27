@@ -14,7 +14,7 @@ import { mcpServerStates } from "./mcp-diagnosis.ts";
 export function renderPiExtensionSource(mcpPluginIds: readonly string[] = []): string {
   return String.raw`
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -679,6 +679,13 @@ function piSessionId(ctx: EvidenceContext): string {
   return process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
     ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
 }
+/**
+ * Audit-mode session id: the Pi id with every character outside the CLI's session-id charset dropped
+ * (so no "."), capped at its 256 limit. One value for start AND close so both name the same log; "" = unusable.
+ */
+function auditSessionId(ctx: LifecycleContext): string {
+  return (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 256);
+}
 type ToolRegistry = { getAllTools?: () => Array<{ name: string; sourceInfo?: { path?: string; source?: string } }> };
 
 /**
@@ -882,14 +889,91 @@ async function closeSession(event: { reason?: unknown }, ctx: LifecycleContext):
   if (reason === undefined) return;
   const manifest = bridgeManifest(ctx.cwd);
   if (!manifest.ok) return;
+  const sessionId = auditSessionId(ctx);
   for (const script of ["worktree-reclaim", "audit-mode-close"]) {
     // Pi creates no worktrees: without the directory there is nothing to reclaim.
     if (script === "worktree-reclaim" && !existsSync(join(ctx.cwd, ".claude/worktrees"))) continue;
+    // No usable id means no audit log was ever started under one: nothing to seal.
+    if (script === "audit-mode-close" && !sessionId) continue;
     try {
       await runBridge(manifest.hooks.filter((hook) => hook.script === script), { event: "session_shutdown", hookEvent: "SessionEnd", reason,
-        cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+        cwd: ctx.cwd, sessionId, hasUI: false }, undefined);
     } catch { /* Closing must never fail the session. */ }
   }
+}
+
+// ---- Audit-mode trigger (spec pi-audit-mode), parent thread only: the Pi counterpart of Claude's audit-mode-trigger hook.
+/** Session ids this process already started a log for, and the ones where "always" was already attempted (once each). */
+const auditStarted = new Set<string>();
+const auditAlwaysTried = new Set<string>();
+/** Started sessions whose notice the model has not seen yet (session_start cannot return a message). */
+const auditNoticeOwed = new Map<string, string>();
+
+/** Same root the CLI resolves ($NAVORI_AUDITS_ROOT or ~/.navori/audits); "" when it cannot be absolute. */
+function piAuditsRoot(): string {
+  const override = (process.env.NAVORI_AUDITS_ROOT ?? "").trim();
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const root = override || (home ? join(home, ".navori", "audits") : "");
+  return root && isAbsolute(root) ? resolve(root) : "";
+}
+
+/** True when any repo under the audit root holds a pending .armed flag: one cheap scan instead of a spawn per prompt. */
+function auditArmPending(root: string): boolean {
+  try {
+    return readdirSync(root, { withFileTypes: true }).some((entry) => entry.isDirectory() && existsSync(join(root, entry.name, ".armed")));
+  } catch { return false; }
+}
+
+/** Optional controls.auditMode === "always" in the manifest; a missing, unreadable or invalid manifest means off. */
+function auditAlways(cwd: string): boolean {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
+    return isRecord(manifest) && isRecord(manifest.controls) && manifest.controls.auditMode === "always";
+  } catch { return false; }
+}
+
+/** Run navori audit for this Pi session (runNavori enforces its own 10 s deadline); true only when the CLI started the log. */
+async function runAuditStart(cwd: string, args: string[]): Promise<boolean> {
+  try { return (await runNavori(cwd, ["audit", ...args], "", new AbortController().signal)).code === 0; }
+  catch { return false; }
+}
+
+/** Consume a pending arm for this session; the CLI only honors untagged or pi-tagged arms. Fail-open. */
+async function consumeAuditArm(ctx: LifecycleContext): Promise<boolean> {
+  const id = auditSessionId(ctx);
+  const root = piAuditsRoot();
+  if (!id || !root || auditStarted.has(id) || !auditArmPending(root)) return false;
+  const started = await runAuditStart(ctx.cwd, ["--consume-arm", "--start", id, "--host", "pi", "--cwd", ctx.cwd, "--root", root]);
+  if (started) {
+    auditStarted.add(id);
+    auditNoticeOwed.set(id, "navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the Pi extension ran --start " + id + ").");
+  }
+  return started;
+}
+
+/** audit.mode = always: start the log on the first user prompt of this session id; arm consumption has already been tried. */
+async function startAuditAlways(ctx: LifecycleContext): Promise<boolean> {
+  const id = auditSessionId(ctx);
+  if (!id || auditStarted.has(id) || auditAlwaysTried.has(id)) return false;
+  auditAlwaysTried.add(id);
+  if (!auditAlways(ctx.cwd)) return false;
+  if (!(await runAuditStart(ctx.cwd, ["--start", id, "--host", "pi", "--cwd", ctx.cwd]))) return false;
+  auditStarted.add(id);
+  auditNoticeOwed.set(id, "navori: audit-mode ACTIVE from this message on (audit.mode=always; no --arm needed).");
+  return true;
+}
+
+/** before_agent_start, user runs only: consume a pending arm or honor "always", then hand the model the one-time notice. Fail-open. */
+async function auditBeforeAgentStart(event: { messageType?: unknown }, ctx: LifecycleContext): Promise<{ message: { customType: string; content: string; display: boolean } } | undefined> {
+  try {
+    if (event.messageType !== "user") return undefined;
+    if (!(await consumeAuditArm(ctx))) await startAuditAlways(ctx);
+    const id = auditSessionId(ctx);
+    const content = auditNoticeOwed.get(id);
+    if (content === undefined) return undefined;
+    auditNoticeOwed.delete(id);
+    return { message: { customType: "navori-audit-mode", content, display: false } };
+  } catch { return undefined; /* A recorder is never the reason a prompt fails. */ }
 }
 
 /** The verification reminder as ONE visible custom_message entry; never sets continue, so no extra model request. */
@@ -998,19 +1082,22 @@ export default function (pi: ExtensionAPI): void {
     // The draft is the exact CustomMessageEntryDraft shape; the cast only bridges unknown[] to the Pi entry union.
     try { return (await settleReminder(event, ctx)) as never; } catch { return undefined; }
   });
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }
+    try { if (event.reason === "startup" || event.reason === "new") await consumeAuditArm(ctx); } catch { /* Recording never blocks a session. */ }
   });
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!controls(ctx.cwd).masterPlan) return;
     try {
-      const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });
-      const line = result.stdout.trim();
-      if (result.code === 0 && line && !/[\r\n]/.test(line) && line.length <= 600) {
-        // Additive: one named prompt section; Pi appends the delta instead of replacing the whole system prompt (D6).
-        event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-master-plan": line };
+      if (controls(ctx.cwd).masterPlan) {
+        const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });
+        const line = result.stdout.trim();
+        if (result.code === 0 && line && !/[\r\n]/.test(line) && line.length <= 600) {
+          // Additive: one named prompt section; Pi appends the delta instead of replacing the whole system prompt (D6).
+          event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-master-plan": line };
+        }
       }
     } catch { /* Advisory only; the user's prompt must continue. */ }
+    return await auditBeforeAgentStart(event, ctx);
   });
   let active = 0;
   pi.registerTool(defineTool({

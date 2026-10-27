@@ -23,6 +23,8 @@ interface PiManifestBase {
     planTiers: boolean;
     masterPlan: boolean;
     scribeOwnsMarkdown: boolean;
+    /** Optional (pi-audit-mode): present only when audit.mode is "always". */
+    auditMode?: "always";
   };
 }
 
@@ -296,8 +298,11 @@ export function ownsPiManifest(content: string): boolean {
       )
         return false;
       const raw = record.controls as Record<string, unknown>;
+      const keys = Object.keys(raw).sort().join(",");
       if (
-        Object.keys(raw).sort().join(",") !== "masterPlan,planTiers,scribeOwnsMarkdown" ||
+        (keys !== "masterPlan,planTiers,scribeOwnsMarkdown" &&
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown") ||
+        (raw.auditMode !== undefined && raw.auditMode !== "always") ||
         typeof raw.planTiers !== "boolean" ||
         typeof raw.masterPlan !== "boolean" ||
         typeof raw.scribeOwnsMarkdown !== "boolean"
@@ -307,6 +312,7 @@ export function ownsPiManifest(content: string): boolean {
         planTiers: raw.planTiers,
         masterPlan: raw.masterPlan,
         scribeOwnsMarkdown: raw.scribeOwnsMarkdown,
+        ...(raw.auditMode === "always" ? { auditMode: "always" as const } : {}),
       };
     }
     const common = { agents: record.agents, ...(controls ? { controls } : {}) };

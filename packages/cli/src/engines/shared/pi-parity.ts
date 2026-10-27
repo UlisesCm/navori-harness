@@ -196,10 +196,6 @@ const viaControl = (control: ControlId, boundary?: string): PiControlParity => (
   ...(boundary === undefined ? {} : { boundary }),
 });
 
-/** Why the audit-mode trigger has no Pi counterpart: the bridge does not map it. */
-const NO_BRIDGE =
-  "the extension bridge runs other Navori hook scripts but has no handler that opens an audit-mode log; Pi's audit capture is the one of spec 0047 R12";
-
 const hookEntries = (): Array<[string, PiParity]> => {
   const h = (id: string, row: PiParity): [string, PiParity] => [piParityKey("hook", id), row];
   return [
@@ -280,16 +276,17 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "audit-mode-trigger",
-      unsupported(
-        NO_BRIDGE,
-        "Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal)",
+      advisory(
+        "the extension's session_start and before_agent_start handlers (parent only) consume a pending `navori audit --arm` (untagged or `--host pi`) or, with `audit.mode: always`, start the log on the first user prompt, then tell the model audit mode is active",
+        "the shared hook script is not run: the extension calls `navori audit --start` itself. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first. Children never start a log; failures are silent",
+        "pi-extension:before_agent_start",
       ),
     ),
     h(
       "audit-mode-close",
       advisory(
         "the extension's session_shutdown handler (parent only, reason quit or new) runs the shared script after the reclaim, 3 s, with a SessionEnd payload",
-        "seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent",
+        "seals only a log that already exists (opened by `audit-mode-trigger`), so it is a no-op until one is started. Failures are silent",
         "pi-extension:session_shutdown",
       ),
     ),
