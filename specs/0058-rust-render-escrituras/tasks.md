@@ -95,7 +95,7 @@ Estimated LOC: 9000
 ### M5 — Plan de render Claude
 
 En curso (adelantado antes de E1 por decisión del usuario, Q2): tramos integrados en #1411, #1417,
-#1422 y #1425, sigue en `feat/0058-rust-e3-scripts`. Portado
+#1422, #1425 y #1428, sigue en `feat/0058-rust-e3-subblocks`. Portado
 con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
 (`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
@@ -116,7 +116,11 @@ paths propios del render completo y los hooks de `ported.json` al wiring nativo.
 pasos 5, 6.5-bis y 7 (`render::claude_files`): arranque de `progress/`, hooks del preset y
 scripts de plugins con la migración sin marcador de #637, la resolución markerless y las
 huellas legacy (`render::plugin_scripts`); destinos no normalizados se delegan porque el
-inventario de paths propios del TS los rechaza. Faltan sub-bloques de plugins, retiros, `.gitignore`, ese inventario,
+inventario de paths propios del TS los rechaza. También los sub-bloques (`render::sub_blocks`,
+pasos 8–8.4 y la parte de sub-bloques de 8.5 y 8.5-ter): `injectInto` con el grant de `tools:`
+(`render::agent_mcp_tools`), extensiones de hooks, la advertencia de revisión cruzada de Codex,
+su retiro al deshabilitar el plugin y los retirados de plugins vivos. Faltan el resto de retiros
+(scripts de plugins deshabilitados y retirados, 8.6–8.10), `.gitignore`, ese inventario,
 `build-settings`/coexist, `.mcp.json`, el wiring nativo y las cadenas del render. Pendiente ajeno a
 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma intermitente (3/5
 aislado) por un presupuesto de 1 ms.
