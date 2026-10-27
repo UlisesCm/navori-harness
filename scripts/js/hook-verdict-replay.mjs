@@ -25,8 +25,9 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *                                                            exit, stdout, stderr (or audit event) differs
  *   node scripts/js/hook-verdict-replay.mjs --shell zsh      replay every case under that shell (D9 parity)
  *   node scripts/js/hook-verdict-replay.mjs --coverage       per-hook cases and % of the invocations the tests make
- *   node scripts/js/hook-verdict-replay.mjs --impl rust --audit off --only hook.sh
- *                                                         direct native replay, explicitly unavailable until ported
+ *   node scripts/js/hook-verdict-replay.mjs --impl rust --only hook.sh
+ *                                                         direct native replay of a ported hook; audit active
+ *                                                         compares the event Rust drops in the session spool
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
  *                                                            `NAVORI_HOOK_CORPUS=<dir> vitest run`
  *
@@ -470,11 +471,6 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     return { ok: false, cases: cases.length, failure: "invalid implementation or audit mode" };
   }
   if (cases.length === 0) return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
-  // The shell fixture uses an empty log and spool files. Native auditing needs the real CLI
-  // header/private-mode fixture and log reader before an active comparison can prove parity.
-  if (impl === "rust" && modes.includes("active")) {
-    return { ok: false, cases: cases.length, failure: "native unavailable: audit active requires CLI-writer fixtures and log replay support" };
-  }
   /** @type {string[]} */
   const failures = [];
   let resolved;
