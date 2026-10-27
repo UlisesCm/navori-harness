@@ -81,6 +81,19 @@ pub const fn managed_file_edited_resolvable(lang: Lang) -> &'static str {
     }
 }
 
+/// `engine.markerlessFileEditedResolvable`.
+#[must_use]
+pub const fn markerless_file_edited_resolvable(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "archivo sin marcador de navori (editado por el usuario o ajeno); solo 'navori sync --interactive' puede reemplazarlo completo (con backup); ningún flag masivo lo toca. Si solo conserva parte del marcador o lo menciona en un comentario, muévelo aparte y corre 'navori render --apply'"
+        }
+        Lang::En => {
+            "file without a navori marker (edited by hand or not navori's); only 'navori sync --interactive' can replace it whole (with a backup); no bulk flag touches it. If it keeps only part of the marker or mentions it in a comment, move it aside and run 'navori render --apply'"
+        }
+    }
+}
+
 /// `engine.blockFromNewerNavori`.
 #[must_use]
 pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {

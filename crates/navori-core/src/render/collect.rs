@@ -15,6 +15,8 @@ pub trait RepoView {
     fn read(&self, rel: &str) -> Option<String>;
     /// The content of a regular file (`lstat().isFile()`): `None` for symlinks and directories.
     fn read_regular(&self, rel: &str) -> Option<String>;
+    /// `existsSync`: follows symlinks, true for directories.
+    fn exists(&self, rel: &str) -> bool;
 }
 
 /// A file the render would write (`PendingWrite`).
@@ -41,6 +43,8 @@ pub struct SkippedFile {
     pub status: InjectStatus,
     /// `resolution.content`: what `sync` would write to accept the rendered version.
     pub resolution: Option<String>,
+    /// `markerlessResolution.content`: the whole-file replace only `sync --interactive` offers.
+    pub markerless_resolution: Option<String>,
 }
 
 /// What one managed file contributes to the plan.
@@ -89,6 +93,7 @@ pub fn collect_managed(
                 reason: reason.to_owned(),
                 status: rendered.status,
                 resolution,
+                markerless_resolution: None,
             });
         }
         InjectStatus::DowngradeSkipped => {
@@ -100,6 +105,7 @@ pub fn collect_managed(
                 ),
                 status: rendered.status,
                 resolution: None,
+                markerless_resolution: None,
             });
         }
         status => {
