@@ -507,7 +507,7 @@ cada pregunta se conserva abajo con su resolución.
 
 | Q | Resolución |
 |---|---|
-| Q2 | E2 empieza ya y puede mergearse antes de que cierre E1; E3 espera a E1 |
+| Q2 | E2 empieza ya y puede mergearse antes de que cierre E1. Ajuste del usuario tras mergear E2 (#1410): E3 M5 (plan Claude puro, sin tocar `ported.json`) empieza antes de E1; E3 M6 (comando nativo y manifiesto) sigue esperando a E1. El wiring `active` de M5 se prueba con un descriptor sintético hasta que E1 active `guard-destructive` |
 | Q3 | Se espera a que Codex cumpla 500 invocaciones en 14 días; sin modo por engine ni otro umbral |
 | Q4 | Config inválida o ausente: re-delegación antes de cualquier salida |
 | Q5 | `requires: string[][]`, `schema: 2`, varias entradas por ruta |
