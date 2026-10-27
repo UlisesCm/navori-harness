@@ -20,19 +20,19 @@ const cmds = [
     class="flex items-center justify-between border-b px-3 py-1.5"
     style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 20%);"
   >
-    <div class="flex items-center gap-0.5">
+    <div class="flex items-center gap-0.5" role="group" aria-label={t("hero.install.label")}>
       {
         cmds.map((c, i) => (
           <button
             type="button"
             class:list={[
-              "px-2.5 py-1 rounded-md text-xs transition-colors",
+              "min-h-11 min-w-11 px-2.5 py-1 rounded-md text-xs transition-colors",
               i === 0
                 ? "bg-white dark:bg-slate-800/60 shadow-sm text-ink dark:text-slate-100"
                 : "text-slate-500 dark:text-slate-400 hover:text-ink dark:hover:text-slate-200",
             ]}
             data-tab={c.id}
-            aria-selected={i === 0 ? "true" : "false"}
+            aria-pressed={i === 0 ? "true" : "false"}
           >
             {c.label}
           </button>
@@ -41,7 +41,7 @@ const cmds = [
     </div>
     <button
       type="button"
-      class="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+      class="min-h-11 min-w-11 text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
       data-copy
       aria-label={t("copy.action")}
     >
@@ -79,7 +79,7 @@ const cmds = [
         active = btn.dataset.tab ?? "";
         tabs.forEach((t) => {
           const on = t.dataset.tab === active;
-          t.setAttribute("aria-selected", on ? "true" : "false");
+          t.setAttribute("aria-pressed", on ? "true" : "false");
           t.classList.toggle("bg-white", on);
           t.classList.toggle("dark:bg-slate-800/60", on);
           t.classList.toggle("shadow-sm", on);

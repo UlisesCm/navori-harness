@@ -39,7 +39,12 @@ describe("toolchain pins", () => {
     expect(bunVersions.length).toBeGreaterThan(0);
     for (const v of bunVersions) expect(v).toBe(bun);
     const nodeVersions = workflowValues("node-version");
-    expect(nodeVersions.length).toBeGreaterThan(0);
+    // Every setup-node step must pin it inline: a `node-version-file` step would not match.
+    const setupNodeSteps = workflows.reduce(
+      (n, { text }) => n + (text.match(/actions\/setup-node@/g)?.length ?? 0),
+      0,
+    );
+    expect(nodeVersions.length).toBe(setupNodeSteps);
     for (const v of nodeVersions) expect(v).toBe("24");
   });
 

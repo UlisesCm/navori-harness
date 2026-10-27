@@ -1,5 +1,11 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import HarnessDifference from "../sections/HarnessDifference.astro";
+import Flow from "../sections/Flow.astro";
+import Toolbox from "../sections/Toolbox.astro";
+import Audit from "../sections/Audit.astro";
+import Layers from "../sections/Layers.astro";
+import Commands from "../sections/Commands.astro";
 import { localizedPath } from "../../i18n/utils";
 
 import { narrative, narrativeExamples } from "../../content/narratives";
@@ -473,6 +479,8 @@ const onboarding = [
       </p>
     </div>
   </section>
+
+  <HarnessDifference lang={lang} />
 
   {/* ── Quick glossary (helper) ──────────────────────────── */}
   <section
@@ -1336,4 +1344,9 @@ const onboarding = [
       });
     })();
   </script>
+  <Flow lang={lang} />
+  <Layers lang={lang} />
+  <Toolbox lang={lang} />
+  <Audit lang={lang} />
+  <Commands lang={lang} />
 </BaseLayout>

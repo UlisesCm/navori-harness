@@ -56,6 +56,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
             "开发循环更快：门禁按内容标识复用结果并运行目标仓库的门禁，测试套件更快、钩子更轻。scribe 可并行运行（需主动启用），Codex 调度按会话隔离，当全局 CLAUDE.md 超出上下文上限或使用过时的工作区路径时，doctor 会发出警告。同时修复了进度上限、超限规格的完成、Pi 计划门禁诊断、CLI shebang 以及 reviewer 的真实 PR 基线。",
         },
       },
+      {
+        version: "0.12.3",
+        date: "2026-10-22",
+        note: {
+          es: "Auditoría de Pi con identidad de padre e invocación, fallas de hijos observables y cierre en el writer privado. Los planes rechazan evidencia ausente o vencida y conservan la solicitud original para la revisión. Incluye correcciones de perfiles nativos de Codex, guardas de Pi, protección anti-retroceso y diagnósticos de doctor; actualiza el entorno de desarrollo y CI a Node 26.12.1 y rediseña la landing para mostrar las capacidades del harness.",
+          en: "Pi audit correlates parent and invocation identities, preserves child failures and records closure through the private writer. Plans reject missing or stale evidence and preserve the original request for review. Includes fixes to native Codex profiles, Pi guards, anti-rollback protection and doctor diagnostics; updates development and CI to Node 26.12.1 and redesigns the landing to demonstrate harness capabilities.",
+          "zh-CN":
+            "Pi 审计关联父会话与调用标识，保留子进程失败，并通过私有写入器记录关闭。计划检查拒绝缺失或过期的证据，并保留原始请求供审查。修复 Codex 原生配置、Pi 守卫、防回滚保护及 doctor 诊断；开发与 CI 环境升级至 Node 26.12.1，首页重新设计以展示 harness 能力。",
+        },
+      },
     ],
     date: "2026-10-12",
     headline: {

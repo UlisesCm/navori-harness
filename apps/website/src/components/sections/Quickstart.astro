@@ -1,5 +1,6 @@
 ---
 import SectionHeader from "../SectionHeader.astro";
+import InstallTabs from "../InstallTabs.astro";
 import { useTranslations, localizedPath } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
 
@@ -56,9 +57,9 @@ const steps = [
               <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                 {s.body}
               </p>
-              <pre
+              {s.n === "01" ? <div class="mt-5"><InstallTabs /></div> : <pre
                 class="mt-5 rounded-md px-4 py-3 text-xs font-mono leading-relaxed overflow-x-auto"
-                style="background: var(--color-night); color: rgb(226 232 240);">{s.code}</pre>
+                style="background: var(--color-night); color: rgb(226 232 240);">{s.code}</pre>}
             </div>
           </article>
         ))
