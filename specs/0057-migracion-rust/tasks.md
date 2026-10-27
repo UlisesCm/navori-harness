@@ -224,6 +224,20 @@ el remedio según `tgrep status`). `Repo` suma `is_file` y `tgrep_status`; `Host
 pruebas diferenciales reintentan un caso discrepante: bajo carga, un `jq` sin recursos falla en
 silencio dentro de `extract-cmd` y el shell ve un comando vacío. Pendiente: PR 4.
 
+Avance T28 (PR 4a): la extracción de `extract-cmd`, los avisos de NUL de Bash 5 y la
+planificación de elegibilidad pasan a `navori-hooks::shell`, con la lista de campos y los engines
+acreditados como parámetros (cambia el `impl` de `subagent-no-background`; su sombra tenía una
+sola invocación). `entry` reproduce el script de punta a punta: `payload_load` sobre sus nueve
+campos, el directorio del proyecto de `hook-input`, `decide` y la categoría de auditoría. El
+binario registra `guard-destructive` para Claude, Codex y Pi; la lane de búsqueda sólo corre si
+el script trae su bloque, y la sombra y la auditoría usan el `$0` invocado. Los 886 casos se
+reproducen desde el payload crudo; las cuatro cascadas (jq y Node, sólo jq, sólo Node, sed) en
+UTF-8 y `C` coinciden con la copia renderizada, y el registro de producción responde igual que
+las tres copias (Claude, Codex, Pi), con el evento de auditoría del shell. Sin entrada en
+`ported.json`. Pendiente del PR 4b: el render no firma aún el guard, porque su referencia omite
+los `extraVars` del hook (`navoriOwnedPaths`, `piPermissionRules`) y compara `deps` contra el
+script desplegado, que lleva su propio marker; luego registro en sombra, corpus de Codex y A11.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 
