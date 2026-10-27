@@ -1,6 +1,7 @@
 import { createRequire, stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { PI_EXTENSION_SOURCE } from "../../extension-source.ts";
+import { PINNED_PI_VERSION } from "./pinned-pi-version.ts";
 
 export type Handler = (event: Record<string, unknown>, ctx: unknown) => Promise<unknown> | unknown;
 export type Shell = () => { shell: string; args: string[] };
@@ -22,7 +23,7 @@ export function load(
   const modules: Record<string, unknown> = {
     "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
     "@earendil-works/pi-coding-agent": {
-      VERSION: options.version ?? "1.1.0",
+      VERSION: options.version ?? PINNED_PI_VERSION,
       defineTool: (value: unknown) => value,
       getShellConfig: options.shell ?? BASH,
     },

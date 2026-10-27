@@ -897,8 +897,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         capability: "child-mcp-off",
         native: "pi --no-mcp",
         decision: "admitted",
-        source: "Pi 1.1.0 MCP guide and `pi --help` (--no-mcp: no servers connect, no MCP tools)",
-        verifiedFrom: "1.1.0",
+        source: "Pi 1.4.0 MCP guide and `pi --help` (--no-mcp: no servers connect, no MCP tools)",
+        verifiedFrom: "1.4.0",
         probe: "`pi --help` lists --no-mcp (missingPiChildFlags); child args carry --no-mcp",
         flag: "--no-mcp",
         boundary:
@@ -908,8 +908,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         capability: "child-model-selection",
         native: "pi --model <provider/id>",
         decision: "admitted",
-        source: "Pi 1.1.0 `pi --help` (--model accepts provider/id)",
-        verifiedFrom: "1.1.0",
+        source: "Pi 1.4.0 `pi --help` (--model accepts provider/id)",
+        verifiedFrom: "1.4.0",
         probe: "`pi --help` lists --model; child args always carry the resolved provider/model",
         flag: "--model",
         boundary: "Selects the child's model; effort/thinking is not redefined.",
@@ -918,8 +918,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         capability: "child-tool-allowlist",
         native: "pi --tools <allowlist>",
         decision: "admitted",
-        source: "Pi 1.1.0 `pi --help` (--tools: allowlist of tool names)",
-        verifiedFrom: "1.1.0",
+        source: "Pi 1.4.0 `pi --help` (--tools: allowlist of tool names)",
+        verifiedFrom: "1.4.0",
         probe: "`pi --help` lists --tools",
         flag: "--tools",
         boundary:
@@ -930,8 +930,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         native: 'Node child_process IPC channel (stdio "ipc") to the Pi child',
         decision: "admitted",
         source:
-          "Pi 1.1.0 child process on Node 24 (process.send and process.channel present in the child)",
-        verifiedFrom: "1.1.0",
+          "Pi 1.4.0 child process on Node 24 (process.send and process.channel present in the child)",
+        verifiedFrom: "1.4.0",
         probe:
           "Spawn pi with stdio [ignore, pipe, pipe, ipc]: the child extension sees process.send, the parent receives child.on(message); the model's bash inherits no channel",
         boundary:
@@ -952,10 +952,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         capability: "session-end-event",
         native: "session_shutdown extension event",
         decision: "admitted",
-        source: "Pi 1.1.0 extensions guide (session_shutdown: quit, reload, new, resume, fork)",
-        verifiedFrom: "1.1.0",
+        source: "Pi 1.4.0 extensions guide (session_shutdown: quit, reload, new, resume, fork)",
+        verifiedFrom: "1.4.0",
         probe:
-          "Pi 1.1.0 SessionShutdownEvent carries reason quit|reload|new|resume|fork and also fires in --no-session children (the extension gates on NAVORI_PI_CHILD_DEPTH)",
+          "Pi 1.4.0 SessionShutdownEvent carries reason quit|reload|new|resume|fork and also fires in --no-session children (the extension gates on NAVORI_PI_CHILD_DEPTH)",
         boundary:
           "Runs on a clean quit or /new only; a SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session.",
       },
@@ -963,10 +963,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         capability: "settle-boundary-entries",
         native: "agent_before_settle extension event",
         decision: "admitted",
-        source: "Pi 1.1.0 extensions guide (agent_before_settle BoundaryResult: entries, continue)",
-        verifiedFrom: "1.1.0",
+        source: "Pi 1.4.0 extensions guide (agent_before_settle BoundaryResult: entries, continue)",
+        verifiedFrom: "1.4.0",
         probe:
-          "Pi 1.1.0 AgentBeforeSettleEvent extends BoundaryState (entries, continue, outcome) and BoundaryResult accepts a custom_message entry draft",
+          "Pi 1.4.0 AgentBeforeSettleEvent extends BoundaryState (entries, continue, outcome) and BoundaryResult accepts a custom_message entry draft",
         boundary:
           "Appends a visible entry at the end of the agent run; it never sets continue, so it cannot force another model request.",
       },

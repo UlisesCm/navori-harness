@@ -10,10 +10,10 @@
 |---|---|---|---|---|
 | Core：`verify-before-done`、`debug-failure`、`review-diff`、`security-invariants`、`locate-code` | Harness CLI 0.12.3 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
 | 工作流：`resolve-ticket`、`solution-design`、`spec-bootstrap`、`dominio`、`follow-up-prs` | Harness CLI 0.12.3 资源；每次发布更新此行 | https://github.com/ulisescm/navori-harness | 对应的 frontmatter 描述 | 资源上限、roster 与渲染测试 |
-| `zod-validation` | Zod 4.4.3 | https://zod.dev | 信任边界验证 | 锁定的包及片段回归 |
-| `vitest` | Vitest 5.0.1 | https://vitest.dev | Vitest 测试 | 锁定的包及片段回归 |
-| `citty` | Citty 0.1.6 | https://github.com/unjs/citty | Citty CLI 变更 | 锁定的声明回归 |
-| `clack` | @clack/prompts 0.10.0 | https://clack.cc | 交互式 CLI 流程 | 锁定的包及资源回归 |
+| `zod-validation` | Zod 4.6.7 | https://zod.dev | 信任边界验证 | 锁定的包及片段回归 |
+| `vitest` | Vitest 5.0.5 | https://vitest.dev | Vitest 测试 | 锁定的包及片段回归 |
+| `citty` | Citty 0.2.2 | https://github.com/unjs/citty | Citty CLI 变更 | 锁定的声明回归 |
+| `clack` | @clack/prompts 1.8.1 | https://clack.cc | 交互式 CLI 流程 | 锁定的包及资源回归 |
 
 之前的 0.8.7 条目是审计基线；此表记录当前版本生成的资源，不将旧版本保留为受支持版本。
 

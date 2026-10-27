@@ -19,6 +19,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { fingerprintTree, readEvidenceLog, validateEvidence } from "../../../lib/plan/evidence.ts";
 import { resolveStateRoot } from "../../../lib/primitives/state-root.ts";
@@ -55,7 +56,7 @@ function load(
     ["@earendil-works/pi-ai", { Type: new Proxy({}, { get: () => () => ({}) }) }],
     [
       "@earendil-works/pi-coding-agent",
-      { VERSION: "1.1.0", defineTool: (value: unknown) => value },
+      { VERSION: PINNED_PI_VERSION, defineTool: (value: unknown) => value },
     ],
   ]);
   const exports: Record<string, unknown> = {};
@@ -244,7 +245,9 @@ describe("parent and child evidence", () => {
     });
     expect(lines(cwd)[0]?.agentId).toBeUndefined();
     const root = resolveStateRoot({ cwd, feature: "demo" });
-    expect(validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND })).toMatchObject({
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({
       ok: true,
     });
   });
@@ -263,7 +266,9 @@ describe("parent and child evidence", () => {
     expect(recorded).toHaveLength(2);
     expect(recorded.every((line) => line.agentId === "pi-implementer")).toBe(true);
     const root = resolveStateRoot({ cwd, feature: "demo" });
-    expect(validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND })).toMatchObject({
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({
       ok: true,
     });
   });

@@ -153,7 +153,7 @@ navori-harness/
 
 ## 开发
 
-需要 **Node >= 22** 和 **bun 1.4.2**。
+需要 **Node >= 22** 和 **bun 1.4.4**。
 
 ```bash
 bun install

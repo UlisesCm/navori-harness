@@ -1,3 +1,5 @@
+import type { PiExtensionControl } from "../../engines/pi/denials.ts";
+
 /**
  * Domain model for `navori audit`.
  *
@@ -747,7 +749,13 @@ export function addTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
 
 /** Every token that entered or left the model, for one subagent run. */
 export interface AgentRun {
+  /** Native parent tool result, never inferred from command failures inside a child. */
+  nativeOutcome?: "completed" | "failed";
+  /** Closed final handoff observation; absent on historical parsed sessions. */
+  handoffBlocked?: boolean;
   codex?: CodexRunFacts;
+  /** Pi transcript observation, never actor authority; absent without a confirmed invocation. */
+  piOutcome?: "completed" | "failed";
   availability?: Record<string, MetricEvidence>;
   agentId: string;
   /** From `agent-<id>.meta.json`; falls back to the parent's `subagent_type`. */
@@ -1126,6 +1134,8 @@ export function emptyOrchestrator(): SessionAudit["orchestrator"] {
 
 /** One audited session: the orchestrator plus every subagent it spawned. */
 export interface SessionAudit {
+  /** Native boundary/restore ordering, not a claim about context quality. */
+  compactionRecovery?: import("./engine-observations.ts").CompactionRecovery;
   /** Optional only for legacy in-memory inputs; absent evidence is unknown. */
   availability?: Record<string, MetricEvidence>;
   sources?: Partial<
@@ -1346,6 +1356,8 @@ export interface SessionAudit {
     blockedCommands?: Record<string, string>;
   };
   agents: AgentRun[];
+  /** Closed native Pi control IDs only; raw tool text is never retained. */
+  piExtensionDenials?: Partial<Record<PiExtensionControl, number>>;
   signals: Signal[];
   /**
    * First hook execution the session log recorded, or `null` when it recorded

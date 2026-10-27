@@ -175,3 +175,14 @@ sería el implementer escribiendo Markdown por otra vía).
   aparte con la medición de R11.
 - Soporte de `hooks:` en el frontmatter de agentes en el render de navori.
 - Guardas equivalentes en engines sin hooks.
+
+## Enmienda de integración 0045/0054
+
+La integración de [0045, M11](../0045-review-adaptativo/tasks.md#m11--handoff-determinista-y-nits),
+absorbida por [0054, M7–M8](../0054-dx-ciclo-desarrollo/tasks.md#m7--ciclo-proporcional-0045-e4),
+aclara R5 y R8: con `markdownRequests` vacío, el orquestador genera el handoff con
+`navori handoff render` sin despachar al scribe. Si hay prosa solicitada, R5 sigue exigiendo
+que el scribe conserve la evidencia y R8 mantiene la elección de modelo por despacho.
+Una observación informativa menor a 80 posterior a `APPROVED` se registra en el PR y no
+reabre el ciclo. Estos contratos ya están integrados y se verifican para Claude y Codex en
+`packages/cli/src/__tests__/doctrine-contracts.test.ts`.

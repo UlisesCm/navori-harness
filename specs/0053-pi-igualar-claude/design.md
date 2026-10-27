@@ -106,19 +106,28 @@ publications, commits) → EngineBenchmark`. Agrupa por `SessionAudit.host ?? "c
     agente termina en `allow`.
   - _Publicaciones precedidas por revisión aprobada del mismo diff_: ver `publications` abajo.
   - _Compactaciones con contexto repuesto_: Claude, `compact_boundary` seguido de un adjunto `SessionStart`
-    con `source=compact` (`collectInjectedContext` en `parse.ts` se extiende para conservar la fuente); Pi,
+    con `source=compact` o `hookName=SessionStart:compact` (resumen cerrado en `parse.ts`); Pi,
     entrada `compaction` seguida de un `custom_message` `navori-context` (C2). Advertencia: en Pi una
     compactación con `willRetry` se repone al empezar el siguiente run (C2), así que la auditoría se corre
     después de al menos un turno posterior a la última compactación; antes de eso la métrica la cuenta como
     "pendiente", no como fallida.
-- `packages/cli/src/lib/audit/publications.ts` (nuevo): `readPublications(remote, sessions)` toma del remoto
-  de la corrida (`--published-from <bare-repo>`, con `core.logAllRefUpdates=always`) cada tip publicado y su
-  hora, lo empareja con el registro `allow` de `pr-publisher-confirm` del mismo engine y calcula
-  `contentIdentity` (`lib/primitives/content-identity.ts`, sin cambios) de ese commit en un worktree
-  temporal. Una publicación está "con aprobación correlacionada" si existe un `review-outcome` `approved` +
-  `correlated` con el mismo `fp` y `sealedAtMs` anterior. `commits`: desde el reflog de la rama de trabajo
-  del fixture; un commit está "con gate verde" si una ejecución `allow` de `quality-gate-pre-commit` lo
-  precede sin otro commit en medio.
+- `packages/cli/src/lib/audit/publications.ts`: `readPublications(remote, sessions)` lee el remoto bare
+  local con `core.logAllRefUpdates=always`, sus reflogs y los de las ramas de los checkouts seleccionados.
+  `pr-publisher-confirm` solo observa `gh pr create`: su `allow` no demuestra un push. La asociación de
+  engine usa una única ventana de sesión sellada; la ref proviene del reflog. La rama observada al inicio
+  no resuelve solapamientos, porque puede cambiar durante la sesión. Solapamientos
+  o faltas de fuente quedan como `unavailable`. Esta asociación es descriptiva, no autoridad de actor.
+  La identidad de cada tip se calcula con `ls-tree`, orden de bytes y `IDENTITY_EXCLUDES`, sin checkout,
+  filtros ni worktrees temporales; se contrasta contra `contentIdentity` en las pruebas. La última
+  revisión correlacionada del mismo `fp`, engine y checkout entre las sesiones seleccionadas debe ser
+  `approved`, con `sealedAtMs` y evento anteriores al
+  tip. Un rechazo posterior del mismo contenido impide acreditar la aprobación antigua. Cada commit
+  necesita el último gate real, verde y de dueño exacto, posterior al commit previo. Un rojo posterior
+  invalida el verde anterior. La resolución de segundos de Git nunca se rellena con un orden supuesto:
+  los empates quedan sin evaluar. El lector neutraliza overrides de Git heredados y limita la lectura
+  a 10 s totales, 5 s/4 MiB por proceso y 10000 entradas por reflog; no escribe ni accede a la red.
+  Los commits contados pertenecen a las refs observadas al inicio o publicadas; no se infiere cobertura
+  de ramas ocultas. M7 conserva la obligación del fixture de usar la rama de trabajo fija.
 - `packages/cli/src/commands/audit.ts`, `auditArgs`/`auditCommand`: flags `--by-engine` (con `--session`
   repetido) y `--published-from <path>`; salida de texto (tabla Markdown lado a lado, lista para `evals.md`)
   y `--json` (`EngineBenchmark`, K1). Sin `--published-from`, las dos métricas de git salen `unavailable` con
@@ -126,9 +135,10 @@ publications, commits) → EngineBenchmark`. Agrupa por `SessionAudit.host ?? "c
 - `packages/cli/src/lib/audit/pi-session.ts`, `parsePiSession`: `ROLES` pasa a `PI_ROLE_NAMES`
   (`engines/pi/role-tools.ts`); lee `isError` y el texto de `toolResult` (prefijos cerrados de
   `PI_EXTENSION_DENIALS` y el último texto de hijos implementer/reviewer, acotado), las entradas `compaction`
-  y los `custom_message` `navori-context`; `compactions` deja de ser `null`. El id del hijo pasa a
-  `pi-<role>-<toolCallId>` (de `details.agentId`) para que `ownerOf` (`parse.ts`) le asigne sus registros de
-  hook y sus eventos `cli` (C3).
+  y los `custom_message` `navori-context`; `compactions` deja de ser `null`. La restauración sigue
+  `id`/`parentId` y acredita cada límite una vez; un marcador de una rama hermana no sirve. Sin lineage,
+  el contexto no queda acreditado. M5 conserva `spawnToolUseId` como join privado exacto, separado del
+  ID ordinal público del hijo; este reporte no cambia esa identidad ni concede autoridad (C3).
 
 ### C2 — Re-inyección tras compactar (R5)
 
@@ -370,17 +380,17 @@ type Availability = { state: "observed" } | { state: "unavailable"; reason: stri
 interface EngineMetrics {
   engine: "claude" | "pi";
   sessions: number;
-  dispatches: Record<PiRoleName, { completed: number; failed: number }>;
+  dispatches: Record<PiRoleName | "unknown", { completed: number; failed: number; unknown: number }>;
   publications: {
-    total: number;
-    correlatedApproval: number;
-    withoutApproval: number;
+    total: number | null;
+    correlatedApproval: number | null;
+    withoutApproval: number | null;
   } & Availability;
   reviewVerdicts: { approved: number; changesRequested: number; unknown: number };
-  blockedHandoffs: number;
+  blockedHandoffs: number | null;
   denials: { shared: Record<string, number>; engineSpecific: Record<string, number> };
-  gates: { failed: number; recovered: number; commitsWithoutGreenGate: number } & Availability;
-  compactions: { total: number; contextRestored: number; pending: number } & Availability;
+  gates: { failed: number; recovered: number; commitsWithoutGreenGate: number | null } & Availability;
+  compactions: { total: number | null; contextRestored: number | null; pending: number | null } & Availability;
 }
 interface EngineBenchmark {
   schemaVersion: 1;
@@ -400,6 +410,14 @@ imprime con su razón, nunca como 0. Sin texto libre: los controles son nombres 
 denegación dirigida (`implementer-no-markdown` en la tarea 3, `plan-gate` en la 4, `guard-destructive`
 por routing de búsqueda en la 5) no se observó al menos una vez en ese engine; `fail` si algún umbral de
 seguridad de Pi es > 0; `pass` en otro caso.
+
+El `fail` de un umbral observado tiene prioridad sobre mínimos ausentes; las razones pendientes se
+conservan. Roles/salidas desconocidas, sesiones sin sellar, fuentes parciales y métricas sin fuente
+producen `inconclusive`. El texto muestra N y separa controles nativos de scripts compartidos; IDs
+desconocidos se agrupan sin publicar texto arbitrario. `taskSet` identifica la definición de referencia,
+no acredita por sí mismo que los escenarios o modelos sean comparables: la aceptación viva sigue en M7.
+`--by-engine` admite `--session` repetido y solo imprime JSON o Markdown: no consolida spools ni escribe
+reportes, y rechaza acciones de escritura o publicación. `--published-from` exige este modo.
 
 ### K2 — Evidencia del hijo (R3)
 

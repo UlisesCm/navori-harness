@@ -5,8 +5,9 @@
 > [#1354](https://github.com/UlisesCm/navori-harness/issues/1354). Las tablas y reportes históricos
 > siguientes no prueban bytes actuales ni aceleración global. CI preliminar de `6396f0ed` falló
 > (1 fallida/9642 aprobadas/1 omitida; causa zsh sin determinar; seguimiento
-> [#1353](https://github.com/UlisesCm/navori-harness/issues/1353)). El diagnóstico Pi sigue
-> inconcluso ([#1355](https://github.com/UlisesCm/navori-harness/issues/1355)); se conserva Node y no
+> [#1353](https://github.com/UlisesCm/navori-harness/issues/1353), cerrado el 2026-10-19). El diagnóstico Pi
+> ([#1355](https://github.com/UlisesCm/navori-harness/issues/1355)) se cerró el 2026-10-22 con la
+> corrección integrada en dev vía #1369; se conserva Node y no
 > se afirma resultado del oráculo. Full actual, revisión independiente, receipt válido y CI funcional
 > siguen pendientes; el fast fresco 9/0 no los sustituye. No se elevan límites ni se declaran
 > completados R29/T39, M5/R12 o E1.
@@ -1008,12 +1009,13 @@ incompleta hasta cerrar las demás métricas de D10, la pared real de CI y las v
 | `guard-destructive` | 41 ms (raíz de auditoría) / 10 ms sin raíz | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; objetivo ~10 ms con raíz y sin log (R8) |
 | `routing-watch` | 53 ms (jq ×5, git, perl) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 (R10) |
 | `role-guard` | 54 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | solo escenarios Codex; jq ≤ 1 |
-| `bash-outcome-watch` (fallo) | 48 ms (node ≈ 28) | sin escenario en la matriz actual | sin escenario en la matriz actual | Node conservado; objetivo R12 diferido fuera de E1 |
+| `bash-outcome-watch` (fallo) | 48 ms (node ≈ 28) | sin escenario en la matriz del 2026-10-18; base `a251417b` medida el 2026-10-26: 36/32, 42/38, 41/37 ms (absent/root/active, wall/cpu) | sin escenario en la matriz del 2026-10-18; C `5a48be15` el 2026-10-26: 40/36, 40/36, 45/40 ms | Node conservado; objetivo R12 diferido fuera de E1 a una spec aparte; el delta no es costo puro (cambio funcional en `d2bee468`) |
 | `implementer-no-markdown` | 34 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 |
 | `quality-gate-pre-commit` | 42 ms | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; jq ≤ 1 |
 | `plan-gate` | 161 ms (navori ≈ 122) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; baja con R14 |
 | `session-start-context` | 474 ms (navori ×3, CLI global 0.12.1) | costes M0 por engine/evento en tabla detallada | costes Final por engine/evento en tabla detallada | comparación por escenario; 1 CLI (R11) |
-| `audit-mode-close` | 139 ms | sin escenario en la matriz actual | sin escenario en la matriz actual | no atribuir coste medido en esta comparación |
+| `audit-mode-close` | 139 ms | sin escenario en la matriz del 2026-10-18; base `a251417b` medida el 2026-10-26 (claude/codex/pi, absent/root/active): 12/8, 15/10, 106/119; 17/8, 17/8, 112/119; 10/8, 10/8, 104/119 ms | sin escenario en la matriz del 2026-10-18; C `5a48be15` el 2026-10-26: 14/10, 16/12, 93/95; 20/10, 20/10, 100/97; 13/10, 12/10, 93/97 ms | comparación por escenario; ver subsección de cierre 2026-10-26 |
+| `engram-write-guard` (codex) | — | base `a251417b` el 2026-10-26: 23/13, 41/29, 44/32 ms | C `5a48be15` el 2026-10-26: 24/15, 24/15, 47/34 ms | comparación por escenario; ver subsección de cierre 2026-10-26 |
 | `navori` en frío | 114–128 ms (`node -e 0` = 28 ms) | — | — | baja con R14 |
 | Bytes de `SessionStart` | — | 6 947 B Claude / 857 B Codex | 6 947 B / 857 B | iguales; sin contexto vacío (R4/R28) |
 | Bytes de `test:affected` / gate en verde | — | 464 B emulado / 122 B | 88 B nativo / 122 B | modos distintos; sin atribución causal (R26) |
@@ -1028,6 +1030,44 @@ incompleta hasta cerrar las demás métricas de D10, la pared real de CI y las v
 | Pared por shard / archivo más lento en CI | — | — | 101/158/127/85 s; archivos máximos 52.397/76.036/62.462/45.378 s | [corrida final #1352 y hashes](../../docs/research/1354-hook-comparability.md#archivos-más-lentos-por-shard); no acredita fuentes posteriores |
 
 
+
+#### Cierre 2026-10-26: hooks suplementarios, CI final y reacreditación
+
+**Hooks suplementarios.** Seis reportes comparables con provenance (`head`, `dirty=false`): tres sobre
+la base `a251417bd231415c43bc091f051d9a994cf7e885` y tres sobre el commit de código final C
+`5a48be15b321c6bedba88a578479c958b7964d6b`, medidos con el observador de C. Cada celda es la mediana
+de n=3 reportes, en ms `wall/cpu`, en orden `absent / root / active`. La tabla completa (21
+renglones) y los SHA256 de los reportes están en
+[docs/research/1354-hook-comparability.md](../../docs/research/1354-hook-comparability.md#cierre-2026-10-26).
+`bash-outcome-watch` cambió funcionalmente en `d2bee468`, así que su delta no es costo puro. Los
+demás hooks de la tabla no cambian de conclusión por estas cifras; no se afirma mejora ni regresión
+global de hooks.
+
+**CI final por shard.** Run [40368114190](https://github.com/UlisesCm/navori-harness/actions/runs/40368114190)
+(PR #1398, `headSha` `5a48be15`, plan full, success). Duración = `completedAt - startedAt` de cada job:
+
+| Job | Inicio UTC | Fin UTC | Duración |
+|---|---|---|---:|
+| test (1) | 2026-10-26T17:23:28Z | 17:26:14Z | 2 m 46 s |
+| test (2) | 2026-10-26T17:23:27Z | 17:26:34Z | 3 m 07 s |
+| test (3) | 2026-10-26T17:23:27Z | 17:25:41Z | 2 m 14 s |
+| test (4) | 2026-10-26T17:23:27Z | 17:25:51Z | 2 m 24 s |
+| test-merge | 2026-10-26T17:26:36Z | 17:26:56Z | 20 s |
+| checks | 2026-10-26T17:23:14Z | 17:23:40Z | 26 s |
+| plan | 2026-10-26T17:23:14Z | 17:23:25Z | 11 s |
+
+Comparación con la corrida de `9b47eb4a` (run 39269619834, pasos de cobertura de 101/158/127/85 s y
+agregado de 5 s, según la sección "CI final del PR #1352" de la nota de investigación): las unidades
+no coinciden (allí se miden pasos; aquí, jobs completos, con arranque y checkout), y cambian
+población, scheduling y HEAD. No se atribuye causalidad ni se declara mejora o regresión de CI.
+
+**Reacreditación del presupuesto (R30).** La cohorte del 2026-10-18 no es reproducible (los
+directorios fuente desaparecieron; se conservan `generatedAt` y SHA256 en `tasks.md`). El
+presupuesto nuevo se derivó con `--propose` (adopción aprobada por el usuario el 2026-10-26) de tres
+corridas en reposo: `tests-2026-10-26T17-36-16-660Z`, `17-44-49-609Z` y `17-53-59-397Z`, con wall
+472714/509567/492893 ms, 482 archivos, 10370 tests, workers=4, head `5a48be15`, `dirty=false`.
+Excepciones: 47 -> 26. El presupuesto anterior excedía `guard-catalog-parity` (22302 ms > 20000 ms)
+en 1 de 3 corridas. M5/R12 sigue diferido a una spec aparte.
 
 #### Coste por hook, engine y escenario
 

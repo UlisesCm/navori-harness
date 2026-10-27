@@ -51,15 +51,10 @@ function listMigrations(): MigrationEntry[] {
 }
 
 /**
- * Body of `migrations list`, shared with the parent command's default run.
- * Takes plain options instead of citty's `ParsedArgs` because the parent
- * declares only `--json` (see `migrationsCommand`), so its args can never
- * satisfy this subcommand's arg shape. `limit` stays `unknown` because both
- * callers get it straight off the CLI (the parent through citty's catch-all
- * index signature, which types undeclared flags as string|boolean|string[]);
- * `intFlagOrExit` is the validator, and undefined means "use the default".
+ * Body of `migrations list`. `intFlagOrExit` validates `limit`; undefined
+ * means "use the default".
  */
-function runMigrationsList(opts: { json: boolean; limit?: unknown }): void {
+function runMigrationsList(opts: { json?: boolean | undefined; limit?: unknown }): void {
   const migrations = listMigrations();
   const limit = intFlagOrExit(opts.limit, "limit", 20);
   const truncated = migrations.slice(0, limit);
@@ -123,8 +118,7 @@ const restoreSubCommand = defineCommand({
     yes: { type: "boolean", description: "Skip confirmation" },
   },
   async run({ args }) {
-    const ts = args.timestamp as string;
-    const repoName = args.repo as string;
+    const { timestamp: ts, repo: repoName } = args;
     const cwd = resolve(args.cwd ?? process.cwd());
     const migrationDir = join(migrationsRoot(), ts, repoName);
 
@@ -168,47 +162,17 @@ const restoreSubCommand = defineCommand({
   },
 });
 
-/**
- * Whether citty already dispatched a subcommand for this invocation.
- *
- * citty runs the parent's `run` even AFTER dispatching a subcommand: the
- * `if (typeof cmd.run === "function")` sits OUTSIDE the dispatch branch
- * (citty 0.1.6 `dist/index.mjs:315`, unchanged in 0.2.2). With a parent `run`
- * acting as the default (see `migrationsCommand`), that printed the list twice
- * on `migrations list` and dumped it on top of `migrations restore` (#466).
- *
- * Reads `rawArgs` on purpose — not `args._` — because this mirrors citty's own
- * resolution rule (the first token that doesn't start with `-` is the
- * subcommand name). The parent's parsed `args._` can lose that token to an
- * undeclared value flag (`migrations --foo list` parses `list` as `--foo`'s
- * value), which would miss the dispatch and print twice again.
- *
- * This is a deliberate exception to the `citty` skill's "never read `rawArgs`
- * by hand": that rule is about reading INPUTS, and nothing here is read as one
- * — the predicate replicates citty's dispatch decision, which is the only thing
- * that can answer "did a subcommand already run?".
- *
- * BUMPING CITTY INVALIDATES THIS. 0.2.x replaces the naive scan with
- * `findSubCommandIndex` (0.2.2 `dist/index.mjs:268-279`), which returns -1 on
- * `--`: there `migrations -- list` stops dispatching while this predicate still
- * says it did, silencing the parent's run. On 0.1.6 `--` DOES dispatch (checked),
- * so the mirror is faithful today and only today.
- */
-function ranSubCommand(rawArgs: string[]): boolean {
-  return rawArgs.some((arg) => !arg.startsWith("-"));
-}
-
 export const migrationsCommand = defineCommand({
   meta: {
     name: "migrations",
     description: "List and restore init replace-mode migrations",
   },
-  // Mirror only the BOOLEAN `--json` so `navori migrations --json` works via the
-  // default run below. Value flags (`--limit N`) cannot be mirrored here: citty
-  // resolves the subcommand from the first non-dash token BEFORE applying the
-  // parent's arg schema, so `migrations --limit 5` reads `5` as a subcommand name
-  // ("Unknown command 5"). Truncation lives on the `list` subcommand instead:
-  // `navori migrations list --limit N`. See #282.
+  // `default: "list"` makes `navori migrations` and `navori migrations --json` /
+  // `--limit=N` run `list`, which parses its own args. Value flags cannot live on
+  // the parent: citty resolves the subcommand from the first non-dash token
+  // BEFORE applying the parent's arg schema, so `migrations --limit 5` reads `5`
+  // as a subcommand name ("Unknown command 5"). Use `migrations list --limit N`
+  // or the `=` form. See #282. The parent keeps `--json` so `--help` lists it.
   args: {
     json: { type: "boolean", description: "Output as JSON" },
   },
@@ -216,14 +180,5 @@ export const migrationsCommand = defineCommand({
     list: listSubCommand,
     restore: restoreSubCommand,
   },
-  // Without a subcommand citty errors with a bare "No command specified."
-  // Default to `list` so `navori migrations` just works. `args.limit` is not in
-  // this command's schema, but citty's parser still collects undeclared flags,
-  // so forward it (reachable as `navori migrations --limit=N`, the `=` form:
-  // the space form makes `N` a positional and citty reads it as a subcommand):
-  // dropping it would make the value silently ignored here.
-  run({ args, rawArgs }) {
-    if (ranSubCommand(rawArgs)) return;
-    runMigrationsList({ json: args.json, limit: args.limit });
-  },
+  default: "list",
 });

@@ -1,3 +1,4 @@
+import { PI_EXTENSION_DENIALS } from "./denials.ts";
 import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
@@ -18,7 +19,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-${PI_TRUST_SOURCE}
+${PI_TRUST_SOURCE + "\nconst PI_EXTENSION_DENIALS = " + JSON.stringify(PI_EXTENSION_DENIALS) + ";\n"}
 const MCP_PLUGIN_IDS: readonly string[] = ${JSON.stringify(mcpPluginIds)};
 const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates)};
 ${renderPiRuntimeVersionSource()}
@@ -72,6 +73,13 @@ function controls(cwd: string): Controls {
 }
 
 type NavoriResult = { code: number | null; stdout: string; stderr: string };
+class NavoriControlUnavailable extends Error {
+  readonly missingExecutable: boolean;
+  constructor(missingExecutable: boolean = false) {
+    super("Navori control unavailable");
+    this.missingExecutable = missingExecutable;
+  }
+}
 /** Capture bounded control output; stderr is opt-in so handoff keeps its stdout-only contract. */
 function runNavori(cwd: string, args: string[], input: string, signal: AbortSignal,
     captureStderr: boolean = false): Promise<NavoriResult> {
@@ -83,7 +91,7 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
     let stopped = false;
     let finished = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const failure = (): Error => new Error("Navori control unavailable");
+    const failure = (): Error => new NavoriControlUnavailable();
     const cleanup = (): void => {
       clearTimeout(timeout);
       if (killTimer) clearTimeout(killTimer);
@@ -115,11 +123,12 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
     };
     child.stdout.on("data", (chunk: Buffer): void => capture(stdout, chunk));
     if (captureStderr) child.stderr?.on("data", (chunk: Buffer): void => capture(stderr, chunk));
-    child.on("error", (): void => {
+    child.on("error", (error: unknown): void => {
       if (finished) return;
+      const missing = !child.pid && !stopped && !signal.aborted && isRecord(error) && error.code === "ENOENT";
       if (child.pid) stop();
       else { finished = true; cleanup(); }
-      reject(failure());
+      reject(new NavoriControlUnavailable(missing));
     });
     child.on("close", (code: number | null): void => {
       if (finished) return;
@@ -142,10 +151,10 @@ function planDenial(stderr: string, feature: string | undefined): string {
   const match = /^\[navori\] BLOCKED by plan-gate: feature "([a-z0-9][a-z0-9._-]{0,127})" already has a workplan — open with \x60workplan: \1\x60, not nivel-0\.\n?$/.exec(stderr);
   if (match && match[0] === stderr) {
     const slug = match[1] === feature ? feature : "<feature>";
-    return "Navori plan gate blocked the implementer: this feature already has a workplan; open with \x60workplan: " +
+    return PI_EXTENSION_DENIALS.planBlocked.prefix + ": this feature already has a workplan; open with \x60workplan: " +
       slug + "\x60, not \x60nivel-0:\x60. Review the existing workplan and its approval before another dispatch.";
   }
-  return "Navori plan gate blocked the implementer. The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
+  return PI_EXTENSION_DENIALS.planBlocked.prefix + ". The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
 }
 
 async function checkDispatch(cwd: string, role: Role, task: string,
@@ -154,24 +163,30 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
-    catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
+    catch (error) {
+      if (error instanceof NavoriControlUnavailable && error.missingExecutable) {
+        throw new Error(PI_EXTENSION_DENIALS.planMissing.prefix);
+      }
+      throw new Error(PI_EXTENSION_DENIALS.planUnavailable.prefix);
+    }
     if (result.code === 2) throw new Error(planDenial(result.stderr, feature));
-    if (result.code !== 0) throw new Error("Navori plan gate unavailable; subagent blocked");
+    if (result.code !== 0) throw new Error(PI_EXTENSION_DENIALS.planUnavailable.prefix);
   }
   if (role === "implementer" || role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {
-      throw new Error("Navori " + role + " requires an explicit Navori feature slug for handoff check");
+      throw new Error(PI_EXTENSION_DENIALS[role === "implementer" ? "implementerFeature" :
+        role === "reviewer" ? "reviewerFeature" : "scribeFeature"].prefix);
     }
     if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
       "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
       "", signal); }
-    catch { throw new Error("Navori handoff check unavailable; " + role + " blocked"); }
+    catch { throw new Error(PI_EXTENSION_DENIALS.handoffUnavailable.prefix + role + " blocked"); }
     let parsed: unknown;
-    try { parsed = JSON.parse(result.stdout); } catch { throw new Error("Invalid Navori handoff check JSON; " + role + " blocked"); }
+    try { parsed = JSON.parse(result.stdout); } catch { throw new Error(PI_EXTENSION_DENIALS.handoffJson.prefix + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
-        parsed.feature !== feature) throw new Error("Navori handoff check did not pass; " + role + " blocked");
+        parsed.feature !== feature) throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked");
   }
 }
 
@@ -514,6 +529,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       NAVORI_AUDIT_HOST: "pi", NAVORI_AUDIT_SESSION_ID: parentSession, NAVORI_AUDIT_AGENT_ID: agentId };
     // An outer host's identity cannot describe this Pi child. Correlation never grants actor authority.
     delete childEnv.CLAUDE_CODE_SESSION_ID;
+    delete childEnv.CLAUDE_CODE_CHILD_SESSION;
     delete childEnv.CODEX_SESSION_ID;
     delete childEnv.CODEX_THREAD_ID;
     delete childEnv.NODE_CHANNEL_FD;
@@ -834,13 +850,13 @@ function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
   try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
 }
 
-const POWERSHELL_REASON = "Navori disabled Pi's powershell tool: it would run commands outside the shared shell policy. "
+const POWERSHELL_REASON = PI_EXTENSION_DENIALS.powershell.prefix + "it would run commands outside the shared shell policy. "
   + "Install Git for Windows and use the bash tool (see docs/pi.md), or run the command yourself.";
 
 /** Registers ONLY the write block for a Pi this extension has not verified: reads stay intact, one notice per process. */
 function registerUnverifiedBlock(pi: ExtensionAPI): void {
   let noticed = false;
-  const reason = "Navori does not verify Pi " + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
+  const reason = PI_EXTENSION_DENIALS.runtime.prefix + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
   pi.on("tool_call", (event, ctx) => {
     if (!UNVERIFIED_BLOCKED_TOOLS.has(event.toolName)) return;
     noticeOnce(ctx, noticed, reason);
@@ -910,10 +926,10 @@ export default function (pi: ExtensionAPI): void {
           if (rows.length !== 1 || !row || row.on !== "tool_call" || row.scope !== "child" ||
               row.class !== "enforced" || row.interactive || row.path !== ".pi/navori/hooks/implementer-no-markdown.sh" ||
               !["bash", "edit", "write"].every((tool) => row.tools?.includes(tool)) || !manifest.ownedPaths.includes(row.path)) {
-            return { block: true, reason: "Navori Markdown ownership hook binding is missing or incompatible; " + BRIDGE_RENDER_ACTION + "." };
+            return { block: true, reason: PI_EXTENSION_DENIALS.markdownBinding.prefix + BRIDGE_RENDER_ACTION + "." };
           }
         }
-      } catch { return { block: true, reason: "Navori cannot evaluate Markdown ownership controls; " + BRIDGE_RENDER_ACTION + "." }; }
+      } catch { return { block: true, reason: PI_EXTENSION_DENIALS.markdownControls.prefix + BRIDGE_RENDER_ACTION + "." }; }
       if (event.toolName !== "bash") {
         // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
         const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
@@ -1030,7 +1046,7 @@ export default function (pi: ExtensionAPI): void {
         }
         if (snapshot) {
           const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
-          if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
             details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length

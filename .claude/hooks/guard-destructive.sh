@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="f7270b92" version="0.12.2" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="167d5f48" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -2490,10 +2490,16 @@ fi
 # Parse the live text separately: the legacy segment splitter also splits >& and
 # removes parentheses from the trusted, literal git-toplevel prefix.
 # One awk pass, bounded by the caller's CMD_MAX; no eval or shell word expansion.
+# The awk runs byte-wise (LC_ALL=C): macOS awk aborts on a split multibyte char
+# in `~` matching, and shell metacharacters and owned paths are ASCII anyway.
+# A newline inside an open quote stays in the word (multi-line -m "$(cat <<EOF)");
+# outside quotes it ends the segment; an unclosed quote at the end still fails.
+# Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
+# terminator) from the live text, and skipping on that text would hide commands.
 # Paths are lexical against the tool cwd. Command-local directory changes,
 # dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
 navori_copy_dest_safe() {
-  NV_COPY_ROOT=${nv_project_dir:-} NV_COPY_CWD="$(payload_field cwd)" \
+  LC_ALL=C NV_COPY_ROOT=${nv_project_dir:-} NV_COPY_CWD="$(payload_field cwd)" \
     NV_COPY_OWNED="$nv_owned_paths" awk '
   function slashes(p) { if (windows) gsub(/\\/, "/", p); return p }
   function norm(p, context,    n,a,i,k,out) {
@@ -2712,8 +2718,9 @@ navori_copy_dest_safe() {
       if (c ~ /[ \t]/) { word(); continue }
       buf = buf c; have = 1
     }
-    if (!escape) { if (quote != "") bad = 1; segment() }
-    else escape = 0
+    if (escape) escape = 0
+    else if (quote != "") { buf = buf "\n"; have = 1 }
+    else segment()
   }
   END { if (quote != "" || escape) bad = 1; segment(); exit (bad ? 2 : 0) }
   ' <<EOF

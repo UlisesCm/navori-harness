@@ -10,10 +10,10 @@
 |---|---|---|---|---|
 | Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Recursos de Harness CLI 0.12.3; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
 | Flujo de trabajo: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Recursos de Harness CLI 0.12.3; actualizar la fila en cada versión | https://github.com/ulisescm/navori-harness | Descripción de su frontmatter | Límites de recursos, roster y pruebas de renderizado |
-| `zod-validation` | Zod 4.4.3 | https://zod.dev | Validación en límites de confianza | Paquete bloqueado y regresión de fragmento |
-| `vitest` | Vitest 5.0.1 | https://vitest.dev | Pruebas de Vitest | Paquete bloqueado y regresión de fragmento |
-| `citty` | Citty 0.1.6 | https://github.com/unjs/citty | Cambios de CLI con Citty | Regresión de declaraciones bloqueadas |
-| `clack` | @clack/prompts 0.10.0 | https://clack.cc | Flujos interactivos de CLI | Paquete bloqueado y regresión de recursos |
+| `zod-validation` | Zod 4.6.7 | https://zod.dev | Validación en límites de confianza | Paquete bloqueado y regresión de fragmento |
+| `vitest` | Vitest 5.0.5 | https://vitest.dev | Pruebas de Vitest | Paquete bloqueado y regresión de fragmento |
+| `citty` | Citty 0.2.2 | https://github.com/unjs/citty | Cambios de CLI con Citty | Regresión de declaraciones bloqueadas |
+| `clack` | @clack/prompts 1.8.1 | https://clack.cc | Flujos interactivos de CLI | Paquete bloqueado y regresión de recursos |
 
 La entrada anterior de la versión 0.8.7 es la línea base de auditoría. Esta tabla registra los recursos generados para la versión actual, no conserva la versión anterior como versión compatible.
 
