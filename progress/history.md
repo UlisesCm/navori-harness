@@ -618,3 +618,26 @@ con un fd O_EXCL no-append; publicación vacía seguida de append conservó amba
 El journal aplicará ese patrón, payload sólo en divergencias, y rechazará evidencia incompleta
 o contada con otra implementación/engine. Artefacto local del diseño y worktree journal
 preservados; no representa500 invocaciones reales ni14d de evidencia. T23–T26/A8/A9 abiertos.
+## 2026-10-25 19:25 Codex — Prepara journal privado de sombra D9
+
+Retoma la biblioteca del journal en `feat/0057-rust-e2-m9-shadow-journal`, sin subagentes por
+instrucción del usuario. Registra begin/complete en JSONL privado mediante las primitivas
+existentes de audit/paths.ts: creación exclusiva vacía y O_APPEND, identidad por invocación,
+hash/engine, payload únicamente en divergencias. Reporte rechaza historias incompletas,
+duplicadas, inconsistentes o inseguras y exige500 matches/14d por engine registrado.
+
+Corrige dos fallos verificados con regresiones rojas/verdes: el reporte aceptaba Claude-only
+sin host alternativo exigido por D9; la regex base64 lanzaba RangeError con payload válido de
+4MiB. Comparación canónica decode/reencode conserva validación sin agotar la pila.
+
+Quince pruebas focales y check:fast verdes. Full final `bun run check` exit0:10279 aprobadas,
+dos omitidas,485 archivos en923.5s; cobertura líneas87.93%, statements86.21%, functions90.57%,
+branches81%, piso165 módulos sin excepciones. Corrida anterior interrumpida al descubrir el
+RangeError; evidencia descartada. Revisión directa sin hallazgos, sin reviewer independiente.
+El CLI instalado0.11.2 no tiene gate; se ejecutó el comando completo declarado del proyecto.
+
+Usuario autoriza actualizar current/history con apply_patch después de que guard-destructive
+bloqueó la escritura shell del checkpoint, y continuar hasta commit/push. #1393 ya está en
+migration/rust73fa052f. Pendientes PR del journal, bridge Rust, comando público de reporte,
+resolución de registros reales y fixtures de auditoría activa; T23–T26/A8/A9 siguen abiertos.
+No se activaron hooks ni se contó evidencia sintética como500 invocaciones/14d de uso vivo.
