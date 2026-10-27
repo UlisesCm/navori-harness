@@ -445,13 +445,13 @@ pub struct Prepared<'a> {
     capture: CaptureContext<'a>,
     engine: Engine,
 }
-impl Prepared<'_> {
+impl<'a> Prepared<'a> {
     /// Accredited immutable extraction/locale selection.
     pub const fn profile(&self) -> Profile {
         self.profile
     }
     /// Exact script identity and captured source locations for diagnostics.
-    pub const fn capture(&self) -> CaptureContext<'_> {
+    pub const fn capture(&self) -> CaptureContext<'a> {
         self.capture
     }
     /// Host the plan was made for.

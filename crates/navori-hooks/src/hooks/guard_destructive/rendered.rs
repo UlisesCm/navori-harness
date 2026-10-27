@@ -15,10 +15,15 @@ pub struct Rendered {
     /// `navori_progress_hard_cap` inside the inlined `progress-ratchet` partial; `None` when the
     /// partial is not inlined (an asset read before include expansion).
     pub progress_cap: Option<String>,
+    /// The `tgrep-search-lane` block of `@navori/plugin-tgrep` follows the base block.
+    pub search_lane: bool,
 }
 
+/// Opening marker of the search lane block.
+const SEARCH_LANE: &str = "# navori:managed start id=\"tgrep-search-lane\" ";
+
 impl Rendered {
-    /// Read the four assignments from the script source. `None` when any is missing or is not
+    /// Read the four assignments and whether the search lane is present from the script source. `None` when any is missing or is not
     /// a plain shell word (quoted spans, `'\''` escapes and bare characters only).
     #[must_use]
     pub fn from_script(source: &str) -> Option<Self> {
@@ -28,6 +33,7 @@ impl Rendered {
             owned_paths: assignment(source, "nv_owned_paths")?,
             progress_lane: assignment(source, "navori_pg_lane")?,
             progress_cap: indented(source, "navori_progress_hard_cap"),
+            search_lane: source.lines().any(|line| line.starts_with(SEARCH_LANE)),
         })
     }
 }

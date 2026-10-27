@@ -5,12 +5,15 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
+use navori_hooks::hooks::guard_destructive::entry::{self, Context};
 use navori_hooks::hooks::guard_destructive::repo::{Loss, Repo};
 use navori_hooks::hooks::guard_destructive::{
     Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
 };
-use navori_hooks::runner::Engine;
+use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
+use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::payload::{Extractor, Profile};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -28,8 +31,9 @@ impl Repo for NoState {
         panic!("corpus case asks whether {dir} holds {loss:?}");
     }
 
-    fn toplevel(&self, dir: &str) -> Option<String> {
-        panic!("corpus case asks for the toplevel of {dir}");
+    /// Every case runs outside a git repository (the progress lane, the other reader, is off).
+    fn toplevel(&self, _dir: &str) -> Option<String> {
+        None
     }
 
     fn superproject(&self, dir: &str) -> Option<String> {
@@ -272,6 +276,82 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
     Ok(())
 }
 
+// Covers: R11, R12
+#[test]
+fn el_payload_crudo_llega_al_veredicto_del_shell_por_la_cascada_de_extraccion() -> TestResult {
+    let source = fs::read_to_string(
+        workspace().join("packages/core/core-assets/hooks/guard-destructive.sh"),
+    )?;
+    let rendered = Rendered::from_script(&source).ok_or("rendered assignments")?;
+    let mut mismatches = Vec::new();
+    let cases = corpus()?;
+    for (index, case) in cases.iter().enumerate() {
+        let cwd = if case["cwdKind"] == "repo" {
+            PROJECT
+        } else {
+            NONE
+        };
+        let input = expand(case["input"].as_str().ok_or("input")?, cwd);
+        let engine = engine(case["engine"].as_str().ok_or("engine")?).ok_or("engine name")?;
+        let host = Host {
+            claude_project_dir: case["envDelta"]["CLAUDE_PROJECT_DIR"]
+                .as_str()
+                .map(|v| expand(v, cwd)),
+            ..host(case, engine, cwd)?
+        };
+        let context = Context {
+            engine,
+            profile: Profile {
+                extractor: Extractor::JqAndNode,
+                locale: Locale::Utf8,
+            },
+            capture: CaptureContext {
+                shell: ShellDialect::Bash3,
+                script: Path::new("guard-destructive.sh"),
+                input_line: 1,
+                fallback_line: 1,
+            },
+            rendered: rendered.clone(),
+            host,
+        };
+        let evaluation = entry::evaluate(input.as_bytes(), &context, &NoState)?;
+        let off = &case["expected"]["off"];
+        let event = &case["expected"]["active"]["event"][0]["metadata"];
+        let status = match evaluation.verdict {
+            Verdict::Permit => 0,
+            Verdict::Error => 1,
+            Verdict::Block => 2,
+        };
+        let label = evaluation.audit.ok_or("audit label")?;
+        let reason = event["reason"].as_str().unwrap_or("unspecified");
+        let actual = (
+            status,
+            String::from_utf8(evaluation.stdout)?,
+            corpus_text(&String::from_utf8(evaluation.stderr)?),
+            label.verdict,
+        );
+        let expected = (
+            off["status"].as_i64().ok_or("status")?,
+            off["stdout"].as_str().ok_or("stdout")?.to_owned(),
+            off["stderr"].as_str().ok_or("stderr")?.to_owned(),
+            event["verdict"].as_str().ok_or("verdict")?,
+        );
+        if actual != expected || (reason != "unspecified" && reason != label.reason) {
+            mismatches.push(format!(
+                "case {index}: {input}\n  expected: {expected:?} {reason}\n  actual:   {actual:?} {}",
+                label.reason
+            ));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatches:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
+    Ok(())
+}
+
 // Covers: R11
 #[test]
 fn rendered_values_are_read_as_the_shell_assigns_them() {
@@ -285,6 +365,7 @@ fn rendered_values_are_read_as_the_shell_assigns_them() {
             owned_paths: "-".to_owned(),
             progress_lane: "1".to_owned(),
             progress_cap: Some("8000".to_owned()),
+            search_lane: false,
         })
     );
     assert_eq!(

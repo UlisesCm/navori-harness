@@ -123,6 +123,7 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
         implementation: HASH,
         handler: Handler::Pure(evaluate),
         phase: "PreToolUse",
+        tool: None,
     }]
 }
 
@@ -882,6 +883,7 @@ fn compiled_hash_mismatch_and_non_engine_script_paths_defer() -> TestResult {
         implementation: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         handler: Handler::Pure(record),
         phase: "PreToolUse",
+        tool: None,
     }];
     assert_eq!(
         run_with(
@@ -1093,6 +1095,7 @@ mod prepared_handlers {
             implementation: HASH,
             handler: Handler::Prepared(prepare),
             phase: "PreToolUse",
+            tool: None,
         }]
     }
 
