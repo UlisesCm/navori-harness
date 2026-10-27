@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "bcf59132cd1e71db84b91ace3b7068ba7c00090748b865c1720a7cafc3ffb0e0"
+    "hash": "a5f6edb038de94f980568137c888e492115ee2a96f1df500ebbc0dfb83d9715a"
   },
   "schemaVersion": 2,
   "agents": [
@@ -120,6 +120,22 @@
       "timeoutMs": 10000
     },
     {
+      "script": "routing-watch",
+      "path": ".pi/navori/hooks/routing-watch.sh",
+      "on": "tool_result",
+      "tools": [
+        "bash",
+        "edit",
+        "write",
+        "navori_subagent"
+      ],
+      "scope": "parent",
+      "class": "advisory",
+      "interactive": false,
+      "timeoutMs": 10000,
+      "skipOnError": true
+    },
+    {
       "script": "worktree-reclaim",
       "path": ".pi/navori/hooks/worktree-reclaim.sh",
       "on": "session_shutdown",
@@ -156,6 +172,7 @@
     ".pi/navori/hooks/master-accept-confirm.sh",
     ".pi/navori/hooks/pr-publisher-confirm.sh",
     ".pi/navori/hooks/quality-gate-pre-commit.sh",
+    ".pi/navori/hooks/routing-watch.sh",
     ".pi/navori/hooks/subagent-no-background.sh",
     ".pi/navori/hooks/worktree-reclaim.sh"
   ],

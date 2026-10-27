@@ -67,8 +67,8 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
 | `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Fails closed: a replaced bash tool or a missing `exit_code` records nothing. |
 | `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
-| `compact-advice` | unsupported | Pi runs no Navori hook scripts, so no context-size advice is injected after a publisher dispatch. |
-| `general-purpose-confirm` | unsupported | Pi runs no Claude hook scripts and its `navori_subagent` roster has no general-purpose role to confirm. |
+| `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected after a publisher dispatch. |
+| `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has seven fixed roles and no general-purpose role to confirm. |
 
 Pi also natively discovers trusted project skills in `.agents/skills/`. When Pi and Codex are both
 selected, Codex owns the shared destinations and Pi does not duplicate them. Claude and Codex hook
@@ -481,12 +481,12 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `hook:managed-drift-watch` | advisory | — | never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent |
 | `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | In Pi the model is chosen with `/model` and passed to children (spec 0047 R17); there is no per-turn model-change payload to advise on |
+| `hook:model-advisor` | unsupported | — | A Pi port needs a Pi mode in the script and a binding; not planned (the model is chosen with `/model` and passed to children, spec 0047 R17) |
 | `hook:plan-gate` | enforced | control `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | seatbelt (bypass classes above) | installed only when the publisher role is enabled; a body that is inline or unreadable is shown only as the command. Indirect shell forms bypass it |
 | `hook:quality-gate-pre-commit` | enforced | seatbelt (bypass classes above) | only with `qualityGate.fast` configured (no row otherwise, as in Claude and Codex); the result holds for the working tree at that moment. Indirect shell forms (`sh -c`, a script on disk) bypass it; a hook outside the agent (the user's own terminal) is not seen |
 | `hook:role-guard` | n/a | — | Codex-only: Claude and Pi restrict roles by their tool allowlist, not a hook (HOOK_ENGINES) |
-| `hook:routing-watch` | unsupported | — | Becomes `advisory` only once the bridge maps Pi tool names and payload fields to the script's contract and turns its additionalContext into an appended result block (spec 0048 E1 M2/E3); never blocks |
+| `hook:routing-watch` | advisory | — | at most one note per session; never blocks; errored results are not forwarded, so a failed write or a refused `navori_subagent` is neither work nor delegation; like Claude it needs Pi started at the repository root, and the bash lane counts only redirect/tee/sed -i writes |
 | `hook:session-start-context` | advisory | — | context only, not a boundary; the injection is skipped on any error |
 | `hook:stop-verify-reminder` | advisory | — | never blocks and never sets `continue`, so no extra model request; one reminder per agent run; a failure shows nothing |
 | `hook:subagent-no-background` | enforced | seatbelt (bypass classes above) | textual policy over the command string, children only: the parent may background work |

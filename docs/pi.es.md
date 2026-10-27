@@ -49,8 +49,8 @@ Cada fila corresponde a un control de Pi de `ENGINE_CAPABILITIES.pi.controls`. `
 | `local-skill-discovery` | enforced | `project.localSkills` se proyecta como referencias bajo `.agents/skills/<id>` y solo se escriben cuando Codex no está habilitado. |
 | `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash o falta `exit_code`, no registra nada. |
 | `repeat-failure-advice` | advisory | Después de tres fallas idénticas del bash integrado, se agrega una advertencia. Nunca bloquea ni altera el resultado, y no se muestra si falta `exit_code`. |
-| `compact-advice` | unsupported | Pi no ejecuta scripts de hooks de Navori, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
-| `general-purpose-confirm` | unsupported | Pi no ejecuta scripts de hooks de Claude y su lista de `navori_subagent` no tiene un rol general-purpose que confirmar. |
+| `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
+| `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene siete roles fijos y ningún rol general-purpose que confirmar. |
 
 Pi también detecta de forma nativa las skills de proyecto de confianza en `.agents/skills/`. Cuando se seleccionan Pi y Codex, Codex es dueño de los destinos compartidos y Pi no los duplica. Pi no copia ni ejecuta scripts de hooks de Claude y Codex.
 
@@ -334,12 +334,12 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 | `hook:managed-drift-watch` | advisory | — | nunca bloquea y solo detecta bloques con marcador hash (AGENTS.md, skills, copias de hooks); la extensión, el manifiesto y los archivos de roles no tienen hash por bloque y están protegidos por la protección y la ruta de edit/write. La deriva que no puede evaluar pasa inadvertida |
 | `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` y `delivery-slice --refresh`; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | En Pi, el modelo se elige con `/model` y se pasa a los hijos (especificación 0047 R17); no hay una carga útil de cambio de modelo por turno sobre la que avisar |
+| `hook:model-advisor` | unsupported | — | Un port a Pi necesita un modo Pi en el script y un binding; no está planeado (el modelo se elige con `/model` y se pasa a los hijos, especificación 0047 R17) |
 | `hook:plan-gate` | enforced | control `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | protección (clases de evasión anteriores) | solo se instala cuando el rol publisher está habilitado; un contenido en línea o ilegible solo se muestra como comando. Las formas indirectas de shell lo omiten |
 | `hook:quality-gate-pre-commit` | enforced | protección (clases de evasión anteriores) | solo con `qualityGate.fast` configurado (sin fila en otro caso, igual que en Claude y Codex); el resultado corresponde al árbol de trabajo en ese momento. Las formas indirectas de shell (`sh -c`, un script en disco) lo omiten; no detecta un hook externo al agente (la propia terminal del usuario) |
 | `hook:role-guard` | n/a | — | Solo Codex: Claude y Pi restringen los roles mediante su lista de herramientas permitidas, no con un hook (`HOOK_ENGINES`) |
-| `hook:routing-watch` | unsupported | — | Se vuelve `advisory` solo cuando el puente asigna los nombres de herramientas y campos de carga útil de Pi al contrato del script, y agrega `additionalContext` como bloque al resultado (especificación 0048 E1 M2/E3); nunca bloquea |
+| `hook:routing-watch` | advisory | — | como máximo un aviso por sesión; nunca bloquea; los resultados con error no se reenvían, así que una escritura fallida o un `navori_subagent` rechazado no cuenta como trabajo ni como delegación; igual que en Claude requiere iniciar Pi en la raíz del repositorio, y el carril bash solo cuenta escrituras por redirección/tee/sed -i |
 | `hook:session-start-context` | advisory | — | Solo aporta contexto, no es un límite; se omite la inyección si ocurre cualquier error |
 | `hook:stop-verify-reminder` | advisory | — | Nunca bloquea ni establece `continue`, así que no genera otra solicitud al modelo; un recordatorio por ejecución del agente; si falla, no muestra nada |
 | `hook:subagent-no-background` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando, solo hijos: el padre puede ejecutar tareas en segundo plano |

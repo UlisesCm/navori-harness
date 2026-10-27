@@ -385,6 +385,7 @@ export function preparePiEngine(
     class: binding.class,
     interactive: binding.interactive,
     timeoutMs: binding.timeoutMs,
+    ...(binding.skipOnError ? { skipOnError: true } : {}),
   }));
   const permissions = collectShellPermissionRules(config, ctx.plugins);
   const serialized = serializePiManifest({

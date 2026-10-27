@@ -14,6 +14,7 @@ export interface PiManifestHook {
   class: "enforced" | "advisory" | "lifecycle";
   interactive: boolean;
   timeoutMs: number;
+  skipOnError?: boolean;
 }
 
 interface PiManifestBase {
@@ -163,6 +164,7 @@ function canonicalPayload(payload: PiManifestPayload): string {
             class: hook.class,
             interactive: hook.interactive,
             timeoutMs: hook.timeoutMs,
+            ...(hook.skipOnError ? { skipOnError: true } : {}),
           })),
           ownedPaths: [...payload.ownedPaths].sort(),
           permissionRules: {
@@ -208,8 +210,12 @@ function isPiHookPath(script: string, path: unknown): path is string {
 function parseManifestHook(raw: unknown): PiManifestHook | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const hook = raw as Record<string, unknown>;
-  const keys = Object.keys(hook).sort().join(",");
-  if (keys !== HOOK_KEYS && keys !== `${HOOK_KEYS},tools`) return null;
+  const keys = Object.keys(hook)
+    .filter((key) => key !== "tools" && key !== "skipOnError")
+    .sort()
+    .join(",");
+  if (keys !== HOOK_KEYS) return null;
+  if (hook.skipOnError !== undefined && hook.skipOnError !== true) return null;
   if (
     typeof hook.script !== "string" ||
     !/^[a-z0-9][a-z0-9-]*$/.test(hook.script) ||
@@ -236,6 +242,7 @@ function parseManifestHook(raw: unknown): PiManifestHook | null {
     class: hook.class as PiManifestHook["class"],
     interactive: hook.interactive,
     timeoutMs: hook.timeoutMs,
+    ...(hook.skipOnError === true ? { skipOnError: true } : {}),
   };
 }
 

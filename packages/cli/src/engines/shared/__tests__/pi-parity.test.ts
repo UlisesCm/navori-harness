@@ -191,11 +191,13 @@ describe("PI_PARITY rows", () => {
   });
 
   // Covers: R1
-  it("keeps routing-watch declared with its evaluation and model-advisor unsupported", () => {
-    const routing = PI_PARITY["hook:routing-watch"] as PiDirectParity;
-    expect(routing.state).toBe("unsupported");
-    expect(routing.mechanism).toContain("Probe");
-    expect((PI_PARITY["hook:model-advisor"] as PiDirectParity).state).toBe("unsupported");
+  it("promotes routing-watch to advisory and keeps model-advisor unsupported with its real reason", () => {
+    const routing = PI_PARITY["hook:routing-watch"] as PiDirectParity & { evidence?: string };
+    expect(routing.state).toBe("advisory");
+    expect(routing.evidence).toBe("pi-extension:tool_result");
+    const advisor = PI_PARITY["hook:model-advisor"] as PiDirectParity;
+    expect(advisor.state).toBe("unsupported");
+    expect(advisor.mechanism).toContain("model_select");
   });
 
   // Covers: R1
