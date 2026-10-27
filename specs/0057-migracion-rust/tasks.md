@@ -173,6 +173,17 @@ Estimated LOC: 2500
 - [ ] **T27** (R11) — `ported.json` pasa el hook a `active`, con el resumen de sombra adjunto al PR y aprobación del usuario · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"modo active responde Rust"
 
 ### M11 — `guard-destructive` en sombra
+
+Avance T28 (PR 1 de 4): `navori-hooks::shell` comparte `Locale` y las transformaciones de
+`inert-skeleton` (fuera de `src/hooks/`, así entran en el hash `impl` de cada hook). El módulo
+`hooks/guard_destructive` porta, en el orden del shell, el comando vacío, los techos de bytes,
+líneas y heredocs, la vía rápida sin tokens y las reglas 1, 2, 3, 3b, 4 y 5; lee `base`,
+`nv_pi_rules`, `nv_owned_paths` y `navori_pg_lane` del script verificado. Contra el corpus decide
+524 de 886 casos con exit, stderr byte a byte y categoría de auditoría del shell; los 362
+restantes caen en reglas 1b, 6, 6b, 6c, 6d y 7 (PR 2) y nunca en una regla ya portada. Sin
+registro en `ported.json`: el runtime no cambia. Pendientes: rutas y git (PR 2),
+`tgrep-search-lane` (PR 3), extracción, registro en sombra, corpus de Codex y A11 (PR 4).
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 
