@@ -5,3 +5,4 @@ pub mod context;
 pub mod frontmatter;
 pub mod hook_includes;
 pub mod interpolate;
+pub mod plan;
