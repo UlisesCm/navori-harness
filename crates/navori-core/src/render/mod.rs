@@ -7,4 +7,5 @@ pub mod hook_includes;
 pub mod interpolate;
 pub mod library_skills;
 pub mod plan;
+pub mod plugins;
 pub mod presets;
