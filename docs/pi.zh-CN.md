@@ -49,8 +49,8 @@ navori render --apply
 | `local-skill-discovery` | enforced | `project.localSkills` 会投影为 `.agents/skills/<id>` 下的指针；仅在未启用 Codex 时写入。 |
 | `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。此机制会关闭失败：若 bash 工具被替换或缺少 `exit_code`，则不会记录任何内容。 |
 | `repeat-failure-advice` | advisory | 内置 bash 连续出现三次相同失败后，会附加一条建议。它不会阻止操作或更改结果；缺少 `exit_code` 时也不会显示。 |
-| `compact-advice` | unsupported | Pi 不运行 Navori hook 脚本，因此 publisher 派发后不会注入上下文大小建议。 |
-| `general-purpose-confirm` | unsupported | Pi 不运行 Claude hook 脚本，而且其 `navori_subagent` 角色列表中没有可用于确认的 general-purpose 角色。 |
+| `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此 publisher 派发后不会注入上下文大小建议。 |
+| `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有七个固定角色，没有可确认的 general-purpose 角色。 |
 
 Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同时选择 Pi 和 Codex，共享目标位置由 Codex 管理，Pi 不会重复写入。Pi 不会复制或运行 Claude 与 Codex 的 hook 脚本。
 
@@ -340,12 +340,12 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 | `hook:managed-drift-watch` | advisory | — | 不会阻止操作；只会检查带有哈希标记的区块（AGENTS.md、skills、hook 副本）。扩展、manifest 和角色文件没有逐区块哈希，因此改由防护规则和 edit/write 通道保护。无法评估的漂移会静默处理。 |
 | `hook:master-accept-confirm` | enforced | 安全带（上述绕过方式类别） | 覆盖 `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`、`master close`、`delivery-review\|decision\|publication\|revoke` 和 `delivery-slice --refresh`；间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过。该确认是安全带，不是沙箱。 |
 | `hook:master-plan-context` | advisory | 控制项 `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | 在 Pi 中通过 `/model` 选择模型并传给子进程（spec 0047 R17）；没有可供建议器使用的逐轮模型更改载荷。 |
+| `hook:model-advisor` | unsupported | — | 移植到 Pi 需要脚本提供 Pi 模式并添加绑定；目前没有计划（模型通过 `/model` 选择并传给子进程，spec 0047 R17）。 |
 | `hook:plan-gate` | enforced | 控制项 `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | 安全带（上述绕过方式类别） | 仅在启用 publisher 角色时安装；内联正文或无法读取的正文只会作为命令显示。间接 shell 形式可以绕过它。 |
 | `hook:quality-gate-pre-commit` | enforced | 安全带（上述绕过方式类别） | 仅在配置了 `qualityGate.fast` 时存在（与 Claude 和 Codex 一样，否则没有对应行）；结果仅适用于当时的工作树。间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过；代理以外的 hook（例如用户自己的终端）无法被检测到。 |
 | `hook:role-guard` | n/a | — | 仅适用于 Codex：Claude 和 Pi 通过工具允许列表限制角色，而不是通过 hook（`HOOK_ENGINES`）。 |
-| `hook:routing-watch` | unsupported | — | 只有在桥接将 Pi 工具名称和载荷字段映射到脚本契约，并将其 `additionalContext` 作为附加结果区块写入后，才会变为 `advisory`（spec 0048 E1 M2/E3）；它永远不会阻止操作。 |
+| `hook:routing-watch` | advisory | — | 每个会话最多一条提示；永不阻止操作；出错的结果不会转发，因此失败的写入或被拒绝的 `navori_subagent` 既不算工作也不算委派；与 Claude 一样需要在仓库根目录启动 Pi，bash 通道只统计重定向/tee/sed -i 写入。 |
 | `hook:session-start-context` | advisory | — | 仅提供上下文，不是边界；发生任何错误时都会跳过注入。 |
 | `hook:stop-verify-reminder` | advisory | — | 不会阻止操作，也不会设置 `continue`，因此不会产生额外模型请求；每次代理运行最多提醒一次；失败时不显示任何内容。 |
 | `hook:subagent-no-background` | enforced | 安全带（上述绕过方式类别） | 仅对命令字符串实施文本策略，仅适用于子会话：父会话可以将工作放到后台。 |

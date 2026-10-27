@@ -634,7 +634,7 @@ son las que reportó npm ese día y no se re-verificaron aquí.
   rutas gestionadas; los cubre `managed-drift-watch` después del hecho.
 - Pasar los brazos existentes `>`/`sed -i`/`tee` de la regla 6 de `managed_dir` a `nv_owned_paths`: hoy
   bloquean por directorio y seguirán así; unificarlos es un cambio de comportamiento aparte.
-- `routing-watch` y `model-advisor` en Pi (siguen `unsupported` en `PI_PARITY`).
+- `model-advisor` en Pi (sigue `unsupported` en `PI_PARITY`). `routing-watch` pasó a `advisory` en Pi (feature pi-routing-watch), como anticipaba 0048 design.md:402-405.
 - Subagentes o permisos nativos en Pi; MCP en hijos (`--no-mcp`).
 - Umbrales de calidad (`CHANGES_REQUESTED`, `BLOCKED`, retrabajo): se registran, no se exigen.
 
