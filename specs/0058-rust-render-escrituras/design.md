@@ -264,6 +264,14 @@ backup y poda no dependan del reloj.
   que cumple R33 sin reproducir los mensajes de zod. Reproducirlos exigiría portar el formato de
   cada tipo de issue de zod 4 y mantenerlo en cada merge de `dev`. Rust solo decide "válida o no";
   la propiedad de R32 garantiza que esa decisión coincide con zod.
+- **Lectura del JSON (hallazgos de M3).** `js_json::parse` conserva el orden de inserción de
+  `JSON.parse`. Debe funcionar con y sin el feature `arbitrary_precision` de `serde_json`, que
+  `navori-hooks` activa y que, por unificación de features, rige en el binario `navori-rust`.
+  Además necesita `float_roundtrip` para redondear como JS. Lo que no modela (sustitutos solitarios,
+  `Infinity`, anidamiento > 128, `__proto__`) se re-delega.
+- **Advertencias duplicadas.** `render` llama a `readConfig` dos veces (instantánea del presupuesto en
+  `render.ts:1260` y `runRender`), así que el TS imprime cada advertencia de config dos veces. E3 lo
+  reproduce tal cual.
 - `writeConfig` (para `remove`) re-valida y preserva enums de compatibilidad futura
   (`preserveForwardCompatEnums`); se porta en E4 junto con su único consumidor.
 
