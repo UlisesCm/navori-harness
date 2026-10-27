@@ -9,9 +9,9 @@ Esta guía documenta únicamente el estado verificado. El contrato comprobado po
 ## Requisitos y configuración
 
 - Versión mínima de Pi compatible: **1.1.0**
-- Versión de Pi probada: **1.1.0**
+- Versión de Pi probada: **1.4.0**
 
-El mínimo está definido en `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). La versión probada es la dependencia de desarrollo `@earendil-works/pi-coding-agent` fijada en `packages/cli`. El mínimo también cubre la evidencia de aceptación, que lee `structuredContent.exit_code` del bash integrado de Pi, y las capacidades admitidas del entorno de ejecución hijo (consulta [Admisiones de tiempo de ejecución](#admisiones-de-tiempo-de-ejecución)), verificadas únicamente con la versión 1.1.0.
+El mínimo está definido en `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). La versión probada es la dependencia de desarrollo `@earendil-works/pi-coding-agent` fijada en `packages/cli`. El mínimo también cubre la evidencia de aceptación, que lee `structuredContent.exit_code` del bash integrado de Pi, y las capacidades admitidas del entorno de ejecución hijo (consulta [Admisiones de tiempo de ejecución](#admisiones-de-tiempo-de-ejecución)), verificadas únicamente con la versión 1.4.0. Pi 1.1–1.3 carga la extensión completa, pero `navori_subagent` rechaza los hijos con un mensaje de «actualiza Pi».
 
 Pi se considera **no verificado** si está por debajo del mínimo, es una versión preliminar (por ejemplo, `1.2.0-rc.1`) o reporta una versión que no se puede analizar. Un Pi no verificado carga la extensión únicamente en modo de bloqueo de escritura: se bloquean `bash`, `edit`, `write` y `powershell`; `read`, `grep`, `find` y `ls` siguen disponibles; la primera llamada bloqueada muestra un aviso por proceso, y `navori_subagent` no se registra. Las versiones estables superiores al mínimo siguen admitidas; todavía no hay un límite superior declarado, así que una incompatibilidad futura se resolverá publicando uno.
 
@@ -56,7 +56,7 @@ Pi también detecta de forma nativa las skills de proyecto de confianza en `.age
 
 ## Admisiones de tiempo de ejecución
 
-Cada fila corresponde a una capacidad del entorno de ejecución hijo de `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. Las capacidades `admitted` están verificadas en Pi 1.1.0; las capacidades `deferred` no están disponibles.
+Cada fila corresponde a una capacidad del entorno de ejecución hijo de `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. Las capacidades `admitted` están verificadas en Pi 1.4.0; las capacidades `deferred` no están disponibles.
 
 | Capacidad | Decisión | Límite |
 | --- | --- | --- |
@@ -474,7 +474,7 @@ El ciclo verificado, en orden:
 
 ## Resultado de e2e sin credenciales
 
-La automatización lo ejecutó con `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` en el entorno de ejecución Pi 1.1.0 fijado. La prueba ejecuta dentro del proceso el CLI compilado (render, workplan aprobado, `plan update`), el ciclo real del agente SDK de Pi y la tubería de herramientas, procesos Pi `pi` reales iniciados por la extensión renderizada, las herramientas bash y write integradas de Pi, git y el sistema de archivos. Cubre instalación, aprobación sin interfaz, rechazo, un flujo hijo de más de 256 KiB, dispatch de implementer/scribe/reviewer con el modelo del padre, registro de evidencia, el recibo, actualización y deshabilitación.
+La automatización lo ejecutó con `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` en el entorno de ejecución Pi 1.4.0 fijado. La prueba ejecuta dentro del proceso el CLI compilado (render, workplan aprobado, `plan update`), el ciclo real del agente SDK de Pi y la tubería de herramientas, procesos Pi `pi` reales iniciados por la extensión renderizada, las herramientas bash y write integradas de Pi, git y el sistema de archivos. Cubre instalación, aprobación sin interfaz, rechazo, un flujo hijo de más de 256 KiB, dispatch de implementer/scribe/reviewer con el modelo del padre, registro de evidencia, el recibo, actualización y deshabilitación.
 
 Límites, expresados claramente:
 
@@ -517,7 +517,7 @@ Navori no lee, copia, genera, actualiza ni registra el `auth.json` de Pi, y no u
 
 La prueba en vivo es la única evidencia de que el diálogo TUI se representa y de que el modelo cumple el contrato. La prueba e2e sin credenciales no demuestra ninguno de esos puntos. Ejecútala en un proyecto cuyos recursos Pi sean de confianza y registra cada paso en [evals.md](../specs/0048-pi-paridad/evals.md).
 
-1. Verifica `pi --version`; debe ser 1.1.0 o posterior.
+1. Verifica `pi --version`; debe ser 1.4.0 o posterior.
 2. Inicia Pi de forma interactiva y ejecuta `/login`; selecciona el inicio de sesión de suscripción ChatGPT Plus/Pro `openai-codex`. Navori no inspecciona archivos de credenciales.
 3. Ejecuta `/model` y selecciona el modelo que usarán los hijos.
 4. Ejecuta `navori render --apply`.

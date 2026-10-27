@@ -71,6 +71,7 @@ import {
   readAuditHeaderFromFd,
   matchesAuditHeaderIdentity,
 } from "../lib/audit/cli-event.ts";
+import { isCittyCamelAlias, restoreRepeatedFlags } from "../lib/primitives/args.ts";
 import { NavoriError } from "../lib/primitives/errors.ts";
 import { DEFAULT_LANG, resolveLang } from "../lib/i18n.ts";
 import { readCliVersion } from "../lib/render/bundled-assets.ts";
@@ -408,6 +409,8 @@ function readArm(file: string, cwd: string, root: string): Stats | null {
   return identity;
 }
 
+const CONSUME_ARM_KEYS: readonly string[] = ["consume-arm", "start", "host", "cwd", "root"];
+
 /** Serialize cooperating consumers with an exclusive private claim, fresh generation
  * validation and own-token cleanup before start. Crashes conservatively retain claims;
  * trusted-local-writer and ABA limits remain those of the existing private helpers. */
@@ -427,7 +430,8 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
     Object.keys(args).some(
       (key) =>
         key !== "_" &&
-        !["consume-arm", "start", "host", "cwd", "root"].includes(key) &&
+        !CONSUME_ARM_KEYS.includes(key) &&
+        !isCittyCamelAlias(key, CONSUME_ARM_KEYS) &&
         args[key] !== undefined,
     )
   )
@@ -562,7 +566,12 @@ const auditArgs = {
 function unknownArgsOrExit(args: Readonly<Record<string, unknown>>): void {
   const positionals = Array.isArray(args._) ? args._.map(String) : [];
   const unknown = Object.keys(args)
-    .filter((key) => key !== "_" && !Object.hasOwn(auditArgs, key))
+    .filter(
+      (key) =>
+        key !== "_" &&
+        !Object.hasOwn(auditArgs, key) &&
+        !isCittyCamelAlias(key, Object.keys(auditArgs)),
+    )
     .map((key) => `--${key}`)
     .concat(positionals);
   if (unknown.length === 0) return;
@@ -587,7 +596,8 @@ export const auditCommand = defineCommand({
     description: "Report harness tokens and adherence gaps",
   },
   args: auditArgs,
-  async run({ args }) {
+  async run(context) {
+    const args = restoreRepeatedFlags(context.args, context.rawArgs, auditArgs);
     unknownArgsOrExit(args);
     const byEngine = args["by-engine"] === true;
     const selected: unknown = args.session;

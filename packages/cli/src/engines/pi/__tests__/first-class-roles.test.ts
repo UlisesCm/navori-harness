@@ -8,6 +8,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
@@ -106,7 +107,7 @@ function load(
       ),
     },
     "@earendil-works/pi-coding-agent": {
-      VERSION: options.version ?? "1.1.0",
+      VERSION: options.version ?? PINNED_PI_VERSION,
       defineTool: (value: unknown) => value,
     },
   };

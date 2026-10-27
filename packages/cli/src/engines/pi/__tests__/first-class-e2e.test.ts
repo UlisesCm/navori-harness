@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -59,7 +60,7 @@ afterAll(() => {
 });
 
 /**
- * Credential-free first-class cycle on the pinned Pi 1.1.0 runtime.
+ * Credential-free first-class cycle on the pinned Pi runtime.
  *
  * Real: this checkout's compiled CLI (render/plan), the real Pi SDK agent loop and tool pipeline for the parent
  * session (in process), real `pi` child processes spawned by the rendered extension, Pi's built-in bash/write
@@ -436,7 +437,7 @@ describe("Pi credential-free first-class cycle", () => {
     // ---- 1. Pinned runtime + install with this checkout's CLI (R15, R16) -------------------------------
     await phase("pinned runtime", diagnostic, () => {
       const pkg: unknown = JSON.parse(readFileSync(join(PI_PACKAGE, "package.json"), "utf8"));
-      expect(pkg).toMatchObject({ version: "1.1.0" });
+      expect(pkg).toMatchObject({ version: PINNED_PI_VERSION });
     });
     const config = NavoriConfigSchema.parse({
       name: "pi-e2e",

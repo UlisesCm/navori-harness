@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { PI_TRUST_SOURCE } from "../trust-source.ts";
 import { serializePiAgent, serializePiManifest } from "../owned-file.ts";
@@ -115,7 +116,10 @@ function processStub(): StubProcess {
   });
 }
 
-function loadRuntime(env: Record<string, string> = {}): {
+function loadRuntime(
+  env: Record<string, string> = {},
+  version: string = PINNED_PI_VERSION,
+): {
   tool?: Tool;
   handlers: Map<string, EventHandler>;
   launches: Launch[];
@@ -155,7 +159,7 @@ function loadRuntime(env: Record<string, string> = {}): {
       if (id === "node:path") return nodePath;
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
-        return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };
+        return { VERSION: version, defineTool: (value: unknown): unknown => value };
       throw new Error(`Unexpected import: ${id}`);
     },
     process: {
@@ -552,6 +556,34 @@ describe("Pi control mappings", () => {
       block: true,
       reason: expect.stringContaining("implementer-no-markdown"),
     });
+  });
+
+  // Covers: R4
+  it("injects master-plan context on custom-message runs", async () => {
+    const cwd = fixture({ masterPlan: true });
+    const before = loadRuntime().handlers.get("before_agent_start")!;
+    // Pi 1.2+ fires before_agent_start for sendMessage triggerTurn runs: a `custom` event has no prompt.
+    const event = {
+      messageType: "custom",
+      message: { role: "custom", customType: "x" },
+      systemPromptOptions: { sections: { keep: "x" } },
+    };
+    expect(await before(event, { cwd })).toBeUndefined();
+    expect(event.systemPromptOptions.sections).toEqual({
+      keep: "x",
+      "navori-master-plan": "Plan maestro — etapa activa",
+    });
+  });
+
+  // Covers: R4
+  it("refuses navori_subagent children on Pi 1.3.0 with the upgrade message", async () => {
+    const cwd = fixture();
+    const runtime = loadRuntime({}, "1.3.0");
+    expect(runtime.tool).toBeDefined();
+    await expect(invoke(runtime.tool!, cwd, "scout")).rejects.toThrow(
+      /Pi 1\.3\.0 is not verified for Navori children: .*verified from Pi 1\.4\.0.*; upgrade Pi/,
+    );
+    expect(runtime.launches).toEqual([]);
   });
 
   // Covers: R49

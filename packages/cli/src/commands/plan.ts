@@ -43,6 +43,11 @@ import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/
 import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { parseExpected } from "../lib/plan/expected.ts";
+import {
+  isCittyCamelAlias,
+  reparseBareValueFlags,
+  restoreRepeatedFlags,
+} from "../lib/primitives/args.ts";
 import { resumePlans } from "../lib/plan/resume.ts";
 
 function splitList(value: string | undefined): string[] {
@@ -262,7 +267,7 @@ function rejectCumplido(
 const shared = {
   feature: {
     type: "positional" as const,
-    required: true,
+    required: true as const,
     description: "Feature slug",
   },
   dir: { type: "string" as const, description: "Progress directory" },
@@ -270,53 +275,56 @@ const shared = {
   json: { type: "boolean" as const, description: "Output as JSON" },
 };
 
+const classifyArgs = {
+  ...shared,
+  files: {
+    type: "string",
+    description: "Comma-separated repo-relative paths touched by the task",
+  },
+  diff: {
+    type: "string",
+    description:
+      "Classify the work tree's changes (committed, uncommitted and untracked) against the feature's workplan " +
+      "instead of --files; value is the base ref (default origin/<prTarget>)",
+  },
+  criticalArea: {
+    type: "boolean",
+    description: "Declared: touches a critical area",
+  },
+  moneyCredentialsPii: {
+    type: "boolean",
+    description: "Declared: handles money, credentials or PII",
+  },
+  multiRepo: {
+    type: "boolean",
+    description: "Declared: spans two or more repos",
+  },
+  newExternalDependency: {
+    type: "boolean",
+    description: "Declared: adds a new external dependency",
+  },
+  sharedContract: {
+    type: "boolean",
+    description: "Declared: changes a shared contract",
+  },
+  dataSchemaMigration: {
+    type: "boolean",
+    description: "Declared: includes a data or schema migration",
+  },
+  bugWithoutRootCause: {
+    type: "boolean",
+    description: "Declared: bug worked without a confirmed root cause",
+  },
+} as const;
+
 const classifySubCommand = defineCommand({
   meta: {
     name: "classify",
     description: "Compute a task's complexity score and level",
   },
-  args: {
-    ...shared,
-    files: {
-      type: "string",
-      description: "Comma-separated repo-relative paths touched by the task",
-    },
-    diff: {
-      type: "string",
-      description:
-        "Classify the work tree's changes (committed, uncommitted and untracked) against the feature's workplan " +
-        "instead of --files; value is the base ref (default origin/<prTarget>)",
-    },
-    criticalArea: {
-      type: "boolean",
-      description: "Declared: touches a critical area",
-    },
-    moneyCredentialsPii: {
-      type: "boolean",
-      description: "Declared: handles money, credentials or PII",
-    },
-    multiRepo: {
-      type: "boolean",
-      description: "Declared: spans two or more repos",
-    },
-    newExternalDependency: {
-      type: "boolean",
-      description: "Declared: adds a new external dependency",
-    },
-    sharedContract: {
-      type: "boolean",
-      description: "Declared: changes a shared contract",
-    },
-    dataSchemaMigration: {
-      type: "boolean",
-      description: "Declared: includes a data or schema migration",
-    },
-    bugWithoutRootCause: {
-      type: "boolean",
-      description: "Declared: bug worked without a confirmed root cause",
-    },
-  },
-  run({ args }) {
+  args: classifyArgs,
+  run(context) {
+    const args = reparseBareValueFlags(context.args, context.rawArgs, classifyArgs, ["diff"]);
     const root = resolveStateRoot({
       cwd: args.cwd ?? process.cwd(),
       feature: args.feature,
@@ -521,24 +529,27 @@ const renderSubCommand = defineCommand({
   },
 });
 
+const updateArgs = {
+  ...shared,
+  progress: {
+    type: "string",
+    description: "A<n>=status (pendiente|cumplido|bloqueado)",
+  },
+  decision: { type: "string", description: "Decision text to append" },
+  date: {
+    type: "string",
+    description: "Decision date (ISO), required with --decision",
+  },
+} as const;
+
 const updateSubCommand = defineCommand({
   meta: {
     name: "update",
     description: "Change an A<n>'s progress or append a decision, then re-render",
   },
-  args: {
-    ...shared,
-    progress: {
-      type: "string",
-      description: "A<n>=status (pendiente|cumplido|bloqueado)",
-    },
-    decision: { type: "string", description: "Decision text to append" },
-    date: {
-      type: "string",
-      description: "Decision date (ISO), required with --decision",
-    },
-  },
-  run({ args }) {
+  args: updateArgs,
+  run(context) {
+    const args = restoreRepeatedFlags(context.args, context.rawArgs, updateArgs);
     const root = resolveStateRoot({
       cwd: args.cwd ?? process.cwd(),
       feature: args.feature,
@@ -765,37 +776,40 @@ const gateSubCommand = defineCommand({
   },
 });
 
+const acknowledgeArgs = {
+  feature: shared.feature,
+  cwd: shared.cwd,
+  json: shared.json,
+  opening: {
+    type: "string",
+    required: true as const,
+    description: "Exact normal dispatch opening",
+  },
+  decision: {
+    type: "string",
+    description: "Explicit user workflow escalation decision retained by the orchestrator",
+  },
+  inspect: {
+    type: "boolean",
+    description: "Read-only terminal grant and current snapshot inspection",
+  },
+  "continue-after": { type: "string", description: "Explicit consumed predecessor reference" },
+  "authorization-id": {
+    type: "string",
+    description: "Operator-assigned intent/idempotency identifier, not authentication",
+  },
+  snapshot: { type: "string", description: "Expected current snapshot SHA-256" },
+} as const;
+
 const acknowledgeSubCommand = defineCommand({
   meta: {
     name: "acknowledge",
     description:
       "Record one bound user workflow escalation decision; does not approve review or protected effects",
   },
-  args: {
-    feature: shared.feature,
-    cwd: shared.cwd,
-    json: shared.json,
-    opening: {
-      type: "string",
-      required: true,
-      description: "Exact normal dispatch opening",
-    },
-    decision: {
-      type: "string",
-      description: "Explicit user workflow escalation decision retained by the orchestrator",
-    },
-    inspect: {
-      type: "boolean",
-      description: "Read-only terminal grant and current snapshot inspection",
-    },
-    "continue-after": { type: "string", description: "Explicit consumed predecessor reference" },
-    "authorization-id": {
-      type: "string",
-      description: "Operator-assigned intent/idempotency identifier, not authentication",
-    },
-    snapshot: { type: "string", description: "Expected current snapshot SHA-256" },
-  },
-  run({ args }) {
+  args: acknowledgeArgs,
+  run(context) {
+    const args = restoreRepeatedFlags(context.args, context.rawArgs, acknowledgeArgs);
     try {
       const strings = new Set([
         "feature",
@@ -811,6 +825,8 @@ const acknowledgeSubCommand = defineCommand({
         if (key === "_") {
           if (!Array.isArray(value) || value.length !== 1)
             throw new Error("exactly one feature required");
+        } else if (isCittyCamelAlias(key, [...strings, ...booleans])) {
+          continue;
         } else if (
           value !== undefined &&
           !(strings.has(key)

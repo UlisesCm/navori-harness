@@ -9,9 +9,9 @@ Pi 是 Navori 的可选引擎。它会为 Pi 渲染由 Navori 管理的项目资
 ## 要求与设置
 
 - 最低支持的 Pi 版本：**1.1.0**
-- 已测试的 Pi 版本：**1.1.0**
+- 已测试的 Pi 版本：**1.4.0**
 
-最低版本由 `MIN_PI_VERSION`（`packages/cli/src/engines/pi/runtime-version.ts`）定义。已测试版本是 `packages/cli` 中固定版本的开发依赖 `@earendil-works/pi-coding-agent`。最低版本也适用于验收证据：该证据读取 Pi 内置 bash 的 `structuredContent.exit_code`；它还适用于获准的子进程运行时能力（见[运行时准入项](#运行时准入项)），这些能力仅在 1.1.0 上验证过。
+最低版本由 `MIN_PI_VERSION`（`packages/cli/src/engines/pi/runtime-version.ts`）定义。已测试版本是 `packages/cli` 中固定版本的开发依赖 `@earendil-works/pi-coding-agent`。最低版本也适用于验收证据：该证据读取 Pi 内置 bash 的 `structuredContent.exit_code`；它还适用于获准的子进程运行时能力（见[运行时准入项](#运行时准入项)），这些能力仅在 1.4.0 上验证过。Pi 1.1–1.3 会加载完整扩展，但 `navori_subagent` 会拒绝子进程，并提示“请升级 Pi”。
 
 以下情况会将 Pi 视为**未经验证**：版本低于最低版本、属于预发布版本（例如 `1.2.0-rc.1`），或报告的版本无法解析。未经验证的 Pi 只会以写入阻止模式加载扩展：`bash`、`edit`、`write` 和 `powershell` 会被阻止；`read`、`grep`、`find` 和 `ls` 保持可用；每个进程首次遇到被阻止的调用时会显示一条提示；并且不会注册 `navori_subagent`。高于最低版本的稳定版仍获准使用；目前没有声明最高版本，因此若后续版本出现不兼容，会通过发布新版本处理。
 
@@ -56,7 +56,7 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 
 ## 运行时准入项
 
-每一行对应 `ENGINE_CAPABILITIES.pi.runtimeAdmissions` 中的一项子进程运行时能力。`admitted` 表示已在 Pi 1.1.0 上验证；`deferred` 表示当前不可用。
+每一行对应 `ENGINE_CAPABILITIES.pi.runtimeAdmissions` 中的一项子进程运行时能力。`admitted` 表示已在 Pi 1.4.0 上验证；`deferred` 表示当前不可用。
 
 | 能力 | 决定 | 边界 |
 | --- | --- | --- |
@@ -480,7 +480,7 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 
 ## 无凭据端到端测试结果
 
-自动化通过以下命令在固定版本的 Pi 1.1.0 运行时上执行测试：`bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`。测试在进程内运行已编译的 CLI（render、已批准的计划、`plan update`）、真实 Pi SDK 代理循环和工具流水线、渲染扩展派生的真实 `pi` 子进程、Pi 内置 bash 和 write 工具、git 以及文件系统。测试涵盖安装、无 UI 时的批准、拒绝、大于 256 KiB 的子进程流、使用父进程所选模型派发 implementer/scribe/reviewer、证据记录、回执、升级和禁用。
+自动化通过以下命令在固定版本的 Pi 1.4.0 运行时上执行测试：`bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`。测试在进程内运行已编译的 CLI（render、已批准的计划、`plan update`）、真实 Pi SDK 代理循环和工具流水线、渲染扩展派生的真实 `pi` 子进程、Pi 内置 bash 和 write 工具、git 以及文件系统。测试涵盖安装、无 UI 时的批准、拒绝、大于 256 KiB 的子进程流、使用父进程所选模型派发 implementer/scribe/reviewer、证据记录、回执、升级和禁用。
 
 明确列出的限制：
 
@@ -523,7 +523,7 @@ Navori 不会读取、复制、生成、刷新或记录 Pi 的 `auth.json`，也
 
 实时冒烟测试是唯一能够证明 TUI 对话框确实渲染、且模型遵守契约的证据。无凭据端到端测试无法证明这两点。请在 Pi 资源受信任的项目中执行，并在 [evals.md](../specs/0048-pi-paridad/evals.md) 中记录每一步。
 
-1. 检查 `pi --version`；版本必须为 1.1.0 或更高。
+1. 检查 `pi --version`；版本必须为 1.4.0 或更高。
 2. 以交互模式启动 Pi，运行 `/login` 并选择 `openai-codex` ChatGPT Plus/Pro 订阅登录方式。Navori 不会检查凭据文件。
 3. 运行 `/model`，选择子进程将使用的模型。
 4. 运行 `navori render --apply`。

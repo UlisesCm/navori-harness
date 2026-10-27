@@ -15,6 +15,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { renderPiEngine } from "../index.ts";
@@ -685,7 +686,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
         "node:path": { join },
         "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
         "@earendil-works/pi-coding-agent": {
-          VERSION: "1.1.0",
+          VERSION: PINNED_PI_VERSION,
           defineTool: (value: unknown) => value,
         },
       };
