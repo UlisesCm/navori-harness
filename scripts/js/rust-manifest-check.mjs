@@ -86,8 +86,8 @@ export function implementationHash(root, id) {
   return `sha256:${hash.digest("hex")}`;
 }
 
-/** Resolve blocks/deps from declared core/plugin assets; never hash rendered mirrors. */
-export function checkHashes(root, manifest) {
+/** Source asset of every block id and sibling-script dependency; never a rendered mirror. */
+export function assetSources(root) {
   const blocks = new Map();
   const deps = new Map();
   const register = (map, id, path) => {
@@ -112,6 +112,12 @@ export function checkHashes(root, manifest) {
     for (const script of plugin.scripts ?? [])
       register(deps, `scripts/${script.dest}`, join(dir, script.src));
   }
+  return { blocks, deps };
+}
+
+/** Resolve blocks/deps from declared core/plugin assets; never hash rendered mirrors. */
+export function checkHashes(root, manifest) {
+  const { blocks, deps } = assetSources(root);
   for (const [id, hook] of Object.entries(manifest.hooks)) {
     if (Object.keys(hook.blocks).length === 0) throw new Error(`${id}: blocks must not be empty`);
     for (const [kind, entries, sources] of [

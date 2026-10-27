@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { runHookBatch, runHookIsolated } from "./helpers/hook-batch.ts";
@@ -75,6 +76,7 @@ interface Replay {
     };
   }) => Promise<{ ok: boolean; cases: number; failure?: string }>;
   withActiveSession: (input: string) => string;
+  signedAssets: () => Promise<string>;
   createScratch: () => { cleanup: () => void };
   runMode: (
     cases: Case[],
@@ -187,6 +189,43 @@ function nativeFixture(dir: string, source: string): string {
 }
 
 describe("native hook replay transport", () => {
+  // Covers: R11
+  it("without a hooks dir, signs the expanded assets the corpus recorded, with their deps", async () => {
+    const repo = resolve(here, "..", "..", "..", "..");
+    const manifest = JSON.parse(readFileSync(join(repo, "crates", "ported.json"), "utf8")) as {
+      hooks: Record<string, { impl: string; deps?: Record<string, string> }>;
+    };
+    const dir = await replay.signedAssets();
+    try {
+      expect(Object.keys(manifest.hooks)).toContain("guard-destructive");
+      for (const [id, hook] of Object.entries(manifest.hooks)) {
+        const asset = expandHookIncludes(
+          readFileSync(join(repo, "packages/core/core-assets/hooks", `${id}.sh`), "utf8"),
+        );
+        for (const engine of [".claude", ".codex", ".pi/navori"]) {
+          const signed = readFileSync(join(dir, engine, "hooks", `${id}.sh`), "utf8");
+          const header = /^# navori:native-hook v=1 file=sha256:([a-f0-9]{64}) impl=(\S+)\n/.exec(
+            signed,
+          );
+          expect(header?.[2]).toBe(hook.impl);
+          expect(signed.slice(header?.[0].length)).toBe(asset);
+          const digest = createHash("sha256").update(
+            signed.replace(/file=sha256:[a-f0-9]{64}/, `file=sha256:${"0".repeat(64)}`),
+          );
+          for (const [name, pinned] of Object.entries(hook.deps ?? {}).sort()) {
+            const bytes = readFileSync(join(dir, engine, name));
+            // The dependency is the source asset the manifest pins, not a rendered copy.
+            expect(`sha256:${createHash("sha256").update(bytes).digest("hex")}`).toBe(pinned);
+            digest.update(bytes);
+          }
+          expect(header?.[1]).toBe(digest.digest("hex"));
+        }
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // Covers: R11
   it("selects the same 232 corpus cases for a bare hook id and its .sh filename", () => {
     const short = replay.parseReplayArgs([
