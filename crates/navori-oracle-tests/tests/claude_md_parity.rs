@@ -19,7 +19,7 @@ use navori_core::render::claude_md::{RepoView, plan_claude_md};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use serde_json::{Value, json};
-use support::{Shared, cli_module};
+use support::{Shared, cli_module, first_difference};
 
 fn prelude() -> String {
     format!(
@@ -372,46 +372,6 @@ fn edit_claude_md(text: &mut String, recipe: &Recipe) {
         }
         _ => {}
     }
-}
-
-/// Where two replies first differ: the key path and a window of each side.
-fn first_difference(ts: &Value, rust: &Value) -> String {
-    fn walk(path: &str, a: &Value, b: &Value) -> Option<String> {
-        match (a, b) {
-            (Value::Object(x), Value::Object(y)) => {
-                let keys: std::collections::BTreeSet<&String> = x.keys().chain(y.keys()).collect();
-                keys.into_iter().find_map(|k| {
-                    walk(
-                        &format!("{path}.{k}"),
-                        x.get(k).unwrap_or(&Value::Null),
-                        y.get(k).unwrap_or(&Value::Null),
-                    )
-                })
-            }
-            (Value::Array(x), Value::Array(y)) if x.len() == y.len() => x
-                .iter()
-                .zip(y)
-                .enumerate()
-                .find_map(|(i, (p, q))| walk(&format!("{path}[{i}]"), p, q)),
-            (Value::String(x), Value::String(y)) if x != y => {
-                let at = x.chars().zip(y.chars()).take_while(|(p, q)| p == q).count();
-                let window = |s: &str| {
-                    s.chars()
-                        .skip(at.saturating_sub(80))
-                        .take(240)
-                        .collect::<String>()
-                };
-                Some(format!(
-                    "{path} at char {at}:\n  ts   {:?}\n  rust {:?}",
-                    window(x),
-                    window(y)
-                ))
-            }
-            _ if a != b => Some(format!("{path}:\n  ts   {a}\n  rust {b}")),
-            _ => None,
-        }
-    }
-    walk("$", ts, rust).unwrap_or_default()
 }
 
 fn updates(list: &[UpdateAvailable]) -> Value {

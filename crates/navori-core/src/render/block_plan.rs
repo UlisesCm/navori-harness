@@ -186,7 +186,7 @@ fn text(value: Option<&JsValue>) -> Option<String> {
 }
 
 /// JS `Boolean(value)`.
-fn truthy(value: &JsValue) -> bool {
+pub(crate) fn truthy(value: &JsValue) -> bool {
     match value {
         JsValue::Undefined | JsValue::Null => false,
         JsValue::Bool(flag) => *flag,
@@ -197,7 +197,7 @@ fn truthy(value: &JsValue) -> bool {
 }
 
 /// `resolveCondition` (`marker.ts`): walks a dotted path; anything but an object stops at false.
-fn resolve_condition(config: &JsValue, path: &str) -> bool {
+pub(crate) fn resolve_condition(config: &JsValue, path: &str) -> bool {
     let mut cursor = config.clone();
     for segment in path.split('.') {
         cursor = match &cursor {
