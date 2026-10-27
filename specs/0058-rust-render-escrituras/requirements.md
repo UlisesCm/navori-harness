@@ -23,7 +23,7 @@ entregas dependen de eso según el orden de `tasks.md`.
 **Numeración.** Los `R<n>` siguen la numeración del programa. R14 es un requisito del programa que
 0057 no declaró. Esta spec lo redeclara con el texto reconstruido a partir de la tabla de fases y
 de las observaciones de `design.md` de 0057; el texto original no está en el historial de git (ver
-`design.md` § "Preguntas abiertas", Q9). Los requisitos nuevos empiezan en R27. R18–R22 y R24 se
+`design.md` § "Decisiones del usuario", Q9: redacción aceptada). Los requisitos nuevos empiezan en R27. R18–R22 y R24 se
 quedan en el programa: los redeclara la fase 4 (0060). R19 lo redeclara la fase 3 (0059).
 
 ## Requirements (EARS)

@@ -1,6 +1,7 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Design
 
-**Estado:** borrador para revisión del usuario · **Fecha:** 2026-10-23 · **Base verificada:**
+**Estado:** aceptado; decisiones Q2–Q12 resueltas por el usuario (§ "Decisiones del usuario") ·
+**Fecha:** 2026-10-23 · **Base verificada:**
 `origin/migration/rust` = `73fa052f` (merge de #1393). Toda afirmación "ya existe" o "falta" se
 leyó en ese commit; las referencias `archivo:línea` apuntan a él. Cada entrega abre su propio PR
 contra `migration/rust`.
@@ -8,8 +9,8 @@ contra `migration/rust`.
 **Alcance del documento:** fase 2 del programa (`specs/0057-migracion-rust/requirements.md` §
 "Fases del programa"). Se reutilizan sin cambios las decisiones D1–D17 de
 `specs/0057-migracion-rust/design.md`; las decisiones nuevas siguen la numeración (D18 en
-adelante), igual que los modos de falla (F18 en adelante) y las preguntas abiertas (Q2 en
-adelante; Q1 es de 0057). Corresponde a las entregas E4, E5 y E5 M3 del "Plan de entregas" de 0057,
+adelante), igual que los modos de falla (F18 en adelante) y las preguntas (Q2 en adelante; Q1 es
+de 0057). Corresponde a las entregas E4, E5 y E5 M3 del "Plan de entregas" de 0057,
 reordenadas como se explica en § "Plan de entregas".
 
 **Señal arquitectónica:** primer código Rust que escribe y borra en el repo del usuario; markers
@@ -38,7 +39,7 @@ libre de Rust, mínima superficie de conflicto, invariantes 1–10), más tres p
   historial `crates/ported-history.jsonl` está vacío.
   - `Manifest::select` (`crates/navori-core/src/manifest.rs:139-143`) admite una invocación si su
     ruta empieza con la de la entrada y **sus** flags están contenidas en la lista. Una invocación
-    sin flags siempre cabe: no hay forma de declarar "solo con `--apply`" (ver D25 y Q5).
+    sin flags siempre cabe: no hay forma de declarar "solo con `--apply`" (ver D25).
   - `validate` rechaza rutas duplicadas (`manifest.rs:155-156`), así que tampoco caben dos entradas
     `render` con flags distintas.
   - `When` solo tiene `engines` (`manifest.rs:37-41`).
@@ -89,7 +90,7 @@ libre de Rust, mínima superficie de conflicto, invariantes 1–10), más tres p
   `isDowngrade` (54-59) trata lo que no se puede parsear como "no es retroceso".
 - **Escritura atómica** — `lib/primitives/atomic.ts:22-46`. Abre el temporal con `openSync(tmp,
   "w", 0o644)` (29), es decir `O_CREAT|O_TRUNC` **sin** `O_EXCL`; D15 de 0057 dice `create_new`
-  (ver Q7). Los mensajes de `friendlyFsError` (48-71) son contrato de salida.
+  (resuelto por Q7: manda el TS). Los mensajes de `friendlyFsError` (48-71) son contrato de salida.
 - **Backup** — `lib/render/backup.ts`:
   - el nombre usa hora local (`timestamp`, 39-47), más `-p<pid>` y una secuencia por proceso (61,
     97);
@@ -172,7 +173,8 @@ seguido de un **commit**. Preview = plan sin commit, y eso hace R40 verificable 
   `adopt`, `sync` y `remove`, cada uno con su fila en la tabla del parser (D2 de 0057).
 - **`crates/navori-hooks/src/hooks/guard_destructive/`:** viene de 0057 E3; esta fase solo cambia
   su `mode` (D18).
-- **`crates/ported.json`:** entradas nuevas y, según Q5, un campo de flags requeridas (D25).
+- **`crates/ported.json`:** entradas nuevas, `schema: 2` y el campo de flags requeridas `requires`
+  (D25).
 - **`scripts/js/rust-manifest-check.mjs`:** transiciones de modo (D18).
 - **`scripts/js/rust-oracle.mjs`, `rust-oracle/fixtures/` y `cases.json`:** fixtures de escritura
   con mtimes, generador de la matriz anti-rollback y test de cobertura por fixture (D26).
@@ -197,12 +199,13 @@ seguido de un **commit**. Preview = plan sin commit, y eso hace R40 verificable 
   reporte. Si 0057 cierra E3 sin ellos, el T3 de esta fase los completa. No se escribe un segundo
   reporte paralelo.
 - **Corpus Codex.** Seis casos no cubren las clases de veredicto (R29, T6 de 0057). E1 amplía el
-  corpus Codex antes de medir. Ver Q3 para el volumen de sombra en Codex.
+  corpus Codex antes de medir. Si Codex tarda en llegar a 500 invocaciones, se espera (Q3): no hay
+  modo por engine ni umbral distinto.
 - **Transiciones en el job `manifest` (R27, R31):**
   - `shadow` → `active` exige el hook en `shadow` en la merge-base y una línea nueva
     `{"op":"activate","id":…}`;
-  - `active` → `shadow` exige un evento propio (Q10 decide si es `op: "deactivate"` o reutilizar
-    `unport` + `port`);
+  - `active` → `shadow` exige una línea nueva `{"op":"deactivate",…}` (Q10). `deactivate` no
+    cuenta como despoteo: no dispara el aviso de 14 días ni bloquea `cutover:check` por sí solo;
   - `active` sin pasar por `shadow` falla.
 - **Reversión.** `NAVORI_HOOK_IMPL=shell` sigue siendo la salida de emergencia inmediata (D7 de
   0057). La reversión durable es un PR que vuelve a `shadow` y re-renderiza (el fragmento cambia por
@@ -257,16 +260,16 @@ backup y poda no dependan del reloj.
 - **Aceptación (R32):** propiedades con documentos generados. El proceso Node persistente devuelve
   `NavoriConfigSchema.safeParse` normalizado y Rust debe coincidir en aceptar o rechazar y en el
   valor efectivo serializado con `js_json`.
-- **Config inválida o ausente (R33):** la recomendación es **re-delegar** al TS antes de cualquier
-  salida, lo que cumple R33 sin reproducir los mensajes de zod. Reproducirlos exige portar el
-  formato de cada tipo de issue de zod 4 y mantenerlo en cada merge de `dev`. Decide el usuario
-  (Q4).
+- **Config inválida o ausente (R33):** se **re-delega** al TS antes de cualquier salida (Q4), lo
+  que cumple R33 sin reproducir los mensajes de zod. Reproducirlos exigiría portar el formato de
+  cada tipo de issue de zod 4 y mantenerlo en cada merge de `dev`. Rust solo decide "válida o no";
+  la propiedad de R32 garantiza que esa decisión coincide con zod.
 - `writeConfig` (para `remove`) re-valida y preserva enums de compatibilidad futura
   (`preserveForwardCompatEnums`); se porta en E4 junto con su único consumidor.
 
 ### D23 — `render` Claude en preview (R39–R42)
 
-- **Subconjunto nativo propuesto** (Q8):
+- **Subconjunto nativo** (Q8: el mínimo):
   - config: `engines` = `["claude"]` (o ausente), sin `monorepo.workspaces` habilitados;
   - flags: `cwd`, `dry-run` y `json` en E3; `apply` y `force` en E4.
   - Se re-delega con `--all`, `--prune`, `--workspace` o `--verbose`, con otro engine, con
@@ -288,8 +291,12 @@ backup y poda no dependan del reloj.
   no-TTY de clack (`p.intro`, `p.log.*`, `p.outro`) se reproduce byte a byte (D16 de 0057);
   `NO_COLOR` y la ausencia de TTY son las del oráculo.
 - **Línea de procedencia.** El TS imprime la raíz de `core-assets` que leyó. Rust lee assets
-  embebidos y no tiene esa ruta. Se recomienda una máscara literal de lado, igual que la de versión
-  (D5 de 0057), solo para esa línea. Decide el usuario (Q11).
+  embebidos y no tiene esa ruta. El oráculo aplica una máscara literal de lado, igual que la de
+  versión (D5 de 0057), solo para esa línea (Q11). Rust imprime `core: (embedded)` con el mismo
+  formato de `p.log.message`; nunca una ruta que no leyó.
+- **Tamaño (Q12).** Se acepta el tamaño de E3 sin recortar el subconjunto: presets locales y
+  plugins con `hookExtensions` entran, para que `self-hosted` sea nativo. M5 se parte en un commit
+  por mecanismo (assets/plugins, interpolación/frontmatter, includes/wiring, settings, i18n).
 
 ### D24 — Capa `Fs`, backup y poda (R14, R40, R43–R46)
 
@@ -298,9 +305,10 @@ backup y poda no dependan del reloj.
     `mkdir_all`, `copy`, `set_mtime` y `read_dir`;
   - `RealFs` y `RecordingFs`, que anota sin tocar disco;
   - la feature `fault-injection` solo en tests.
-- **Escritura atómica (R43).** El nombre del temporal, el modo y el orden son los de `atomic.ts`. El
-  flag de apertura (`O_TRUNC` como el TS o `O_EXCL` como pide D15) lo decide el usuario (Q7). Los
-  mensajes de error se portan de `friendlyFsError`.
+- **Escritura atómica (R43).** El nombre del temporal, el modo, el orden y el flag de apertura son
+  los de `atomic.ts`: `O_CREAT|O_TRUNC|O_WRONLY`, sin `O_EXCL` (Q7). El texto de D15 de 0057 se
+  enmienda en consecuencia; una mejora a `wx` iría primero a `dev`. Los mensajes de error se portan
+  de `friendlyFsError`.
 - **Commit (R44, R46).** Se porta `commitWrites`:
   - backup proporcional (solo los pendientes existentes y las remociones);
   - exclusión de `EPHEMERAL_HARNESS_PATHS`;
@@ -323,15 +331,15 @@ backup y poda no dependan del reloj.
 - **Problema.** `select` acepta una invocación sin flags en cualquier entrada de la misma ruta
   (`manifest.rs:139-143`). Si `sync` entra con `["apply", …]`, `navori sync` a secas también sería
   nativo y llegaría al `p.select` de `sync.ts:384`.
-- **Propuesta** (Q5): un campo opcional `requires: string[][]` (alternativas de flags; al menos una
+- **Decisión** (Q5): un campo opcional `requires: string[][]` (alternativas de flags; al menos una
   debe estar presente) y permitir varias entradas por ruta cuando difieran en `requires`. Ejemplos:
   - `sync` requiere `[["apply"], ["yes"], ["accept-new", "apply"], …]`;
   - `remove` requiere `[["yes"]]`.
 
   Cambia el esquema, así que `schema` pasa a `2`, con validador en Rust (`manifest.rs`) y en TS
   (`rust-manifest-check.mjs`).
-- **Alternativa:** que el código nativo re-delegue al detectar que preguntaría, antes de cualquier
-  salida. No cambia el esquema, pero saca del manifiesto la regla de qué es nativo (R7).
+- **Descartado:** que el código nativo re-delegue al detectar que preguntaría. No cambia el
+  esquema, pero saca del manifiesto la regla de qué es nativo (R7).
 
 ### D26 — Oráculo de escrituras (R14, R37, R49)
 
@@ -350,7 +358,8 @@ backup y poda no dependan del reloj.
 - **Cobertura (R49).** Un test de `rust-oracle.test.ts` recorre los `commands` del manifiesto y
   falla si a uno que escribe le falta caso en algún fixture aplicable o en alguna celda de la
   matriz.
-- **Máscaras.** Ninguna nueva salvo la de Q11. Los nombres de backup ya tienen `@BACKUP@`.
+- **Máscaras.** Ninguna nueva salvo la de procedencia (D23, Q11). Los nombres de backup ya tienen
+  `@BACKUP@`.
 
 ### D27 — Efectos fuera del repo (R40, R47)
 
@@ -359,17 +368,17 @@ backup y poda no dependan del reloj.
 - **`harnessVersion` (R47).** Se registra después del commit, solo si hubo una escritura real
   (contador equivalente a `noteRealWrite`), con la regla de forma canónica de `config.ts:537`.
 - **Aviso de actualización.** El TS lo lanza en cada comando (`index.ts:24`) y el oráculo lo apaga.
-  Opciones (Q6): portarlo (worker, red y caché `~/.navori/update-notice`) o omitirlo en los
-  comandos nativos durante la convivencia y documentarlo. Se recomienda omitirlo hasta 0060: hoy
-  `navori-rust` no se publica y la versión que anunciaría sería la del TS.
+  Los comandos nativos lo **omiten** durante la convivencia (Q6): `navori-rust` no se publica y la
+  versión que anunciaría sería la del TS. Queda documentado en CONTRIBUTING de la rama y lo retoma
+  0060.
 
 ## Contracts
 
-- **`crates/ported.json`.** Entradas nuevas `render`, `adopt`, `sync` y `remove`. Según Q5,
-  `schema: 2` con `requires?: string[][]` y varias entradas por ruta. `hooks.guard-destructive.mode`
+- **`crates/ported.json`.** Entradas nuevas `render`, `adopt`, `sync` y `remove`. `schema: 2` con
+  `requires?: string[][]` y varias entradas por ruta (Q5). `hooks.guard-destructive.mode`
   = `active`.
-- **`crates/ported-history.jsonl`.** Una línea `activate` para `guard-destructive` y, según Q10, un
-  nuevo `op: "deactivate"`.
+- **`crates/ported-history.jsonl`.** Una línea `activate` para `guard-destructive` y el nuevo
+  `op: "deactivate"` (Q10).
 - **Sin cambios:** el formato y el hash de los markers, `$navori.version`, `harnessVersion`, el
   formato de `navori.config.json`, el nombre de los backups, el comando registrado de Codex y el
   puente de Pi.
@@ -380,12 +389,12 @@ backup y poda no dependan del reloj.
 | # | Falla | Contención |
 |---|---|---|
 | F18 | Rust sella `0.13.0-rust.<n>` y el TS ve cada bloque como "más nuevo" | Versión de sello del TS (D20); el oráculo compara markers byte a byte |
-| F19 | Codex no llega a 500 invocaciones en 14 días | Corpus Codex ampliado; Q3 decide el criterio; no se activa sin cumplirlo |
+| F19 | Codex no llega a 500 invocaciones en 14 días | Corpus Codex ampliado; se espera hasta cumplirlo (Q3); no se activa antes |
 | F20 | `sync` o `remove` nativos llegan a un prompt | Flags requeridas (D25) o re-delegación previa; casos sin flags en el oráculo |
 | F21 | Render nativo emite salida y luego descubre una config no portada | Re-delegación antes de cualquier salida; un fixture por condición (D23) |
 | F22 | Preview que toca `~/.navori`, la raíz de backups o el registro | `RecordingFs` con lista real vacía (D24); el oráculo compara esos árboles |
 | F23 | Divergencia tras activar `guard-destructive` | `NAVORI_HOOK_IMPL=shell` inmediato; vuelta a `shadow` con evento (R31) |
-| F24 | Puntos ciegos del oráculo (aviso de actualización, línea de procedencia, TTY) | Enumerados en D23, D27 y Q6/Q11; los prompts quedan delegados (R48) |
+| F24 | Puntos ciegos del oráculo (aviso de actualización, línea de procedencia, TTY) | Aviso omitido y documentado (D27); máscara literal de procedencia (D23); los prompts quedan delegados (R48) |
 | F25 | El puerto "corrige" la asimetría de floor entre inject y remove | Celda propia en la matriz (D21, D26) |
 | F26 | Offsets UTF-16 frente a UTF-8 en el parser de markers | Propiedades con caracteres no BMP y separadores Unicode (D21) |
 | F27 | La poda depende del reloj y el oráculo no lo controla | mtimes relativos aplicados en cada copia (D26); `now` del contexto en unitarios (D19) |
@@ -464,8 +473,7 @@ el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2; E4 = E5 M1–M2.
 
 - Codex, agents-md, cursor, copilot y Pi como engines nativos (fase 3, 0059). Una config con esos
   engines re-delega.
-- Monorepos con workspaces, `render --all`, `--workspace`, `--prune` y `--verbose` (Q8 puede
-  adelantarlos).
+- Monorepos con workspaces, `render --all`, `--workspace`, `--prune` y `--verbose` (Q8).
 - Prompts interactivos: `sync --interactive`, `sync` a secas y `remove` sin `--yes` (D16 de 0057;
   fase 4).
 - `init`, `add`, `configure`, `update`, `refresh`, `backup restore` y el resto de comandos con
@@ -476,15 +484,34 @@ el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2; E4 = E5 M1–M2.
 
 ## Observaciones sobre requirements
 
-- **R14** es una reconstrucción: el texto original no está en git (Q9).
+- **R14** es una reconstrucción: el texto original no está en git. El usuario aceptó la redacción
+  (Q9).
 - **R33** admite dos implementaciones (paridad de mensajes o re-delegación); el requisito exige el
-  mismo resultado observable, no el mecanismo (Q4).
+  mismo resultado observable. Se implementa por re-delegación (Q4).
 - **R28** exige ≥ 500 invocaciones por engine. Con 6 casos Codex en el corpus, el volumen real de
-  Codex en 14 días es la mayor incertidumbre de calendario de la fase (Q3).
+  Codex en 14 días es la mayor incertidumbre de calendario de la fase (Q3: se espera).
 
-## Preguntas abiertas
+## Decisiones del usuario (2026-10-23)
 
-Las decide el usuario; esta spec no las resuelve.
+El usuario aceptó las recomendaciones de esta spec para Q2–Q12. Para Q12 la spec no traía una
+recomendación cerrada; se toma la de D23 (aceptar el tamaño sin recortar). El texto original de
+cada pregunta se conserva abajo con su resolución.
+
+| Q | Resolución |
+|---|---|
+| Q2 | E2 empieza ya y puede mergearse antes de que cierre E1; E3 espera a E1 |
+| Q3 | Se espera a que Codex cumpla 500 invocaciones en 14 días; sin modo por engine ni otro umbral |
+| Q4 | Config inválida o ausente: re-delegación antes de cualquier salida |
+| Q5 | `requires: string[][]`, `schema: 2`, varias entradas por ruta |
+| Q6 | Aviso de actualización omitido en comandos nativos hasta 0060, documentado |
+| Q7 | Paridad estricta con `atomic.ts` (`O_TRUNC`, sin `O_EXCL`); D15 de 0057 enmendado |
+| Q8 | Subconjunto mínimo de D23 |
+| Q9 | R14 reconstruido aceptado; requisitos nuevos en R27+ |
+| Q10 | `op: "deactivate"` |
+| Q11 | Máscara literal de lado para la línea de procedencia; Rust imprime `core: (embedded)` |
+| Q12 | Se acepta el tamaño de E3 sin recortar; M5 en un commit por mecanismo |
+
+## Preguntas (resueltas)
 
 - **Q2 [human] — Paralelismo con la ventana de sombra.** E1 no puede cerrar antes de 14 días de
   sombra. ¿E2 (bibliotecas, sin tocar `ported.json`) puede empezar y mergearse antes de que E1
@@ -520,8 +547,8 @@ Las decide el usuario; esta spec no las resuelve.
   re-delega?
 - **[repo, E1]** — Confirmar que 0057 E3 entrega el ledger de sombra con conteo de invocaciones y
   `hook-shadow-report.mjs`. Si no, T3 los completa (D18).
-- **[repo, E3]** — Comportamiento de `p.select`/`p.confirm` de clack sin TTY en `sync` (lo ejercita
-  el caso delegado `user-content:sync`). Solo importa si Q5 se resuelve con re-delegación en código.
+- **[repo, E3]** — Comportamiento de `p.select`/`p.confirm` de clack sin TTY en `sync`. Ya no
+  aplica: con `requires` (Q5) esas invocaciones nunca son nativas.
 
 ## Durable knowledge
 

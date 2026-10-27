@@ -1,6 +1,6 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** borrador; no iniciada · **Base:** `migration/rust`. Fase 2 del programa (ver
+**Estado:** aceptada; E2 en curso, E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
 `specs/0057-migracion-rust/requirements.md` § "Fases del programa"): cuatro entregas, **cada una con
 su propio PR contra `migration/rust`**. El LOC es una estimación, no una medición.
 
@@ -27,8 +27,8 @@ Reglas de ejecución:
 - Hooks, render, sync, backup y markers son área crítica: un commit por mecanismo. El paso de
   `guard-destructive` a `active` exige los criterios de D9 de 0057 y la aprobación del usuario en
   el PR de activación.
-- Las preguntas Q2–Q12 de `design.md` se resuelven antes del milestone que las nombra; ninguna
-  tarea elige por su cuenta la opción recomendada.
+- Las preguntas Q2–Q12 están resueltas (`design.md` § "Decisiones del usuario"); cambiar una
+  resolución requiere volver a preguntar al usuario.
 
 ## E1 — Activación de `guard-destructive`
 Estimated LOC: 1200
@@ -37,7 +37,7 @@ Estimated LOC: 1200
 - **Consumes:** `node scripts/js/hook-shadow-report.mjs guard-destructive` → lee el ledger de sombra que deja `navori-rust hook --shadow` en sesiones reales (0057 T24/A10)
 - **A1** [observable] — corpus, fuzz y sombra cumplen D9 en los tres engines · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000 && node scripts/js/hook-shadow-report.mjs guard-destructive` → exit 0; 0 divergencias; ≥ 500 invocaciones en ≥ 14 días por cada engine registrado (claude, codex, pi)
 - [ ] **T1** (R29) — corpus de `guard-destructive` ampliado: al menos un caso por clase de veredicto en Claude, Codex y Pi (hoy 770/6/110), con `coverage.json` actualizado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"guard-destructive cubre cada clase de veredicto en claude, codex y pi"
-- [ ] **T2** (R27, R31) — `scripts/js/rust-manifest-check.mjs`: `shadow` → `active` exige `shadow` en la merge-base y una línea `activate` nueva; `active` → `shadow` exige su evento (Q10); `active` sin `shadow` previo falla · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar sin línea activate o sin sombra previa falla"
+- [ ] **T2** (R27, R31) — `scripts/js/rust-manifest-check.mjs`: `shadow` → `active` exige `shadow` en la merge-base y una línea `activate` nueva; `active` → `shadow` exige una línea `deactivate` (Q10); `active` sin `shadow` previo falla · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar sin línea activate o sin sombra previa falla"
 - [ ] **T3** (R28) — el reporte de sombra cuenta invocaciones y divergencias por engine y falla si un engine donde el hook está registrado no llega al umbral. Si 0057 no entregó el ledger o el script, se completan aquí sin crear un segundo reporte (D18) · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"un engine registrado bajo 500 invocaciones deja el reporte en rojo"
 
 ### M2 — Activación
@@ -53,7 +53,7 @@ Estimated LOC: 4500
 - **A3** [observable] — config y semver coinciden con Node en documentos generados · `cargo test -p navori-core --test semver --test config --locked && cargo test -p navori-oracle-tests --test config_parity --locked` → exit 0
 - [ ] **T7** (R38) — `navori-core` (`semver`) con la semántica de `semver.ts` (prerelease ignorada, inparseable nunca es retroceso) y `build.rs` que emite `TS_CLI_VERSION` desde `packages/cli/package.json` (D20) · effect: behavior · test: `crates/navori-core/tests/semver.rs`::"0.13.0-rust.1 se ordena como 0.13.0 y el sello usa la versión del TS"
 - [ ] **T8** (R32) — `navori-core` (`config`): `NavoriConfig` en serde con defaults, migración de claves retiradas y advertencias de claves desconocidas, con propiedades contra `NavoriConfigSchema.safeParse` (D22) · effect: behavior · test: `crates/navori-oracle-tests/tests/config_parity.rs`::"acepta, rechaza y completa defaults igual que NavoriConfigSchema"
-- [ ] **T9** (R33) — config ausente o inválida según Q4: re-delegación antes de cualquier salida o paridad de mensajes · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"config inválida produce la salida del TS sin efectos"
+- [ ] **T9** (R33) — config ausente o inválida: re-delegación al TS antes de cualquier salida (Q4) · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"config inválida produce la salida del TS sin efectos"
 - [ ] **T10** (R34) — `render::context::RenderContext` con `cli_version`, `floor`, `lang`, `mode`, `now` y `pid` (D19); ninguna función de markers lee estado global · effect: behavior · test: `crates/navori-core/tests/markers.rs`::"el floor solo llega por el contexto o por meta"
 
 ### M4 — Markers y anti-rollback
@@ -74,17 +74,17 @@ Estimated LOC: 9000
 ### M6 — Comando `render` en preview
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
-- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags de E3 (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
+- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
 - [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
 - [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
-- [ ] **T20** (R41) — línea de procedencia del core (Q11) y aviso de actualización (Q6) resueltos según la decisión del usuario, con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
+- [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
 
 ## E4 — Escrituras
 Estimated LOC: 5500
 
 ### M7 — Capa `Fs`, backup y poda
 - **A7** [observable] — los tests de D15 pasan sobre registro y disco real · `cargo test -p navori-core --features fault-injection --test fs --locked` → exit 0
-- [ ] **T21** (R43, R14) — `navori-core` (`fs`): `RealFs`, escritura atómica con el nombre y el modo de `atomic.ts`, flag de apertura según Q7 y mensajes de `friendlyFsError` · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"todo rename va precedido por fsync y los modos con umask 022 y 077 coinciden con Node"
+- [ ] **T21** (R43, R14) — `navori-core` (`fs`): `RealFs`, escritura atómica con el nombre y el modo de `atomic.ts`, apertura `O_CREAT|O_TRUNC` sin `O_EXCL` como el TS (Q7) y mensajes de `friendlyFsError` · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"todo rename va precedido por fsync y los modos con umask 022 y 077 coinciden con Node"
 - [ ] **T22** (R44) — `navori-core` (`backup`, `commit`): backup proporcional, excludes efímeros, nombre `<label>-<ts>-p<pid>-<seq>`, `writeLast` y `chmod 0o755` best-effort · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"el backup de un archivo precede a su primer rename o remove y no hay backup sin destrucción"
 - [ ] **T23** (R45) — poda por 30 días y luego por 2 GiB, del más viejo al más nuevo, ignorando carreras, con `now` del contexto · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"poda 30 días y 2 GiB con mtimes sintéticos"
 - [ ] **T24** (R46) — inyección de fallos después del backup, después del write y antes del rename; mensaje de `RenderWriteError` · effect: tests · test: `crates/navori-core/tests/fs.rs`::"un fallo deja el original intacto, ningún temporal y el mensaje del TS"
@@ -99,7 +99,7 @@ Estimated LOC: 5500
 ### M9 — `sync` y `remove` no interactivos
 - **Consumes:** `bun run oracle:rust` → corrida completa del oráculo sobre todos los comandos del manifiesto y los fixtures de escritura
 - **A9** [observable] — todos los comandos portados con diferencial cero y cobertura completa · `bun run oracle:rust && bun run vitest run src/__tests__/rust-oracle.test.ts src/__tests__/rust-manifest-check.test.ts` → exit 0, 0 diferencias
-- [ ] **T28** (R48) — flags requeridas en el manifiesto según Q5 (`requires` con `schema: 2`, o re-delegación en código), con validador en Rust y en TS · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"una invocación sin las flags requeridas se delega"
+- [ ] **T28** (R48) — flags requeridas en el manifiesto: `requires: string[][]`, `schema: 2` y varias entradas por ruta (Q5), con validador en Rust y en TS · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"una invocación sin las flags requeridas se delega"
 - [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
 - [ ] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
 - [ ] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"
