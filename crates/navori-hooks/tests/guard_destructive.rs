@@ -5,24 +5,29 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use navori_hooks::hooks::guard_destructive::{Host, Outcome, Rendered, block_stderr, evaluate};
+use navori_hooks::hooks::guard_destructive::discard::{Loss, Repo};
+use navori_hooks::hooks::guard_destructive::{
+    Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
+};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// Audit reasons the ported rules own. A shell block with one of them must be a Rust block.
-const PORTED: &[&str] = &[
-    "no-verify",
-    "force-push-base",
-    "rm-root",
-    "rm-var",
-    "no-preserve-root",
-    "fork-bomb",
-    "block-device",
-    "managed-rewrite",
-];
+/// No corpus case reaches rule 7 with a discard it would measure; one that does must be
+/// replayed against real repository state, not this stand-in.
+struct NoState;
+
+impl Repo for NoState {
+    fn is_dir(&self, dir: &str) -> bool {
+        panic!("corpus case asks whether {dir} exists");
+    }
+
+    fn holds(&self, dir: &str, loss: Loss) -> bool {
+        panic!("corpus case asks whether {dir} holds {loss:?}");
+    }
+}
 
 /// The replay's scratch layout (`createScratch`/`runMode`), deep enough that no root or home
 /// rule can see it. A case runs in its project copy (`repo`) or in an empty dir (`none`).
@@ -108,10 +113,14 @@ fn host(case: &Value, engine: Engine, cwd: &str) -> Result<Host, Box<dyn Error>>
             field.clone()
         }
     };
+    let home = case["envDelta"]["HOME"]
+        .as_str()
+        .map_or_else(|| HOME.to_owned(), |v| expand(v, cwd));
     Ok(Host {
         project_dir,
         cwd: field,
         pwd: cwd.to_owned(),
+        home: Some(home),
     })
 }
 
@@ -144,7 +153,8 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
         let event = &case["expected"]["active"]["event"][0]["metadata"];
         let verdict = event["verdict"].as_str().unwrap_or("none");
         let reason = event["reason"].as_str().unwrap_or("-");
-        let outcome = evaluate(&cmd, &rendered, engine, &host, Locale::Utf8)?;
+        let stdout = off["stdout"].as_str().ok_or("stdout")?;
+        let outcome = evaluate(&cmd, &rendered, engine, &host, &NoState, Locale::Utf8)?;
         let label = match &outcome {
             Outcome::Block {
                 message,
@@ -172,17 +182,22 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
                 }
                 "skip".to_owned()
             }
-            Outcome::Continue { copy_only } => {
-                // Rule 6c (Pi control plane) and rule 7 (discards) are not ported yet.
-                let ported_block = verdict == "block"
-                    && ((PORTED.contains(&reason) && !stderr.contains("Pi control plane"))
-                        || (reason == "oversize" && !stderr.contains("discard commands")));
-                if ported_block || (verdict == "skip" && !copy_only) {
+            Outcome::Allow { copy_only, ask } => {
+                let (want_stdout, want_verdict) = match ask {
+                    Some(prefix) => (ask_answer(prefix, Locale::Utf8).0, "ask"),
+                    None if *copy_only => (String::new(), "skip"),
+                    None => (String::new(), "allow"),
+                };
+                if status != 0
+                    || !stderr.is_empty()
+                    || stdout != want_stdout
+                    || verdict != want_verdict
+                {
                     mismatches.push(format!(
-                        "case {index}: rust continues, shell {status}/{verdict}/{reason}: {cmd:?}"
+                        "case {index}: rust allows ({want_verdict}), shell {status}/{verdict}/{reason}: {cmd:?}"
                     ));
                 }
-                "continue".to_owned()
+                format!("allow/{want_verdict}")
             }
             Outcome::ProgressLane => {
                 mismatches.push(format!("case {index}: progress lane is not rendered"));
@@ -207,7 +222,9 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
         "block/block-device",
         "block/oversize",
         "block/managed-rewrite",
+        "block/unspecified",
         "skip",
+        "allow/allow",
     ] {
         assert!(
             decided.get(label).is_some_and(|n| *n > 0),
