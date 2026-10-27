@@ -318,6 +318,14 @@ const CodexProfileSchema = z
   })
   .strict();
 
+// Pi model as `provider/id` (nested ids such as `openrouter/a/b` and a `:thinking` suffix are valid).
+const PiModelSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9._-]*\/\S+$/i, "must be provider/id, e.g. anthropic/claude-sonnet-4-5")
+  .describe(
+    "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed",
+  );
+
 const ModelsSchema = z.object({
   codexProfiles: z
     .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), CodexProfileSchema)
@@ -355,6 +363,15 @@ const ModelsSchema = z.object({
           "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)",
         )
         .optional(),
+    })
+    .optional(),
+  // Pi has its own model vocabulary (`provider/id`); it never reads codexMap. A tier with
+  // no entry here inherits the model of the parent Pi session.
+  piMap: z
+    .object({
+      opus: PiModelSchema.optional(),
+      sonnet: PiModelSchema.optional(),
+      haiku: PiModelSchema.optional(),
     })
     .optional(),
 });

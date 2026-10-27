@@ -147,7 +147,7 @@ const config = NavoriConfigSchema.parse({
   engines: ["pi"],
   branchBase: "main",
   qualityGate: { fast: "bun test", full: "bun test" },
-  models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
+  models: { scout: "haiku", piMap: { haiku: "openai-codex/gpt-5" } },
 });
 
 afterEach(() => {
@@ -156,7 +156,7 @@ afterEach(() => {
 
 describe("Pi subagent resources", () => {
   // Covers: R32
-  it("resolves a codexMap family instead of emitting the bare family name", () => {
+  it("ignores codexMap: a Pi role without a piMap entry inherits the parent model", () => {
     const dir = freshDir();
     const family = NavoriConfigSchema.parse({
       ...config,
@@ -164,8 +164,7 @@ describe("Pi subagent resources", () => {
     });
     renderPiEngine(dir, family);
     const scout = readFileSync(join(dir, ".pi/agents/scout.md"), "utf8");
-    expect(scout).toContain('model: "openai-codex/gpt-6-luna"'); // no catalog: fallback
-    expect(scout).not.toContain('model: "luna"');
+    expect(scout).not.toContain("model:");
   });
 
   // Covers: R2, R8

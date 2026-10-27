@@ -24,7 +24,7 @@ import type { ProseEngineResult } from "../shared/prose-harness.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
+import { PI_MAP_MIGRATION_WARNING, piMapMigrationPending } from "../../lib/diagnose/pi-health.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
 import {
   ownsPiAgent,
@@ -371,6 +371,7 @@ export function preparePiEngine(
   warnings.push(...pluginHooks.warnings);
   warnings.push(...mcpRoleDiagnostics(config, roles));
   warnings.push(...mcpServerDiagnostics(cwd, config));
+  if (piMapMigrationPending(config)) warnings.push(PI_MAP_MIGRATION_WARNING);
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
     warnings.push(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
@@ -426,22 +427,9 @@ export function preparePiEngine(
       config,
     );
     const tier = agent.modelKey ? config.models?.[agent.modelKey] : undefined;
-    // codexMap values may be a Codex family (resolved against the local catalog)
-    // or a full id (verbatim). The never-downgrade rule is Codex-specific (it
-    // reads a rendered .codex toml), so Pi resolves catalog-or-fallback only.
-    const mapped = tier ? config.models?.codexMap?.[tier] : undefined;
-    const resolved = tier && mapped ? resolveCodexModel(config, tier) : undefined;
-    const model =
-      resolved === undefined
-        ? undefined
-        : resolved.source === "pin"
-          ? resolved.model
-          : `openai-codex/${resolved.model}`;
-    if (tier && !mapped) {
-      warnings.push(
-        `Pi role ${agent.id} has a model tier but no concrete codexMap.${tier}; inheriting the selected Pi model.`,
-      );
-    }
+    // Pi has its own vocabulary: piMap[tier] is a provider/id emitted verbatim; no entry
+    // means no `model:` and the child inherits the parent Pi model. codexMap is never read.
+    const model = tier ? config.models?.piMap?.[tier] : undefined;
     const content = serializePiAgent({
       name: agent.id,
       description,
