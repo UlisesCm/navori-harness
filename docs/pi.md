@@ -340,9 +340,16 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are
-preserved. A configured model is used when it maps to a concrete `codexMap` model; otherwise the child
-inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
+preserved. A role model comes from `models.piMap` (opus/sonnet/haiku as `provider/id`, e.g. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); a tier without an entry inherits the selected Pi model. `models.codexMap` is not read by Pi. Each role has an explicit Pi tool list; missing or unknown mappings fail
 closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
+
+### Model selection and failure diagnostics
+
+- Role models come from `models.piMap` (`opus`, `sonnet`, `haiku` as `provider/id`; a `:thinking` suffix is allowed). A tier without an entry inherits the selected Pi model.
+- Render and `navori doctor` warn when Pi is enabled, `models.codexMap` has at least one tier, and `models.piMap` is undefined. Setting `piMap` (even `{}`) silences the warning.
+- Downgrade caveat: an older navori ignores `piMap` and reverts Pi roles to `codexMap`.
+- A failed child reports `stopReason` and `errorMessage` (or `auto_retry_end.finalError`) plus a redacted, bounded stderr tail. The result also carries the additive `details.childStop {stopReason, errorMessage?}`. Exit 0 with `stopReason` `error` or `aborted` counts as a failure. Redaction is a floor, not a guarantee.
+- A reviewer or scribe preflight denial appends the handoff failure detail.
 
 ## Approval relay
 
