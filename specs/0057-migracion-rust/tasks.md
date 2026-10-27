@@ -214,6 +214,16 @@ repositorio, submódulo, índice, no rastreado, ignorado, sin git) en diez confi
 sesión. Residuales documentados: `CDPATH` en `repo::System` y rangos de glob por intercalación
 en bash 3.2. Pendientes: `tgrep-search-lane` (PR 3) y el PR 4.
 
+Avance T28 (PR 3): `search` transcribe el bloque `tgrep-search-lane` y `guard-search-routing.sh`
+(segmentación awk con su unión de líneas, peel de `VAR=`, `grep -r` y `rg` al inicio de un
+comando, `names_a_file` con raíz fuera del repo, extensión, nombres sin extensión y `[ -f ]`, y
+el remedio según `tgrep status`). `Repo` suma `is_file` y `tgrep_status`; `Host` suma `PATH`.
+`decide` compone bloque base, lane de búsqueda y la `ask` de la trampa en el veredicto final
+(exit, stdout, stderr, veredicto y razón). La copia renderizada de Claude se compara con un
+`tgrep` falso en cinco estados (ausente, sin índice, servidor detenido, activo, fallando). Las
+pruebas diferenciales reintentan un caso discrepante: bajo carga, un `jq` sin recursos falla en
+silencio dentro de `extract-cmd` y el shell ve un comando vacío. Pendiente: PR 4.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 

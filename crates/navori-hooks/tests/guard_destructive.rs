@@ -55,6 +55,14 @@ impl Repo for NoState {
     fn blob_size(&self, root: &str, spec: &str) -> u64 {
         panic!("corpus case asks for the size of {spec} in {root}");
     }
+
+    fn is_file(&self, path: &str) -> bool {
+        panic!("corpus case asks whether {path} is a file");
+    }
+
+    fn tgrep_status(&self, path: Option<&str>) -> Option<String> {
+        panic!("corpus case asks for tgrep status along {path:?}");
+    }
 }
 
 /// The replay's scratch layout (`createScratch`/`runMode`), deep enough that no root or home

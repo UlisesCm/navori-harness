@@ -1,6 +1,7 @@
-//! Repository and file-system facts the stateful rules read: rule 7 (discards) and rule 1b
-//! (the progress ratchet with its landing and worktree resolution). The rules stay pure; every
-//! fact arrives through [`Repo`], and [`System`] is the one adapter that runs `git`.
+//! Repository and host facts the stateful rules read: rule 7 (discards), rule 1b (the progress
+//! ratchet with its landing and worktree resolution) and the tgrep search lane. The rules stay
+//! pure; every fact arrives through [`Repo`], and [`System`] is the one adapter that runs
+//! `git` or `tgrep`.
 
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
@@ -37,6 +38,11 @@ pub trait Repo {
     fn file_size(&self, root: &str, path: &str) -> u64;
     /// `git cat-file -s <spec>` from `root`; 0 when it fails or prints no number.
     fn blob_size(&self, root: &str, spec: &str) -> u64;
+    /// `[ -f path ]`.
+    fn is_file(&self, path: &str) -> bool;
+    /// `command -v tgrep` under `PATH`, then `tgrep status 2>&1`; `None` when tgrep is not
+    /// found or the status command fails.
+    fn tgrep_status(&self, path: Option<&str>) -> Option<String>;
 }
 
 /// The host's file system and `git`, read as the shell reads them. Residual: a non-empty
@@ -68,6 +74,18 @@ fn git_from(root: &str) -> Command {
     let mut command = Command::new("git");
     command.current_dir(root);
     command
+}
+
+/// `command -v name`: the first executable regular file named `name` along `path`; an empty
+/// entry is the working directory.
+fn which(name: &str, path: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':')
+        .map(|dir| Path::new(if dir.is_empty() { "." } else { dir }).join(name))
+        .find(|candidate| {
+            std::fs::metadata(candidate)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
 }
 
 /// The logical path `cd` reaches: `..` pops a component of the text, as bash does.
@@ -188,6 +206,30 @@ impl Repo for System {
         File::open(&path)
             .and_then(|file| file.metadata())
             .map_or(0, |meta| meta.len())
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        !path.is_empty() && Path::new(path).is_file()
+    }
+
+    fn tgrep_status(&self, path: Option<&str>) -> Option<String> {
+        let program = which("tgrep", path?)?;
+        let (mut reader, writer) = std::io::pipe().ok()?;
+        let mut child = Command::new(program)
+            .arg("status")
+            .env("PATH", path?)
+            .stdin(Stdio::null())
+            .stdout(writer.try_clone().ok()?)
+            .stderr(writer)
+            .spawn()
+            .ok()?;
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut out).ok()?;
+        child.wait().ok()?.success().then(|| {
+            String::from_utf8_lossy(&out)
+                .trim_end_matches('\n')
+                .to_owned()
+        })
     }
 
     fn blob_size(&self, root: &str, spec: &str) -> u64 {

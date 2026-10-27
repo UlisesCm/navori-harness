@@ -18,6 +18,7 @@ mod ratchet;
 mod rendered;
 pub mod repo;
 mod rules;
+pub mod search;
 mod tr;
 
 pub use pi::ask_answer;
@@ -42,6 +43,8 @@ pub struct Host {
     pub cdpath: Option<String>,
     /// `navori_hook_path`: `$0`, prefixed with `PWD/` when relative.
     pub hook_path: String,
+    /// `PATH`, where the search lane looks for `tgrep`.
+    pub path: Option<String>,
 }
 
 use crate::runner::Engine;
@@ -105,6 +108,93 @@ pub fn evaluate(
     locale: Locale,
 ) -> Result<Outcome, String> {
     rules::evaluate(cmd, rendered, engine, host, repo, locale)
+}
+
+/// The whole script's answer: what the host sees and what the exit trap records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decision {
+    /// Exit status, 0 or 2.
+    pub status: i32,
+    /// Exact stdout (the trap's `ask` answer, or nothing).
+    pub stdout: String,
+    /// Exact stderr.
+    pub stderr: Vec<u8>,
+    /// `navori_audit_verdict`.
+    pub verdict: &'static str,
+    /// `navori_audit_reason`.
+    pub reason: String,
+}
+
+/// The base block, the tgrep search lane after it and the exit trap's `ask`, composed as the
+/// rendered script runs them. The user section is not modeled: it must be empty.
+///
+/// # Errors
+/// The errors of [`evaluate`] and [`search::evaluate`].
+pub fn decide(
+    cmd: &str,
+    rendered: &Rendered,
+    engine: Engine,
+    host: &Host,
+    repo: &dyn repo::Repo,
+    locale: Locale,
+) -> Result<Decision, String> {
+    let blocked = |stderr: Vec<u8>, reason: &str| Decision {
+        status: 2,
+        stdout: String::new(),
+        stderr,
+        verdict: "block",
+        reason: reason.to_owned(),
+    };
+    let (copy_only, ask) = match evaluate(cmd, rendered, engine, host, repo, locale)? {
+        Outcome::Block {
+            message,
+            reason,
+            route,
+        } => return Ok(blocked(block_stderr(cmd, &message, route, locale), reason)),
+        Outcome::Ratchet { stderr } => return Ok(blocked(stderr.into_bytes(), "unspecified")),
+        Outcome::Skip { reason } => {
+            return Ok(Decision {
+                status: 0,
+                stdout: String::new(),
+                stderr: Vec::new(),
+                verdict: "skip",
+                reason: reason.to_owned(),
+            });
+        }
+        Outcome::Allow { copy_only, ask } => (copy_only, ask),
+    };
+    let (mut verdict, mut reason) = if copy_only && ask.is_none() {
+        ("skip", "no rule token in the command".to_owned())
+    } else {
+        ("allow", String::new())
+    };
+    match search::evaluate(cmd, host, repo, locale)? {
+        search::Search::Block { stderr } => {
+            return Ok(blocked(
+                stderr.into_bytes(),
+                "content search routed to the index",
+            ));
+        }
+        search::Search::FailOpen => {
+            verdict = "fail-open";
+            reason = "search index unavailable".to_owned();
+        }
+        search::Search::Pass => {}
+    }
+    let mut stdout = String::new();
+    if let Some(prefix) = ask {
+        let (answer, why) = ask_answer(&prefix, locale);
+        stdout = answer;
+        verdict = "ask";
+        reason = why;
+    }
+    Ok(Decision {
+        status: 0,
+        stdout,
+        stderr: Vec::new(),
+        verdict,
+        reason,
+    })
 }
 
 /// Exact stderr of the shell's `block`: reason, the command cut at 2000 characters (bytes under
