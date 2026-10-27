@@ -191,6 +191,17 @@ byte a byte del programa awk sobre el inventario exacto). `Host` recibe `nv_proj
 se compara además contra el awk real con una batería escrita a mano y 500 comandos generados en
 tres contextos de raíz. Pendientes del PR 2b: 6c (Pi), 7 (descartes de git) y 1b.
 
+Avance T28 (PR 2b): regla 6c (plano de control de Pi, `pi --no-extensions`, reglas `deny`
+compartidas y la primera `ask`, que la trampa de salida responde con exit 0) y regla 7
+(descartes de árbol completo: recorrido de `cd`/`-C` y de banderas puro; existencia del
+directorio y estado de git vía `discard::Repo`, con `discard::System` como único adaptador que
+ejecuta `git`). `Outcome::Allow` sustituye a `Continue` y lleva `copy_only` y la `ask`
+pendiente. Corpus: 886 de 886 casos idénticos (exit, stdout, stderr y veredicto). Además, las
+copias renderizadas de Pi y Claude se ejecutan contra el modelo sobre repositorios reales
+(limpio, con cambios, con no rastreados, sólo ignorados) en el locale UTF-8 de la plataforma y
+en `C`, con baterías escritas a mano y 100 comandos generados por regla. Pendiente: 1b
+(`resolve-worktree` + `progress-ratchet`) en su propio PR.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 
