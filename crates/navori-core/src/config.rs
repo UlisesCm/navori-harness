@@ -77,6 +77,96 @@ pub fn read(bytes: &[u8]) -> Result<Config, Delegate> {
     Ok(Config { data, warnings })
 }
 
+/// `{ ...value }`: own enumerable properties in JS order (`null`/`undefined` spread nothing).
+fn spread(value: Option<&JsValue>) -> JsObject {
+    let mut out = JsObject::new();
+    match value {
+        Some(JsValue::Object(object)) => {
+            for (key, value) in object.ordered() {
+                out.insert(key.clone(), value.clone());
+            }
+        }
+        Some(JsValue::Array(items)) => {
+            for (index, item) in items.iter().enumerate() {
+                out.insert(index.to_string(), item.clone());
+            }
+        }
+        Some(JsValue::String(text)) => {
+            for (index, unit) in text.units().iter().enumerate() {
+                out.insert(
+                    index.to_string(),
+                    JsValue::String(JsString::from_units(vec![*unit])),
+                );
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// `obj?.[key]` for a JSON value: only objects have own data properties here.
+fn member<'a>(value: Option<&'a JsValue>, key: &str) -> Option<&'a JsValue> {
+    match value {
+        Some(JsValue::Object(object)) => object.get(key),
+        _ => None,
+    }
+}
+
+/// `a ?? fallback`.
+fn or_default(value: Option<&JsValue>, fallback: JsValue) -> JsValue {
+    match value {
+        None | Some(JsValue::Undefined | JsValue::Null) => fallback,
+        Some(value) => value.clone(),
+    }
+}
+
+/// `effectiveConfig` (`config.ts`): the render-only derived defaults (`prTarget`,
+/// `project.typedLanguage`, `sdd.*`). Never persisted. Like the TS, an absent `prTarget` and
+/// `branchBase` leave an own `prTarget: undefined`, which `JSON.stringify` omits.
+#[must_use]
+pub fn effective_config(config: &JsValue) -> JsValue {
+    let root = Some(config);
+    let project = member(root, "project");
+    let sdd = member(root, "sdd");
+    let typed = !matches!(
+        member(project, "codeLanguage"),
+        Some(JsValue::String(text)) if text.is("python") || text.is("rust") || text.is("go")
+    );
+
+    let mut out = spread(root);
+    let pr_target = or_default(
+        member(root, "prTarget"),
+        member(root, "branchBase")
+            .cloned()
+            .unwrap_or(JsValue::Undefined),
+    );
+    out.insert("prTarget", pr_target);
+
+    let mut derived_project = spread(project);
+    derived_project.insert("typedLanguage", JsValue::Bool(typed));
+    out.insert("project", JsValue::Object(derived_project));
+
+    let mut derived_sdd = spread(sdd);
+    derived_sdd.insert(
+        "enabled",
+        or_default(member(sdd, "enabled"), JsValue::Bool(true)),
+    );
+    derived_sdd.insert(
+        "specsDir",
+        or_default(member(sdd, "specsDir"), JsValue::string("specs")),
+    );
+    derived_sdd.insert(
+        "applyWhen",
+        or_default(member(sdd, "applyWhen"), JsValue::Array(Vec::new())),
+    );
+    derived_sdd.insert(
+        "doesNotApplyTo",
+        or_default(member(sdd, "doesNotApplyTo"), JsValue::Array(Vec::new())),
+    );
+    out.insert("sdd", JsValue::Object(derived_sdd));
+    JsValue::Object(out)
+}
+
 /// `isSafeGateChain` (`engines/shared/permission-rules.ts:200`): every step is `<pm> …` or `cd <dir>`.
 #[must_use]
 pub fn is_safe_gate_chain(gate: &str) -> bool {
