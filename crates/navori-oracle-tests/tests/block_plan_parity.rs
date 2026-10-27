@@ -111,6 +111,7 @@ fn plan_json(plan: &RenderPlan, order: &[String]) -> Value {
                     rel_path.clone()
                 }
                 PlanAsset::Plugin { dir, path, .. } => format!("{dir}/{path}"),
+                PlanAsset::Computed { .. } => "(computed)".to_owned(),
             };
             json!([
                 e.asset.id(),

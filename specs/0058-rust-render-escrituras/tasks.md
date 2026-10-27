@@ -94,8 +94,8 @@ Estimated LOC: 9000
 
 ### M5 — Plan de render Claude
 
-En curso (adelantado antes de E1 por decisión del usuario, Q2): primer tramo integrado en #1411,
-sigue en `feat/0058-rust-e3-plan`. Portado
+En curso (adelantado antes de E1 por decisión del usuario, Q2): tramos integrados en #1411 y #1417,
+sigue en `feat/0058-rust-e3-engine`. Portado
 con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
 (`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
@@ -106,8 +106,12 @@ habilitado/deshabilitado y `nativeHook`; los manifiestos sintéticos pasan por e
 real con `readFileSync` parcheado). Las paridades de presets y plugins comparan la salida zod
 como texto para fijar el orden de claves. También `effectiveConfig` y el plan de bloques de
 `CLAUDE.md` (`computeRenderPlan`, `canonicalManagedOrder`: core, extras de preset, plugins
-declarados y retirados, skip/force, workspace, engine y piso anti-rollback). Faltan el motor
-Claude, `build-settings`/coexist, el wiring nativo y las cadenas del render. Pendiente ajeno a
+declarados y retirados, skip/force, workspace, engine y piso anti-rollback). Del motor Claude:
+`renderManagedFile` (con `parseAsset` y `mergeFrontmatter`) y el paso 1 de
+`prepareClaudeEngine` (`CLAUDE.md` y `.claude/context/`, con `attachResolution`), contra el
+`prepareClaudeEngine` real en dry-run; los workspaces de monorepo se delegan. Faltan el resto
+del motor (agentes, skills, hooks, scripts, sub-bloques, retiros, `.gitignore`),
+`build-settings`/coexist, `.mcp.json`, el wiring nativo y las cadenas del render. Pendiente ajeno a
 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma intermitente (3/5
 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
