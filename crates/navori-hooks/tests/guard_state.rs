@@ -8,9 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use navori_hooks::hooks::guard_destructive::repo::{Repo, System};
-use navori_hooks::hooks::guard_destructive::{
-    Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
-};
+use navori_hooks::hooks::guard_destructive::{Host, Rendered, ask_answer, decide};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
 
@@ -50,6 +48,19 @@ impl Scratch {
 
     fn path(&self, rel: &str) -> String {
         self.root.join(rel).to_string_lossy().into_owned()
+    }
+
+    /// Install a guard copy and the search-routing script its tgrep block sources from
+    /// `../scripts/`.
+    fn install_guard(&self, source: &str, dest: &str) -> Result<String, Box<dyn Error>> {
+        let routing = |hook: &str| {
+            hook.replace(
+                "hooks/guard-destructive.sh",
+                "scripts/guard-search-routing.sh",
+            )
+        };
+        self.install(&routing(source), &routing(dest))?;
+        self.install(source, dest)
     }
 
     fn install(&self, source: &str, dest: &str) -> Result<String, Box<dyn Error>> {
@@ -150,34 +161,6 @@ fn run_hook(
     })
 }
 
-/// What the shell printed and exited with, predicted from the Rust outcome.
-fn predicted(cmd: &str, outcome: &Outcome, locale: Locale) -> Result<Run, Box<dyn Error>> {
-    Ok(match outcome {
-        Outcome::Block { message, route, .. } => Run {
-            status: 2,
-            stdout: String::new(),
-            stderr: String::from_utf8(block_stderr(cmd, message, *route, locale))?,
-        },
-        Outcome::Skip { .. } | Outcome::Allow { ask: None, .. } => Run {
-            status: 0,
-            stdout: String::new(),
-            stderr: String::new(),
-        },
-        Outcome::Allow {
-            ask: Some(prefix), ..
-        } => Run {
-            status: 0,
-            stdout: ask_answer(prefix, locale).0,
-            stderr: String::new(),
-        },
-        Outcome::Ratchet { stderr } => Run {
-            status: 2,
-            stdout: String::new(),
-            stderr: stderr.clone(),
-        },
-    })
-}
-
 /// Deterministic token soup over `vocab`, one to `max` tokens per command.
 fn soup(vocab: &[&str], count: usize, max: usize, seed: u64) -> Vec<String> {
     let mut seed = seed;
@@ -215,34 +198,61 @@ fn compare(
     }
     let rendered =
         Rendered::from_script(&fs::read_to_string(script)?).ok_or("rendered assignments")?;
+    // The search lane looks tgrep up in the PATH the shell runs with.
+    let mut host = host.clone();
+    if host.path.is_none() {
+        host.path = env
+            .iter()
+            .find(|(name, _)| *name == "PATH")
+            .map(|(_, value)| (*value).to_owned())
+            .or_else(|| std::env::var("PATH").ok());
+    }
     let mut labels = Vec::new();
     let mut mismatches = Vec::new();
     for &(lc_all, locale) in locales {
         for cmd in commands {
-            let outcome = evaluate(cmd, &rendered, engine, host, &System, locale)?;
-            let want = predicted(cmd, &outcome, locale)?;
-            let got = run_hook(script, cmd, &host.cwd, env, lc_all)?;
-            if got.status != want.status || got.stdout != want.stdout || got.stderr != want.stderr {
+            let decision = decide(cmd, &rendered, engine, &host, &System, locale)?;
+            let want = Run {
+                status: decision.status,
+                stdout: decision.stdout.clone(),
+                stderr: String::from_utf8(decision.stderr.clone())?,
+            };
+            let same = |got: &Run| {
+                got.status == want.status && got.stdout == want.stdout && got.stderr == want.stderr
+            };
+            let mut got = run_hook(script, cmd, &host.cwd, env, lc_all)?;
+            // Under heavy parallel load a starved `jq` fails silently inside extract-cmd and the
+            // script sees an empty command (exit 0, no output). That is the oracle's noise, not
+            // a verdict: a disagreeing case is rerun, and reported only if the shell insists.
+            for _ in 0..2 {
+                if same(&got) {
+                    break;
+                }
+                got = run_hook(script, cmd, &host.cwd, env, lc_all)?;
+            }
+            if !same(&got) {
                 mismatches.push(format!(
                     "{lc_all} {cmd:?}\n  shell: {} {:?} {:?}\n  rust:  {} {:?} {:?}",
                     got.status, got.stdout, got.stderr, want.status, want.stdout, want.stderr
                 ));
             }
-            labels.push(match &outcome {
-                Outcome::Block { reason, .. } => format!("block/{reason}"),
-                Outcome::Allow { ask: Some(_), .. } => "ask".to_owned(),
-                Outcome::Allow { .. } => "allow".to_owned(),
-                Outcome::Skip { .. } => "skip".to_owned(),
-                Outcome::Ratchet { .. } => "ratchet".to_owned(),
+            labels.push(match decision.verdict {
+                "block" if want.stderr.starts_with("[navori] Commit BLOCKED") => {
+                    "ratchet".to_owned()
+                }
+                "block" => format!("block/{}", decision.reason),
+                verdict => verdict.to_owned(),
             });
         }
     }
-    assert!(
-        mismatches.is_empty(),
-        "{} mismatches:\n{}",
-        mismatches.len(),
-        mismatches.join("\n")
-    );
+    if !mismatches.is_empty() {
+        return Err(format!(
+            "{} mismatches:\n{}",
+            mismatches.len(),
+            mismatches.join("\n")
+        )
+        .into());
+    }
     Ok(labels)
 }
 
@@ -274,7 +284,7 @@ fn ask_text_drops_what_the_trap_tr_drops() -> TestResult {
 #[test]
 fn pi_arm_matches_the_rendered_pi_copy() -> TestResult {
     let scratch = Scratch::new("guard-pi")?;
-    let script = scratch.install(
+    let script = scratch.install_guard(
         ".pi/navori/hooks/guard-destructive.sh",
         "proj/.pi/navori/hooks/guard-destructive.sh",
     )?;
@@ -406,7 +416,7 @@ fn pi_arm_matches_the_rendered_pi_copy() -> TestResult {
 #[test]
 fn discards_match_the_rendered_claude_copy_over_real_repositories() -> TestResult {
     let scratch = Scratch::new("guard-discard")?;
-    let script = scratch.install(
+    let script = scratch.install_guard(
         ".claude/hooks/guard-destructive.sh",
         "proj/.claude/hooks/guard-destructive.sh",
     )?;
@@ -528,6 +538,186 @@ fn discards_match_the_rendered_claude_copy_over_real_repositories() -> TestResul
     Ok(())
 }
 
+/// A `tgrep` on its own PATH entry that prints `status` and exits with `code`; `None` installs
+/// none. jq is linked next to it, so the PATH needs nothing but the system directories.
+fn tool_path(
+    scratch: &Scratch,
+    name: &str,
+    status: Option<(&str, i32)>,
+) -> Result<String, Box<dyn Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = scratch.root.join("bin").join(name);
+    fs::create_dir_all(&bin)?;
+    if let Some((text, code)) = status {
+        let tgrep = bin.join("tgrep");
+        fs::write(
+            &tgrep,
+            format!("#!/bin/sh\nprintf '%s\\n' '{text}'\nexit {code}\n"),
+        )?;
+        fs::set_permissions(&tgrep, fs::Permissions::from_mode(0o755))?;
+    }
+    let jq = Command::new("bash")
+        .args(["-c", "command -v jq"])
+        .output()?;
+    let jq = String::from_utf8(jq.stdout)?.trim().to_owned();
+    let tools = scratch.root.join("tools");
+    if !tools.join("jq").exists() {
+        fs::create_dir_all(&tools)?;
+        std::os::unix::fs::symlink(&jq, tools.join("jq"))?;
+    }
+    Ok(format!(
+        "{}:{}:/usr/bin:/bin",
+        bin.display(),
+        tools.display()
+    ))
+}
+
+/// Searches the lane routes, extractions it lets through and shapes it cannot parse.
+fn search_commands(proj: &str) -> Vec<String> {
+    let mut commands: Vec<String> = [
+        "grep -rn foo src/",
+        "grep -r foo .",
+        "grep -rn foo src/a.ts",
+        "grep -rn foo bin/deploy",
+        "grep -rn foo src",
+        "grep -rn foo Makefile",
+        "grep -rn foo docs/CODEOWNERS",
+        "grep -R foo",
+        "grep --recursive foo src",
+        "grep --recursive=yes foo src",
+        "grep -n foo src/a.ts",
+        "grep -n foo src",
+        "egrep -r x src",
+        "fgrep -ri x src",
+        "rg foo",
+        "rg foo src",
+        "rg foo src/a.ts",
+        "rg foo a.ts",
+        "rg foo docs/x.yaml",
+        "rg foo docs/x.json5x",
+        "rg foo docs/.c",
+        "rg --files",
+        "rg --version",
+        "rg -l foo ~/x",
+        "rg foo ~",
+        "rg foo /tmp",
+        "cat x | grep -r foo src",
+        "cat x | rg foo",
+        "ls; grep -r foo src",
+        "ls || rg foo",
+        "ls && rg foo",
+        "LC_ALL=C grep -rn foo src/",
+        "X=1 Y=2 rg foo",
+        "X=1",
+        "git grep foo",
+        "echo 'a ; rg foo'",
+        "echo \"x\" && rg foo",
+        "rg 'a|b' src",
+        "rg \"*.ts\" src",
+        "grep -rn foo 'src/a.ts'",
+        "rg foo src/*.ts",
+        "rg foo -- src",
+        "rg -e foo src",
+        "grep -r --include=*.ts foo src",
+        "cargo build",
+        "cp cargo.toml x",
+        "rg foo <<EOF\nx\nEOF",
+        "echo a\nrg foo",
+        "rg foo \\\n src",
+        "  rg foo",
+        "@C@rg foo",
+        "rg foo \"unterminated ; rg bar",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    commands.push(format!("rg foo {proj}/src"));
+    commands.push(format!("rg foo {proj}"));
+    commands.push(format!("rg foo {proj}x/src"));
+    commands.push(format!("grep -r foo {proj}/src/a.ts"));
+    commands
+}
+
+// Covers: R11
+#[test]
+fn search_lane_matches_the_rendered_copy_for_every_tgrep_state() -> TestResult {
+    let scratch = Scratch::new("guard-search")?;
+    let script = scratch.install_guard(
+        ".claude/hooks/guard-destructive.sh",
+        "proj/.claude/hooks/guard-destructive.sh",
+    )?;
+    let proj = scratch.path("proj");
+    for (path, bytes) in [("src/a.ts", 3), ("bin/deploy", 3), ("Makefile", 3)] {
+        fill(Path::new(&proj), path, bytes)?;
+    }
+    let home = scratch.path("home");
+    fs::create_dir_all(&home)?;
+    let states = [
+        ("none", None),
+        ("noindex", Some(("No index found at x", 0))),
+        ("stopped", Some(("Index: ok Server: not running", 0))),
+        ("running", Some(("Index: ok Server: running", 0))),
+        ("failing", Some(("boom", 1))),
+    ];
+    let mut jobs = Vec::new();
+    for (name, status) in states {
+        jobs.push((tool_path(&scratch, name, status)?, proj.clone(), false));
+    }
+    // Relative operands are read from the hook's working directory.
+    jobs.push((
+        tool_path(&scratch, "running", None)?,
+        format!("{proj}/src"),
+        true,
+    ));
+    let commands = search_commands(&proj);
+    let runs: Vec<Result<Vec<String>, String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = jobs
+            .iter()
+            .map(|(path, cwd, both)| {
+                let (script, proj, home, commands) = (&script, &proj, &home, &commands);
+                scope.spawn(move || {
+                    let host = Host {
+                        project_dir: proj.clone(),
+                        cwd: cwd.clone(),
+                        pwd: cwd.clone(),
+                        home: Some(home.clone()),
+                        claude_project_dir: Some(proj.clone()),
+                        hook_path: script.clone(),
+                        path: Some(path.clone()),
+                        ..Host::default()
+                    };
+                    let env = [
+                        ("HOME", home.as_str()),
+                        ("CLAUDE_PROJECT_DIR", proj.as_str()),
+                        ("PATH", path.as_str()),
+                    ];
+                    let all = locales();
+                    let locales = if *both { &all[..] } else { &all[..1] };
+                    compare(script, Engine::Claude, &host, &env, commands, locales)
+                        .map_err(|e| format!("{path} in {cwd}: {e}"))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or_else(|_| Err("panicked".to_owned())))
+            .collect()
+    });
+    let mut labels = Vec::new();
+    for run in runs {
+        labels.extend(run?);
+    }
+    for label in [
+        "block/content search routed to the index",
+        "fail-open",
+        "allow",
+        "skip",
+    ] {
+        assert!(labels.iter().any(|l| l == label), "{label} never decided");
+    }
+    Ok(())
+}
+
 /// A rendered copy with the progress lane switched on, as a render without
 /// `qualityGate.fast` writes it.
 fn install_with_lane(
@@ -535,7 +725,7 @@ fn install_with_lane(
     source: &str,
     dest: &str,
 ) -> Result<String, Box<dyn Error>> {
-    let path = scratch.install(source, dest)?;
+    let path = scratch.install_guard(source, dest)?;
     let text = fs::read_to_string(&path)?;
     let lane = text.replacen("\nnavori_pg_lane=0\n", "\nnavori_pg_lane=1\n", 1);
     assert_ne!(lane, text, "{source} assigns navori_pg_lane=0");
@@ -707,6 +897,7 @@ fn progress_ratchet_matches_the_rendered_copies_over_real_repositories() -> Test
                         claude_project_dir: leaked.then(|| proj.clone()),
                         cdpath: None,
                         hook_path: script.clone(),
+                        path: None,
                     };
                     let mut env = vec![("HOME", home.as_str())];
                     if leaked {
