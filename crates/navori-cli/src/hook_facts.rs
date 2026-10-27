@@ -17,7 +17,9 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
 
+use crate::facts_cache::{self, FactsCache};
 use crate::hook::{Evaluator, Invocation, Snapshot};
+use crate::journal;
 
 /// Registry adapter: collect host facts before stdin and keep the evaluation pure.
 /// The script path is the one the shadow shell lane runs, so diagnostics compare equal bytes.
@@ -36,17 +38,30 @@ pub fn prepare_subagent_no_background<'a>(
         source: snapshot.source,
         env: snapshot.env,
     };
-    let prepared = collect(request, snapshot.cwd, Limits::default()).map_err(|e| e.to_string())?;
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
     Ok(Box::new(move |payload: &[u8]| prepared.evaluate(payload)))
 }
 
 /// Collect real facts under the exact snapshot and return eligibility before any stdin read.
 /// Timeouts/output errors are explicit ineligibility, never evidence that jq/Node is absent.
-/// R17's 5ms performance acceptance remains pending; this performs real compatibility probes.
 pub fn collect<'a>(
     request: Request<'a>,
     cwd: &Path,
     limits: Limits,
+) -> Result<Prepared<'a>, Ineligible> {
+    collect_cached(request, cwd, limits, None)
+}
+
+/// [`collect`] that first replays cached facts of an unchanged host (R17) and caches the facts
+/// of a freshly probed eligible host. Replayed facts still pass through the planner.
+pub fn collect_cached<'a>(
+    request: Request<'a>,
+    cwd: &Path,
+    limits: Limits,
+    cache: Option<&FactsCache>,
 ) -> Result<Prepared<'a>, Ineligible> {
     let started = Instant::now();
     let plan = prepare::plan(request, limits)?;
@@ -72,6 +87,16 @@ pub fn collect<'a>(
         }
     }
     let bash = bash.ok_or_else(|| Ineligible("legacy Bash is absent".into()))?;
+    let cache = cache
+        .and_then(|cache| Some((cache, facts_cache::key(&bash, env)?, facts_cache::now_ms()?)));
+    if let Some((cache, key, now)) = &cache
+        && let Some(cached) = cache.load(key, *now)
+        && let Ok(discovery) = plan.discover(&cached.facts.bootstrap)
+        && facts_cache::tools_unchanged(&discovery, path, &cached.tools)
+        && let Ok(prepared) = plan.prepare(&cached.facts)
+    {
+        return Ok(prepared);
+    }
     let bootstrap = probe(
         &bash,
         &["-c".into(), prepare::DISCOVERY.into()],
@@ -128,14 +153,22 @@ pub fn collect<'a>(
         env,
         deadline,
     )?;
-    plan.prepare(&Facts {
+    let facts = Facts {
         bootstrap,
         system,
         charmap,
         text,
         jq,
         node,
-    })
+    };
+    let prepared = plan.prepare(&facts)?;
+    // Only an eligible host is cached: a failure is never replayed.
+    if let Some((cache, key, now)) = &cache
+        && let Some(tools) = facts_cache::tool_stamps(&discovery)
+    {
+        cache.store(key, &facts, &tools, *now);
+    }
+    Ok(prepared)
 }
 
 /// Execute a single probe with null stdin, bounded combined output and an absolute deadline.
