@@ -11,8 +11,8 @@ standard or a default installation authorization.
 
 | Skill set | Supported dependency/version | Official source | Trigger | Validation evidence |
 |---|---|---|---|---|
-| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Harness CLI 0.12.2 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
-| Workflow: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Harness CLI 0.12.2 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
+| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Harness CLI 0.12.3 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
+| Workflow: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Harness CLI 0.12.3 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
 | `zod-validation` | Zod 4.6.7 | https://zod.dev | Trust-boundary validation | Locked package + snippet regression |
 | `vitest` | Vitest 5.0.5 | https://vitest.dev | Vitest tests | Locked package + snippet regression |
 | `citty` | Citty 0.2.2 | https://github.com/unjs/citty | Citty CLI changes | Locked declaration regression |

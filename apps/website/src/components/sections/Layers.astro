@@ -1,10 +1,10 @@
 ---
 import SectionHeader from "../SectionHeader.astro";
-import { useTranslations } from "../../i18n/utils";
+import { useTranslations, localizedPath } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
 
-interface Props { lang: Lang }
-const { lang } = Astro.props;
+interface Props { lang: Lang; compact?: boolean; }
+const { lang, compact = false } = Astro.props;
 const t = useTranslations(lang);
 
 const layers = [
@@ -51,9 +51,9 @@ const configJson = `{
       subtitle={t("how.subtitle")}
     />
 
-    <div class="mt-16 grid gap-10 lg:grid-cols-12 lg:gap-12">
+    <div class:list={["mt-10 grid gap-10", !compact && "lg:grid-cols-12 lg:gap-12"]}>
       {/* layers list — left 7 cols */}
-      <ol class="lg:col-span-7 space-y-2">
+      <ol class:list={[compact ? "grid sm:grid-cols-2 gap-3" : "lg:col-span-7 space-y-2"]}>
         {
           layers.map((l, i) => (
             <li
@@ -85,7 +85,7 @@ const configJson = `{
       </ol>
 
       {/* config json — right 5 cols */}
-      <div class="lg:col-span-5">
+      {!compact && <div class="lg:col-span-5">
         <div
           class="rounded-xl border overflow-hidden"
           style="border-color: var(--color-border-soft);"
@@ -107,7 +107,8 @@ const configJson = `{
             class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
             style="background: var(--color-night); color: rgb(226 232 240);"><code>{configJson}</code></pre>
         </div>
-      </div>
+      </div>}
     </div>
+    {compact && <a class="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-sky-700 dark:text-sky-300 underline underline-offset-4" href={localizedPath(lang, "/deep-dive")}>{t("nav.deepdive")} <span aria-hidden="true">↗</span></a>}
   </div>
 </section>

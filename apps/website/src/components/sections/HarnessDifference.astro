@@ -1,0 +1,46 @@
+---
+import type { Lang } from "../../i18n/ui";
+interface Props { lang: Lang; }
+interface DifferenceCopy { title: string; introduction: string; items: Array<{ title: string; body: string }>; }
+const { lang } = Astro.props;
+const content: Record<Lang, DifferenceCopy> = {
+  en: {
+    title: "What navori adds beyond a folder of prompts",
+    introduction: "Its value is in how the pieces work together, with configuration and artifacts you can inspect and version.",
+    items: [
+      { title: "Shared standards, local decisions", body: "Core, preset, workspace and project layers compose the harness before an engine adapter renders it. Teams can share defaults while each repository keeps its own configuration." },
+      { title: "Native artifacts you own", body: "One configuration renders the files each engine expects. Managed blocks preserve user sections, and a version floor guards against rolling managed content backward. Generated files stay reviewable in Git." },
+      { title: "Tools with different jobs", body: "tgrep handles textual discovery; CodeGraph handles indexed structural relationships. Optional plugins bring their own capabilities and instructions. They do not turn unavailable indexes or missing tools into successful searches." },
+      { title: "Evidence around the change", body: "Plans, quality gates, reviews and audit records make scope and verification inspectable. Enforcement differs by engine and host: the documented capability matrix and approval boundaries remain part of the contract." },
+    ],
+  },
+  es: {
+    title: "Lo que navori aporta más allá de una carpeta de prompts",
+    introduction: "Su valor está en cómo se conectan las piezas, con configuración y artefactos que puedes inspeccionar y versionar.",
+    items: [
+      { title: "Estándares compartidos, decisiones locales", body: "Las capas core, preset, workspace y proyecto componen el harness antes de que un adaptador lo traduzca a cada motor. El equipo comparte defaults y cada repositorio conserva su propia configuración." },
+      { title: "Artefactos nativos que te pertenecen", body: "Una configuración genera los archivos que espera cada motor. Los bloques administrados conservan las secciones del usuario y un piso de versión protege contra retrocesos. Los archivos generados se pueden revisar en Git." },
+      { title: "Herramientas con trabajos distintos", body: "tgrep se encarga de búsquedas textuales; CodeGraph, de relaciones estructurales indexadas. Los plugins opcionales aportan capacidades e instrucciones. Un índice ausente o una herramienta no disponible no se presentan como una búsqueda exitosa." },
+      { title: "Evidencia alrededor del cambio", body: "Planes, gates de calidad, revisiones y registros de auditoría permiten inspeccionar el alcance y la verificación. El enforcement cambia según el motor y el host: la matriz de capacidades y los límites de aprobación siguen siendo parte del contrato." },
+    ],
+  },
+  "zh-CN": {
+    title: "navori 不只是一组提示词文件",
+    introduction: "价值在于各部分如何配合，以及可以检查和版本管理的配置与产物。",
+    items: [
+      { title: "共享标准，保留本地决策", body: "Core、preset、workspace 与项目层先组合 harness，再由引擎适配器生成文件。团队可以共享默认设置，每个仓库仍保留自己的配置。" },
+      { title: "由你掌握的原生文件", body: "一个配置生成各引擎需要的文件。受管理区块保留用户内容，版本下限防止受管理内容回退，生成文件可以在 Git 中审查。" },
+      { title: "不同工具承担不同工作", body: "tgrep 负责文本查找，CodeGraph 负责已索引的结构关系。可选插件提供能力和指导；缺失的索引或不可用的工具不会被当成成功的搜索。" },
+      { title: "围绕修改保留证据", body: "计划、质量关卡、审查和审计记录使范围与验证可检查。执行保障因引擎与宿主而异，能力矩阵和批准边界仍是使用约定的一部分。" },
+    ],
+  },
+};
+const copy = content[lang];
+---
+<section class="container-prose py-16 sm:py-20 technical-differences">
+  <h2 class="max-w-3xl text-3xl font-semibold tracking-tight leading-tight">{copy.title}</h2>
+  <p class="mt-5 max-w-3xl text-slate-600 dark:text-slate-300 leading-relaxed">{copy.introduction}</p>
+  <dl class="mt-10 grid gap-x-12 gap-y-9 md:grid-cols-2">
+    {copy.items.map((item) => <div><dt class="font-semibold text-lg">{item.title}</dt><dd class="mt-3 leading-relaxed text-slate-600 dark:text-slate-300">{item.body}</dd></div>)}
+  </dl>
+</section>
