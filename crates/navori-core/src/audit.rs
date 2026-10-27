@@ -1,11 +1,15 @@
 //! Hook audit metadata and the existing CLI bridge (spec 0057 T22 / R11).
 //!
 //! The CLI remains the only log writer and authority on session headers, private modes and
-//! wire identities. This module never appends logs, creates arms or creates a spool directory.
+//! wire identities. This module never appends logs, creates arms or creates a spool directory;
+//! like the shell partial, it may drop one event file into a spool the CLI already created.
 
+use std::collections::hash_map::RandomState;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::hash::{BuildHasher, Hasher};
 use std::io::Write;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::js_json::{JsObject, JsValue};
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+/// Largest spool event, without its trailing newline, the shell partial accepts.
+const MAX_SPOOL_EVENT: usize = 4096;
 const PHASES: &[&str] = &[
     "PreToolUse",
     "PostToolUse",
@@ -450,11 +456,9 @@ impl AuditContext {
         })
     }
 
-    /// Send only to the CLI bridge, silently returning false on observation gaps. `program` is
-    /// the existing trusted CLI executable (`navori`), never a field from the hook payload.
-    ///
-    /// The direct bridge is the safe baseline; add a spool fast path only with equivalent
-    /// private-mode/ownership/nofollow validation and differential tests (D12).
+    /// Record through the session spool when the CLI created it, otherwise through the CLI
+    /// bridge, silently returning false on observation gaps. `program` is the existing trusted
+    /// CLI executable (`navori`), never a field from the hook payload.
     #[must_use]
     pub fn record_metadata(&self, metadata: &HookMetadata, program: &OsStr) -> bool {
         if !self.root.is_dir() || (self.host == Host::Pi && metadata.phase == "SessionStart") {
@@ -467,6 +471,9 @@ impl AuditContext {
                 && regular_file(&repo.join(".armed")))
         {
             return false;
+        }
+        if self.spool_write(&repo, metadata) {
+            return true;
         }
         let Ok(mut child) = Command::new(program)
             .args([
@@ -494,5 +501,49 @@ impl AuditContext {
             .is_some_and(|mut input| input.write_all(metadata.json.as_bytes()).is_ok());
         let status = child.wait();
         sent && status.is_ok_and(|status| status.success())
+    }
+
+    /// Spool lane (spec 0054 R26 / D8), as `navori_audit_spool_write`: one
+    /// `{"v":1,"host":…,"metadata":…}` file created exclusively (never overwritten, never
+    /// through a symlink at that name) with mode 0600 inside the CLI-created spool directory,
+    /// which must be a real directory owned by this process. std exposes no effective uid, so
+    /// ownership is compared on the file just created (always owned by the effective uid) and a
+    /// mismatch unlinks it. Any failure leaves no file and falls through to the CLI bridge; the
+    /// CLI re-validates host, categories and size when it consolidates the spool.
+    fn spool_write(&self, repo: &Path, metadata: &HookMetadata) -> bool {
+        let spool = repo.join(format!("spool-{}", self.session_id));
+        let Ok(directory) = fs::symlink_metadata(&spool) else {
+            return false;
+        };
+        let event = format!(
+            "{{\"v\":1,\"host\":\"{}\",\"metadata\":{}}}",
+            self.host.as_str(),
+            metadata.json
+        );
+        if !directory.is_dir() || event.len() > MAX_SPOOL_EVENT {
+            return false;
+        }
+        let micros = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_micros());
+        let random = RandomState::new().build_hasher().finish() % 32_768;
+        let path = spool.join(format!("{micros}-{}-{random}.json", std::process::id()));
+        let Ok(mut file) = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        else {
+            return false;
+        };
+        let owned = file
+            .metadata()
+            .is_ok_and(|created| created.uid() == directory.uid());
+        if owned && file.write_all(format!("{event}\n").as_bytes()).is_ok() {
+            return true;
+        }
+        drop(file);
+        let _ = fs::remove_file(&path);
+        false
     }
 }
