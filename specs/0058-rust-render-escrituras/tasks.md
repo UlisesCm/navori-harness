@@ -97,7 +97,9 @@ Estimated LOC: 9000
 En curso en `feat/0058-rust-e3` (adelantado antes de E1 por decisión del usuario, Q2). Portado
 con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
-(`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`). Faltan plugins/presets,
+(`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
+(`presets.ts`, locales sobre incluidos; lo que el TS rechaza se delega) y el registro de skills
+de librerías, con los validadores zod compartidos en `navori_core::zod`. Faltan plugins,
 `effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude, `build-settings`/coexist,
 el wiring nativo y las cadenas del render. Pendientes ajenos a 0058: `navori-cli/tests/facts_cache.rs`
 (0057, `bccfedd0`) falla de forma intermitente (2/5 aislado) por un presupuesto de 1 ms. Una falla
