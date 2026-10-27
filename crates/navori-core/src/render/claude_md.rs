@@ -23,6 +23,7 @@ use crate::render::block_plan::{
     AssetStatus, PlanAsset, PlanOptions, RenderPlan, canonical_managed_order, compute_render_plan,
 };
 use crate::render::context::Lang;
+use crate::render::harness_plan::{ROSTER_AGENTS, is_agent_enabled};
 use crate::render::interpolate::sanitize_project_value;
 use crate::render::managed_file::{
     RenderManagedFileInput, forced_managed_file_content, render_managed_file,
@@ -96,18 +97,6 @@ const CONTEXTO_MONOREPO_ID: &str = "contexto-monorepo";
 pub const CLAUDE_COMPUTED_BLOCK_IDS: [&str; 3] =
     [AGENTS_INDEX_ID, CONTEXTO_MONOREPO_ID, CONTEXTO_PROYECTO_ID];
 
-/// `ROSTER_AGENTS` ids, in order.
-const ROSTER_AGENT_IDS: [&str; 8] = [
-    "orchestrator",
-    "implementer",
-    "reviewer",
-    "scout",
-    "auditor",
-    "publisher",
-    "scribe",
-    "architect",
-];
-
 /// `orchestratorContextFileName`: `10-orquestacion.md`; unknown ids sort last at 90.
 fn context_file_name(id: &str) -> String {
     let prefix = match id {
@@ -159,23 +148,14 @@ fn truthy(value: Option<&JsValue>) -> bool {
     }
 }
 
-/// `isAgentEnabled`.
-fn agent_enabled(config: &JsValue, key: &str) -> bool {
-    if key == "architect" {
-        return true;
-    }
-    match get(config, "harness").and_then(|harness| get(harness, key)) {
-        None | Some(JsValue::Undefined) => true,
-        explicit => truthy(explicit),
-    }
-}
-
 /// `buildAgentsIndexBody` (through `buildAgentsIndexBlock` with the intro).
 fn agents_index_body(config: &JsValue, lang: Lang) -> Option<String> {
-    let rows: Vec<String> = ROSTER_AGENT_IDS
+    let rows: Vec<String> = ROSTER_AGENTS
         .iter()
-        .filter(|id| **id != "orchestrator" && agent_enabled(config, id))
-        .filter_map(|id| i18n::agent_when(lang, id).map(|when| format!("- `{id}` — {when}")))
+        .filter(|agent| agent.id != "orchestrator" && is_agent_enabled(config, agent.harness_key))
+        .filter_map(|agent| {
+            i18n::agent_when(lang, agent.id).map(|when| format!("- `{}` — {when}", agent.id))
+        })
         .collect();
     if rows.is_empty() {
         return None;
