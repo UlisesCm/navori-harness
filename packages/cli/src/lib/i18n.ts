@@ -898,6 +898,8 @@ interface DoctorCmdStrings {
   /** #943 — index freshness for the textual (tgrep) and structural (codegraph)
    *  search providers. Informational only, never feeds the verdict. */
   tgrepIndexStale: (age: string, rootPath: string) => string;
+  /** Audit root or repo dirs with group/other permission bits: navori audit refuses them. */
+  auditRootOpen: (rows: string, command: string) => string;
   codegraphIndexDrift: (builtWithVersion: string, currentVersion: string) => string;
   /** #982 — shown once when codegraph/tgrep's reported state (missing
    *  binary, stale index, available-not-enabled) makes the setup recipe
@@ -2142,6 +2144,9 @@ const CMD_ES: CmdStrings = {
       `Este repo audita siempre pero el receptor de eventos OTel no está corriendo, así que las ` +
       `sesiones pierden la tercera fuente (quién aprobó cada permiso, qué skill declaró el host). ` +
       `Levántalo con 'navori audit --collect' (en primer plano o bajo el supervisor que prefieras).`,
+    auditRootOpen: (rows, command) =>
+      `El audit root tiene directorios abiertos a otros usuarios; 'navori audit' los rechaza ('unsafe-audit-target'):\n${rows}\n` +
+      `Verifica la ruta y repáralo con: ${command}`,
     tgrepIndexStale: (age, rootPath) =>
       `El índice de tgrep se actualizó hace ${age} y no hay servidor corriendo: ` +
       `las búsquedas responden desde ese snapshot congelado, no desde el árbol actual. ` +
@@ -3530,6 +3535,9 @@ const CMD_EN: CmdStrings = {
       `This repo audits every session but the OTel receiver is not running, so those sessions ` +
       `lose the third source (who approved each permission, which skill the host declared). ` +
       `Start it with 'navori audit --collect' (in the foreground or under the supervisor you prefer).`,
+    auditRootOpen: (rows, command) =>
+      `The audit root has directories open to other users; 'navori audit' refuses them ('unsafe-audit-target'):\n${rows}\n` +
+      `Verify the path, then repair with: ${command}`,
     tgrepIndexStale: (age, rootPath) =>
       `The tgrep index was last updated ${age} ago and no server is running: ` +
       `searches are answering from that frozen snapshot, not the current tree. ` +
