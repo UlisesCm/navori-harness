@@ -13,6 +13,7 @@ pub mod audit;
 pub mod integrity;
 pub mod js_json;
 pub mod manifest;
+pub mod render;
 pub mod semver;
 
 /// Embedded managed assets as `(repo-relative path, bytes)`, sorted by path.
