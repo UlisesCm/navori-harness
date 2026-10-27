@@ -755,6 +755,28 @@ export function parseBenchArgs(argv) {
   };
 }
 
+/**
+ * Whether a registered command runs `<directory>/<hook>` with no hook-specific arguments, in one
+ * of the shapes navori renders: the plain `bash "<dir>/<hook>"`, Claude's parse guard
+ * (`exec bash "$f";`) or Claude's native wrapper (`hook --via-command '<Event>' "$f" [--shadow];`).
+ * Anything else could carry argv the native timing would not reproduce, so it is rejected.
+ *
+ * @param {string} command
+ * @param {string} directory
+ * @param {string} hook
+ * @returns {boolean}
+ */
+export function argumentFreeInvocation(command, directory, hook) {
+  if (command === `bash "${directory}/${hook}"`) return true;
+  const prefix = `f="$CLAUDE_PROJECT_DIR/${directory}/${hook}"; `;
+  if (!command.startsWith(prefix)) return false;
+  const uses = command.split('"$f"').length - 1;
+  const guard = /bash -n "\$f" 2>\/dev\/null && exec bash "\$f"; /.test(command);
+  const wrapper = /hook --via-command '[A-Za-z]+' "\$f"(?: --shadow)?; then /.test(command);
+  // Every use of "$f" must be one of the argument-free forms above, never `"$f" <args>`.
+  return (guard && uses === 2) || (wrapper && uses === (guard ? 3 : 1));
+}
+
 /** Nearest-rank p95 in the same units as the samples.
  * @param {number[]} values
  * @returns {number}
@@ -801,13 +823,14 @@ function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
       for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
         for (const reg of selectHooks(registrations, scenario, engine)) {
           const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
+          // Only ported hooks have a native implementation to time; the rest stay shell-only.
+          if (!native.registered(hook)) continue;
           const directory = {
             claude: ".claude/hooks",
             codex: ".codex/hooks",
             pi: ".pi/navori/hooks",
           }[engine];
-          // Only the canonical no-argument form is supported; extend when registrations expose declarative argv.
-          if (reg.command !== `bash "${directory}/${hook}"`) {
+          if (!argumentFreeInvocation(reg.command, directory, hook)) {
             throw new Error(
               `native registration unsupported: ${engine}/${hook} has no verified argument-free invocation`,
             );
