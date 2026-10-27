@@ -1,5 +1,6 @@
 //! Embeds `packages/core/core-assets/` and `packages/plugins/*/` as a sorted
-//! `include_bytes!` table (the same roots as `bundled-assets.ts`).
+//! `include_bytes!` table (the same roots as `bundled-assets.ts`), and exports the TS CLI version
+//! as `NAVORI_TS_CLI_VERSION` (spec 0058 D20).
 
 use std::error::Error;
 use std::fmt::Write as _;
@@ -22,9 +23,28 @@ fn walk(dir: &Path, files: &mut Vec<PathBuf>) -> BuildResult<()> {
     Ok(())
 }
 
+/// `version` of `packages/cli/package.json`, with the same `name === "navori"` check as
+/// `readCliVersion`.
+fn ts_cli_version(repo: &Path) -> BuildResult<String> {
+    let path = repo.join("packages/cli/package.json");
+    println!("cargo::rerun-if-changed={}", path.display());
+    let package: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    if package["name"].as_str() != Some("navori") {
+        return Err(format!("{} is not the navori package", path.display()).into());
+    }
+    match package["version"].as_str() {
+        Some(version) if !version.is_empty() => Ok(version.to_owned()),
+        _ => Err(format!("{} has no version", path.display()).into()),
+    }
+}
+
 fn main() -> BuildResult<()> {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
     let repo = manifest_dir.join("..").join("..").canonicalize()?;
+    println!(
+        "cargo::rustc-env=NAVORI_TS_CLI_VERSION={}",
+        ts_cli_version(&repo)?
+    );
 
     let mut roots = vec![repo.join("packages/core/core-assets")];
     let plugins = repo.join("packages/plugins");

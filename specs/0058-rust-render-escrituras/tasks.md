@@ -1,6 +1,6 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada; E2 en curso, E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
+**Estado:** aceptada; E2 implementada con gate full verde (revisión independiente pendiente), E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
 `specs/0057-migracion-rust/requirements.md` § "Fases del programa"): cuatro entregas, **cada una con
 su propio PR contra `migration/rust`**. El LOC es una estimación, no una medición.
 
@@ -50,17 +50,42 @@ Estimated LOC: 1200
 Estimated LOC: 4500
 
 ### M3 — Semver, versión de sello y config
-- **A3** [observable] — config y semver coinciden con Node en documentos generados · `cargo test -p navori-core --test semver --test config --locked && cargo test -p navori-oracle-tests --test config_parity --locked` → exit 0
-- [ ] **T7** (R38) — `navori-core` (`semver`) con la semántica de `semver.ts` (prerelease ignorada, inparseable nunca es retroceso) y `build.rs` que emite `TS_CLI_VERSION` desde `packages/cli/package.json` (D20) · effect: behavior · test: `crates/navori-core/tests/semver.rs`::"0.13.0-rust.1 se ordena como 0.13.0 y el sello usa la versión del TS"
-- [ ] **T8** (R32) — `navori-core` (`config`): `NavoriConfig` en serde con defaults, migración de claves retiradas y advertencias de claves desconocidas, con propiedades contra `NavoriConfigSchema.safeParse` (D22) · effect: behavior · test: `crates/navori-oracle-tests/tests/config_parity.rs`::"acepta, rechaza y completa defaults igual que NavoriConfigSchema"
-- [ ] **T9** (R33) — config ausente o inválida: re-delegación al TS antes de cualquier salida (Q4) · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"config inválida produce la salida del TS sin efectos"
-- [ ] **T10** (R34) — `render::context::RenderContext` con `cli_version`, `floor`, `lang`, `mode`, `now` y `pid` (D19); ninguna función de markers lee estado global · effect: behavior · test: `crates/navori-core/tests/markers.rs`::"el floor solo llega por el contexto o por meta"
+
+Implementado en `feat/0058-rust-e2` sin subagentes, por instrucción del usuario. A3 verde: propiedades
+contra `semver.ts` (2 000 casos) y contra el `readConfig` real (6 000 casos, ~29 % válidos), más
+unitarios. Las mutaciones (trim JS, defaults, strip/passthrough/strict, claves de record, gates, enteros
+seguros, advertencias, retiradas y redondeo de floats) se detectan todas. Hallazgos: `navori-hooks`
+activa `arbitrary_precision` en `serde_json` y, por unificación de features, el parser de
+`js_json` lo soporta; sin `float_roundtrip`, `serde_json` no redondea como `JSON.parse`. Workspace,
+fmt y clippy en verde. La re-delegación por config inválida en el CLI llega con su primer consumidor
+(T17).
+- **A3** [observable] — config y semver coinciden con Node en documentos generados · `cargo test -p navori-core --test semver --test config --test markers --locked && cargo test -p navori-oracle-tests --test semver_parity --test config_parity --locked` → exit 0
+- [x] **T7** (R38) — `navori-core` (`semver`) con la semántica de `semver.ts` (prerelease ignorada, inparseable nunca es retroceso) y `build.rs` que emite `TS_CLI_VERSION` desde `packages/cli/package.json` (D20) · effect: behavior · test: `crates/navori-core/tests/semver.rs`::"0.13.0-rust.1 se ordena como 0.13.0 y el sello usa la versión del TS"
+- [x] **T8** (R32) — `navori-core` (`config`): `NavoriConfig` en serde con defaults, migración de claves retiradas y advertencias de claves desconocidas, con propiedades contra `NavoriConfigSchema.safeParse` (D22) · effect: behavior · test: `crates/navori-oracle-tests/tests/config_parity.rs`::"acepta, rechaza y completa defaults igual que NavoriConfigSchema"
+- [x] **T9** (R33) — config ausente o inválida: `config::read` devuelve la causa de re-delegación (no UTF-8, JSON, claves retiradas, esquema) y nunca adivina; el CLI re-delega antes de cualquier salida con T17 (Q4) · effect: behavior · test: `crates/navori-core/tests/config.rs`::`every_config_the_ts_must_report_is_delegated`
+- [x] **T10** (R34) — `render::context::RenderContext` con `cli_version`, `floor`, `lang`, `mode`, `now` y `pid` (D19); ninguna función de markers lee estado global · effect: behavior · test: `crates/navori-core/tests/markers.rs`::"el floor solo llega por el contexto o por meta"
 
 ### M4 — Markers y anti-rollback
+
+Implementado en `feat/0058-rust-e2` sin subagentes. A4 en verde. Propiedades contra el `marker.ts`
+real (3 000 casos por operación: inject, remove guardado, locate, proseLines, reorder, split y emit),
+con bloques HTML y shell, hashes correctos, editados y vacíos, huérfanos, fences, bloques colapsados,
+CRLF y Unicode no BMP. Las 14 mutaciones probadas (fences, re-escaneo, atributos vacíos, anclaje de
+`created`, `restamp`, floor ambiental, remove sin versión, colapso de líneas, preámbulo, zona de
+usuario, trim JS, U+FEFF y salto final) se detectan. Matriz anti-rollback unitaria con la expectativa
+calculada aparte. Workspace (118), fmt y clippy en verde.
+
+Cierre de E2 tras integrar `origin/migration/rust` (`3faa2c01`: dev 0.12.3, zod 4.6.7, citty 0.2.2):
+workspace 134/134 y `navori-core` aislado 34/34, sin y con `arbitrary_precision`. `bun check` en verde:
+10 474 pruebas, dos omitidas, 496 archivos en 546.8 s; cobertura 88.08/86.39/91.32/80.99 % con piso
+ok. `oracle:rust`: 52 casos, 0 diferencias. Antes de integrar, el único rojo fue
+`cli.e2e` `update --yes`, porque npm ya publicaba 0.12.3 y el checkout seguía en 0.12.2; no depende de
+esta entrega. Sin subagentes por instrucción del usuario, así que el PR necesita revisión
+independiente antes del merge.
 - **A4** [observable] — inject, remove y la matriz unitaria coinciden con Node · `cargo test -p navori-core --test markers --test anti_rollback --locked && cargo test -p navori-oracle-tests --test marker_parity --locked` → exit 0
-- [ ] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
-- [ ] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
-- [ ] **T13** (R37, R34) — matriz unitaria: floor {ausente, menor, igual, mayor} × `version=` {ausente, menor, igual, mayor} × CLI × {inject, remove}, incluida la asimetría de floor en remove (F25) · effect: tests · test: `crates/navori-core/tests/anti_rollback.rs`::"matriz floor × marker × CLI coincide con el TS"
+- [x] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
+- [x] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
+- [x] **T13** (R37, R34) — matriz unitaria: floor {ausente, menor, igual, mayor} × `version=` {ausente, menor, igual, mayor} × CLI × {inject, remove}, incluida la asimetría de floor en remove (F25) · effect: tests · test: `crates/navori-core/tests/anti_rollback.rs`::"matriz floor × marker × CLI coincide con el TS"
 
 ## E3 — `render` Claude en preview
 Estimated LOC: 9000
@@ -74,7 +99,7 @@ Estimated LOC: 9000
 ### M6 — Comando `render` en preview
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
-- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
+- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
 - [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
 - [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
 - [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
