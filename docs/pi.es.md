@@ -529,6 +529,6 @@ La prueba en vivo es la única evidencia de que el diálogo TUI se representa y 
 10. Confirma el PR en el diálogo TUI y revisa el contenido que muestra.
 11. Cierra el criterio: `navori plan update <feature> --progress A<n>=cumplido`. Solo tiene éxito si hay evidencia registrada.
 
-Estado actual: **aún no se ejecutó**. La evidencia va en [evals.md](../specs/0048-pi-paridad/evals.md).
+Estado actual: la prueba en vivo se ejecutó el 2026-10-12 con Pi 1.1.0 (ejecución 4, GREEN; las ejecuciones 1–3 fueron RED y se corrigieron en #1301/#1302). Aún no se repite con la versión probada Pi 1.4.0. La evidencia está en [evals.md](../specs/0048-pi-paridad/evals.md).
 
 Consulta la [especificación del motor Pi](../specs/0040-pi-engine/requirements.md) y la [primera especificación de Pi](../specs/0047-pi-first/requirements.md) para ver los requisitos y el estado de implementación y revisión.

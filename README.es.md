@@ -60,7 +60,7 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima y probada 1.1.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
+- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 1.1.0 y probada 1.4.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
 
 Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
 ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un

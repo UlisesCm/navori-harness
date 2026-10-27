@@ -535,6 +535,6 @@ Navori 不会读取、复制、生成、刷新或记录 Pi 的 `auth.json`，也
 10. 在 TUI 对话框中确认 PR，并检查对话框显示的正文。
 11. 关闭验收标准：`navori plan update <feature> --progress A<n>=cumplido`。只有记录了证据后此命令才会成功。
 
-当前状态：**尚未运行**。证据记录在 [evals.md](../specs/0048-pi-paridad/evals.md) 中。
+当前状态：实时冒烟测试已于 2026-10-12 使用 Pi 1.1.0 运行（第 4 次运行，GREEN；第 1–3 次为 RED，已由 #1301/#1302 修复）。尚未在经过测试的 Pi 1.4.0 上重复。证据记录在 [evals.md](../specs/0048-pi-paridad/evals.md) 中。
 
 有关要求以及实施/review 状态，请参见 [Pi 引擎规范](../specs/0040-pi-engine/requirements.md)和 [Pi first 规范](../specs/0047-pi-first/requirements.md)。
