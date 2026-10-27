@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use navori_cli::hook::{Invocation, Mode, NativeHook, run_with};
+use navori_cli::hook::{Handler, Invocation, Mode, NativeHook, run_with};
 use navori_core::integrity::script_hash;
 use navori_core::manifest::Manifest;
 use navori_hooks::runner::{Evaluation, Failure, Verdict};
@@ -120,7 +120,7 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
     [NativeHook {
         id: "example",
         implementation: HASH,
-        evaluate,
+        handler: Handler::Pure(evaluate),
     }]
 }
 
@@ -276,7 +276,13 @@ mod shadow_dispatch {
             assert_eq!(stdout, expected);
             assert_eq!(stderr, b"shell-only\n\n");
         }
-        assert!(navori_cli::hook::NATIVE_HOOKS.is_empty());
+        // A compiled implementation enables nothing until the embedded manifest selects it (R7).
+        let embedded = Manifest::embedded()?;
+        assert!(
+            navori_cli::hook::NATIVE_HOOKS
+                .iter()
+                .all(|hook| !embedded.hooks.contains_key(hook.id))
+        );
         Ok(())
     }
 
@@ -868,7 +874,7 @@ fn compiled_hash_mismatch_and_non_engine_script_paths_defer() -> TestResult {
     let wrong = [NativeHook {
         id: "example",
         implementation: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        evaluate: record,
+        handler: Handler::Pure(record),
     }];
     assert_eq!(
         run_with(
@@ -1035,4 +1041,219 @@ fn same_pid_hook_recursion_exits_70_while_a_real_child_still_defers() -> TestRes
     assert!(recursive.stdout.is_empty());
     assert!(String::from_utf8_lossy(&recursive.stderr).contains("delegation loop"));
     Ok(())
+}
+
+mod prepared_handlers {
+    use super::*;
+    use navori_cli::hook::{Evaluator, Snapshot};
+
+    fn ineligible<'a>(_: &'a Invocation, _: Snapshot<'a>) -> Result<Evaluator<'a>, String> {
+        Err("fixture host is not accredited".to_owned())
+    }
+
+    /// Echo what the preparation saw (bytes, environment, cwd, engine), then the payload.
+    fn echo<'a>(
+        invocation: &'a Invocation,
+        snapshot: Snapshot<'a>,
+    ) -> Result<Evaluator<'a>, String> {
+        let seen = format!(
+            "{}|{}|{}|{:?}|{}|",
+            snapshot.source.len(),
+            snapshot.env.iter().any(|(key, _)| key == "PATH"),
+            snapshot.cwd.is_absolute(),
+            invocation.engine,
+            snapshot
+                .source
+                .starts_with(b"# navori:native-hook v=1 file=sha256:"),
+        );
+        Ok(Box::new(move |payload: &[u8]| {
+            let mut stdout = seen.clone().into_bytes();
+            stdout.extend_from_slice(payload);
+            Ok(Evaluation {
+                verdict: Verdict::Block,
+                stdout,
+                stderr: Vec::new(),
+            })
+        }))
+    }
+
+    fn prepared(
+        prepare: for<'a> fn(&'a Invocation, Snapshot<'a>) -> Result<Evaluator<'a>, String>,
+    ) -> [NativeHook; 1] {
+        [NativeHook {
+            id: "example",
+            implementation: HASH,
+            handler: Handler::Prepared(prepare),
+        }]
+    }
+
+    // Covers: R12, R13
+    #[test]
+    fn an_ineligible_host_defers_before_stdin_and_names_its_cause_when_forced() -> TestResult {
+        let scratch = Scratch::new()?;
+        let script = scratch.script(".claude", &[])?;
+        let manifest = manifest(true, &[])?;
+        for (mode, expected) in [(Mode::Auto, 3), (Mode::Rust, 1)] {
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let code = run_with(
+                &argv(&script),
+                &manifest,
+                &prepared(ineligible),
+                mode,
+                &mut NeverRead,
+                &mut stdout,
+                &mut stderr,
+            );
+            assert_eq!(code, expected);
+            assert!(stdout.is_empty());
+            if mode == Mode::Rust {
+                assert_eq!(
+                    stderr,
+                    b"navori-rust: hook deferred: hook is ineligible: fixture host is not accredited\n"
+                );
+            } else {
+                assert!(stderr.is_empty());
+            }
+        }
+        Ok(())
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn preparation_sees_the_verified_bytes_and_this_invocation_environment() -> TestResult {
+        let scratch = Scratch::new()?;
+        let script = scratch.script(".pi/navori", &[])?;
+        let manifest = manifest(true, &[])?;
+        let size = fs::read(&script)?.len();
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let mut input: &[u8] = b"{\"payload\":1}";
+        let code = run_with(
+            &argv(&script),
+            &manifest,
+            &prepared(echo),
+            Mode::Rust,
+            &mut input,
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(code, 2);
+        assert_eq!(
+            String::from_utf8(stdout)?,
+            format!("{size}|true|true|Pi|true|{{\"payload\":1}}")
+        );
+        Ok(())
+    }
+
+    const CHILD: &str = "NAVORI_PRODUCTION_REGISTRY_CHILD";
+
+    /// The real asset with its includes expanded, as the renderer writes it.
+    fn expanded_asset() -> Result<String, Box<dyn Error>> {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/core-assets/hooks");
+        let mut expanded = String::new();
+        for line in fs::read_to_string(root.join("subagent-no-background.sh"))?.lines() {
+            if let Some(name) = line.strip_prefix("# navori:include ") {
+                expanded.push_str(&fs::read_to_string(
+                    root.join("_partials").join(format!("{name}.sh")),
+                )?);
+            } else {
+                expanded.push_str(line);
+            }
+            expanded.push('\n');
+        }
+        Ok(expanded)
+    }
+
+    /// Child half: evaluate through the production registry under the parent's clean env.
+    fn production_registry_child(script: &Path) -> TestResult {
+        let implementation = navori_hooks::compiled::implementation_hash("subagent-no-background")
+            .ok_or("compiled hash")?;
+        let manifest = Manifest::parse(
+            &serde_json::json!({
+                "schema":1, "commands":[], "hooks":{"subagent-no-background":{
+                    "mode":"active", "gating":true,
+                    "blocks":{"subagent-no-background-base":HASH}, "impl":implementation
+                }}
+            })
+            .to_string(),
+        )?;
+        let payloads: [&[u8]; 4] = [
+            b"{}",
+            br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"run_in_background":true,"command":"sleep 1"}}"#,
+            br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"sleep 1 &"}}"#,
+            br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"printf ok"}}"#,
+        ];
+        for payload in payloads {
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let mut input = payload;
+            let code = run_with(
+                &argv(script),
+                &manifest,
+                &*navori_cli::hook::NATIVE_HOOKS,
+                Mode::Rust,
+                &mut input,
+                &mut stdout,
+                &mut stderr,
+            );
+            let mut shell = Command::new("bash")
+                .arg(script)
+                .env("NAVORI_HOOK_IMPL", "shell")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            io::Write::write_all(&mut shell.stdin.take().ok_or("stdin")?, payload)?;
+            let oracle = shell.wait_with_output()?;
+            let shown = String::from_utf8_lossy(payload);
+            assert_eq!(oracle.status.code(), Some(i32::from(code)), "{shown}");
+            assert_eq!(oracle.stdout, stdout, "{shown}");
+            assert_eq!(
+                String::from_utf8_lossy(&oracle.stderr),
+                String::from_utf8_lossy(&stderr),
+                "{shown}"
+            );
+        }
+        Ok(())
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn the_production_registry_reproduces_the_real_shell_hook_byte_for_byte() -> TestResult {
+        if let Some(script) = std::env::var_os(CHILD) {
+            return production_registry_child(Path::new(&script));
+        }
+        let scratch = Scratch::new()?;
+        let path = scratch.0.join(".claude/hooks/subagent-no-background.sh");
+        fs::create_dir_all(path.parent().ok_or("hooks parent")?)?;
+        let implementation = navori_hooks::compiled::implementation_hash("subagent-no-background")
+            .ok_or("compiled hash")?;
+        let zero = "0".repeat(64);
+        let unsigned = format!(
+            "# navori:native-hook v=1 file=sha256:{zero} impl={implementation}\n{}",
+            expanded_asset()?
+        );
+        let hash = script_hash(unsigned.as_bytes(), &[]).ok_or("metadata")?;
+        fs::write(&path, unsigned.replacen(&zero, &hash[7..], 1))?;
+        let output = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "prepared_handlers::the_production_registry_reproduces_the_real_shell_hook_byte_for_byte",
+                "--nocapture",
+            ])
+            .current_dir(&scratch.0)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("LC_ALL", "C")
+            .env("NAVORI_AUDITS_ROOT", scratch.0.join("audit-off"))
+            .env(CHILD, &path)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        Ok(())
+    }
 }
