@@ -17,6 +17,7 @@ fn output(verdict: Verdict) -> Evaluation {
         verdict,
         stdout: b"complete stdout\n".to_vec(),
         stderr: b"complete stderr\n".to_vec(),
+        audit: None,
     }
 }
 
