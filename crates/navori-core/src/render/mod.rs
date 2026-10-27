@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod block_plan;
 pub mod claude_md;
+pub mod collect;
 pub mod context;
 pub mod frontmatter;
 pub mod harness_plan;

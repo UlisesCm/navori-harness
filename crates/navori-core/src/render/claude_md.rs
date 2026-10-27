@@ -22,50 +22,19 @@ use crate::render::assets;
 use crate::render::block_plan::{
     AssetStatus, PlanAsset, PlanOptions, RenderPlan, canonical_managed_order, compute_render_plan,
 };
+use crate::render::collect::collect_managed;
 use crate::render::context::Lang;
 use crate::render::harness_plan::{ROSTER_AGENTS, is_agent_enabled};
 use crate::render::interpolate::sanitize_project_value;
-use crate::render::managed_file::{
-    RenderManagedFileInput, forced_managed_file_content, render_managed_file,
-};
+use crate::render::managed_file::RenderManagedFileInput;
 use crate::render::plan::{Audience, CORE_SOURCE_ID, resolve_asset_path};
 use crate::semver;
 
-/// Read access to the repo being rendered, by path relative to its root.
-pub trait RepoView {
-    /// `existsSync` + `readFileSync`: follows symlinks; `None` when absent or unreadable.
-    fn read(&self, rel: &str) -> Option<String>;
-    /// The content of a regular file (`lstat().isFile()`): `None` for symlinks and directories.
-    fn read_regular(&self, rel: &str) -> Option<String>;
-}
+pub use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
 
 /// The TS path is not modelled here (monorepo workspaces, a throwing asset, …).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClaudeMdDelegate;
-
-/// A file the render would write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingWrite {
-    /// Path relative to the repo root.
-    pub rel_path: String,
-    /// Full content.
-    pub content: String,
-    /// `created` or `updated`.
-    pub status: InjectStatus,
-}
-
-/// A file navori refused to touch (`SkippedFile`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkippedFile {
-    /// Path relative to the repo root.
-    pub rel_path: String,
-    /// Localized reason.
-    pub reason: String,
-    /// `user-modified-skipped` or `downgrade-skipped`.
-    pub status: InjectStatus,
-    /// `resolution.content`: what `sync` would write to accept the rendered version.
-    pub resolution: Option<String>,
-}
 
 /// What step 1 adds to the engine's plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,42 +332,10 @@ pub fn plan_claude_md(
             force_overwrite: false,
             ambient_floor,
         };
-        let rendered = render_managed_file(&input).map_err(|_| ClaudeMdDelegate)?;
-        match rendered.status {
-            InjectStatus::Unchanged => {}
-            InjectStatus::UserModifiedSkipped => {
-                // `attachResolution`: a regular file whose forced render differs can be
-                // resolved by `sync`, and says so.
-                let resolution = view
-                    .read_regular(&dest)
-                    .and(forced_managed_file_content(&input).ok().flatten());
-                let reason = if resolution.is_some() {
-                    i18n::managed_file_edited_resolvable(lang)
-                } else {
-                    i18n::managed_block_edited_by_hand(lang)
-                };
-                skipped.push(SkippedFile {
-                    rel_path: dest,
-                    reason: reason.to_owned(),
-                    status: rendered.status,
-                    resolution,
-                });
-            }
-            InjectStatus::DowngradeSkipped => skipped.push(SkippedFile {
-                rel_path: dest,
-                reason: i18n::block_from_newer_navori(
-                    lang,
-                    rendered.details.existing_version.as_deref(),
-                ),
-                status: rendered.status,
-                resolution: None,
-            }),
-            status => pending.push(PendingWrite {
-                rel_path: dest,
-                content: rendered.content,
-                status,
-            }),
-        }
+        let collected =
+            collect_managed(view, &dest, &input, false, lang).map_err(|_| ClaudeMdDelegate)?;
+        pending.extend(collected.write);
+        skipped.extend(collected.skip);
     }
 
     // 1b: the retired skills index leaves CLAUDE.md only when pristine.
@@ -442,6 +379,7 @@ pub fn plan_claude_md(
                 rel_path: dest,
                 content: file.output,
                 status,
+                chmod_exec: false,
             });
         }
         content = remove_managed_section(&content, AGENTS_INDEX_ID, CommentStyle::Html);
@@ -501,6 +439,7 @@ pub fn plan_claude_md(
                 InjectStatus::Updated
             },
             content,
+            chmod_exec: false,
         });
     }
     Ok(ClaudeMdPlan {
