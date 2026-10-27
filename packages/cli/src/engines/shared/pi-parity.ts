@@ -233,16 +233,17 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "routing-watch",
-      unsupported(
-        "none today. Evaluated against Pi 1.1.0 (spec 0048 D11): the signal exists in `tool_result` (edit/write path, `navori_subagent` call), but the script keys on Claude tool names. Probe: with 4 distinct files, tool_name `Edit` makes it emit its additionalContext note and the Pi name `edit` emits nothing",
-        "Becomes `advisory` only once the bridge maps Pi tool names and payload fields to the script's contract and turns its additionalContext into an appended result block (spec 0048 E1 M2/E3); never blocks",
+      advisory(
+        "the extension's tool_result handler runs the Pi copy of the script for the parent on bash/edit/write/navori_subagent results; `navori_subagent` reaches the script as `Agent` (delegation) and its additionalContext is appended to the result (PI_HOOK_BINDINGS)",
+        "at most one note per session; never blocks; errored results are not forwarded, so a failed write or a refused `navori_subagent` is neither work nor delegation; like Claude it needs Pi started at the repository root, and the bash lane counts only redirect/tee/sed -i writes",
+        "pi-extension:tool_result",
       ),
     ),
     h(
       "model-advisor",
       unsupported(
-        "none: the script reads the Claude model-change contract (host-contracts.ts)",
-        "In Pi the model is chosen with `/model` and passed to children (spec 0047 R17); there is no per-turn model-change payload to advise on",
+        "none: Pi 1.4.0 emits `model_select` and `thinking_level_select`, but the script only knows the Claude and Codex modes and recommends vendor-specific models",
+        "A Pi port needs a Pi mode in the script and a binding; not planned (the model is chosen with `/model` and passed to children, spec 0047 R17)",
       ),
     ),
     h(

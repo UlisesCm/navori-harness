@@ -879,12 +879,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "compact-advice": {
         state: "unsupported",
         reason:
-          "Pi runs no navori hook scripts, so no context-size advice is injected after a publisher dispatch.",
+          "No Pi binding runs compact-advice, so no context-size advice is injected after a publisher dispatch.",
       },
       "general-purpose-confirm": {
         state: "unsupported",
         reason:
-          "Pi runs no Claude hook scripts and its navori_subagent roster has no general-purpose role to confirm.",
+          "Pi's `navori_subagent` roster has seven fixed roles and no general-purpose role to confirm.",
       },
     },
     analyticWriteTools: {
