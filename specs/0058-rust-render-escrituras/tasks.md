@@ -1,6 +1,6 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada; E2 implementada (cierre pendiente de gate full y revisión), E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
+**Estado:** aceptada; E2 implementada con gate full verde (revisión independiente pendiente), E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
 `specs/0057-migracion-rust/requirements.md` § "Fases del programa"): cuatro entregas, **cada una con
 su propio PR contra `migration/rust`**. El LOC es una estimación, no una medición.
 
@@ -74,6 +74,14 @@ CRLF y Unicode no BMP. Las 14 mutaciones probadas (fences, re-escaneo, atributos
 `created`, `restamp`, floor ambiental, remove sin versión, colapso de líneas, preámbulo, zona de
 usuario, trim JS, U+FEFF y salto final) se detectan. Matriz anti-rollback unitaria con la expectativa
 calculada aparte. Workspace (118), fmt y clippy en verde.
+
+Cierre de E2 tras integrar `origin/migration/rust` (`3faa2c01`: dev 0.12.3, zod 4.6.7, citty 0.2.2):
+workspace 134/134 y `navori-core` aislado 34/34, sin y con `arbitrary_precision`. `bun check` en verde:
+10 474 pruebas, dos omitidas, 496 archivos en 546.8 s; cobertura 88.08/86.39/91.32/80.99 % con piso
+ok. `oracle:rust`: 52 casos, 0 diferencias. Antes de integrar, el único rojo fue
+`cli.e2e` `update --yes`, porque npm ya publicaba 0.12.3 y el checkout seguía en 0.12.2; no depende de
+esta entrega. Sin subagentes por instrucción del usuario, así que el PR necesita revisión
+independiente antes del merge.
 - **A4** [observable] — inject, remove y la matriz unitaria coinciden con Node · `cargo test -p navori-core --test markers --test anti_rollback --locked && cargo test -p navori-oracle-tests --test marker_parity --locked` → exit 0
 - [x] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
 - [x] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
