@@ -94,7 +94,8 @@ Estimated LOC: 9000
 
 ### M5 — Plan de render Claude
 
-En curso en `feat/0058-rust-e3` (adelantado antes de E1 por decisión del usuario, Q2). Portado
+En curso (adelantado antes de E1 por decisión del usuario, Q2): primer tramo integrado en #1411,
+sigue en `feat/0058-rust-e3-plan`. Portado
 con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
 (`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
@@ -103,11 +104,12 @@ de librerías, con los validadores zod compartidos en `navori_core::zod`, y la c
 (`plugins.ts`: registros de retirados, `loadPlugin` sobre el bundle embebido, conjuntos
 habilitado/deshabilitado y `nativeHook`; los manifiestos sintéticos pasan por el `loadPlugin`
 real con `readFileSync` parcheado). Las paridades de presets y plugins comparan la salida zod
-como texto para fijar el orden de claves. Faltan
-`effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude, `build-settings`/coexist,
-el wiring nativo y las cadenas del render. Pendientes ajenos a 0058: `navori-cli/tests/facts_cache.rs`
-(0057, `bccfedd0`) falla de forma intermitente (2/5 aislado) por un presupuesto de 1 ms. Una falla
-aislada del workspace no se reprodujo en nueve corridas posteriores.
+como texto para fijar el orden de claves. También `effectiveConfig` y el plan de bloques de
+`CLAUDE.md` (`computeRenderPlan`, `canonicalManagedOrder`: core, extras de preset, plugins
+declarados y retirados, skip/force, workspace, engine y piso anti-rollback). Faltan el motor
+Claude, `build-settings`/coexist, el wiring nativo y las cadenas del render. Pendiente ajeno a
+0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma intermitente (3/5
+aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [ ] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
