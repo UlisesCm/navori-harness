@@ -77,6 +77,12 @@ pub fn read(bytes: &[u8]) -> Result<Config, Delegate> {
     Ok(Config { data, warnings })
 }
 
+/// `isSafeGateChain` (`engines/shared/permission-rules.ts:200`): every step is `<pm> …` or `cd <dir>`.
+#[must_use]
+pub fn is_safe_gate_chain(gate: &str) -> bool {
+    schema::is_safe_gate_chain(gate)
+}
+
 /// `RETIRED_CONFIG_KEYS`: `(key, sections)`, where `None` means harness, models and effort.
 const RETIRED: &[(&str, Option<&str>)] = &[
     ("leader", None),
@@ -690,7 +696,7 @@ mod schema {
     }
 
     /// `isSafeGateChain` (`engines/shared/permission-rules.ts:200`).
-    fn is_safe_gate_chain(gate: &str) -> bool {
+    pub(super) fn is_safe_gate_chain(gate: &str) -> bool {
         sequenced_steps(gate).iter().all(|step| {
             let step = js_trim(step);
             !step.is_empty() && gate_step_is_safe(step)
