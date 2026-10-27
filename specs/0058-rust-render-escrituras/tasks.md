@@ -1,6 +1,6 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada; E2 en curso, E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
+**Estado:** aceptada; E2 implementada (cierre pendiente de gate full y revisión), E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
 `specs/0057-migracion-rust/requirements.md` § "Fases del programa"): cuatro entregas, **cada una con
 su propio PR contra `migration/rust`**. El LOC es una estimación, no una medición.
 
@@ -66,10 +66,18 @@ fmt y clippy en verde. La re-delegación por config inválida en el CLI llega co
 - [x] **T10** (R34) — `render::context::RenderContext` con `cli_version`, `floor`, `lang`, `mode`, `now` y `pid` (D19); ninguna función de markers lee estado global · effect: behavior · test: `crates/navori-core/tests/markers.rs`::"el floor solo llega por el contexto o por meta"
 
 ### M4 — Markers y anti-rollback
+
+Implementado en `feat/0058-rust-e2` sin subagentes. A4 en verde. Propiedades contra el `marker.ts`
+real (3 000 casos por operación: inject, remove guardado, locate, proseLines, reorder, split y emit),
+con bloques HTML y shell, hashes correctos, editados y vacíos, huérfanos, fences, bloques colapsados,
+CRLF y Unicode no BMP. Las 14 mutaciones probadas (fences, re-escaneo, atributos vacíos, anclaje de
+`created`, `restamp`, floor ambiental, remove sin versión, colapso de líneas, preámbulo, zona de
+usuario, trim JS, U+FEFF y salto final) se detectan. Matriz anti-rollback unitaria con la expectativa
+calculada aparte. Workspace (118), fmt y clippy en verde.
 - **A4** [observable] — inject, remove y la matriz unitaria coinciden con Node · `cargo test -p navori-core --test markers --test anti_rollback --locked && cargo test -p navori-oracle-tests --test marker_parity --locked` → exit 0
-- [ ] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
-- [ ] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
-- [ ] **T13** (R37, R34) — matriz unitaria: floor {ausente, menor, igual, mayor} × `version=` {ausente, menor, igual, mayor} × CLI × {inject, remove}, incluida la asimetría de floor en remove (F25) · effect: tests · test: `crates/navori-core/tests/anti_rollback.rs`::"matriz floor × marker × CLI coincide con el TS"
+- [x] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
+- [x] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
+- [x] **T13** (R37, R34) — matriz unitaria: floor {ausente, menor, igual, mayor} × `version=` {ausente, menor, igual, mayor} × CLI × {inject, remove}, incluida la asimetría de floor en remove (F25) · effect: tests · test: `crates/navori-core/tests/anti_rollback.rs`::"matriz floor × marker × CLI coincide con el TS"
 
 ## E3 — `render` Claude en preview
 Estimated LOC: 9000
