@@ -2,10 +2,12 @@ import { createRequire, stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import {
   assertSupportedPiRuntime,
   renderPiRuntimeVersionSource,
   serializeAnonymousFunction,
+  unverifiedPiCapabilities,
 } from "../runtime-version.ts";
 
 describe("Pi runtime version floor", () => {
@@ -32,6 +34,17 @@ describe("Pi runtime version floor", () => {
     const check: unknown = runInNewContext(`(${strip("JT")})(1,2)(3)`);
     expect(check).toBe(6);
     expect(() => serializeAnonymousFunction(() => 1)).toThrow(/plain function/);
+  });
+
+  // Covers: R4
+  it("admitted capabilities are unverified below 1.4.0 and verified from 1.4.0", () => {
+    const admitted = (ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? [])
+      .filter((row) => row.decision === "admitted")
+      .map((row) => row.capability);
+    expect(admitted).toHaveLength(6);
+    expect(unverifiedPiCapabilities("1.3.9").map((entry) => entry.split(" ")[0])).toEqual(admitted);
+    expect(unverifiedPiCapabilities("1.4.0")).toEqual([]);
+    expect(unverifiedPiCapabilities("1.5.0")).toEqual([]);
   });
 
   // Covers: R10

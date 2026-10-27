@@ -9,9 +9,9 @@ Esta guía documenta únicamente el estado verificado. El contrato comprobado po
 ## Requisitos y configuración
 
 - Versión mínima de Pi compatible: **1.1.0**
-- Versión de Pi probada: **1.1.0**
+- Versión de Pi probada: **1.4.0**
 
-El mínimo está definido en `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). La versión probada es la dependencia de desarrollo `@earendil-works/pi-coding-agent` fijada en `packages/cli`. El mínimo también cubre la evidencia de aceptación, que lee `structuredContent.exit_code` del bash integrado de Pi, y las capacidades admitidas del entorno de ejecución hijo (consulta [Admisiones de tiempo de ejecución](#admisiones-de-tiempo-de-ejecución)), verificadas únicamente con la versión 1.1.0.
+El mínimo está definido en `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). La versión probada es la dependencia de desarrollo `@earendil-works/pi-coding-agent` fijada en `packages/cli`. El mínimo también cubre la evidencia de aceptación, que lee `structuredContent.exit_code` del bash integrado de Pi, y las capacidades admitidas del entorno de ejecución hijo (consulta [Admisiones de tiempo de ejecución](#admisiones-de-tiempo-de-ejecución)), verificadas únicamente con la versión 1.4.0. Pi 1.1–1.3 carga la extensión completa, pero `navori_subagent` rechaza los hijos con un mensaje de «actualiza Pi».
 
 Pi se considera **no verificado** si está por debajo del mínimo, es una versión preliminar (por ejemplo, `1.2.0-rc.1`) o reporta una versión que no se puede analizar. Un Pi no verificado carga la extensión únicamente en modo de bloqueo de escritura: se bloquean `bash`, `edit`, `write` y `powershell`; `read`, `grep`, `find` y `ls` siguen disponibles; la primera llamada bloqueada muestra un aviso por proceso, y `navori_subagent` no se registra. Las versiones estables superiores al mínimo siguen admitidas; todavía no hay un límite superior declarado, así que una incompatibilidad futura se resolverá publicando uno.
 
@@ -56,7 +56,7 @@ Pi también detecta de forma nativa las skills de proyecto de confianza en `.age
 
 ## Admisiones de tiempo de ejecución
 
-Cada fila corresponde a una capacidad del entorno de ejecución hijo de `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. Las capacidades `admitted` están verificadas en Pi 1.1.0; las capacidades `deferred` no están disponibles.
+Cada fila corresponde a una capacidad del entorno de ejecución hijo de `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. Las capacidades `admitted` están verificadas en Pi 1.4.0; las capacidades `deferred` no están disponibles.
 
 | Capacidad | Decisión | Límite |
 | --- | --- | --- |
@@ -238,6 +238,67 @@ Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `i
 - Los hijos sin interfaz no pueden aprobar operaciones. La extensión rechaza solicitudes de aprobación de un hijo y devuelve el comando a la sesión padre para que el usuario lo apruebe ahí. La confianza no equivale a aprobación: el hijo recibe `--approve` con alcance de proceso solo después de que el padre de confianza haya cargado la extensión.
 - Estos límites, listas de herramientas y `--no-mcp` no crean un entorno aislado del sistema operativo. Los procesos hijos heredan el entorno, la autoridad sobre el sistema de archivos y la red del usuario, y el directorio de agente de Pi.
 
+## Comparación en vivo con Claude
+
+El lector de M5 vincula los hijos de Pi confirmados con sus ID de invocación y conserva los fallos posteriores al arranque.
+M6 añade `navori audit --by-engine --published-from <bare>`: la evidencia de Git o de la transcripción que no esté disponible sigue sin estarlo, y las observaciones mínimas que falten producen `inconclusive`. La correlación es descriptiva; no otorga autoridad a ningún actor ni establece un revisor independiente.
+
+El driver de solo desarrollo del repositorio es [scripts/bench/run-live.ts](../scripts/bench/run-live.ts).
+Prepara dos checkouts reales de Git a partir del mismo fixture, 60 archivos de búsqueda, un remoto bare local
+y un doble local de `gh`. Su preflight `auth status` explica que la publicación local no requiere autenticación de GitHub;
+no lee credenciales ni se autentica contra GitHub. Los comandos no soportados siguen saliendo con estado 64. El fixture usa `npm test` como comando de gate seguro; el script de pruebas del paquete
+ejecuta `node --test` sin dependencias. Las referencias publicadas son `claude/benchmark` y `pi/benchmark`.
+La configuración de Git y las plantillas son locales al fixture. Los engines nativos conservan su acceso normal
+al sistema de archivos y a la red, y sus permisos nativos; este driver no es un sandbox del sistema operativo.
+
+La preparación no inicia ningún modelo:
+
+```bash
+bun scripts/bench/run-live.ts prepare
+```
+
+Copia la `root` física devuelta en `NAVORI_BENCH_ROOT`. Tras obtener una autorización separada para las cuentas, los modelos y el presupuesto de gasto, inicia un engine desde la terminal POSIX del operador:
+
+```bash
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine claude --model sonnet
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine pi --model provider/model
+```
+
+Ejecútalos en secuencia. El driver requiere soporte nativo de `--session-id` (observado en Claude Code
+2.1.309 y Pi 1.3.0); esta observación no amplía las admisiones de tiempo de ejecución verificadas por las pruebas del SDK fijado.
+Los roles del fixture de Claude usan Sonnet; Pi hereda el provider/modelo explícito seleccionado.
+El flag de ejecución no es un tope monetario. El operador controla las aprobaciones nativas y el límite de gasto autorizado.
+Las herramientas MCP están deshabilitadas para esta comparación; las configuraciones de seguridad nativas siguen activas.
+
+Mientras el padre está abierto, usa otra terminal para obtener el siguiente prompt exacto:
+
+```bash
+bun scripts/bench/run-live.ts task --root "$NAVORI_BENCH_ROOT" --engine claude --task 2
+```
+
+Repite para las tareas 3–5 y para Pi, pegando cada prompt devuelto en ese engine. La tarea 2 activa la
+prueba de paginación que ya falla en **bytes rastreados**, lo que invalida el gate en caché de la tarea 1. Durante la tarea 5,
+ejecuta `/compact` cuando el padre se pause y envía otro turno. Cierra cada padre al terminar sus cinco tareas.
+El driver nunca proporciona respuestas de aprobación ni usa un flag de omisión de permisos.
+
+```bash
+bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
+```
+
+La recolección ejecuta `navori audit --by-engine --published-from` contra el directorio privado de auditorías de esta corrida
+(`NAVORI_AUDITS_ROOT`), sin `--all-repos`, porque el lector de auditoría rechaza ese flag junto con
+`--by-engine`. La cohorte acotada admite solo los encabezados de sesión asignados a esta corrida. La verificación
+de fuentes nativas sigue a cargo del lector de auditoría.
+Las observaciones parciales conservan sus métricas y fallos; las etiquetas de etapa faltantes no pueden obtener `pass`.
+Las etiquetas no demuestran la ejecución de la tarea. `comparisonVerification: unverified` mantiene separada la verificación del operador de las cinco tareas reales y de los modelos reales del resultado métrico K1.
+Si no se lanzó ningún modelo o falta alguna fuente, el resultado es `inconclusive`.
+Registra el resultado real, las versiones nativas, los modelos resueltos reales y los resultados de paridad scripted en
+`specs/0053-pi-igualar-claude/evals.md`. La comparación tiene n = 1, admite modelos distintos y no equivale a una aprobación correlacionada
+ni a una revisión independiente. La preparación local no es la aceptación en vivo.
+
+El resultado parcial en vivo (solo Claude Code, Pi no ejecutado, `inconclusive`, sin afirmación de paridad) se registra en
+[evals.md](../specs/0053-pi-igualar-claude/evals.md).
+
 ## Inventario de paridad
 
 `PI_PARITY` (`packages/cli/src/engines/shared/pi-parity.ts`) enumera cada unidad que Navori emite para otros motores (hooks centrales, reglas de permisos compartidas y componentes del manifiesto de plugins) y lo que Pi ofrece actualmente para cada una. Cada fila tiene un estado:
@@ -413,7 +474,7 @@ El ciclo verificado, en orden:
 
 ## Resultado de e2e sin credenciales
 
-La automatización lo ejecutó con `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` en el entorno de ejecución Pi 1.1.0 fijado. La prueba ejecuta dentro del proceso el CLI compilado (render, workplan aprobado, `plan update`), el ciclo real del agente SDK de Pi y la tubería de herramientas, procesos Pi `pi` reales iniciados por la extensión renderizada, las herramientas bash y write integradas de Pi, git y el sistema de archivos. Cubre instalación, aprobación sin interfaz, rechazo, un flujo hijo de más de 256 KiB, dispatch de implementer/scribe/reviewer con el modelo del padre, registro de evidencia, el recibo, actualización y deshabilitación.
+La automatización lo ejecutó con `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` en el entorno de ejecución Pi 1.4.0 fijado. La prueba ejecuta dentro del proceso el CLI compilado (render, workplan aprobado, `plan update`), el ciclo real del agente SDK de Pi y la tubería de herramientas, procesos Pi `pi` reales iniciados por la extensión renderizada, las herramientas bash y write integradas de Pi, git y el sistema de archivos. Cubre instalación, aprobación sin interfaz, rechazo, un flujo hijo de más de 256 KiB, dispatch de implementer/scribe/reviewer con el modelo del padre, registro de evidencia, el recibo, actualización y deshabilitación.
 
 Límites, expresados claramente:
 
@@ -456,7 +517,7 @@ Navori no lee, copia, genera, actualiza ni registra el `auth.json` de Pi, y no u
 
 La prueba en vivo es la única evidencia de que el diálogo TUI se representa y de que el modelo cumple el contrato. La prueba e2e sin credenciales no demuestra ninguno de esos puntos. Ejecútala en un proyecto cuyos recursos Pi sean de confianza y registra cada paso en [evals.md](../specs/0048-pi-paridad/evals.md).
 
-1. Verifica `pi --version`; debe ser 1.1.0 o posterior.
+1. Verifica `pi --version`; debe ser 1.4.0 o posterior.
 2. Inicia Pi de forma interactiva y ejecuta `/login`; selecciona el inicio de sesión de suscripción ChatGPT Plus/Pro `openai-codex`. Navori no inspecciona archivos de credenciales.
 3. Ejecuta `/model` y selecciona el modelo que usarán los hijos.
 4. Ejecuta `navori render --apply`.

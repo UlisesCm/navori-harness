@@ -785,6 +785,167 @@ describe("navori plan update — evidence gate", () => {
 
   const planBytes = () => readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8");
 
+  // Covers: R19 (0045) — exit success alone cannot prove a structured output predicate.
+  it.each([
+    { expected: "contains: verified", observation: {}, host: true },
+    { expected: "matches: /^verified$/m", observation: {}, host: true },
+    { expected: "exit 2", observation: {}, host: true },
+    {
+      expected: "contains: verified",
+      observation: { exit: 0, expected: "contains: verified", outcome: "fail" },
+      host: true,
+    },
+    {
+      expected: "contains: verified",
+      observation: { exit: 0, expected: "contains: verified", outcome: "unevaluated" },
+      host: true,
+    },
+    {
+      expected: "contains: verified",
+      observation: { exit: 0, expected: "contains: another value", outcome: "pass" },
+      host: true,
+    },
+    { expected: "contains: verified", observation: {}, host: false },
+  ])(
+    "rejects unproved expected %# without modifying progress",
+    async ({
+      expected,
+      observation,
+      host,
+    }: {
+      expected: string;
+      observation: Record<string, unknown>;
+      host: boolean;
+    }): Promise<void> => {
+      process.env.CLAUDE_CODE_CHILD_SESSION = host ? "1" : undefined;
+      if (!host) delete process.env.CLAUDE_CODE_CHILD_SESSION;
+      writePlan("demo", {
+        ...validPlan,
+        acceptance: [{ ...validPlan.acceptance[0], command: command(), expected }],
+      });
+      recordRun(observation);
+      const before = planBytes();
+      await update();
+      expect(process.exitCode).toBe(1);
+      expect(planBytes()).toBe(before);
+      expect(existsSync(sentinel())).toBe(false);
+    },
+  );
+
+  // Covers: R19 (0045) — recorded scalars remain bound to the literal predicate in the saved proof.
+  it.each([
+    { expected: "exit 0", observation: {} },
+    { expected: "exit 2", observation: { exit: 2, expected: "exit 2", outcome: "pass" } },
+    {
+      expected: "contains: verified",
+      observation: { exit: 0, expected: "contains: verified", outcome: "pass" },
+    },
+  ])(
+    "preserves valid structured evidence %#",
+    async ({
+      expected,
+      observation,
+    }: {
+      expected: string;
+      observation: Record<string, unknown>;
+    }): Promise<void> => {
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+      writePlan("demo", {
+        ...validPlan,
+        acceptance: [{ ...validPlan.acceptance[0], command: command(), expected }],
+      });
+      recordRun(observation);
+      await update();
+      expect(process.exitCode ?? 0).toBe(0);
+      const written = JSON.parse(planBytes()) as {
+        progress: { A1: string };
+        evidence: { A1: unknown };
+      };
+      expect(written.progress.A1).toBe("cumplido");
+      if (observation.exit === undefined) {
+        expect(written.evidence.A1).not.toHaveProperty("expected");
+        expect(written.evidence.A1).not.toHaveProperty("outcome");
+      } else
+        expect(written.evidence.A1).toMatchObject({
+          expected,
+          outcome: "pass",
+          exit: observation.exit,
+        });
+      expect(existsSync(sentinel())).toBe(false);
+    },
+  );
+
+  // Covers: R19 (0045) — malformed comparison scalars cannot disappear and reveal an older pass.
+  it.each([
+    { exit: "0" },
+    { exit: null },
+    { expected: 7 },
+    { outcome: "unknown" },
+    { outcome: null },
+  ])(
+    "keeps an invalid comparison rejecting %#",
+    async (invalid: Record<string, unknown>): Promise<void> => {
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+      const expected = "contains: verified";
+      writePlan("demo", {
+        ...validPlan,
+        acceptance: [{ ...validPlan.acceptance[0], command: command(), expected }],
+      });
+      recordRun({ exit: 0, expected, outcome: "pass" });
+      const file = join(cwd, dir, "workplan_demo.evidence.jsonl");
+      const old = readFileSync(file, "utf8");
+      recordRun({ exit: 0, expected, outcome: "pass", ...invalid });
+      writeFileSync(file, old + readFileSync(file, "utf8"));
+      const before = planBytes();
+      await update();
+      expect(process.exitCode).toBe(1);
+      expect(planBytes()).toBe(before);
+    },
+  );
+
+  // Covers: R19 (0045) — the last eligible record decides, not an older passing predicate.
+  it("does not resurrect an older pass over a newer comparison failure", async (): Promise<void> => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    const expected = "contains: verified";
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [{ ...validPlan.acceptance[0], command: command(), expected }],
+    });
+    recordRun({ exit: 0, expected, outcome: "pass" });
+    const file = join(cwd, dir, "workplan_demo.evidence.jsonl");
+    const first = readFileSync(file, "utf8");
+    recordRun({ exit: 0, expected, outcome: "fail" });
+    writeFileSync(file, first + readFileSync(file, "utf8"));
+    const before = planBytes();
+    await update();
+    expect(process.exitCode).toBe(1);
+    expect(planBytes()).toBe(before);
+  });
+
+  // Covers: R19 (0045) — a concurrent expected edit invalidates the pending evidence mutation.
+  it("rejects an expected value changed between validation and the write", async (): Promise<void> => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    const expected = "contains: verified";
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [{ ...validPlan.acceptance[0], command: command(), expected }],
+    });
+    recordRun({ exit: 0, expected, outcome: "pass" });
+    evidenceHook.afterValidate = (): void => {
+      writePlan("demo", {
+        ...validPlan,
+        acceptance: [
+          { ...validPlan.acceptance[0], command: command(), expected: "contains: changed" },
+        ],
+      });
+    };
+    await update();
+    expect(process.exitCode).toBe(1);
+    const written = JSON.parse(planBytes()) as { progress: { A1: string }; evidence?: unknown };
+    expect(written.progress.A1).toBe("pendiente");
+    expect(written.evidence).toBeUndefined();
+  });
+
   it("rejects with no recorded run: exit 1, JSON byte-identical, ERROR/WHY/FIX with the exact command", async () => {
     process.env.CLAUDE_CODE_CHILD_SESSION = "1";
     const before = planBytes();
@@ -967,6 +1128,52 @@ describe("navori plan render — acceptance index bootstrap on Pi", () => {
 });
 
 describe("navori plan check", () => {
+  // Covers: R19, R20 (0045) — saved summaries must not hide a missing or stale predicate check.
+  it.each(["legacy", "matched", "different", "unsupported"] as const)(
+    "checks the saved structured proof: %s",
+    async (mode: "legacy" | "matched" | "different" | "unsupported"): Promise<void> => {
+      const expected = "contains: verified";
+      const evidence =
+        mode === "unsupported"
+          ? { kind: "unevidenced", reason: "engine-without-signal" }
+          : {
+              kind: "recorded",
+              command: validPlan.acceptance[0]!.command,
+              ranAt: "now",
+              tree: cwd,
+              head: "h",
+              worktreeTree: "t",
+              dirty: false,
+              ...(mode === "legacy"
+                ? {}
+                : {
+                    exit: 0,
+                    outcome: "pass",
+                    expected: mode === "matched" ? expected : "contains: different",
+                  }),
+            };
+      writePlan("demo", {
+        ...validPlan,
+        acceptance: [{ ...validPlan.acceptance[0], expected }],
+        progress: { A1: "cumplido" },
+        evidence: { A1: evidence },
+      });
+      const logs: string[] = [];
+      const spy = vi_spyConsole(logs);
+      try {
+        await runCommand(planCommand, { rawArgs: ["check", "demo", "--json", "--cwd", cwd] });
+      } finally {
+        spy.restore();
+      }
+      expect(process.exitCode).toBe(mode === "matched" ? 0 : 2);
+      if (mode !== "matched")
+        expect(JSON.parse(logs.join(""))).toMatchObject({
+          ok: false,
+          findings: [{ rule: "progress-expected-unverified" }],
+        });
+    },
+  );
+
   // Covers: R20
   it("reports completed criteria without evidence as findings and exits 2", async (): Promise<void> => {
     writePlan("demo", { ...validPlan, progress: { A1: "cumplido" } });

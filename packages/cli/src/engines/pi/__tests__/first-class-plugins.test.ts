@@ -17,6 +17,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
@@ -77,7 +78,7 @@ function load(): { tool: Tool; children: Spawned[] } {
       }
       if (id === "@earendil-works/pi-ai") return { Type: new Proxy({}, { get: () => () => ({}) }) };
       if (id === "@earendil-works/pi-coding-agent") {
-        return { VERSION: "1.1.0", defineTool: (value: unknown) => value };
+        return { VERSION: PINNED_PI_VERSION, defineTool: (value: unknown) => value };
       }
       return id === "node:path" ? { join } : { existsSync, readFileSync, statSync };
     },
@@ -317,7 +318,7 @@ describe("Pi MCP check at session start", () => {
         if (id === "@earendil-works/pi-ai")
           return { Type: new Proxy({}, { get: () => () => ({}) }) };
         if (id === "@earendil-works/pi-coding-agent") {
-          return { VERSION: "1.1.0", defineTool: (value: unknown) => value };
+          return { VERSION: PINNED_PI_VERSION, defineTool: (value: unknown) => value };
         }
         return id === "node:path"
           ? { join }

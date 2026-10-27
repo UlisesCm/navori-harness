@@ -10,7 +10,6 @@ import {
   isPlaceholderName,
   suggestTestsForNewCode,
   type ClaudeInfraInventory,
-  type PackageManager,
 } from "../lib/diagnose/detect.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
 import {
@@ -39,6 +38,7 @@ import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
 import type { NavoriConfigInput, NavoriConfig, ENGINES } from "../lib/config/schema.ts";
 import {
   buildRecommendedQualityGate,
+  fastGatePromptOptions,
   buildRecommendedProject,
   buildFullPlugins,
   buildFullProject,
@@ -572,9 +572,12 @@ export const initCommand = defineCommand({
         const value = await p.text({
           message: tr.projectNameKebab,
           placeholder: detected.name ?? "my-project",
-          defaultValue: detected.name ?? "",
+          defaultValue: detected.name ?? "my-project",
+          // clack 1.x validates the raw input before applying defaultValue, so an
+          // empty submit must be judged as the default it will become.
           validate(v) {
-            if (!/^[a-z0-9][a-z0-9-]*$/.test(v)) return tr.mustBeKebab;
+            const val = v || (detected.name ?? "my-project");
+            if (!/^[a-z0-9][a-z0-9-]*$/.test(val)) return tr.mustBeKebab;
             return undefined;
           },
         });
@@ -641,11 +644,9 @@ export const initCommand = defineCommand({
       }
 
       if (adjustments.includes("qualityGate")) {
-        const fastVal = await p.text({
-          message: tr.qualityGateFast,
-          placeholder: qualityGate?.fast ?? defaultGateHint(detected.packageManager),
-          defaultValue: qualityGate?.fast ?? "",
-        });
+        const fastVal = await p.text(
+          fastGatePromptOptions(tr.qualityGateFast, qualityGate?.fast, detected.packageManager),
+        );
         if (p.isCancel(fastVal)) return cancel(lang);
         const fullVal = await p.text({
           message: tr.qualityGateFull,
@@ -727,8 +728,12 @@ export const initCommand = defineCommand({
           const v = await p.text({
             message: tr.projectNameKebab,
             placeholder: name ?? "my-project",
-            defaultValue: name ?? "",
-            validate: (val) => (/^[a-z0-9][a-z0-9-]*$/.test(val) ? undefined : tr.mustBeKebab),
+            defaultValue: name ?? "my-project",
+            // Empty input falls back to defaultValue after validation (clack 1.x).
+            validate: (val) =>
+              /^[a-z0-9][a-z0-9-]*$/.test(val || (name ?? "my-project"))
+                ? undefined
+                : tr.mustBeKebab,
           });
           if (!p.isCancel(v)) name = v as string;
           break;
@@ -774,11 +779,9 @@ export const initCommand = defineCommand({
           break;
         }
         case "qualityGate": {
-          const fastVal = await p.text({
-            message: tr.qualityGateFast,
-            placeholder: qualityGate?.fast ?? defaultGateHint(detected.packageManager),
-            defaultValue: qualityGate?.fast ?? "",
-          });
+          const fastVal = await p.text(
+            fastGatePromptOptions(tr.qualityGateFast, qualityGate?.fast, detected.packageManager),
+          );
           if (p.isCancel(fastVal)) break;
           const fullVal = await p.text({
             message: tr.qualityGateFull,
@@ -1331,8 +1334,9 @@ async function askProjectPrompt(
         placeholder: prompt.placeholder ?? "",
         defaultValue: "",
         validate: (val) => {
-          if (!val.trim()) return undefined;
-          return /^-?\d+(\.\d+)?$/.test(val.trim()) ? undefined : "número inválido";
+          const input = (val ?? "").trim();
+          if (!input) return undefined;
+          return /^-?\d+(\.\d+)?$/.test(input) ? undefined : "número inválido";
         },
       });
       if (p.isCancel(v)) return null;
@@ -1452,15 +1456,4 @@ function formatProjectValue(v: unknown): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (v === null || v === undefined) return "(none)";
   return String(v);
-}
-
-/**
- * Placeholder shown for the "fast" quality-gate prompt when none was detected.
- * Uses the repo's real package manager so we don't suggest a `pnpm` command in
- * a bun/npm/yarn project (#88). npm can't run a bare bin (`npm tsc`), so it goes
- * through `npx`; pnpm/yarn/bun resolve `node_modules/.bin` from `<pm> tsc`.
- */
-function defaultGateHint(pm: PackageManager | null): string {
-  if (pm === "npm") return "npx tsc --noEmit";
-  return `${pm ?? "pnpm"} tsc --noEmit`;
 }

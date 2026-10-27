@@ -17,14 +17,18 @@ const t = useTranslations(lang);
 ---
 
 <header
-  class="sticky top-0 z-40 w-full border-b backdrop-blur-md"
-  style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 30%);"
+  class="sticky top-0 z-40 w-full border-b"
+  style="border-color: var(--color-border-soft); background: var(--color-ivory);"
   data-header
 >
   <div class="container-prose flex min-h-14 flex-wrap items-center justify-between gap-y-1 py-2">
     <Logo />
 
-    <nav class="flex flex-wrap items-center justify-end gap-0 sm:gap-1 text-[13px] sm:text-sm">
+    <button type="button" class="site-menu-toggle" data-menu-toggle aria-controls="primary-navigation" aria-expanded="false">
+      {t("nav.menu")}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+    </button>
+    <nav id="primary-navigation" aria-label={t("nav.menu")} class="primary-navigation flex flex-wrap items-center justify-end gap-0 sm:gap-1 text-[13px] sm:text-sm">
       <a
         href={localizedPath(lang, "/deep-dive")}
         class="whitespace-nowrap px-1 sm:px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
@@ -111,7 +115,8 @@ const t = useTranslations(lang);
 <script is:inline>
   // theme bootstrap and toggle — runs inline to avoid FOUC
   (function () {
-    const stored = localStorage.getItem("navori-theme");
+    let stored = null;
+    try { stored = localStorage.getItem("navori-theme"); } catch { /* Storage can be unavailable in private contexts. */ }
     const prefersDark = window.matchMedia(
       "(prefers-color-scheme: dark)",
     ).matches;
@@ -124,12 +129,32 @@ const t = useTranslations(lang);
       const btn = target.closest("[data-theme-toggle]");
       if (!btn) return;
       const isDark = document.documentElement.classList.toggle("dark");
-      localStorage.setItem("navori-theme", isDark ? "dark" : "light");
+      try { localStorage.setItem("navori-theme", isDark ? "dark" : "light"); } catch { /* The current page still changes theme. */ }
     });
   })();
 </script>
 
 <script>
+  const header = document.querySelector<HTMLElement>("[data-header]");
+  const menu = header?.querySelector<HTMLButtonElement>("[data-menu-toggle]");
+  const navigation = header?.querySelector<HTMLElement>("#primary-navigation");
+  if (header && menu && navigation) {
+    header.dataset.menuReady = "true";
+    const setOpen = (open: boolean): void => {
+      navigation.dataset.open = String(open);
+      menu.setAttribute("aria-expanded", String(open));
+    };
+    menu.addEventListener("click", () => setOpen(menu.getAttribute("aria-expanded") !== "true"));
+    header.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Escape" && menu.getAttribute("aria-expanded") === "true") { setOpen(false); menu.focus(); }
+    });
+    document.addEventListener("click", (event: MouseEvent) => {
+      if (event.target instanceof Node && !header.contains(event.target)) setOpen(false);
+    });
+    window.matchMedia("(min-width: 901px)").addEventListener("change", (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    });
+  }
   // Canonical editions share stable semantic IDs. Plain links still work without JS.
   document.querySelectorAll<HTMLAnchorElement>("[data-language-link]").forEach((link) => {
     link.addEventListener("click", () => {

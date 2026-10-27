@@ -12,20 +12,25 @@ import type {
   ProgressStatus,
   Workplan,
 } from "./schema.ts";
+import { expectedEvidenceProblem, parseExpected } from "./expected.ts";
 
 function heading(text: string): string {
   return `## ${text}`;
 }
 
 /** The four cases of 0038 D4 for a `cumplido` criterion. */
-export type EvidenceCase = "recorded" | "unevidenced-accepted" | "none" | "stale";
+export type EvidenceCase = "recorded" | "unevidenced-accepted" | "none" | "stale" | "uncompared";
 
 /** Classifies a criterion's `cumplido` against `plan.evidence` (spec 0039 R11). */
 export function evidenceCase(plan: Workplan, criterion: AcceptanceCriterion): EvidenceCase {
   const ev = plan.evidence?.[criterion.id];
   if (ev === undefined) return "none";
-  if (ev.kind === "unevidenced") return "unevidenced-accepted";
-  return ev.command === criterion.command ? "recorded" : "stale";
+  if (ev.kind === "unevidenced")
+    return parseExpected(criterion.expected).kind === "free"
+      ? "unevidenced-accepted"
+      : "uncompared";
+  if (ev.command !== criterion.command) return "stale";
+  return expectedEvidenceProblem(criterion.expected, ev) === undefined ? "recorded" : "uncompared";
 }
 
 function statusLabel(plan: Workplan, criterion: AcceptanceCriterion): string {
@@ -41,6 +46,8 @@ function statusLabel(plan: Workplan, criterion: AcceptanceCriterion): string {
       return "cumplido, sin evidencia: engine sin señal";
     case "stale":
       return "cumplido, evidencia de otro comando";
+    case "uncompared":
+      return "cumplido, expected sin verificación válida";
     case "none":
       return "cumplido, sin evidencia";
   }

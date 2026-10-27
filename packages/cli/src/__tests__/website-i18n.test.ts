@@ -70,6 +70,12 @@ const { htmlMarkdown, pageMarkdown, interactiveMarkdown, llmsIndex } = await web
   llmsIndex: (lang: Lang, origin: string, base?: string) => string;
 }>("content/markdown.ts");
 const { INVENTORY } = await websiteModule<{ INVENTORY: { commands: number } }>("consts.ts");
+const { walkthrough } = await websiteModule<{
+  walkthrough: Record<
+    Lang,
+    { prompt: string; steps: Array<{ name: string; title: string; body: string }> }
+  >;
+}>("content/walkthrough.ts");
 
 const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
 /** Compare executable lines; localized terminal output is intentionally different. */
@@ -242,6 +248,11 @@ describe("agent content completeness", () => {
   it("exports all eight walkthrough states, all role details and each layer note", () => {
     for (const lang of localeOrder) {
       const home = interactiveMarkdown(lang, "home");
+      expect(home).toContain(walkthrough[lang].prompt);
+      for (const step of walkthrough[lang].steps) {
+        expect(home).toContain(step.title);
+        expect(home).toContain(step.body);
+      }
       for (let stop = 1; stop <= 8; stop++)
         for (const field of ["name", "title", "body"])
           expect(home).toContain(ui[lang][("graph.s" + stop + "." + field) as "graph.s1.body"]);
@@ -316,13 +327,13 @@ describe("agent content completeness", () => {
 
   // Covers: R9
   it("publishes intentional trilingual cards with authoritative runtime and product facts", () => {
-    for (const [name, tagline] of [
-      ["og-en", "The multi-agent harness"],
-      ["og", "El harness multi-agente"],
-      ["og-zh-CN", "多智能体 harness"],
-    ]) {
+    for (const [name, lang] of [
+      ["og-en", "en"],
+      ["og", "es"],
+      ["og-zh-CN", "zh-CN"],
+    ] as const) {
       const svg = read("apps/website/public/" + name + ".svg");
-      expect(svg).toContain(tagline);
+      expect(svg).toContain(ui[lang]["hero.headlineA"]);
       expect(svg).toContain(pkg.version);
       expect(svg).toContain(pkg.engines.node.replace(/>/g, "&gt;"));
       expect(svg).not.toContain("5 ENGINES");
@@ -332,6 +343,32 @@ describe("agent content completeness", () => {
           .toString(),
       ).toBe("PNG");
     }
+  });
+
+  // Covers: R9
+  it("ships matching vector marks, raster sizes and a relative icon manifest", () => {
+    expect(read("apps/website/public/favicon.svg")).toBe(
+      read("apps/website/src/assets/navori-mark.svg"),
+    );
+    const manifest = JSON.parse(read("apps/website/public/site.webmanifest")) as {
+      start_url: string;
+      scope: string;
+      icons: Array<{ src: string; sizes: string }>;
+    };
+    expect(manifest.start_url).toBe("./");
+    expect(manifest.scope).toBe("./");
+    for (const icon of manifest.icons) {
+      expect(icon.src).not.toMatch(/^\//);
+      const png = readFileSync(resolve(root, "apps/website/public", icon.src));
+      expect(png.subarray(1, 4).toString()).toBe("PNG");
+      expect(png.readUInt32BE(16) + "x" + png.readUInt32BE(20)).toBe(icon.sizes);
+    }
+    const apple = readFileSync(resolve(root, "apps/website/public/apple-touch-icon.png"));
+    expect([apple.readUInt32BE(16), apple.readUInt32BE(20)]).toEqual([180, 180]);
+    const ico = readFileSync(resolve(root, "apps/website/public/favicon.ico"));
+    expect(ico.readUInt16LE(2)).toBe(1);
+    expect(ico.readUInt16LE(4)).toBe(1);
+    expect(ico.readUInt32LE(14) + ico.readUInt32LE(18)).toBe(ico.length);
   });
 
   // Covers: R11

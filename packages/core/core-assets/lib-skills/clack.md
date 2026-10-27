@@ -24,7 +24,7 @@ p.intro("navori init");
 const name = await p.text({
   message: "Project name?",
   placeholder: "my-app",
-  validate: (v) => (v.length === 0 ? "Required" : undefined),
+  validate: (v) => ((v ?? "").length === 0 ? "Required" : undefined),
 });
 if (p.isCancel(name)) {
   p.cancel("Cancelled.");
@@ -50,17 +50,17 @@ p.outro("Done");
 
 - **A prompt returns `value | symbol`.** Cancel is a symbol, not `null`. You MUST `isCancel` after every prompt — it narrows the type so `value` is usable afterward. Skip it and a cancelled `text` is treated as a string.
 - **Forget the check and the flow misbehaves.** Nothing throws on cancel; handle it or downstream code runs with a symbol.
-- **`spinner` needs both `start` and `stop`.** `const s = p.spinner(); s.start("…"); …; s.stop("done")` — an unstopped spinner leaves the terminal spinning; wrap work in try/finally.
+- **`spinner` needs both `start` and `stop`.** `const s = p.spinner(); s.start("…"); …; s.stop(msg)` on success or `s.error(msg)` on failure — an unended spinner leaves the terminal spinning; wrap work in try/finally.
 - **`confirm` returns a boolean**, `multiselect` an array, `select` the chosen `value` — not the label.
 - **`group` centralizes cancel.** Its `onCancel` fires if any step cancels, so per-step `isCancel` isn't needed inside a group.
-- **`validate` returns a string (error) or `undefined` (ok)** — returning `""` still reads as valid.
+- **`validate` returns a string (error) or `undefined` (ok)** — returning `""` still reads as valid. In 1.x it gets the raw input (maybe `undefined`/empty) BEFORE `defaultValue` applies: check `v || default` or normalize `v ?? ""`.
 
 ## Hard rules
 
 1. `intro` opens and `outro` closes every flow — matched pair.
 2. `isCancel` after every standalone prompt; on cancel, roll back any completed side effects, call `p.cancel(msg)`, then exit.
 3. Prefer `group({...}, { onCancel })` for multi-step flows — one cancel handler, typed `results`.
-4. Every `spinner().start()` has a matching `.stop()`, even on error (try/finally).
+4. Every `spinner().start()` ends with `.stop(msg)` or `.error(msg)`, even on error (try/finally).
 5. `select`/`multiselect` options are `{ value, label, hint? }`; consume `value`, never the label.
 6. `validate` returns an error string or `undefined`; keep prompts `await`ed — they're all async.
 7. Keep CI/non-interactive paths separate: accept validated flags or stdin and never open a prompt when `CI` is set.
@@ -74,7 +74,7 @@ p.outro("Done");
 | One of many | `await p.select({ message, options })` |
 | Several | `await p.multiselect({ message, options })` |
 | Yes/no | `await p.confirm({ message })` |
-| Progress | `const s = p.spinner(); s.start(); s.stop()` |
+| Progress | `const s = p.spinner(); s.start(); s.stop(msg)` / `s.error(msg)` |
 | Multi-step | `await p.group({...}, { onCancel })` |
 
 ## Before declaring done
