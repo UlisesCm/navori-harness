@@ -94,8 +94,8 @@ Estimated LOC: 9000
 
 ### M5 — Plan de render Claude
 
-En curso (adelantado antes de E1 por decisión del usuario, Q2): tramos integrados en #1411 y #1417,
-sigue en `feat/0058-rust-e3-engine`. Portado
+En curso (adelantado antes de E1 por decisión del usuario, Q2): tramos integrados en #1411, #1417 y
+#1422, sigue en `feat/0058-rust-e3-inventory`. Portado
 con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
 (`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
@@ -109,8 +109,11 @@ como texto para fijar el orden de claves. También `effectiveConfig` y el plan d
 declarados y retirados, skip/force, workspace, engine y piso anti-rollback). Del motor Claude:
 `renderManagedFile` (con `parseAsset` y `mergeFrontmatter`) y el paso 1 de
 `prepareClaudeEngine` (`CLAUDE.md` y `.claude/context/`, con `attachResolution`), contra el
-`prepareClaudeEngine` real en dry-run; los workspaces de monorepo se delegan. Faltan el resto
-del motor (agentes, skills, hooks, scripts, sub-bloques, retiros, `.gitignore`),
+`prepareClaudeEngine` real en dry-run; los workspaces de monorepo se delegan. También
+`resolveHarnessPlan` con el roster, `filterInventory` y la colocación de agentes, skills y
+hooks del adapter Claude (`render::harness_files`); `guard-destructive` espera al inventario de
+paths propios del render completo y los hooks de `ported.json` al wiring nativo. Faltan
+scripts y sub-bloques de plugins, retiros, `.gitignore`, ese inventario,
 `build-settings`/coexist, `.mcp.json`, el wiring nativo y las cadenas del render. Pendiente ajeno a
 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma intermitente (3/5
 aislado) por un presupuesto de 1 ms.
