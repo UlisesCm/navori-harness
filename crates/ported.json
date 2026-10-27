@@ -2,6 +2,18 @@
   "schema": 1,
   "commands": [{ "path": ["--version"] }, { "path": ["--help"] }],
   "hooks": {
+    "guard-destructive": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "guard-destructive-base": "sha256:8e931a685743f2453cac9b06782fe60f57e1708ab2767d109f70e60f7fcb433f",
+        "tgrep-search-lane": "sha256:24f3f6b3eb22b3269f99178b0fb1f56a91972c8ddf80aa754771e8af0f924f1e"
+      },
+      "deps": {
+        "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
+      },
+      "impl": "sha256:2907906cba21ccdc6ea7dbb31306a500302a535ccafa5076e413f2b6f6c09d04"
+    },
     "subagent-no-background": {
       "mode": "shadow",
       "gating": true,
