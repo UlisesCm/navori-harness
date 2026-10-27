@@ -88,6 +88,26 @@ For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are en
 - **`NAVORI_TEST_WORKERS`** (a positive integer) sets Vitest's worker count. Without it, the count is
   `min(CPUs - 1, 4, file-descriptor budget)`.
 
+## Rust migration branch (`navori-rust` local)
+
+Only on `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md)); `dev` and npm
+stay TypeScript-only.
+
+- **Install next to the TS CLI:** `cargo install --path crates/navori-cli --locked` installs
+  `navori-rust` and never replaces `navori` (`command -v navori` keeps its path).
+  `navori-rust --version` reports the internal prerelease `0.13.0-rust.<n>`.
+- **Delegation:** a subcommand missing from `crates/ported.json` goes to the TS CLI (`NAVORI_TS_CLI`,
+  then this checkout's `packages/cli/dist`, then `navori` in `PATH`). Run `bun run build` first.
+- **Native hooks:** a hook in `ported.json` runs natively only where `navori-rust` is in `PATH`;
+  otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and
+  `NAVORI_HOOK_IMPL=rust` forces native evaluation, failing instead of deferring. Shadow
+  observations land in `.navori/state/rust-shadow/` (`navori tools rust-shadow report`).
+- **Sync with `dev`:** merge, never rebase. Branch from `origin/migration/rust`, run
+  `git merge origin/dev` and open the PR against `migration/rust`. CI `freshness` fails when a
+  first-parent `dev` commit older than 7 days is missing.
+- **Checks:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`, `bun run oracle:rust` and `node scripts/js/rust-manifest-check.mjs`.
+
 ## Prose budget: what is capped and what is only reported
 
 All prose navori sends lives in each session's resident context, so it grows cumulatively: each session that learns something adds it, and nothing prunes it. There are **two startup surfaces**, deliberately treated differently.

@@ -221,6 +221,26 @@ o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara l
 - **`NAVORI_TEST_WORKERS`** (entero positivo) fija los workers de Vitest. Sin él, el número es
   `min(CPUs - 1, 4, presupuesto de file descriptors)`.
 
+## Rama de migración a Rust (`navori-rust` local)
+
+Solo en `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md)); `dev` y npm
+siguen siendo solo TypeScript.
+
+- **Instalar junto al CLI TS:** `cargo install --path crates/navori-cli --locked` instala
+  `navori-rust` y nunca reemplaza `navori` (`command -v navori` conserva su ruta).
+  `navori-rust --version` reporta la prerelease interna `0.13.0-rust.<n>`.
+- **Delegación:** un subcomando que no está en `crates/ported.json` va al CLI TS (`NAVORI_TS_CLI`,
+  luego `packages/cli/dist` de este checkout, luego `navori` en `PATH`). Corre antes `bun run build`.
+- **Hooks nativos:** un hook de `ported.json` corre nativo solo donde `navori-rust` está en `PATH`;
+  si no, corre el shell renderizado. `NAVORI_HOOK_IMPL=shell` fuerza el shell y
+  `NAVORI_HOOK_IMPL=rust` fuerza la evaluación nativa, que falla en vez de diferir. Las
+  observaciones de sombra quedan en `.navori/state/rust-shadow/` (`navori tools rust-shadow report`).
+- **Sincronizar con `dev`:** merge, nunca rebase. Crea la rama desde `origin/migration/rust`, corre
+  `git merge origin/dev` y abre el PR contra `migration/rust`. El job `freshness` de CI falla si
+  falta un commit de primer padre de `dev` con más de 7 días.
+- **Checks:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`, `bun run oracle:rust` y `node scripts/js/rust-manifest-check.mjs`.
+
 ## Presupuesto de prosa: qué se capea y qué solo se reporta
 
 Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por

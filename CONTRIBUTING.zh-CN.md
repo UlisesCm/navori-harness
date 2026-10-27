@@ -84,6 +84,26 @@
 - **`NAVORI_TEST_WORKERS`**（正整数）设置 Vitest 的 worker 数量。未设置时，数量为
   `min(CPUs - 1, 4, 文件描述符预算)`。
 
+## Rust 迁移分支（`navori-rust` 本地）
+
+仅适用于 `migration/rust`（[spec 0057](specs/0057-migracion-rust/requirements.md)）；`dev` 与 npm
+仍然只使用 TypeScript。
+
+- **与 TS CLI 并存安装：** `cargo install --path crates/navori-cli --locked` 会安装 `navori-rust`，
+  且不会替换 `navori`（`command -v navori` 的路径保持不变）。`navori-rust --version` 报告内部
+  预发布版本 `0.13.0-rust.<n>`。
+- **委托：** 未列入 `crates/ported.json` 的子命令交给 TS CLI（依次为 `NAVORI_TS_CLI`、本检出的
+  `packages/cli/dist`、`PATH` 中的 `navori`）。请先运行 `bun run build`。
+- **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
+  渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
+  无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`
+  （`navori tools rust-shadow report`）。
+- **与 `dev` 同步：** 只用 merge，不用 rebase。从 `origin/migration/rust` 建分支，运行
+  `git merge origin/dev`，并向 `migration/rust` 发起 PR。若缺少超过 7 天的 `dev` 第一父提交，CI
+  的 `freshness` job 会失败。
+- **检查：** `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo test --workspace`、`bun run oracle:rust` 以及 `node scripts/js/rust-manifest-check.mjs`。
+
 ## 文案预算：哪些会设上限，哪些只报告
 
 navori 注入的所有文案都留在每个会话的常驻上下文中，因此会不断累积：每个学到新内容的会话都会添加内容，却没有机制修剪。启动时会加载**两种内容面**，设计上分别处理。
