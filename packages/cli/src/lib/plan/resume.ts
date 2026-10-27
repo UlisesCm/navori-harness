@@ -84,6 +84,7 @@ export function resumePlans(cwd: string, budgetMs = 5000): ResumeResult {
             feature: plan.feature,
             id: criterion.id,
             command: criterion.command,
+            expected: criterion.expected,
             current: { cwd: root.cwd, head, fingerprint },
           });
           acceptance[criterion.id] = verdict.ok ? { status: "passed" } : pending(verdict.why);

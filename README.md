@@ -153,7 +153,7 @@ navori-harness/
 
 ## Development
 
-Requires **Node >= 22** and **bun 1.4.2**.
+Local development uses Node 26.12.1 (pinned in `.nvmrc`) and bun 1.4.4; CI runs on Node 24; the published CLI keeps its declared minimum of Node >= 22.12.
 
 ```bash
 bun install

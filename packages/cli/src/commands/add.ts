@@ -174,13 +174,13 @@ function runUnderSpinner(
     runShellCommand(cmd, ta, options.captureStderr);
     if (options.verifyBinary && tool.checkBinary && !hasBinary(tool.checkBinary)) {
       const cause = likelyPathCause(cmd, ta);
-      spin.stop(`${color.red("✗")} ${ta.installedButUnreachable(accent(tool.name), cause)}`, 1);
+      spin.error(`${color.red("✗")} ${ta.installedButUnreachable(accent(tool.name), cause)}`);
       return false;
     }
     spin.stop(`${color.green("✓")} ${ta.installed(accent(tool.name))}`);
     return true;
   } catch (err) {
-    spin.stop(`${color.red("✗")} ${ta.installFailed((err as Error).message)}`, 1);
+    spin.error(`${color.red("✗")} ${ta.installFailed((err as Error).message)}`);
     return false;
   }
 }

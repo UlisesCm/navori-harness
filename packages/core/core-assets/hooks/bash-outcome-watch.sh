@@ -16,6 +16,7 @@ navori_audit_log() { :; }
 # navori:include audit-log
 navori_audit_begin
 [ -n "${nv_project_dir:-}" ] || exit 0
+navori_bash_success_lane failure
 advice=$(navori_bash_failure_state failure)
 if [ -n "$advice" ]; then
   navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"

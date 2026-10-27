@@ -28,18 +28,22 @@ function resolveConsumer(value: string | undefined): HandoffConsumer {
 }
 
 const producerArgs = {
-  feature: { type: "positional" as const, required: true, description: "Feature slug" },
+  feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
   target: { type: "string" as const, description: "Review target branch" },
   dir: { type: "string" as const, description: "State directory" },
   json: { type: "boolean" as const, description: "Output JSON" },
 };
 const runArg = {
-  run: { type: "string" as const, required: true, description: "Run ID from prior authorization" },
+  run: {
+    type: "string" as const,
+    required: true as const,
+    description: "Run ID from prior authorization",
+  },
 };
 
 function emitProducer(
   result: { status: string; message?: string },
-  json: boolean,
+  json: boolean | undefined,
   ok: string,
 ): void {
   process.stdout.write(`${json ? JSON.stringify(result) : (result.message ?? result.status)}\n`);
@@ -53,7 +57,7 @@ const checkSubCommand = defineCommand({
       "Validate impl_<feature>.json (or .md under scribeOwnsMarkdown:false) before dispatch",
   },
   args: {
-    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
     for: {
       type: "string" as const,
       description: "Consumer running the check: orchestrator (default), scribe or publisher",
@@ -151,7 +155,7 @@ const logReviewSubCommand = defineCommand({
       "Validate review_<feature>.json and append findings with score >= 50 to findings.jsonl (deduped)",
   },
   args: {
-    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
     dir: { type: "string" as const, description: "Progress directory" },
     cwd: { type: "string" as const, description: "Checkout to operate on" },
     json: { type: "boolean" as const, description: "Output as JSON" },
@@ -187,7 +191,7 @@ const renderSubCommand = defineCommand({
       "Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true)",
   },
   args: {
-    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
     dir: { type: "string" as const, description: "State directory" },
     cwd: { type: "string" as const, description: "Checkout to operate on" },
     json: { type: "boolean" as const, description: "Output as JSON" },
@@ -219,7 +223,11 @@ export const handoffCommand = defineCommand({
           required: true,
           description: "Prior parallel request JSON file",
         },
-        target: { type: "string" as const, required: true, description: "Review target branch" },
+        target: {
+          type: "string" as const,
+          required: true as const,
+          description: "Review target branch",
+        },
         supersede: { type: "string" as const, description: "Explicit previous parallel run ID" },
       },
       async run({ args }) {
@@ -262,7 +270,11 @@ export const handoffCommand = defineCommand({
       args: {
         ...producerArgs,
         ...runArg,
-        status: { type: "string" as const, required: true, description: "DONE or BLOCKED" },
+        status: {
+          type: "string" as const,
+          required: true as const,
+          description: "DONE or BLOCKED",
+        },
         reason: {
           type: "string" as const,
           description: "Required blocker description when status is BLOCKED",
@@ -285,7 +297,11 @@ export const handoffCommand = defineCommand({
       },
       args: {
         ...producerArgs,
-        target: { type: "string" as const, required: true, description: "Review target branch" },
+        target: {
+          type: "string" as const,
+          required: true as const,
+          description: "Review target branch",
+        },
       },
       run({ args }) {
         const result = finalizeParallel(resolveReceiptOptions(args));
@@ -298,7 +314,11 @@ export const handoffCommand = defineCommand({
         description: "Attest delivery ownership from the native producer context",
       },
       args: {
-        feature: { type: "positional" as const, required: true, description: "Feature slug" },
+        feature: {
+          type: "positional" as const,
+          required: true as const,
+          description: "Feature slug",
+        },
         target: { type: "string" as const, description: "Review target branch" },
         dir: { type: "string" as const, description: "State directory" },
         json: { type: "boolean" as const, description: "Output JSON" },

@@ -37,6 +37,21 @@ function tscCommandFor(pm: DetectedProject["packageManager"]): string {
 }
 
 /**
+ * Options for the "fast" quality-gate text prompt. The suggestion is both the
+ * placeholder and the `defaultValue`: clack 1.x returns "" on an empty Enter
+ * when only a placeholder is set, so without `defaultValue` Enter would stop
+ * accepting the suggested command (R4: keep observable behavior).
+ */
+export function fastGatePromptOptions(
+  message: string,
+  current: string | undefined,
+  pm: DetectedProject["packageManager"],
+): { message: string; placeholder: string; defaultValue: string } {
+  const suggestion = current ?? tscCommandFor(pm);
+  return { message, placeholder: suggestion, defaultValue: suggestion };
+}
+
+/**
  * Build a minimal `project` block for `init --recommended` so the rendered
  * agents don't show `<not configured: project.criticalAreas>` etc. The arrays
  * are empty by design — we can't infer them — but the empty arrays interpolate

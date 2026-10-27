@@ -7,7 +7,7 @@ Navori's public landing page and documentation site. Built with Astro and Tailwi
 ## Development
 
 ```bash
-# from the monorepo root (Bun 1.4.2; repository requires Node.js >=24)
+# from the monorepo root (Bun 1.4.4; repository requires Node.js >=24)
 bun install
 bun run --cwd apps/website dev
 # open http://localhost:4321
@@ -67,7 +67,7 @@ apps/website/
 
 The shared route inventory in `src/content/pages.ts` defines one canonical location per topic and locale. English is served without a locale prefix; the other two languages use their configured prefixes. When adding a page or command, update the owning content source and keep the localized page, Markdown alternative, language links, fragments, and sitemap valid. The build checker names missing or out-of-sync artifacts.
 
-The monorepo uses Bun `1.4.2` and requires Node.js `>=24` (`package.json`) for site development and builds. The published CLI has its own runtime floor of Node.js `>=22.12` (`packages/cli/package.json`); that lower CLI requirement does not replace the monorepo's development requirement.
+The monorepo uses Bun `1.4.4` and requires Node.js `>=24` (`package.json`) for site development and builds. The published CLI has its own runtime floor of Node.js `>=22.12` (`packages/cli/package.json`); that lower CLI requirement does not replace the monorepo's development requirement.
 
 ## `llms.txt` and crawler policy
 

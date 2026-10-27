@@ -6,6 +6,16 @@ ciclos intermedios corren `qualityGate.fast` más los `A<n>` del milestone (hast
 mergeada, a mano). Cada test lleva `// Covers: R<n>`. Las prosas de agentes se editan en
 `packages/core/core-assets` y se aplican con `navori render --apply`.
 
+## Cierre de #1275
+
+E1 y E2 ya están integradas. E3 se completa al incorporar a `dev` la captura de T18:
+el PR #1385 se fusionó a `fix/1275-expected-evidence` después de integrar esa rama, por lo
+que su estado `merged` no acreditaba disponibilidad en `dev`. Esta integración conserva
+los límites de D11: captura de comparación en Claude y rechazo sin señal en otros motores.
+E4 se acredita con las implementaciones absorbidas por 0054 y con la validación de
+`expected` de T22, ahora conectada al parser compartido. La correspondencia sigue abajo;
+los comandos A10–A14 verifican el cierre funcional, no sólo las casillas.
+
 ## E1 — El gate completo corre una vez por aprobación
 Estimated LOC: 1000
 
@@ -98,17 +108,18 @@ Estimated LOC: 1150
   skills de semgrep y jscpd documentan la invocación desde un hook nativo · effect: docs · test:
   `engines/shared/__tests__/native-overlap.test.ts`::"native-git-hooks"
 
-## E3 — La aceptación compara contra lo esperado — diferida (0054)
+## E3 — La aceptación compara contra lo esperado
 Estimated LOC: 1000
 
-> Diferida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/), salvo T17, T20 y T21,
-> implementadas por separado en #1275. T16, T18 y T19 siguen pendientes.
+> Implementada por partes en #1275: parser, conservación de `request`, validación y captura de
+> comparación en hooks de Claude. Codex y Pi conservan su soporte previo; no capturan comparaciones
+> de salida. La entrega no acredita corridas con modelos vivos ni equivalencia entre motores.
 
 ### M7 — `expected` estructurado y `request`
 - **A10** — parser, schema y render del workplan en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/expected.test.ts src/lib/plan/__tests__/render.test.ts`
   → exit 0, 0 failed
-- [ ] **T16** (R17) — `parseExpected(text)` puro en `lib/plan/expected.ts`: `exit <n>` anclado,
+- [x] **T16** (R17) — `parseExpected(text)` puro en `lib/plan/expected.ts`: `exit <n>` anclado,
   `contains:` y `matches:`; texto libre sigue válido · effect: behavior · test:
   `lib/plan/__tests__/expected.test.ts`::"gramática y texto libre"
 - [x] **T17** (R15) — `request` opcional en `WorkplanSchema` (tope de 20000 caracteres) y
@@ -119,15 +130,23 @@ Estimated LOC: 1000
 
 ### M8 — Carril de evidencia
 - **A11** — carril y validación de evidencia en verde ·
-  `cd packages/cli && bun run test src/__tests__/bash-outcome.test.ts src/commands/__tests__/plan.test.ts`
+  `cd packages/cli && bun run test src/lib/__tests__/expected-capture.test.ts src/lib/__tests__/routing-watch.test.ts src/lib/__tests__/bash-outcome-watch.test.ts src/lib/plan/__tests__/acceptance-index.test.ts src/commands/__tests__/plan.test.ts`
   → exit 0, 0 failed
-- [ ] **T18** (R18) — `bash-outcome.sh`, `routing-watch.sh` y `bash-outcome-watch.sh` registran
+- [x] **T18** (R18) — `bash-outcome.sh`, `routing-watch.sh` y `bash-outcome-watch.sh` registran
   código de salida y resultado de la comparación, nunca la salida; salida truncada o interrumpida
   da `unevaluated`; sin línea parcial · effect: behavior · test:
-  `__tests__/bash-outcome.test.ts`::"secreto ausente, kill, truncado, binding"
-- [ ] **T19** (R19) — `validateEvidence`: gana la línea más nueva; `plan update
+  `lib/__tests__/expected-capture.test.ts`::"Claude expected capture" y
+  `lib/__tests__/routing-watch.test.ts`::"leaves no partial line when the hook is killed mid-fingerprint"
+  - Índice de comparación con comando, directorio y binding exactos; regex acotada a 100 ms.
+    Fallos estructurados con código conocido invalidan éxitos anteriores sin leer su salida.
+    Respuestas mayores de 1 MiB usan el comando cacheado en el detector de escrituras para evitar
+    sustituciones cuadráticas de Bash sobre la salida. No se persiste salida ni hash de salida.
+- [x] **T19** (R19) — `validateEvidence`: gana la línea más nueva; `plan update
   --progress A<n>=cumplido` rechaza una comparación fallida o un `expected` editado · effect:
   behavior · test: `commands/__tests__/plan.test.ts`::"pass vieja no anula fail nueva"
+  - Compara el `expected` actual y lo revalida antes de escribir. `plan check`, resume y entregas
+    consumen el mismo veredicto; metadatos inválidos no recuperan una prueba anterior válida.
+    La evidencia histórica de éxito conserva su forma y sirve para texto libre y `exit 0`.
 
 ### M9 — `plan check` y prosa del reviewer
 - **A12** — `plan check` y sus consumidores en verde ·
@@ -143,32 +162,41 @@ Estimated LOC: 1000
 ## E4 — El ciclo de un cambio chico es proporcional (absorbida por 0054)
 Estimated LOC: 450
 
-> Absorbida por la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/). No se implementa en esta spec.
+> Implementada en la spec [0054 — ciclo de desarrollo](../0054-dx-ciclo-desarrollo/),
+> excepto la conexión final de `parseExpected` en T22, completada con E3.
+>
+> | Tarea 0045 | Implementación integrada en 0054 |
+> |---|---|
+> | T22 | T35; validación estructurada completada al integrar E3 |
+> | T23 | T36 |
+> | T24 | T40 |
+> | T25 | T37 |
+> | T26 | T41; nota de integración en [0030](../0030-scribe-owns-markdown/design.md#enmienda-de-integración-00450054) |
 
 ### M10 — Nivel 0 y profundidad del review
 - **A13** — plan-gate y `classify --diff` en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/plan-gate.test.ts src/commands/__tests__/plan.test.ts`
   → exit 0, 0 failed
-- [ ] **T22** (R12) — `NIVEL0_LINE`/`evaluateNivel0` exigen `| verify: \`<cmd>\` → <expected>`
+- [x] **T22** (R12) — `NIVEL0_LINE`/`evaluateNivel0` exigen `| verify: \`<cmd>\` → <expected>`
   validado con `parseExpected`; sin `verify:` se niega el despacho · effect: behavior · test:
   `lib/plan/__tests__/plan-gate.test.ts`::"nivel-0 con y sin verify"
-- [ ] **T23** (R13, R14) — `classify --diff` emite `reviewDepth`: `light` solo con
+- [x] **T23** (R13, R14) — `classify --diff` emite `reviewDepth`: `light` solo con
   `criticalPaths` declarados y sin tocar; `full` ante un área crítica o sin declaración; este repo
   declara la lista aprobada · effect: behavior · test:
   `commands/__tests__/plan.test.ts`::"reviewDepth con config real"
-- [ ] **T24** (R12, R13, R14, R24) — `planificacion` fila 0 y `reviewer.md` Pass 2 con
+- [x] **T24** (R12, R13, R14, R24) — `planificacion` fila 0 y `reviewer.md` Pass 2 con
   `reviewDepth`, en Claude y Codex · effect: docs · test:
-  `lib/render/__tests__/interpolate.test.ts`::"reviewDepth claude y codex"
+  `__tests__/doctrine-contracts.test.ts`::"reviewer lanes by milestone, cached PASS reported as cached, reviewDepth, docs re-sign"
 
 ### M11 — Handoff determinista y nits
 - **A14** [observable] — `impl_<f>.md` sale del JSON sin despachar al scribe ·
-  `cd packages/cli && bun run test src/lib/handoff/__tests__/handoff-render.test.ts src/__tests__/asset-command-permissions.test.ts`
+  `cd packages/cli && bun run test src/lib/handoff/__tests__/handoff-render.test.ts src/__tests__/asset-command-permissions.test.ts src/__tests__/doctrine-contracts.test.ts`
   → exit 0, 0 failed
-- [ ] **T25** (R21) — `navori handoff render <feature>` en `lib/handoff/render.ts`: falla con JSON
+- [x] **T25** (R21) — `navori handoff render <feature>` en `lib/handoff/render.ts`: falla con JSON
   faltante, inválido, de otra feature o con `scribeOwnsMarkdown` en `false`; permiso
   `Bash(navori handoff render:*)` · effect: behavior · test:
   `lib/handoff/__tests__/handoff-render.test.ts`::"snapshot y rechazos"
-- [ ] **T26** (R21, R22, R24) — `orchestrator.md` ("The `scribe` leg", "Frugal delegation"),
+- [x] **T26** (R21, R22, R24) — `orchestrator.md` ("The `scribe` leg", "Frugal delegation"),
   `scribe.md` y `orquestacion`: scribe solo con `markdownRequests`; una observación menor a 80
   tras `APPROVED` va al PR; enmienda de 0030 R5/R8 anotada · effect: docs · test:
-  `lib/render/__tests__/interpolate.test.ts`::"scribe y nits claude y codex"
+  `__tests__/doctrine-contracts.test.ts`::"scribe se despacha solo con markdownRequests no vacío"

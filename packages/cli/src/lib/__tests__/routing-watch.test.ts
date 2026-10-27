@@ -872,9 +872,10 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
       expect(line.head).toBe(readHead(dir));
       // End to end: the CLI accepts what the hook recorded.
       const root = resolveStateRoot({ cwd: dir, feature: FEATURE });
-      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
-        true,
-      );
+      expect(
+        validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND, expected: "exit 0" })
+          .ok,
+      ).toBe(true);
       return lines.length;
     });
   });
@@ -902,17 +903,19 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
   });
 
   // Covers: R6
-  it("does not record a run_in_background call or an interrupted one", () => {
+  it("skips background launches and records interrupted comparisons as unevaluated", () => {
     const dir = laneProject();
     lane("bash", dir, {
       ...bash(COMMAND),
       tool_input: { command: COMMAND, run_in_background: true },
     });
+    expect(evidenceOf(dir)).toEqual([]);
     lane("bash", dir, {
       ...bash(COMMAND),
       tool_response: { stdout: "", stderr: "", interrupted: true },
     });
-    expect(evidenceOf(dir)).toEqual([]);
+    expect(evidenceOf(dir)).toHaveLength(1);
+    expect(evidenceOf(dir)[0]).toMatchObject({ outcome: "unevaluated" });
   });
 
   // Covers: R6
@@ -975,9 +978,10 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
       expect(lines).toHaveLength(1);
       expect(lines[0]).toMatchObject({ id: "A1", tree: wt, cwd: wt });
       const root = resolveStateRoot({ cwd: wt, feature: FEATURE });
-      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
-        true,
-      );
+      expect(
+        validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND, expected: "exit 0" })
+          .ok,
+      ).toBe(true);
       return lines.length;
     });
   });

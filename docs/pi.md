@@ -12,12 +12,13 @@ runtime admissions) is parsed by `packages/cli/src/engines/pi/__tests__/first-cl
 ## Requirements and setup
 
 - Minimum supported Pi version: **1.1.0**
-- Tested Pi version: **1.1.0**
+- Tested Pi version: **1.4.0**
 
 The floor is `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). The tested version is
 the pinned `@earendil-works/pi-coding-agent` devDependency of `packages/cli`. The floor also covers
 acceptance evidence, which reads Pi's built-in bash `structuredContent.exit_code`, and the admitted child
-runtime capabilities (see [Runtime admissions](#runtime-admissions)), which are verified only on 1.1.0.
+runtime capabilities (see [Runtime admissions](#runtime-admissions)), which are verified only on 1.4.0. Pi 1.1–1.3 loads the full extension, but `navori_subagent` refuses
+children with an "upgrade Pi" message.
 
 A Pi is **unverified** when it is below the floor, is a prerelease (for example `1.2.0-rc.1`), or reports a
 version that cannot be parsed. An unverified Pi loads the extension in write-block mode only: `bash`,
@@ -76,7 +77,7 @@ scripts are not copied or run by Pi.
 ## Runtime admissions
 
 Each row is one child runtime capability from `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. `admitted`
-capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available.
+capabilities are verified on Pi 1.4.0; `deferred` capabilities are not available.
 
 | Capability | Decision | Boundary |
 | --- | --- | --- |
@@ -375,6 +376,72 @@ Any failure, including an unreadable check, returns `isError` with the reason an
 - These limits, tool lists, and `--no-mcp` do not create an OS sandbox. Child processes inherit the
   user's environment, filesystem and network authority, and Pi agent directory.
 
+## Live comparison with Claude
+
+The M5 reader links confirmed Pi children to their invocation IDs and preserves failures after spawn.
+M6 adds `navori audit --by-engine --published-from <bare>`: unavailable Git or transcript evidence stays
+unavailable, and missing minimum observations produce `inconclusive`. Correlation is descriptive;
+it does not grant actor authority or establish an independent reviewer.
+
+The repository's developer-only driver is [scripts/bench/run-live.ts](../scripts/bench/run-live.ts).
+It prepares two real Git checkouts from the same fixture, 60 search files, one local bare remote,
+and a local `gh` test double. Its `auth status` preflight explains that local publication requires no
+GitHub authentication; it neither reads credentials nor authenticates against GitHub. Unsupported
+commands still exit with status 64. The fixture uses `npm test` as the safe gate command; the package's test
+script runs `node --test` without dependencies. Published refs are `claude/benchmark` and `pi/benchmark`.
+The Git configuration and templates are local to the fixture. Native engines still retain their normal
+filesystem/network access and native permissions; this driver is not an OS sandbox.
+
+Preparation does not start a model:
+
+```bash
+bun scripts/bench/run-live.ts prepare
+```
+
+Copy the returned physical `root` into `NAVORI_BENCH_ROOT`. After obtaining separate authorization for
+the accounts, models and spending budget, launch one engine from the operator's own POSIX terminal:
+
+```bash
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine claude --model sonnet
+NAVORI_LIVE_BENCH=1 bun scripts/bench/run-live.ts launch --root "$NAVORI_BENCH_ROOT" --engine pi --model provider/model
+```
+
+Run them sequentially. The driver requires native `--session-id` support (observed in Claude Code
+2.1.309 and Pi 1.3.0); this observation does not expand the runtime admissions verified by the pinned
+SDK tests. Claude's fixture roles use Sonnet; Pi inherits the explicit selected provider/model.
+The execution flag is not a monetary cap. The operator controls native approvals and the authorized
+spending limit. MCP tools are disabled for this comparison; native security settings remain active.
+
+While the parent is open, use another terminal to obtain the next exact prompt:
+
+```bash
+bun scripts/bench/run-live.ts task --root "$NAVORI_BENCH_ROOT" --engine claude --task 2
+```
+
+Repeat for tasks 3–5 and for Pi, pasting each returned prompt into that engine. Task 2 activates the
+existing failing pagination test in **tracked bytes**, invalidating task 1's cached gate. During task 5,
+run `/compact` when the parent pauses, then send another turn. Exit each parent after its five tasks.
+The driver never supplies approval responses and never uses a permission-bypass flag.
+
+```bash
+bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
+```
+
+Collection runs `navori audit --by-engine --published-from` against this run's private audits directory
+(`NAVORI_AUDITS_ROOT`), without `--all-repos`, because the audit reader rejects that flag together with
+`--by-engine`. The scoped cohort admits only the session headers allocated to this run. Native source
+verification remains with the audit reader.
+Partial observations retain their metrics and failures; missing stage labels cannot earn `pass`.
+Labels do not prove task execution. `comparisonVerification: unverified` keeps operator verification
+of the five real tasks and actual models separate from the K1 metric result.
+No launched models or missing sources yield `inconclusive`.
+Record the real result, native versions, actual resolved models and scripted parity results in
+`specs/0053-pi-igualar-claude/evals.md`. The comparison has n = 1, permits different models, and does
+not equate correlated approval with independent review. Local preparation is not the live acceptance.
+
+The partial live result (Claude Code only, Pi not run, `inconclusive`, no parity claim) is recorded in
+[evals.md](../specs/0053-pi-igualar-claude/evals.md).
+
 ## Parity inventory
 
 `PI_PARITY` (`packages/cli/src/engines/shared/pi-parity.ts`) lists every unit Navori emits for other
@@ -561,7 +628,7 @@ The verified cycle, in order:
 ## Credential-free e2e result
 
 Executed by automation with `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`
-on the pinned Pi 1.1.0 runtime. The test runs the compiled CLI (render, approved plan, `plan update`), the
+on the pinned Pi 1.4.0 runtime. The test runs the compiled CLI (render, approved plan, `plan update`), the
 real Pi SDK agent loop and tool pipeline in process, real `pi` child processes spawned by the rendered
 extension, Pi's built-in bash and write tools, git, and the filesystem. It covers install, approval
 without UI, denial, a >256 KiB child stream, implementer/scribe/reviewer dispatch on the parent's model,
@@ -642,7 +709,7 @@ The live smoke is the only evidence that the TUI dialog renders and that the mod
 contract. The credential-free e2e proves neither. Run it in a project whose Pi resources you trust, and
 record each step in [evals.md](../specs/0048-pi-paridad/evals.md).
 
-1. Check `pi --version`; it must be 1.1.0 or newer.
+1. Check `pi --version`; it must be 1.4.0 or newer.
 2. Start Pi interactively and run `/login`, selecting the `openai-codex` ChatGPT Plus/Pro subscription
    login. Navori does not inspect credential files.
 3. Run `/model` and select the model the children will use.

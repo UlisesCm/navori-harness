@@ -95,6 +95,7 @@ export function recordDeliveryCriterion(
       feature,
       id,
       command: criterion.command,
+      expected: criterion.expected,
       deliveryBinding: binding,
     });
     if (!result.ok) throw new Error(`current host provenance required: ${result.why}`);
@@ -135,6 +136,7 @@ export function recordDeliveryCriterion(
       feature: proof.feature,
       id: proof.criterionId,
       command: criterion.command,
+      expected: criterion.expected,
       deliveryBinding: proof.binding,
     });
     if (!result.ok || deliveryDigest(result.evidence) !== deliveryDigest(proof.evidence))
@@ -195,6 +197,7 @@ export function deliveryPartProof(
         feature: record.proof.feature,
         id: record.proof.criterionId,
         command: criterion.command,
+        expected: criterion.expected,
         deliveryBinding: binding,
       });
       if (!result.ok) throw new Error(`${qualifiedId}: ${result.why}`);

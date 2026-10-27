@@ -88,6 +88,6 @@ pub const ROOT_COMMANDS: &[(&str, &str)] = &[
     ("tools", "Machine commands about external tools"),
     (
         "gate",
-        "Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict",
+        "Run qualityGate.<fast|full>, or `foreign` for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict",
     ),
 ];

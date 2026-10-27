@@ -1,955 +1,116 @@
 ---
-/**
- * The walkthrough — a prompt travelling through the whole harness.
- *
- * This is the landing's centrepiece, and it answers the question everything
- * else on the page assumes you already answered: what does navori actually put
- * between your sentence and the model? So it is not a diagram of concepts, it
- * is a ROUTE: one prompt enters at stop 1 and comes out a commit at stop 8,
- * lighting up every piece it passes through — hooks, the four context sources,
- * the orchestrator, codegraph and tgrep, the three subagents, the guard and the
- * permission rules, gate/reviewer, and the memory write that
- * closes the loop back into stop 2.
- *
- * MECHANICS. One `<path>` is the route. A travelling token is positioned with
- * `getPointAtLength()` on every frame, and a second copy of the same path is
- * revealed behind it with `stroke-dashoffset` so the trail draws itself. Stop
- * positions are NOT hardcoded as fractions: `measureStops()` samples the path
- * once and finds the nearest length to each station's centre, so moving a node
- * in the layout constants below cannot desynchronise the animation from the
- * drawing.
- *
- * The motion is deliberately not linear — it travels between stops, then dwells
- * on one so you can read it. That rhythm is the whole point: a constant-speed
- * loop reads as decoration, a stop-and-explain loop reads as an explanation.
- *
- * DEGRADES. With no JS, or under `prefers-reduced-motion`, every stop renders
- * lit and the panel shows the first one; the stop buttons still navigate. The
- * diagram is legible as a static image — the animation is an enhancement, never
- * the only way to read it.
- */
-import SectionHeader from "../SectionHeader.astro";
-import { useTranslations } from "../../i18n/utils";
+import PromptTerminal from "../PromptTerminal.astro";
+import WalkthroughScene from "../WalkthroughScene.astro";
+import "../../styles/walkthrough.css";
+import { walkthrough } from "../../content/walkthrough";
 import type { Lang } from "../../i18n/ui";
-
-interface Props {
-  lang: Lang;
-}
+import { localizedPath } from "../../i18n/utils";
+interface Props { lang: Lang; }
 const { lang } = Astro.props;
-const t = useTranslations(lang);
-
-/** Shorthand for the generated chip/station keys, which are typed in `ui.ts`. */
-type Key = Parameters<typeof t>[0];
-const tr = (k: string): string => t(k as Key);
-
-// ── layout ────────────────────────────────────────────────────────────
-// One coordinate system, three rows, serpentine. Everything else derives.
-//
-// Chip width is the binding constraint, not an aesthetic choice: row C carries
-// eight chips across three stations, so 128px is the widest that fits 1220px of
-// usable canvas with breathing room between stations. That is why the chip
-// description wraps to two lines instead of sitting on one.
-const VB = { w: 1260, h: 760 };
-const ROW = { a: 130, b: 350, c: 570 };
-const CHIP = { w: 128, h: 58, gap: 12 };
-/** Gap between two stations' chip groups on the same row. */
-const GROUP_GAP = 46;
-
-/** The route: left→right, down, right→left, down, left→right. */
-const ROUTE = [
-  `M 120 ${ROW.a}`,
-  `H 1150 Q 1196 ${ROW.a} 1196 ${ROW.a + 46}`,
-  `V ${ROW.b - 46} Q 1196 ${ROW.b} 1150 ${ROW.b}`,
-  `H 110 Q 64 ${ROW.b} 64 ${ROW.b + 46}`,
-  `V ${ROW.c - 46} Q 64 ${ROW.c} 110 ${ROW.c}`,
-  `H 1190`,
-].join(" ");
-
-interface Chip {
-  id: string;
-  label: string;
-  /** Tool-family colour, matching the toolbox section's grouping. */
-  tone: "ctx" | "agent" | "search" | "guard" | "quality" | "out";
-}
-
-interface Station {
-  n: number;
-  x: number;
-  y: number;
-  chips: Chip[];
-}
-
-const STATIONS: Station[] = [
-  { n: 1, x: 120, y: ROW.a, chips: [{ id: "sessionstart", label: "SessionStart", tone: "guard" }] },
-  {
-    n: 2,
-    x: 580,
-    y: ROW.a,
-    chips: [
-      { id: "claudemd", label: "CLAUDE.md", tone: "ctx" },
-      { id: "skills", label: "skills", tone: "ctx" },
-      { id: "dominio", label: "Dominio", tone: "ctx" },
-      { id: "engram", label: "engram", tone: "ctx" },
-    ],
-  },
-  { n: 3, x: 1030, y: ROW.a, chips: [{ id: "orchestrator", label: "orchestrator", tone: "agent" }] },
-  {
-    n: 4,
-    x: 1000,
-    y: ROW.b,
-    chips: [
-      { id: "codegraph", label: "codegraph", tone: "search" },
-      { id: "tgrep", label: "tgrep", tone: "search" },
-    ],
-  },
-  {
-    n: 5,
-    x: 420,
-    y: ROW.b,
-    chips: [
-      { id: "scout", label: "scout", tone: "agent" },
-      { id: "implementer", label: "implementer", tone: "agent" },
-      { id: "auditor", label: "auditor", tone: "agent" },
-    ],
-  },
-  {
-    n: 6,
-    x: 190,
-    y: ROW.c,
-    chips: [
-      { id: "guard", label: "PreToolUse", tone: "guard" },
-      { id: "permissions", label: "permissions", tone: "guard" },
-    ],
-  },
-  {
-    n: 7,
-    x: 620,
-    y: ROW.c,
-    chips: [
-      { id: "gate", label: "quality gate", tone: "quality" },
-      { id: "reviewer", label: "reviewer", tone: "quality" },
-    ],
-  },
-  {
-    n: 8,
-    x: 1075,
-    y: ROW.c,
-    chips: [
-      { id: "commit", label: "commit + PR", tone: "out" },
-      { id: "memory", label: "engram", tone: "out" },
-    ],
-  },
-];
-
-/** Chip row geometry: always below its station, centred on it. */
-const chipX = (st: Station, i: number): number => {
-  const total = st.chips.length * CHIP.w + (st.chips.length - 1) * CHIP.gap;
-  return st.x - total / 2 + i * (CHIP.w + CHIP.gap);
-};
-const chipY = (st: Station): number => st.y + 52;
-
-/**
- * Split a chip's description across two lines at the most balanced word break.
- * 128px of chip holds roughly 19 characters at 11px, and these descriptions are
- * the part that makes the diagram readable — shortening them to fit one line
- * would trade the explanation for the layout.
- */
-const wrap = (text: string): [string, string] => {
-  if (!text.includes(" ") && /[\u3400-\u9fff]/.test(text)) {
-    const characters = Array.from(text);
-    const middle = Math.ceil(characters.length / 2);
-    return [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
-  }
-  const words = text.split(" ");
-  let best = 1;
-  let bestDelta = Number.POSITIVE_INFINITY;
-  for (let i = 1; i < words.length; i++) {
-    const a = words.slice(0, i).join(" ").length;
-    const b = words.slice(i).join(" ").length;
-    if (Math.abs(a - b) < bestDelta) {
-      bestDelta = Math.abs(a - b);
-      best = i;
-    }
-  }
-  return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
-};
-
-const stops = STATIONS.map((st) => ({
-  ...st,
-  name: tr(`graph.s${st.n}.name`),
-  title: tr(`graph.s${st.n}.title`),
-  body: tr(`graph.s${st.n}.body`),
-}));
-
-/**
- * The narrator copy travels to the client as data attributes rather than being
- * re-rendered per stop: the panel swaps text on every step, and shipping the
- * eight strings once beats eight hidden DOM subtrees.
- */
-const copyJson = JSON.stringify(
-  Object.fromEntries(stops.map((st) => [st.n, { title: st.title, body: st.body }])),
-);
-const labelsJson = JSON.stringify({
-  pause: t("graph.pause"),
-  play: t("graph.play"),
-  counter: t("graph.stationOf"),
-});
+const copy = walkthrough[lang];
+const first = copy.steps[0]!;
 ---
-
-<section
-  id="anatomy"
-  class="relative py-24 sm:py-28 border-b overflow-hidden"
-  style="border-color: var(--color-border-soft);"
->
-  <div class="absolute inset-0 grid-bg pointer-events-none opacity-50"></div>
-  <div class="absolute inset-0 glow-hero pointer-events-none opacity-60"></div>
-
-  <div class="container-prose relative">
-    <SectionHeader
-      eyebrow={t("graph.eyebrow")}
-      title={t("graph.title")}
-      subtitle={t("graph.subtitle")}
-    />
-  </div>
-
-  <div
-    class="relative mt-12"
-    data-walk
-    data-stop="1"
-    data-copy={copyJson}
-    data-labels={labelsJson}
-  >
-    {/* the prompt, entering */}
-    <div class="container-prose">
-      <div class="mx-auto max-w-2xl">
-        <div class="wk-prompt">
-          <span class="wk-prompt-label">{t("graph.promptLabel")}</span>
-          <div class="wk-prompt-box">
-            <span class="wk-caret" aria-hidden="true">❯</span>
-            <span class="wk-prompt-text">{t("graph.prompt")}</span>
+<section id="anatomy" class="walkthrough-section" aria-labelledby="walkthrough-title">
+  <div class="container-prose">
+    <div class="walkthrough-heading">
+      <h2 id="walkthrough-title">{copy.title}</h2>
+    </div>
+    <div class="walkthrough" data-walkthrough data-scene={first.scene} data-paused="true"
+      data-play-label={copy.play} data-pause-label={copy.pause} data-replay-label={copy.replay}>
+      <div class="walkthrough-main">
+        <PromptTerminal lang={lang} />
+        <div class="walkthrough-world">
+          <div class="world-topline"><span>{copy.project}</span><span>{copy.example}</span></div>
+          <WalkthroughScene lang={lang} />
+          <div class="walkthrough-narration" data-walkthrough-narration aria-live="off">
+            {copy.steps.map((step, index) => <div data-walkthrough-caption={index} hidden={index !== 0}><h3>{step.title}</h3><p>{step.body}</p></div>)}
           </div>
         </div>
       </div>
-    </div>
-
-    {/* the route */}
-    <div class="mt-8 overflow-x-auto px-6 sm:px-8 pb-2">
-      <svg
-        viewBox={`0 0 ${VB.w} ${VB.h}`}
-        class="mx-auto w-full min-w-[1000px] max-w-[1260px] h-auto"
-        role="img"
-        aria-label={t("graph.aria")}
-      >
-        <defs>
-          <linearGradient id="wk-trail" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="var(--color-sky-500)"></stop>
-            <stop offset="100%" stop-color="var(--color-violet-600)"></stop>
-          </linearGradient>
-          <marker
-            id="wk-back"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-violet-400)"></path>
-          </marker>
-          <filter id="wk-glow" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="7" result="b"></feGaussianBlur>
-            <feMerge>
-              <feMergeNode in="b"></feMergeNode>
-              <feMergeNode in="SourceGraphic"></feMergeNode>
-            </feMerge>
-          </filter>
-        </defs>
-
-        {/* the loop-back arrow: stop 8 writes memory, stop 2 reads it */}
-        {/* out of stop 8's engram: the decision is written */}
-        <path
-          class="wk-loop"
-          d={`M 1145 ${ROW.c + 112} V ${ROW.c + 136} Q 1145 ${ROW.c + 150} 1131 ${ROW.c + 150} H 1016`}
-          marker-end="url(#wk-back)"
-        ></path>
-        <text class="wk-loop-label wk-loop-out" x="1000" y={ROW.c + 154}>
-          {t("graph.loop")}
-        </text>
-
-        {/* into stop 2's engram: the same memory, read back */}
-        <path
-          class="wk-loop"
-          d={`M 790 ${ROW.a + 168} V ${ROW.a + 116}`}
-          marker-end="url(#wk-back)"
-        ></path>
-        <text class="wk-loop-label wk-loop-in" x="790" y={ROW.a + 186}>
-          {t("graph.loopIn")}
-        </text>
-
-        {/* route: the unvisited track, then the trail that draws itself */}
-        <path class="wk-track" d={ROUTE}></path>
-        <path class="wk-trail" d={ROUTE} data-trail></path>
-
-        {/* chips — every tool the prompt passes through */}
-        {
-          stops.map((st) =>
-            st.chips.map((c, i) => (
-              <g class="wk-chip" data-chip-of={st.n}>
-                <rect
-                  class={`wk-chip-box wk-tone-${c.tone}`}
-                  x={chipX(st, i)}
-                  y={chipY(st)}
-                  width={CHIP.w}
-                  height={CHIP.h}
-                  rx="10"
-                />
-                <text class="wk-chip-name" x={chipX(st, i) + 10} y={chipY(st) + 19}>
-                  {c.label}
-                </text>
-                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 34}>
-                  {wrap(tr(`graph.chip.${c.id}`))[0]}
-                </text>
-                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 47}>
-                  {wrap(tr(`graph.chip.${c.id}`))[1]}
-                </text>
-                <line
-                  class="wk-chip-tie"
-                  x1={chipX(st, i) + CHIP.w / 2}
-                  y1={chipY(st)}
-                  x2={st.x}
-                  y2={st.y + 20}
-                />
-              </g>
-            )),
-          )
-        }
-
-        {/* the prompt token, travelling */}
-        <g data-token class="wk-token">
-          <circle r="9" filter="url(#wk-glow)"></circle>
-        </g>
-
-        {/* stations */}
-        {
-          stops.map((st) => (
-            <g class="wk-station" data-station={st.n} tabindex="0" role="button">
-              <circle class="wk-halo" cx={st.x} cy={st.y} r="30" />
-              <circle class="wk-dot" cx={st.x} cy={st.y} r="19" />
-              <text class="wk-dot-n" x={st.x} y={st.y + 5}>
-                {st.n}
-              </text>
-              <text class="wk-st-name" x={st.x} y={st.y - 32}>
-                {st.name}
-              </text>
-            </g>
-          ))
-        }
-
-
-      </svg>
-    </div>
-
-    {/* narrator */}
-    <div class="container-prose mt-10">
-      <div class="grid gap-8 lg:grid-cols-12 lg:gap-10 items-start">
-        <div class="lg:col-span-7">
-          <p class="wk-counter" data-counter></p>
-          <h3 class="mt-2 text-xl sm:text-2xl font-semibold tracking-tight" data-title>
-            {stops[0]?.title}
-          </h3>
-          <p
-            class="mt-3 text-base leading-relaxed text-slate-600 dark:text-slate-400 max-w-2xl"
-            data-body
-          >
-            {stops[0]?.body}
-          </p>
+      <div class="walkthrough-controls" hidden data-walkthrough-controls>
+        <div class="walkthrough-playback">
+          <button type="button" data-walkthrough-play aria-pressed="false">{copy.play}</button>
+          <button type="button" data-walkthrough-previous aria-label={copy.previous} disabled><span aria-hidden="true">←</span></button>
+          <button type="button" data-walkthrough-next aria-label={copy.next}><span aria-hidden="true">→</span></button>
+          <span class="walkthrough-position" data-walkthrough-position>1 / {copy.steps.length}</span>
         </div>
-
-        <div class="lg:col-span-5">
-          <ol class="flex flex-wrap gap-1.5">
-            {
-              stops.map((st) => (
-                <li>
-                  <button
-                    type="button"
-                    data-goto={st.n}
-                    aria-pressed={st.n === 1 ? "true" : "false"}
-                    class="wk-pill"
-                  >
-                    <span class="wk-pill-n">{st.n}</span>
-                    {st.name}
-                  </button>
-                </li>
-              ))
-            }
-          </ol>
-
-          <div class="mt-5 flex items-center gap-3">
-            <button type="button" class="btn btn-ghost !py-2 !px-3 text-xs" data-toggle>
-              <span data-toggle-label>{t("graph.pause")}</span>
-            </button>
-            <span class="text-xs text-slate-500 dark:text-slate-400">{t("graph.hint")}</span>
-          </div>
+        <div class="walkthrough-steps" role="group" aria-label={copy.navigation}>
+          {copy.steps.map((step, index) => <button type="button" data-walkthrough-step={index} data-scene-name={step.scene} aria-pressed={index === 0}><span>{String(index + 1).padStart(2, "0")}</span>{step.name}</button>)}
         </div>
       </div>
+      <div class="walkthrough-progress" aria-hidden="true"><span data-walkthrough-progress></span></div>
+    </div>
+    <div class="walkthrough-after">
+      <details><summary>{copy.readAll}</summary><p>{copy.introduction}</p><ol>{copy.steps.map((step) => <li><h3>{step.title}</h3><p>{step.body}</p></li>)}</ol></details>
+      <a href={localizedPath(lang, "/deep-dive")}>{copy.more}<span aria-hidden="true"> ↗</span></a>
     </div>
   </div>
 </section>
 
-<style>
-  /* ── the prompt box ─────────────────────────────────────────────── */
-  .wk-prompt-label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-prompt-label {
-    color: var(--color-violet-300);
-  }
-
-  .wk-prompt-box {
-    margin-top: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    border-radius: 12px;
-    padding: 0.85rem 1rem;
-    background: var(--color-night);
-    color: rgb(226 232 240);
-    font-family: var(--font-mono);
-    font-size: 14px;
-    box-shadow:
-      0 18px 50px -24px rgba(14, 165, 233, 0.5),
-      0 24px 60px -30px rgba(124, 58, 237, 0.55);
-  }
-
-  .wk-caret {
-    color: var(--color-violet-400);
-  }
-
-  [data-walk][data-stop="1"] .wk-prompt-box {
-    outline: 2px solid var(--color-violet-500);
-    outline-offset: 2px;
-  }
-
-  /* ── route ──────────────────────────────────────────────────────── */
-  .wk-track {
-    fill: none;
-    stroke: var(--color-border-soft);
-    stroke-width: 2.5;
-    stroke-linecap: round;
-  }
-
-  .wk-trail {
-    fill: none;
-    stroke: url(#wk-trail);
-    stroke-width: 3.5;
-    stroke-linecap: round;
-  }
-
-  .wk-loop {
-    fill: none;
-    stroke: var(--color-violet-400);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 6;
-    opacity: 0.55;
-  }
-
-  .wk-loop-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    fill: var(--color-violet-700);
-    opacity: 0.85;
-  }
-
-  :global(html.dark) .wk-loop-label {
-    fill: var(--color-violet-300);
-  }
-
-  /* the outgoing label sits left of its arrow; the incoming one centres */
-  .wk-loop-out {
-    text-anchor: end;
-  }
-
-  .wk-loop-in {
-    text-anchor: middle;
-  }
-
-  /* ── stations ───────────────────────────────────────────────────── */
-  .wk-station {
-    cursor: pointer;
-  }
-
-  .wk-dot {
-    fill: var(--color-ivory);
-    stroke: var(--color-border-soft);
-    stroke-width: 2;
-    transition:
-      fill 0.3s ease,
-      stroke 0.3s ease;
-  }
-
-  .wk-dot-n {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 600;
-    text-anchor: middle;
-    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
-    transition: fill 0.25s ease;
-  }
-
-  :global(html.dark) .wk-dot-n {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-st-name {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    text-anchor: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
-    transition: fill 0.3s ease;
-  }
-
-  :global(html.dark) .wk-st-name {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-halo {
-    fill: none;
-    stroke: var(--color-violet-500);
-    stroke-width: 2;
-    opacity: 0;
-    transform-box: fill-box;
-    transform-origin: center;
-  }
-
-  /* visited stations keep their colour; the active one pulses */
-  .wk-station.is-visited .wk-dot {
-    fill: color-mix(in oklab, var(--color-sky-500), var(--color-ivory) 86%);
-    stroke: var(--color-sky-500);
-  }
-
-  .wk-station.is-active .wk-dot {
-    fill: var(--color-violet-500);
-    stroke: var(--color-violet-600);
-    stroke-width: 2.5;
-    filter: drop-shadow(0 0 12px color-mix(in oklab, var(--color-violet-500), transparent 45%));
-  }
-
-  /* on a solid violet disc the digit reads white, not violet-on-violet */
-  .wk-station.is-active .wk-dot-n {
-    fill: #fff;
-  }
-
-  .wk-station.is-active .wk-st-name {
-    fill: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-station.is-active .wk-st-name {
-    fill: var(--color-violet-300);
-  }
-
-  .wk-station.is-active .wk-halo {
-    opacity: 0.85;
-    animation: wkHalo 1.9s ease-out infinite;
-  }
-
-  .wk-station:focus-visible .wk-dot {
-    stroke: var(--color-sky-500);
-  }
-
-  @keyframes wkHalo {
-    0% {
-      transform: scale(0.72);
-      opacity: 0.8;
-    }
-    100% {
-      transform: scale(1.32);
-      opacity: 0;
-    }
-  }
-
-  /* ── chips ──────────────────────────────────────────────────────── */
-  .wk-chip {
-    opacity: 0.25;
-    transition: opacity 0.4s ease;
-  }
-
-  .wk-chip.is-on {
-    opacity: 1;
-  }
-
-  .wk-chip-box {
-    fill: color-mix(in oklab, var(--color-ivory), transparent 8%);
-    stroke: var(--color-border-soft);
-    stroke-width: 1.25;
-  }
-
-  .wk-chip.is-on .wk-tone-ctx {
-    stroke: var(--color-sky-500);
-  }
-  .wk-chip.is-on .wk-tone-agent {
-    stroke: var(--color-violet-500);
-  }
-  .wk-chip.is-on .wk-tone-search {
-    stroke: var(--color-sky-600);
-  }
-  .wk-chip.is-on .wk-tone-guard {
-    stroke: #f59e0b;
-  }
-  .wk-chip.is-on .wk-tone-quality {
-    stroke: #10b981;
-  }
-  .wk-chip.is-on .wk-tone-out {
-    stroke: var(--color-violet-600);
-  }
-
-  .wk-chip-name {
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    font-weight: 500;
-    fill: var(--color-ink);
-  }
-
-  :global(html.dark) .wk-chip-name {
-    fill: rgb(226 232 240);
-  }
-
-  .wk-chip-desc {
-    font-size: 11px;
-    fill: color-mix(in oklab, var(--color-ink), transparent 42%);
-  }
-
-  :global(html.dark) .wk-chip-desc {
-    fill: rgb(148 163 184);
-  }
-
-  .wk-chip-tie {
-    stroke: var(--color-border-soft);
-    stroke-width: 1;
-    stroke-dasharray: 2 3;
-  }
-
-  /* ── the travelling token ───────────────────────────────────────── */
-  .wk-token {
-    transition: opacity 0.25s ease;
-  }
-
-  .wk-token circle {
-    fill: var(--color-violet-500);
-  }
-
-  /* parked on a station: the node itself carries the light */
-  [data-walk][data-moving="no"] .wk-token {
-    opacity: 0;
-  }
-
-  /* ── narrator ───────────────────────────────────────────────────── */
-  .wk-counter {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-counter {
-    color: var(--color-violet-300);
-  }
-
-  .wk-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border-radius: 9999px;
-    border: 1px solid var(--color-border-soft);
-    padding: 0.3rem 0.7rem;
-    font-size: 12px;
-    transition: all 0.2s ease;
-  }
-
-  .wk-pill:hover {
-    border-color: var(--color-sky-500);
-  }
-
-  .wk-pill-n {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    opacity: 0.55;
-  }
-
-  .wk-pill[aria-pressed="true"] {
-    border-color: var(--color-violet-500);
-    background: color-mix(in oklab, var(--color-violet-600), transparent 90%);
-    color: var(--color-violet-700);
-  }
-
-  :global(html.dark) .wk-pill[aria-pressed="true"] {
-    color: var(--color-violet-300);
-  }
-
-  /* ── reduced motion: no travel, everything readable ─────────────── */
-  @media (prefers-reduced-motion: reduce) {
-    .wk-chip {
-      opacity: 1;
-    }
-    .wk-station.is-active .wk-halo {
-      animation: none;
-      opacity: 0;
-    }
-    .wk-token {
-      display: none;
-    }
-    .wk-trail {
-      stroke-dasharray: none !important;
-      stroke-dashoffset: 0 !important;
-    }
-  }
-</style>
-
 <script>
-  interface Stop {
-    n: number;
-    /** Length along the route where this station sits. */
-    at: number;
-    el: SVGGElement;
-    chips: SVGGElement[];
-    pill: HTMLButtonElement | null;
-  }
-
-  document.querySelectorAll<HTMLElement>("[data-walk]").forEach((root) => {
-    const svg = root.querySelector("svg");
-    const trail = root.querySelector<SVGPathElement>("[data-trail]");
-    const token = root.querySelector<SVGGElement>("[data-token]");
-    const counter = root.querySelector<HTMLElement>("[data-counter]");
-    const titleEl = root.querySelector<HTMLElement>("[data-title]");
-    const bodyEl = root.querySelector<HTMLElement>("[data-body]");
-    const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
-    const toggleLabel = root.querySelector<HTMLElement>("[data-toggle-label]");
-    if (!svg || !trail || !token) return;
-
-    const copy = JSON.parse(root.dataset.copy ?? "{}") as Record<
-      string,
-      { title: string; body: string }
-    >;
-    const labels = JSON.parse(root.dataset.labels ?? "{}") as {
-      pause?: string;
-      play?: string;
-      counter?: string;
+  document.querySelectorAll<HTMLElement>("[data-walkthrough]").forEach((root) => {
+    const steps = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-walkthrough-step]"));
+    const captions = Array.from(root.querySelectorAll<HTMLElement>("[data-walkthrough-caption]"));
+    const scenes = Array.from(root.querySelectorAll<HTMLElement>("[data-stage-scene]"));
+    const play = root.querySelector<HTMLButtonElement>("[data-walkthrough-play]");
+    const previous = root.querySelector<HTMLButtonElement>("[data-walkthrough-previous]");
+    const next = root.querySelector<HTMLButtonElement>("[data-walkthrough-next]");
+    const position = root.querySelector<HTMLElement>("[data-walkthrough-position]");
+    const progress = root.querySelector<HTMLElement>("[data-walkthrough-progress]");
+    const controls = root.querySelector<HTMLElement>("[data-walkthrough-controls]");
+    const narration = root.querySelector<HTMLElement>("[data-walkthrough-narration]");
+    if (!steps.length || !play || !previous || !next || !position || !progress || !controls) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let current = 0;
+    let playing = !motion.matches;
+    let visible = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const clear = (): void => { if (timer !== undefined) window.clearTimeout(timer); timer = undefined; };
+    const schedule = (): void => {
+      clear();
+      if (playing && visible && !document.hidden) timer = window.setTimeout(() => {
+        if (current < steps.length - 1) show(current + 1);
+        else { playing = false; render(); }
+      }, 6500);
     };
-
-    const routeLength = trail.getTotalLength();
-    trail.style.strokeDasharray = String(routeLength);
-    trail.style.strokeDashoffset = String(routeLength);
-
-    /**
-     * Find where each station sits along the route by sampling, rather than
-     * trusting a hand-written fraction: the layout constants and the animation
-     * then cannot drift apart.
-     */
-    const measureStops = (): Stop[] => {
-      const SAMPLES = 900;
-      const pts: { len: number; x: number; y: number }[] = [];
-      for (let i = 0; i <= SAMPLES; i++) {
-        const len = (routeLength * i) / SAMPLES;
-        const p = trail.getPointAtLength(len);
-        pts.push({ len, x: p.x, y: p.y });
-      }
-
-      return [...root.querySelectorAll<SVGGElement>("[data-station]")].map((el) => {
-        const n = Number(el.dataset.station);
-        const dot = el.querySelector("circle");
-        const cx = Number(dot?.getAttribute("cx") ?? 0);
-        const cy = Number(dot?.getAttribute("cy") ?? 0);
-        let best = pts[0] ?? { len: 0, x: 0, y: 0 };
-        let bestD = Infinity;
-        for (const p of pts) {
-          const d = (p.x - cx) ** 2 + (p.y - cy) ** 2;
-          if (d < bestD) {
-            bestD = d;
-            best = p;
-          }
-        }
-        return {
-          n,
-          at: best.len,
-          el,
-          chips: [...root.querySelectorAll<SVGGElement>(`[data-chip-of="${n}"]`)],
-          pill: root.querySelector<HTMLButtonElement>(`[data-goto="${n}"]`),
-        };
-      });
+    const render = (): void => {
+      root.dataset.paused = String(!playing || !visible || document.hidden);
+      root.dataset.scene = steps[current]?.dataset.sceneName ?? "workspace";
+      narration?.setAttribute("aria-live", playing ? "off" : "polite");
+      scenes.forEach((scene) => { scene.hidden = scene.dataset.stageScene !== root.dataset.scene; });
+      captions.forEach((caption, index) => { caption.hidden = index !== current; });
+      steps.forEach((button, index) => { button.setAttribute("aria-pressed", String(index === current)); });
+      previous.disabled = current === 0;
+      next.disabled = current === steps.length - 1;
+      position.textContent = (current + 1) + " / " + steps.length;
+      progress.style.width = ((current + 1) / steps.length * 100) + "%";
+      play.textContent = playing ? root.dataset.pauseLabel ?? "" :
+        current === steps.length - 1 ? root.dataset.replayLabel ?? "" : root.dataset.playLabel ?? "";
+      play.setAttribute("aria-pressed", String(playing));
+      schedule();
     };
-
-    const stops = measureStops().sort((a, b) => a.n - b.n);
-    if (stops.length === 0) return;
-
-    const place = (len: number): void => {
-      const p = trail.getPointAtLength(Math.max(0, Math.min(len, routeLength)));
-      token.setAttribute("transform", `translate(${p.x} ${p.y})`);
-      trail.style.strokeDashoffset = String(routeLength - len);
+    const show = (index: number): void => {
+      current = Math.max(0, Math.min(steps.length - 1, index));
+      render();
     };
-
-    /** Whether the token is between stations; CSS hides it when parked. */
-    const setMoving = (moving: boolean): void => {
-      root.dataset.moving = moving ? "yes" : "no";
-    };
-
-    const render = (n: number): void => {
-      root.dataset.stop = String(n);
-      for (const s of stops) {
-        s.el.classList.toggle("is-active", s.n === n);
-        s.el.classList.toggle("is-visited", s.n < n);
-        for (const c of s.chips) c.classList.toggle("is-on", s.n <= n);
-        s.pill?.setAttribute("aria-pressed", s.n === n ? "true" : "false");
-      }
-      const text = copy[String(n)];
-      if (titleEl && text) titleEl.textContent = text.title;
-      if (bodyEl && text) bodyEl.textContent = text.body;
-      if (counter && labels.counter) {
-        counter.textContent = labels.counter
-          .replace("{n}", String(n))
-          .replace("{total}", String(stops.length));
-      }
-    };
-
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // Static fallback: everything lit, no travel, buttons still navigate.
-    if (reduced) {
-      trail.style.strokeDashoffset = "0";
-      setMoving(false);
-      for (const s of stops) for (const c of s.chips) c.classList.add("is-on");
-      render(1);
-      for (const s of stops) {
-        s.pill?.addEventListener("click", () => render(s.n));
-        s.el.addEventListener("click", () => render(s.n));
-      }
-      toggle?.setAttribute("hidden", "");
-      return;
-    }
-
-    const TRAVEL_MS = 900;
-    const DWELL_MS = 3400;
-    const easeInOut = (x: number): number =>
-      x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
-
-    let index = 0;
-    let phase: "dwell" | "travel" = "dwell";
-    let phaseStart = 0;
-    let running = false;
-    let raf = 0;
-
-    const frame = (now: number): void => {
-      if (!running) return;
-      if (phaseStart === 0) phaseStart = now;
-      const elapsed = now - phaseStart;
-
-      if (phase === "dwell") {
-        if (elapsed >= DWELL_MS) {
-          phase = "travel";
-          phaseStart = now;
-          setMoving(true);
-        }
-      } else {
-        const from = stops[index]?.at ?? 0;
-        const nextIndex = (index + 1) % stops.length;
-        const to = stops[nextIndex]?.at ?? 0;
-        const k = Math.min(1, elapsed / TRAVEL_MS);
-
-        // Wrapping from the last stop back to the first would drag the token
-        // backwards across the whole route; reset instead, which reads as the
-        // loop-back arrow the diagram already draws.
-        if (nextIndex === 0) {
-          if (k >= 1) {
-            index = 0;
-            place(stops[0]?.at ?? 0);
-            render(stops[0]?.n ?? 1);
-            for (const s of stops) {
-              s.el.classList.remove("is-visited");
-              for (const c of s.chips) c.classList.remove("is-on");
-            }
-            render(stops[0]?.n ?? 1);
-            phase = "dwell";
-            phaseStart = now;
-            setMoving(false);
-          } else {
-            token.setAttribute("opacity", String(1 - k));
-          }
-        } else {
-          place(from + (to - from) * easeInOut(k));
-          if (k >= 1) {
-            index = nextIndex;
-            render(stops[index]?.n ?? 1);
-            phase = "dwell";
-            phaseStart = now;
-            setMoving(false);
-          }
-        }
-      }
-      raf = requestAnimationFrame(frame);
-    };
-
-    const start = (): void => {
-      if (running) return;
-      running = true;
-      token.setAttribute("opacity", "1");
-      phaseStart = 0;
-      raf = requestAnimationFrame(frame);
-      toggle?.setAttribute("aria-pressed", "false");
-      if (toggleLabel && labels.pause) toggleLabel.textContent = labels.pause;
-    };
-
-    const stop = (): void => {
-      running = false;
-      cancelAnimationFrame(raf);
-      toggle?.setAttribute("aria-pressed", "true");
-      if (toggleLabel && labels.play) toggleLabel.textContent = labels.play;
-    };
-
-    const jumpTo = (n: number): void => {
-      stop();
-      index = stops.findIndex((s) => s.n === n);
-      if (index < 0) index = 0;
-      const target = stops[index];
-      if (!target) return;
-      token.setAttribute("opacity", "1");
-      setMoving(false);
-      place(target.at);
-      render(target.n);
-    };
-
-    for (const s of stops) {
-      s.pill?.addEventListener("click", () => jumpTo(s.n));
-      s.el.addEventListener("click", () => jumpTo(s.n));
-      s.el.addEventListener("keydown", (e) => {
-        if (e instanceof KeyboardEvent && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          jumpTo(s.n);
-        }
-      });
-    }
-
-    toggle?.addEventListener("click", () => (running ? stop() : start()));
-
-    setMoving(false);
-    place(stops[0]?.at ?? 0);
-    render(stops[0]?.n ?? 1);
-
-    // Never animate a diagram nobody is looking at.
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) start();
-          else stop();
-        }
-      },
-      { threshold: 0.2 },
-    );
-    io.observe(root);
+    const manual = (index: number): void => { playing = false; show(index); };
+    steps.forEach((button, index) => { button.addEventListener("click", () => manual(index)); });
+    previous.addEventListener("click", () => manual(current - 1));
+    next.addEventListener("click", () => manual(current + 1));
+    play.addEventListener("click", () => {
+      playing = !playing;
+      if (playing && current === steps.length - 1) current = 0;
+      render();
+    });
+    motion.addEventListener("change", () => { if (motion.matches) playing = false; render(); });
+    document.addEventListener("visibilitychange", render);
+    const observer = new IntersectionObserver((entries: IntersectionObserverEntry[]) => {
+      visible = entries.some((entry) => entry.isIntersecting);
+      render();
+    }, { threshold: 0.15 });
+    observer.observe(root);
+    controls.hidden = false;
+    render();
+    document.addEventListener("astro:before-swap", () => { clear(); observer.disconnect(); }, { once: true });
   });
 </script>

@@ -2,6 +2,7 @@ import { ui, type Lang } from "../i18n/ui";
 import { locales, localeOrder } from "../i18n/locales";
 import { commandDocs, commandOrder } from "./commands";
 import { narratives } from "./narratives";
+import { walkthrough } from "./walkthrough";
 import { pageIds, pagePath, markdownPath, indexPath, type PageId } from "./pages";
 import { primaryGuides, guideUrl } from "./guides";
 import { INVENTORY, REPO_URL, NPM_URL } from "../consts";
@@ -83,6 +84,10 @@ export function interactiveMarkdown(lang: Lang, page: PageId): string {
       .filter(([key]) => key.startsWith("graph.chip."))
       .map(([, value]) => value);
     return [
+      walkthrough[lang].title,
+      walkthrough[lang].introduction,
+      walkthrough[lang].prompt,
+      ...walkthrough[lang].steps.map((step) => `## ${step.name}: ${step.title}\n\n${step.body}`),
       ...stops,
       ...chips,
       t["graph.loop"],

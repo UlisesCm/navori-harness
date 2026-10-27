@@ -53,6 +53,12 @@ import {
 import { codexIdentityFingerprint, type RegisteredCodexChild } from "./discovery.ts";
 import { projectRootFromCwd, readAuditJsonl } from "./paths.ts";
 import { subtractIntervals } from "./task-metrics.ts";
+import {
+  closedAgentResult,
+  hasContextText,
+  observeCompaction,
+  type CompactionRecovery,
+} from "./engine-observations.ts";
 
 /**
  * Transcript JSONL → domain model.
@@ -221,7 +227,11 @@ function validTranscriptContent(content: unknown): boolean {
 /** Validate adapter record and supported block semantics without retaining content. */
 function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
   // Timestamp validity qualifies source health, not retention of hook facts.
-  if (source === "transcript")
+  if (source === "transcript") {
+    // 2.1.310 `api-request-blob.message` is the raw API request body, not a transcript turn: it
+    // may carry block types the transcript allowlist does not know, and every reader filters by
+    // `type`, so it contributes no measurement. Only its shape is required; content is not judged.
+    if (rec.type === "api-request-blob") return isRec(rec.message);
     return (
       typeof rec.type === "string" &&
       [
@@ -244,11 +254,15 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
         "cost-state",
         "continued-in",
         "agent-name",
+        // Claude Code 2.1.310 request records: metadata only (blob handled above).
+        "api-request",
+        "api-request-shape",
       ].includes(rec.type) &&
       (rec.message === undefined ||
         (isRec(rec.message) &&
           (rec.message.content === undefined || validTranscriptContent(rec.message.content))))
     );
+  }
   if (source === "rollout")
     return (
       ["session_meta", "event_msg", "response_item", "turn_context", "token_usage_record"].includes(
@@ -1455,6 +1469,28 @@ function collectInjectedContext(lines: Rec[]): Record<string, InjectedContext> {
   return injected;
 }
 
+function compactionRecovery(lines: Rec[]): CompactionRecovery {
+  const summary: CompactionRecovery = { total: 0, contextRestored: 0, pending: 0 };
+  let pending = false;
+  const boundaries = lines.some((line: Rec): boolean => str(line.subtype) === "compact_boundary");
+  for (const line of lines) {
+    if (str(line.subtype) === "compact_boundary" || (!boundaries && line.isCompactSummary === true))
+      pending = observeCompaction(summary, "boundary", pending);
+    const attachment = line.attachment;
+    if (
+      str(line.type) === "attachment" &&
+      isRec(attachment) &&
+      str(attachment.hookEvent) === "SessionStart" &&
+      str(attachment.type) === "hook_success" &&
+      typeof attachment.stdout === "string" &&
+      hasContextText(attachment.stdout) &&
+      (attachment.source === "compact" || attachment.hookName === "SessionStart:compact")
+    )
+      pending = observeCompaction(summary, "context", pending);
+  }
+  return summary;
+}
+
 /**
  * What caused ONE error result, by the only part of it that is stable.
  *
@@ -1554,6 +1590,12 @@ function findVerdict(lines: Rec[]): "APPROVED" | "CHANGES_REQUESTED" | null {
   return null;
 }
 
+function lastAssistantContent(lines: Rec[]): unknown {
+  for (let i = lines.length - 1; i >= 0; i--)
+    if (str(lines[i]?.type) === "assistant") return path(lines[i]!, "message", "content");
+  return undefined;
+}
+
 function timestamps(lines: Rec[]): { first: string; last: string } {
   let first = "";
   let last = "";
@@ -1644,7 +1686,7 @@ export function parseAgentRun(
   const { first, last } = timestamps(lines);
   const uses = toolUses(lines);
   const model = lines
-    .map((l) => str(path(l, "message", "model")))
+    .map((l) => (str(l.type) === "assistant" ? str(path(l, "message", "model")) : null))
     .find((m): m is string => m !== null);
 
   const skills = collectSkills(uses, lines);
@@ -1687,6 +1729,7 @@ export function parseAgentRun(
     repeatedCommands: repeatedCommands(uses),
     classifierExemptBash: countClassifierExemptBash(uses),
     verdict: findVerdict(lines),
+    handoffBlocked: closedAgentResult(lastAssistantContent(lines)).handoffBlocked,
     observedArtifactWrites: observedArtifactWrites(lines, cwd, agentId),
     turns: uniqueAssistantMessages(lines).length,
     // The marker lives in the parent's Agent tool_result, not this transcript.
@@ -2508,9 +2551,34 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
   const capped = cappedAgentIds(lines, uses);
   for (const a of agents) a.turnLimitHit = capped.has(a.agentId);
   const spawned = spawnLinks(lines, uses);
+  const backgroundSpawns = new Set(
+    uses
+      .filter((use: Rec): boolean => path(use, "input", "run_in_background") === true)
+      .map((use: Rec): string | null => str(use.id)),
+  );
+  const nativeResults = new Map<string, "completed" | "failed" | null>();
+  for (const line of lines)
+    for (const block of str(line.type) === "user" ? arr(path(line, "message", "content")) : []) {
+      if (!isRec(block) || block.type !== "tool_result" || typeof block.tool_use_id !== "string")
+        continue;
+      const id = block.tool_use_id;
+      nativeResults.set(
+        id,
+        nativeResults.has(id) ||
+          (block.is_error !== undefined && typeof block.is_error !== "boolean")
+          ? null
+          : block.is_error === true
+            ? "failed"
+            : "completed",
+      );
+    }
   for (const a of agents) {
     const spawn = spawned.get(a.agentId);
-    if (spawn && a.spawnDepth <= 1) a.spawnToolUseId = spawn;
+    if (spawn && a.spawnDepth <= 1) {
+      a.spawnToolUseId = spawn;
+      const outcome = nativeResults.get(spawn);
+      if (outcome && !backgroundSpawns.has(spawn)) a.nativeOutcome = outcome;
+    }
   }
 
   const skills = collectSkills(uses, lines);
@@ -2523,6 +2591,13 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
     endedAt: last,
     wallClockMs: durationMs(first, last),
     initialPrompt,
+    compactionRecovery: compactionRecovery(
+      lines.filter(
+        (line: Rec): boolean =>
+          line.isSidechain !== true &&
+          (line.sessionId === undefined || line.sessionId === sessionId),
+      ),
+    ),
     prompts: {
       typed: typedPrompts,
       queued: queuedPrompts,

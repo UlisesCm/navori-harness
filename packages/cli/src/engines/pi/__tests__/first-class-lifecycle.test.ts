@@ -16,6 +16,7 @@ import { createRequire, stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
@@ -69,7 +70,10 @@ function load(pid: number | null = GROUP): {
         ["Object", "Union", "Literal", "String", "Optional"].map((name) => [name, () => ({})]),
       ),
     },
-    "@earendil-works/pi-coding-agent": { VERSION: "1.1.0", defineTool: (value: unknown) => value },
+    "@earendil-works/pi-coding-agent": {
+      VERSION: PINNED_PI_VERSION,
+      defineTool: (value: unknown) => value,
+    },
   };
   const exports: Record<string, unknown> = {};
   const compiled = stripTypeScriptTypes(PI_EXTENSION_SOURCE)
@@ -276,7 +280,7 @@ function loadReal(env: Record<string, string> = {}): Map<string, LifecycleHandle
   const modules: Record<string, unknown> = {
     "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
     "@earendil-works/pi-coding-agent": {
-      VERSION: "1.1.0",
+      VERSION: PINNED_PI_VERSION,
       defineTool: (value: unknown) => value,
       getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
     },

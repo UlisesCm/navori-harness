@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -51,5 +52,30 @@ describe("cli surface", () => {
       "no-such-command",
     ]);
     expect(golden.cases.at(-1)?.status).not.toBe(0);
+  });
+
+  // Covers: R4
+  it("keeps the literal text hooks match under a clean environment", () => {
+    // The golden runs with NO_COLOR=1, which hides citty 0.2's cyan-colored unknown-command
+    // name. Shipped hooks (`quality-gate-pre-commit.sh`, `session-start-context.sh`) match
+    // `Unknown command` literally in combined output, so probe without NO_COLOR/CI/TEST.
+    const home = mkdtempSync(join(tmpdir(), "navori-cli-clean-env-"));
+    const run = (args: string[]) => {
+      const r = spawnSync("node", [dist, ...args], {
+        encoding: "utf8",
+        cwd: home,
+        env: { PATH: process.env.PATH ?? "", HOME: home, TERM: "xterm" },
+      });
+      return { status: r.status, output: `${r.stdout}${r.stderr}` };
+    };
+    try {
+      const unknown = run(["no-such-command"]);
+      expect(unknown.status).toBe(1);
+      expect(unknown.output).toContain("Unknown command");
+      expect(run(["gate", "--help"]).status).toBe(0);
+      expect(run(["tools", "session-context", "--help"]).status).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
