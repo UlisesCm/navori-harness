@@ -12,6 +12,7 @@
 
 pub mod copy_dest;
 mod discard;
+pub mod entry;
 mod landing;
 mod pi;
 mod ratchet;
@@ -125,8 +126,9 @@ pub struct Decision {
     pub reason: String,
 }
 
-/// The base block, the tgrep search lane after it and the exit trap's `ask`, composed as the
-/// rendered script runs them. The user section is not modeled: it must be empty.
+/// The base block, the tgrep search lane after it (when the script carries it) and the exit
+/// trap's `ask`, composed as the rendered script runs them. The user section is not modeled:
+/// it must be empty.
 ///
 /// # Errors
 /// The errors of [`evaluate`] and [`search::evaluate`].
@@ -168,7 +170,12 @@ pub fn decide(
     } else {
         ("allow", String::new())
     };
-    match search::evaluate(cmd, host, repo, locale)? {
+    let search = if rendered.search_lane {
+        search::evaluate(cmd, host, repo, locale)?
+    } else {
+        search::Search::Pass
+    };
+    match search {
         search::Search::Block { stderr } => {
             return Ok(blocked(
                 stderr.into_bytes(),

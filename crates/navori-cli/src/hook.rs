@@ -50,18 +50,31 @@ pub struct NativeHook {
     pub handler: Handler,
     /// Audit phase the shell hook declares (`navori_audit_phase`).
     pub phase: &'static str,
+    /// Tool the shell hook declares (`navori_audit_tool`), if any.
+    pub tool: Option<&'static str>,
 }
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 1]> = LazyLock::new(|| {
-    [NativeHook {
-        id: "subagent-no-background",
-        implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
-            .unwrap_or_default(),
-        handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
-        phase: "PreToolUse",
-    }]
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
+    [
+        NativeHook {
+            id: "subagent-no-background",
+            implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
+            phase: "PreToolUse",
+            tool: None,
+        },
+        NativeHook {
+            id: "guard-destructive",
+            implementation: navori_hooks::compiled::implementation_hash("guard-destructive")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(hook_facts::prepare_guard_destructive),
+            phase: "PreToolUse",
+            tool: Some("Bash"),
+        },
+    ]
 });
 
 /// User-selected runtime override; automatic mode is the default.
@@ -94,8 +107,10 @@ pub struct Invocation {
     pub engine: Engine,
     /// Manifest id inferred from the script basename.
     pub id: String,
-    /// Canonical script path.
+    /// Canonical script path, the one integrity reads.
     pub script: PathBuf,
+    /// The script path exactly as invoked: the shell's `$0`, run again by the shadow lane.
+    pub requested: PathBuf,
     /// Canonical engine root containing `hooks/` and sibling `scripts/`.
     pub engine_root: PathBuf,
     /// Claude event passed by the registered command, if any.
@@ -167,6 +182,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, &'static str> {
         engine,
         id: id.to_owned(),
         script: script.clone(),
+        requested: requested.to_path_buf(),
         engine_root: engine_root.to_path_buf(),
         event,
         args: tail.to_vec(),
@@ -360,7 +376,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                     context,
                     payload,
                     shadow::ShellInvocation {
-                        script: &invocation.script,
+                        script: &invocation.requested,
                         args: &invocation.args,
                         cwd,
                         env,
@@ -387,7 +403,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                     audit: None,
                 });
             }
-            audited(&invocation, handler.phase, payload, evaluate)
+            audited(&invocation, handler, payload, evaluate)
         },
     );
     runner::emit(context, &response, stdout, stderr)
@@ -399,10 +415,11 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
 /// never changes the verdict.
 fn audited(
     invocation: &Invocation,
-    phase: &'static str,
+    handler: &NativeHook,
     payload: &[u8],
     evaluate: impl FnOnce(&[u8]) -> Result<Evaluation, Failure>,
 ) -> Result<Evaluation, Failure> {
+    let phase = handler.phase;
     let root = audit_root();
     let parsed = HookPayload::parse(payload);
     let snapshot = root
@@ -418,7 +435,7 @@ fn audited(
             phase,
             verdict: label.verdict,
             source: "core",
-            tool: None,
+            tool: handler.tool,
             reason: Some(&label.reason),
             kind: None,
         };
@@ -431,7 +448,7 @@ fn audited(
         let cwd = std::env::current_dir().unwrap_or_default();
         if let Some(metadata) = snapshot.metadata(parsed, labels, skip_noops, audit::now_ms)
             && let Some(target) =
-                AuditContext::resolve(root, parsed, &cwd, &invocation.script, Some(host))
+                AuditContext::resolve(root, parsed, &cwd, &invocation.requested, Some(host))
         {
             let _ = target.record_metadata(&metadata, OsStr::new("navori"));
         }

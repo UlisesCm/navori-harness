@@ -1,5 +1,6 @@
-//! Eligibility rules and probe contracts hashed with the handler (0057 D8/T26).
-//! Planning rejects unsupported metadata/environment before any probe or stdin read.
+//! Eligibility rules and probe contracts hashed with every handler that extracts its payload
+//! through `extract-cmd` (0057 D8, T26, T28). Planning rejects unsupported metadata/environment
+//! before any probe or stdin read.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -8,8 +9,10 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{CaptureContext, Extractor, Locale, Profile, ShellDialect, evaluate_with_capture};
-use crate::runner::{Engine, Evaluation, Failure};
+use super::Locale;
+use super::capture::{CaptureContext, ShellDialect};
+use super::payload::{Extractor, Profile};
+use crate::runner::Engine;
 
 /// One explicit reason to defer before stdin, never a policy permit verdict.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,8 +26,10 @@ impl std::error::Error for Ineligible {}
 
 /// Complete caller snapshot. Integrity/registration remain external requirements.
 pub struct Request<'a> {
-    /// Claude and Pi are the only accredited hosts.
+    /// Host of this invocation.
     pub engine: Engine,
+    /// Hosts accredited for this hook; any other defers.
+    pub engines: &'a [Engine],
     /// Verified event, or None for this hook's accredited PreToolUse script entry.
     pub event: Option<&'a str>,
     /// Hook-specific arguments; no argument-bearing registration is accredited yet.
@@ -152,7 +157,7 @@ printf '\0%s' "${#1}"
 
 /// Reject unsupported metadata, modifiers and locale names before any process is launched.
 pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible> {
-    if request.engine == Engine::Codex
+    if !request.engines.contains(&request.engine)
         || !matches!(request.event, None | Some("PreToolUse"))
         || !request.args.is_empty()
     {
@@ -433,23 +438,24 @@ fn expected_text(locale: Locale) -> Vec<u8> {
     output
 }
 
-/// Prepared evaluation remains a pure byte-input operation; construction does not activate hooks.
+/// Accredited selection for a pure byte-input evaluation; construction does not activate hooks.
+#[derive(Debug, Clone, Copy)]
 pub struct Prepared<'a> {
     profile: Profile,
     capture: CaptureContext<'a>,
     engine: Engine,
 }
-impl Prepared<'_> {
+impl<'a> Prepared<'a> {
     /// Accredited immutable extraction/locale selection.
     pub const fn profile(&self) -> Profile {
         self.profile
     }
     /// Exact script identity and captured source locations for diagnostics.
-    pub const fn capture(&self) -> CaptureContext<'_> {
+    pub const fn capture(&self) -> CaptureContext<'a> {
         self.capture
     }
-    /// Evaluate captured payload bytes without filesystem, subprocess or audit effects.
-    pub fn evaluate(&self, payload: &[u8]) -> Result<Evaluation, Failure> {
-        evaluate_with_capture(payload, self.engine, self.profile, self.capture)
+    /// Host the plan was made for.
+    pub const fn engine(&self) -> Engine {
+        self.engine
     }
 }

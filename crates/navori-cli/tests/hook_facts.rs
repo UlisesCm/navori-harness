@@ -1,5 +1,6 @@
 //! Real prepared profiles/oracles and bounded collection, without registry or CLI hook wiring.
 use navori_cli::hook_facts::collect;
+use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{Limits, Request};
 use navori_hooks::runner::{Engine, Verdict};
 use std::error::Error;
@@ -40,6 +41,7 @@ fn env() -> Vec<(OsString, OsString)> {
 fn request<'a>(env: &'a [(OsString, OsString)], script: &'a Path, source: &'a [u8]) -> Request<'a> {
     Request {
         engine: Engine::Claude,
+        engines: &[Engine::Claude, Engine::Pi],
         event: Some("PreToolUse"),
         args: &[],
         script,
@@ -83,13 +85,16 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
         implicit_request.engine = Engine::Pi;
         implicit_request.event = None;
         let implicit = collect(implicit_request, &temp.0, Limits::default())?;
-        assert_eq!(implicit.evaluate(b"{}")?, prepared.evaluate(b"{}")?);
+        assert_eq!(
+            subagent_no_background::evaluate_prepared(&implicit, b"{}")?,
+            subagent_no_background::evaluate_prepared(&prepared, b"{}")?
+        );
         assert_eq!(
             expanded.lines().nth(prepared.capture().input_line - 1),
             Some("payload=${payload-$(cat)}")
         );
         for payload in [b"{}\0\n".as_slice(),br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"run_in_background":true,"command":"sleep \u0000&"}}"#.as_slice(),br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"printf ok"}}"#.as_slice()]{
-            let actual=prepared.evaluate(payload)?;
+            let actual=subagent_no_background::evaluate_prepared(&prepared, payload)?;
             let mut child=Command::new("bash").arg(&script).current_dir(&temp.0).env_clear().envs(env.iter().map(|(k,v)|(k,v))).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
             child.stdin.take().ok_or("stdin")?.write_all(payload)?;let oracle=child.wait_with_output()?;
             let code=match actual.verdict{Verdict::Permit=>0,Verdict::Error=>1,Verdict::Block=>2};

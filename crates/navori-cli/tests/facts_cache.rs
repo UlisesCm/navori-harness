@@ -1,6 +1,7 @@
 //! Host-fact cache (spec 0057 R17): replay only for an unchanged, private, fresh entry.
 use navori_cli::facts_cache::{FactsCache, MAX_AGE_MS, key, lookup, now_ms, stamp};
 use navori_cli::hook_facts::collect_cached;
+use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{Facts, Limits, Output, Request};
 use navori_hooks::runner::Engine;
 use std::collections::BTreeMap;
@@ -186,6 +187,7 @@ fn expanded_asset() -> Result<String, Box<dyn Error>> {
 fn request<'a>(script: &'a Path, source: &'a str, env: &'a [(OsString, OsString)]) -> Request<'a> {
     Request {
         engine: Engine::Claude,
+        engines: &[Engine::Claude, Engine::Pi],
         event: Some("PreToolUse"),
         args: &[],
         script,
@@ -220,7 +222,10 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
         br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"sleep 1 &"}}"#.as_slice(),
         br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"ls"}}"#.as_slice(),
     ] {
-        assert_eq!(probed.evaluate(payload)?, replayed.evaluate(payload)?);
+        assert_eq!(
+            subagent_no_background::evaluate_prepared(&probed, payload)?,
+            subagent_no_background::evaluate_prepared(&replayed, payload)?
+        );
     }
     assert!(collect_cached(request(&env), &temp.0, tight, None).is_err());
 

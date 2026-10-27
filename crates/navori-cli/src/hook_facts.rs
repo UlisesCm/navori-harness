@@ -13,9 +13,14 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
+
+use navori_hooks::hooks::guard_destructive::entry::{self, Context};
+use navori_hooks::hooks::guard_destructive::repo::System;
+use navori_hooks::hooks::guard_destructive::{Host, Rendered};
 
 use crate::facts_cache::{self, FactsCache};
 use crate::hook::{Evaluator, Invocation, Snapshot};
@@ -32,9 +37,10 @@ pub fn prepare_subagent_no_background<'a>(
 ) -> Result<Evaluator<'a>, String> {
     let request = Request {
         engine: invocation.engine,
+        engines: subagent_no_background::ENGINES,
         event: invocation.event.as_deref(),
         args: &invocation.args,
-        script: &invocation.script,
+        script: &invocation.requested,
         source: snapshot.source,
         env: snapshot.env,
     };
@@ -42,7 +48,105 @@ pub fn prepare_subagent_no_background<'a>(
         .map(FactsCache::in_project);
     let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
         .map_err(|e| e.to_string())?;
-    Ok(Box::new(move |payload: &[u8]| prepared.evaluate(payload)))
+    Ok(Box::new(move |payload: &[u8]| {
+        subagent_no_background::evaluate_prepared(&prepared, payload)
+    }))
+}
+
+/// Registry adapter for guard-destructive: the same accredited extraction profile, plus the
+/// rendered values and the environment facts the script reads before its rules run. Repository
+/// facts are read after stdin, as the script reads them, through [`System`].
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_guard_destructive<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        engines: entry::ENGINES,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.requested,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
+    let source = std::str::from_utf8(snapshot.source).map_err(|_| "script is not UTF-8")?;
+    let rendered = Rendered::from_script(source).ok_or("rendered values are not plain words")?;
+    let text = |name: &str| -> Result<Option<String>, String> {
+        prepare::env_value(snapshot.env, name)
+            .map(|value| {
+                value
+                    .to_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("{name} is not UTF-8"))
+            })
+            .transpose()
+    };
+    let pwd = shell_pwd(text("PWD")?, snapshot.cwd)?;
+    let requested = invocation
+        .requested
+        .to_str()
+        .ok_or("hook path is not UTF-8")?;
+    let hook_path = if requested.starts_with('/') {
+        requested.to_owned()
+    } else {
+        format!("{pwd}/{requested}")
+    };
+    let context = Context {
+        engine: prepared.engine(),
+        profile: prepared.profile(),
+        capture: prepared.capture(),
+        rendered,
+        host: Host {
+            pwd,
+            home: text("HOME")?,
+            claude_project_dir: text("CLAUDE_PROJECT_DIR")?,
+            // The planner rejects a CDPATH environment.
+            cdpath: None,
+            hook_path,
+            path: text("PATH")?,
+            ..Host::default()
+        },
+    };
+    Ok(Box::new(move |payload: &[u8]| {
+        entry::evaluate(payload, &context, &System)
+    }))
+}
+
+/// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
+/// the physical directory. A `PWD` bash would canonicalize first (`.`, `..` or `//`
+/// components) is not modeled and defers.
+fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
+    use std::os::unix::fs::MetadataExt;
+    let physical = || {
+        cwd.to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "working directory is not UTF-8".to_owned())
+    };
+    let Some(pwd) = inherited.filter(|pwd| pwd.starts_with('/')) else {
+        return physical();
+    };
+    let same = match (fs::metadata(&pwd), fs::metadata(cwd)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    };
+    if !same {
+        return physical();
+    }
+    if pwd.len() > 1
+        && (pwd.contains("//")
+            || pwd.ends_with('/')
+            || pwd.split('/').any(|part| part == "." || part == ".."))
+    {
+        return Err("PWD is not in canonical form".to_owned());
+    }
+    Ok(pwd)
 }
 
 /// Collect real facts under the exact snapshot and return eligibility before any stdin read.
