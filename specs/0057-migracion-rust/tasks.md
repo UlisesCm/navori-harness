@@ -222,7 +222,7 @@ el remedio según `tgrep status`). `Repo` suma `is_file` y `tgrep_status`; `Host
 (exit, stdout, stderr, veredicto y razón). La copia renderizada de Claude se compara con un
 `tgrep` falso en cinco estados (ausente, sin índice, servidor detenido, activo, fallando). Las
 pruebas diferenciales reintentan un caso discrepante: bajo carga, un `jq` sin recursos falla en
-silencio dentro de `extract-cmd` y el shell ve un comando vac\u00edo. Pendiente: PR 4.
+silencio dentro de `extract-cmd` y el shell ve un comando vacío. Pendiente: PR 4.
 
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
