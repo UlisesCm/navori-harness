@@ -281,7 +281,8 @@ describe("native hook replay transport", () => {
       {
         ok: false,
         cases: 1,
-        failure: "native unavailable: hook registry is empty",
+        // Empty registry or missing binary: either way no native verdict, never shell parity.
+        failure: expect.stringMatching(/^native unavailable: /),
       },
     );
   });

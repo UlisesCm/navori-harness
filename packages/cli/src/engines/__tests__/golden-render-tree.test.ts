@@ -2,8 +2,15 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { splitFrontmatter } from "../../lib/render/frontmatter.ts";
+
+// The golden is the product render: an npm installation never finds the migration checkout's
+// `crates/ported.json`, so native wrapping stays out of it (covered by native-hook*.test.ts).
+vi.mock("../../lib/render/native-hook.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/render/native-hook.ts")>()),
+  loadNativeHooks: () => ({}),
+}));
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
