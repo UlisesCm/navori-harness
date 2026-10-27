@@ -17,7 +17,9 @@ Reglas de ejecución:
 - Workplan por entrega: `0058-rust-render-escrituras-e<n>`, con fases = milestones; `tasks.md` es el
   tracking canónico.
 - Cada PR de entrega va contra `migration/rust`; ninguno contra `dev`. Las entregas paralelas
-  necesitan archivos disjuntos y PR propio (Q2 de `design.md`).
+  necesitan archivos disjuntos y PR propio (Q2 de `design.md`). Por indicación
+  del usuario, varias entregas o hitos pequeños pueden agruparse en un solo PR; un hito de
+  área crítica nunca se agrupa con trabajo ajeno a su entrega.
 - Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
   archivos nuevos se crean en el milestone que los nombra.
 - Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets
@@ -91,6 +93,21 @@ independiente antes del merge.
 Estimated LOC: 9000
 
 ### M5 — Plan de render Claude
+
+En curso en `feat/0058-rust-e3` (adelantado antes de E1 por decisión del usuario, Q2). Portado
+con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
+`frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
+(`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
+(`presets.ts`, locales sobre incluidos; lo que el TS rechaza se delega) y el registro de skills
+de librerías, con los validadores zod compartidos en `navori_core::zod`, y la carga de plugins
+(`plugins.ts`: registros de retirados, `loadPlugin` sobre el bundle embebido, conjuntos
+habilitado/deshabilitado y `nativeHook`; los manifiestos sintéticos pasan por el `loadPlugin`
+real con `readFileSync` parcheado). Las paridades de presets y plugins comparan la salida zod
+como texto para fijar el orden de claves. Faltan
+`effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude, `build-settings`/coexist,
+el wiring nativo y las cadenas del render. Pendientes ajenos a 0058: `navori-cli/tests/facts_cache.rs`
+(0057, `bccfedd0`) falla de forma intermitente (2/5 aislado) por un presupuesto de 1 ms. Una falla
+aislada del workspace no se reprodujo en nueve corridas posteriores.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [ ] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"

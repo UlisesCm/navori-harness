@@ -233,7 +233,9 @@ fn newline(gap: &str, depth: usize, out: &mut String) {
 }
 
 /// `Number.prototype.toString()` for the values JSON allows; `null` for `NaN` and infinities.
-fn number_to_js(number: f64) -> String {
+/// `String(number)` / `Number.prototype.toString()`.
+#[must_use]
+pub fn number_to_js(number: f64) -> String {
     if !number.is_finite() {
         return "null".to_owned();
     }

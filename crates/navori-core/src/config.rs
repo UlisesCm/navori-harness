@@ -77,6 +77,12 @@ pub fn read(bytes: &[u8]) -> Result<Config, Delegate> {
     Ok(Config { data, warnings })
 }
 
+/// `isSafeGateChain` (`engines/shared/permission-rules.ts:200`): every step is `<pm> …` or `cd <dir>`.
+#[must_use]
+pub fn is_safe_gate_chain(gate: &str) -> bool {
+    schema::is_safe_gate_chain(gate)
+}
+
 /// `RETIRED_CONFIG_KEYS`: `(key, sections)`, where `None` means harness, models and effort.
 const RETIRED: &[(&str, Option<&str>)] = &[
     ("leader", None),
@@ -495,202 +501,14 @@ mod unknown_keys {
 /// `NavoriConfigSchema`, field by field, with zod 4 semantics.
 mod schema {
     use super::{JsObject, JsString, JsValue, js_trim};
-
-    /// zod would report at least one issue.
-    pub(super) struct Invalid;
-    type Parsed = Result<JsValue, Invalid>;
-
-    fn object(value: &JsValue) -> Result<&JsObject, Invalid> {
-        match value {
-            JsValue::Object(object) => Ok(object),
-            _ => Err(Invalid),
-        }
-    }
-
-    fn text(value: &JsValue) -> Result<String, Invalid> {
-        match value {
-            JsValue::String(text) => text.to_rust().ok_or(Invalid),
-            _ => Err(Invalid),
-        }
-    }
-
-    fn string(value: &JsValue) -> Parsed {
-        text(value).map(|_| value.clone())
-    }
-
-    fn non_empty(value: &JsValue) -> Parsed {
-        let content = text(value)?;
-        if content.is_empty() {
-            return Err(Invalid);
-        }
-        Ok(value.clone())
-    }
-
-    fn boolean(value: &JsValue) -> Parsed {
-        match value {
-            JsValue::Bool(_) => Ok(value.clone()),
-            _ => Err(Invalid),
-        }
-    }
-
-    fn one_of(value: &JsValue, allowed: &[&str]) -> Parsed {
-        let content = text(value)?;
-        if allowed.contains(&content.as_str()) {
-            Ok(value.clone())
-        } else {
-            Err(Invalid)
-        }
-    }
-
-    /// `z.number().int().min(min)`: finite, a safe integer, at least `min`.
-    fn safe_integer_at_least(value: &JsValue, min: f64) -> Parsed {
-        const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
-        match value {
-            JsValue::Number(n) if n.fract() == 0.0 && n.abs() <= MAX_SAFE && *n >= min => {
-                Ok(value.clone())
-            }
-            _ => Err(Invalid),
-        }
-    }
-
-    fn array_of(value: &JsValue, item: fn(&JsValue) -> Parsed) -> Parsed {
-        match value {
-            JsValue::Array(items) => items
-                .iter()
-                .map(item)
-                .collect::<Result<Vec<_>, _>>()
-                .map(JsValue::Array),
-            _ => Err(Invalid),
-        }
-    }
-
-    fn strings(value: &JsValue) -> Parsed {
-        array_of(value, string)
-    }
-
-    fn non_empty_strings(value: &JsValue) -> Parsed {
-        array_of(value, non_empty)
-    }
-
-    fn empty_array() -> JsValue {
-        JsValue::Array(Vec::new())
-    }
-
-    /// Builds one `z.object` output: shape keys in order, then (passthrough) the rest.
-    struct Shape<'a> {
-        input: &'a JsObject,
-        output: JsObject,
-        known: Vec<&'static str>,
-    }
-
-    impl<'a> Shape<'a> {
-        fn new(value: &'a JsValue) -> Result<Self, Invalid> {
-            Ok(Self {
-                input: object(value)?,
-                output: JsObject::new(),
-                known: Vec::new(),
-            })
-        }
-
-        /// `.optional()`: absent stays absent.
-        fn optional(
-            mut self,
-            key: &'static str,
-            parse: impl Fn(&JsValue) -> Parsed,
-        ) -> Result<Self, Invalid> {
-            self.known.push(key);
-            if let Some(value) = self.input.get(key) {
-                self.output.insert(key, parse(value)?);
-            }
-            Ok(self)
-        }
-
-        /// Required: an absent key is parsed as `undefined`.
-        fn required(
-            mut self,
-            key: &'static str,
-            parse: impl Fn(&JsValue) -> Parsed,
-        ) -> Result<Self, Invalid> {
-            self.known.push(key);
-            let value = self.input.get(key).unwrap_or(&JsValue::Undefined);
-            self.output.insert(key, parse(value)?);
-            Ok(self)
-        }
-
-        /// `.default(fallback)`: zod 4 returns the default without parsing it.
-        fn defaulted(
-            mut self,
-            key: &'static str,
-            fallback: JsValue,
-            parse: impl Fn(&JsValue) -> Parsed,
-        ) -> Result<Self, Invalid> {
-            self.known.push(key);
-            let value = match self.input.get(key) {
-                Some(value) => parse(value)?,
-                None => fallback,
-            };
-            self.output.insert(key, value);
-            Ok(self)
-        }
-
-        /// Plain `z.object`: unknown keys are dropped.
-        fn strip(self) -> JsValue {
-            JsValue::Object(self.output)
-        }
-
-        /// `.passthrough()`: unknown keys follow the shape keys, in input order.
-        fn passthrough(mut self) -> JsValue {
-            for (key, value) in self.input.entries() {
-                if !self.known.iter().any(|known| key.is(known)) {
-                    self.output.insert(key.clone(), value.clone());
-                }
-            }
-            JsValue::Object(self.output)
-        }
-
-        /// `.strict()`: unknown keys are an issue.
-        fn strict(self) -> Parsed {
-            let extra = self
-                .input
-                .entries()
-                .iter()
-                .any(|(key, _)| !self.known.iter().any(|known| key.is(known)));
-            if extra {
-                Err(Invalid)
-            } else {
-                Ok(JsValue::Object(self.output))
-            }
-        }
-    }
-
-    fn kebab(value: &JsValue) -> Parsed {
-        let content = text(value)?;
-        let mut bytes = content.bytes();
-        let first_ok = bytes
-            .next()
-            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
-        let rest_ok = bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-        if first_ok && rest_ok {
-            Ok(value.clone())
-        } else {
-            Err(Invalid)
-        }
-    }
-
-    /// `safeRelPath`: non-empty, not absolute, no `..` segment split on `/` or `\`.
-    fn safe_rel_path(value: &JsValue) -> Parsed {
-        let content = text(value)?;
-        if content.is_empty()
-            || content.starts_with('/')
-            || content.split(['/', '\\']).any(|segment| segment == "..")
-        {
-            return Err(Invalid);
-        }
-        Ok(value.clone())
-    }
+    use crate::zod::{
+        Invalid, Parsed, Shape, array_of, boolean, empty_array, kebab, non_empty,
+        non_empty_strings, object, one_of, safe_integer_at_least, safe_rel_path, string, strings,
+        text,
+    };
 
     /// `isSafeGateChain` (`engines/shared/permission-rules.ts:200`).
-    fn is_safe_gate_chain(gate: &str) -> bool {
+    pub(super) fn is_safe_gate_chain(gate: &str) -> bool {
         sequenced_steps(gate).iter().all(|step| {
             let step = js_trim(step);
             !step.is_empty() && gate_step_is_safe(step)
