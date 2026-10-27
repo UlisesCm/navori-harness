@@ -1375,6 +1375,31 @@ describe("context injected by a SessionStart hook (#728)", () => {
     });
   });
 
+  // Covers: R1 (0053)
+  it("counts only successful compact-source restoration after a boundary", () => {
+    const file = sessionWith([
+      injection(MEMORY, "SessionStart:compact"),
+      { type: "system", subtype: "compact_boundary" },
+      injection(MEMORY),
+      injection(MEMORY, "SessionStart:compact"),
+      injection(MEMORY, "SessionStart:compact"),
+      { type: "system", subtype: "compact_boundary" },
+    ]);
+    expect(parseSession(file).compactionRecovery).toEqual({
+      total: 2,
+      contextRestored: 1,
+      pending: 1,
+    });
+    expect(
+      parseSession(
+        sessionWith([
+          { type: "system", subtype: "compact_boundary" },
+          injection("", "SessionStart:compact"),
+        ]),
+      ).compactionRecovery,
+    ).toEqual({ total: 1, contextRestored: 0, pending: 1 });
+  });
+
   it("does not count an explicit mem_context result carrying the same heading", () => {
     // The tool result of a real `mem_context` call quotes the same body. It is
     // already in `mcpCalls`, so counting it here would report one read twice —
@@ -3756,5 +3781,90 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
     expect(session.agents).toHaveLength(2);
     expect(session.orchestrator.tokens.input).toBe(6);
     expect(session.orchestrator.toolCounts.Bash).toBe(3);
+  });
+
+  // Covers: R6, R21
+  describe("Claude Code 2.1.310 api-request* records", () => {
+    const core = (): unknown[] => [
+      {
+        type: "assistant",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        message: {
+          id: "m1",
+          model: "claude-x",
+          usage: usage(3),
+          content: [{ type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls" } }],
+        },
+      },
+      {
+        type: "user",
+        timestamp: "2026-01-01T00:00:02.000Z",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "tu1", content: "ok", is_error: true }],
+        },
+      },
+    ];
+    const requestRecords = (): unknown[] => [
+      {
+        type: "api-request-shape",
+        sessionId: "s",
+        shapeHash: "h",
+        shape: ["a"],
+        version: "2.1.310",
+      },
+      {
+        type: "api-request-blob",
+        sessionId: "s",
+        hash: "h",
+        message: {
+          role: "assistant",
+          model: "claude-blob",
+          usage: usage(9),
+          output_config: { effort: "high" },
+          content: [
+            { type: "tool_use", id: "tu9", name: "Read", input: {} },
+            { type: "tool_result", tool_use_id: "tu1", content: "dup" },
+            { type: "server_tool_use", id: "x" },
+            { type: "never-heard-of-it" },
+          ],
+        },
+      },
+      {
+        type: "api-request",
+        sessionId: "s",
+        id: "r1",
+        timestamp: "2026-01-01T00:00:01.500Z",
+        querySource: "repl",
+        shapeHash: "h",
+        params: {},
+        keep: [],
+        tail: [],
+        cacheControl: {},
+        requestDigest: "d",
+      },
+    ];
+    const audit = (lines: unknown[]): SessionAudit => {
+      const dir = mkdtempSync(join(tmpdir(), "navori-cc310-"));
+      const file = join(dir, "session.jsonl");
+      writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+      return parseSession(file);
+    };
+
+    it("stays observed and adds nothing from the blob", () => {
+      const base = audit(core());
+      const withRequests = audit([core()[0], ...requestRecords(), core()[1]]);
+      expect(withRequests.sources?.transcript).toMatchObject({ state: "observed" });
+      expect(withRequests.sources?.transcript?.validRecords).toBe(5);
+      expect(withRequests.orchestrator.toolCounts).toEqual(base.orchestrator.toolCounts);
+      expect(withRequests.orchestrator.tokens).toEqual(base.orchestrator.tokens);
+      expect(withRequests.orchestrator.models).toEqual(base.orchestrator.models);
+      expect(withRequests.orchestrator.toolErrors).toEqual(base.orchestrator.toolErrors);
+      expect(withRequests.orchestrator.models).toEqual({ "claude-x": 1 });
+    });
+
+    it("still marks an unknown record type partial", () => {
+      const session = audit([...core(), { type: "api-request-unknown" }]);
+      expect(session.sources?.transcript).toMatchObject({ state: "partial" });
+    });
   });
 });

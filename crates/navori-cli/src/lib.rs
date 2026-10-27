@@ -4,6 +4,8 @@ pub mod commands;
 pub mod delegate;
 pub mod help;
 pub mod hook;
+pub mod hook_facts;
+pub mod journal;
 pub mod parser;
 pub mod shadow;
 

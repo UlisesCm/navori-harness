@@ -214,7 +214,7 @@ esac
 # in the payload, and writes one complete line with a single `printf >>` or none.
 if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
   navori_bash_failure_state reset
-  navori_bash_success_lane
+  navori_bash_success_lane claude
 fi
 
 # Spec 0041 T12 (R11): the Codex Bash outcome lane, same hook, no new
@@ -249,7 +249,13 @@ fi
 # locate a stamp it will never open, for the same reason a `Read` does not pay
 # for the `case` above.
 if [ "$tool" = "Bash" ]; then
-  navori_has_write_token "${payload:-}" || exit 0
+  # Bash substitutions are quadratic on multi-MiB output. The loaded command is
+  # already exact; large responses must not enter the payload-wide write probe.
+  if [ "${#payload}" -gt 1048576 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    navori_has_write_token "${_nv_pf_tool_input__command:-}" || exit 0
+  else
+    navori_has_write_token "${payload:-}" || exit 0
+  fi
 fi
 
 # One stamp per session, so two concurrent sessions never overwrite each other's

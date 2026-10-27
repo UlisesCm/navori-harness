@@ -7,7 +7,7 @@ Navori 的公开首页和文档站点。使用 Astro 和 Tailwind CSS v4 构建�
 ## 开发
 
 ```bash
-# 在 monorepo 根目录执行（Bun 1.4.2；仓库要求 Node.js >=24）
+# 在 monorepo 根目录执行（Bun 1.4.4；仓库要求 Node.js >=24）
 bun install
 bun run --cwd apps/website dev
 # 打开 http://localhost:4321
@@ -67,7 +67,7 @@ apps/website/
 
 `src/content/pages.ts` 中的共享路由清单为每个主题和语言定义一个规范地址。英语页面不带语言前缀，另外两种语言使用各自配置的前缀。添加页面或命令时，应更新对应的内容源，并确保本地化页面、Markdown 替代文件、语言链接、片段和 sitemap 均有效。构建检查器会指出缺失或不同步的资源。
 
-monorepo 使用 Bun `1.4.2`，站点开发和构建要求 Node.js `>=24`（见根目录 `package.json`）。已发布的 CLI 有单独的运行时最低要求：Node.js `>=22.12`（见 `packages/cli/package.json`）；CLI 的较低要求不能替代 monorepo 的开发环境要求。
+monorepo 使用 Bun `1.4.4`，站点开发和构建要求 Node.js `>=24`（见根目录 `package.json`）。已发布的 CLI 有单独的运行时最低要求：Node.js `>=22.12`（见 `packages/cli/package.json`）；CLI 的较低要求不能替代 monorepo 的开发环境要求。
 
 ## `llms.txt` 与爬虫策略
 

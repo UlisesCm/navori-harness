@@ -16,6 +16,7 @@ import {
   type StateRoot,
 } from "../primitives/state-root.ts";
 import { WorkplanSchema } from "./schema.ts";
+import { parseExpected } from "./expected.ts";
 import { deliveryCriterionCapture } from "../master/delivery.ts";
 import { resolveStateRoot } from "../primitives/state-root.ts";
 
@@ -30,9 +31,10 @@ function jsonEscape(command: string): string {
 }
 
 /** Index lines for the pending criteria of every readable workplan in `dir`. */
-function linesForDir(dir: string): string[] {
-  if (!existsSync(dir)) return [];
+function linesForDir(dir: string): { lines: string[]; comparisons: string[] } {
   const lines: string[] = [];
+  const comparisons: string[] = [];
+  if (!existsSync(dir)) return { lines, comparisons };
   for (const name of readdirSync(dir).sort()) {
     if (!/^workplan_.+\.json$/.test(name)) continue;
     try {
@@ -48,8 +50,8 @@ function linesForDir(dir: string): string[] {
           : undefined;
       for (const criterion of plan.acceptance) {
         if (plan.progress[criterion.id] === "cumplido") continue;
-        if (capture) {
-          const binding = capture(criterion.id, criterion.command);
+        const binding = capture?.(criterion.id, criterion.command);
+        if (binding) {
           lines.push(
             `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
           );
@@ -58,18 +60,32 @@ function linesForDir(dir: string): string[] {
             `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`,
           );
         }
+        const spec = parseExpected(criterion.expected);
+        if (spec.kind !== "free")
+          comparisons.push(
+            JSON.stringify({
+              command: criterion.command,
+              feature: plan.feature,
+              id: criterion.id,
+              dir,
+              binding: binding ?? null,
+              stage: binding?.stagePath ?? "",
+              expected: criterion.expected,
+              spec,
+            }) + "\n",
+          );
       }
     } catch {
       // An unreadable or invalid workplan contributes nothing: the index is
       // advisory input to a hook, never a place to fail a CLI write.
     }
   }
-  return lines;
+  return { lines, comparisons };
 }
 
 /** Pure builder: index text for the workplans under `dirs` (absolute paths). */
 export function buildAcceptanceIndex(dirs: readonly string[]): string {
-  return [...new Set(dirs)].flatMap(linesForDir).join("");
+  return [...new Set(dirs)].flatMap((dir: string) => linesForDir(dir).lines).join("");
 }
 
 /**
@@ -86,5 +102,11 @@ export function writeAcceptanceIndex(root: StateRoot): void {
     kind: "neutral",
   };
   stateArtifactPath(neutral, INDEX_NAME);
-  writeStateFileAtomic(neutral, INDEX_NAME, buildAcceptanceIndex(dirs));
+  const indexes = [...new Set(dirs)].map(linesForDir);
+  writeStateFileAtomic(
+    neutral,
+    "acceptance-expected.jsonl",
+    indexes.flatMap((index) => index.comparisons).join(""),
+  );
+  writeStateFileAtomic(neutral, INDEX_NAME, indexes.flatMap((index) => index.lines).join(""));
 }

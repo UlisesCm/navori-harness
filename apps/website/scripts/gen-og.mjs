@@ -28,6 +28,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { globSync } from "node:fs";
+import { pngWithOrigin } from "./png-origin.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEBSITE = resolve(__dirname, "..");
@@ -135,8 +136,7 @@ function buildSvg({ taglineA, taglineB, stats, eyebrow, render, done, example })
             letter-spacing="3.4" fill="${C.slate}">${esc(eyebrow)}</text>
     </g>
 
-    <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
-          font-size="132" fill="url(#word)">navori</text>
+    <text x="0" y="265" font-family="Helvetica, Arial, sans-serif" font-size="100" font-weight="600" letter-spacing="-4" fill="${C.ink}">navori</text>
 
     <g font-family="Helvetica, Arial, sans-serif" font-size="31" font-weight="500" fill="${C.ink}">
       <text x="4" y="332">${esc(taglineA)}</text>
@@ -196,8 +196,8 @@ const VARIANTS = [
     render: "renderizando recursos managed",
     done: "Listo — 34 creados",
     example: "ejemplo",
-    taglineA: "El harness multi-agente",
-    taglineB: "para cualquier repo.",
+    taglineA: "Tu IA escribe código.",
+    taglineB: "navori prepara el terreno.",
     stats: [
       `${inventory.commands} comandos`,
       `${inventory.presets} presets`,
@@ -212,8 +212,8 @@ const VARIANTS = [
     render: "rendering managed assets",
     done: "Done — 34 created",
     example: "example",
-    taglineA: "The multi-agent harness",
-    taglineB: "for any repo.",
+    taglineA: "Your AI writes code.",
+    taglineB: "navori sets the stage.",
     stats: [
       `${inventory.commands} commands`,
       `${inventory.presets} presets`,
@@ -230,8 +230,8 @@ VARIANTS.push({
   render: "正在渲染受管理资源",
   done: "完成 — 创建 34 个",
   example: "示例",
-  taglineA: "多智能体 harness",
-  taglineB: "适用于任何代码仓库。",
+  taglineA: "AI 负责编写代码，",
+  taglineB: "navori 为它做好准备。",
   stats: [
     `${inventory.commands} 条命令`,
     `${inventory.presets} 个预设`,
@@ -249,6 +249,14 @@ for (const v of VARIANTS) {
   // inspected, without re-running this script.
   await writeFile(resolve(OUT_DIR, v.svgFile), svg, "utf8");
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
-  await writeFile(resolve(OUT_DIR, v.file), png);
+  await writeFile(
+    resolve(OUT_DIR, v.file),
+    pngWithOrigin(
+      png,
+      "Origin: rendered from public/" +
+        v.svgFile +
+        " by scripts/gen-og.mjs, using the navori palette and text wordmark.",
+    ),
+  );
   process.stdout.write(`✓ public/${v.file}  ${(png.length / 1024).toFixed(1)} KB\n`);
 }

@@ -10,6 +10,8 @@ const BASE = process.env.SITE_BASE ?? "/";
 export default defineConfig({
   site: SITE,
   base: BASE,
+  // Astro 7 defaults to "jsx" and strips whitespace between inline elements; keep the 5.x output.
+  compressHTML: true,
   trailingSlash: "ignore",
   i18n: {
     defaultLocale: "en",

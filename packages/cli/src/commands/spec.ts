@@ -46,7 +46,11 @@ interface SpecContext {
 }
 
 const shared = {
-  feature: { type: "positional" as const, required: true, description: "Spec directory name" },
+  feature: {
+    type: "positional" as const,
+    required: true as const,
+    description: "Spec directory name",
+  },
   cwd: { type: "string" as const, description: "Repo root" },
   json: { type: "boolean" as const, description: "Output as JSON" },
 };

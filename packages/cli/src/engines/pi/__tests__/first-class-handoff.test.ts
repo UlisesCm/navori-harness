@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { serializePiAgent, serializePiManifest } from "../owned-file.ts";
@@ -112,7 +113,10 @@ function load(reply: (args: string[]) => NavoriReply) {
     "node:fs": { existsSync, readFileSync, statSync },
     "node:path": { join },
     "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
-    "@earendil-works/pi-coding-agent": { VERSION: "1.1.0", defineTool: (value: unknown) => value },
+    "@earendil-works/pi-coding-agent": {
+      VERSION: PINNED_PI_VERSION,
+      defineTool: (value: unknown) => value,
+    },
   };
   const exports: Record<string, unknown> = {};
   runInNewContext(

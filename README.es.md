@@ -174,7 +174,7 @@ navori-harness/
 
 ## Desarrollo
 
-Requiere **Node ≥ 22** y **bun 1.4.2**.
+Requiere **Node ≥ 22** y **bun 1.4.4**.
 
 ```bash
 bun install

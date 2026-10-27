@@ -26,6 +26,18 @@ const validLevel1: Workplan = {
 
 /** Covers: R15 */
 describe("checkWorkplan", () => {
+  // Covers: R17 (0045)
+  it("rejects invalid structured syntax without treating it as legacy prose", (): void => {
+    const result = checkWorkplan({
+      ...validLevel1,
+      acceptance: [{ ...validLevel1.acceptance[0], expected: "matches: /[/" }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.findings).toEqual([
+      expect.objectContaining({ rule: "acceptance-expected-invalid" }),
+    ]);
+  });
+
   it("passes with exit-worthy ok:true on a valid level-1 plan", () => {
     const result = checkWorkplan(validLevel1);
     expect(result.ok).toBe(true);

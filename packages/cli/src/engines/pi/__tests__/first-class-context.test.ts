@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { renderNonClaudeEngines } from "../../../commands/render.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
@@ -166,7 +167,10 @@ function loadExtension(env: Record<string, string> = {}, tools: unknown[] = BUIL
   const nodeRequire = createRequire(import.meta.url);
   const piModules: Record<string, unknown> = {
     "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
-    "@earendil-works/pi-coding-agent": { VERSION: "1.1.0", defineTool: (value: unknown) => value },
+    "@earendil-works/pi-coding-agent": {
+      VERSION: PINNED_PI_VERSION,
+      defineTool: (value: unknown) => value,
+    },
   };
   const exports: Record<string, unknown> = {};
   const source = stripTypeScriptTypes(PI_EXTENSION_SOURCE)

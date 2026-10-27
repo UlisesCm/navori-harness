@@ -7,6 +7,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
@@ -123,7 +124,7 @@ function load(
     [
       "@earendil-works/pi-coding-agent",
       {
-        VERSION: "1.1.0",
+        VERSION: PINNED_PI_VERSION,
         defineTool: (value: unknown) => value,
         getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
       },

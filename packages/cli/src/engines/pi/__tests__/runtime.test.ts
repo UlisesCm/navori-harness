@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -76,7 +77,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("Pi 1.1.0 credential-free runtime", () => {
+describe("Pi credential-free runtime", () => {
   it.each([undefined, "1"])(
     "isolates parent fixture depth and restores it after success and failure (depth=%s)",
     async (depth: string | undefined) => {
@@ -101,7 +102,7 @@ describe("Pi 1.1.0 credential-free runtime", () => {
     const piPackage: unknown = JSON.parse(
       readFileSync(join(PI_PACKAGE_ROOT, "package.json"), "utf8"),
     );
-    expect(piPackage).toMatchObject({ version: "1.1.0" });
+    expect(piPackage).toMatchObject({ version: PINNED_PI_VERSION });
     const { cwd, agentDir, home } = project();
     expect(readFileSync(join(cwd, ".pi/extensions/navori.ts"), "utf8")).toContain(
       "navori_subagent",
@@ -141,7 +142,7 @@ describe("Pi 1.1.0 credential-free runtime", () => {
       expect(run.stderr).not.toContain("Failed to load extension");
       expect(run.stdout).toContain("Usage:");
       expect(existsSync(marker)).toBe(shouldLoad);
-      if (shouldLoad) expect(readFileSync(marker, "utf8")).toBe("1.1.0");
+      if (shouldLoad) expect(readFileSync(marker, "utf8")).toBe(PINNED_PI_VERSION);
     }
     expect(existsSync(join(home, ".pi/agent/auth.json"))).toBe(false);
     expect(JSON.parse(readFileSync(join(agentDir, "auth.json"), "utf8"))).toEqual({});
