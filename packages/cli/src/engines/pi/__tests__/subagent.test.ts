@@ -11,6 +11,8 @@ import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { ownsPiAgent, ownsPiSource } from "../owned-file.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { serializeAnonymousFunction } from "../runtime-version.ts";
+import { redactSecrets } from "../../../lib/audit/parse.ts";
 
 interface ChildStub extends EventEmitter {
   pid: number;
@@ -567,4 +569,139 @@ describe("Pi extension executable policy", () => {
       });
     },
   );
+});
+
+interface Outcome {
+  isError?: boolean;
+  content: Array<{ type: string; text: string }>;
+  details: Record<string, unknown>;
+}
+
+describe("Pi child failure diagnostics", () => {
+  /** Runs one scout whose child writes `events` (JSONL) and `stderr`, then closes with `code`. */
+  async function runScout(
+    events: unknown[],
+    { stderr = "", code = 0, model }: { stderr?: string; code?: number; model?: string } = {},
+  ): Promise<Outcome> {
+    const dir = freshDir();
+    renderPiEngine(
+      dir,
+      model
+        ? NavoriConfigSchema.parse({
+            ...config,
+            models: { scout: "haiku", piMap: { haiku: model } },
+          })
+        : config,
+    );
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const { child } = runtime.calls[0]!;
+    if (stderr) child.stderr.write(stderr);
+    for (const event of events) child.stdout.write(`${JSON.stringify(event)}\n`);
+    child.emit("close", code);
+    return (await pending) as unknown as Outcome;
+  }
+  const assistant = (extra: Record<string, unknown>, text?: string): unknown => ({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: text === undefined ? [] : [{ type: "text", text }],
+      ...extra,
+    },
+  });
+  const settled = { type: "agent_settled" };
+
+  // Covers: R7
+  it("fails an exit-0 child whose last assistant turn ended in stopReason error", async () => {
+    const result = await runScout(
+      [assistant({ stopReason: "error", errorMessage: "invalid_grant: refresh failed" }), settled],
+      { stderr: "provider said invalid_grant\n" },
+    );
+    expect(result.isError).toBe(true);
+    const text = result.content[0]!.text;
+    expect(text).toContain("stopReason error");
+    expect(text).toContain("invalid_grant: refresh failed");
+    expect(text).toContain("Child stderr (tail, redacted):\nprovider said invalid_grant");
+    expect(result.details).toMatchObject({
+      outcome: "failed",
+      childStop: { stopReason: "error", errorMessage: "invalid_grant: refresh failed" },
+    });
+    expect(String(result.details.failure)).toContain("invalid_grant");
+  });
+
+  // Covers: R7
+  it("captures the stop reason even when the errored message has no content array", async () => {
+    const result = await runScout([
+      {
+        type: "message_end",
+        message: { role: "assistant", stopReason: "aborted", errorMessage: "request aborted" },
+      },
+      settled,
+    ]);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("stopReason aborted");
+    expect(result.content[0]!.text).toContain("request aborted");
+  });
+
+  // Covers: R7
+  it("does not fail on stopReason length; a later success overrides an earlier error", async () => {
+    const truncated = await runScout([assistant({ stopReason: "length" }, "partial"), settled]);
+    expect(truncated.isError).toBeUndefined();
+    expect(truncated.content[0]!.text).toBe("partial");
+    const recovered = await runScout([
+      assistant({ stopReason: "error", errorMessage: "overloaded" }),
+      assistant({ stopReason: "stop" }, "recovered"),
+      settled,
+    ]);
+    expect(recovered.isError).toBeUndefined();
+    expect(recovered.content[0]!.text).toBe("recovered");
+  });
+
+  // Covers: R7
+  it("reports auto_retry_end.finalError when the errored message carries no text", async () => {
+    const result = await runScout([
+      { type: "auto_retry_end", success: false, finalError: "429 quota exhausted after 3 retries" },
+      assistant({ stopReason: "error" }),
+      settled,
+    ]);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("429 quota exhausted after 3 retries");
+    expect(result.details).toMatchObject({
+      childStop: { stopReason: "error", errorMessage: "429 quota exhausted after 3 retries" },
+    });
+  });
+
+  // Covers: R7
+  it("redacts secrets before slicing and bounds the stderr tail", async () => {
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz";
+    const result = await runScout(
+      [assistant({ stopReason: "error", errorMessage: `${"x".repeat(795)} ${secret}` }), settled],
+      { stderr: `${"noise\n".repeat(20_000)}Authorization: Bearer abcdefgh12345678\nlast line\n` },
+    );
+    const text = result.content[0]!.text;
+    expect(text).not.toContain("sk-");
+    expect(text).not.toContain("abcdefgh12345678");
+    expect(text).toContain("[redacted]");
+    const tail = text.slice(text.indexOf("Child stderr (tail, redacted):\n"));
+    expect(tail.endsWith("last line")).toBe(true);
+    expect(tail.length).toBeLessThan(900);
+  });
+
+  // Covers: R7
+  it("names the real provider in the non-zero exit hint", async () => {
+    const result = await runScout([], { code: 2, model: "anthropic/claude-sonnet-5-5" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("/login anthropic");
+    expect(result.content[0]!.text).not.toContain("openai-codex");
+  });
+
+  // Covers: R7
+  it("embeds the audit parser's redactSecrets verbatim", () => {
+    expect(PI_EXTENSION_SOURCE).toContain(
+      `const redactSecrets = ${serializeAnonymousFunction(redactSecrets)}`,
+    );
+    expect(redactSecrets("Bearer abcdefgh12345678 sk-abcdefghijk")).toBe(
+      "Bearer [redacted] [redacted]",
+    );
+  });
 });

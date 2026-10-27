@@ -5,6 +5,7 @@ import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
 import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
 import { mcpServerStates } from "./mcp-diagnosis.ts";
+import { redactSecrets } from "../../lib/audit/parse.ts";
 
 /**
  * Self-contained project extension; no import may point back into Navori's CLI checkout.
@@ -21,7 +22,7 @@ import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendi
 
 ${PI_TRUST_SOURCE + "\nconst PI_EXTENSION_DENIALS = " + JSON.stringify(PI_EXTENSION_DENIALS) + ";\n"}
 const MCP_PLUGIN_IDS: readonly string[] = ${JSON.stringify(mcpPluginIds)};
-const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates)};
+const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates) + ";\nconst redactSecrets = " + serializeAnonymousFunction(redactSecrets)};
 ${renderPiRuntimeVersionSource()}
 
 type Role = ${PI_ROLE_NAMES.map((role) => JSON.stringify(role)).join(" | ")};
@@ -39,7 +40,9 @@ const MAX_OUTPUT_BYTES = 65_536;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 type ChildUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } };
-type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage;
+/** Last assistant stopReason (and its error text) a child reported on stdout; exit code 0 does not imply success in --mode json. */
+type ChildStop = { stopReason: string; errorMessage?: string };
+type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage; stop?: ChildStop;
   /** Commands of tool calls the child refused for lack of approval, recovered from structured JSONL args (undefined = not recoverable). */
   refusals?: Array<string | undefined> };
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -187,7 +190,11 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     let parsed: unknown;
     try { parsed = JSON.parse(result.stdout); } catch { throw new Error(PI_EXTENSION_DENIALS.handoffJson.prefix + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
-        parsed.feature !== feature) throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked");
+        parsed.feature !== feature) {
+      const detail = isRecord(parsed) && Array.isArray(parsed.failures)
+        ? parsed.failures.map((f) => (isRecord(f) ? String(f.detail) : "invalid finding")).join("; ").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 1000) : "";
+      throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked" + (detail ? ": " + detail : ""));
+    }
   }
 }
 
@@ -385,6 +392,14 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
     tools: tools as string[], instructions: match[2].trim() };
 }
 
+/** Child-supplied text made safe to show: ANSI and control characters stripped, secrets redacted BEFORE slicing, at most 20 lines / 800 chars (the end for a stderr tail). */
+function childDiagnostic(raw: string, fromEnd: boolean): string {
+  const clean = redactSecrets(raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ""));
+  const lines = clean.split("\n");
+  const text = (fromEnd ? lines.slice(-20) : lines.slice(0, 20)).join("\n").trim();
+  return fromEnd ? text.slice(-800) : text.slice(0, 800);
+}
+
 type ModelContext = { model?: { provider?: unknown; id?: unknown }; modelRegistry?: { getAvailable?: () => Array<{ provider: string; id: string }> } };
 
 /** Resolve the exact provider/model a child runs on: role override wins, else the parent's identity. Never credentials. */
@@ -418,6 +433,8 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
   let usage: ChildUsage | null = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   let usageSeen = false;
+  let stop: ChildStop | undefined;
+  let finalError: string | undefined;
   const starts = new Map<string, string | undefined>();
   const refusals: Array<string | undefined> = [];
   const record = (raw: Buffer): void => {
@@ -441,8 +458,15 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
       if (refusals.length < MAX_RELAYS && JSON.stringify(event.result ?? "").includes(APPROVAL_REFUSAL_MARKER)) refusals.push(starts.get(event.toolCallId));
       return;
     }
+    if (event.type === "auto_retry_end" && event.success === false && typeof event.finalError === "string") finalError = childDiagnostic(event.finalError, false);
     if (event.type !== "message_end" || !isRecord(event.message) || event.message.role !== "assistant") return;
     usageSeen = true;
+    // Read before the content guard below: an errored turn may carry no usable content blocks. The latest message wins.
+    const stopReason: unknown = event.message.stopReason;
+    const errorMessage: unknown = event.message.errorMessage;
+    stop = typeof stopReason === "string"
+      ? { stopReason, ...(typeof errorMessage === "string" && errorMessage ? { errorMessage: childDiagnostic(errorMessage, false) } : {}) } : undefined;
+    if (stopReason !== "error" && stopReason !== "aborted") finalError = undefined;
     if (usage) usage = addUsage(usage, event.message.usage);
     const blocks = event.message.content;
     if (!Array.isArray(blocks)) return;
@@ -497,7 +521,8 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
       pending = Buffer.alloc(0);
       pendingBytes = 0;
       if (!settled) throw new Error("Pi child stopped before agent_settled");
-      const done: ChildResult = { ...result, ...(refusals.length ? { refusals } : {}) };
+      const reported = stop ? { ...stop, ...(stop.errorMessage === undefined && finalError ? { errorMessage: finalError } : {}) } : undefined;
+      const done: ChildResult = { ...result, ...(reported ? { stop: reported } : {}), ...(refusals.length ? { refusals } : {}) };
       return usage && usageSeen ? { ...done, usage } : done;
     },
   };
@@ -514,7 +539,7 @@ function parseParentApproval(raw: unknown): ParentApproval | undefined {
   } catch { return undefined; }
 }
 
-type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string };
+type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string; stderrNote?: string };
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
 function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal,
   parentSession: string, agentId: string): Promise<ChildRun> {
@@ -537,11 +562,18 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     const child = spawn("pi", args, { cwd, env: childEnv,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
     const parser = childParser();
+    // Rolling raw tail of stderr (never unbounded); redacted and bounded only when shown. --mode json usually leaves it empty.
+    let stderrTail = Buffer.alloc(0);
+    const stderrNote = (): string => {
+      const tail = childDiagnostic(stderrTail.toString("utf8"), true);
+      return tail ? "\n\nChild stderr (tail, redacted):\n" + tail : "";
+    };
     const approvals: ParentApproval[] = [];
     // A pid is host evidence that spawn succeeded. ENOENT and other pre-spawn errors still reject.
-    const fail = (failure: string): void => {
-      if (!child.pid) reject(new Error(failure));
-      else resolve({ text: "", truncated: false, approvals, failure });
+    const fail = (failure: string, partial: ChildResult = { text: "", truncated: false }): void => {
+      const full = failure + stderrNote();
+      if (!child.pid) reject(new Error(full));
+      else resolve({ ...partial, approvals, failure: full });
     };
     child.on("message", (raw: unknown) => {
       const accepted = parseParentApproval(raw);
@@ -576,7 +608,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       if (stopping) return;
       try { parser.feed(chunk); } catch (cause) { parseError = cause; stop(); }
     });
-    child.stderr.resume();
+    child.stderr.on("data", (chunk: Buffer) => { stderrTail = Buffer.concat([stderrTail, chunk]).subarray(-4096); });
     child.on("error", (cause: Error) => {
       // A spawn failure has no process or group to escalate against.
       if (!child.pid) { stopping = true; if (killTimer) clearTimeout(killTimer); }
@@ -589,8 +621,20 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       release();
       if (parseError) fail(parseError instanceof Error ? parseError.message : "Invalid Pi child JSONL event");
       else if (stopping) fail("Pi child cancelled, timed out, or exceeded output limit");
-      else if (code !== 0) fail("Pi child exited " + code + "; inspect Pi auth with /login openai-codex");
-      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); } }
+      else if (code !== 0) {
+        const provider = model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
+        fail("Pi child exited " + code + " on " + model + "; inspect Pi auth with /login" + (provider ? " " + provider : ""));
+      } else {
+        let done: ChildResult;
+        try { done = parser.finish(); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); return; }
+        // --mode json exits 0 even when the model call failed: the last assistant stopReason is the signal ("length" is not a failure).
+        if (done.stop && (done.stop.stopReason === "error" || done.stop.stopReason === "aborted")) {
+          fail("Pi child model call failed (stopReason " + done.stop.stopReason + ") on " + model + ": " + (done.stop.errorMessage ?? "no error message"), done);
+        } else {
+          const note = stderrNote();
+          resolve({ ...done, approvals, ...(note ? { stderrNote: note } : {}) });
+        }
+      }
     });
   });
 }
@@ -1124,7 +1168,7 @@ export default function (pi: ExtensionAPI): void {
         const agentId = "pi-" + params.role + "-" + _id;
         const result = await runChild(ctx.cwd, spec, model, params.task, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
-        const details = { ...identity, truncated: result.truncated,
+        const details = { ...identity, truncated: result.truncated, ...(result.stop ? { childStop: result.stop } : {}),
           ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
         const failed = (failure: string, handoff: "invalid" | "none" = "none") => ({
           isError: true, content: [{ type: "text" as const, text: failure }],
@@ -1138,7 +1182,7 @@ export default function (pi: ExtensionAPI): void {
         }
         if (snapshot) {
           const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
-          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) + (result.stderrNote ?? "") }],
             details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length
