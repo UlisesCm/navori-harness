@@ -5,7 +5,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::{Outcome, Rendered, length};
+use super::copy_dest::{self, Inputs};
+use super::{Host, Outcome, Rendered, length};
 use crate::runner::Engine;
 use crate::shell::Locale;
 use crate::shell::inert::{self, CMD_MAX, Rules};
@@ -16,6 +17,42 @@ const GIT_OPTS: &str =
     r"([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*";
 const RM_ARG: &str = r"[^<>&[:space:]]+[[:space:]]+";
 const RM_QUOTE: &str = r#"["']?"#;
+const MANAGED_DIR: &str =
+    r"\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules";
+const MANAGED_PI: &str = r"|\.pi/extensions/navori\.ts|\.pi/navori\.json|\.pi/navori/[^[:space:];&|]+|\.pi/agents/(scout|implementer|reviewer|scribe|auditor|architect|publisher)\.md";
+const MANAGED_REWRITE: &str = "shell rewrite of a navori-managed file \u{2014} edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead";
+
+/// `managed_path` for one engine: Pi adds the exact names Navori writes under `.pi/`.
+fn managed_path(pi: bool) -> String {
+    let extra = if pi { MANAGED_PI } else { "" };
+    format!(
+        r"(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|({MANAGED_DIR})/[^[:space:];&|]+{extra})"
+    )
+}
+
+/// Rule 6: `>`/`>|` redirects over `scan`, `sed -i` and `tee` over segments, case-insensitive.
+struct Managed {
+    redirect: Regex,
+    sed: Regex,
+    tee: Regex,
+}
+
+impl Managed {
+    fn new(locale: Locale, pi: bool) -> Result<Self, regex::Error> {
+        let path = managed_path(pi);
+        Ok(Self {
+            redirect: locale.ere(&format!(
+                r"(?i)(^|[^>])>\|?[[:space:]]*(\./)?{path}([[:space:]]|$)"
+            ))?,
+            sed: locale.ere(&format!(
+                r"(?i)(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*{path}"
+            ))?,
+            tee: locale.ere(&format!(
+                r"(?i)(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?{path}([[:space:]]|$)"
+            ))?,
+        })
+    }
+}
 
 struct Patterns {
     no_verify: Regex,
@@ -33,6 +70,8 @@ struct Patterns {
     no_preserve_root: Regex,
     fork_bomb: Regex,
     block_device: Regex,
+    managed: Managed,
+    managed_pi: Managed,
 }
 
 impl Patterns {
@@ -76,6 +115,8 @@ impl Patterns {
             ))?,
             fork_bomb: re(r":\(\)[[:space:]]*\{[[:space:]]*:\|:")?,
             block_device: re(r"(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))")?,
+            managed: Managed::new(locale, false)?,
+            managed_pi: Managed::new(locale, true)?,
         })
     }
 
@@ -152,6 +193,7 @@ pub(super) fn evaluate(
     cmd: &str,
     rendered: &Rendered,
     engine: Engine,
+    host: &Host,
     locale: Locale,
 ) -> Result<Outcome, String> {
     if cmd.is_empty() {
@@ -202,7 +244,8 @@ pub(super) fn evaluate(
         }
     }
     let live = inert::live(cmd, &skeleton, rules);
-    let segments = inert::segments(&inert::scan(&live, rules), rules);
+    let scan = inert::scan(&live, rules);
+    let segments = inert::segments(&scan, rules);
     let unquoted: Vec<String> = segments.iter().map(|s| rules.remove_quotes(s)).collect();
 
     // 1. Skipping hooks/gates.
@@ -292,6 +335,64 @@ pub(super) fn evaluate(
             "direct write to a block device",
             "block-device",
             None,
+        ));
+    }
+    // 6. Shell rewrites of a bare or `./`-relative managed path. `scan` keeps `>|` whole.
+    let scan_lines: Vec<String> = scan.split('\n').map(str::to_owned).collect();
+    let managed = if engine == Engine::Pi {
+        &patterns.managed_pi
+    } else {
+        &patterns.managed
+    };
+    if any(&scan_lines, &managed.redirect)
+        || any(&segments, &managed.sed)
+        || any(&segments, &managed.tee)
+    {
+        return Ok(block(MANAGED_REWRITE, "managed-rewrite", None));
+    }
+    // 6b. The same targets spelled with this project's absolute prefix, literal or unresolved.
+    if !host.project_dir.is_empty() {
+        let project = host
+            .project_dir
+            .strip_suffix('/')
+            .unwrap_or(&host.project_dir);
+        let unresolved = if engine == Engine::Codex {
+            r"\$\(git rev-parse --show-toplevel\)"
+        } else {
+            r"\$\{?CLAUDE_PROJECT_DIR\}?"
+        };
+        let absolute = format!(
+            r#"["']?({}|{unresolved})["']?/{}["']?"#,
+            regex::escape(project),
+            managed_path(engine == Engine::Pi)
+        );
+        let compile = |pattern: String| {
+            locale
+                .ere(&pattern)
+                .map_err(|e| format!("guard-destructive pattern: {e}"))
+        };
+        let redirect = compile(format!(
+            r"(?i)(^|[^>])>\|?[[:space:]]*{absolute}([[:space:]]|$)"
+        ))?;
+        let tee = compile(format!(
+            r"(?i)(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*{absolute}([[:space:]]|$)"
+        ))?;
+        if any(&scan_lines, &redirect) || any(&segments, &tee) {
+            return Ok(block(MANAGED_REWRITE, "managed-rewrite", None));
+        }
+    }
+    // 6d. Copy/move/install/link onto exact render-owned paths.
+    let inputs = Inputs {
+        root: &host.project_dir,
+        cwd: &host.cwd,
+        pwd: &host.pwd,
+        owned: &rendered.owned_paths,
+    };
+    if rendered.owned_paths != "-" && !copy_dest::safe(&live, &inputs) {
+        return Ok(block(
+            MANAGED_REWRITE,
+            "managed-rewrite",
+            Some("navori render --apply"),
         ));
     }
     Ok(Outcome::Continue { copy_only })

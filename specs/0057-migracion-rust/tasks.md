@@ -184,6 +184,13 @@ restantes caen en reglas 1b, 6, 6b, 6c, 6d y 7 (PR 2) y nunca en una regla ya po
 registro en `ported.json`: el runtime no cambia. Pendientes: rutas y git (PR 2),
 `tgrep-search-lane` (PR 3), extracción, registro en sombra, corpus de Codex y A11 (PR 4).
 
+Avance T28 (PR 2a): reglas 6 y 6b (reescritura por redirección, `sed -i` o `tee` de un archivo
+gestionado, relativo o con el prefijo absoluto del proyecto) y 6d (`copy-dest`, transcripción
+byte a byte del programa awk sobre el inventario exacto). `Host` recibe `nv_project_dir`, el
+`cwd` del payload y `PWD`. Corpus: 589 de 886 casos idénticos (65 `managed-rewrite`). `copy-dest`
+se compara además contra el awk real con una batería escrita a mano y 500 comandos generados en
+tres contextos de raíz. Pendientes del PR 2b: 6c (Pi), 7 (descartes de git) y 1b.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 
