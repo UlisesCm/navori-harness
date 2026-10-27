@@ -2,15 +2,29 @@
 //!
 //! Ported so far, in the shell's order: empty command, the byte/line/heredoc ceilings, the
 //! no-rule-token fast path and rules 1 (skip-verify), 2 (force-push to base), 3 (recursive rm
-//! over root/home/system/scratch root or a variable), 3b (`--no-preserve-root`), 4 (fork bomb)
-//! and 5 (block device). Rule 1b and rules 6-7 read paths, git state or Pi permission rules;
+//! over root/home/system/scratch root or a variable), 3b (`--no-preserve-root`), 4 (fork bomb),
+//! 5 (block device), 6 and 6b (shell rewrites of managed files) and 6d (copies onto exact
+//! render-owned paths). Rule 1b and rules 6c and 7 read git state or Pi permission rules;
 //! until they are ported an evaluation that reaches them says so instead of guessing.
-//! Nothing here reads files, runs processes or audits.
+//! Nothing here reads files, runs processes or audits: host facts arrive in [`Host`].
 
+pub mod copy_dest;
 mod rendered;
 mod rules;
 
 pub use rendered::Rendered;
+
+/// Host facts the shell reads from its environment before the rules run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Host {
+    /// `nv_project_dir`: `$CLAUDE_PROJECT_DIR` under Claude; under Codex and Pi the git
+    /// toplevel of the payload's `cwd`, else that `cwd`, else `.`.
+    pub project_dir: String,
+    /// The payload's `cwd` field (`payload_field cwd`), empty when absent.
+    pub cwd: String,
+    /// `PWD` of the hook process.
+    pub pwd: String,
+}
 
 use crate::runner::Engine;
 use crate::shell::Locale;
@@ -57,9 +71,10 @@ pub fn evaluate(
     cmd: &str,
     rendered: &Rendered,
     engine: Engine,
+    host: &Host,
     locale: Locale,
 ) -> Result<Outcome, String> {
-    rules::evaluate(cmd, rendered, engine, locale)
+    rules::evaluate(cmd, rendered, engine, host, locale)
 }
 
 /// Exact stderr of the shell's `block`: reason, the command cut at 2000 characters (bytes under

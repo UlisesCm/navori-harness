@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use navori_hooks::hooks::guard_destructive::{Outcome, Rendered, block_stderr, evaluate};
+use navori_hooks::hooks::guard_destructive::{Host, Outcome, Rendered, block_stderr, evaluate};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
 use serde_json::Value;
@@ -21,14 +21,17 @@ const PORTED: &[&str] = &[
     "no-preserve-root",
     "fork-bomb",
     "block-device",
+    "managed-rewrite",
 ];
 
-/// Deep scratch paths like the replay's, so no root/home rule can see them.
-const TOKENS: &[(&str, &str)] = &[
-    ("@CWD@", "/scratch/replay/cases/0/project"),
-    ("@TMP@", "/scratch/replay/tmp"),
-    ("@R@", "XXXXXX"),
-];
+/// The replay's scratch layout (`createScratch`/`runMode`), deep enough that no root or home
+/// rule can see it. A case runs in its project copy (`repo`) or in an empty dir (`none`).
+const SCRATCH: &str = "/scratch/replay";
+const CASE: &str = "/scratch/replay/cases/0";
+const PROJECT: &str = "/scratch/replay/cases/0/project";
+const NONE: &str = "/scratch/replay/cases/0/none";
+const TMP: &str = "/scratch/replay/tmp";
+const HOME: &str = "/scratch/replay/home";
 
 fn workspace() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -63,15 +66,52 @@ fn engine(name: &str) -> Option<Engine> {
     }
 }
 
-fn host(text: &str) -> String {
-    TOKENS.iter().fold(text.to_owned(), |text, (token, path)| {
-        text.replace(token, path)
-    })
+/// `hostPaths`: the replay's tokens expanded for one case.
+fn expand(text: &str, cwd: &str) -> String {
+    text.replace("@CWD@", cwd)
+        .replace("@REPO@", PROJECT)
+        .replace("@TMP@", TMP)
+        .replace("@R@", "XXXXXX")
 }
 
+/// `runMode`'s output normalization, in its order.
 fn corpus_text(text: &str) -> String {
-    TOKENS.iter().fold(text.to_owned(), |text, (token, path)| {
-        text.replace(path, token)
+    text.replace(PROJECT, "@REPO@")
+        .replace(CASE, "@CASE@")
+        .replace(TMP, "@TMP@")
+        .replace(HOME, "@HOME@")
+        .replace(SCRATCH, "@SCRATCH@")
+}
+
+/// What hook-input.sh and copy-dest.sh read from the case's environment.
+fn host(case: &Value, engine: Engine, cwd: &str) -> Result<Host, Box<dyn Error>> {
+    let payload: Value = serde_json::from_str(case["input"].as_str().ok_or("input")?)?;
+    let field = payload["cwd"]
+        .as_str()
+        .map(|v| expand(v, cwd))
+        .unwrap_or_default();
+    let project_dir = if engine == Engine::Claude {
+        case["envDelta"]["CLAUDE_PROJECT_DIR"]
+            .as_str()
+            .map(|v| expand(v, cwd))
+            .unwrap_or_default()
+    } else {
+        // Codex and Pi cases run outside any git repository: no toplevel, so the payload's
+        // cwd, else `.`.
+        assert_eq!(
+            case["cwdKind"], "none",
+            "model covers non-git Codex/Pi cases"
+        );
+        if field.is_empty() {
+            ".".to_owned()
+        } else {
+            field.clone()
+        }
+    };
+    Ok(Host {
+        project_dir,
+        cwd: field,
+        pwd: cwd.to_owned(),
     })
 }
 
@@ -90,15 +130,21 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
     let cases = corpus()?;
     for (index, case) in cases.iter().enumerate() {
         let input = case["input"].as_str().ok_or("input")?;
-        let cmd = host(&command(input).ok_or("command")?);
+        let cwd = if case["cwdKind"] == "repo" {
+            PROJECT
+        } else {
+            NONE
+        };
+        let cmd = expand(&command(input).ok_or("command")?, cwd);
         let engine = engine(case["engine"].as_str().ok_or("engine")?).ok_or("engine name")?;
+        let host = host(case, engine, cwd)?;
         let off = &case["expected"]["off"];
         let status = off["status"].as_i64().ok_or("status")?;
         let stderr = off["stderr"].as_str().ok_or("stderr")?;
         let event = &case["expected"]["active"]["event"][0]["metadata"];
         let verdict = event["verdict"].as_str().unwrap_or("none");
         let reason = event["reason"].as_str().unwrap_or("-");
-        let outcome = evaluate(&cmd, &rendered, engine, Locale::Utf8)?;
+        let outcome = evaluate(&cmd, &rendered, engine, &host, Locale::Utf8)?;
         let label = match &outcome {
             Outcome::Block {
                 message,
@@ -127,8 +173,9 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
                 "skip".to_owned()
             }
             Outcome::Continue { copy_only } => {
+                // Rule 6c (Pi control plane) and rule 7 (discards) are not ported yet.
                 let ported_block = verdict == "block"
-                    && (PORTED.contains(&reason)
+                    && ((PORTED.contains(&reason) && !stderr.contains("Pi control plane"))
                         || (reason == "oversize" && !stderr.contains("discard commands")));
                 if ported_block || (verdict == "skip" && !copy_only) {
                     mismatches.push(format!(
@@ -159,6 +206,7 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
         "block/fork-bomb",
         "block/block-device",
         "block/oversize",
+        "block/managed-rewrite",
         "skip",
     ] {
         assert!(
