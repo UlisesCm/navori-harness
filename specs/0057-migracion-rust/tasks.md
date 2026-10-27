@@ -1,6 +1,6 @@
 # Migración de navori a Rust — Tasks
 
-**Estado:** E2 en progreso; documentación de E1 pendiente · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
+**Estado:** E1 cerrada; E2 en progreso · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
 "Fases del programa"): tres entregas, cada una un PR contra `migration/rust`. El LOC es una
 estimación, no una medición.
 
@@ -54,14 +54,16 @@ clippy y pruebas del workspace verdes. Ejecución directa por instrucción del u
 Implementados localmente T13–T16 y la parte CI de T17 en `.github/workflows/rust.yml`,
 los tres scripts `rust-*-check.mjs` / `rust-sync-age.mjs`, sus pruebas y `ci.yml`.
 Instalación local comprobada: `navori-rust` tiene ruta propia y `navori` conserva ruta y hash.
-Los seis jobs remotos de Rust pasaron en PR1389; M4 sigue abierto por documentación. Las guías CONTRIBUTING de T17 no
-se editaron: `guard-destructive` bloqueó la escritura shell como archivo gestionado.
+Los seis jobs remotos de Rust pasaron en PR1389. `quality` instala las dependencias JS desde
+#1413 (`config_parity` importa el cargador de config TS). M4 cerrado: CONTRIBUTING (en, es,
+zh-CN) documenta instalación junto al CLI TS, delegación, hooks nativos y sombra, sincronización
+por merge y los checks de la rama.
 - **A4** [observable] — `rust.yml` corre todos sus jobs y la instalación local no toca `navori` · `cargo install --path crates/navori-cli --locked && command -v navori-rust && command -v navori` → dos rutas distintas; la de `navori` igual que antes de instalar
-- [ ] **T13** (R15) — `.github/workflows/rust.yml` job `quality` (fmt, clippy `-D warnings`, test) para PRs y pushes a `migration/rust`, sin `schedule` · effect: behavior · test: `.github/workflows/rust.yml`::"quality"
-- [ ] **T14** (R10) — jobs `oracle` y `manifest` (recalcula hashes, exige línea `unport` al quitar una entrada) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"quitar una entrada sin unport falla"
-- [ ] **T15** (R23) — `scripts/js/rust-sync-age.mjs` y job `freshness` por commits de primer padre de `dev`; el PR de sincronización siempre pasa (D10) · effect: behavior · test: `packages/cli/src/__tests__/rust-sync-age.test.ts`::"commit de dev sin incorporar con más de 7 días falla y el PR de sync pasa"
-- [ ] **T16** (R4) — job `tarball`: `npm pack --dry-run --json` en `packages/cli` sin binarios, sin `crates/` y sin `postinstall` · effect: behavior · test: `packages/cli/src/__tests__/rust-tarball.test.ts`::"el tarball no contiene artefactos Rust"
-- [ ] **T17** (R3) — job `install` y CONTRIBUTING de la rama con instalación y sincronización; `ci.yml` acepta `migration/rust` en `plan` y `affected` · effect: docs · test: `CONTRIBUTING.md`::"navori-rust local"
+- [x] **T13** (R15) — `.github/workflows/rust.yml` job `quality` (fmt, clippy `-D warnings`, test) para PRs y pushes a `migration/rust`, sin `schedule` · effect: behavior · test: `.github/workflows/rust.yml`::"quality"
+- [x] **T14** (R10) — jobs `oracle` y `manifest` (recalcula hashes, exige línea `unport` al quitar una entrada) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"quitar una entrada sin unport falla"
+- [x] **T15** (R23) — `scripts/js/rust-sync-age.mjs` y job `freshness` por commits de primer padre de `dev`; el PR de sincronización siempre pasa (D10) · effect: behavior · test: `packages/cli/src/__tests__/rust-sync-age.test.ts`::"commit de dev sin incorporar con más de 7 días falla y el PR de sync pasa"
+- [x] **T16** (R4) — job `tarball`: `npm pack --dry-run --json` en `packages/cli` sin binarios, sin `crates/` y sin `postinstall` · effect: behavior · test: `packages/cli/src/__tests__/rust-tarball.test.ts`::"el tarball no contiene artefactos Rust"
+- [x] **T17** (R3) — job `install` y CONTRIBUTING de la rama con instalación y sincronización; `ci.yml` acepta `migration/rust` en `plan` y `affected` · effect: docs · test: `CONTRIBUTING.md`::"navori-rust local"
 
 ## E2 — Runtime de hooks
 Estimated LOC: 4000
