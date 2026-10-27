@@ -99,7 +99,11 @@ con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: 
 `frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
 (`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
 (`presets.ts`, locales sobre incluidos; lo que el TS rechaza se delega) y el registro de skills
-de librerías, con los validadores zod compartidos en `navori_core::zod`. Faltan plugins,
+de librerías, con los validadores zod compartidos en `navori_core::zod`, y la carga de plugins
+(`plugins.ts`: registros de retirados, `loadPlugin` sobre el bundle embebido, conjuntos
+habilitado/deshabilitado y `nativeHook`; los manifiestos sintéticos pasan por el `loadPlugin`
+real con `readFileSync` parcheado). Las paridades de presets y plugins comparan la salida zod
+como texto para fijar el orden de claves. Faltan
 `effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude, `build-settings`/coexist,
 el wiring nativo y las cadenas del render. Pendientes ajenos a 0058: `navori-cli/tests/facts_cache.rs`
 (0057, `bccfedd0`) falla de forma intermitente (2/5 aislado) por un presupuesto de 1 ms. Una falla
