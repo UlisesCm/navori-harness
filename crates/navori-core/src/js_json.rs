@@ -42,6 +42,18 @@ impl JsString {
         }
         u32::try_from(value).ok().filter(|v| *v != u32::MAX)
     }
+
+    /// Rust text of this string, or `None` when it holds a lone surrogate.
+    #[must_use]
+    pub fn to_rust(&self) -> Option<String> {
+        String::from_utf16(&self.0).ok()
+    }
+
+    /// Whether this string equals the Rust text `text`.
+    #[must_use]
+    pub fn is(&self, text: &str) -> bool {
+        self.0.iter().copied().eq(text.encode_utf16())
+    }
 }
 
 impl From<&str> for JsString {
@@ -81,6 +93,20 @@ impl JsObject {
     #[must_use]
     pub fn entries(&self) -> &[(JsString, JsValue)] {
         &self.0
+    }
+
+    /// Own property `key`, like `obj[key]` restricted to own properties.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&JsValue> {
+        self.0
+            .iter()
+            .find_map(|(existing, value)| existing.is(key).then_some(value))
+    }
+
+    /// Whether `key` is an own property.
+    #[must_use]
+    pub fn has(&self, key: &str) -> bool {
+        self.get(key).is_some()
     }
 
     /// Properties in JS enumeration order: array indices ascending, then the rest as inserted.
@@ -244,6 +270,112 @@ fn write_string(text: &JsString, out: &mut String) {
     out.push('"');
 }
 
+/// `JSON.parse(text)` for the documents navori reads, or `None` when Rust cannot reproduce it.
+///
+/// `None` covers both text JS rejects and the rare text JS accepts but this parser does not model
+/// (lone surrogate escapes, numbers that overflow to `Infinity`, nesting deeper than 128, a
+/// `__proto__` key). Callers treat `None` as "let the TS decide", which is always safe. Known limit:
+/// an object whose only key is serde_json's private number marker reads as that number.
+#[must_use]
+pub fn parse(text: &str) -> Option<JsValue> {
+    let parsed: Parsed = serde_json::from_str(text).ok()?;
+    Some(parsed.0)
+}
+
+struct Parsed(JsValue);
+
+/// serde_json's private marker for a number under `arbitrary_precision`.
+const ARBITRARY_PRECISION_TOKEN: &str = "$serde_json::private::Number";
+
+/// A JSON number literal as `JSON.parse` reads it: nearest double, `Infinity` unsupported.
+fn number_from_text<E: serde::de::Error>(digits: &str) -> Result<JsValue, E> {
+    match digits.parse::<f64>() {
+        Ok(value) if value.is_finite() => Ok(JsValue::Number(value)),
+        _ => Err(E::custom("number overflows to Infinity")),
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Parsed {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(ParsedVisitor).map(Parsed)
+    }
+}
+
+struct ParsedVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ParsedVisitor {
+    type Value = JsValue;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_unit<E>(self) -> Result<JsValue, E> {
+        Ok(JsValue::Null)
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<JsValue, E> {
+        Ok(JsValue::Bool(value))
+    }
+
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON.parse rounds integers to the nearest double too"
+    )]
+    fn visit_i64<E>(self, value: i64) -> Result<JsValue, E> {
+        Ok(JsValue::Number(value as f64))
+    }
+
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON.parse rounds integers to the nearest double too"
+    )]
+    fn visit_u64<E>(self, value: u64) -> Result<JsValue, E> {
+        Ok(JsValue::Number(value as f64))
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<JsValue, E> {
+        if value.is_finite() {
+            Ok(JsValue::Number(value))
+        } else {
+            Err(E::custom("number overflows to Infinity"))
+        }
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<JsValue, E> {
+        Ok(JsValue::string(value))
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<JsValue, A::Error> {
+        let mut items = Vec::new();
+        while let Some(Parsed(item)) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(JsValue::Array(items))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<JsValue, A::Error> {
+        let mut object = JsObject::new();
+        let mut first = true;
+        while let Some(key) = map.next_key::<String>()? {
+            // With serde_json's `arbitrary_precision` (enabled by navori-hooks, so present in the
+            // `navori-rust` build through feature unification) every number arrives as this
+            // single-entry map holding its source text.
+            if first && key == ARBITRARY_PRECISION_TOKEN {
+                let digits: String = map.next_value()?;
+                return number_from_text(&digits);
+            }
+            first = false;
+            if key == "__proto__" {
+                return Err(serde::de::Error::custom("__proto__ key"));
+            }
+            let Parsed(value) = map.next_value()?;
+            object.insert(key, value);
+        }
+        Ok(JsValue::Object(object))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +386,26 @@ mod tests {
             o.insert(*k, v.clone());
         }
         JsValue::Object(o)
+    }
+
+    #[test]
+    fn parse_reads_numbers_like_json_parse_with_or_without_arbitrary_precision() {
+        let numbers = parse("[1, -0, 1.5e3, 123456789012345678901234, 9007199254740993]");
+        assert_eq!(
+            numbers,
+            Some(JsValue::Array(vec![
+                JsValue::Number(1.0),
+                JsValue::Number(-0.0),
+                JsValue::Number(1500.0),
+                JsValue::Number(1.234_567_890_123_456_9e23),
+                JsValue::Number(9_007_199_254_740_992.0),
+            ]))
+        );
+        assert_eq!(parse("[1e400]"), None);
+        assert_eq!(
+            parse(r#"{"b":1,"a":{"c":[]}}"#).and_then(|v| v.stringify(None)),
+            Some(r#"{"b":1,"a":{"c":[]}}"#.to_owned())
+        );
     }
 
     #[test]

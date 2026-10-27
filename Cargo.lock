@@ -255,6 +255,7 @@ dependencies = [
 name = "navori-core"
 version = "0.13.0-rust.1"
 dependencies = [
+ "regex",
  "ryu-js",
  "serde",
  "serde_json",
