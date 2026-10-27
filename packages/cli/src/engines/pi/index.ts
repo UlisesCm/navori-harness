@@ -647,6 +647,7 @@ export function preparePiEngine(
         ),
         plugins,
         pending,
+        renderVars: collected.renderVars,
       });
     finalized = {
       ...collected,

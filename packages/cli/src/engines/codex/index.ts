@@ -697,6 +697,7 @@ export function prepareCodexEngine(
       ),
       plugins,
       pending,
+      renderVars: collected.renderVars,
     });
     finalized = { pending, removals, skipped, kept, collisions };
     return finalized;

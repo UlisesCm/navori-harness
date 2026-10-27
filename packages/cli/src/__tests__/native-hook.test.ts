@@ -23,6 +23,7 @@ import { injectManagedSection } from "../lib/render/marker.ts";
 import { applyNativeClaudeSettings, claudeHookCommand } from "../engines/claude/build-settings.ts";
 import { mergeCoexistSettings } from "../engines/claude/coexist-settings.ts";
 import { planStampedJson } from "../lib/primitives/json-ownership.ts";
+import { pluginScriptManagedId } from "../engines/shared/plugin-scripts.ts";
 
 const dirs: string[] = [];
 afterEach((): void => {
@@ -215,9 +216,11 @@ describe("native hook rendering", (): void => {
     const body = "printf 'extension'\n";
     const asset = join(f.cwd, "extension.sh");
     writeFileSync(asset, body);
+    const depSource = join(f.cwd, "dep-source.sh");
+    writeFileSync(depSource, "dep\n");
     const plugin = {
       ...base,
-      scriptAssets: [{ src: join(f.cwd, ".codex/scripts/dep.sh"), dest: "dep.sh", exec: true }],
+      scriptAssets: [{ src: depSource, dest: "dep.sh", exec: true }],
       hookExtensionAssets: [{ id: "extra", target: ".claude/hooks/example.sh", absPath: asset }],
     };
     const content = injectManagedSection(
@@ -227,9 +230,19 @@ describe("native hook rendering", (): void => {
       { source: "@navori/plugin-tgrep", version: readCliVersion() },
       "shell",
     ).output;
+    // The deployed script is the plugin's managed render of its source; `deps` pins the source.
     const dep = join(f.cwd, ".codex/scripts/dep.sh");
     mkdirSync(join(dep, ".."), { recursive: true });
-    writeFileSync(dep, "dep\n");
+    const deployed = renderManagedFile({
+      assetPath: depSource,
+      existingContent: null,
+      managedId: pluginScriptManagedId("tgrep", "dep.sh"),
+      meta: { source: "@navori/plugin-tgrep", version: "0.11.3" },
+      config,
+      engine: "codex",
+      commentStyle: "shell",
+    }).content;
+    writeFileSync(dep, deployed);
     const hook = {
       ...descriptor(),
       blocks: { ...descriptor().blocks, extra: sha256(body) },
@@ -251,13 +264,53 @@ describe("native hook rendering", (): void => {
     const signed = pending[0]?.content ?? "";
     const declared = /^# navori:native-hook v=1 file=(sha256:[a-f0-9]{64})/.exec(signed)?.[1];
     const zeroed = signed.replace(/file=sha256:[a-f0-9]{64}/, `file=sha256:${"0".repeat(64)}`);
-    expect(sha256(Buffer.concat([Buffer.from(zeroed), Buffer.from("dep\n")]))).toBe(declared);
-    pending[0] = { path: join(f.cwd, f.target), content, status: "created" };
-    writeFileSync(dep, "changed\n");
-    expect(finalizeNativeHooks(input).size).toBe(0);
-    writeFileSync(dep, "dep\n");
-    writeFileSync(asset, body + "# changed\n");
-    expect(finalizeNativeHooks(input).size).toBe(0);
+    expect(sha256(Buffer.concat([Buffer.from(zeroed), Buffer.from(deployed)]))).toBe(declared);
+    for (const [path, edit] of [
+      [dep, deployed.replace("dep\n", "changed\n")],
+      [dep, "dep\n"],
+      [depSource, "changed\n"],
+      [asset, body + "# changed\n"],
+    ] as const) {
+      const original = readFileSync(path, "utf8");
+      pending[0] = { path: join(f.cwd, f.target), content, status: "created" };
+      writeFileSync(path, edit);
+      expect(finalizeNativeHooks(input).size, `${path}: ${edit}`).toBe(0);
+      writeFileSync(path, original);
+    }
+  });
+
+  // Covers: R13
+  it("la referencia usa los extraVars finales de la colocación, como el render real", (): void => {
+    const templated = "#!/bin/sh\nowned={{shq:navoriOwnedPaths}}\n# navori:user-section\n";
+    const f = fixture("claude");
+    writeFileSync(f.assetPath, templated);
+    const vars = { navoriOwnedPaths: "CLAUDE.md\nAGENTS.md" };
+    const content = renderManagedFile({
+      assetPath: f.assetPath,
+      existingContent: null,
+      managedId: "example-base",
+      meta: { source: "@navori/core", version: readCliVersion() },
+      config,
+      extraVars: vars,
+      engine: "claude",
+    }).content;
+    expect(content).toContain("owned='CLAUDE.md\nAGENTS.md'");
+    const input = (renderVars?: ReadonlyMap<string, Record<string, string>>) => ({
+      ...f,
+      config,
+      engine: "claude" as const,
+      pending: [{ path: join(f.cwd, f.target), content, status: "created" as const }],
+      hooks: [{ id: "example", assetPath: f.assetPath, managedId: "example-base" }],
+      plugins: [],
+      manifest: { example: { ...descriptor(), blocks: { "example-base": sha256(templated) } } },
+      renderVars,
+    });
+    // Without the placement's variables the fresh reference holds the default and differs.
+    expect(finalizeNativeHooks(input()).size).toBe(0);
+    expect(finalizeNativeHooks(input(new Map([[f.target, { navoriOwnedPaths: "-" }]]))).size).toBe(
+      0,
+    );
+    expect(finalizeNativeHooks(input(new Map([[f.target, vars]]))).has(f.target)).toBe(true);
   });
 
   // Covers: R13
