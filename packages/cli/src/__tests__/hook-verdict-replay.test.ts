@@ -75,6 +75,17 @@ interface Replay {
     };
   }) => Promise<{ ok: boolean; cases: number; failure?: string }>;
   withActiveSession: (input: string) => string;
+  createScratch: () => { cleanup: () => void };
+  runMode: (
+    cases: Case[],
+    mode: "off" | "active",
+    deps: {
+      resolveHook: (hook: string, engine: string) => string;
+      binary: string;
+      impl: "rust";
+      scratch: { cleanup: () => void };
+    },
+  ) => (Verdict & { event?: unknown[] })[];
 }
 
 type NativeResult =
@@ -288,37 +299,34 @@ describe("native hook replay transport", () => {
   });
 
   // Covers: R11
-  it("does not credit native audit parity using the shell's empty log and spool fixture", async () => {
-    const corpus = [
-      { ...base(""), expected: { active: { status: 0, stdout: "", stderr: "", event: [] } } },
-    ];
-    const deps = {
-      runHookBatch: (): never => {
-        throw new Error("shell must not execute");
-      },
-      resolveHook: (): never => {
-        throw new Error("shell fixture must not resolve");
-      },
+  it("rust reproduce el corpus o la categoría de su divergencia: active reads the native spool event", () => {
+    const dir = tmp();
+    const write = `const fs = require('node:fs'), path = require('node:path');
+const spool = path.join(process.env.NAVORI_AUDITS_ROOT, 'project', 'spool-corpus-active');
+fs.writeFileSync(path.join(spool, 'e-1.json'), JSON.stringify({ v: 1, host: 'claude', metadata: { ms: 7, tsMs: 1756000000123 } }));`;
+    const cases = [{ ...base('{"tool_name":"Bash"}') }];
+    const run = (source: string): (Verdict & { event?: unknown[] })[] => {
+      const scratch = replay.createScratch();
+      try {
+        return replay.runMode(cases, "active", {
+          resolveHook: () => join(dir, ".claude", "hooks", "fake.sh"),
+          binary: nativeFixture(dir, source),
+          impl: "rust",
+          scratch,
+        });
+      } finally {
+        scratch.cleanup();
+      }
     };
-    expect(
-      await replay.replayCorpus({ corpus, modes: ["active"], impl: "rust", deps }),
-    ).toMatchObject({
-      ok: false,
-      cases: 1,
-      failure:
-        "native unavailable: audit active requires CLI-writer fixtures and log replay support",
+    const [recorded] = run(write);
+    const event = { v: 1, host: "claude", metadata: { ms: "<int>=0", tsMs: "<int13>" } };
+    expect(recorded).toEqual({ status: 0, stdout: "", stderr: "", event: [event] });
+    // A native run that records nothing cannot pass for the shell's event.
+    const [silent] = run("process.exit(0);");
+    expect(silent?.event).toEqual([]);
+    expect(replay.firstDifference(recorded as Verdict, silent as Verdict)).toMatchObject({
+      field: "event",
     });
-    const output = spawnSync(
-      process.execPath,
-      [replayPath, "--impl", "rust", "--audit", "active", "--only", "subagent-no-background.sh"],
-      { encoding: "utf8", timeout: 10_000 },
-    );
-    expect(output.error).toBeUndefined();
-    expect(output.status).toBe(1);
-    expect(output.stdout).toBe("");
-    expect(output.stderr).toContain(
-      "audit active requires CLI-writer fixtures and log replay support",
-    );
   });
 
   // Covers: R11, R12

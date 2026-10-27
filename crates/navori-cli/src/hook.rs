@@ -10,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::LazyLock;
 
+use navori_core::audit::{self, AuditContext, AuditSnapshot, HookLabels, HookPayload, Host};
 use navori_core::integrity;
 use navori_core::manifest::{HookMode, Manifest};
 use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
@@ -47,6 +48,8 @@ pub struct NativeHook {
     pub implementation: &'static str,
     /// Buffered evaluation. It never receives stdout/stderr writers.
     pub handler: Handler,
+    /// Audit phase the shell hook declares (`navori_audit_phase`).
+    pub phase: &'static str,
 }
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
@@ -57,6 +60,7 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 1]> = LazyLock::new(|| {
         implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
             .unwrap_or_default(),
         handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
+        phase: "PreToolUse",
     }]
 });
 
@@ -380,12 +384,67 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                     verdict,
                     stdout: observed.shell.stdout().to_vec(),
                     stderr: observed.shell.stderr().to_vec(),
+                    audit: None,
                 });
             }
-            evaluate(payload)
+            audited(&invocation, handler.phase, payload, evaluate)
         },
     );
     runner::emit(context, &response, stdout, stderr)
+}
+
+/// Evaluate a decision Rust makes (never a shadow one: the shell audits those) and record its
+/// audit event the way `audit-log.sh` does: activity snapshot before evaluation, closed metadata
+/// after it, then the session spool or the `navori` CLI bridge. Recording is best-effort and
+/// never changes the verdict.
+fn audited(
+    invocation: &Invocation,
+    phase: &'static str,
+    payload: &[u8],
+    evaluate: impl FnOnce(&[u8]) -> Result<Evaluation, Failure>,
+) -> Result<Evaluation, Failure> {
+    let root = audit_root();
+    let parsed = HookPayload::parse(payload);
+    let snapshot = root
+        .as_deref()
+        .zip(parsed.as_ref())
+        .map(|(root, parsed)| AuditSnapshot::begin(root, phase, parsed, false, audit::now_ms));
+    let evaluation = evaluate(payload)?;
+    if let (Some(root), Some(parsed), Some(snapshot), Some(label)) =
+        (&root, &parsed, &snapshot, &evaluation.audit)
+    {
+        let labels = HookLabels {
+            name: &invocation.id,
+            phase,
+            verdict: label.verdict,
+            source: "core",
+            tool: None,
+            reason: Some(&label.reason),
+            kind: None,
+        };
+        let skip_noops = std::env::var_os("NAVORI_AUDIT_SKIP_NOOPS").is_some_and(|v| v == "1");
+        let host = match invocation.engine {
+            Engine::Claude => Host::Claude,
+            Engine::Codex => Host::Codex,
+            Engine::Pi => Host::Pi,
+        };
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Some(metadata) = snapshot.metadata(parsed, labels, skip_noops, audit::now_ms)
+            && let Some(target) =
+                AuditContext::resolve(root, parsed, &cwd, &invocation.script, Some(host))
+        {
+            let _ = target.record_metadata(&metadata, OsStr::new("navori"));
+        }
+    }
+    Ok(evaluation)
+}
+
+/// `${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}`, absent when both are unset or empty.
+fn audit_root() -> Option<PathBuf> {
+    let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    set("NAVORI_AUDITS_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| set("HOME").map(|home| PathBuf::from(home).join(".navori/audits")))
 }
 
 /// Without a TS CLI nothing can be recorded, so every shadow observation stays on the shell.

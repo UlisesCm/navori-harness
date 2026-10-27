@@ -123,10 +123,18 @@ de hechos del host deja la evaluación nativa en p95 3.99 ms (Claude) / 4.38 ms 
 caliente (bajo carga, una corrida no comparable dio 5.56 ms en Pi). El fuzz calienta esa caché
 una vez antes de su snapshot base: restaurar el snapshot por caso la borraba y cada caso pagaba
 los probes en frío. A8 pasa con `NAVORI_RUST_BIN` y `NAVORI_RUST_HOOKS_DIR` apuntando al binario
-release y al checkout renderizado: semillas 1–3 × 1000 casos idénticos. T23 sigue abierto.
+release y al checkout renderizado: semillas 1–3 × 1000 casos idénticos.
+
+Cierre de T23: el binario audita cuando Rust decide (forzado o `active`) con el mismo carril
+que `audit-log.sh`: un archivo `O_EXCL` 0600 en el spool 0700 propio de la sesión y, si falta,
+el bridge `navori audit --record-metadata`; en sombra audita sólo el shell. El replay `--impl
+rust` compara ese evento en el modo `active`. Los 163 casos `shell-runtime` del corpus son de
+`role-guard` (88), `engram-write-guard` (72) y `comment-draft-confirm` (3), hooks sin portar:
+`divergences` vive en su entrada de `ported.json`, así que se clasifican al portar cada uno
+(decisión del usuario). `subagent-no-background` ya tiene allow, block y skip en Claude y Pi.
 
 - **A8** [observable] — replay, fuzz y bench funcionan con `--impl rust` · `bun run fuzz:hooks --seed 1 --cases 1000 && bun run bench:hooks --impl rust --report-only` → exit 0
-- [ ] **T23** (R11) — `hook-verdict-replay.mjs --impl rust`, `divergences` con los 163 casos `shell-runtime` clasificados, corpus ampliado (al menos un caso por clase de veredicto y engine) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"rust reproduce el corpus o la categoría de su divergencia"
+- [x] **T23** (R11) — `hook-verdict-replay.mjs --impl rust` en los modos `off` y `active`, `divergences` clasificadas al portar cada hook (los 163 `shell-runtime` son de hooks sin portar), corpus ampliado (al menos un caso por clase de veredicto y engine) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"rust reproduce el corpus o la categoría de su divergencia"
 - [x] **T24** (R11, R12) — `scripts/js/hook-fuzz.mjs` (`fuzz:hooks`) y modo `shadow` con log local de divergencias (D9) · effect: behavior · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"reports a seeded divergence with the exact reproducible payload"
 - [x] **T25** (R17) — `bench-hooks.mjs --impl rust`: p95 de la invocación directa del binario con comparabilidad de 0055 · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench --impl rust mide el binario sin wrapper"
 
@@ -151,8 +159,8 @@ estas pruebas sintéticas no acreditan uso vivo ni completan T26/A9.
 T26 cerrado: elegibilidad antes de stdin conectada al registro nativo (#1406), journal acusado
 antes de stdin y completado tras el shell (#1406), caché de hechos del host (#1409) y entrada
 `mode: "shadow"` en `ported.json` con el render de Claude y Pi. La sombra sólo corre donde
-`navori-rust` está en `PATH`; sin binario todo sigue en shell (R13). A9 sigue abierto: el replay
-Rust exige fixtures del escritor CLI para auditoría activa.
+`navori-rust` está en `PATH`; sin binario todo sigue en shell (R13). A9 verde: el replay Rust
+reproduce los 232 casos con auditoría `off` y `active`.
 
 - **A9** [observable] — `subagent-no-background` reproduce el corpus en Claude y Pi · `node scripts/js/hook-verdict-replay.mjs --impl rust --only subagent-no-background` → exit 0, 232 casos
 - [x] **T26** (R11) — `navori-hooks` (`hooks/subagent_no_background`) en `mode: "shadow"` en `ported.json` · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"veredictos del corpus"

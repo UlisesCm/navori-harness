@@ -166,9 +166,11 @@ fn shell_once(invocation: &ShellInvocation<'_>, payload: &[u8]) -> Result<Evalua
     {
         return Err(Failure(format!("shadow stdin write failed: {error}")));
     }
+    // The shell hook records its own audit event; nothing is recorded again for it.
     Ok(Evaluation {
         verdict,
         stdout: output.stdout,
         stderr: output.stderr,
+        audit: None,
     })
 }
