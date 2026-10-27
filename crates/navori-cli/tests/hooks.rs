@@ -1257,3 +1257,229 @@ mod prepared_handlers {
         Ok(())
     }
 }
+
+mod journal_bridge {
+    use super::*;
+    use navori_cli::hook::run_with_journal;
+    use navori_cli::journal::{
+        CliJournal, ShadowJournal, base64, completion, engine_name, project_root, receipt,
+    };
+    use navori_cli::shadow::Comparison;
+    use navori_hooks::runner::Engine;
+    use std::cell::RefCell;
+
+    const MATCH: Comparison = Comparison {
+        native_failed: false,
+        shell_failed: false,
+        code_differs: false,
+        stdout_differs: false,
+        stderr_differs: false,
+    };
+
+    #[derive(Default)]
+    struct Recording {
+        refuse: bool,
+        begun: RefCell<Vec<(PathBuf, String, &'static str, String)>>,
+        completed: RefCell<Vec<(String, Comparison, Vec<u8>)>>,
+    }
+
+    impl ShadowJournal for Recording {
+        fn begin(
+            &self,
+            root: &Path,
+            hook: &str,
+            engine: Engine,
+            implementation: &str,
+        ) -> Option<String> {
+            self.begun.borrow_mut().push((
+                root.to_path_buf(),
+                hook.to_owned(),
+                engine_name(engine),
+                implementation.to_owned(),
+            ));
+            (!self.refuse).then(|| "{\"kind\":\"begin\"}".to_owned())
+        }
+
+        fn complete(&self, _: &Path, receipt: &str, comparison: Comparison, payload: &[u8]) {
+            self.completed
+                .borrow_mut()
+                .push((receipt.to_owned(), comparison, payload.to_vec()));
+        }
+    }
+
+    fn shadow_manifest() -> Result<Manifest, Box<dyn Error>> {
+        let mut manifest = manifest(true, &[])?;
+        manifest.hooks.get_mut("example").ok_or("hook")?.mode =
+            navori_core::manifest::HookMode::Shadow;
+        Ok(manifest)
+    }
+
+    // Covers: R11
+    #[test]
+    fn wire_helpers_encode_canonical_base64_and_strict_documents() {
+        for (input, expected) in [
+            (&b""[..], ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"foob", "Zm9vYg=="),
+            (b"\0\xff\n", "AP8K"),
+        ] {
+            assert_eq!(base64(input), expected);
+        }
+        assert_eq!(
+            receipt(b"{\"kind\":\"begin\",\"id\":\"x\"}\n").as_deref(),
+            Some("{\"kind\":\"begin\",\"id\":\"x\"}")
+        );
+        for bad in [
+            &b"{\"kind\":\"begin\"}"[..],
+            b"{\"kind\":\"complete\"}\n",
+            b"{\"kind\":\"begin\"}\n{}\n",
+            b"not json\n",
+        ] {
+            assert_eq!(receipt(bad), None);
+        }
+        assert_eq!(
+            completion("{}", MATCH, b"secret"),
+            r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false}}"#
+        );
+        let diverged = Comparison {
+            stderr_differs: true,
+            ..MATCH
+        };
+        assert!(completion("{}", diverged, b"{}").ends_with(r#""payloadBase64":"e30="}"#));
+        assert_eq!(
+            project_root(Engine::Pi, Path::new("/repo/.pi/navori")),
+            Some(Path::new("/repo"))
+        );
+        assert_eq!(
+            project_root(Engine::Claude, Path::new("/repo/.claude")),
+            Some(Path::new("/repo"))
+        );
+    }
+
+    // Covers: R12, R13
+    #[test]
+    fn an_unacknowledged_begin_keeps_the_shell_route_without_reading_stdin() -> TestResult {
+        let scratch = Scratch::new()?;
+        let script = scratch.script(".claude", &[])?;
+        let journal = Recording {
+            refuse: true,
+            ..Recording::default()
+        };
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let code = run_with_journal(
+            &argv(&script),
+            &shadow_manifest()?,
+            &registry(record),
+            Mode::Auto,
+            Some(&journal),
+            &mut NeverRead,
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(code, 3);
+        assert!(stdout.is_empty() && stderr.is_empty());
+        let begun = journal.begun.borrow();
+        assert_eq!(begun.len(), 1);
+        assert_eq!(begun[0].0, fs::canonicalize(&scratch.0)?);
+        assert_eq!((begun[0].1.as_str(), begun[0].2), ("example", "claude"));
+        assert_eq!(begun[0].3, HASH);
+        assert!(journal.completed.borrow().is_empty());
+        Ok(())
+    }
+
+    // Covers: R11, R12
+    #[test]
+    fn an_acknowledged_observation_records_one_comparison_and_returns_the_shell() -> TestResult {
+        let scratch = Scratch::new()?;
+        let script = scratch.script_body(".claude", "cat >/dev/null\nexit 0\n", &[])?;
+        let journal = Recording::default();
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let mut input: &[u8] = b"{\"tool\":1}";
+        let code = run_with_journal(
+            &argv(&script),
+            &shadow_manifest()?,
+            &registry(record),
+            Mode::Auto,
+            Some(&journal),
+            &mut input,
+            &mut stdout,
+            &mut stderr,
+        );
+        // The shell permits; the native fixture blocks: the host sees the shell, the journal
+        // records the divergence with the payload that reproduces it.
+        assert_eq!(code, 0);
+        assert!(stdout.is_empty() && stderr.is_empty());
+        let completed = journal.completed.borrow();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].0, "{\"kind\":\"begin\"}");
+        assert!(completed[0].1.code_differs && completed[0].1.diverged());
+        assert_eq!(completed[0].2, b"{\"tool\":1}");
+        Ok(())
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn the_cli_journal_speaks_the_ts_bridge_protocol() -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = Scratch::new()?;
+        // A TS CLI stand-in: logs argv and stdin, acknowledges begin only for absolute roots.
+        let log = scratch.0.join("cli.log");
+        let cli = scratch.0.join("fake-navori");
+        let body = [
+            "#!/bin/sh".to_owned(),
+            format!("printf 'argv:%s\\n' \"$*\" >> '{}'", log.display()),
+            format!(
+                "if [ \"$3\" = complete ]; then printf 'stdin:' >> '{0}'; cat >> '{0}'; printf '\\n' >> '{0}'; exit 0; fi",
+                log.display()
+            ),
+            "case \"$5\" in /*) printf '{\"kind\":\"begin\",\"id\":\"r1\"}\\n'; exit 0;; esac"
+                .to_owned(),
+            "printf '{\"ok\":false}\\n'; exit 1".to_owned(),
+        ];
+        fs::write(&cli, body.join("\n") + "\n")?;
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+        let journal = CliJournal::from_locations(&navori_cli::delegate::Locations {
+            ts_cli: Some(cli.into_os_string()),
+            checkout_dist: scratch.0.join("missing/index.js"),
+            path: None,
+            self_exe: None,
+        })
+        .ok_or("fake CLI not resolved")?;
+        let implementation = format!("sha256:{}", "c".repeat(64));
+        let receipt = journal
+            .begin(Path::new("/repo"), "example", Engine::Pi, &implementation)
+            .ok_or("begin refused")?;
+        assert_eq!(receipt, "{\"kind\":\"begin\",\"id\":\"r1\"}");
+        let diverged = Comparison {
+            stdout_differs: true,
+            ..MATCH
+        };
+        journal.complete(Path::new("/repo"), &receipt, diverged, b"\0payload");
+        assert_eq!(
+            journal.begin(
+                Path::new("relative"),
+                "example",
+                Engine::Pi,
+                &implementation
+            ),
+            None
+        );
+        let begin = |root: &str| {
+            format!(
+                "argv:tools rust-shadow begin --root {root} --hook example --engine pi --impl {implementation}\n"
+            )
+        };
+        assert_eq!(
+            fs::read_to_string(&log)?,
+            format!(
+                "{}argv:tools rust-shadow complete --root /repo\nstdin:{}\n{}",
+                begin("/repo"),
+                completion(&receipt, diverged, b"\0payload"),
+                begin("relative")
+            )
+        );
+        Ok(())
+    }
+}

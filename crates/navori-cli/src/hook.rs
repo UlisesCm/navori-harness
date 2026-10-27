@@ -14,6 +14,7 @@ use navori_core::integrity;
 use navori_core::manifest::{HookMode, Manifest};
 use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
 
+use crate::journal::{self, CliJournal, ShadowJournal};
 use crate::{hook_facts, shadow};
 
 /// Read-only facts captured before stdin for handlers that select a profile from the host.
@@ -208,15 +209,36 @@ fn dependencies(root: &Path, names: impl Iterator<Item = impl AsRef<str>>) -> Op
         .collect()
 }
 
-/// Select and evaluate a native hook using an explicit registry and owned I/O handles.
-///
-/// Registration and integrity precede stdin. Automatic shadow calls return the shell result;
-/// forced Rust evaluates only the native callback and never starts the shadow shell.
+/// Select and evaluate a native hook using an explicit registry and owned I/O handles, without
+/// a shadow journal (parity checks and tests). Production calls go through [`run_with_journal`].
 pub fn run_with<R: Read, W: Write, E: Write>(
     args: &[OsString],
     manifest: &Manifest,
     registry: &[NativeHook],
     mode: Mode,
+    input: &mut R,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
+    run_with_journal(args, manifest, registry, mode, None, input, stdout, stderr)
+}
+
+/// Select and evaluate a native hook using an explicit registry and owned I/O handles.
+///
+/// Registration and integrity precede stdin. Automatic shadow calls return the shell result;
+/// forced Rust evaluates only the native callback and never starts the shadow shell. With a
+/// journal, an automatic shadow call is acknowledged before stdin (no acknowledgement keeps the
+/// shell route) and its comparison is recorded after the shell answers.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "owned I/O handles and the journal are explicit seams for byte-exact tests"
+)]
+pub fn run_with_journal<R: Read, W: Write, E: Write>(
+    args: &[OsString],
+    manifest: &Manifest,
+    registry: &[NativeHook],
+    mode: Mode,
+    journal: Option<&dyn ShadowJournal>,
     input: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -305,6 +327,25 @@ pub fn run_with<R: Read, W: Write, E: Write>(
         (None, Handler::Prepared(_)) => Err(Failure("hook preparation is missing".to_owned())),
     };
     let shell_environment = environment.as_ref().filter(|_| use_shadow);
+    // Acknowledge before stdin: an observation that cannot be recorded never runs.
+    let observation = match (journal, shell_environment) {
+        (Some(journal), Some(_)) => {
+            let Some(root) = journal::project_root(invocation.engine, &invocation.engine_root)
+            else {
+                return defer(mode, "shadow project root unavailable", stderr);
+            };
+            let Some(receipt) = journal.begin(
+                root,
+                &invocation.id,
+                invocation.engine,
+                handler.implementation,
+            ) else {
+                return defer(mode, "shadow journal unavailable", stderr);
+            };
+            Some((journal, root, receipt))
+        }
+        _ => None,
+    };
     let response = runner::run(
         context,
         input,
@@ -322,6 +363,9 @@ pub fn run_with<R: Read, W: Write, E: Write>(
                     },
                     evaluate,
                 );
+                if let Some((journal, root, receipt)) = &observation {
+                    journal.complete(root, receipt, observed.comparison, payload);
+                }
                 let verdict = match observed.shell.code() {
                     0 => Verdict::Permit,
                     1 => Verdict::Error,
@@ -344,6 +388,17 @@ pub fn run_with<R: Read, W: Write, E: Write>(
     runner::emit(context, &response, stdout, stderr)
 }
 
+/// Without a TS CLI nothing can be recorded, so every shadow observation stays on the shell.
+struct Unavailable;
+
+impl ShadowJournal for Unavailable {
+    fn begin(&self, _: &Path, _: &str, _: Engine, _: &str) -> Option<String> {
+        None
+    }
+
+    fn complete(&self, _: &Path, _: &str, _: shadow::Comparison, _: &[u8]) {}
+}
+
 /// Script and dependency bytes, or None when any of them cannot be read.
 fn read_integrity_inputs(script: &Path, deps: &[PathBuf]) -> Option<(Vec<u8>, Vec<Vec<u8>>)> {
     let source = fs::read(script).ok()?;
@@ -360,11 +415,17 @@ pub fn run(args: &[OsString]) -> ExitCode {
         Ok(manifest) => manifest,
         Err(_) => return ExitCode::from(defer(mode, "invalid embedded manifest", &mut stderr)),
     };
-    ExitCode::from(run_with(
+    let journal = CliJournal::from_process();
+    let unavailable = Unavailable;
+    let journal: &dyn ShadowJournal = journal
+        .as_ref()
+        .map_or(&unavailable, |journal| journal as &dyn ShadowJournal);
+    ExitCode::from(run_with_journal(
         args,
         &manifest,
         &*NATIVE_HOOKS,
         mode,
+        Some(journal),
         &mut io::stdin().lock(),
         &mut io::stdout().lock(),
         &mut stderr,
