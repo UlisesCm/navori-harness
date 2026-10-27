@@ -1609,7 +1609,7 @@ The artifact is **input to the next step** — the challenge and the verdict rea
 # navori:managed-file id="pi-agent-auditor" hash="<HASH>"
 name: "auditor"
 description: "Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design."
-tools: ["read","grep","find","ls","bash","write"]
+tools: ["read","grep","find","ls","bash","write","navori_mem_search","navori_mem_get_observation"]
 ---
 # Auditor Agent
 
@@ -1770,13 +1770,28 @@ Every report is **input to the next step of the pipeline**, not a chat summary: 
 
 The orchestrator (or the human) reads the report from disk and executes from there.
 
+## Engram, from a subagent
+
+**Pre-flight, before reading code:** `navori_mem_search` the task's keywords with
+`response_format: "compact"` — bounded previews. `navori_mem_get_observation` with
+its id for the full body if a preview falls short. Memory gives you a REGION
+and a hypothesis — confirm signature, line and call sites before acting.
+
+**Memory is read-only here**: put durable findings (root cause, convention, decision) in your handoff; the session owner saves them.
+
+**Session ceremonies are not yours.** `mem_session_summary` and its curation
+belong to the agent that owns the session. Ending with `done -> <file>` is
+your report.
+
+If a memory contradicts the code, the code wins — fix the memory.
+
 
 ===== FILE: .pi/agents/implementer.md =====
 ---
 # navori:managed-file id="pi-agent-implementer" hash="<HASH>"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
-tools: ["read","grep","find","ls","bash","edit","write"]
+tools: ["read","grep","find","ls","bash","edit","write","navori_mem_search","navori_mem_get_observation"]
 ---
 # Implementer Agent
 
@@ -1903,6 +1918,30 @@ blocked -> .navori/state/handoffs/impl_<feature>.md
 `impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 
 Never return the diff in chat. The orchestrator reads it from disk if it needs it.
+
+## Engram, from a subagent (read-only)
+
+**Pre-flight, before you read code:** `navori_mem_search` with the task's keywords
+and `response_format: "compact"` — bounded previews; search is nearly the
+only thing this read-only role does against engram. A previous decision, an
+audit of the same area or a root cause someone found is context you'd
+otherwise rediscover file by file. Memory gives you a REGION and a
+hypothesis — confirm the signature, line and call sites before acting.
+`navori_mem_get_observation` with its id for the full body if a preview falls
+short.
+
+**You cannot write to memory** — this role has no `mem_save`, on purpose:
+saving is reserved for the agent that owns the session or the audit. If you
+surface something durable (a root cause, a convention, a decision), put it in
+your handoff report instead of persisting it yourself; the agent that reads
+your report saves it.
+
+The session ceremonies are not yours either — `mem_session_summary` and the
+curation that follows belong to the agent that owns the session. Ending with
+`done -> <file>` is your report.
+
+If a memory contradicts what the code says, the code wins — say so in your
+report; don't try to fix it yourself.
 
 
 ===== FILE: .pi/agents/publisher.md =====
@@ -2224,7 +2263,7 @@ The body always comes from a file, never inline:
 # navori:managed-file id="pi-agent-reviewer" hash="<HASH>"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
-tools: ["read","grep","find","ls","bash","write"]
+tools: ["read","grep","find","ls","bash","write","navori_mem_search","navori_mem_get_observation"]
 ---
 # Reviewer Agent
 
@@ -2453,13 +2492,37 @@ CHANGES_REQUESTED -> .navori/state/handoffs/review_<feature>.md
 - ❌ Never stash, discard-checkout/reset or clean the shared working tree, nor recursively delete scratch dirs: they hit `ask` and stall the run.
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 
+## Engram, from a subagent (read-only)
+
+**Pre-flight, before you read code:** `navori_mem_search` with the task's keywords
+and `response_format: "compact"` — bounded previews; search is nearly the
+only thing this read-only role does against engram. A previous decision, an
+audit of the same area or a root cause someone found is context you'd
+otherwise rediscover file by file. Memory gives you a REGION and a
+hypothesis — confirm the signature, line and call sites before acting.
+`navori_mem_get_observation` with its id for the full body if a preview falls
+short.
+
+**You cannot write to memory** — this role has no `mem_save`, on purpose:
+saving is reserved for the agent that owns the session or the audit. If you
+surface something durable (a root cause, a convention, a decision), put it in
+your handoff report instead of persisting it yourself; the agent that reads
+your report saves it.
+
+The session ceremonies are not yours either — `mem_session_summary` and the
+curation that follows belong to the agent that owns the session. Ending with
+`done -> <file>` is your report.
+
+If a memory contradicts what the code says, the code wins — say so in your
+report; don't try to fix it yourself.
+
 
 ===== FILE: .pi/agents/scout.md =====
 ---
 # navori:managed-file id="pi-agent-scout" hash="<HASH>"
 name: "scout"
 description: "Read-only reconnaissance — maps a broad area or answers one scoped question, with cited evidence. Does not modify code. Use when a sub-question is worth running in parallel, or a lookup is worth isolating from the coordinator's own context — not a proxy for a Code discovery routing call the coordinator can make itself this turn."
-tools: ["read","grep","find","ls","write"]
+tools: ["read","grep","find","ls","write","navori_mem_search","navori_mem_get_observation"]
 ---
 # Scout Agent
 
@@ -2493,7 +2556,7 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
 ## Protocol
 
 1. `CLAUDE.md` carries the repo's context — it is already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
-2. Pre-flight: `mem_search` with the task's keywords before opening files. A previous decision, exploration, audit or root cause someone already found is a region and a hypothesis you'd otherwise rediscover file by file — confirm it against the code before acting on it. You hold no delegation tool, so saving and the session ceremonies belong to the agent that owns the session, not to you.
+2. Pre-flight: `navori_mem_search` with the task's keywords before opening files. A previous decision, exploration, audit or root cause someone already found is a region and a hypothesis you'd otherwise rediscover file by file — confirm it against the code before acting on it. You hold no delegation tool, so saving and the session ceremonies belong to the agent that owns the session, not to you.
 3. Work the ONE scope you were handed. **Question**: if you discover it's actually >2 independent questions, return them as a list so the orchestrator distributes them across parallel scouts — don't chain them in series yourself. **Map**: a folder, a logical module, a file pattern — precise, not "the whole repo".
 4. Run the search, following Code discovery routing (project instructions): a filename/path pattern is `Glob`; a literal token (name, import, config key, error string) is `Grep`; a behavior, definition, relationship or impact question — or a module's structure/entry points/dependencies for a map — goes to the enabled structural provider first. Only when no provider is enabled/available, walk manually from entry points (routes, module root exports, `index.ts`) toward the leaves. Fallback only for what `Grep`/`Glob`/the structural provider don't cover (commit history with `git log`/`git blame`, FS metadata with `find`): shell commands, reserved for when the routed tool falls short.
 5. Validate each finding: open the file, confirm the match means what it seems (a `grep` hit sometimes lands in a comment or unrelated string).
@@ -2662,6 +2725,271 @@ const redactSecrets = function(text) {
 	for (const [re, to] of redactions) out = out.replace(re, to);
 	return out;
 };
+const createKnowledgeClient = function(spawn, servers, parentEnv, maxBytes) {
+	const entries = new Map();
+	const starts = new Map();
+	const MAX_STARTS = 2;
+	const MAX_LINE_BYTES = 8 * 1024 * 1024;
+	const INIT_TIMEOUT_MS = 2e4;
+	const ENV_KEEP = /^(?:PATH|HOME|USERPROFILE|TMPDIR|TEMP|TMP|LANG|LC_[A-Z_]+|SHELL|SYSTEMROOT|COMSPEC|PATHEXT|APPDATA|LOCALAPPDATA|XDG_[A-Z_]+|CODEGRAPH_[A-Z_]+|ENGRAM_[A-Z_]+)$/i;
+	/** Pipes are sockets with `unref`; anything else (a test double) is left alone. */
+	const unref = (stream) => {
+		if (typeof stream === "object" && stream !== null && "unref" in stream && typeof stream.unref === "function") {
+			stream.unref();
+		}
+	};
+	const filteredEnv = (extra) => {
+		const out = {};
+		for (const key of Object.keys(parentEnv)) {
+			const value = parentEnv[key];
+			if (value !== undefined && ENV_KEEP.test(key)) out[key] = value;
+		};
+		return {
+			...out,
+			...extra
+		};
+	};
+	/** Cut by BYTES, never inside a UTF-8 sequence, and say so. */
+	const bound = (text) => {
+		const bytes = Buffer.from(text, "utf8");
+		if (bytes.length <= maxBytes) return text;
+		let end = maxBytes;
+		while (end > 0 && (bytes[end] & 192) === 128) end--;
+		return bytes.subarray(0, end).toString("utf8") + "\n[output truncated at " + maxBytes + " bytes]";
+	};
+	const fail = (entry, reason) => {
+		if (entry.dead) return;
+		entry.dead = true;
+		const tail = entry.stderrTail.trim();
+		const error = new Error(reason + (tail ? "\nserver stderr (tail): " + tail : ""));
+		for (const waiting of [...entry.pending.values()]) {
+			if (waiting.timer) clearTimeout(waiting.timer);
+			waiting.reject(error);
+		};
+		entry.pending.clear();
+		try {
+			entry.proc.stdin?.end();
+		} catch {};
+		try {
+			entry.proc.kill("SIGTERM");
+		} catch {}
+	};
+	const send = (entry, message) => {
+		if (entry.dead || !entry.proc.stdin || entry.proc.stdin.destroyed) return;
+		try {
+			entry.proc.stdin.write(JSON.stringify({
+				jsonrpc: "2.0",
+				...message
+			}) + "\n");
+		} catch {}
+	};
+	const request = (entry, method, params, timeoutMs, signal) => new Promise((resolve, reject) => {
+		if (entry.dead) {
+			reject(new Error("server is not running"));
+			return;
+		};
+		if (signal?.aborted) {
+			reject(new Error("call aborted"));
+			return;
+		};
+		const id = entry.nextId++;
+		const settle = () => {
+			const waiting = entry.pending.get(id);
+			if (waiting?.timer) clearTimeout(waiting.timer);
+			entry.pending.delete(id);
+			signal?.removeEventListener("abort", onAbort);
+		};
+		const cancel = (reason) => {
+			settle();
+			send(entry, {
+				method: "notifications/cancelled",
+				params: {
+					requestId: id,
+					reason
+				}
+			});
+		};
+		const timer = setTimeout(() => {
+			cancel("timeout");
+			reject(new Error("timed out after " + Math.round(timeoutMs / 1e3) + " s"));
+		}, timeoutMs);
+		function onAbort() {
+			cancel("aborted");
+			reject(new Error("call aborted"));
+		}
+		signal?.addEventListener("abort", onAbort, { once: true });
+		entry.pending.set(id, {
+			resolve: (value) => {
+				settle();
+				resolve(value);
+			},
+			reject: (error) => {
+				settle();
+				reject(error);
+			},
+			timer
+		});
+		send(entry, {
+			id,
+			method,
+			params
+		});
+	});
+	const onLine = (entry, line) => {
+		let message;
+		try {
+			const parsed = JSON.parse(line);
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+			message = parsed;
+		} catch {
+			return;
+		};
+		if (typeof message.method === "string") {
+			// A server request (roots/list, sampling, ...) needs an answer or it may wait forever; a
+			// notification (no id) needs none. Navori offers no capability, so everything but ping is refused.
+			if (message.id === undefined || message.id === null) return;
+			if (message.method === "ping") send(entry, {
+				id: message.id,
+				result: {}
+			});
+			else send(entry, {
+				id: message.id,
+				error: {
+					code: -32601,
+					message: "Method not found"
+				}
+			});
+			return;
+		};
+		if (typeof message.id !== "number") return;
+		const waiting = entry.pending.get(message.id);
+		if (!waiting) return;
+		const error = message.error;
+		if (typeof error === "object" && error !== null) {
+			const text = error.message;
+			waiting.reject(new Error("server error: " + (typeof text === "string" ? text : "unknown")));
+		} else waiting.resolve(message.result);
+	};
+	const start = (key, spec, cwd) => {
+		starts.set(key, (starts.get(key) ?? 0) + 1);
+		const argv = spec.args.map((arg) => arg === "{cwd}" ? cwd : arg);
+		const proc = spawn(spec.command, argv, {
+			cwd,
+			env: filteredEnv(spec.env),
+			stdio: [
+				"pipe",
+				"pipe",
+				"pipe"
+			]
+		});
+		const entry = {
+			proc,
+			pending: new Map(),
+			ready: Promise.resolve(),
+			nextId: 1,
+			dead: false,
+			stderrTail: ""
+		};
+		entries.set(key, entry);
+		// Never hold Pi's event loop open: shutdown kills the server, and stdin EOF stops it if we are killed first.
+		proc.unref();
+		for (const stream of [
+			proc.stdout,
+			proc.stderr,
+			proc.stdin
+		]) unref(stream);
+		let buffered = Buffer.alloc(0);
+		proc.stdout?.on("data", (chunk) => {
+			buffered = Buffer.concat([buffered, chunk]);
+			for (let cut = buffered.indexOf(10); cut !== -1; cut = buffered.indexOf(10)) {
+				const line = buffered.subarray(0, cut).toString("utf8").trim();
+				buffered = buffered.subarray(cut + 1);
+				if (line) onLine(entry, line);
+			};
+			if (buffered.length > MAX_LINE_BYTES) fail(entry, "server sent an oversized message");
+		});
+		// Drained so the server never blocks on a full pipe; only a short tail is kept for failure text.
+		proc.stderr?.on("data", (chunk) => {
+			entry.stderrTail = (entry.stderrTail + chunk.toString("utf8")).slice(-1024);
+		});
+		proc.stdin?.on("error", () => {
+			/* EPIPE after exit is reported by the exit handler. */
+		});
+		proc.on("error", (error) => {
+			fail(entry, error.code === "ENOENT" ? spec.command + " is not on PATH" : spec.command + " could not start");
+		});
+		proc.on("close", (code) => {
+			fail(entry, spec.command + " exited (code " + String(code) + ")");
+		});
+		entry.ready = request(entry, "initialize", {
+			protocolVersion: "2025-06-18",
+			capabilities: {},
+			clientInfo: {
+				name: "navori-pi-child",
+				version: "1"
+			}
+		}, spec.initTimeoutMs ?? INIT_TIMEOUT_MS).then(() => {
+			send(entry, { method: "notifications/initialized" });
+		});
+		// A failed handshake (timeout or error) kills the server and frees the slot, so a later call can
+		// respawn within the start limit; callers awaiting `ready` still see the original rejection.
+		entry.ready.catch((cause) => {
+			fail(entry, cause instanceof Error ? cause.message : "initialize failed");
+		});
+		return entry;
+	};
+	return {
+		async call(server, tool, args, cwd, signal) {
+			const spec = Object.prototype.hasOwnProperty.call(servers, server) ? servers[server] : undefined;
+			if (!spec || !spec.tools.includes(tool)) {
+				return {
+					text: "Navori refuses " + server + "/" + tool + ": it is not a read-only tool granted to Pi children.",
+					isError: true
+				};
+			};
+			const key = server + "\0" + cwd;
+			try {
+				let entry = entries.get(key);
+				if (!entry || entry.dead) {
+					if ((starts.get(key) ?? 0) >= MAX_STARTS) {
+						return {
+							text: spec.command + " failed repeatedly in this child; continue with read/grep/find.",
+							isError: true
+						};
+					};
+					entry = start(key, spec, cwd);
+				};
+				await entry.ready;
+				const result = await request(entry, "tools/call", {
+					name: tool,
+					arguments: args
+				}, spec.timeoutMs, signal);
+				const record = typeof result === "object" && result !== null ? result : {};
+				const content = Array.isArray(record.content) ? record.content : [];
+				const text = content.map((part) => {
+					const item = typeof part === "object" && part !== null ? part : {};
+					return item.type === "text" && typeof item.text === "string" ? item.text : "";
+				}).filter((part) => part !== "").join("\n");
+				return {
+					text: bound(text || "(no output)"),
+					isError: record.isError === true
+				};
+			} catch (cause) {
+				const reason = cause instanceof Error ? cause.message : "unknown failure";
+				return {
+					text: bound(spec.command + " is unavailable: " + reason + ". Continue with read/grep/find."),
+					isError: true
+				};
+			}
+		},
+		shutdown() {
+			for (const entry of [...entries.values()]) fail(entry, "shut down");
+			entries.clear();
+		}
+	};
+};
+const KNOWLEDGE_SERVERS = {"codegraph":{"command":"codegraph","args":["serve","--mcp","--no-watch","-p","{cwd}"],"env":{"CODEGRAPH_MCP_TOOLS":"explore","CODEGRAPH_EXPLORE_DEDUP":"0"},"tools":["codegraph_explore"],"timeoutMs":60000},"engram":{"command":"engram","args":["mcp","--tools=mem_search,mem_get_observation"],"env":{},"tools":["mem_search","mem_get_observation"],"timeoutMs":15000}};
+const KNOWLEDGE_TARGETS: Record<string, readonly [string, string]> = {"navori_codegraph_explore":["codegraph","codegraph_explore"],"navori_mem_search":["engram","mem_search"],"navori_mem_get_observation":["engram","mem_get_observation"]};
 const piRuntimeChecks = (function(minPiVersion, minNodeVersion, admissions) {
 	// A prerelease (`x.y.z-tag`) never matches: it is unverified by construction (spec 0048 D10).
 	function parseStableVersion(value) {
@@ -2730,11 +3058,11 @@ type RoleSpec = { name: Role; description: string; model?: string; tools: string
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
 const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-  scout: new Set(["read","grep","find","ls","write"]),
-  implementer: new Set(["read","grep","find","ls","bash","edit","write"]),
-  reviewer: new Set(["read","grep","find","ls","bash","write"]),
+  scout: new Set(["read","grep","find","ls","write","navori_mem_search","navori_mem_get_observation"]),
+  implementer: new Set(["read","grep","find","ls","bash","edit","write","navori_mem_search","navori_mem_get_observation"]),
+  reviewer: new Set(["read","grep","find","ls","bash","write","navori_mem_search","navori_mem_get_observation"]),
   scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
-  auditor: new Set(["read","grep","find","ls","bash","write"]),
+  auditor: new Set(["read","grep","find","ls","bash","write","navori_mem_search","navori_mem_get_observation"]),
   architect: new Set(["read","grep","find","ls","bash","write"]),
   publisher: new Set(["read","grep","find","ls","bash"]),
 };
@@ -4145,6 +4473,61 @@ async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleCont
   return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
 }
 
+/** Built on demand: only a child holding a grant ever touches the Type builders. */
+const knowledgeSchemas = () => ({
+  navori_codegraph_explore: { label: "Navori codegraph explore",
+    description: "Read-only structural code discovery over the project's CodeGraph index (relevant symbols, source and call paths in one call). The index is not refreshed after edits made in this session, so re-read edited files directly. Fails cleanly when codegraph or its index is missing.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), maxFiles: Type.Optional(Type.Number({ minimum: 1, maximum: 30 })) }) },
+  navori_mem_search: { label: "Navori memory search",
+    description: "Read-only search of the project's engram memory. Use response_format \"compact\" for bounded previews.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), type: Type.Optional(Type.String()), project: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.String()), limit: Type.Optional(Type.Number({ minimum: 1, maximum: 20 })), response_format: Type.Optional(Type.String()) }) },
+  navori_mem_get_observation: { label: "Navori memory observation",
+    description: "Read-only: the full content of one engram observation by id (an id from a memory search result).",
+    parameters: Type.Object({ id: Type.Number() }) },
+});
+
+/** Only the known keys of a tool's input reach the server; the explore project path is always the child's own cwd. */
+function knowledgeArguments(name: string, params: unknown, cwd: string): Record<string, unknown> {
+  const input = isRecord(params) ? params : {};
+  const pick = (keys: string[]): Record<string, unknown> => Object.fromEntries(keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  if (name === "navori_codegraph_explore") return { ...pick(["query", "maxFiles"]), projectPath: cwd };
+  if (name === "navori_mem_search") return pick(["query", "type", "project", "scope", "limit", "response_format"]);
+  return pick(["id"]);
+}
+
+/**
+ * Child only, never the parent: the read-only codegraph/engram tools this role was granted at render time. Pi children keep
+ * --no-mcp, so these go through one lazily started private MCP server per plugin (knowledge client). The grant is re-checked on
+ * every call because a tool_call handler has no default-deny for unknown tools. The tool is an allowlisted read channel, not an
+ * isolation boundary: bash still reaches the same CLIs.
+ */
+function registerKnowledgeTools(pi: ExtensionAPI): void {
+  const role = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+  if (!process.env.NAVORI_PI_CHILD_DEPTH || !ROLES.has(role as Role)) return;
+  const granted = [...ROLE_TOOLS[role as Role]].filter((name) => Object.prototype.hasOwnProperty.call(KNOWLEDGE_TARGETS, name));
+  if (!granted.length) return;
+  const client = createKnowledgeClient(spawn, KNOWLEDGE_SERVERS, process.env, MAX_OUTPUT_BYTES);
+  pi.on("session_shutdown", () => { client.shutdown(); });
+  if (typeof process.once === "function") process.once("exit", () => { client.shutdown(); });
+  for (const name of granted) {
+    const schema = knowledgeSchemas()[name as keyof ReturnType<typeof knowledgeSchemas>];
+    pi.registerTool(defineTool({
+      name, label: schema.label, description: schema.description, parameters: schema.parameters as never,
+      async execute(_id, params, signal, _onUpdate, ctx) {
+        const current = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+        if (!ROLES.has(current as Role) || !ROLE_TOOLS[current as Role].has(name)) {
+          return { isError: true, content: [{ type: "text" as const, text: "Navori role " + current + " is not granted " + name + "." }], details: {} };
+        }
+        const [server, tool] = KNOWLEDGE_TARGETS[name]!;
+        const result = await client.call(server, tool, knowledgeArguments(name, params, ctx.cwd), ctx.cwd, signal);
+        const text = result.isError ? childDiagnostic(result.text, false) : result.text;
+        return { ...(result.isError ? { isError: true } : {}), content: [{ type: "text" as const, text }], details: {} };
+      },
+    }));
+  }
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
     assertSupportedNode();
@@ -4219,6 +4602,7 @@ export default function (pi: ExtensionAPI): void {
       powershellNoticed = true;
     } catch { /* The tool_call block still refuses powershell. */ }
   });
+  registerKnowledgeTools(pi);
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
   // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
   pi.on("session_start", async (_event, ctx) => {

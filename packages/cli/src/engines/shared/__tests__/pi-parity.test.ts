@@ -201,6 +201,32 @@ describe("PI_PARITY rows", () => {
   });
 
   // Covers: R1
+  it("codegraph and engram role skills are advisory ceilings, honest about bash and a stale index", () => {
+    const keys = [
+      ...["implementer", "reviewer", "auditor", "architect"].map((role) =>
+        piParityKey("plugin-skill", `codegraph/codegraph-access-v2-${role}`),
+      ),
+      ...["implementer", "reviewer", "auditor"].map((role) =>
+        piParityKey("plugin-skill", `engram/engram-${role}-extension`),
+      ),
+    ];
+    for (const key of keys) {
+      const row = PI_PARITY[key] as PiDirectParity;
+      expect(row.state, key).toBe("advisory");
+      expect(row.evidence, key).toBe("render:plugin-projection");
+      expect(row.mechanism, key).toContain("navori_");
+      expect(row.boundary, key).toContain("not isolation");
+      expect(row.boundary, key).toContain("bash still reaches");
+      expect(row.boundary, key).toContain("stale");
+      expect(row.boundary, key).toContain("gentle-engram");
+    }
+    // The write-guard stays Codex-only and says why, without claiming isolation.
+    expect((PI_PARITY["hook:engram-write-guard"] as PiDirectParity).boundary).toContain(
+      "bash still reaches",
+    );
+  });
+
+  // Covers: R1
   it("never declares an allow-only settingsFragment as anything but n/a, and an ask/deny one as such", () => {
     for (const manifest of bundledManifests()) {
       if (manifest.settingsFragment === undefined) continue;

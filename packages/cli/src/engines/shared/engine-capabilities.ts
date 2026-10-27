@@ -947,7 +947,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         probe:
           "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
         boundary:
-          "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
+          "Pi's own MCP stays unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable. codegraph and engram reads reach the roles that hold them through navori-owned navori_* extension tools instead (knowledge-tools.ts): a model-visible ceiling, not isolation.",
       },
       {
         capability: "session-end-event",

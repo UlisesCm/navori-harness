@@ -331,7 +331,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
     h(
       "engram-write-guard",
       notApplicable(
-        "Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred)",
+        "Codex-only: Pi children run with `--no-mcp` and are never granted an engram write tool (only the read-only navori_mem_* tools, see the engram plugin-skill rows); bash still reaches the engram CLI, which no Pi control guards",
       ),
     ),
   ];
@@ -415,12 +415,22 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       PLUGIN_PROJECTION,
     ),
   ];
-  /** A skill extending a child role of an MCP plugin: Pi children run `--no-mcp`, so it is not injected. */
-  const skillOnMcpRole = (plugin: string, id: string, role: string): [string, PiParity] => [
+  /**
+   * A skill extending a child role of an MCP plugin. Pi children run `--no-mcp`, so the role reaches
+   * the plugin through navori-owned read-only extension tools (`navori_*`, knowledge-tools.ts) and the
+   * prose names those tools. A ceiling the model sees, not isolation.
+   */
+  const skillOnMcpRole = (
+    plugin: string,
+    id: string,
+    role: string,
+    tools: string,
+  ): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
-    unsupported(
-      "none",
-      `${plugin} declares an MCP server and Pi children run with --no-mcp, so the ${role} prose is not injected; render names the role (mcpRoleDiagnostics)`,
+    advisory(
+      `prose appended to .pi/agents/${role}.md naming the read-only ${tools} the child holds; the extension serves them through a private lazy stdio MCP server per plugin, children keep --no-mcp and no write tool is ever granted`,
+      "a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools)",
+      PLUGIN_PROJECTION,
     ),
   ];
   /** A skill extending the publisher role: prose appended to the role file Pi renders. */
@@ -459,13 +469,23 @@ const pluginEntries = (): Array<[string, PiParity]> => {
     settings("codegraph"),
     skillOnOrchestrator("codegraph", "codegraph-access-v2-orchestrator"),
     ...["implementer", "reviewer", "auditor", "architect"].map((role) =>
-      skillOnMcpRole("codegraph", `codegraph-access-v2-${role}`, role),
+      skillOnMcpRole(
+        "codegraph",
+        `codegraph-access-v2-${role}`,
+        role,
+        "navori_codegraph_explore tool",
+      ),
     ),
     mcp("engram"),
     settings("engram"),
     skillOnOrchestrator("engram", "engram-orchestrator-extension"),
     ...["implementer", "reviewer", "auditor"].map((role) =>
-      skillOnMcpRole("engram", `engram-${role}-extension`, role),
+      skillOnMcpRole(
+        "engram",
+        `engram-${role}-extension`,
+        role,
+        "navori_mem_search and navori_mem_get_observation tools",
+      ),
     ),
     settings("gh"),
     skillOnPublisher("gh", "gh-comment-channel-publisher"),

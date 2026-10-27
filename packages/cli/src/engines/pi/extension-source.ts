@@ -3,16 +3,49 @@ import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
-import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
+import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS } from "./role-tools.ts";
+import { createKnowledgeClient } from "./knowledge-client.ts";
+import {
+  PI_KNOWLEDGE_SERVERS,
+  PI_KNOWLEDGE_TOOL_NAMES,
+  PI_KNOWLEDGE_TOOL_TARGETS,
+  piRoleTools,
+  type PiKnowledgeGrants,
+} from "./knowledge-tools.ts";
 import { mcpServerStates } from "./mcp-diagnosis.ts";
 import { redactSecrets } from "../../lib/audit/parse.ts";
+
+/**
+ * The knowledge client and its fixed tables, folded into an EXISTING interpolation of the template
+ * (the bundler pins the expression count, see bundle-render-data.ts). No trailing semicolon: the
+ * template supplies it.
+ */
+function renderKnowledgeSource(): string {
+  return [
+    "const createKnowledgeClient = " + serializeAnonymousFunction(createKnowledgeClient),
+    "const KNOWLEDGE_SERVERS = " + JSON.stringify(PI_KNOWLEDGE_SERVERS),
+    "const KNOWLEDGE_TARGETS: Record<string, readonly [string, string]> = " +
+      JSON.stringify(PI_KNOWLEDGE_TOOL_TARGETS),
+  ].join(";\n");
+}
 
 /**
  * Self-contained project extension; no import may point back into Navori's CLI checkout.
  * `mcpPluginIds` are the enabled plugins declaring an MCP server (spec 0048 D14): the parent
  * re-checks them at `session_start`. The default (none) renders the check inert.
+ * `knowledgeGrants` are the per-role read-only codegraph/engram tools (see `knowledge-tools.ts`); they
+ * join each role's tool list and are the only tools the child extension registers beyond Pi's own.
  */
-export function renderPiExtensionSource(mcpPluginIds: readonly string[] = []): string {
+export function renderPiExtensionSource(
+  mcpPluginIds: readonly string[] = [],
+  knowledgeGrants: PiKnowledgeGrants = {},
+): string {
+  for (const names of Object.values(knowledgeGrants)) {
+    for (const name of names) {
+      if (!PI_KNOWLEDGE_TOOL_NAMES.includes(name))
+        throw new Error("Not a Pi knowledge tool: " + name);
+    }
+  }
   return String.raw`
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
@@ -22,7 +55,7 @@ import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendi
 
 ${PI_TRUST_SOURCE + "\nconst PI_EXTENSION_DENIALS = " + JSON.stringify(PI_EXTENSION_DENIALS) + ";\n"}
 const MCP_PLUGIN_IDS: readonly string[] = ${JSON.stringify(mcpPluginIds)};
-const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates) + ";\nconst redactSecrets = " + serializeAnonymousFunction(redactSecrets)};
+const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates) + ";\nconst redactSecrets = " + serializeAnonymousFunction(redactSecrets) + ";\n" + renderKnowledgeSource()};
 ${renderPiRuntimeVersionSource()}
 
 type Role = ${PI_ROLE_NAMES.map((role) => JSON.stringify(role)).join(" | ")};
@@ -30,7 +63,7 @@ type RoleSpec = { name: Role; description: string; model?: string; tools: string
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
 const ROLES = new Set<Role>(${JSON.stringify(PI_ROLE_NAMES)});
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(PI_ROLE_TOOLS[role])}),`).join("\n")}
+${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(piRoleTools(role, knowledgeGrants))}),`).join("\n")}
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
 const ROLE_TIMEOUT_MS: Record<Role, number> = ${JSON.stringify(PI_ROLE_TIMEOUT_MS)};
@@ -1032,6 +1065,61 @@ async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleCont
   return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
 }
 
+/** Built on demand: only a child holding a grant ever touches the Type builders. */
+const knowledgeSchemas = () => ({
+  navori_codegraph_explore: { label: "Navori codegraph explore",
+    description: "Read-only structural code discovery over the project's CodeGraph index (relevant symbols, source and call paths in one call). The index is not refreshed after edits made in this session, so re-read edited files directly. Fails cleanly when codegraph or its index is missing.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), maxFiles: Type.Optional(Type.Number({ minimum: 1, maximum: 30 })) }) },
+  navori_mem_search: { label: "Navori memory search",
+    description: "Read-only search of the project's engram memory. Use response_format \"compact\" for bounded previews.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), type: Type.Optional(Type.String()), project: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.String()), limit: Type.Optional(Type.Number({ minimum: 1, maximum: 20 })), response_format: Type.Optional(Type.String()) }) },
+  navori_mem_get_observation: { label: "Navori memory observation",
+    description: "Read-only: the full content of one engram observation by id (an id from a memory search result).",
+    parameters: Type.Object({ id: Type.Number() }) },
+});
+
+/** Only the known keys of a tool's input reach the server; the explore project path is always the child's own cwd. */
+function knowledgeArguments(name: string, params: unknown, cwd: string): Record<string, unknown> {
+  const input = isRecord(params) ? params : {};
+  const pick = (keys: string[]): Record<string, unknown> => Object.fromEntries(keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  if (name === "navori_codegraph_explore") return { ...pick(["query", "maxFiles"]), projectPath: cwd };
+  if (name === "navori_mem_search") return pick(["query", "type", "project", "scope", "limit", "response_format"]);
+  return pick(["id"]);
+}
+
+/**
+ * Child only, never the parent: the read-only codegraph/engram tools this role was granted at render time. Pi children keep
+ * --no-mcp, so these go through one lazily started private MCP server per plugin (knowledge client). The grant is re-checked on
+ * every call because a tool_call handler has no default-deny for unknown tools. The tool is an allowlisted read channel, not an
+ * isolation boundary: bash still reaches the same CLIs.
+ */
+function registerKnowledgeTools(pi: ExtensionAPI): void {
+  const role = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+  if (!process.env.NAVORI_PI_CHILD_DEPTH || !ROLES.has(role as Role)) return;
+  const granted = [...ROLE_TOOLS[role as Role]].filter((name) => Object.prototype.hasOwnProperty.call(KNOWLEDGE_TARGETS, name));
+  if (!granted.length) return;
+  const client = createKnowledgeClient(spawn, KNOWLEDGE_SERVERS, process.env, MAX_OUTPUT_BYTES);
+  pi.on("session_shutdown", () => { client.shutdown(); });
+  if (typeof process.once === "function") process.once("exit", () => { client.shutdown(); });
+  for (const name of granted) {
+    const schema = knowledgeSchemas()[name as keyof ReturnType<typeof knowledgeSchemas>];
+    pi.registerTool(defineTool({
+      name, label: schema.label, description: schema.description, parameters: schema.parameters as never,
+      async execute(_id, params, signal, _onUpdate, ctx) {
+        const current = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+        if (!ROLES.has(current as Role) || !ROLE_TOOLS[current as Role].has(name)) {
+          return { isError: true, content: [{ type: "text" as const, text: "Navori role " + current + " is not granted " + name + "." }], details: {} };
+        }
+        const [server, tool] = KNOWLEDGE_TARGETS[name]!;
+        const result = await client.call(server, tool, knowledgeArguments(name, params, ctx.cwd), ctx.cwd, signal);
+        const text = result.isError ? childDiagnostic(result.text, false) : result.text;
+        return { ...(result.isError ? { isError: true } : {}), content: [{ type: "text" as const, text }], details: {} };
+      },
+    }));
+  }
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
     assertSupportedNode();
@@ -1106,6 +1194,7 @@ export default function (pi: ExtensionAPI): void {
       powershellNoticed = true;
     } catch { /* The tool_call block still refuses powershell. */ }
   });
+  registerKnowledgeTools(pi);
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
   // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
   pi.on("session_start", async (_event, ctx) => {

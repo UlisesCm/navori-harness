@@ -1,8 +1,8 @@
 ---
-# navori:managed-file id="pi-agent-auditor" hash="f38d70807cf35df7caed173f42ad647371292ad0b1520cbd9d6fc344ad8580f4"
+# navori:managed-file id="pi-agent-auditor" hash="687c825540897352e3a0864e5f4e7e120d3e3326df7915f7bd3edf0993e5078e"
 name: "auditor"
 description: "Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design."
-tools: ["read","grep","find","ls","bash","write"]
+tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
 ---
 # Auditor Agent
 
@@ -162,3 +162,22 @@ done -> .navori/state/handoffs/solution_review_<scope>.md
 Every report is **input to the next step of the pipeline**, not a chat summary: the orchestrator decomposes from an area plan or a ticket audit, and reads a challenge before deciding READY/CONCERNS/BLOCKED. Write them at their literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 The orchestrator (or the human) reads the report from disk and executes from there.
+
+## Engram, from a subagent
+
+**Pre-flight, before reading code:** `navori_mem_search` the task's keywords with
+`response_format: "compact"` — bounded previews. `navori_mem_get_observation` with
+its id for the full body if a preview falls short. Memory gives you a REGION
+and a hypothesis — confirm signature, line and call sites before acting.
+
+**Memory is read-only here**: put durable findings (root cause, convention, decision) in your handoff; the session owner saves them.
+
+**Session ceremonies are not yours.** `mem_session_summary` and its curation
+belong to the agent that owns the session. Ending with `done -> <file>` is
+your report.
+
+If a memory contradicts the code, the code wins — fix the memory.
+
+### Structural discovery access
+
+Apply Code discovery routing from the project instructions. Use the available `navori_codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
