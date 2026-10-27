@@ -489,3 +489,131 @@ process.exit(result.status === 'recorded' ? 0 : 1);
     assert_eq!(fs::read_to_string(marker)?, stored);
     Ok(())
 }
+
+/// One spool file as (name, mode, content).
+type SpoolFile = (String, u32, String);
+
+/// Files of a spool directory.
+fn spool_files(spool: &Path) -> Result<Vec<SpoolFile>, Box<dyn Error>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(spool)? {
+        let path = entry?.path();
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or("spool name")?
+            .to_owned();
+        let mode = fs::metadata(&path)?.permissions().mode() & 0o777;
+        files.push((name, mode, fs::read_to_string(&path)?));
+    }
+    Ok(files)
+}
+
+/// The real partial's `navori_audit_spool_write` for one metadata JSON and host.
+fn shell_spool_write(spool: &Path, host: &str, metadata: &str) -> TestResult {
+    let source = repo()?.join("packages/core/core-assets/hooks/_partials/audit-log.sh");
+    let status = Command::new("bash")
+        .args([
+            OsStr::new("-c"),
+            OsStr::new(r#"source "$1"; navori_audit_spool="$2"; navori_audit_host="$3"; navori_audit_spool_write "$4""#),
+            OsStr::new("fixture"),
+            source.as_os_str(),
+            spool.as_os_str(),
+            OsStr::new(host),
+            OsStr::new(metadata),
+        ])
+        .status()?;
+    if !status.success() {
+        return Err("shell spool write failed".into());
+    }
+    Ok(())
+}
+
+fn spool_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".json") else {
+        return false;
+    };
+    let parts: Vec<&str> = stem.split('-').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+}
+
+// Covers: R11
+#[test]
+fn spool_lane_writes_the_shell_event_privately_and_never_starts_the_cli() -> TestResult {
+    let temp = TempDir::new()?;
+    temp.write("project/session-session-1.log", "", 0o600)?;
+    let spool = temp.root().join("project/spool-session-1");
+    fs::create_dir(&spool)?;
+    fs::set_permissions(&spool, fs::Permissions::from_mode(0o700))?;
+    let parsed = payload(Path::new("/repo/project"))?;
+    let event = metadata(temp.root(), &parsed, labels("block"))?;
+    let context = AuditContext::resolve(
+        temp.root(),
+        &parsed,
+        Path::new("/fallback"),
+        Path::new("/repo/.pi/navori/hooks/example.sh"),
+        None,
+    )
+    .ok_or("context")?;
+    let started = temp.root().join("cli-started");
+    let program = temp.write(
+        "bridge",
+        format!("#!/bin/sh\n: > {}\nexit 7\n", quote(&started)),
+        0o700,
+    )?;
+    assert!(context.record_metadata(&event, program.as_os_str()));
+    assert!(!started.exists());
+    let native = spool_files(&spool)?;
+    let shell_spool = temp.root().join("shell-spool");
+    fs::create_dir(&shell_spool)?;
+    shell_spool_write(&shell_spool, "pi", event.as_json())?;
+    let shell = spool_files(&shell_spool)?;
+    assert_eq!(native.len(), 1);
+    assert_eq!(shell.len(), 1);
+    assert_eq!(native[0].1, 0o600);
+    assert_eq!(native[0].1, shell[0].1);
+    assert_eq!(native[0].2, shell[0].2);
+    assert!(spool_name(&native[0].0), "{}", native[0].0);
+    assert!(spool_name(&shell[0].0), "{}", shell[0].0);
+    Ok(())
+}
+
+// Covers: R11
+#[test]
+fn a_symlinked_or_non_directory_spool_falls_back_to_the_cli_bridge() -> TestResult {
+    let temp = TempDir::new()?;
+    temp.write("project/session-session-1.log", "", 0o600)?;
+    let elsewhere = temp.root().join("elsewhere");
+    fs::create_dir(&elsewhere)?;
+    let spool = temp.root().join("project/spool-session-1");
+    symlink(&elsewhere, &spool)?;
+    let parsed = payload(Path::new("/repo/project"))?;
+    let event = metadata(temp.root(), &parsed, labels("allow"))?;
+    let context = AuditContext::resolve(
+        temp.root(),
+        &parsed,
+        Path::new("/fallback"),
+        Path::new("/repo/.claude/hooks/example.sh"),
+        None,
+    )
+    .ok_or("context")?;
+    let input = temp.root().join("cli-input");
+    let program = temp.write(
+        "bridge",
+        format!("#!/bin/sh\ncat > {}\n", quote(&input)),
+        0o700,
+    )?;
+    assert!(context.record_metadata(&event, program.as_os_str()));
+    assert_eq!(fs::read_to_string(&input)?, event.as_json());
+    assert!(spool_files(&elsewhere)?.is_empty());
+    fs::remove_file(&spool)?;
+    fs::remove_file(&input)?;
+    fs::write(&spool, "not a directory")?;
+    assert!(context.record_metadata(&event, program.as_os_str()));
+    assert_eq!(fs::read_to_string(&input)?, event.as_json());
+    assert_eq!(fs::read_to_string(&spool)?, "not a directory");
+    Ok(())
+}

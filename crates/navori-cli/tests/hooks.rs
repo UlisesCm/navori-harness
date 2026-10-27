@@ -109,6 +109,7 @@ fn record(payload: &[u8], invocation: &Invocation) -> Result<Evaluation, Failure
         verdict: Verdict::Block,
         stdout,
         stderr: b"recorded\n".to_vec(),
+        audit: None,
     })
 }
 
@@ -121,6 +122,7 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
         id: "example",
         implementation: HASH,
         handler: Handler::Pure(evaluate),
+        phase: "PreToolUse",
     }]
 }
 
@@ -879,6 +881,7 @@ fn compiled_hash_mismatch_and_non_engine_script_paths_defer() -> TestResult {
         id: "example",
         implementation: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         handler: Handler::Pure(record),
+        phase: "PreToolUse",
     }];
     assert_eq!(
         run_with(
@@ -1077,6 +1080,7 @@ mod prepared_handlers {
                 verdict: Verdict::Block,
                 stdout,
                 stderr: Vec::new(),
+                audit: None,
             })
         }))
     }
@@ -1088,6 +1092,7 @@ mod prepared_handlers {
             id: "example",
             implementation: HASH,
             handler: Handler::Prepared(prepare),
+            phase: "PreToolUse",
         }]
     }
 
@@ -1168,19 +1173,40 @@ mod prepared_handlers {
         Ok(expanded)
     }
 
-    /// Child half: evaluate through the production registry under the parent's clean env.
-    fn production_registry_child(script: &Path) -> TestResult {
+    /// The real hook, signed for the compiled implementation, under the scratch's `.claude`.
+    fn install_production_script(scratch: &Scratch) -> Result<PathBuf, Box<dyn Error>> {
+        let path = scratch.0.join(".claude/hooks/subagent-no-background.sh");
+        fs::create_dir_all(path.parent().ok_or("hooks parent")?)?;
         let implementation = navori_hooks::compiled::implementation_hash("subagent-no-background")
             .ok_or("compiled hash")?;
-        let manifest = Manifest::parse(
+        let zero = "0".repeat(64);
+        let unsigned = format!(
+            "# navori:native-hook v=1 file=sha256:{zero} impl={implementation}\n{}",
+            expanded_asset()?
+        );
+        let hash = script_hash(unsigned.as_bytes(), &[]).ok_or("metadata")?;
+        fs::write(&path, unsigned.replacen(&zero, &hash[7..], 1))?;
+        Ok(path)
+    }
+
+    /// Production manifest entry for the hook in `mode`.
+    fn production_manifest(mode: &str) -> Result<Manifest, Box<dyn Error>> {
+        let implementation = navori_hooks::compiled::implementation_hash("subagent-no-background")
+            .ok_or("compiled hash")?;
+        Ok(Manifest::parse(
             &serde_json::json!({
                 "schema":1, "commands":[], "hooks":{"subagent-no-background":{
-                    "mode":"active", "gating":true,
+                    "mode":mode, "gating":true,
                     "blocks":{"subagent-no-background-base":HASH}, "impl":implementation
                 }}
             })
             .to_string(),
-        )?;
+        )?)
+    }
+
+    /// Child half: evaluate through the production registry under the parent's clean env.
+    fn production_registry_child(script: &Path) -> TestResult {
+        let manifest = production_manifest("active")?;
         let payloads: [&[u8]; 4] = [
             b"{}",
             br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"run_in_background":true,"command":"sleep 1"}}"#,
@@ -1227,17 +1253,7 @@ mod prepared_handlers {
             return production_registry_child(Path::new(&script));
         }
         let scratch = Scratch::new()?;
-        let path = scratch.0.join(".claude/hooks/subagent-no-background.sh");
-        fs::create_dir_all(path.parent().ok_or("hooks parent")?)?;
-        let implementation = navori_hooks::compiled::implementation_hash("subagent-no-background")
-            .ok_or("compiled hash")?;
-        let zero = "0".repeat(64);
-        let unsigned = format!(
-            "# navori:native-hook v=1 file=sha256:{zero} impl={implementation}\n{}",
-            expanded_asset()?
-        );
-        let hash = script_hash(unsigned.as_bytes(), &[]).ok_or("metadata")?;
-        fs::write(&path, unsigned.replacen(&zero, &hash[7..], 1))?;
+        let path = install_production_script(&scratch)?;
         let output = Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
@@ -1250,6 +1266,122 @@ mod prepared_handlers {
             .env("LC_ALL", "C")
             .env("NAVORI_AUDITS_ROOT", scratch.0.join("audit-off"))
             .env(CHILD, &path)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        Ok(())
+    }
+
+    const AUDIT_CHILD: &str = "NAVORI_NATIVE_AUDIT_CHILD";
+
+    /// Spool events with the per-run `ms` and `tsMs` removed, in file-name order.
+    fn spool_events(spool: &Path) -> Result<Vec<serde_json::Value>, Box<dyn Error>> {
+        let mut names: Vec<PathBuf> = fs::read_dir(spool)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<io::Result<_>>()?;
+        names.sort();
+        names
+            .iter()
+            .map(|path| {
+                let mut event: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+                let metadata = event["metadata"].as_object_mut().ok_or("metadata")?;
+                assert!(metadata.remove("ms").is_some_and(|ms| ms.is_u64()));
+                assert!(metadata.remove("tsMs").is_some_and(|ts| ts.is_u64()));
+                Ok(event)
+            })
+            .collect()
+    }
+
+    fn clear(spool: &Path) -> TestResult {
+        for entry in fs::read_dir(spool)? {
+            fs::remove_file(entry?.path())?;
+        }
+        Ok(())
+    }
+
+    /// Child half: native decisions audit like the shell; shadow ones only through the shell.
+    fn native_audit_child(script: &Path) -> TestResult {
+        let project = std::env::current_dir()?;
+        let spool = Path::new(&std::env::var_os("NAVORI_AUDITS_ROOT").ok_or("audit root")?)
+            .join(project.file_name().ok_or("repo")?)
+            .join("spool-s1");
+        let cwd = project.to_string_lossy();
+        for (command, verdict) in [("sleep 1 &", "block"), ("printf ok", "allow")] {
+            let payload = serde_json::json!({
+                "session_id":"s1", "cwd":cwd, "agent_id":"worker", "tool_use_id":"call:1",
+                "tool_name":"Bash", "tool_input":{"command":command}
+            })
+            .to_string();
+            let run = |manifest: &Manifest, mode: Mode| {
+                let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+                run_with(
+                    &argv(script),
+                    manifest,
+                    &*navori_cli::hook::NATIVE_HOOKS,
+                    mode,
+                    &mut payload.as_bytes(),
+                    &mut stdout,
+                    &mut stderr,
+                )
+            };
+            clear(&spool)?;
+            run(&production_manifest("active")?, Mode::Rust);
+            let native = spool_events(&spool)?;
+            assert_eq!(native.len(), 1, "{command}");
+            assert_eq!(native[0]["metadata"]["verdict"], verdict);
+            let mut shell = Command::new("bash")
+                .arg(script)
+                .env("NAVORI_HOOK_IMPL", "shell")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            io::Write::write_all(&mut shell.stdin.take().ok_or("stdin")?, payload.as_bytes())?;
+            shell.wait()?;
+            let both = spool_events(&spool)?;
+            assert_eq!(both.len(), 2, "{command}");
+            assert_eq!(both[0], both[1], "{command}");
+            clear(&spool)?;
+            run(&production_manifest("shadow")?, Mode::Auto);
+            assert_eq!(spool_events(&spool)?, native, "{command}");
+        }
+        Ok(())
+    }
+
+    // Covers: R11
+    #[test]
+    fn native_decisions_audit_like_the_shell_and_shadow_never_audits_twice() -> TestResult {
+        if let Some(script) = std::env::var_os(AUDIT_CHILD) {
+            return native_audit_child(Path::new(&script));
+        }
+        let scratch = Scratch::new()?;
+        let path = install_production_script(&scratch)?;
+        let project = scratch.0.join("project");
+        fs::create_dir(&project)?;
+        let audits = scratch.0.join("audits");
+        let spool = audits.join("project/spool-s1");
+        fs::create_dir_all(&spool)?;
+        fs::write(audits.join("project/session-s1.log"), "")?;
+        for dir in [&audits, &audits.join("project"), &spool] {
+            fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+        }
+        let output = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "prepared_handlers::native_decisions_audit_like_the_shell_and_shadow_never_audits_twice",
+                "--nocapture",
+            ])
+            .current_dir(&project)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("LC_ALL", "C")
+            .env("NAVORI_AUDITS_ROOT", &audits)
+            .env(AUDIT_CHILD, &path)
             .output()?;
         assert!(
             output.status.success(),

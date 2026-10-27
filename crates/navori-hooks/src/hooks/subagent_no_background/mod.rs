@@ -1,8 +1,9 @@
 //! Pure policy body of the Claude/Pi subagent background-work guard (spec 0057 T26).
 //!
 //! This module neither discovers tools nor reads/writes files, launches processes or audits.
-//! The caller supplies the original shell's extraction/locale profile. Native registration,
-//! shadow execution and audit integration are deliberately separate capabilities.
+//! The caller supplies the original shell's extraction/locale profile. Each evaluation names
+//! the shell's audit verdict and reason; recording it, native registration and shadow execution
+//! are deliberately separate capabilities.
 
 mod capture;
 mod inert;
@@ -12,10 +13,11 @@ pub mod prepare;
 pub use capture::{CaptureContext, ShellDialect};
 pub use input::{Extractor, Locale, Profile};
 
-use crate::runner::{Engine, Evaluation, Failure, Verdict};
+use crate::runner::{AuditLabel, Engine, Evaluation, Failure, Verdict};
 
 const EXPLANATION: &str = "[navori] a subagent does not background its own work (verify-before-done: run chained steps one by one in the foreground, or report Status: BLOCKED).\n";
 
+/// Block with `reason`, or allow; the audit label mirrors the shell's final `navori_audit_log`.
 fn result(reason: Option<&str>) -> Evaluation {
     Evaluation {
         verdict: if reason.is_some() {
@@ -28,6 +30,21 @@ fn result(reason: Option<&str>) -> Evaluation {
             format!("[navori] BLOCKED by subagent-no-background: {reason}\n{EXPLANATION}")
                 .into_bytes()
         }),
+        audit: Some(AuditLabel {
+            verdict: if reason.is_some() { "block" } else { "allow" },
+            reason: reason.unwrap_or("no backgrounded").to_owned(),
+        }),
+    }
+}
+
+/// Out of scope (main thread or an uncovered tool): allowed and audited as `skip`.
+fn skip(reason: &str) -> Evaluation {
+    Evaluation {
+        audit: Some(AuditLabel {
+            verdict: "skip",
+            reason: reason.to_owned(),
+        }),
+        ..result(None)
     }
 }
 
@@ -66,7 +83,7 @@ fn evaluate_captured(payload: &[u8], profile: Profile) -> Result<(Evaluation, us
         .windows(b"\"agent_id\"".len())
         .any(|w| w == b"\"agent_id\"")
     {
-        return Ok((result(None), 0));
+        return Ok((skip("sin agent_id (hilo principal)"), 0));
     }
     let fields = input::extract(&captured, profile)?;
     Ok((evaluate_fields(&fields, profile)?, fields.nul_substitutions))
@@ -78,7 +95,7 @@ fn evaluate_fields(fields: &input::Fields, profile: Profile) -> Result<Evaluatio
         return Ok(result(Some("Monitor dentro de un subagente")));
     }
     if fields.tool != "Bash" {
-        return Ok(result(None));
+        return Ok(skip("tool_name no cubierto"));
     }
     if fields.background == "true" {
         return Ok(result(Some(

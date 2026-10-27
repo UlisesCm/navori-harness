@@ -68,6 +68,18 @@ pub struct Evaluation {
     pub stdout: Vec<u8>,
     /// Exact stderr bytes.
     pub stderr: Vec<u8>,
+    /// What the shell would pass to `navori_audit_log`; `None` records no event.
+    pub audit: Option<AuditLabel>,
+}
+
+/// Audit category of a decision, as the shell hook passes it to `navori_audit_log`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditLabel {
+    /// Closed verdict category (`allow`, `block`, `skip`, ...).
+    pub verdict: &'static str,
+    /// The shell's reason text; the recorder maps any text outside its closed list to
+    /// `unspecified`, so human content never reaches the event.
+    pub reason: String,
 }
 
 /// An expected evaluation or input failure, without embedding the input payload.

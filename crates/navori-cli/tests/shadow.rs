@@ -67,6 +67,7 @@ fn evaluation(verdict: Verdict, stdout: &[u8], stderr: &[u8]) -> Evaluation {
         verdict,
         stdout: stdout.to_vec(),
         stderr: stderr.to_vec(),
+        audit: None,
     }
 }
 
