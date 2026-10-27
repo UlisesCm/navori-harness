@@ -3,15 +3,21 @@
 //! Ported so far, in the shell's order: empty command, the byte/line/heredoc ceilings, the
 //! no-rule-token fast path and rules 1 (skip-verify), 2 (force-push to base), 3 (recursive rm
 //! over root/home/system/scratch root or a variable), 3b (`--no-preserve-root`), 4 (fork bomb),
-//! 5 (block device), 6 and 6b (shell rewrites of managed files) and 6d (copies onto exact
-//! render-owned paths). Rule 1b and rules 6c and 7 read git state or Pi permission rules;
-//! until they are ported an evaluation that reaches them says so instead of guessing.
-//! Nothing here reads files, runs processes or audits: host facts arrive in [`Host`].
+//! 5 (block device), 6 and 6b (shell rewrites of managed files), 6d (copies onto exact
+//! render-owned paths), 6c (the Pi arm: control plane, `pi --no-extensions`, shared `deny` and
+//! `ask` rules) and 7 (whole-tree discards of uncommitted work). Rule 1b (the progress ratchet)
+//! is not ported; an evaluation that reaches it says so instead of guessing.
+//! Nothing here audits; host facts arrive in [`Host`] and repository state through a
+//! [`discard::Repo`] ([`discard::System`] is the one adapter that runs `git`).
 
 pub mod copy_dest;
+pub mod discard;
+mod pi;
 mod rendered;
 mod rules;
+mod tr;
 
+pub use pi::ask_answer;
 pub use rendered::Rendered;
 
 /// Host facts the shell reads from its environment before the rules run.
@@ -24,6 +30,8 @@ pub struct Host {
     pub cwd: String,
     /// `PWD` of the hook process.
     pub pwd: String,
+    /// `HOME`, `None` when unset (rule 7 expands `~` with it).
+    pub home: Option<String>,
 }
 
 use crate::runner::Engine;
@@ -46,10 +54,15 @@ pub enum Outcome {
         /// The shell's `navori_audit_reason` text.
         reason: &'static str,
     },
-    /// No ported rule decided; the shell's later rules still apply.
-    Continue {
-        /// The fast path saw only copy/move/install/link tokens (`nv_copy_only=1`).
+    /// Every rule of the base block let the command through (exit 0). The blocks after it
+    /// (search lane, user section) still apply.
+    Allow {
+        /// The fast path saw only copy/move/install/link tokens (`nv_copy_only=1`): audited as
+        /// `skip` ("no rule token in the command") unless `ask` is set.
         copy_only: bool,
+        /// The first shared `ask` rule a Pi segment matched (`navori_pi_ask`). The exit trap
+        /// answers `ask` with [`ask_answer`] when the script exits 0.
+        ask: Option<String>,
     },
     /// Rule 1b (the progress ratchet lane) would run here; it is not ported yet.
     ProgressLane,
@@ -72,9 +85,10 @@ pub fn evaluate(
     rendered: &Rendered,
     engine: Engine,
     host: &Host,
+    repo: &dyn discard::Repo,
     locale: Locale,
 ) -> Result<Outcome, String> {
-    rules::evaluate(cmd, rendered, engine, host, locale)
+    rules::evaluate(cmd, rendered, engine, host, repo, locale)
 }
 
 /// Exact stderr of the shell's `block`: reason, the command cut at 2000 characters (bytes under

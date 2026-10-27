@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::copy_dest::{self, Inputs};
+use super::discard::{self, Repo};
+use super::pi;
 use super::{Host, Outcome, Rendered, length};
 use crate::runner::Engine;
 use crate::shell::Locale;
@@ -72,6 +74,8 @@ struct Patterns {
     block_device: Regex,
     managed: Managed,
     managed_pi: Managed,
+    pi: pi::Patterns,
+    discard: Regex,
 }
 
 impl Patterns {
@@ -117,6 +121,10 @@ impl Patterns {
             block_device: re(r"(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))")?,
             managed: Managed::new(locale, false)?,
             managed_pi: Managed::new(locale, true)?,
+            pi: pi::Patterns::new(locale)?,
+            discard: re(
+                r"^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)",
+            )?,
         })
     }
 
@@ -194,6 +202,7 @@ pub(super) fn evaluate(
     rendered: &Rendered,
     engine: Engine,
     host: &Host,
+    repo: &dyn Repo,
     locale: Locale,
 ) -> Result<Outcome, String> {
     if cmd.is_empty() {
@@ -395,5 +404,21 @@ pub(super) fn evaluate(
             Some("navori render --apply"),
         ));
     }
-    Ok(Outcome::Continue { copy_only })
+    // 6c. The Pi arm.
+    let mut ask = None;
+    if engine == Engine::Pi {
+        match pi::evaluate(&segments, &scan_lines, &rendered.pi_rules, &patterns.pi) {
+            pi::Verdict::Block {
+                message,
+                reason,
+                route,
+            } => return Ok(block(message, reason, route)),
+            pi::Verdict::Pass(found) => ask = found,
+        }
+    }
+    // 7. Whole-tree discards, decided by the target repository's state.
+    if let Some(found) = discard::evaluate(&segments, &patterns.discard, host, repo, locale) {
+        return Ok(block(found.message, found.reason, Some(found.route)));
+    }
+    Ok(Outcome::Allow { copy_only, ask })
 }
