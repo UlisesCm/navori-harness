@@ -640,8 +640,10 @@ Cada caso declara `// Covers: R<n>`.
 - **Bypasses seatbelt** (`sh -c`, `eval`, scripts escritos, MCP de escritura, extensiones ajenas): se declaran
   y no se cierran (D11).
 - Opción C, sandbox de SO, herramientas web en hijos Pi, `general-purpose-confirm`/`role-guard`/
-  `engram-write-guard` (`n/a`), `audit-mode-trigger` (la captura de audit de Pi es la de 0047 R12),
+  `engram-write-guard` (`n/a`),
   `compact-advice`, escribir `.pi/mcp.json` o `~/.pi/agent/*` y extensiones comunitarias.
+
+Nota: `audit-mode-trigger` fue promovido en la spec pi-audit-mode (los handlers de la extensión lo cubren).
 
 ## Preguntas abiertas
 

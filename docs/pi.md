@@ -99,6 +99,8 @@ These run only in the parent session; children do nothing. All failures are sile
 - **Reload, resume and fork**: nothing runs.
 - **Verification reminder** (`agent_before_settle`, only when `hooks.verifyOnStop` is set): if the tree has uncommitted changes, a fixed Spanish reminder to run the quality gate and commit is appended as a visible `custom_message`. It never triggers another model request.
 
+**Audit-mode start.** On `session_start` (`startup` or `new`) and on a user `before_agent_start`, the parent consumes a pending `navori audit --arm` (untagged or `--host pi`) and starts its audit log. With `audit.mode: always` (emitted as the optional `controls.auditMode` in `.pi/navori.json` after `navori render`), the log starts on the first user prompt instead. The model gets a one-time notice. Children never start a log. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first.
+
 ## Hook bridge
 
 The trusted extension runs the shared Navori hook scripts through a bridge. The contract:
@@ -470,8 +472,8 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 
 | Unit | State | Class | Boundary |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent |
-| `hook:audit-mode-trigger` | unsupported | — | Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal) |
+| `hook:audit-mode-close` | advisory | — | seals only a log that already exists (opened by `audit-mode-trigger`), so it is a no-op until one is started. Failures are silent |
+| `hook:audit-mode-trigger` | advisory | — | the shared hook script is not run: the extension calls `navori audit --start` itself. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first. Children never start a log; failures are silent |
 | `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | seatbelt (bypass classes above) | a body that is inline or unreadable is shown only as the command; stdin (`-F -`) bodies and a path built by the shell (`$VAR`, `$(…)`) are not shown. A window remains between the check and the exec. Indirect shell forms bypass it |
 | `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred) |

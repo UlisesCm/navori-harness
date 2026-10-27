@@ -78,6 +78,8 @@ Esto se ejecuta únicamente en la sesión padre; los hijos no hacen nada. Todas 
 - **Recargar, reanudar y bifurcar**: no se ejecuta nada.
 - **Recordatorio de verificación** (`agent_before_settle`, solo cuando está definido `hooks.verifyOnStop`): si el árbol tiene cambios sin confirmar, se agrega como `custom_message` visible un recordatorio fijo en español para ejecutar el quality gate y hacer commit. No dispara otra solicitud al modelo.
 
+**Inicio de audit-mode.** En `session_start` (`startup` o `new`) y en `before_agent_start` del usuario, el padre consume un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) e inicia su registro de auditoría. Con `audit.mode: always` (se emite como `controls.auditMode` opcional en `.pi/navori.json` tras `navori render`), el registro se inicia en el primer prompt del usuario. El modelo recibe un aviso único. Los hijos nunca inician un registro. Un arm sin etiqueta es del repo completo, así que una sesión Claude o Codex concurrente puede consumirlo antes.
+
 ## Puente de hooks
 
 La extensión de confianza ejecuta mediante un puente los scripts compartidos de hooks de Navori. El contrato es el siguiente:
@@ -323,8 +325,8 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 
 | Unidad | Estado | Clase | Límite |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | solo sella un registro existente: Pi nunca abre un registro de audit-mode (el hook `audit-mode-trigger` no es compatible), así que no hace nada hasta que se inicie uno. Las fallas son silenciosas |
-| `hook:audit-mode-trigger` | unsupported | — | Pi nunca abre un registro de audit-mode mediante este hook (fuera del alcance de la especificación 0048, no es un objetivo de diseño) |
+| `hook:audit-mode-close` | advisory | — | solo sella un registro existente (abierto por audit-mode-trigger), así que no hace nada hasta que se inicie uno. Las fallas son silenciosas |
+| `hook:audit-mode-trigger` | advisory | — | los handlers `session_start` y `before_agent_start` de la extensión (solo padre) consumen un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) o, con `audit.mode: always`, inician el registro en el primer prompt del usuario; luego avisan al modelo. No se ejecuta el script compartido: la extensión llama `navori audit --start`. Un arm sin etiqueta es del repo completo, así que una sesión Claude/Codex concurrente puede consumirlo antes. Los hijos nunca inician un registro; las fallas son silenciosas |
 | `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | protección (clases de evasión anteriores) | un contenido en línea o ilegible solo se muestra como comando. No se muestran los contenidos stdin (`-F -`) ni una ruta construida por el shell (`$VAR`, `$(…)`). Hay una ventana entre la verificación y la ejecución. Las formas indirectas de shell lo omiten |
 | `hook:engram-write-guard` | n/a | — | Solo Codex: los hijos de Pi se ejecutan con `--no-mcp`, así que no hay permisos de engram que proteger (`child-mcp-grants` está aplazado) |

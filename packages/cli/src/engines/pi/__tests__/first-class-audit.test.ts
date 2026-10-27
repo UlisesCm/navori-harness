@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  chmodSync,
   mkdirSync,
   readFileSync,
   mkdtempSync,
@@ -19,6 +20,8 @@ import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { renderPiEngine } from "../index.ts";
+import { ownsPiManifest } from "../owned-file.ts";
+import { load, type Handler } from "./fixtures/load-extension.ts";
 import type { HarnessCatalog } from "../../../lib/audit/harness.ts";
 import { createAuditReadBudget } from "../../../lib/audit/model.ts";
 import { readAuditJsonl } from "../../../lib/audit/paths.ts";
@@ -802,5 +805,197 @@ describe("Pi session audit (spec 0047 R12)", () => {
     );
     expect(parse().agents[0]!.spawnToolUseId).toBe("tool:1:native");
     rmSync(roles, { recursive: true, force: true });
+  });
+});
+
+type AuditHandler = Handler;
+
+/** Loads the rendered extension and keeps EVERY handler per event (the first one is not always the audit one). */
+function loadAll(env: Record<string, string> = {}): Map<string, AuditHandler[]> {
+  const collect = new Map<string, AuditHandler[]>();
+  load({ env, collect });
+  return collect;
+}
+
+describe("Pi audit-mode trigger (pi-audit-mode)", () => {
+  let root: string;
+  let cwd: string;
+  let calls: string;
+  let savedPath: string | undefined;
+  let savedRoot: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "navori-pi-audit-trigger-"));
+    cwd = join(root, "repo");
+    mkdirSync(cwd);
+    mkdirSync(join(root, "bin"));
+    mkdirSync(join(root, "audits", "repo"), { recursive: true });
+    calls = join(root, "calls.log");
+    // Fake navori: records its argv, never touches a real audit store.
+    writeFileSync(join(root, "bin", "navori"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${calls}"\n`);
+    chmodSync(join(root, "bin", "navori"), 0o755);
+    savedPath = process.env.PATH;
+    savedRoot = process.env.NAVORI_AUDITS_ROOT;
+    process.env.PATH = join(root, "bin") + ":" + (savedPath ?? "");
+    process.env.NAVORI_AUDITS_ROOT = join(root, "audits");
+  });
+  afterEach(() => {
+    process.env.PATH = savedPath;
+    if (savedRoot === undefined) delete process.env.NAVORI_AUDITS_ROOT;
+    else process.env.NAVORI_AUDITS_ROOT = savedRoot;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const arm = (): void => writeFileSync(join(root, "audits", "repo", ".armed"), "{}\n");
+  const ctx = (id = "sess-1"): unknown => ({ cwd, sessionManager: { getSessionId: () => id } });
+  const recorded = (): string[] =>
+    existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : [];
+  const runAll = async (
+    handlers: Map<string, AuditHandler[]>,
+    name: string,
+    event: Record<string, unknown>,
+    context: unknown,
+  ): Promise<unknown[]> => {
+    const out: unknown[] = [];
+    for (const handler of handlers.get(name) ?? []) out.push(await handler(event, context));
+    return out;
+  };
+  const alwaysManifest = (mode?: string): void => {
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi", "navori.json"),
+      JSON.stringify({
+        controls: {
+          planTiers: false,
+          masterPlan: false,
+          scribeOwnsMarkdown: false,
+          ...(mode ? { auditMode: mode } : {}),
+        },
+      }),
+    );
+  };
+  const notice = (results: unknown[]): string =>
+    JSON.stringify(results.find((r) => r !== undefined) ?? null);
+
+  // Covers: pi-audit-mode A2
+  it("a pending arm is consumed once at session_start and announced at the first user prompt", async () => {
+    arm();
+    const handlers = loadAll();
+    await runAll(handlers, "session_start", { reason: "startup" }, ctx());
+    expect(recorded()).toEqual([
+      `audit --consume-arm --start sess-1 --host pi --cwd ${cwd} --root ${join(root, "audits")}`,
+    ]);
+    const first = await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(notice(first)).toContain("audit-mode ACTIVE");
+    const second = await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(second.every((r) => r === undefined)).toBe(true);
+    expect(recorded()).toHaveLength(1);
+  });
+
+  // Covers: pi-audit-mode A2
+  it("an arm set mid-session is consumed by the next user prompt, but not by a custom run", async () => {
+    const handlers = loadAll();
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(recorded()).toEqual([]);
+    arm();
+    await runAll(handlers, "before_agent_start", { messageType: "custom" }, ctx());
+    expect(recorded()).toEqual([]);
+    const out = await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(recorded()).toHaveLength(1);
+    expect(notice(out)).toContain("armed via navori audit --arm");
+  });
+
+  // Covers: pi-audit-mode A2
+  it("reload and resume never consume an arm", async () => {
+    arm();
+    const handlers = loadAll();
+    for (const reason of ["reload", "resume", "fork"])
+      await runAll(handlers, "session_start", { reason }, ctx());
+    expect(recorded()).toEqual([]);
+  });
+
+  // Covers: pi-audit-mode A2
+  it("audit.mode=always starts the session once, on its first user prompt", async () => {
+    alwaysManifest("always");
+    const handlers = loadAll();
+    await runAll(handlers, "session_start", { reason: "startup" }, ctx());
+    expect(recorded()).toEqual([]);
+    const first = await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(recorded()).toEqual([`audit --start sess-1 --host pi --cwd ${cwd}`]);
+    expect(notice(first)).toContain("audit.mode=always");
+  });
+
+  // Covers: pi-audit-mode A2
+  it("a missing, invalid or default manifest means always is off and never throws", async () => {
+    const handlers = loadAll();
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx("no-manifest"));
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "navori.json"), "{ not json");
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx("bad-json"));
+    alwaysManifest();
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx("default"));
+    expect(recorded()).toEqual([]);
+  });
+
+  // Covers: pi-audit-mode A2
+  it("a child never starts or consumes anything", async () => {
+    arm();
+    alwaysManifest("always");
+    const handlers = loadAll({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "scout" });
+    await runAll(handlers, "session_start", { reason: "startup" }, ctx());
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx());
+    expect(recorded()).toEqual([]);
+  });
+
+  // Covers: pi-audit-mode A2
+  it("uses one sanitized id and skips a session whose id sanitizes to nothing", async () => {
+    alwaysManifest("always");
+    const handlers = loadAll();
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx("a.b/c"));
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx("../.."));
+    await runAll(handlers, "before_agent_start", { messageType: "user" }, ctx(""));
+    expect(recorded()).toEqual([`audit --start abc --host pi --cwd ${cwd}`]);
+  });
+});
+
+describe("Pi manifest auditMode control (pi-audit-mode)", () => {
+  const render = (audit?: { mode: "always" | "opt-in" }): string => {
+    const target = mkdtempSync(join(tmpdir(), "navori-pi-audit-manifest-"));
+    try {
+      renderPiEngine(
+        target,
+        NavoriConfigSchema.parse({
+          name: "pi-audit-manifest",
+          preset: "custom",
+          engines: ["pi"],
+          ...(audit ? { audit } : {}),
+        }),
+      );
+      return readFileSync(join(target, ".pi/navori.json"), "utf8");
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  };
+
+  // Covers: pi-audit-mode A2
+  it("emits auditMode only for a non-default audit.mode and keeps both shapes owned", () => {
+    const always = render({ mode: "always" });
+    expect(JSON.parse(always).controls.auditMode).toBe("always");
+    expect(ownsPiManifest(always)).toBe(true);
+    for (const manifest of [render(), render({ mode: "opt-in" })]) {
+      expect(JSON.parse(manifest).controls).not.toHaveProperty("auditMode");
+      expect(ownsPiManifest(manifest)).toBe(true);
+    }
+    expect(render()).toBe(render({ mode: "opt-in" }));
+  });
+
+  // Covers: pi-audit-mode A2
+  it("rejects an unknown auditMode value", () => {
+    const tampered = render({ mode: "always" }).replace(
+      '"auditMode": "always"',
+      '"auditMode": "x"',
+    );
+    expect(ownsPiManifest(tampered)).toBe(false);
   });
 });

@@ -14,6 +14,8 @@ export function load(
     shell?: Shell;
     env?: Record<string, string>;
     version?: string;
+    /** When given, receives EVERY handler per event (the returned map keeps only the first). */
+    collect?: Map<string, Handler[]>;
     /** Node IPC `process.send` of a child, to observe what it relays to its parent. */
     send?: (message: Record<string, unknown>, callback: (error: Error | null) => void) => void;
   } = {},
@@ -54,6 +56,7 @@ export function load(
     on: (name: string, handler: Handler) => {
       // The first handler of an event is the bridge's: the later ones are context helpers.
       if (!handlers.has(name)) handlers.set(name, handler);
+      options.collect?.set(name, [...(options.collect.get(name) ?? []), handler]);
     },
     registerTool: () => {},
   });

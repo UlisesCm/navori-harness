@@ -395,6 +395,8 @@ export function preparePiEngine(
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
       scribeOwnsMarkdown,
+      // Optional: emitted only for a non-default audit.mode so unset configs keep a byte-identical manifest.
+      ...(config.audit?.mode === "always" ? { auditMode: "always" as const } : {}),
     },
     hooks,
     // Whole-file destinations only; AGENTS.md and skills mix user text with managed blocks (marker lane).

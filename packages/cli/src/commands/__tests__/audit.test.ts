@@ -853,6 +853,98 @@ describe("audit --arm / --disarm (#597)", () => {
   });
 });
 
+describe("audit --arm --host / --consume-arm --host pi (pi-audit-mode)", () => {
+  const armedFile = () => join(auditDir, ".armed");
+  const consume = (host: string, id: string): CliResult =>
+    runAudit([
+      "--consume-arm",
+      "--start",
+      id,
+      "--host",
+      host,
+      "--cwd",
+      repoDir,
+      "--root",
+      auditsRoot,
+    ]);
+
+  it("tags the arm with the host and keeps untagged arms valid", () => {
+    expect(runAudit(["--arm", "--host", "pi"]).status).toBe(0);
+    const tagged = JSON.parse(readFileSync(armedFile(), "utf-8")) as Record<string, unknown>;
+    expect(Object.keys(tagged).sort()).toEqual(["cwd", "host", "ts"]);
+    expect(tagged.host).toBe("pi");
+    expect(runAudit(["--disarm"]).status).toBe(0);
+    expect(runAudit(["--arm"]).status).toBe(0);
+    expect(Object.keys(JSON.parse(readFileSync(armedFile(), "utf-8")) as object)).toEqual([
+      "ts",
+      "cwd",
+    ]);
+  });
+
+  it("rejects an unknown arm host without writing", () => {
+    expect(runAudit(["--arm", "--host", "vim"]).status).toBe(2);
+    expect(existsSync(armedFile())).toBe(false);
+  });
+
+  it("consumes a pi-tagged arm for host pi and starts a pi log", () => {
+    runAudit(["--arm", "--host", "pi"]);
+    expect(consume("pi", "pi-sess").status).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+    const log = readFileSync(join(auditDir, "session-pi-sess.log"), "utf-8");
+    expect(JSON.parse(log.split("\n")[0]!)).toMatchObject({ event: "start", host: "pi" });
+  });
+
+  it("consumes an untagged arm for host pi", () => {
+    runAudit(["--arm"]);
+    expect(consume("pi", "pi-untagged").status).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+  });
+
+  it("leaves an arm tagged for another host in place", () => {
+    runAudit(["--arm", "--host", "pi"]);
+    const before = readFileSync(armedFile());
+    expect(consume("claude", "wrong-host").status).toBe(2);
+    expect(readFileSync(armedFile())).toEqual(before);
+    expect(existsSync(join(auditDir, "session-wrong-host.log"))).toBe(false);
+  });
+});
+
+describe("audit unsafe root: repair hint (pi-audit-mode)", () => {
+  it("prints a find-based repair hint for a permission-only fault", () => {
+    mkdirSync(auditDir, { mode: 0o755 });
+    chmodSync(auditDir, 0o755);
+    const res = runAudit(["--start", "perm"]);
+    expect(res.status).toBe(2);
+    expect(res.combined).toContain("unsafe-audit-target");
+    expect(res.combined).toContain(`find '${auditsRoot}' -type d -exec chmod 700 {} +`);
+    expect(res.combined).toContain("-type f -exec chmod 600 {} +");
+    // Never auto-repaired.
+    expect(statSync(auditDir).mode & 0o777).toBe(0o755);
+  });
+
+  it("adds repair{root,command} to --json", () => {
+    mkdirSync(auditDir, { mode: 0o755 });
+    chmodSync(auditDir, 0o755);
+    const res = runAudit(["--start", "perm", "--json"]);
+    expect(res.status).toBe(2);
+    const body = JSON.parse(res.combined.trim().split("\n").pop()!) as {
+      repair?: { root: string; command: string };
+    };
+    expect(body.repair?.root).toBe(auditsRoot);
+    expect(body.repair?.command).toContain("chmod 700");
+  });
+
+  it("gives no hint for a symlinked repo dir", () => {
+    const target = join(sandbox, "target");
+    mkdirSync(target, { mode: 0o700 });
+    symlinkSync(target, auditDir);
+    const res = runAudit(["--start", "linked"]);
+    expect(res.status).toBe(2);
+    expect(res.combined).toContain("unsafe-audit-target");
+    expect(res.combined).not.toContain("chmod");
+  });
+});
+
 describe("private CLI lifecycle and exports", () => {
   describe("exclusive arm claim orchestration", () => {
     let armed: string;
