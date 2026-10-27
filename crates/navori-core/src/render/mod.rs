@@ -6,6 +6,7 @@ pub mod claude_md;
 pub mod collect;
 pub mod context;
 pub mod frontmatter;
+pub mod harness_files;
 pub mod harness_plan;
 pub mod hook_includes;
 pub mod interpolate;
