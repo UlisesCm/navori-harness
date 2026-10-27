@@ -265,7 +265,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Machine commands about external tools (navori tools v0.12.3)\n\nUSAGE navori tools notice|session-context\n\nCOMMANDS\n\n  notice  Emit pending tool update notices for the SessionStart hook  \n  session-context  Emit the notice and Dominio sections for the SessionStart hook in one call\n\nUse navori tools <command> --help for more information about a command.\n\n",
+      "stdout": "Machine commands about external tools (navori tools v0.12.3)\n\nUSAGE navori tools notice|session-context|rust-shadow\n\nCOMMANDS\n\n  notice  Emit pending tool update notices for the SessionStart hook  \n  session-context  Emit the notice and Dominio sections for the SessionStart hook in one call\n  rust-shadow  Machine bridge to the native shadow journal  \n\nUse navori tools <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {

@@ -8,12 +8,36 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::LazyLock;
 
 use navori_core::integrity;
 use navori_core::manifest::{HookMode, Manifest};
 use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
 
-use crate::shadow;
+use crate::journal::{self, CliJournal, ShadowJournal};
+use crate::{hook_facts, shadow};
+
+/// Read-only facts captured before stdin for handlers that select a profile from the host.
+#[derive(Debug, Clone, Copy)]
+pub struct Snapshot<'a> {
+    /// Script bytes that already passed the integrity check.
+    pub source: &'a [u8],
+    /// Complete environment of this invocation, unchanged.
+    pub env: &'a [(OsString, OsString)],
+    /// Working directory of this invocation.
+    pub cwd: &'a Path,
+}
+
+/// Buffered payload evaluation produced by a successful preparation.
+pub type Evaluator<'a> = Box<dyn Fn(&[u8]) -> Result<Evaluation, Failure> + 'a>;
+
+/// How a compiled hook turns payload bytes into a buffered evaluation.
+pub enum Handler {
+    /// Pure evaluation that needs nothing but the payload and the verified invocation.
+    Pure(fn(&[u8], &Invocation) -> Result<Evaluation, Failure>),
+    /// Host facts are collected before stdin; an error defers the call to the shell.
+    Prepared(for<'a> fn(&'a Invocation, Snapshot<'a>) -> Result<Evaluator<'a>, String>),
+}
 
 /// One hook implementation actually compiled into this binary.
 pub struct NativeHook {
@@ -22,11 +46,19 @@ pub struct NativeHook {
     /// SHA-256 of this implementation and the shared runtime, fixed at build time.
     pub implementation: &'static str,
     /// Buffered evaluation. It never receives stdout/stderr writers.
-    pub evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>,
+    pub handler: Handler,
 }
 
-/// No native hook is enabled merely by adding a manifest entry (R7).
-pub const NATIVE_HOOKS: &[NativeHook] = &[];
+/// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
+/// select the hook (R7), and a missing build hash never matches a manifest entry.
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 1]> = LazyLock::new(|| {
+    [NativeHook {
+        id: "subagent-no-background",
+        implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
+            .unwrap_or_default(),
+        handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
+    }]
+});
 
 /// User-selected runtime override; automatic mode is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,15 +209,36 @@ fn dependencies(root: &Path, names: impl Iterator<Item = impl AsRef<str>>) -> Op
         .collect()
 }
 
-/// Select and evaluate a native hook using an explicit registry and owned I/O handles.
-///
-/// Registration and integrity precede stdin. Automatic shadow calls return the shell result;
-/// forced Rust evaluates only the native callback and never starts the shadow shell.
+/// Select and evaluate a native hook using an explicit registry and owned I/O handles, without
+/// a shadow journal (parity checks and tests). Production calls go through [`run_with_journal`].
 pub fn run_with<R: Read, W: Write, E: Write>(
     args: &[OsString],
     manifest: &Manifest,
     registry: &[NativeHook],
     mode: Mode,
+    input: &mut R,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
+    run_with_journal(args, manifest, registry, mode, None, input, stdout, stderr)
+}
+
+/// Select and evaluate a native hook using an explicit registry and owned I/O handles.
+///
+/// Registration and integrity precede stdin. Automatic shadow calls return the shell result;
+/// forced Rust evaluates only the native callback and never starts the shadow shell. With a
+/// journal, an automatic shadow call is acknowledged before stdin (no acknowledgement keeps the
+/// shell route) and its comparison is recorded after the shell answers.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "owned I/O handles and the journal are explicit seams for byte-exact tests"
+)]
+pub fn run_with_journal<R: Read, W: Write, E: Write>(
+    args: &[OsString],
+    manifest: &Manifest,
+    registry: &[NativeHook],
+    mode: Mode,
+    journal: Option<&dyn ShadowJournal>,
     input: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -217,7 +270,12 @@ pub fn run_with<R: Read, W: Write, E: Write>(
             stderr,
         );
     };
-    if !integrity::verify_file(&invocation.script, &deps, handler.implementation).unwrap_or(false) {
+    // Read once: the bytes that pass integrity are the same bytes a preparation inspects.
+    let Some((source, dependency_bytes)) = read_integrity_inputs(&invocation.script, &deps) else {
+        return defer(mode, "hook integrity mismatch", stderr);
+    };
+    let dependency_slices: Vec<&[u8]> = dependency_bytes.iter().map(Vec::as_slice).collect();
+    if !integrity::verify(&source, &dependency_slices, handler.implementation) {
         return defer(mode, "hook integrity mismatch", stderr);
     }
     let context = Context {
@@ -231,22 +289,69 @@ pub fn run_with<R: Read, W: Write, E: Write>(
                     .is_none_or(|event| event == "PreToolUse")),
     };
     let use_shadow = mode == Mode::Auto && (invocation.shadow || hook.mode == HookMode::Shadow);
+    let prepares = matches!(handler.handler, Handler::Prepared(_));
     // Capture before stdin/native evaluation. A shadow callback cannot change the shell's
     // environment snapshot. Unavailable setup still defers before input is consumed.
-    let shell_environment = if use_shadow {
+    let environment = if use_shadow || prepares {
         let Ok(cwd) = std::env::current_dir() else {
-            return defer(mode, "shadow working directory unavailable", stderr);
+            let cause = if use_shadow {
+                "shadow working directory unavailable"
+            } else {
+                "working directory unavailable"
+            };
+            return defer(mode, cause, stderr);
         };
         Some((cwd, std::env::vars_os().collect::<Vec<_>>()))
     } else {
         None
+    };
+    let prepared = match (&handler.handler, &environment) {
+        (Handler::Prepared(prepare), Some((cwd, env))) => {
+            let snapshot = Snapshot {
+                source: &source,
+                env,
+                cwd,
+            };
+            match prepare(&invocation, snapshot) {
+                Ok(evaluator) => Some(evaluator),
+                Err(cause) => {
+                    return defer(mode, &format!("hook is ineligible: {cause}"), stderr);
+                }
+            }
+        }
+        _ => None,
+    };
+    let evaluate = |bytes: &[u8]| match (&prepared, &handler.handler) {
+        (Some(evaluator), _) => evaluator(bytes),
+        (None, Handler::Pure(evaluate)) => evaluate(bytes, &invocation),
+        (None, Handler::Prepared(_)) => Err(Failure("hook preparation is missing".to_owned())),
+    };
+    let shell_environment = environment.as_ref().filter(|_| use_shadow);
+    // Acknowledge before stdin: an observation that cannot be recorded never runs.
+    let observation = match (journal, shell_environment) {
+        (Some(journal), Some(_)) => {
+            let Some(root) = journal::project_root(invocation.engine, &invocation.engine_root)
+            else {
+                return defer(mode, "shadow project root unavailable", stderr);
+            };
+            let Some(receipt) = journal.begin(
+                root,
+                &invocation.id,
+                invocation.engine,
+                handler.implementation,
+            ) else {
+                return defer(mode, "shadow journal unavailable", stderr);
+            };
+            Some((journal, root, receipt))
+        }
+        _ => None,
     };
     let response = runner::run(
         context,
         input,
         || Ok(true),
         |payload| {
-            if let Some((cwd, env)) = &shell_environment {
+            if let Some((cwd, env)) = shell_environment {
                 let observed = shadow::run(
                     context,
                     payload,
@@ -256,8 +361,11 @@ pub fn run_with<R: Read, W: Write, E: Write>(
                         cwd,
                         env,
                     },
-                    |bytes| (handler.evaluate)(bytes, &invocation),
+                    evaluate,
                 );
+                if let Some((journal, root, receipt)) = &observation {
+                    journal.complete(root, receipt, observed.comparison, payload);
+                }
                 let verdict = match observed.shell.code() {
                     0 => Verdict::Permit,
                     1 => Verdict::Error,
@@ -274,10 +382,28 @@ pub fn run_with<R: Read, W: Write, E: Write>(
                     stderr: observed.shell.stderr().to_vec(),
                 });
             }
-            (handler.evaluate)(payload, &invocation)
+            evaluate(payload)
         },
     );
     runner::emit(context, &response, stdout, stderr)
+}
+
+/// Without a TS CLI nothing can be recorded, so every shadow observation stays on the shell.
+struct Unavailable;
+
+impl ShadowJournal for Unavailable {
+    fn begin(&self, _: &Path, _: &str, _: Engine, _: &str) -> Option<String> {
+        None
+    }
+
+    fn complete(&self, _: &Path, _: &str, _: shadow::Comparison, _: &[u8]) {}
+}
+
+/// Script and dependency bytes, or None when any of them cannot be read.
+fn read_integrity_inputs(script: &Path, deps: &[PathBuf]) -> Option<(Vec<u8>, Vec<Vec<u8>>)> {
+    let source = fs::read(script).ok()?;
+    let dependencies = deps.iter().map(fs::read).collect::<io::Result<_>>().ok()?;
+    Some((source, dependencies))
 }
 
 /// Production CLI adapter. No unknown hook is delegated to the TS command namespace.
@@ -289,11 +415,17 @@ pub fn run(args: &[OsString]) -> ExitCode {
         Ok(manifest) => manifest,
         Err(_) => return ExitCode::from(defer(mode, "invalid embedded manifest", &mut stderr)),
     };
-    ExitCode::from(run_with(
+    let journal = CliJournal::from_process();
+    let unavailable = Unavailable;
+    let journal: &dyn ShadowJournal = journal
+        .as_ref()
+        .map_or(&unavailable, |journal| journal as &dyn ShadowJournal);
+    ExitCode::from(run_with_journal(
         args,
         &manifest,
-        NATIVE_HOOKS,
+        &*NATIVE_HOOKS,
         mode,
+        Some(journal),
         &mut io::stdin().lock(),
         &mut io::stdout().lock(),
         &mut stderr,

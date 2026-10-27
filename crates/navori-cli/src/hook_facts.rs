@@ -17,6 +17,29 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
 
+use crate::hook::{Evaluator, Invocation, Snapshot};
+
+/// Registry adapter: collect host facts before stdin and keep the evaluation pure.
+/// The script path is the one the shadow shell lane runs, so diagnostics compare equal bytes.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_subagent_no_background<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.script,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let prepared = collect(request, snapshot.cwd, Limits::default()).map_err(|e| e.to_string())?;
+    Ok(Box::new(move |payload: &[u8]| prepared.evaluate(payload)))
+}
+
 /// Collect real facts under the exact snapshot and return eligibility before any stdin read.
 /// Timeouts/output errors are explicit ineligibility, never evidence that jq/Node is absent.
 /// R17's 5ms performance acceptance remains pending; this performs real compatibility probes.

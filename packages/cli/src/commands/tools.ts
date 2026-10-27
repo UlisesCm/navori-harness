@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { readConfig } from "../lib/config/config.ts";
 import { resolveLang, toolNoticeText } from "../lib/i18n.ts";
 import { ackToolNotices, prepareToolNotices } from "../lib/primitives/tool-version-notice.ts";
+import { rustShadowCommand } from "../lib/rust-shadow/command.ts";
 import { dominioInjectText } from "../lib/workspace/dominio-inject.ts";
 
 /**
@@ -138,5 +139,9 @@ const noticeSubCommand = defineCommand({
 
 export const toolsCommand = defineCommand({
   meta: { name: "tools", description: "Machine commands about external tools" },
-  subCommands: { notice: noticeSubCommand, "session-context": sessionContextSubCommand },
+  subCommands: {
+    notice: noticeSubCommand,
+    "session-context": sessionContextSubCommand,
+    "rust-shadow": rustShadowCommand,
+  },
 });
