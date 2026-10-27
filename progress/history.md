@@ -593,6 +593,31 @@ no determina origen del timeout anterior. Exec54824 terminó, log m8-full-resume
 M8 ancestry incluida en1393, sin PR adicional creado. T23–T26/A8/A9 y elegibilidad runtime siguen
 abiertos; siguiente paso CI del fix y merge sólo con checks verdes sobre SHA exacto.
 
+## 2026-10-23 19:45 Codex — Prepara elegibilidad con un solo clon
+
+Verificado cierre de #1393: todos los checks verdes sobre bafb7db9, merge73fa052f a migration/rust
+sin borrar branches. CI agregado10265 JS/1omitida/484files, cobertura87.91/86.2/90.6/80.95%,
+piso162/0; Rust98. Principal quedó en migration/rust limpio y sincronizado; upstream local
+corregido de origin/dev a origin/migration/rust mediante fast-forward, sin reset ni force.
+
+Por instrucción nueva se mantiene un único clon activo. En branch independiente desde73fa052f
+implementó preparación del primer hook: plan puro en navori-hooks/src (incluido en D8), collector
+CLI de hechos y Prepared.evaluate sin efectos. Validación antes de probes, stdin null, PATH
+del snapshot, versiones estables conocidas y locale, diagnóstico source exacto. UnixStreams
+no bloqueantes limitan salida combinada64KiB y plazo250ms/default/500máximo; errores no simulan
+ausencia jq/Node. Rechaza Codex, eventos/args no soportados, env duplicado/modificado y source
+ambiguo. Revisión corrigió soporte NoneClaude/Pi, jq1.7.1-apple real y Node mal formado/nightly.
+
+Principal verificó workspace107/107 y fmt0; productor5+4focales y clippyworkspace/alltargets0.
+No nuevas dependencias, sin wiring/registry/manifest, sin claim de R17/5ms ni A9. Fuente de seis
+paths congelada para commit/PR mientras el mismo clon pasa al journal en otro worktree.
+
+Principal diseñó journal begin/complete privado y actualizó notas verificadas en tasks.md.
+Prueba Node fs real mostró overwrite de un append intercalado al escribir contenido inicial
+con un fd O_EXCL no-append; publicación vacía seguida de append conservó ambas filas.
+El journal aplicará ese patrón, payload sólo en divergencias, y rechazará evidencia incompleta
+o contada con otra implementación/engine. Artefacto local del diseño y worktree journal
+preservados; no representa500 invocaciones reales ni14d de evidencia. T23–T26/A8/A9 abiertos.
 ## 2026-10-25 19:25 Codex — Prepara journal privado de sombra D9
 
 Retoma la biblioteca del journal en `feat/0057-rust-e2-m9-shadow-journal`, sin subagentes por
