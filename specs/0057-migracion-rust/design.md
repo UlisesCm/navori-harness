@@ -737,8 +737,9 @@ coincidir byte a byte.
   operación (`backup`, `create_temp`, `write`, `fsync`, `close`, `rename`, `remove`,
   `set_mtime`).
 - **Escritura atómica = `writeFileAtomic`:**
-  - temporal `.<base>.navori.tmp.<12 hex>` en el mismo directorio, creado con `create_new` y modo
-    `0o644` (sujeto a umask, igual que `openSync(…, 0o644)`);
+  - temporal `.<base>.navori.tmp.<12 hex>` en el mismo directorio, abierto como `openSync(…, "w",
+    0o644)`: `O_CREAT|O_TRUNC|O_WRONLY` sin `O_EXCL` y modo `0o644` sujeto a umask. Enmendado por
+    0058 (Q7): el texto anterior decía `create_new`, que no es lo que hace el TS;
   - write, `sync_all`, close, rename;
   - si falla, borra el temporal.
 
