@@ -17,7 +17,9 @@ Reglas de ejecución:
 - Workplan por entrega: `0058-rust-render-escrituras-e<n>`, con fases = milestones; `tasks.md` es el
   tracking canónico.
 - Cada PR de entrega va contra `migration/rust`; ninguno contra `dev`. Las entregas paralelas
-  necesitan archivos disjuntos y PR propio (Q2 de `design.md`).
+  necesitan archivos disjuntos y PR propio (Q2 de `design.md`). Por indicación
+  del usuario, varias entregas o hitos pequeños pueden agruparse en un solo PR; un hito de
+  área crítica nunca se agrupa con trabajo ajeno a su entrega.
 - Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
   archivos nuevos se crean en el milestone que los nombra.
 - Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets
