@@ -48,6 +48,10 @@ export const RecordedEvidenceSchema = z.object({
   head: z.string(),
   worktreeTree: z.string().min(1),
   dirty: z.boolean(),
+  /** Host comparison scalars only; tool output and output hashes are never evidence. */
+  exit: z.number().int().min(0).max(255).optional(),
+  expected: z.string().optional(),
+  outcome: z.enum(["pass", "fail", "unevaluated"]).optional(),
 });
 
 /** `cumplido` accepted without evidence because the engine exposes no

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T05:25:00Z",
+  "title": "Design System: navori website",
+  "extensions": {
+    "motion": [
+      {
+        "name": "scene-arrival",
+        "value": "550ms cubic-bezier(0.16, 1, 0.3, 1), 420ms sibling stagger",
+        "purpose": "Introduce new story objects in each of eight exclusive scenes; static final state when paused."
+      },
+      {
+        "name": "story-dwell",
+        "value": "6500ms",
+        "purpose": "Read each step; pause, choose steps or replay manually."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "stacked-demonstration",
+        "value": "640px"
+      },
+      {
+        "name": "collapsed-navigation",
+        "value": "900px"
+      },
+      {
+        "name": "stacked-introduction",
+        "value": "1000px"
+      }
+    ],
+    "shadows": []
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "A direct action in the existing deep sky palette.",
+      "html": "<button class=\"primary\">See how it works</button>",
+      "css": ".primary { min-height:44px; border:0; border-radius:6px; padding:10px 16px; background:var(--color-sky-700,#0369a1); color:#fff; font:500 14px sans-serif; cursor:pointer; } .primary:hover { background:#075985; } .primary:focus-visible { outline:2px solid #0369a1; outline-offset:3px; }"
+    }
+  ],
+  "narrative": {
+    "overview": "Polish the existing identity without an aggressive rebrand. Explain the harness to visitors with little technical knowledge, and preserve a deeper technical route.",
+    "keyCharacteristics": [
+      "Original grid texture throughout the site",
+      "Restored hero terminal",
+      "Eight explanatory scenes with new objects",
+      "Plain text name, favicon-only symbol"
+    ],
+    "dos": [
+      "Show what workspace and plugins contribute.",
+      "Keep motion optional.",
+      "Keep technical depth available."
+    ],
+    "donts": [
+      "Do not promise equal enforcement across engines.",
+      "Do not replace an explanation with decorative animation."
+    ]
+  }
+}

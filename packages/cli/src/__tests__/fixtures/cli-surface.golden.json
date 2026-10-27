@@ -5,7 +5,7 @@
         "--version"
       ],
       "status": 0,
-      "stdout": "0.12.2\n",
+      "stdout": "0.12.3\n",
       "stderr": ""
     },
     {
@@ -13,7 +13,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Multi-agent harness + SDD scaffolder (navori v0.12.2)\n\nUSAGE navori init|add|remove|adopt|configure|update|refresh|render|sync|scan|registry|doctor|status|bench|workspace|ticket|backup|migrations|preset|codex|dominio|audit|receipt|plan|spec|handoff|master|tools|gate\n\nCOMMANDS\n\n  init  Adopt navori in the current repo (auto-detects stack, presets, quality gate)  \n  add  Register a plugin in navori.config.json and optionally install its external tool  \n  remove  Disable a plugin and clean up its managed blocks, sub-blocks and scripts  \n  adopt  Take a hand-made .claude/ file under navori's management (preview by default)  \n  configure  Modify navori.config.json sections after init  \n  update  Update the navori CLI to the latest release, then run 'navori refresh'  \n  refresh  Re-detect the repo, refresh config and run sync (one shot 'bring me up to date')  \n  render  Render every configured engine from navori.config.json  \n  sync  Sync every configured engine from the bundle, prompting on conflicts  \n  scan  Re-detect workspaces in a monorepo and add new ones to navori.config.json  \n  registry  Global registry of every navori repo on this machine (for 'render --all')  \n  doctor  Inspect navori.config.json and report resolved state + managed blocks  \n  status  Quick snapshot: config, plugins, drift, and suggested next steps  \n  bench  Benchmark render over N runs and report p50/p95 (spots local regressions)  \n  workspace  Manage navori workspaces (cross-repo config + tickets)  \n  ticket  Manage tickets-as-files inside a workspace  \n  backup  List and restore navori backups  \n  migrations  List and restore init replace-mode migrations  \n  preset  Manage local presets under .navori/presets/  \n  codex  Codex-specific commands  \n  dominio  Manage the workspace knowledge base (canonical cross-repo facts)  \n  audit  Report harness tokens and adherence gaps  \n  receipt  Sign or check the reviewed content receipt  \n  plan  Classify, render, update and check a level-1/2 workplan  \n  spec  Classify and validate a spec's tasks.md  \n  handoff  Validate the implementer's handoff before dispatch  \n  master  Master-plan project flow (spec 0034)  \n  tools  Machine commands about external tools  \n  gate  Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict\n\nUse navori <command> --help for more information about a command.\n\n",
+      "stdout": "Multi-agent harness + SDD scaffolder (navori v0.12.3)\n\nUSAGE navori init|add|remove|adopt|configure|update|refresh|render|sync|scan|registry|doctor|status|bench|workspace|ticket|backup|migrations|preset|codex|dominio|audit|receipt|plan|spec|handoff|master|tools|gate\n\nCOMMANDS\n\n  init  Adopt navori in the current repo (auto-detects stack, presets, quality gate)  \n  add  Register a plugin in navori.config.json and optionally install its external tool  \n  remove  Disable a plugin and clean up its managed blocks, sub-blocks and scripts  \n  adopt  Take a hand-made .claude/ file under navori's management (preview by default)  \n  configure  Modify navori.config.json sections after init  \n  update  Update the navori CLI to the latest release, then run 'navori refresh'  \n  refresh  Re-detect the repo, refresh config and run sync (one shot 'bring me up to date')  \n  render  Render every configured engine from navori.config.json  \n  sync  Sync every configured engine from the bundle, prompting on conflicts  \n  scan  Re-detect workspaces in a monorepo and add new ones to navori.config.json  \n  registry  Global registry of every navori repo on this machine (for 'render --all')  \n  doctor  Inspect navori.config.json and report resolved state + managed blocks  \n  status  Quick snapshot: config, plugins, drift, and suggested next steps  \n  bench  Benchmark render over N runs and report p50/p95 (spots local regressions)  \n  workspace  Manage navori workspaces (cross-repo config + tickets)  \n  ticket  Manage tickets-as-files inside a workspace  \n  backup  List and restore navori backups  \n  migrations  List and restore init replace-mode migrations  \n  preset  Manage local presets under .navori/presets/  \n  codex  Codex-specific commands  \n  dominio  Manage the workspace knowledge base (canonical cross-repo facts)  \n  audit  Report harness tokens and adherence gaps  \n  receipt  Sign or check the reviewed content receipt  \n  plan  Classify, render, update and check a level-1/2 workplan  \n  spec  Classify and validate a spec's tasks.md  \n  handoff  Validate the implementer's handoff before dispatch  \n  master  Master-plan project flow (spec 0034)  \n  tools  Machine commands about external tools  \n  gate  Run qualityGate.<fast|full>, or `foreign` for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict\n\nUse navori <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -22,7 +22,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Adopt navori in the current repo (auto-detects stack, presets, quality gate) (navori init v0.12.2)\n\nUSAGE navori init [OPTIONS] \n\nOPTIONS\n\n  --yes  Accept all detected values + render automatically without prompting  \n  --cwd  Directory to initialize (default: current working directory)  \n  --no-render  Render CLAUDE.md after writing config. Disable with --no-render.  \n  --workspace  Workspace to inherit defaults from (must exist via 'workspace init')  \n  --recommended  Opinionated mode: --yes + full harness without installing external software (+gh if GitHub repo; engram already ships always-on)  \n  --full  --recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block  \n  --lang  Wizard language (es|en). Default: es. Skipped in --yes/--recommended.  \n  --scan-monorepo  When a monorepo is detected, scan pnpm-workspace.yaml / package.json#workspaces and populate monorepo.workspaces[] with a preset per app\n  --pre-commit-hook  Scaffold a local pre-commit hook that runs 'navori doctor --strict'. Opt-in; in interactive mode you're asked instead.  \n\n\n",
+      "stdout": "Adopt navori in the current repo (auto-detects stack, presets, quality gate) (navori init v0.12.3)\n\nUSAGE navori init [OPTIONS] \n\nOPTIONS\n\n  --yes  Accept all detected values + render automatically without prompting  \n  --cwd=<cwd>  Directory to initialize (default: current working directory)  \n  --render  Render CLAUDE.md after writing config. Disable with --no-render. (Default: true)  \n  --no-render  \n  --workspace=<workspace>  Workspace to inherit defaults from (must exist via 'workspace init')  \n  --recommended  Opinionated mode: --yes + full harness without installing external software (+gh if GitHub repo; engram already ships always-on)  \n  --full  --recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block  \n  --lang=<lang>  Wizard language (es|en). Default: es. Skipped in --yes/--recommended.  \n  --scan-monorepo  When a monorepo is detected, scan pnpm-workspace.yaml / package.json#workspaces and populate monorepo.workspaces[] with a preset per app\n  --pre-commit-hook  Scaffold a local pre-commit hook that runs 'navori doctor --strict'. Opt-in; in interactive mode you're asked instead.  \n\n\n",
       "stderr": ""
     },
     {
@@ -31,7 +31,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Register a plugin in navori.config.json and optionally install its external tool (navori add v0.12.2)\n\nUSAGE navori add [OPTIONS] [PLUGIN]\n\nARGUMENTS\n\n  PLUGIN  Plugin id to add (e.g. engram). Omit with --suggest.  \n\nOPTIONS\n\n  --suggest  Detect the stack and suggest a preset + plugins (does not install anything).\n  --cwd  Directory containing navori.config.json (default: cwd)  \n  --yes  Skip prompts, install external tool if needed  \n  --skip-install  Do not install external tool (register plugin only)  \n\n\n",
+      "stdout": "Register a plugin in navori.config.json and optionally install its external tool (navori add v0.12.3)\n\nUSAGE navori add [OPTIONS] [PLUGIN]\n\nARGUMENTS\n\n  PLUGIN  Plugin id to add (e.g. engram). Omit with --suggest.\n\nOPTIONS\n\n  --suggest  Detect the stack and suggest a preset + plugins (does not install anything).\n  --cwd=<cwd>  Directory containing navori.config.json (default: cwd)  \n  --yes  Skip prompts, install external tool if needed  \n  --skip-install  Do not install external tool (register plugin only)  \n\n\n",
       "stderr": ""
     },
     {
@@ -40,7 +40,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Disable a plugin and clean up its managed blocks, sub-blocks and scripts (navori remove v0.12.2)\n\nUSAGE navori remove [OPTIONS] <PLUGIN>\n\nARGUMENTS\n\n  PLUGIN  Plugin id to remove (e.g. tgrep)  \n\nOPTIONS\n\n  --cwd  Directory (default: cwd)\n  --yes  Skip confirmation  \n\n\n",
+      "stdout": "Disable a plugin and clean up its managed blocks, sub-blocks and scripts (navori remove v0.12.3)\n\nUSAGE navori remove [OPTIONS] <PLUGIN>\n\nARGUMENTS\n\n  PLUGIN  Plugin id to remove (e.g. tgrep) (Required)\n\nOPTIONS\n\n  --cwd=<cwd>  Directory (default: cwd)\n  --yes  Skip confirmation  \n\n\n",
       "stderr": ""
     },
     {
@@ -49,7 +49,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Take a hand-made .claude/ file under navori's management (preview by default) (navori adopt v0.12.2)\n\nUSAGE navori adopt [OPTIONS] <PATH>\n\nARGUMENTS\n\n  PATH  File to adopt, relative to the repo (e.g. .claude/agents/mia.md)  \n\nOPTIONS\n\n  --apply  Write to disk. Without it, adopt only previews.\n  --cwd  Directory (default: cwd)  \n\n\n",
+      "stdout": "Take a hand-made .claude/ file under navori's management (preview by default) (navori adopt v0.12.3)\n\nUSAGE navori adopt [OPTIONS] <PATH>\n\nARGUMENTS\n\n  PATH  File to adopt, relative to the repo (e.g. .claude/agents/mia.md) (Required)\n\nOPTIONS\n\n  --apply  Write to disk. Without it, adopt only previews.\n  --cwd=<cwd>  Directory (default: cwd)  \n\n\n",
       "stderr": ""
     },
     {
@@ -58,7 +58,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Modify navori.config.json sections after init (navori configure v0.12.2)\n\nUSAGE navori configure plugins|quality-gate|branch-base|pr-target|language|migrate|engines|workspace|blocks\n\nCOMMANDS\n\n  plugins  Enable or disable plugins for this repo  \n  quality-gate  Set or update the quality gate commands (fast + full)  \n  branch-base  Set the base branch gates diff against (e.g. main, develop)  \n  pr-target  Set the branch PRs target (gh pr create --base); defaults to branchBase  \n  language  Switch the language of managed Core assets (es / en)  \n  migrate  Rename retired harness/models/effort keys so the config loads again  \n  engines  Add or remove target engines (claude / agents-md / cursor / copilot / codex)\n  workspace  Associate this repo with a workspace (or remove the association)  \n  blocks  Opt out of core managed blocks (e.g. exclude orquestacion / sdd)  \n\nUse navori configure <command> --help for more information about a command.\n\n",
+      "stdout": "Modify navori.config.json sections after init (navori configure v0.12.3)\n\nUSAGE navori configure plugins|quality-gate|branch-base|pr-target|language|migrate|engines|workspace|blocks\n\nCOMMANDS\n\n  plugins  Enable or disable plugins for this repo  \n  quality-gate  Set or update the quality gate commands (fast + full)  \n  branch-base  Set the base branch gates diff against (e.g. main, develop)  \n  pr-target  Set the branch PRs target (gh pr create --base); defaults to branchBase  \n  language  Switch the language of managed Core assets (es / en)  \n  migrate  Rename retired harness/models/effort keys so the config loads again  \n  engines  Add or remove target engines (claude / agents-md / cursor / copilot / codex)\n  workspace  Associate this repo with a workspace (or remove the association)  \n  blocks  Opt out of core managed blocks (e.g. exclude orquestacion / sdd)  \n\nUse navori configure <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -67,7 +67,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Update the navori CLI to the latest release, then run 'navori refresh' (navori update v0.12.2)\n\nUSAGE navori update [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory (default: cwd)  \n  --yes  Install and refresh without prompting  \n  --dry-run  Forwarded to refresh: show changes, write nothing\n  --config-only  Forwarded to refresh: skip the sync step  \n  --cli-only  Only update the CLI; do not run refresh  \n\n\n",
+      "stdout": "Update the navori CLI to the latest release, then run 'navori refresh' (navori update v0.12.3)\n\nUSAGE navori update [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory (default: cwd)  \n  --yes  Install and refresh without prompting  \n  --dry-run  Forwarded to refresh: show changes, write nothing\n  --config-only  Forwarded to refresh: skip the sync step  \n  --cli-only  Only update the CLI; do not run refresh  \n\n\n",
       "stderr": ""
     },
     {
@@ -76,7 +76,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Re-detect the repo, refresh config and run sync (one shot 'bring me up to date') (navori refresh v0.12.2)\n\nUSAGE navori refresh [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory (default: cwd)  \n  --yes  Apply detected diffs and sync without prompting\n  --dry-run  Show what would change, do not write  \n  --config-only  Update config but skip the sync step  \n\n\n",
+      "stdout": "Re-detect the repo, refresh config and run sync (one shot 'bring me up to date') (navori refresh v0.12.3)\n\nUSAGE navori refresh [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory (default: cwd)  \n  --yes  Apply detected diffs and sync without prompting\n  --dry-run  Show what would change, do not write  \n  --config-only  Update config but skip the sync step  \n\n\n",
       "stderr": ""
     },
     {
@@ -85,7 +85,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Render every configured engine from navori.config.json (navori render v0.12.2)\n\nUSAGE navori render [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to render into (default: cwd)  \n  --apply  Write changes to disk. Without it, render only previews (no files touched).  \n  --dry-run  Deprecated: preview is the default now. Kept as an explicit alias for --no-apply.  \n  --force  Regenerate settings.json even if corrupted or missing the $navori marker. The previous file is backed up.  \n  --workspace  Render only one workspace by name (skips root). Requires a monorepo config with declared workspaces.  \n  --json  Emit a machine-readable JSON result and suppress human output (for CI/automation).  \n  --all  Render EVERY repo in the global registry (~/.navori/registry.json), not just the current one. Use after a navori bump to roll changes into all your projects at once.  \n  --prune  With --all: drop registry entries whose repo no longer exists before rendering. In a single repo (with --apply): delete outputs left by engines no longer in config.engines (orphaned AGENTS.md/.codex/…), backing them up first.\n  --verbose  With --all: list each changed managed block per repo, not just the counts.  \n\n\n",
+      "stdout": "Render every configured engine from navori.config.json (navori render v0.12.3)\n\nUSAGE navori render [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to render into (default: cwd)  \n  --apply  Write changes to disk. Without it, render only previews (no files touched).  \n  --dry-run  Deprecated: preview is the default now. Kept as an explicit alias for --no-apply.  \n  --force  Regenerate settings.json even if corrupted or missing the $navori marker. The previous file is backed up.  \n  --workspace=<workspace>  Render only one workspace by name (skips root). Requires a monorepo config with declared workspaces.  \n  --json  Emit a machine-readable JSON result and suppress human output (for CI/automation).  \n  --all  Render EVERY repo in the global registry (~/.navori/registry.json), not just the current one. Use after a navori bump to roll changes into all your projects at once.  \n  --prune  With --all: drop registry entries whose repo no longer exists before rendering. In a single repo (with --apply): delete outputs left by engines no longer in config.engines (orphaned AGENTS.md/.codex/…), backing them up first.\n  --verbose  With --all: list each changed managed block per repo, not just the counts.  \n\n\n",
       "stderr": ""
     },
     {
@@ -94,7 +94,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Sync every configured engine from the bundle, prompting on conflicts (navori sync v0.12.2)\n\nUSAGE navori sync [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to sync (default: cwd)  \n  --dry-run  Show plan, do not write  \n  --apply  Apply changes (skip interactive prompt)  \n  --interactive  Resolve each CLAUDE.md block conflict: see the diff and pick keep-mine or accept-new.  \n  --yes  Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist, unless --accept-new/--keep-mine already resolved them.  \n  --accept-new  Resolve EVERY CLAUDE.md block conflict by overwriting your edit with the rendered version, without prompting. Destructive: requires --apply (or --yes) to write, and backs up CLAUDE.md first. Your user zone is never touched.  \n  --accept-new-files  Resolve EVERY whole-file conflict (a managed file you edited that still carries its navori marker) by overwriting your edit with the rendered version, without prompting. Destructive: requires --apply (or --yes) to write, and backs up each file first. --accept-new alone never touches whole files.\n  --keep-mine  Resolve EVERY CLAUDE.md block conflict by keeping your edit, applying every non-conflicting change, without prompting. Requires --apply (or --yes) to write.  \n  --workspace  Sync only one workspace by name (skips root). Requires a monorepo config with declared workspaces.  \n  --json  Emit a machine-readable JSON result and suppress human output (for CI/automation).  \n\n\n",
+      "stdout": "Sync every configured engine from the bundle, prompting on conflicts (navori sync v0.12.3)\n\nUSAGE navori sync [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to sync (default: cwd)  \n  --dry-run  Show plan, do not write  \n  --apply  Apply changes (skip interactive prompt)  \n  --interactive  Resolve each CLAUDE.md block conflict: see the diff and pick keep-mine or accept-new.  \n  --yes  Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist, unless --accept-new/--keep-mine already resolved them.  \n  --accept-new  Resolve EVERY CLAUDE.md block conflict by overwriting your edit with the rendered version, without prompting. Destructive: requires --apply (or --yes) to write, and backs up CLAUDE.md first. Your user zone is never touched.  \n  --accept-new-files  Resolve EVERY whole-file conflict (a managed file you edited that still carries its navori marker) by overwriting your edit with the rendered version, without prompting. Destructive: requires --apply (or --yes) to write, and backs up each file first. --accept-new alone never touches whole files.\n  --keep-mine  Resolve EVERY CLAUDE.md block conflict by keeping your edit, applying every non-conflicting change, without prompting. Requires --apply (or --yes) to write.  \n  --workspace=<workspace>  Sync only one workspace by name (skips root). Requires a monorepo config with declared workspaces.  \n  --json  Emit a machine-readable JSON result and suppress human output (for CI/automation).  \n\n\n",
       "stderr": ""
     },
     {
@@ -103,7 +103,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Re-detect workspaces in a monorepo and add new ones to navori.config.json (navori scan v0.12.2)\n\nUSAGE navori scan [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to scan (default: current working directory)  \n  --yes  Accept suggested presets for every new workspace without prompting\n\n\n",
+      "stdout": "Re-detect workspaces in a monorepo and add new ones to navori.config.json (navori scan v0.12.3)\n\nUSAGE navori scan [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to scan (default: current working directory)  \n  --yes  Accept suggested presets for every new workspace without prompting\n\n\n",
       "stderr": ""
     },
     {
@@ -112,7 +112,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Global registry of every navori repo on this machine (for 'render --all') (navori registry v0.12.2)\n\nUSAGE navori registry ls|scan|add|remove|prune\n\nCOMMANDS\n\n  ls  List every repo in the global registry  \n  scan  Walk one or more directories and register every navori repo found\n  add  Register a single repo by path  \n  remove  Unregister a repo by path (leaves its files untouched)  \n  prune  Drop registry entries whose repo no longer exists  \n\nUse navori registry <command> --help for more information about a command.\n\n",
+      "stdout": "Global registry of every navori repo on this machine (for 'render --all') (navori registry v0.12.3)\n\nUSAGE navori registry ls|scan|add|remove|prune\n\nCOMMANDS\n\n  ls  List every repo in the global registry  \n  scan  Walk one or more directories and register every navori repo found\n  add  Register a single repo by path  \n  remove  Unregister a repo by path (leaves its files untouched)  \n  prune  Drop registry entries whose repo no longer exists  \n\nUse navori registry <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -121,7 +121,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Inspect navori.config.json and report resolved state + managed blocks (navori doctor v0.12.2)\n\nUSAGE navori doctor [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to inspect (default: cwd)  \n  --json  Output as JSON (pipeable)  \n  --strict  Exit 1 when drift or an incoherent .mcp.json is detected (intended for CI gates)\n\n\n",
+      "stdout": "Inspect navori.config.json and report resolved state + managed blocks (navori doctor v0.12.3)\n\nUSAGE navori doctor [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to inspect (default: cwd)  \n  --json  Output as JSON (pipeable)  \n  --strict  Exit 1 when drift or an incoherent .mcp.json is detected (intended for CI gates)\n\n\n",
       "stderr": ""
     },
     {
@@ -130,7 +130,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Quick snapshot: config, plugins, drift, and suggested next steps (navori status v0.12.2)\n\nUSAGE navori status [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to inspect (default: cwd)\n  --json  Output as JSON (pipeable)  \n\n\n",
+      "stdout": "Quick snapshot: config, plugins, drift, and suggested next steps (navori status v0.12.3)\n\nUSAGE navori status [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to inspect (default: cwd)\n  --json  Output as JSON (pipeable)  \n\n\n",
       "stderr": ""
     },
     {
@@ -139,7 +139,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Benchmark render over N runs and report p50/p95 (spots local regressions) (navori bench v0.12.2)\n\nUSAGE navori bench [OPTIONS] \n\nOPTIONS\n\n  --cwd  Directory to benchmark (default: cwd)\n  --runs  Number of iterations (default: 20)  \n\n\n",
+      "stdout": "Benchmark render over N runs and report p50/p95 (spots local regressions) (navori bench v0.12.3)\n\nUSAGE navori bench [OPTIONS] \n\nOPTIONS\n\n  --cwd=<cwd>  Directory to benchmark (default: cwd)\n  --runs=<runs>  Number of iterations (default: 20)  \n\n\n",
       "stderr": ""
     },
     {
@@ -148,7 +148,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Manage navori workspaces (cross-repo config + tickets) (navori workspace v0.12.2)\n\nUSAGE navori workspace init|ls|show|link|add-repo|set-default|render|rename|delete\n\nCOMMANDS\n\n  init  Create a new workspace at ~/.navori/workspaces/<name>.json  \n  ls  List all known workspaces  \n  show  Show details of a workspace  \n  link  Register the current repo in a workspace's machine-local registry (creates the workspace if missing)\n  add-repo  Register a repo inside a workspace  \n  set-default  Set a default applied to every repo in a workspace  \n  render  Render every repo registered in a workspace  \n  rename  Rename a workspace (preserves tickets, repos, defaults)  \n  delete  Delete a workspace (move to ~/.navori/.trash for safety)  \n\nUse navori workspace <command> --help for more information about a command.\n\n",
+      "stdout": "Manage navori workspaces (cross-repo config + tickets) (navori workspace v0.12.3)\n\nUSAGE navori workspace init|ls|show|link|add-repo|set-default|render|rename|delete\n\nCOMMANDS\n\n  init  Create a new workspace at ~/.navori/workspaces/<name>.json  \n  ls  List all known workspaces  \n  show  Show details of a workspace  \n  link  Register the current repo in a workspace's machine-local registry (creates the workspace if missing)\n  add-repo  Register a repo inside a workspace  \n  set-default  Set a default applied to every repo in a workspace  \n  render  Render every repo registered in a workspace  \n  rename  Rename a workspace (preserves tickets, repos, defaults)  \n  delete  Delete a workspace (move to ~/.navori/.trash for safety)  \n\nUse navori workspace <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -157,7 +157,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Manage tickets-as-files inside a workspace (navori ticket v0.12.2)\n\nUSAGE navori ticket list|show|new|archive|unarchive|delete\n\nCOMMANDS\n\n  list  List tickets in a workspace  \n  show  Show a ticket and which repos reference it  \n  new  Create a new ticket in a workspace  \n  archive  Move a ticket to the _archive folder (reversible)\n  unarchive  Move an archived ticket back to the active folder\n  delete  Delete a ticket permanently  \n\nUse navori ticket <command> --help for more information about a command.\n\n",
+      "stdout": "Manage tickets-as-files inside a workspace (navori ticket v0.12.3)\n\nUSAGE navori ticket list|show|new|archive|unarchive|delete\n\nCOMMANDS\n\n  list  List tickets in a workspace  \n  show  Show a ticket and which repos reference it  \n  new  Create a new ticket in a workspace  \n  archive  Move a ticket to the _archive folder (reversible)\n  unarchive  Move an archived ticket back to the active folder\n  delete  Delete a ticket permanently  \n\nUse navori ticket <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -166,7 +166,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "List and restore navori backups (navori backup v0.12.2)\n\nUSAGE navori backup list|restore|prune\n\nCOMMANDS\n\n  list  List available backups in ~/.navori/backups/  \n  restore  Restore files from a backup snapshot to the current directory  \n  prune  Delete backups past retention, then oldest-first down to the size cap\n\nUse navori backup <command> --help for more information about a command.\n\n",
+      "stdout": "List and restore navori backups (navori backup v0.12.3)\n\nUSAGE navori backup list|restore|prune\n\nCOMMANDS\n\n  list  List available backups in ~/.navori/backups/  \n  restore  Restore files from a backup snapshot to the current directory  \n  prune  Delete backups past retention, then oldest-first down to the size cap\n\nUse navori backup <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -175,7 +175,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "List and restore init replace-mode migrations (navori migrations v0.12.2)\n\nUSAGE navori migrations [OPTIONS] list|restore\n\nOPTIONS\n\n  --json  Output as JSON\n\nCOMMANDS\n\n  list  List init replace-mode migrations stored in ~/.navori/migrations/\n  restore  Restore an init replace-mode migration back to the original repo \n\nUse navori migrations <command> --help for more information about a command.\n\n",
+      "stdout": "List and restore init replace-mode migrations (navori migrations v0.12.3)\n\nUSAGE navori migrations [OPTIONS] list|restore\n\nOPTIONS\n\n  --json  Output as JSON\n\nCOMMANDS\n\n  list  List init replace-mode migrations stored in ~/.navori/migrations/\n  restore  Restore an init replace-mode migration back to the original repo \n\nUse navori migrations <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -184,7 +184,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Manage local presets under .navori/presets/ (navori preset v0.12.2)\n\nUSAGE navori preset init\n\nCOMMANDS\n\n  init  Scaffold a local preset under .navori/presets/<id>/ and wire it into config\n\nUse navori preset <command> --help for more information about a command.\n\n",
+      "stdout": "Manage local presets under .navori/presets/ (navori preset v0.12.3)\n\nUSAGE navori preset init\n\nCOMMANDS\n\n  init  Scaffold a local preset under .navori/presets/<id>/ and wire it into config\n\nUse navori preset <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -193,7 +193,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Codex-specific commands (navori codex v0.12.2)\n\nUSAGE navori codex evaluation|profile|trust|approval|integration\n\nCOMMANDS\n\n  evaluation  Capture bounded host observations and validate current live-evidence gaps\n  profile  Prepare and exclusively claim future native profile metadata  \n  trust  Approve this project's Codex hooks in ~/.codex/config.toml  \n  approval  Prepare or relay a non-authorizing pending PR request  \n  integration  Opt-in native host boundary for one pending PR publication  \n\nUse navori codex <command> --help for more information about a command.\n\n",
+      "stdout": "Codex-specific commands (navori codex v0.12.3)\n\nUSAGE navori codex evaluation|profile|trust|approval|integration\n\nCOMMANDS\n\n  evaluation  Capture bounded host observations and validate current live-evidence gaps\n  profile  Prepare and exclusively claim future native profile metadata  \n  trust  Approve this project's Codex hooks in ~/.codex/config.toml  \n  approval  Prepare or relay a non-authorizing pending PR request  \n  integration  Opt-in native host boundary for one pending PR publication  \n\nUse navori codex <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -202,7 +202,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Manage the workspace knowledge base (canonical cross-repo facts) (navori dominio v0.12.2)\n\nUSAGE navori dominio init|list|show|reindex|inject|doctor\n\nCOMMANDS\n\n  init  Create the Dominio store for a workspace  \n  list  List the Dominio entries of a workspace  \n  show  Print a Dominio entry  \n  reindex  Rebuild DOMINIO.md from the entry files  \n  inject  Emit the workspace Dominio index for the SessionStart hook\n  doctor  Validate a workspace's Dominio (warnings only)  \n\nUse navori dominio <command> --help for more information about a command.\n\n",
+      "stdout": "Manage the workspace knowledge base (canonical cross-repo facts) (navori dominio v0.12.3)\n\nUSAGE navori dominio init|list|show|reindex|inject|doctor\n\nCOMMANDS\n\n  init  Create the Dominio store for a workspace  \n  list  List the Dominio entries of a workspace  \n  show  Print a Dominio entry  \n  reindex  Rebuild DOMINIO.md from the entry files  \n  inject  Emit the workspace Dominio index for the SessionStart hook\n  doctor  Validate a workspace's Dominio (warnings only)  \n\nUse navori dominio <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -211,7 +211,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Report harness tokens and adherence gaps (navori audit v0.12.2)\n\nUSAGE navori audit [OPTIONS] \n\nOPTIONS\n\n  --consume-arm  Consume private arm; requires start/host/cwd/root  \n  --include-human-content  Human content in private reports, this call only  \n  --record-metadata  Bounded internal metadata from stdin  \n  --repo  Exact metadata repo  \n  --root  Absolute private audit root  \n  --cwd  Repo to audit (default: cwd)  \n  --days  Last N days of marked sessions  \n  --since  From YYYY-MM-DD  \n  --until  Through YYYY-MM-DD  \n  --session  Session id, prefix, or 'latest'  \n  --json  JSON stdout; no files  \n  --out  Output directory  \n  --start  Start auditing this session id  \n  --capture-child  Exact Codex child; opted-in root log  \n  --root-session  Exact child/metadata root session; no inference  \n  --rollout  Exact --capture-child rollout source  \n  --host  claude/codex/pi; metadata/consumption requires claude|codex; start: claude\n  --stop  Seal/report id, unique prefix, or 'latest'  \n  --arm  Arm once for next repo message/session; hook consumes/starts  \n  --disarm  Cancel pending arm; no start  \n  --all-repos  All-repo range report with per-repo coverage  \n  --snapshot  Named versioned range snapshot in audit root  \n  --copy-to  Copy --snapshot here, relative to git root; no overwrite  \n  --compare  Compare snapshot metrics to range  \n  --collect  Receive OTel until interrupted; show address/output/export env  \n\n\n",
+      "stdout": "Report harness tokens and adherence gaps (navori audit v0.12.3)\n\nUSAGE navori audit [OPTIONS] \n\nOPTIONS\n\n  --by-engine  Read-only Claude/Pi comparison; --session may repeat  \n  --published-from=<published_from>  Local bare fixture repository with retained reflogs; requires --by-engine \n  --consume-arm  Consume private arm; requires start/host/cwd/root  \n  --include-human-content  Human content in private reports, this call only  \n  --record-metadata  Bounded internal metadata from stdin  \n  --repo=<repo>  Exact metadata repo  \n  --root=<root>  Absolute private audit root  \n  --cwd=<cwd>  Repo to audit (default: cwd)  \n  --days=<days>  Last N days of marked sessions  \n  --since=<since>  From YYYY-MM-DD  \n  --until=<until>  Through YYYY-MM-DD  \n  --session=<session>  Session id, prefix, or 'latest'  \n  --json  JSON stdout; no files  \n  --out=<out>  Output directory  \n  --start=<start>  Start auditing this session id  \n  --capture-child=<capture_child>  Exact Codex child; opted-in root log  \n  --root-session=<root_session>  Exact child/metadata root session; no inference  \n  --rollout=<rollout>  Exact --capture-child rollout source  \n  --host=<host>  claude/codex/pi; metadata/consumption requires claude|codex; start: claude\n  --stop=<stop>  Seal/report id, unique prefix, or 'latest'  \n  --arm  Arm once for next repo message/session; hook consumes/starts  \n  --disarm  Cancel pending arm; no start  \n  --all-repos  All-repo range report with per-repo coverage  \n  --snapshot=<snapshot>  Named versioned range snapshot in audit root  \n  --copy-to=<copy_to>  Copy --snapshot here, relative to git root; no overwrite  \n  --compare=<compare>  Compare snapshot metrics to range  \n  --collect  Receive OTel until interrupted; show address/output/export env  \n\n\n",
       "stderr": ""
     },
     {
@@ -220,7 +220,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Sign or check the reviewed content receipt (navori receipt v0.12.2)\n\nUSAGE navori receipt sign|gate|review|check\n\nCOMMANDS\n\n  sign  Write a receipt for the current publish set  \n  gate  Decide whether a milestone's or workplan phase's review cycle needs the scoped or the full gate\n  review  Producer evidence for review_<feature>.json: begin before the diff, seal after  \n  check  Check the current publish set against a receipt  \n\nUse navori receipt <command> --help for more information about a command.\n\n",
+      "stdout": "Sign or check the reviewed content receipt (navori receipt v0.12.3)\n\nUSAGE navori receipt sign|gate|review|check\n\nCOMMANDS\n\n  sign  Write a receipt for the current publish set  \n  gate  Decide whether a milestone's or workplan phase's review cycle needs the scoped or the full gate\n  review  Producer evidence for review_<feature>.json: begin before the diff, seal after  \n  check  Check the current publish set against a receipt  \n\nUse navori receipt <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -229,7 +229,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Classify, render, update and check a level-1/2 workplan (navori plan v0.12.2)\n\nUSAGE navori plan resume|classify|render|update|check|gate|acknowledge|escalation-reset\n\nCOMMANDS\n\n  resume  Revalidate continuity without reviving stale guarantees  \n  classify  Compute a task's complexity score and level  \n  render  Render workplan_<feature>.md from its JSON source  \n  update  Change an A<n>'s progress or append a decision, then re-render  \n  check  Validate a workplan against its schema and R15's rules  \n  gate  PreToolUse(Agent) gate for harness.planTiers (R16/R17/R19) — reads the hook payload from stdin  \n  acknowledge  Record one bound user workflow escalation decision; does not approve review or protected effects\n  escalation-reset  Restart the gate's rejection count for a level >= 2 feature (user approval)  \n\nUse navori plan <command> --help for more information about a command.\n\n",
+      "stdout": "Classify, render, update and check a level-1/2 workplan (navori plan v0.12.3)\n\nUSAGE navori plan resume|classify|render|update|check|gate|acknowledge|escalation-reset\n\nCOMMANDS\n\n  resume  Revalidate continuity without reviving stale guarantees  \n  classify  Compute a task's complexity score and level  \n  render  Render workplan_<feature>.md from its JSON source  \n  update  Change an A<n>'s progress or append a decision, then re-render  \n  check  Validate a workplan against its schema and R15's rules  \n  gate  PreToolUse(Agent) gate for harness.planTiers (R16/R17/R19) — reads the hook payload from stdin  \n  acknowledge  Record one bound user workflow escalation decision; does not approve review or protected effects\n  escalation-reset  Restart the gate's rejection count for a level >= 2 feature (user approval)  \n\nUse navori plan <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -238,7 +238,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Classify and validate a spec's tasks.md (navori spec v0.12.2)\n\nUSAGE navori spec classify|check\n\nCOMMANDS\n\n  classify  Classify a spec as single (1 PR) or split (1 PR per delivery)  \n  check  Validate a spec's tasks.md: milestones, criteria, coverage, vertical deliveries\n\nUse navori spec <command> --help for more information about a command.\n\n",
+      "stdout": "Classify and validate a spec's tasks.md (navori spec v0.12.3)\n\nUSAGE navori spec classify|check\n\nCOMMANDS\n\n  classify  Classify a spec as single (1 PR) or split (1 PR per delivery)  \n  check  Validate a spec's tasks.md: milestones, criteria, coverage, vertical deliveries\n\nUse navori spec <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -247,7 +247,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Validate the implementer's handoff before dispatch (navori handoff v0.12.2)\n\nUSAGE navori handoff prepare-parallel|begin-parallel|complete-parallel|finalize-parallel|attest|check|log-review|render\n\nCOMMANDS\n\n  prepare-parallel  Bind immutable approved level-3 parallel scope  \n  begin-parallel  Start the native producer's immutable parallel work interval  \n  complete-parallel  Seal the native producer's own parallel paths  \n  finalize-parallel  Join both producers after serial render and shared checks  \n  attest  Attest delivery ownership from the native producer context  \n  check  Validate impl_<feature>.json (or .md under scribeOwnsMarkdown:false) before dispatch  \n  log-review  Validate review_<feature>.json and append findings with score >= 50 to findings.jsonl (deduped)\n  render  Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true) \n\nUse navori handoff <command> --help for more information about a command.\n\n",
+      "stdout": "Validate the implementer's handoff before dispatch (navori handoff v0.12.3)\n\nUSAGE navori handoff prepare-parallel|begin-parallel|complete-parallel|finalize-parallel|attest|check|log-review|render\n\nCOMMANDS\n\n  prepare-parallel  Bind immutable approved level-3 parallel scope  \n  begin-parallel  Start the native producer's immutable parallel work interval  \n  complete-parallel  Seal the native producer's own parallel paths  \n  finalize-parallel  Join both producers after serial render and shared checks  \n  attest  Attest delivery ownership from the native producer context  \n  check  Validate impl_<feature>.json (or .md under scribeOwnsMarkdown:false) before dispatch  \n  log-review  Validate review_<feature>.json and append findings with score >= 50 to findings.jsonl (deduped)\n  render  Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true) \n\nUse navori handoff <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -256,7 +256,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Master-plan project flow (spec 0034) (navori master v0.12.2)\n\nUSAGE navori master delivery-slice|delivery-check|delivery-baseline|delivery-queue|delivery-revoke|delivery-criterion|delivery-review|delivery-present|delivery-decision|delivery-publication|init|mode|ux|template|check|advance|status|part|close\n\nCOMMANDS\n\n  delivery-slice  Project an authorized slice into a workplan  \n  delivery-check  Check delivery preparation without writes  \n  delivery-baseline  Record explicit operator baseline approval  \n  delivery-queue  Authorize a bounded delivery queue  \n  delivery-revoke  Explicitly revoke queue authority and prior generation proof  \n  delivery-criterion  Consume current host provenance or explicit manual attestation  \n  delivery-review  Operator-attested technical review; CLI verifies content/receipt, not identity or QA execution\n  delivery-present  Record a current technically reviewed demo identity, not client consent  \n  delivery-decision  Explicit operator-attested client decision on an exact reviewed identity  \n  delivery-publication  Attest release/deploy reference without executing deployment  \n  init  Open, or complete, the active master-plan stage (R3, R5)  \n  mode  Register the first stage's mode: template | en-curso | desde-cero (R16)  \n  ux  Record the UX contract decision in phase ux: none | md | md-json  \n  template  Print a master-plan template, or a filled issue (R42)  \n  check  Validate the active stage, or a closed one with --stage (R50)  \n  advance  Advance the active stage one phase (R8)  \n  status  Show or regenerate derived master-plan status  \n  part  Update a master-plan part or record acceptance evidence  \n  close  Close, convert or abandon the active stage (R47, R57, R58)  \n\nUse navori master <command> --help for more information about a command.\n\n",
+      "stdout": "Master-plan project flow (spec 0034) (navori master v0.12.3)\n\nUSAGE navori master delivery-slice|delivery-check|delivery-baseline|delivery-queue|delivery-revoke|delivery-criterion|delivery-review|delivery-present|delivery-decision|delivery-publication|init|mode|ux|template|check|advance|status|part|close\n\nCOMMANDS\n\n  delivery-slice  Project an authorized slice into a workplan  \n  delivery-check  Check delivery preparation without writes  \n  delivery-baseline  Record explicit operator baseline approval  \n  delivery-queue  Authorize a bounded delivery queue  \n  delivery-revoke  Explicitly revoke queue authority and prior generation proof  \n  delivery-criterion  Consume current host provenance or explicit manual attestation  \n  delivery-review  Operator-attested technical review; CLI verifies content/receipt, not identity or QA execution\n  delivery-present  Record a current technically reviewed demo identity, not client consent  \n  delivery-decision  Explicit operator-attested client decision on an exact reviewed identity  \n  delivery-publication  Attest release/deploy reference without executing deployment  \n  init  Open, or complete, the active master-plan stage (R3, R5)  \n  mode  Register the first stage's mode: template | en-curso | desde-cero (R16)  \n  ux  Record the UX contract decision in phase ux: none | md | md-json  \n  template  Print a master-plan template, or a filled issue (R42)  \n  check  Validate the active stage, or a closed one with --stage (R50)  \n  advance  Advance the active stage one phase (R8)  \n  status  Show or regenerate derived master-plan status  \n  part  Update a master-plan part or record acceptance evidence  \n  close  Close, convert or abandon the active stage (R47, R57, R58)  \n\nUse navori master <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -265,7 +265,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Machine commands about external tools (navori tools v0.12.2)\n\nUSAGE navori tools notice|session-context\n\nCOMMANDS\n\n  notice  Emit pending tool update notices for the SessionStart hook  \n  session-context  Emit the notice and Dominio sections for the SessionStart hook in one call\n\nUse navori tools <command> --help for more information about a command.\n\n",
+      "stdout": "Machine commands about external tools (navori tools v0.12.3)\n\nUSAGE navori tools notice|session-context\n\nCOMMANDS\n\n  notice  Emit pending tool update notices for the SessionStart hook  \n  session-context  Emit the notice and Dominio sections for the SessionStart hook in one call\n\nUse navori tools <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {
@@ -274,7 +274,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict (navori gate v0.12.2)\n\nUSAGE navori gate [OPTIONS] <KIND>\n\nARGUMENTS\n\n  KIND  fast | full | probe | foreign  \n\nOPTIONS\n\n  --force  Run even when a cached green matches  \n  --index  probe: key on the index (git pre-commit)  \n  --clean  probe: index, working tree and record must agree  \n  --cwd=\"<HOME>\"  Project root  \n  --review-feature  full: correlate this run to a review begin  \n  --review-nonce  full: nonce returned by receipt review begin  \n  --target  Review target branch (required with --review-feature)\n  --dir  Review state directory (with --review-feature)  \n\n\n",
+      "stdout": "Run qualityGate.<fast|full>, or `foreign` for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict (navori gate v0.12.3)\n\nUSAGE navori gate [OPTIONS] <KIND>\n\nARGUMENTS\n\n  KIND  fast | full | probe | foreign (Required)\n\nOPTIONS\n\n  --force  Run even when a cached green matches  \n  --index  probe: key on the index (git pre-commit)  \n  --clean  probe: index, working tree and record must agree  \n  --cwd=<cwd>  Project root (Default: <HOME>)\n  --review-feature=<review_feature>  full: correlate this run to a review begin  \n  --review-nonce=<review_nonce>  full: nonce returned by receipt review begin  \n  --target=<target>  Review target branch (required with --review-feature)  \n  --dir=<dir>  Review state directory (with --review-feature)  \n\n\n",
       "stderr": ""
     },
     {
@@ -282,8 +282,8 @@
         "no-such-command"
       ],
       "status": 1,
-      "stdout": "Multi-agent harness + SDD scaffolder (navori v0.12.2)\n\nUSAGE navori init|add|remove|adopt|configure|update|refresh|render|sync|scan|registry|doctor|status|bench|workspace|ticket|backup|migrations|preset|codex|dominio|audit|receipt|plan|spec|handoff|master|tools|gate\n\nCOMMANDS\n\n  init  Adopt navori in the current repo (auto-detects stack, presets, quality gate)  \n  add  Register a plugin in navori.config.json and optionally install its external tool  \n  remove  Disable a plugin and clean up its managed blocks, sub-blocks and scripts  \n  adopt  Take a hand-made .claude/ file under navori's management (preview by default)  \n  configure  Modify navori.config.json sections after init  \n  update  Update the navori CLI to the latest release, then run 'navori refresh'  \n  refresh  Re-detect the repo, refresh config and run sync (one shot 'bring me up to date')  \n  render  Render every configured engine from navori.config.json  \n  sync  Sync every configured engine from the bundle, prompting on conflicts  \n  scan  Re-detect workspaces in a monorepo and add new ones to navori.config.json  \n  registry  Global registry of every navori repo on this machine (for 'render --all')  \n  doctor  Inspect navori.config.json and report resolved state + managed blocks  \n  status  Quick snapshot: config, plugins, drift, and suggested next steps  \n  bench  Benchmark render over N runs and report p50/p95 (spots local regressions)  \n  workspace  Manage navori workspaces (cross-repo config + tickets)  \n  ticket  Manage tickets-as-files inside a workspace  \n  backup  List and restore navori backups  \n  migrations  List and restore init replace-mode migrations  \n  preset  Manage local presets under .navori/presets/  \n  codex  Codex-specific commands  \n  dominio  Manage the workspace knowledge base (canonical cross-repo facts)  \n  audit  Report harness tokens and adherence gaps  \n  receipt  Sign or check the reviewed content receipt  \n  plan  Classify, render, update and check a level-1/2 workplan  \n  spec  Classify and validate a spec's tasks.md  \n  handoff  Validate the implementer's handoff before dispatch  \n  master  Master-plan project flow (spec 0034)  \n  tools  Machine commands about external tools  \n  gate  Run qualityGate.<fast|full>, or foreign for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict\n\nUse navori <command> --help for more information about a command.\n\n",
-      "stderr": "\n ERROR  Unknown command no-such-command\n\n"
+      "stdout": "Multi-agent harness + SDD scaffolder (navori v0.12.3)\n\nUSAGE navori init|add|remove|adopt|configure|update|refresh|render|sync|scan|registry|doctor|status|bench|workspace|ticket|backup|migrations|preset|codex|dominio|audit|receipt|plan|spec|handoff|master|tools|gate\n\nCOMMANDS\n\n  init  Adopt navori in the current repo (auto-detects stack, presets, quality gate)  \n  add  Register a plugin in navori.config.json and optionally install its external tool  \n  remove  Disable a plugin and clean up its managed blocks, sub-blocks and scripts  \n  adopt  Take a hand-made .claude/ file under navori's management (preview by default)  \n  configure  Modify navori.config.json sections after init  \n  update  Update the navori CLI to the latest release, then run 'navori refresh'  \n  refresh  Re-detect the repo, refresh config and run sync (one shot 'bring me up to date')  \n  render  Render every configured engine from navori.config.json  \n  sync  Sync every configured engine from the bundle, prompting on conflicts  \n  scan  Re-detect workspaces in a monorepo and add new ones to navori.config.json  \n  registry  Global registry of every navori repo on this machine (for 'render --all')  \n  doctor  Inspect navori.config.json and report resolved state + managed blocks  \n  status  Quick snapshot: config, plugins, drift, and suggested next steps  \n  bench  Benchmark render over N runs and report p50/p95 (spots local regressions)  \n  workspace  Manage navori workspaces (cross-repo config + tickets)  \n  ticket  Manage tickets-as-files inside a workspace  \n  backup  List and restore navori backups  \n  migrations  List and restore init replace-mode migrations  \n  preset  Manage local presets under .navori/presets/  \n  codex  Codex-specific commands  \n  dominio  Manage the workspace knowledge base (canonical cross-repo facts)  \n  audit  Report harness tokens and adherence gaps  \n  receipt  Sign or check the reviewed content receipt  \n  plan  Classify, render, update and check a level-1/2 workplan  \n  spec  Classify and validate a spec's tasks.md  \n  handoff  Validate the implementer's handoff before dispatch  \n  master  Master-plan project flow (spec 0034)  \n  tools  Machine commands about external tools  \n  gate  Run qualityGate.<fast|full>, or `foreign` for a registered destination repo (hooks only); full output goes to a log, stdout gets a verdict\n\nUse navori <command> --help for more information about a command.\n\n",
+      "stderr": "Unknown command no-such-command\n"
     }
   ]
 }

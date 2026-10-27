@@ -20,8 +20,9 @@ describe("skills security and quality inventory", () => {
     const security = asset("skills/security-invariants.md");
     const followUp = asset("skills/follow-up-prs.md");
 
-    expect(citty).toContain("Citty 0.1 supports only `positional`, `string`, and `boolean`");
-    expect(citty).not.toContain('type: "enum"');
+    expect(citty).toContain('Model a constrained choice as `type: "enum"` with `options`');
+    expect(citty).toContain('use `default: "list"`');
+    expect(citty).not.toContain("Citty 0.1 supports only");
     expect(clack).toContain("`password`");
     expect(clack).toContain("never open a prompt when `CI` is set");
     expect(vitest).toContain(
@@ -135,5 +136,25 @@ describe("skills security and quality inventory", () => {
 
     expect(references).toContain(`Harness CLI ${manifest.version} assets`);
     expect(agents).toContain(`version="${manifest.version}"`);
+  });
+
+  // Covers: R3
+  it("records the installed versions of the third-party skill rows", () => {
+    const rows: Array<[id: string, label: string, pkg: string]> = [
+      ["zod-validation", "Zod", "zod"],
+      ["vitest", "Vitest", "vitest"],
+      ["citty", "Citty", "citty"],
+      ["clack", "@clack/prompts", "@clack/prompts"],
+    ];
+    for (const doc of ["", ".es", ".zh-CN"]) {
+      const references = repositoryFile(`docs/references/skills-security-quality${doc}.md`);
+      for (const [id, label, pkg] of rows) {
+        const installed = JSON.parse(
+          repositoryFile(`packages/cli/node_modules/${pkg}/package.json`),
+        ) as { version: string };
+        const row = references.split("\n").find((line) => line.startsWith(`| \`${id}\` |`));
+        expect(row, `${id} row in ${doc || "en"}`).toContain(`| ${label} ${installed.version} |`);
+      }
+    }
   });
 });

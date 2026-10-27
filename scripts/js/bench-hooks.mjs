@@ -15,6 +15,7 @@ import {
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readProvenance } from "./bench-provenance.mjs";
 import { withoutRepoGitEnv } from "./git-env.mjs";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 
@@ -43,7 +44,20 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  * NAVORI_RUST_BIN selects the binary; NAVORI_RUST_HOOKS_DIR supplies renderer-prepared scripts.
  * Unavailable/deferred native execution always fails, including with --report-only.
  * Rust currently supports only --audit absent (default); root/active require CLI-writer fixtures.
- * Usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N] [--scenario NAME ...]
+ *
+ * Reports carry `provenance` ({@link readProvenance} of the measured checkout: head, dirty, dist and
+ * assets hashes) plus `provenance.observer`, the head of the checkout running this script.
+ * `--root <checkout>` measures another checkout (e.g. a base worktree): its hook trees,
+ * registrations, `navori.config.json` and `packages/cli/dist` are read from there while the
+ * scenarios, payloads and output stay with the observer. It fails closed (exit 2) when the
+ * target `dist` is missing, because the hooks would otherwise resolve some other `navori`.
+ * `--root` is shell-only: the native bench reads `crates/ported.json` from this checkout.
+ * `--summarize <report.json ...>` groups comparable, provenance-bearing reports by head and
+ * prints per-cell medians; it exits 1 when any report is not admissible.
+ *
+ * Usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N]
+ *          [--scenario NAME ...] [--root DIR]
+ *        node scripts/js/bench-hooks.mjs --summarize <report.json> ...
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -314,26 +328,31 @@ function resolveProgram(name, path) {
  * Scratch repo the hooks run in, with the shims and the local `navori` on a PATH of its own.
  * Reused by `bench-context.mjs`.
  *
+ * @param {string} [sourceRoot] checkout whose hook trees, config and `dist` are copied/linked
+ * @param {{ requireDist?: boolean }} [options] throw when `sourceRoot` has no built `navori`
  * @returns {{ root: string, project: string, binDir: string, shimDir: string, execLog: string,
  *   baseEnv: NodeJS.ProcessEnv, env: (audit: AuditScenario, counting?: boolean) => NodeJS.ProcessEnv,
  *   cleanup: () => void }}
  */
-export function createSandbox() {
+export function createSandbox(sourceRoot = REPO_ROOT, { requireDist = false } = {}) {
+  const localDist = join(sourceRoot, "packages", "cli", "dist", "index.js");
+  if (requireDist && !existsSync(localDist)) {
+    throw new Error(`${localDist} is missing: build it first (hooks would resolve another navori)`);
+  }
   // realpath: macOS tmpdir sits behind the /var symlink, which `navori gate --cwd` refuses.
   const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-bench-hooks-")));
   const project = join(root, "project");
   mkdirSync(project, { recursive: true });
   for (const tree of [".claude/hooks", ".codex/hooks", ".pi/navori"]) {
-    if (existsSync(join(REPO_ROOT, tree)))
-      cpSync(join(REPO_ROOT, tree), join(project, tree), { recursive: true });
+    if (existsSync(join(sourceRoot, tree)))
+      cpSync(join(sourceRoot, tree), join(project, tree), { recursive: true });
   }
-  if (existsSync(join(REPO_ROOT, "navori.config.json"))) {
-    copyFileSync(join(REPO_ROOT, "navori.config.json"), join(project, "navori.config.json"));
+  if (existsSync(join(sourceRoot, "navori.config.json"))) {
+    copyFileSync(join(sourceRoot, "navori.config.json"), join(project, "navori.config.json"));
   }
   const originalPath = process.env.PATH ?? "";
   const binDir = join(root, "bin");
   mkdirSync(binDir);
-  const localDist = join(REPO_ROOT, "packages", "cli", "dist", "index.js");
   if (existsSync(localDist)) symlinkSync(localDist, join(binDir, "navori"));
   const shimDir = join(root, "shims");
   mkdirSync(shimDir);
@@ -508,18 +527,116 @@ export function isComparable(loadavgBefore, cpus) {
   );
 }
 
-/** Registrations of the three engines, read from the checkout. */
-export function readRegistrations() {
-  const piBindings = join(REPO_ROOT, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
+/**
+ * Registrations of the three engines, read from a checkout.
+ *
+ * @param {string} [sourceRoot] checkout to read; defaults to this one
+ * @returns {Registration[]}
+ */
+export function readRegistrations(sourceRoot = REPO_ROOT) {
+  const piBindings = join(sourceRoot, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
   return [
     ...parseClaudeRegistrations(
-      JSON.parse(readFileSync(join(REPO_ROOT, ".claude", "settings.json"), "utf8")),
+      JSON.parse(readFileSync(join(sourceRoot, ".claude", "settings.json"), "utf8")),
     ),
-    ...parseCodexRegistrations(readFileSync(join(REPO_ROOT, ".codex", "config.toml"), "utf8")),
+    ...parseCodexRegistrations(readFileSync(join(sourceRoot, ".codex", "config.toml"), "utf8")),
     ...parsePiRegistrations(readFileSync(piBindings, "utf8"), (script) =>
-      existsSync(join(REPO_ROOT, ".pi", "navori", "hooks", `${script}.sh`)),
+      existsSync(join(sourceRoot, ".pi", "navori", "hooks", `${script}.sh`)),
     ),
   ];
+}
+
+/**
+ * Admissibility and per-cell medians of a set of hook reports. A report is admissible when it
+ * is `comparable`, carries `provenance` of a clean checkout (head, dist and assets hashes) and
+ * an `observer`; all reports must share one observer. Cells are grouped by the measured head.
+ *
+ * @param {Array<{ name: string, report: unknown }>} reports parsed reports with a label for messages
+ * @returns {{ errors: string[], groups: Array<{ head: string, reports: number, cells: Array<{ engine: string, scenario: string, hook: string, audit: string, samples: number, wallMsMedian: number, cpuMsMedian: number }> }> }}
+ */
+export function summarizeObservations(reports) {
+  /** @type {string[]} */
+  const errors = [];
+  /** @type {Map<string, Map<string, { engine: string, scenario: string, hook: string, audit: string, wall: number[], cpu: number[] }>>} */
+  const byHead = new Map();
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  const observers = new Set();
+  for (const { name, report } of reports) {
+    const p = report?.provenance;
+    const problems = [];
+    if (report?.comparable !== true) problems.push("not comparable");
+    if (!Array.isArray(report?.measurements) || report.measurements.length === 0) problems.push("no measurements");
+    if (typeof p !== "object" || p === null) problems.push("no provenance");
+    else {
+      if (typeof p.head !== "string") problems.push("provenance without head");
+      if (p.dirty !== false) problems.push("provenance dirty or unknown");
+      if (typeof p.distSha256 !== "string" || typeof p.assetsSha256 !== "string")
+        problems.push("provenance without dist/assets hash");
+      if (typeof p.observer !== "string") problems.push("provenance without observer");
+    }
+    if (problems.length > 0) {
+      errors.push(`${name}: ${problems.join(", ")}`);
+      continue;
+    }
+    observers.add(p.observer);
+    counts.set(p.head, (counts.get(p.head) ?? 0) + 1);
+    const cells = byHead.get(p.head) ?? new Map();
+    byHead.set(p.head, cells);
+    for (const m of report.measurements) {
+      const key = [m.engine, m.scenario, m.hook, m.audit].join("\0");
+      const cell = cells.get(key) ?? { engine: m.engine, scenario: m.scenario, hook: m.hook, audit: m.audit, wall: [], cpu: [] };
+      cell.wall.push(m.wallMsMedian);
+      cell.cpu.push(m.cpuMsMedian);
+      cells.set(key, cell);
+    }
+  }
+  if (observers.size > 1) errors.push(`reports come from different observers: ${[...observers].join(", ")}`);
+  const groups = [...byHead].map(([head, cells]) => ({
+    head,
+    reports: counts.get(head) ?? 0,
+    cells: [...cells.values()]
+      .sort((a, b) => `${a.scenario}${a.hook}${a.engine}${a.audit}`.localeCompare(`${b.scenario}${b.hook}${b.engine}${b.audit}`))
+      .map(({ wall, cpu, ...rest }) => ({ ...rest, samples: wall.length, wallMsMedian: median(wall), cpuMsMedian: median(cpu) })),
+  }));
+  return { errors, groups };
+}
+
+/**
+ * `--summarize`: prints medians per head/hook/engine/scenario/audit.
+ *
+ * @param {string[]} paths
+ * @returns {number} exit code
+ */
+function summarize(paths) {
+  if (paths.length === 0) {
+    process.stderr.write("bench:hooks: --summarize needs report paths\n");
+    return 2;
+  }
+  const reports = [];
+  const errors = [];
+  for (const path of paths) {
+    try {
+      reports.push({ name: path, report: JSON.parse(readFileSync(resolve(path), "utf8")) });
+    } catch (error) {
+      errors.push(`${path}: cannot read (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+  const summary = summarizeObservations(reports);
+  for (const group of summary.groups) {
+    process.stdout.write(`head ${group.head} (${group.reports} reports)\n`);
+    for (const c of group.cells) {
+      process.stdout.write(
+        `  ${c.scenario} ${c.engine} ${c.hook} ${c.audit}: wall=${c.wallMsMedian} ms cpu=${c.cpuMsMedian} ms n=${c.samples}\n`,
+      );
+    }
+  }
+  const all = [...errors, ...summary.errors];
+  if (all.length > 0) {
+    process.stderr.write(`bench:hooks --summarize rejected:\n${all.map((e) => `  - ${e}`).join("\n")}\n`);
+    return 1;
+  }
+  return 0;
 }
 
 /**
@@ -575,7 +692,7 @@ export function writePayload(sandbox, scenario, reg) {
 
 /** Parse the implementation selector without silently falling back to shell.
  * @param {string[]} argv
- * @returns {{ impl: "shell" | "rust", reportOnly: boolean, runs: number, scenarios: string[], audit?: AuditScenario }}
+ * @returns {{ impl: "shell" | "rust", reportOnly: boolean, runs: number, scenarios: string[], audit?: AuditScenario, root?: string }}
  */
 export function parseBenchArgs(argv) {
   /** @type {"shell" | "rust"} */
@@ -584,6 +701,7 @@ export function parseBenchArgs(argv) {
   let reportOnly = false;
   let audit;
   let runs;
+  let root;
   const requested = [];
   const allScenarios = { ...SCENARIOS, ...SUPPLEMENTAL_SCENARIOS };
   for (let index = 0; index < argv.length; index += 1) {
@@ -615,15 +733,23 @@ export function parseBenchArgs(argv) {
         throw new Error("--scenario needs a known scenario name");
       }
       requested.push(value);
+    } else if (arg === "--root") {
+      const value = argv[++index];
+      if (root !== undefined || value === undefined || value === "" || value.startsWith("--")) {
+        throw new Error("--root needs a checkout path exactly once");
+      }
+      root = resolve(value);
     } else {
       throw new Error(`unknown option: ${arg}`);
     }
   }
   if (audit !== undefined && impl !== "rust") throw new Error("--audit requires --impl rust");
+  if (root !== undefined && impl === "rust") throw new Error("--root requires --impl shell");
   return {
     impl,
     reportOnly,
     audit,
+    root,
     runs: runs ?? (impl === "rust" ? 40 : 3),
     scenarios: requested.length > 0 ? [...new Set(requested)] : Object.keys(allScenarios),
   };
@@ -763,6 +889,8 @@ function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
  * @returns {number}
  */
 export function main(argv) {
+  const summarizeAt = argv.indexOf("--summarize");
+  if (summarizeAt !== -1) return summarize(argv.slice(summarizeAt + 1));
   let options;
   try {
     options = parseBenchArgs(argv);
@@ -783,8 +911,16 @@ export function main(argv) {
       return 1;
     }
   }
-  const registrations = readRegistrations();
-  const sandbox = createSandbox();
+  const sourceRoot = options.root ?? REPO_ROOT;
+  if (!existsSync(join(sourceRoot, "packages", "cli", "dist", "index.js"))) {
+    process.stderr.write(
+      `bench:hooks: ${sourceRoot}/packages/cli/dist/index.js is missing; build it first\n`,
+    );
+    return 2;
+  }
+  const registrations = readRegistrations(sourceRoot);
+  const sandbox = createSandbox(sourceRoot, { requireDist: true });
+  const provenance = { ...readProvenance(sourceRoot), observer: readProvenance(REPO_ROOT).head };
   const loadBefore = loadavg();
   /** @type {Measurement[]} */
   const measurements = [];
@@ -857,6 +993,7 @@ export function main(argv) {
     loadavgAfter: loadavg(),
     workers: 1,
     comparable: isComparable(loadBefore, cpus),
+    provenance,
     runs,
     scenarios,
     budgetMs: BASH_BUDGET_MS,

@@ -1,0 +1,18 @@
+---
+import type { Lang } from "../i18n/ui";
+import { walkthrough } from "../content/walkthrough";
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const copy = walkthrough[lang];
+---
+<aside class="request-terminal" aria-label={copy.promptLabel}>
+  <div class="request-terminal-bar">
+    <span class="request-terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span>{copy.promptLabel}</span>
+  </div>
+  <div class="request-terminal-body">
+    <span class="request-chevron" aria-hidden="true">›</span>
+    <p>{copy.prompt}</p>
+  </div>
+  <p class="request-terminal-note">{copy.promptNote}</p>
+</aside>
