@@ -2,11 +2,9 @@
 //! walk is pure; whether the target directory exists and holds what would be lost comes from a
 //! [`Repo`], so the verdict depends on state exactly where the shell asks git.
 
-use std::path::Path;
-use std::process::{Command, Stdio};
-
 use regex::Regex;
 
+use super::repo::{Loss, Repo};
 use super::{Host, tr};
 use crate::shell::Locale;
 
@@ -24,79 +22,6 @@ const UNRESOLVED_ROUTE: &str = concat!(
     "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ",
     route!()
 );
-
-/// What a discard destroys, as `_dsc_dirty` measures it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Loss {
-    /// Tracked changes: `git status --porcelain --untracked-files=no`.
-    Tracked,
-    /// Untracked, not ignored: `git ls-files --others --exclude-standard`.
-    Untracked,
-    /// Untracked including ignored (`clean -x`/`-X`): `git ls-files --others`.
-    All,
-}
-
-/// Repository facts rule 7 reads.
-pub trait Repo {
-    /// `[ -d dir ]`.
-    fn is_dir(&self, dir: &str) -> bool;
-    /// `_dsc_dirty dir kind`: `dir` is a git work tree holding what `loss` destroys.
-    fn holds(&self, dir: &str, loss: Loss) -> bool;
-}
-
-/// The host's file system and `git`, read as the shell reads them.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct System;
-
-impl System {
-    fn git_stdout(dir: &str, args: &[&str], optional_locks: bool) -> Option<Vec<u8>> {
-        let mut command = Command::new("git");
-        command
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .stdin(Stdio::null())
-            .stderr(Stdio::null());
-        if !optional_locks {
-            command.env("GIT_OPTIONAL_LOCKS", "0");
-        }
-        command.output().ok().map(|output| output.stdout)
-    }
-}
-
-impl Repo for System {
-    fn is_dir(&self, dir: &str) -> bool {
-        Path::new(dir).is_dir()
-    }
-
-    fn holds(&self, dir: &str, loss: Loss) -> bool {
-        let inside = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["rev-parse", "--git-dir"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success());
-        if !inside {
-            return false;
-        }
-        let stdout = match loss {
-            Loss::Tracked => Self::git_stdout(
-                dir,
-                &["status", "--porcelain", "--untracked-files=no"],
-                false,
-            ),
-            Loss::Untracked => {
-                Self::git_stdout(dir, &["ls-files", "--others", "--exclude-standard"], true)
-            }
-            Loss::All => Self::git_stdout(dir, &["ls-files", "--others"], true),
-        };
-        // `[ -n "$(…)" ]` drops trailing newlines; `head -n 1` keeps the first line.
-        stdout.is_some_and(|out| out.iter().any(|b| *b != b'\n'))
-    }
-}
 
 /// A rule-7 block: message, audit reason and route.
 pub(super) struct Block {

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use navori_hooks::hooks::guard_destructive::discard::System;
+use navori_hooks::hooks::guard_destructive::repo::{Repo, System};
 use navori_hooks::hooks::guard_destructive::{
     Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
 };
@@ -170,7 +170,11 @@ fn predicted(cmd: &str, outcome: &Outcome, locale: Locale) -> Result<Run, Box<dy
             stdout: ask_answer(prefix, locale).0,
             stderr: String::new(),
         },
-        Outcome::ProgressLane => return Err("progress lane is off in rendered copies".into()),
+        Outcome::Ratchet { stderr } => Run {
+            status: 2,
+            stdout: String::new(),
+            stderr: stderr.clone(),
+        },
     })
 }
 
@@ -201,6 +205,7 @@ fn compare(
     host: &Host,
     env: &[(&str, &str)],
     commands: &[String],
+    locales: &[(&str, Locale)],
 ) -> Result<Vec<String>, Box<dyn Error>> {
     // The model reads the command as jq does; extract-cmd's sed fallback reads escaped quotes
     // differently, so a host without jq would compare two different commands.
@@ -212,7 +217,7 @@ fn compare(
         Rendered::from_script(&fs::read_to_string(script)?).ok_or("rendered assignments")?;
     let mut labels = Vec::new();
     let mut mismatches = Vec::new();
-    for (lc_all, locale) in locales() {
+    for &(lc_all, locale) in locales {
         for cmd in commands {
             let outcome = evaluate(cmd, &rendered, engine, host, &System, locale)?;
             let want = predicted(cmd, &outcome, locale)?;
@@ -228,7 +233,7 @@ fn compare(
                 Outcome::Allow { ask: Some(_), .. } => "ask".to_owned(),
                 Outcome::Allow { .. } => "allow".to_owned(),
                 Outcome::Skip { .. } => "skip".to_owned(),
-                Outcome::ProgressLane => "progress".to_owned(),
+                Outcome::Ratchet { .. } => "ratchet".to_owned(),
             });
         }
     }
@@ -381,8 +386,16 @@ fn pi_arm_matches_the_rendered_pi_copy() -> TestResult {
         cwd: work.clone(),
         pwd: work.clone(),
         home: Some(home.clone()),
+        ..Host::default()
     };
-    let labels = compare(&script, Engine::Pi, &host, &[("HOME", &home)], &commands)?;
+    let labels = compare(
+        &script,
+        Engine::Pi,
+        &host,
+        &[("HOME", &home)],
+        &commands,
+        &locales(),
+    )?;
     for label in ["block/managed-rewrite", "block/unspecified", "ask", "allow"] {
         assert!(labels.iter().any(|l| l == label), "{label} never decided");
     }
@@ -501,14 +514,219 @@ fn discards_match_the_rendered_claude_copy_over_real_repositories() -> TestResul
         cwd: work.clone(),
         pwd: work.clone(),
         home: Some(home.clone()),
+        ..Host::default()
     };
     let project = scratch.path("proj");
     let env = [
         ("HOME", home.as_str()),
         ("CLAUDE_PROJECT_DIR", project.as_str()),
     ];
-    let labels = compare(&script, Engine::Claude, &host, &env, &commands)?;
+    let labels = compare(&script, Engine::Claude, &host, &env, &commands, &locales())?;
     for label in ["block/unspecified", "block/oversize", "allow"] {
+        assert!(labels.iter().any(|l| l == label), "{label} never decided");
+    }
+    Ok(())
+}
+
+/// A rendered copy with the progress lane switched on, as a render without
+/// `qualityGate.fast` writes it.
+fn install_with_lane(
+    scratch: &Scratch,
+    source: &str,
+    dest: &str,
+) -> Result<String, Box<dyn Error>> {
+    let path = scratch.install(source, dest)?;
+    let text = fs::read_to_string(&path)?;
+    let lane = text.replacen("\nnavori_pg_lane=0\n", "\nnavori_pg_lane=1\n", 1);
+    assert_ne!(lane, text, "{source} assigns navori_pg_lane=0");
+    fs::write(&path, lane)?;
+    Ok(path)
+}
+
+/// Write `bytes` bytes to `<repo>/<path>`.
+fn fill(repo: &Path, path: &str, bytes: usize) -> TestResult {
+    let file = repo.join(path);
+    fs::create_dir_all(file.parent().ok_or("parent")?)?;
+    fs::write(file, "x".repeat(bytes))?;
+    Ok(())
+}
+
+/// Repositories in every state the ratchet and the landing distinguish, as siblings:
+/// `proj` (grown past the ceiling), its linked worktree `proj-wt` (small), `other` (grown, a
+/// different repository), `small` (small, with `other` as submodule `sm`), `staged` (grown only
+/// in the index), `untracked` (a new grown file), `ignored` (grown but ignored) and `plain`.
+fn ratchet_layout(root: &Path) -> TestResult {
+    const PROGRESS: &str = "progress/current.md";
+    fs::create_dir_all(root.join("plain"))?;
+    for name in ["proj", "other", "small", "staged", "untracked", "ignored"] {
+        let repo = root.join(name);
+        fs::create_dir_all(repo.join("sub"))?;
+        git(&repo, &["init", "-q", "-b", "main"])?;
+        fs::write(repo.join("sub/keep"), "keep\n")?;
+        if name == "ignored" {
+            fs::write(repo.join(".gitignore"), "progress/\n")?;
+        } else if name != "untracked" {
+            fill(&repo, PROGRESS, 100)?;
+        }
+        git(&repo, &["add", "-A"])?;
+        git(&repo, &["commit", "-q", "-m", "init"])?;
+    }
+    git(
+        &root.join("proj"),
+        &["worktree", "add", "-q", "../proj-wt", "-b", "wt"],
+    )?;
+    for name in ["proj", "other", "ignored", "untracked"] {
+        fill(&root.join(name), PROGRESS, 9000)?;
+    }
+    fill(&root.join("untracked"), ".claude/progress/current.md", 9000)?;
+    fill(&root.join("staged"), PROGRESS, 9200)?;
+    git(&root.join("staged"), &["add", PROGRESS])?;
+    fill(&root.join("staged"), PROGRESS, 100)?;
+    git(
+        &root.join("small"),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            "../other",
+            "sm",
+        ],
+    )?;
+    git(&root.join("small"), &["commit", "-q", "-m", "sm"])?;
+    fill(&root.join("small/sm"), PROGRESS, 9000)?;
+    Ok(())
+}
+
+/// Commits whose landing, worktree and ratchet verdicts differ across the layout.
+fn ratchet_commands() -> Vec<String> {
+    [
+        "git commit -m x",
+        "git commit -am 'msg && more'",
+        "git status && git commit -m x",
+        "cd ../other && git commit -m x",
+        "cd ../other/ && git commit -m x",
+        "cd \"../other\" && git commit -m x",
+        "cd ../small && git commit -m x",
+        "cd ../staged && git commit -m x",
+        "cd ../untracked && git commit -m x",
+        "cd ../ignored && git commit -m x",
+        "cd ../plain && git commit -m x",
+        "cd ../proj-wt && git commit -m x",
+        "cd ../proj/sub && git commit -m x",
+        "cd ../small/sm && git commit -m x",
+        "git -C ../other commit -m x",
+        "git -C ../proj commit -m x",
+        "git -C ../proj-wt commit -m x",
+        "git -C ../small/sm commit -m x",
+        "git -C ../missing commit -m x",
+        "git -C sub commit -m x",
+        "git -c a=b -C ../other commit -m x",
+        "git --no-pager -C ../other commit -m x",
+        "git -C ../other -C ../small commit -m x",
+        "cd ../other && git commit -m x && git push",
+        "cd ../other && git commit -m x && git status",
+        "cd ../other && git commit -m x && npm test",
+        "cd ../other && git commit -m 'x; cd y'",
+        "git -C ../other commit -m a && git -C ../other commit -m b",
+        "git -C ../other commit -m a && git -C ../small commit -m b",
+        "git -C ../other commit -m a && git commit -m b",
+        "cd ../other; git commit -m x",
+        "cd ../other && cd ../small && git commit -m x",
+        "cd ~/x && git commit -m x",
+        "cd $D && git commit -m x",
+        "env X=1 git commit -m x",
+        "X=1 git commit -m x",
+        "echo git -C ../other && git commit -m x",
+        "git -C ../other log && git commit -m x",
+        "cd ../other && git commit -m \"$(cat <<'TAG'\nmsg\ngit commit\nTAG\n)\"",
+        "cd ../other && git commit -F - <<TAG\ncd ..\nTAG",
+        "cd ../other && bash <<TAG\ngit commit -m x\nTAG",
+        "git commit --no-verify -m x",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect()
+}
+
+// Covers: R11
+#[test]
+fn progress_ratchet_matches_the_rendered_copies_over_real_repositories() -> TestResult {
+    let scratch = Scratch::new("guard-ratchet")?;
+    ratchet_layout(&scratch.root)?;
+    let home = scratch.path("home");
+    fs::create_dir_all(&home)?;
+    let claude = install_with_lane(
+        &scratch,
+        ".claude/hooks/guard-destructive.sh",
+        "proj/.claude/hooks/guard-destructive.sh",
+    )?;
+    let codex = install_with_lane(
+        &scratch,
+        ".codex/hooks/guard-destructive.sh",
+        "codexhost/.codex/hooks/guard-destructive.sh",
+    )?;
+    let proj = scratch.path("proj");
+    let commands = ratchet_commands();
+    let utf8 = [locales()[0]];
+    // Claude with its home known: the session in the home repo, in another repo, outside any
+    // repo and in the linked worktree. Codex with no home: the payload cwd decides, widened by
+    // a leaked CLAUDE_PROJECT_DIR; a session inside `staged`, `untracked` and `ignored` is the
+    // only way their own trees get measured.
+    let configurations = [
+        ("proj", Engine::Claude, true),
+        ("other", Engine::Claude, true),
+        ("plain", Engine::Claude, true),
+        ("proj-wt", Engine::Claude, true),
+        ("proj", Engine::Codex, false),
+        ("other", Engine::Codex, false),
+        ("other", Engine::Codex, true),
+        ("staged", Engine::Codex, false),
+        ("untracked", Engine::Codex, false),
+        ("ignored", Engine::Codex, false),
+    ];
+    let runs: Vec<Result<Vec<String>, String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = configurations
+            .iter()
+            .map(|&(cwd, engine, leaked)| {
+                let (script, proj, home, commands) = (&claude, &proj, &home, &commands);
+                let (codex, utf8, cwd) = (&codex, &utf8, scratch.path(cwd));
+                scope.spawn(move || {
+                    // hook-input.sh: Codex reads the git toplevel of the payload's cwd.
+                    let (script, project_dir) = if engine == Engine::Claude {
+                        (script, proj.clone())
+                    } else {
+                        (codex, System.toplevel(&cwd).unwrap_or_else(|| cwd.clone()))
+                    };
+                    let host = Host {
+                        project_dir,
+                        cwd: cwd.clone(),
+                        pwd: cwd.clone(),
+                        home: Some(home.clone()),
+                        claude_project_dir: leaked.then(|| proj.clone()),
+                        cdpath: None,
+                        hook_path: script.clone(),
+                    };
+                    let mut env = vec![("HOME", home.as_str())];
+                    if leaked {
+                        env.push(("CLAUDE_PROJECT_DIR", proj.as_str()));
+                    }
+                    compare(script, engine, &host, &env, commands, utf8)
+                        .map_err(|e| format!("{engine:?} in {cwd}: {e}"))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or_else(|_| Err("panicked".to_owned())))
+            .collect()
+    });
+    let mut labels = Vec::new();
+    for run in runs {
+        labels.extend(run?);
+    }
+    for label in ["ratchet", "allow", "block/no-verify"] {
         assert!(labels.iter().any(|l| l == label), "{label} never decided");
     }
     Ok(())
