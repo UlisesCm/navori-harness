@@ -621,7 +621,7 @@ son las que reportó npm ese día y no se re-verificaron aquí.
 
 - Adoptar cualquier paquete del ecosistema Pi (sección anterior): permisos genéricos y sandbox de SO quedan
   como candidatos para una spec futura; los demás, descartados por los motivos dados.
-- `audit-mode` en Pi y abrir sesiones Pi en la auditoría sin `navori audit --start <id> --host pi`.
+- `audit-mode` en Pi y abrir sesiones Pi en la auditoría sin `navori audit --start <id> --host pi`. Nota: el disparo de audit-mode en Pi (arm/`--host pi` y `audit.mode=always`) se promovió en la spec pi-audit-mode.
 - Cobertura por población de Pi en `discovery.ts` (`hostPopulation`, `populations`).
 - `outsideCohort` en `lib/audit/discovery.ts` no excluye sesiones Pi por rango (`--since/--days`): parece un
   bug; la corrida de R2 usa `--session` explícito y lo evita. Se abre como issue.

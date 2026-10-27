@@ -78,6 +78,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 - **重新加载、恢复和分叉**：不运行任何操作。
 - **验证提醒**（仅在设置了 `hooks.verifyOnStop` 时触发的 `agent_before_settle`）：如果工作树存在未提交更改，会附加一条固定的西班牙语提醒，提示运行质量门禁并提交更改；该提醒以可见的 `custom_message` 显示。它不会触发另一条模型请求。
 
+**audit-mode 启动。** 在 `session_start`（`startup` 或 `new`）以及用户的 `before_agent_start` 时，父会话会消费待处理的 `navori audit --arm`（无标签或 `--host pi`）并启动其审计日志。若设置 `audit.mode: always`（`navori render` 之后会在 `.pi/navori.json` 中生成可选的 `controls.auditMode`），则改为在用户第一次提示时启动日志。模型会收到一次性通知。子会话从不启动日志。无标签的 arm 作用于整个仓库，因此并发的 Claude 或 Codex 会话可能先将其消费。
+
 ## Hook 桥接
 
 受信任的扩展通过桥接运行共享的 Navori hook 脚本。契约如下：
@@ -329,8 +331,8 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 
 | 单元 | 状态 | 类别 | 边界 |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | 只封存已经存在的日志：Pi 不会通过此 hook 启动审计模式日志（`audit-mode-trigger` 不受支持），因此在日志启动前它不起作用。失败会静默处理。 |
-| `hook:audit-mode-trigger` | unsupported | — | Pi 不会通过此 hook 启动审计模式日志（不在 spec 0048 范围内，设计目标明确排除）。 |
+| `hook:audit-mode-close` | advisory | — | 只封存已经存在的日志（由 audit-mode-trigger 打开），因此在日志启动前它不起作用。失败会静默处理。 |
+| `hook:audit-mode-trigger` | advisory | — | 扩展的 `session_start` 和 `before_agent_start` 处理器（仅父会话）消费待处理的 `navori audit --arm`（无标签或 `--host pi`），或在 `audit.mode=always` 时于用户首次提示时启动日志；随后通知模型。不运行共享脚本：扩展自行调用 `navori audit --start`。无标签的 arm 作用于整个仓库，因此并发的 Claude 或 Codex 会话可能先将其消费。子会话从不启动日志；失败会静默处理。 |
 | `hook:bash-outcome-watch` | advisory | 控制项 `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | 安全带（上述绕过方式类别） | 内联正文或无法读取的正文只会作为命令显示；stdin 正文（`-F -`）和由 shell 构建的路径（`$VAR`、`$(…)`）不会显示。检查与执行之间仍有一个时间窗口。间接 shell 形式可以绕过它。 |
 | `hook:engram-write-guard` | n/a | — | 仅适用于 Codex：Pi 子进程以 `--no-mcp` 运行，因此没有 engram 授权需要防护（`child-mcp-grants` 尚未实现）。 |
