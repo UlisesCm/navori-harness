@@ -13,6 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
@@ -32,6 +33,7 @@ pub fn prepare_subagent_no_background<'a>(
 ) -> Result<Evaluator<'a>, String> {
     let request = Request {
         engine: invocation.engine,
+        engines: subagent_no_background::ENGINES,
         event: invocation.event.as_deref(),
         args: &invocation.args,
         script: &invocation.script,
@@ -42,7 +44,9 @@ pub fn prepare_subagent_no_background<'a>(
         .map(FactsCache::in_project);
     let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
         .map_err(|e| e.to_string())?;
-    Ok(Box::new(move |payload: &[u8]| prepared.evaluate(payload)))
+    Ok(Box::new(move |payload: &[u8]| {
+        subagent_no_background::evaluate_prepared(&prepared, payload)
+    }))
 }
 
 /// Collect real facts under the exact snapshot and return eligibility before any stdin read.

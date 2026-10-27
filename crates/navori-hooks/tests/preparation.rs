@@ -12,6 +12,7 @@ const SOURCE:&[u8]=b"payload=${payload-$(cat)}\n    printf -v \"${_pf_spec%%=*}\
 fn request(env: &[(OsString, OsString)]) -> Request<'_> {
     Request {
         engine: Engine::Claude,
+        engines: &[Engine::Claude, Engine::Pi],
         event: Some("PreToolUse"),
         args: &[],
         script: Path::new("unopened.sh"),

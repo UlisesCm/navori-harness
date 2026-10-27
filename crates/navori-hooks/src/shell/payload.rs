@@ -1,4 +1,6 @@
-//! Explicit tool/locale inputs keep extraction deterministic and free of PATH/process probes.
+//! The `extract-cmd` partial's payload protocol (`payload_load` over a hook's declared
+//! `nv_payload_fields`), shared by every ported hook. Explicit tool/locale inputs keep
+//! extraction deterministic and free of PATH/process probes.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +24,7 @@ pub enum Extractor {
     Sed,
 }
 
-pub use crate::shell::Locale;
+use crate::shell::Locale;
 
 /// The caller's original shell environment; discovery/selection is outside the pure policy.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,16 +35,18 @@ pub struct Profile {
     pub locale: Locale,
 }
 
-pub(super) struct Fields {
-    pub tool: String,
-    pub background: String,
-    pub command: String,
-    pub command_bytes: usize,
+/// Values `payload_load` caches, in the order of the requested paths.
+pub(crate) struct Fields {
+    /// Each value as `$(payload_field <path>)` returns it.
+    pub values: Vec<String>,
+    /// Byte length of each value before any lossy UTF-8 decoding (the sed lane reads raw bytes).
+    pub bytes: Vec<usize>,
+    /// Individual-field command substitutions that dropped a NUL (one Bash 5 warning each).
     pub nul_substitutions: usize,
 }
 
-/// Command substitution drops NUL bytes and every final newline before the cheap presence gate.
-pub(super) fn capture(payload: &[u8]) -> Vec<u8> {
+/// `payload=${payload-$(cat)}`: command substitution drops NUL bytes and every final newline.
+pub(crate) fn capture(payload: &[u8]) -> Vec<u8> {
     let mut captured: Vec<u8> = payload.iter().copied().filter(|b| *b != 0).collect();
     while captured.last() == Some(&b'\n') {
         captured.pop();
@@ -98,10 +102,23 @@ fn node_strings(text: &str) -> (String, bool, bool) {
 
 type Object = BTreeMap<String, Box<RawValue>>;
 
-/// Decode only consumed values. Unknown fields remain raw, including non-finite numeric
+/// One dotted path looked up in the payload.
+enum Lookup {
+    /// The value, `Null` when a member is missing or null.
+    Found(Value),
+    /// An intermediate member is neither an object nor null: jq's bulk `?` and Node's `?.` read
+    /// it as empty, but an individual `jq -r .a.b` fails and the cascade moves on.
+    Unindexable,
+}
+
+/// Decode only the requested paths. Other fields remain raw, including non-finite numeric
 /// literals; serde_json validates all syntax before the bounded string-escape adaptation.
-/// A consumed-value decoding failure is distinct from a missing/null field and must not permit.
-fn selected(text: &str, mode: Extractor) -> Result<Option<([Value; 3], bool)>, Failure> {
+/// A requested-value decoding failure is distinct from a missing/null field and must not permit.
+fn selected(
+    text: &str,
+    paths: &[&str],
+    mode: Extractor,
+) -> Result<Option<(Vec<Lookup>, bool)>, Failure> {
     let valid: &RawValue = match serde_json::from_str(text) {
         Ok(valid) => valid,
         Err(_) => return Ok(None),
@@ -116,26 +133,45 @@ fn selected(text: &str, mode: Extractor) -> Result<Option<([Value; 3], bool)>, F
     } else {
         valid.get()
     };
-    let object = serde_json::from_str::<Object>(text).unwrap_or_default();
-    let tool_input = object
-        .get("tool_input")
-        .and_then(|v| serde_json::from_str::<Object>(v.get()).ok())
-        .unwrap_or_default();
-    let [tool, background, command] = [
-        ("tool_name", object.get("tool_name")),
-        (
-            "tool_input.run_in_background",
-            tool_input.get("run_in_background"),
-        ),
-        ("tool_input.command", tool_input.get("command")),
-    ]
-    .map(|(field, value)| {
-        value.map_or(Ok(Value::Null), |raw| {
-            serde_json::from_str::<Value>(raw.get())
-                .map_err(|error| Failure(format!("hook field {field} decoding failed: {error}")))
-        })
-    });
-    Ok(Some(([tool?, background?, command?], node)))
+    let root = serde_json::from_str::<Object>(text).unwrap_or_default();
+    let lookups = paths
+        .iter()
+        .map(|path| lookup(&root, path))
+        .collect::<Result<_, _>>()?;
+    Ok(Some((lookups, node)))
+}
+
+/// Walk one dotted path. Only a payload object reaches the individual lane (a NUL needs a string
+/// member), so a non-object root is simply empty.
+fn lookup(root: &Object, path: &str) -> Result<Lookup, Failure> {
+    let mut members = path.split('.');
+    let mut raw: Option<Box<RawValue>> = members
+        .next()
+        .and_then(|name| root.get(name))
+        .map(|value| (**value).to_owned());
+    for name in members {
+        let Some(value) = raw else {
+            return Ok(Lookup::Found(Value::Null));
+        };
+        if value.get() == "null" {
+            return Ok(Lookup::Found(Value::Null));
+        }
+        let mut nested = match serde_json::from_str::<Object>(value.get()) {
+            Ok(object) => object,
+            Err(error) if value.get().starts_with('{') => {
+                return Err(Failure(format!(
+                    "hook field {path} decoding failed: {error}"
+                )));
+            }
+            Err(_) => return Ok(Lookup::Unindexable),
+        };
+        raw = nested.remove(name);
+    }
+    raw.map_or(Ok(Lookup::Found(Value::Null)), |raw| {
+        serde_json::from_str::<Value>(raw.get())
+            .map(Lookup::Found)
+            .map_err(|error| Failure(format!("hook field {path} decoding failed: {error}")))
+    })
 }
 
 /// Format retained jq decimal literals, including scientific notation. Keeping decimal width
@@ -308,16 +344,38 @@ fn sed_field(payload: &[u8], leaf: &str, locale: Locale) -> Result<(String, usiz
     Ok((String::from_utf8_lossy(&output).into_owned(), output.len()))
 }
 
-/// Reproduce bulk extraction and its all-fields NUL fallback; never execute an extractor.
-pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failure> {
+/// `payload_field`'s last resort: sed over the leaf name of the dotted path.
+fn sed_leaf(payload: &[u8], path: &str, locale: Locale) -> Result<(String, usize), Failure> {
+    sed_field(payload, path.rsplit('.').next().unwrap_or(path), locale)
+}
+
+/// Reproduce `payload_load` over `paths` (bulk extraction and its all-fields NUL fallback, field
+/// by field through `payload_field`) on the captured payload; never execute an extractor.
+pub(crate) fn extract(payload: &[u8], paths: &[&str], profile: Profile) -> Result<Fields, Failure> {
     let mode = profile.extractor;
     let text = String::from_utf8_lossy(payload);
     if !matches!(mode, Extractor::Sed)
-        && let Some((fields, node)) = selected(&text, mode)?
+        && let Some((lookups, node)) = selected(&text, paths, mode)?
     {
-        let bulk = fields.each_ref().map(|v| structured(v, false, node));
+        let bulk: Vec<String> = lookups
+            .iter()
+            .map(|lookup| match lookup {
+                Lookup::Found(value) => structured(value, false, node),
+                Lookup::Unindexable => String::new(),
+            })
+            .collect();
         let (values, nul_substitutions) = if bulk.iter().any(|v| v.contains('\0')) {
-            let individual = fields.each_ref().map(|v| structured(v, true, node));
+            let mut individual = Vec::with_capacity(paths.len());
+            for (lookup, path) in lookups.iter().zip(paths) {
+                individual.push(match lookup {
+                    Lookup::Found(value) => structured(value, true, node),
+                    // jq fails; Node reads an absent member, and without Node sed takes over.
+                    Lookup::Unindexable if node || matches!(mode, Extractor::JqAndNode) => {
+                        String::new()
+                    }
+                    Lookup::Unindexable => sed_leaf(payload, path, profile.locale)?.0,
+                });
+            }
             let count = individual
                 .iter()
                 .filter(|value| value.contains('\0'))
@@ -326,32 +384,27 @@ pub(super) fn extract(payload: &[u8], profile: Profile) -> Result<Fields, Failur
         } else {
             (bulk, 0)
         };
-        let [tool, background, command] = values.map(shell_string);
+        let values: Vec<String> = values.into_iter().map(shell_string).collect();
         return Ok(Fields {
-            tool,
-            background,
-            command_bytes: command.len(),
-            command,
+            bytes: values.iter().map(String::len).collect(),
+            values,
             nul_substitutions,
         });
     }
     if matches!(mode, Extractor::Sed | Extractor::JqOnly) {
-        let (tool, _) = sed_field(payload, "tool_name", profile.locale)?;
-        let (background, _) = sed_field(payload, "run_in_background", profile.locale)?;
-        let (command, command_bytes) = sed_field(payload, "command", profile.locale)?;
+        let (values, bytes) = paths
+            .iter()
+            .map(|path| sed_leaf(payload, path, profile.locale))
+            .collect::<Result<(Vec<_>, Vec<_>), _>>()?;
         return Ok(Fields {
-            tool,
-            background,
-            command,
-            command_bytes,
+            values,
+            bytes,
             nul_substitutions: 0,
         });
     }
     Ok(Fields {
-        tool: String::new(),
-        background: String::new(),
-        command: String::new(),
-        command_bytes: 0,
+        values: vec![String::new(); paths.len()],
+        bytes: vec![0; paths.len()],
         nul_substitutions: 0,
     })
 }

@@ -25,7 +25,7 @@ pub struct CaptureContext<'a> {
 }
 
 /// Prefix diagnostics in execution order; cached variables cannot contain or drop another NUL.
-pub(super) fn prepend(
+pub(crate) fn prepend(
     context: CaptureContext<'_>,
     raw_nul: bool,
     field_substitutions: usize,
