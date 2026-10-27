@@ -1,26 +1,22 @@
-# Migración Rust — 2026-10-25
+# Migración Rust — 2026-10-27
 
-Base estable: `migration/rust` en `73fa052f`; #1393 integrado. Sin subagentes por instrucción
-actual del usuario. PRs por incremento contra esa base; merge sólo con CI requerido verde.
-Comandos manuales en chat. No activar hooks ni cortar TS.
+Base: `migration/rust` en `d385b524` (#1410 integrado). Sin subagentes por instrucción del
+usuario. PRs por incremento contra esa base; merge sólo con CI requerido verde. No activar
+hooks ni cortar TS sin aprobación.
 
 ## Entrega actual
 
-`feat/0057-rust-e2-m9-shadow-journal`, worktree `-rust-journal`.
-Biblioteca privada D9: pares begin/complete, append concurrente y reporte por hash/engine.
-Payload sólo en divergencias. Requiere500 matches/14d por engine, cero divergencias/pendientes
-y un host no-Claude. Corregidos falso positivo Claude-only y RangeError base64 con4MiB.
-Quince pruebas focales y check:fast verdes; revisión directa, sin revisión independiente.
-Full final exit0:10279 aprobadas, dos omitidas,485 archivos en923.5s; cobertura
-87.93/86.21/90.57/81%, piso165 módulos sin excepciones. Primera corrida interrumpida al
-encontrar el RangeError; no se usó como evidencia. Código congelado desde el full final.
-El usuario autorizó actualizar los dos checkpoints con apply_patch tras bloqueo del shell.
+`fix/0057-rust-quality-deps`, worktree `-rust-ci`. El job `quality` de `rust.yml` falla en
+`migration/rust` desde #1410: `config_parity` importa `config.ts` y no hay `node_modules`
+(`ERR_MODULE_NOT_FOUND: zod`). Fix: `setup-bun` + `bun install --frozen-lockfile` en `quality`,
+igual que `oracle`. Reproducido en checkout limpio: falla sin install, 2/2 con install.
+Cambio inline sin revisión independiente.
 
 ## Siguiente paso
 
-Publicar el PR del journal contra `migration/rust` después del commit/push autorizado.
-Elegibilidad publicada en `7eab6152`, sin PR al consultar; revisar e integrar con CI verde.
-Después conectar bridge Rust y comando de reporte, resolver registros reales y fixtures de
-auditoría activa. Registro/manifiesto productivos vacíos; T23–T26/A8/A9 siguen abiertos.
-Las pruebas sintéticas no acreditan500 invocaciones/14d de uso vivo. No reintentar Docker ni
-la escritura de CONTRIBUTING previamente bloqueados sin nueva autorización.
+1. Integrar el fix con CI verde; luego actualizar #1412 (T26, `subagent-no-background` en
+   sombra) con `migration/rust` y integrarlo con CI verde.
+2. Cambios sin commitear de CONTRIBUTING{,.es,.zh-CN}.md (T17) en worktree `-rust`: pendiente
+   decisión del usuario.
+3. T27: pasar `subagent-no-background` a `active` con resumen de sombra de uso vivo
+   (500 matches/14d por engine, host no-Claude) y aprobación del usuario. T23 sigue abierto.
