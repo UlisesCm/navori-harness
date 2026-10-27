@@ -85,7 +85,8 @@ capabilities are verified on Pi 1.4.0; `deferred` capabilities are not available
 | `child-model-selection` | admitted | `--model <provider/id>` selects the child's model. Effort and thinking are not redefined. |
 | `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
 | `child-ipc-relay` | admitted | Node IPC (`stdio` `ipc`) from the child to the parent reports the exact refused command. It never approves anything; see [Approval relay](#approval-relay). |
-| `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
+| `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role grants of Pi's own MCP are not verifiable. Codegraph and engram reads reach children through navori-owned `navori_*` extension tools instead; see [Knowledge tools in children](#knowledge-tools-in-children). |
+
 | `session-end-event` | admitted | `session_shutdown` runs on a clean quit or `/new` only, in the parent. A SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session. |
 | `settle-boundary-entries` | admitted | `agent_before_settle` appends a visible entry at the end of the agent run. It never sets `continue`, so it cannot force another model request. |
 
@@ -161,7 +162,10 @@ projects:
   active, Codex writes that skill and Pi never duplicates it.
 - **Role prose.** A plugin skill with `injectInto: .claude/agents/<role>.md` is appended to
   `.pi/agents/<role>.md`, interpolated and conditioned for Pi. A plugin that declares an `mcpServer`
-  contributes no role prose at all: Pi children run with `--no-mcp`.
+  contributes role prose only for the roles that hold its `navori_*` knowledge tools (see
+  [Knowledge tools in children](#knowledge-tools-in-children)); there the prose names those tools instead
+  of the bare MCP names. Pi children still run with `--no-mcp`.
+
 - **Orchestrator and AGENTS.md blocks.** A skill injected into `.claude/agents/orchestrator.md` and the
   plugin `managed` blocks become sub-blocks of the shared `AGENTS.md`. Pi writes them only when no other
   enabled engine owns that file (`ownsAgentsMd`); otherwise that owner's output stands.
@@ -189,7 +193,8 @@ Per unit, the states in [Parity inventory](#parity-inventory) are:
 | Plugin hook | `enforced` | Same limits as the shared guard; enforced only while the extension is loaded. |
 | `settingsFragment` | `n/a` | Only `allow` rules, which Pi does not translate (as Codex). |
 | MCP server | `advisory` | Render warns when the server is missing or disabled in Pi's MCP config. |
-| MCP plugin skill on a child role | `unsupported` | Children run `--no-mcp`, so the prose is not injected. |
+| MCP plugin skill on a child role | `advisory` | The prose names the read-only `navori_*` tools the role holds. A ceiling the model sees, not isolation: `bash` still reaches the CLIs, and the codegraph index can be stale. |
+
 | Skill on a role Pi does not render (for example `publisher`) | `unsupported` | Pending the role work in spec 0048 R14 and M11. |
 | tgrep guard script and `tgrep-search-lane` hook extension | `enforced` (seatbelt) | The script is installed under `.pi/navori/scripts/`. The lane runs inside the Pi guard copy (`.pi/navori/hooks/guard-destructive.sh`) through the bridge. It covers grep/rg only and fails open when tgrep, its server or the index is unavailable. |
 
@@ -341,7 +346,9 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are
 preserved. A role model comes from `models.piMap` (opus/sonnet/haiku as `provider/id`, e.g. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); a tier without an entry inherits the selected Pi model. `models.codexMap` is not read by Pi. Each role has an explicit Pi tool list; missing or unknown mappings fail
-closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
+closed rather than enabling default tools. Children never receive Pi MCP grants (see `child-mcp-grants`); the only
+extra tools a role may hold are the read-only `navori_*` knowledge tools below.
+
 
 ### Model selection and failure diagnostics
 
@@ -383,7 +390,42 @@ Any failure, including an unreadable check, returns `isError` with the reason an
   returns the command to the parent session so the user can approve it there. Trust is not approval: a
   child receives process-scoped `--approve` only after the trusted parent has loaded the extension.
 - These limits, tool lists, and `--no-mcp` do not create an OS sandbox. Child processes inherit the
-  user's environment, filesystem and network authority, and Pi agent directory.
+  user's environment, filesystem and network authority, and Pi agent directory. The same holds for the
+  knowledge tools: `bash` in a child still reaches the `codegraph` and `engram` CLIs, `engram save` included.
+
+
+## Knowledge tools in children
+
+Children keep `--no-mcp`, so codegraph and engram are not reachable through Pi's MCP. The Navori extension
+registers three read-only tools inside a child instead, only for roles that hold them:
+
+| Tool | Backed by | Roles |
+|---|---|---|
+| `navori_codegraph_explore` | `codegraph serve --mcp --no-watch -p <cwd>` (`CODEGRAPH_MCP_TOOLS=explore`) | scout, implementer, reviewer, auditor, architect |
+| `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout, implementer, reviewer, auditor |
+| `navori_mem_get_observation` | same engram server | scout, implementer, reviewer, auditor |
+
+The scribe and the publisher get none. No role gets `mem_save` or any other write tool: grants are the roles'
+Claude grants (core agent `tools:` plus the enabled plugin's `skills[].mcpTools`) intersected with a closed
+read-only table, and only for an enabled plugin. The names carry the `navori_` prefix so they never collide
+with the native `mem_*` tools of a user-installed `gentle-engram` package (`engram setup pi`).
+
+How it works: the extension starts each server lazily on the first call, with a fixed argument list (no model
+text ever reaches it) and a filtered environment, speaks MCP over stdio, refuses any tool outside the closed
+list before it reaches the server, bounds the output by bytes, and stops the server when the session shuts down.
+A missing `codegraph` or `engram` binary, or a missing codegraph index, is a clear tool error and the role
+continues with `read`/`grep`/`find`. The tools are registered only in children, never in the parent session, and
+there is no Pi-only switch: disable the plugin to remove them.
+
+Limits, stated plainly:
+
+- This is a ceiling the model sees, not isolation. `bash` in a child still reaches the `codegraph` and `engram`
+  CLIs (`engram save` included) and children inherit the parent's environment.
+- codegraph runs with `--no-watch`, so up to three children never auto-sync one SQLite index at once. The index
+  can therefore be stale relative to the child's own edits; re-read edited files directly.
+- Without its own `.codegraph/` in a worktree, the server resolves the index from a parent directory.
+- A user-installed `gentle-engram` package still loads in children. Its native `mem_*` tools are filtered out by
+  `--tools`, but its hooks still run. Navori does not pass `--no-extensions`; that is the user's choice.
 
 ## Live comparison with Claude
 
@@ -483,7 +525,7 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `hook:audit-mode-trigger` | advisory | — | the shared hook script is not run: the extension calls `navori audit --start` itself. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first. Children never start a log; failures are silent |
 | `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | seatbelt (bypass classes above) | a body that is inline or unreadable is shown only as the command; stdin (`-F -`) bodies and a path built by the shell (`$VAR`, `$(…)`) are not shown. A window remains between the check and the exec. Indirect shell forms bypass it |
-| `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred) |
+| `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp` and are never granted an engram write tool (only the read-only navori_mem_* tools, see the engram plugin-skill rows); bash still reaches the engram CLI, which no Pi control guards |
 | `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
 | `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
 | `hook:implementer-no-markdown` | enforced | control `markdown-ownership` | Shared script via tool_call for child bash/edit/write when scribeOwnsMarkdown is enabled. Edit/write retain AI-doctrine exceptions; Bash is a textual seatbelt, not a sandbox: dynamic destinations, external scripts, ambient writes and unrecognized runners remain outside it. |
@@ -604,15 +646,15 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `plugin-settings:gh` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:tgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
-| `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the architect prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:codegraph/codegraph-access-v2-auditor` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:codegraph/codegraph-access-v2-implementer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
-| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:engram/engram-auditor-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:engram/engram-implementer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:engram/engram-auditor-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:engram/engram-implementer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
-| `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:engram/engram-reviewer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
 <!-- pi-parity:end -->
 

@@ -15,6 +15,13 @@ import { isNativeOn } from "../shared/native-overlap.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 import { pluginScriptManagedId } from "../shared/plugin-scripts.ts";
 import { piHookPath, type PiHookBinding } from "./hook-bindings.ts";
+import {
+  PI_KNOWLEDGE_PREFIX,
+  PI_KNOWLEDGE_READONLY,
+  piKnowledgeToolName,
+  type PiKnowledgeGrants,
+} from "./knowledge-tools.ts";
+import type { PiRoleName } from "./role-tools.ts";
 
 /**
  * Spec 0048 D13 (R12): how enabled plugins reach Pi. This module holds the pure parts of the
@@ -112,22 +119,50 @@ const sourceOf = (plugin: LoadedPlugin): { source: string; version: string } => 
 });
 
 /**
+ * Backticked bare MCP tool names (`mem_search`) become the navori tool the Pi child really holds
+ * (`navori_mem_search`). Token-exact over the names granted to `roleId` only: any other mention
+ * stays as written. Applies to core role prose as well (the scout orders `mem_search`).
+ */
+export function prefixKnowledgeNames(
+  prose: string,
+  roleId: string,
+  grants: PiKnowledgeGrants,
+): string {
+  let out = prose;
+  for (const held of grants[roleId as PiRoleName] ?? []) {
+    const name = held.slice(PI_KNOWLEDGE_PREFIX.length);
+    out = out.replaceAll(`\`${name}\``, `\`${held}\``);
+  }
+  return out;
+}
+
+/**
  * Prose a plugin appends to the role file `.pi/agents/<role>.md` (skills injecting into
- * `.claude/agents/<role>.md`). A plugin with an MCP server never injects into a child role:
- * Pi children run `--no-mcp`, `mcpRoleDiagnostics` names them instead.
+ * `.claude/agents/<role>.md`). A plugin with an MCP server injects into a child role only when
+ * the role holds its navori knowledge tools (`grants`, see `knowledge-tools.ts`), and then the prose
+ * names those `navori_*` tools; otherwise Pi children run `--no-mcp` and `mcpRoleDiagnostics` names them.
  */
 export function rolePluginProse(
   roleId: string,
   plugins: readonly LoadedPlugin[],
   config: NavoriConfig,
+  grants: PiKnowledgeGrants = {},
 ): string {
   let prose = "";
+  const held = grants[roleId as PiRoleName] ?? [];
   for (const plugin of plugins) {
-    if (plugin.manifest.mcpServer) continue;
+    const table = PI_KNOWLEDGE_READONLY[plugin.manifest.id] ?? [];
+    const granted = table.filter((tool) => held.includes(piKnowledgeToolName(tool)));
+    if (plugin.manifest.mcpServer && granted.length === 0) continue;
     for (const skill of plugin.skillAssets) {
       if (skill.injectInto?.match(AGENT_INJECT_RE)?.[1] !== roleId) continue;
       const extension = parseAsset(readFileSync(skill.absPath, "utf-8"), "html");
-      prose += `\n\n${interpolate(conditionOrchestration(extension.managedBody, config, "pi"), config, { extraVars: pluginExtraVars(config) })}`;
+      const body = interpolate(
+        conditionOrchestration(extension.managedBody, config, "pi"),
+        config,
+        { extraVars: pluginExtraVars(config) },
+      );
+      prose += `\n\n${plugin.manifest.mcpServer ? prefixKnowledgeNames(body, roleId, grants) : body}`;
     }
   }
   return prose;

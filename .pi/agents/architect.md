@@ -1,8 +1,8 @@
 ---
-# navori:managed-file id="pi-agent-architect" hash="091b49e6eae7d8fcc05e9f90dda9fff67219e1964200e57247993a3de97d2065"
+# navori:managed-file id="pi-agent-architect" hash="42dddb5d589c3aa93b4a190f2a789cecd5d22f335f507e935f4a216ad27702f6"
 name: "architect"
 description: "Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership, contract, migration, hard-to-reverse decision), a level-2 workplan, or a spec's design.md. Not for verdicts, decomposition, or user questions. Use when the architectural row fires, `classify` returns level 2, or a spec is scaffolded."
-tools: ["read","grep","find","ls","bash","write"]
+tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore"]
 ---
 # Architect Agent
 
@@ -60,3 +60,7 @@ blocked -> <brief reason>
 ```
 
 The artifact is **input to the next step** — the challenge and the verdict read it from disk. Write it at that literal path even where a host rule discourages report files; that rule exempts files written as input to another tool. Never return its content in chat.
+
+### Structural discovery access
+
+Apply Code discovery routing from the project instructions. Use the available `navori_codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.

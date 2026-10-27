@@ -60,6 +60,7 @@ import {
   applySkillSubBlocks,
   extendWithOrchestratorBlocks,
   piBindingPath,
+  prefixKnowledgeNames,
   piInstalledPluginScripts,
   piLivePlugins,
   resolvePiPluginHooks,
@@ -69,7 +70,14 @@ import {
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
-import { PI_ROLE_TOOLS } from "./role-tools.ts";
+import { PI_ROLE_TOOLS, type PiRoleName } from "./role-tools.ts";
+import {
+  PI_KNOWLEDGE_READONLY,
+  piKnowledgeGrants,
+  piKnowledgeToolName,
+  piRoleTools,
+  type PiKnowledgeGrants,
+} from "./knowledge-tools.ts";
 import { mcpPluginIds, mcpServerDiagnostics } from "./mcp-diagnosis.ts";
 
 const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
@@ -228,8 +236,14 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
  * enabled server and lists them all in the child prompt, so per-server limiting is not
  * verifiable). An enabled plugin that injects MCP prose into a rendered Pi role therefore cannot
  * work there: direct, discovery and codemode access are all unavailable. Name each one.
+ * A (plugin, role) pair the navori knowledge tools cover (`knowledge-tools.ts`) is not diagnosed:
+ * the role reaches the plugin's read-only tools through them.
  */
-function mcpRoleDiagnostics(config: NavoriConfig, roles: ReadonlyArray<{ id: string }>): string[] {
+function mcpRoleDiagnostics(
+  config: NavoriConfig,
+  roles: ReadonlyArray<{ id: string }>,
+  grants: PiKnowledgeGrants,
+): string[] {
   const roleIds = new Set(roles.map((role) => role.id));
   const out: string[] = [];
   for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
@@ -237,6 +251,8 @@ function mcpRoleDiagnostics(config: NavoriConfig, roles: ReadonlyArray<{ id: str
     for (const skill of plugin.manifest.skills ?? []) {
       const role = skill.injectInto?.match(/^\.claude\/agents\/([a-z0-9-]+)\.md$/)?.[1];
       if (role === undefined || !roleIds.has(role)) continue;
+      const covered = (PI_KNOWLEDGE_READONLY[plugin.manifest.id] ?? []).map(piKnowledgeToolName);
+      if (covered.some((name) => grants[role as PiRoleName]?.includes(name))) continue;
       const tools = deriveMcpTools(plugin, skill.mcpTools).join(", ");
       out.push(
         `Pi role ${role} needs MCP tools from plugin ${plugin.manifest.id} (${tools}) but is unavailable for them in children: ` +
@@ -301,6 +317,8 @@ export function preparePiEngine(
   // Spec 0048 D13: the plugins Pi projects (the matrix may mark one native on Pi).
   const plugins = piLivePlugins(loadedPlugins.loaded);
   const pluginHooks = resolvePiPluginHooks(plugins);
+  // Read-only codegraph/engram tools per child role, derived from the same grants Claude renders.
+  const knowledgeGrants = piKnowledgeGrants(plugins);
   const bindings: readonly (PiHookBinding | PiPluginBinding)[] = [
     ...coreBindings,
     ...pluginHooks.bindings,
@@ -369,7 +387,7 @@ export function preparePiEngine(
     warnings.push(`Pi could not load plugin ${id}: ${reason}`);
   }
   warnings.push(...pluginHooks.warnings);
-  warnings.push(...mcpRoleDiagnostics(config, roles));
+  warnings.push(...mcpRoleDiagnostics(config, roles, knowledgeGrants));
   warnings.push(...mcpServerDiagnostics(cwd, config));
   if (piMapMigrationPending(config)) warnings.push(PI_MAP_MIGRATION_WARNING);
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
@@ -409,7 +427,9 @@ export function preparePiEngine(
     ],
     permissionRules: { ask: permissions.ask, deny: permissions.deny },
   });
-  const extension = serializePiSource(renderPiExtensionSource(mcpPluginIds(config)));
+  const extension = serializePiSource(
+    renderPiExtensionSource(mcpPluginIds(config), knowledgeGrants),
+  );
   const resources: Array<{
     relPath: string;
     content: string;
@@ -434,8 +454,10 @@ export function preparePiEngine(
       name: agent.id,
       description,
       ...(model ? { model } : {}),
-      tools: ROLE_TOOLS[agent.id]!,
-      instructions: instructions + rolePluginProse(agent.id, plugins, config),
+      tools: piRoleTools(agent.id as PiRoleName, knowledgeGrants),
+      instructions:
+        prefixKnowledgeNames(instructions, agent.id, knowledgeGrants) +
+        rolePluginProse(agent.id, plugins, config, knowledgeGrants),
     });
     resources.push({
       relPath: `.pi/agents/${agent.id}.md`,
