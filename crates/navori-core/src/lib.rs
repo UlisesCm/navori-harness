@@ -15,6 +15,7 @@ pub mod i18n;
 pub mod integrity;
 pub mod js_json;
 pub mod manifest;
+pub mod markers;
 pub mod render;
 pub mod semver;
 
