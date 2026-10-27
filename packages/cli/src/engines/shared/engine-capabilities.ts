@@ -792,7 +792,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       {
         surface: "claude-hook-parity",
         reason:
-          "Pi does not run Claude/Codex hook scripts yet; only mapped project-extension controls apply. " +
+          "Pi does not load Claude/Codex hook configuration; the project extension runs the shared hook scripts " +
+          "listed in PI_HOOK_BINDINGS through its bridge as emulated controls, and the rest stay unmapped. " +
           "The per-unit state and boundary of every core hook, shared permission rule and plugin unit " +
           "is PI_PARITY (engines/shared/pi-parity.ts, spec 0048 R1).",
       },

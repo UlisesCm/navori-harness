@@ -158,9 +158,10 @@ function planDenial(stderr: string, feature: string | undefined): string {
 }
 
 async function checkDispatch(cwd: string, role: Role, task: string,
-    feature: string | undefined, signal: AbortSignal): Promise<void> {
+    feature: string | undefined, signal: AbortSignal, sessionId: string): Promise<void> {
   if (role === "implementer" && controls(cwd).planTiers) {
-    const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
+    const payload = JSON.stringify({ cwd, ...(sessionId ? { session_id: sessionId } : {}),
+      tool_input: { agent_type: role, message: task } });
     let result;
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
     catch (error) {
@@ -672,6 +673,12 @@ async function childGitState(cwd: string, signal: AbortSignal): Promise<{ head: 
 
 type EvidenceEvent = { toolName: string; toolCallId: string; input: unknown; isError: boolean; structuredContent?: unknown };
 type EvidenceContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+/** Session id of the current Pi thread (a child reports its parent's), sanitized; "" when unavailable. */
+function piSessionId(ctx: EvidenceContext): string {
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  return process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
+    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+}
 type ToolRegistry = { getAllTools?: () => Array<{ name: string; sourceInfo?: { path?: string; source?: string } }> };
 
 /**
@@ -717,9 +724,7 @@ function matchingCriteria(cwd: string, command: string): Array<{ feature: string
 async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
   if (!isVerifiedBashSuccess(pi, event)) return;
   const command = event.input.command;
-  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
-  const sessionId = process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
-    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const sessionId = piSessionId(ctx);
   const callKey = sessionId + "\0" + event.toolCallId;
   if (seenCalls.has(callKey)) return;
   const hits = matchingCriteria(ctx.cwd, command);
@@ -1025,7 +1030,7 @@ export default function (pi: ExtensionAPI): void {
       const model = resolveModel(spec, ctx);
       active++;
       try {
-        if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
+        if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal, piSessionId(ctx));
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
           ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
         const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";

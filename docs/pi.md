@@ -723,7 +723,7 @@ record each step in [evals.md](../specs/0048-pi-paridad/evals.md).
 11. Close the criterion: `navori plan update <feature> --progress A<n>=cumplido`. It succeeds only with
     recorded evidence.
 
-Current status: **not yet run**. Evidence goes to [evals.md](../specs/0048-pi-paridad/evals.md).
+Current status: the live smoke ran on 2026-10-12 with Pi 1.1.0 (run 4, GREEN; runs 1–3 were RED and fixed by #1301/#1302). It has not yet been repeated on the tested Pi 1.4.0. Evidence is in [evals.md](../specs/0048-pi-paridad/evals.md).
 
 See the [Pi engine specification](../specs/0040-pi-engine/requirements.md) and the
 [Pi first specification](../specs/0047-pi-first/requirements.md) for requirements and
