@@ -37,7 +37,7 @@ static NODE: Shared = Shared::new(
      try {\n\
        const loaded = p.loadPreset(request.id, request.root);\n\
        if (loaded === null) return { none: true };\n\
-       return { def: loaded.def, source: loaded.source, dropped: loaded.droppedLibraries, warnings: p.droppedLibrariesWarnings(loaded) };\n\
+       return { def: JSON.stringify(loaded.def), source: loaded.source, dropped: loaded.droppedLibraries, warnings: p.droppedLibrariesWarnings(loaded) };\n\
      } catch (e) { if (e instanceof p.PresetError) return { error: true }; throw e; }",
 );
 
@@ -46,8 +46,8 @@ fn rust_load(id: &str, root: &std::path::Path) -> Value {
         Err(_) => json!({ "error": true }),
         Ok(None) => json!({ "none": true }),
         Ok(Some(loaded)) => {
-            let def: Value = serde_json::from_str(&loaded.def.stringify(None).unwrap_or_default())
-                .unwrap_or(Value::Null);
+            // Text, not `Value`: serde_json sorts object keys, and zod's key order is part of the port.
+            let def = loaded.def.stringify(None);
             let source = match loaded.asset_root {
                 AssetRoot::Local(_) => "local",
                 AssetRoot::Bundled => "bundled",
