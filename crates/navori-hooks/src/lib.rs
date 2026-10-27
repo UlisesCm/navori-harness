@@ -3,3 +3,4 @@
 pub mod compiled;
 pub mod hooks;
 pub mod runner;
+pub mod shell;
