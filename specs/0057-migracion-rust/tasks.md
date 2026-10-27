@@ -202,6 +202,18 @@ copias renderizadas de Pi y Claude se ejecutan contra el modelo sobre repositori
 en `C`, con baterías escritas a mano y 100 comandos generados por regla. Pendiente: 1b
 (`resolve-worktree` + `progress-ratchet`) en su propio PR.
 
+Avance T28 (PR 2c): regla 1b. `landing` transcribe `gate-trigger` (conteo de triggers y
+cuerpos de heredoc como datos) y `resolve-worktree` (`navori_commit_landing` con el repositorio
+home, `navori_worktree` con la restricción de mismo repositorio); `ratchet` transcribe
+`progress-ratchet`. Los hechos de git y del sistema de archivos pasan por `repo::Repo`, que
+ahora sirve también a la regla 7. `Outcome::Ratchet` sustituye a `ProgressLane` y lleva el
+stderr de la lane; un árbol al que bash no puede entrar es `Err` (su mensaje lleva número de
+línea). Con esto el bloque base completo está portado. Las copias renderizadas de Claude y Codex,
+con la lane encendida, se comparan sobre repositorios reales (home, worktree enlazado, otro
+repositorio, submódulo, índice, no rastreado, ignorado, sin git) en diez configuraciones de
+sesión. Residuales documentados: `CDPATH` en `repo::System` y rangos de glob por intercalación
+en bash 3.2. Pendientes: `tgrep-search-lane` (PR 3) y el PR 4.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 

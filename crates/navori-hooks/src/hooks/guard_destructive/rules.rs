@@ -6,9 +6,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::copy_dest::{self, Inputs};
-use super::discard::{self, Repo};
-use super::pi;
+use super::discard;
+use super::landing::Facts;
+use super::repo::Repo;
 use super::{Host, Outcome, Rendered, length};
+use super::{pi, ratchet};
 use crate::runner::Engine;
 use crate::shell::Locale;
 use crate::shell::inert::{self, CMD_MAX, Rules};
@@ -76,6 +78,7 @@ struct Patterns {
     managed_pi: Managed,
     pi: pi::Patterns,
     discard: Regex,
+    trigger: Regex,
 }
 
 impl Patterns {
@@ -125,6 +128,7 @@ impl Patterns {
             discard: re(
                 r"^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)",
             )?,
+            trigger: re(&format!(r"^git{GIT_OPTS}[[:space:]]+commit([[:space:]]|$)"))?,
         })
     }
 
@@ -265,9 +269,28 @@ pub(super) fn evaluate(
             Some("commit without --no-verify and fix what the hook reports."),
         ));
     }
-    // 1b. The progress ratchet runs here when the render enables it.
+    // 1b. The progress ratchet on a commit that does not provably land in another repository,
+    // measured from the tree being committed.
     if rendered.progress_lane == "1" && any(&segments, &patterns.commit) {
-        return Ok(Outcome::ProgressLane);
+        let facts = Facts::new(host, repo, locale, &patterns.trigger);
+        if !facts.foreign(cmd)? {
+            let root = facts.worktree(cmd);
+            let dir = match (root.as_str(), host.project_dir.as_str()) {
+                ("", "") => ".",
+                ("", project) => project,
+                (root, _) => root,
+            };
+            if !repo.is_dir(dir) {
+                return Err(format!("progress lane cannot enter {dir}"));
+            }
+            let cap = rendered
+                .progress_cap
+                .as_deref()
+                .ok_or("progress lane enabled without the progress-ratchet partial")?;
+            if let Some(stderr) = ratchet::lane(dir, cap, repo)? {
+                return Ok(Outcome::Ratchet { stderr });
+            }
+        }
     }
     // 2. Force-push to the base branch; the three checks read the push segments as one text.
     let pushes: Vec<String> = segments

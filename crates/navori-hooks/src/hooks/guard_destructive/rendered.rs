@@ -12,6 +12,9 @@ pub struct Rendered {
     pub owned_paths: String,
     /// `navori_pg_lane` — `1` enables the commit-time progress ratchet lane (rule 1b).
     pub progress_lane: String,
+    /// `navori_progress_hard_cap` inside the inlined `progress-ratchet` partial; `None` when the
+    /// partial is not inlined (an asset read before include expansion).
+    pub progress_cap: Option<String>,
 }
 
 impl Rendered {
@@ -24,8 +27,24 @@ impl Rendered {
             pi_rules: assignment(source, "nv_pi_rules")?,
             owned_paths: assignment(source, "nv_owned_paths")?,
             progress_lane: assignment(source, "navori_pg_lane")?,
+            progress_cap: indented(source, "navori_progress_hard_cap"),
         })
     }
+}
+
+/// The first `name=<word>` after leading spaces: the partial assigns inside a function body.
+fn indented(source: &str, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let body = line.trim_start_matches(' ');
+        if body.starts_with(&prefix) {
+            let start = offset + (line.len() - body.len()) + prefix.len();
+            return word(&source[start..]);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 /// The first `name=<word>` that starts a line. Words that need expansion are rejected.

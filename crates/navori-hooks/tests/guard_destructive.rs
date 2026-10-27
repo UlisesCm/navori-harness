@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use navori_hooks::hooks::guard_destructive::discard::{Loss, Repo};
+use navori_hooks::hooks::guard_destructive::repo::{Loss, Repo};
 use navori_hooks::hooks::guard_destructive::{
     Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
 };
@@ -15,8 +15,8 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// No corpus case reaches rule 7 with a discard it would measure; one that does must be
-/// replayed against real repository state, not this stand-in.
+/// No corpus case reaches rule 7 with a discard it would measure, and the corpus asset leaves
+/// rule 1b off; a case that reads state must be replayed against real repositories instead.
 struct NoState;
 
 impl Repo for NoState {
@@ -26,6 +26,34 @@ impl Repo for NoState {
 
     fn holds(&self, dir: &str, loss: Loss) -> bool {
         panic!("corpus case asks whether {dir} holds {loss:?}");
+    }
+
+    fn toplevel(&self, dir: &str) -> Option<String> {
+        panic!("corpus case asks for the toplevel of {dir}");
+    }
+
+    fn superproject(&self, dir: &str) -> Option<String> {
+        panic!("corpus case asks for the superproject of {dir}");
+    }
+
+    fn repo_id(&self, dir: &str) -> Option<String> {
+        panic!("corpus case asks for the repository of {dir}");
+    }
+
+    fn physical(&self, dir: &str) -> Option<String> {
+        panic!("corpus case asks for the physical path of {dir}");
+    }
+
+    fn ignored(&self, root: &str, path: &str) -> bool {
+        panic!("corpus case asks whether {root}/{path} is ignored");
+    }
+
+    fn file_size(&self, root: &str, path: &str) -> u64 {
+        panic!("corpus case asks for the size of {root}/{path}");
+    }
+
+    fn blob_size(&self, root: &str, spec: &str) -> u64 {
+        panic!("corpus case asks for the size of {spec} in {root}");
     }
 }
 
@@ -121,6 +149,7 @@ fn host(case: &Value, engine: Engine, cwd: &str) -> Result<Host, Box<dyn Error>>
         cwd: field,
         pwd: cwd.to_owned(),
         home: Some(home),
+        ..Host::default()
     })
 }
 
@@ -199,9 +228,9 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
                 }
                 format!("allow/{want_verdict}")
             }
-            Outcome::ProgressLane => {
+            Outcome::Ratchet { .. } => {
                 mismatches.push(format!("case {index}: progress lane is not rendered"));
-                "progress".to_owned()
+                "ratchet".to_owned()
             }
         };
         *decided.entry(label).or_default() += 1;
@@ -238,7 +267,7 @@ fn cada_regla_bloquea_pregunta_o_permite_igual_que_el_shell() -> TestResult {
 // Covers: R11
 #[test]
 fn rendered_values_are_read_as_the_shell_assigns_them() {
-    let script = "x=1\nbase='release'\\''s'\nnv_pi_rules='deny rm -rf\nask git push'\nnv_owned_paths=-\nnavori_pg_lane=1\n";
+    let script = "x=1\nbase='release'\\''s'\nnv_pi_rules='deny rm -rf\nask git push'\nnv_owned_paths=-\nf() {\n  navori_progress_hard_cap=8000\n}\nnavori_pg_lane=1\n";
     let rendered = Rendered::from_script(script);
     assert_eq!(
         rendered,
@@ -247,6 +276,7 @@ fn rendered_values_are_read_as_the_shell_assigns_them() {
             pi_rules: "deny rm -rf\nask git push".to_owned(),
             owned_paths: "-".to_owned(),
             progress_lane: "1".to_owned(),
+            progress_cap: Some("8000".to_owned()),
         })
     );
     assert_eq!(

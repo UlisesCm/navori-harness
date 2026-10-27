@@ -1,19 +1,22 @@
 //! Pure text rules of guard-destructive.sh (spec 0057 T28, first increment).
 //!
 //! Ported so far, in the shell's order: empty command, the byte/line/heredoc ceilings, the
-//! no-rule-token fast path and rules 1 (skip-verify), 2 (force-push to base), 3 (recursive rm
+//! no-rule-token fast path and rules 1 (skip-verify), 1b (the progress ratchet on a commit, with
+//! its landing and worktree resolution), 2 (force-push to base), 3 (recursive rm
 //! over root/home/system/scratch root or a variable), 3b (`--no-preserve-root`), 4 (fork bomb),
 //! 5 (block device), 6 and 6b (shell rewrites of managed files), 6d (copies onto exact
 //! render-owned paths), 6c (the Pi arm: control plane, `pi --no-extensions`, shared `deny` and
-//! `ask` rules) and 7 (whole-tree discards of uncommitted work). Rule 1b (the progress ratchet)
-//! is not ported; an evaluation that reaches it says so instead of guessing.
+//! `ask` rules) and 7 (whole-tree discards of uncommitted work), which is the whole base block.
 //! Nothing here audits; host facts arrive in [`Host`] and repository state through a
-//! [`discard::Repo`] ([`discard::System`] is the one adapter that runs `git`).
+//! [`repo::Repo`] ([`repo::System`] is the one adapter that runs `git`).
 
 pub mod copy_dest;
-pub mod discard;
+mod discard;
+mod landing;
 mod pi;
+mod ratchet;
 mod rendered;
+pub mod repo;
 mod rules;
 mod tr;
 
@@ -32,6 +35,13 @@ pub struct Host {
     pub pwd: String,
     /// `HOME`, `None` when unset (rule 7 expands `~` with it).
     pub home: Option<String>,
+    /// `CLAUDE_PROJECT_DIR` as the environment holds it, under every engine (rule 1b's home
+    /// repository and its fallback comparison).
+    pub claude_project_dir: Option<String>,
+    /// `CDPATH`: a non-empty value leaves a relative `cd` unproven in rule 1b.
+    pub cdpath: Option<String>,
+    /// `navori_hook_path`: `$0`, prefixed with `PWD/` when relative.
+    pub hook_path: String,
 }
 
 use crate::runner::Engine;
@@ -64,8 +74,12 @@ pub enum Outcome {
         /// answers `ask` with [`ask_answer`] when the script exits 0.
         ask: Option<String>,
     },
-    /// Rule 1b (the progress ratchet lane) would run here; it is not ported yet.
-    ProgressLane,
+    /// Rule 1b blocked the commit and printed its own verdict: exit 2, audit reason
+    /// `unspecified`, `stderr` exactly as the lane writes it.
+    Ratchet {
+        /// The lane's two lines.
+        stderr: String,
+    },
 }
 
 /// Command lengths as the shell counts them: characters, or bytes under `LC_ALL=C`.
@@ -79,13 +93,15 @@ fn length(cmd: &str, locale: Locale) -> usize {
 /// Evaluate the ported rules for an extracted command.
 ///
 /// # Errors
-/// Returns a description of a policy pattern that failed to compile.
+/// Returns a description of a policy pattern that failed to compile, or of a host state the
+/// model does not reproduce (rule 1b cannot enter the tree it measures: bash's own `cd` error,
+/// with its script line number, is the shell's answer there).
 pub fn evaluate(
     cmd: &str,
     rendered: &Rendered,
     engine: Engine,
     host: &Host,
-    repo: &dyn discard::Repo,
+    repo: &dyn repo::Repo,
     locale: Locale,
 ) -> Result<Outcome, String> {
     rules::evaluate(cmd, rendered, engine, host, repo, locale)
