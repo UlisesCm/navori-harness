@@ -276,13 +276,17 @@ mod shadow_dispatch {
             assert_eq!(stdout, expected);
             assert_eq!(stderr, b"shell-only\n\n");
         }
-        // A compiled implementation enables nothing until the embedded manifest selects it (R7).
+        // Every embedded hook has the compiled implementation it names, and none answers for the
+        // shell yet: shadow only until its activation is approved (R7, T27).
         let embedded = Manifest::embedded()?;
-        assert!(
-            navori_cli::hook::NATIVE_HOOKS
+        for (id, hook) in &embedded.hooks {
+            let compiled = navori_cli::hook::NATIVE_HOOKS
                 .iter()
-                .all(|hook| !embedded.hooks.contains_key(hook.id))
-        );
+                .find(|native| native.id == id)
+                .ok_or("embedded hook without a compiled implementation")?;
+            assert_eq!(compiled.implementation, hook.r#impl, "{id}");
+            assert_eq!(hook.mode, navori_core::manifest::HookMode::Shadow, "{id}");
+        }
         Ok(())
     }
 

@@ -125,6 +125,20 @@ export async function fuzzHooks(input, fixtures = {}) {
     mkdirSync(dirname(shellScript), { recursive: true });
     if (fixtures.shellScript === undefined) cpSync(shellDeps.resolveHook(options.hook, options.engine, scratch), shellScript);
     else cpSync(resolve(fixtures.shellScript), shellScript);
+    // Warm the host-fact cache once and keep it in the baseline: restoring the snapshot before each
+    // case would otherwise erase it and make every case a cold probe run, which can defer under load.
+    // The cold path has its own tests; R17 is about the warm path. Warming uses the first case, so a
+    // deferral is still reported as case 1 with its reproducible payload.
+    payload = generatePayloads(options.seed, 1)[0];
+    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta: { NAVORI_HOOK_IMPL: "shell" }, cwdKind: "repo" };
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs });
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+      }
+    }
     baselineRoot = mkdtempSync(join(tmpdir(), "navori-fuzz-baseline-"));
     const baseline = join(baselineRoot, "root");
     cpSync(scratch.root, baseline, { recursive: true });
