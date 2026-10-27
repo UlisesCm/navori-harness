@@ -130,13 +130,49 @@ impl AssetRef {
     fn preset(preset: &LoadedPreset, rel: &str) -> Self {
         Self {
             root: preset.asset_root.clone(),
-            rel: rel
-                .split('/')
-                .filter(|segment| !segment.is_empty() && *segment != ".")
-                .collect::<Vec<_>>()
-                .join("/"),
+            rel: normalize_rel(rel),
         }
     }
+}
+
+/// `relative(root, join(root, rel))` for a `safeRelPath` (no `..`, not absolute): empty and `.`
+/// segments dropped.
+#[must_use]
+pub fn normalize_rel(rel: &str) -> String {
+    rel.split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// A preset `extras.hooks` entry whose condition holds (step 6.5-bis of `prepareClaudeEngine`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetHook {
+    /// Source asset.
+    pub asset: AssetRef,
+    /// `destRelPath`, verbatim.
+    pub dest: String,
+    /// Managed-block id.
+    pub managed_id: String,
+}
+
+/// The preset hooks a full render writes, in declaration order.
+#[must_use]
+pub fn preset_hooks(preset: Option<&LoadedPreset>, config: &JsValue) -> Vec<PresetHook> {
+    let Some(loaded) = preset else {
+        return Vec::new();
+    };
+    extras(preset, "hooks")
+        .iter()
+        .filter(|extra| extra_condition_met(extra, config))
+        .filter_map(|extra| {
+            Some(PresetHook {
+                asset: AssetRef::preset(loaded, &text(get(extra, "relPath"))?),
+                dest: text(get(extra, "destRelPath"))?,
+                managed_id: text(get(extra, "id"))?,
+            })
+        })
+        .collect()
 }
 
 /// `PlannedAgent`.

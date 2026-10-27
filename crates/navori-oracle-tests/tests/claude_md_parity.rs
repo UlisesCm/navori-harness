@@ -80,6 +80,10 @@ impl RepoView for Disk<'_> {
         }
         std::fs::read_to_string(path).ok()
     }
+
+    fn exists(&self, rel: &str) -> bool {
+        self.0.join(rel).exists()
+    }
 }
 
 fn pick(options: &[&'static str]) -> BoxedStrategy<String> {
