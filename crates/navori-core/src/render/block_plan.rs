@@ -73,6 +73,11 @@ pub enum PlanAsset {
         /// File under the plugin root.
         path: String,
     },
+    /// A block the engine computes from config; the TS `relPath` is `(computed)`.
+    Computed {
+        /// Block id.
+        id: String,
+    },
     /// A retired plugin block; the TS `relPath` is `@navori/plugin-<id>`.
     Retired {
         /// Block id.
@@ -88,7 +93,10 @@ impl PlanAsset {
     pub fn id(&self) -> &str {
         match self {
             Self::Core(asset) => asset.id,
-            Self::Preset { id, .. } | Self::Plugin { id, .. } | Self::Retired { id, .. } => id,
+            Self::Preset { id, .. }
+            | Self::Plugin { id, .. }
+            | Self::Computed { id }
+            | Self::Retired { id, .. } => id,
         }
     }
 }

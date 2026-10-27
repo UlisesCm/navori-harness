@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod block_plan;
+pub mod claude_md;
 pub mod context;
 pub mod frontmatter;
 pub mod hook_includes;
