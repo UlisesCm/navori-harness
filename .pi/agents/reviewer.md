@@ -1,8 +1,7 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="34efb84fc2ad76bc8e0a6390474ed7ab2a9a09316b94a7079d15c574028f5f83"
+# navori:managed-file id="pi-agent-reviewer" hash="393864205635609854e23fcbf3892c1666bb266621d8a2ffca1fac112a6aa65a"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
-model: "gpt-6.1-sol"
 tools: ["read","grep","find","ls","bash","write"]
 ---
 # Reviewer Agent

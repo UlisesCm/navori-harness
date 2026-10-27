@@ -340,6 +340,43 @@ describe("Pi child handoff validation (spec 0048 R7, R15)", () => {
     ).rejects.toThrow(/unavailable/);
   });
 
+  // Covers: R7, R15
+  it("appends the bounded handoff failure detail to a denied reviewer preflight", async () => {
+    const cwd = project();
+    const dispatch = (rt: ReturnType<typeof load>): Promise<Outcome> =>
+      rt.tool.execute(
+        "call",
+        { role: "reviewer", task: "x", feature: FEATURE },
+        new AbortController().signal,
+        () => {},
+        { cwd, isProjectTrusted: () => true, model: { provider: "p", id: "m" } },
+      );
+    const message = (rt: ReturnType<typeof load>): Promise<string | undefined> =>
+      dispatch(rt).then(
+        () => undefined,
+        (cause: unknown) => String((cause as { message?: unknown }).message),
+      );
+    const denied = await message(
+      load(() => ({
+        code: 2,
+        ...check({
+          status: "findings",
+          failures: [
+            { check: "fresh", detail: "impl handoff missing field Y\u001b[31m" },
+            { check: "head", detail: "z".repeat(2000) },
+          ],
+        }),
+      })),
+    );
+    expect(denied).toMatch(
+      /handoff check did not pass; reviewer blocked: impl handoff missing field Y/,
+    );
+    expect(denied).not.toContain("\u001b");
+    expect(denied!.length).toBeLessThan(1200);
+    // No detail keeps the exact previous text.
+    expect(await message(load(() => ({ code: 2, ...check() })))).toMatch(/reviewer blocked$/);
+  });
+
   // Covers: R7
   it("declares handoff-shape as enforced on the extension tool", () => {
     expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"]).toMatchObject({

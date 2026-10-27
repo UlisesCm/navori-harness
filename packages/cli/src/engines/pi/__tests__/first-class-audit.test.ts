@@ -647,7 +647,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
         engines: ["pi"],
         branchBase: "main",
         qualityGate: { fast: "bun test", full: "bun test" },
-        models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
+        models: { scout: "haiku", piMap: { haiku: "openai-codex/gpt-5" } },
       }),
     );
     const environments: NodeJS.ProcessEnv[] = [];

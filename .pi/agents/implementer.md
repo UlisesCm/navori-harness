@@ -1,8 +1,7 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="8733fc299b8cbe497d1b27242501ff26488e7cd799b50459e1de490f1deb05f5"
+# navori:managed-file id="pi-agent-implementer" hash="3aff15be79e359233f313355afc910ca79ae3da9fafa8de38d3e62d947186c9d"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
-model: "gpt-6.1-sol"
 tools: ["read","grep","find","ls","bash","edit","write"]
 ---
 # Implementer Agent

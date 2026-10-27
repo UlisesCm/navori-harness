@@ -1,8 +1,7 @@
 ---
-# navori:managed-file id="pi-agent-auditor" hash="7e670a902a324fb64e4c165d84531c76dc1298678bd327dacaa18d45dd4878dc"
+# navori:managed-file id="pi-agent-auditor" hash="f38d70807cf35df7caed173f42ad647371292ad0b1520cbd9d6fc344ad8580f4"
 name: "auditor"
 description: "Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design."
-model: "gpt-6.1-sol"
 tools: ["read","grep","find","ls","bash","write"]
 ---
 # Auditor Agent

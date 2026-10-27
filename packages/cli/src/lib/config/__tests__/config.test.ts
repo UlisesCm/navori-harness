@@ -522,6 +522,13 @@ describe("config key diagnostics (#779)", () => {
     ).toEqual([]);
   });
 
+  it("knows models.piMap tiers and flags other piMap keys", () => {
+    const keys = (piMap: object): string[] =>
+      findUnknownConfigKeys({ name: "demo", models: { piMap } }).map(String);
+    expect(keys({ opus: "a/b", sonnet: "a/b", haiku: "a/b" })).toEqual([]);
+    expect(keys({ fast: "a/b" })).toHaveLength(1);
+  });
+
   it("finds typos at each declared level but leaves extension points open", () => {
     expect(
       findUnknownConfigKeys({

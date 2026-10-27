@@ -1277,6 +1277,7 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.piForeignExtensions(piHealth.foreignExtensions.join(", "))}`,
         );
       }
+      if (piHealth.piMapMigration) pi.push(`  ${color.yellow(sym.update)} ${td.piMapMigration}`);
       if (pi.length > 0) p.note(pi.join("\n"), "Pi");
     }
 

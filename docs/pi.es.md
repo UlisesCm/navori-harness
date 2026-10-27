@@ -214,7 +214,7 @@ Una vez cargada la extensión de confianza del proyecto, Pi expone la herramient
 - `architect`: `read, grep, find, ls, bash, write`; no puede iniciar subagentes anidados en Pi (`navori:if-not onPi`)
 - `publisher`: `read, grep, find, ls, bash`; sus operaciones de git commit y push ejecutan el quality gate, y sus operaciones de publicación requieren la confirmación del padre (consulta [Protecciones](#protecciones))
 
-La herramienta requiere `role` y una `task` no vacía; `feature` es opcional, excepto para `reviewer`, que requiere un slug explícito de función Navori para verificar el handoff; `implementer`, `reviewer` y `scribe` requieren `feature`. Se conservan las instrucciones y descripciones de los roles. Se usa un modelo configurado cuando corresponde a un modelo `codexMap` concreto; de lo contrario, el hijo hereda el modelo Pi seleccionado. Cada rol tiene una lista explícita de herramientas Pi; si falta una asignación o no se reconoce, se falla de forma cerrada en vez de habilitar las herramientas predeterminadas. Los hijos nunca reciben permisos MCP (consulta `child-mcp-grants`).
+La herramienta requiere `role` y una `task` no vacía; `feature` es opcional, excepto para `reviewer`, que requiere un slug explícito de función Navori para verificar el handoff; `implementer`, `reviewer` y `scribe` requieren `feature`. Se conservan las instrucciones y descripciones de los roles. El modelo de cada rol sale de `models.piMap` (opus/sonnet/haiku como `provider/id`, p. ej. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); un tier sin entrada hereda el modelo Pi seleccionado. Pi no lee `models.codexMap`. Cada rol tiene una lista explícita de herramientas Pi; si falta una asignación o no se reconoce, se falla de forma cerrada en vez de habilitar las herramientas predeterminadas. Los hijos nunca reciben permisos MCP (consulta `child-mcp-grants`).
 
 ### Reenvío de aprobaciones
 
@@ -230,6 +230,14 @@ Al iniciar el hijo, la extensión toma una instantánea del handoff canónico: `
 - `reviewer` ejecuta `navori handoff check <feature> --produced-by reviewer --since <dispatch time>`. El sidecar y el veredicto deben ser válidos, y la evidencia sellada debe verificarse con una revisión iniciada en el dispatch o después.
 
 Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `isError` con el motivo y la salida del hijo (falla de forma cerrada). No se valida `scribe` al terminar el hijo; solo se aplica el requisito de `feature`.
+
+### Selección de modelo y diagnóstico de fallos
+
+- Los modelos de rol salen de `models.piMap` (`opus`, `sonnet`, `haiku` como `provider/id`; se permite el sufijo `:thinking`). Un tier sin entrada hereda el modelo Pi seleccionado.
+- Render y `navori doctor` avisan cuando Pi está habilitado, `models.codexMap` tiene al menos un tier y `models.piMap` no está definido. Definir `piMap` (incluso `{}`) silencia el aviso.
+- Advertencia de downgrade: una versión anterior de navori ignora `piMap` y revierte los roles Pi a `codexMap`.
+- Un hijo fallido informa `stopReason` y `errorMessage` (o `auto_retry_end.finalError`), más una cola de stderr redactada y acotada. El resultado también incluye el campo aditivo `details.childStop {stopReason, errorMessage?}`. Salida 0 con `stopReason` `error` o `aborted` cuenta como fallo. La redacción es un mínimo, no una garantía.
+- Un rechazo del preflight de reviewer o scribe añade el detalle del fallo del handoff.
 
 ## Límites y ejecuciones sin interfaz
 

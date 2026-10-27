@@ -998,6 +998,8 @@ interface DoctorCmdStrings {
   piVersionUnverified: (found: string, min: string) => string;
   /** Spec 0048 D-U3 - Pi's `defaultTools` selects powershell, which Navori blocks. */
   piPowershellDefault: string;
+  /** Pi roles used to take their model from models.codexMap; they now inherit unless models.piMap is set. */
+  piMapMigration: string;
   /** Spec 0048 D4 - project extensions other than Navori's can mutate a tool call after its guards. */
   piForeignExtensions: (names: string) => string;
   /** Spec 0041 T20 follow-up — the global `navori` the hooks call is older than this CLI. */
@@ -2313,6 +2315,8 @@ const CMD_ES: CmdStrings = {
       `pi ${found} no está verificado (se requiere una versión estable ${min} o posterior): la extensión bloquea bash, edit, write y powershell — corre 'pi --version' y actualiza Pi`,
     piPowershellDefault:
       "defaultTools de Pi incluye powershell: Navori lo desactiva al iniciar y lo bloquea — instala Git for Windows y usa bash, o quítalo de defaultTools",
+    piMapMigration:
+      "los roles de Pi ya no toman su modelo de models.codexMap: ahora heredan el modelo del Pi padre — define models.piMap (opus/sonnet/haiku como provider/id) para fijarlo, o {} para seguir heredando y silenciar este aviso",
     piForeignExtensions: (names) =>
       `extensiones de proyecto de Pi ajenas a Navori (${names}): pueden modificar una llamada después de las guardas de Navori — revísalas o quítalas`,
     globalLayerLeftovers: (lines) =>
@@ -3703,6 +3707,8 @@ const CMD_EN: CmdStrings = {
       `pi ${found} is not verified (needs a stable ${min} or later): the extension blocks bash, edit, write and powershell — run 'pi --version' and upgrade Pi`,
     piPowershellDefault:
       "Pi defaultTools includes powershell: Navori deactivates it at startup and blocks it — install Git for Windows and use bash, or remove it from defaultTools",
+    piMapMigration:
+      "Pi roles no longer take their model from models.codexMap: they now inherit the parent Pi model — set models.piMap (opus/sonnet/haiku as provider/id) to pin them, or {} to keep inheriting and silence this warning",
     piForeignExtensions: (names) =>
       `Pi project extensions that are not Navori's (${names}): they can mutate a tool call after Navori's guards — review or remove them`,
     globalLayerLeftovers: (lines) =>

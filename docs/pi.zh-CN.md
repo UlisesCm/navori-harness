@@ -219,7 +219,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - `architect`：`read, grep, find, ls, bash, write`；在 Pi 上无法派发嵌套子代理（`navori:if-not onPi`）
 - `publisher`：`read, grep, find, ls, bash`；其 git commit 和 push 都会运行质量门禁，发布操作需要父会话确认（见[防护规则](#防护规则)）
 
-该工具要求提供 `role` 和非空的 `task`；`feature` 可选，但 reviewer 必须显式提供 Navori feature slug 以进行交接检查；`implementer`、`reviewer` 和 `scribe` 都必须提供 `feature`。角色指令和描述都会保留。仅当配置的模型能映射到具体的 `codexMap` 模型时才会使用该模型；否则子进程会继承所选 Pi 模型。每个角色都有明确的 Pi 工具列表；缺少映射或映射未知时会失败时关闭，而不是启用默认工具。子进程不会获得 MCP 授权（见 `child-mcp-grants`）。
+该工具要求提供 `role` 和非空的 `task`；`feature` 可选，但 reviewer 必须显式提供 Navori feature slug 以进行交接检查；`implementer`、`reviewer` 和 `scribe` 都必须提供 `feature`。角色指令和描述都会保留。角色模型来自 `models.piMap`（opus/sonnet/haiku 对应 `provider/id`，例如 `anthropic/claude-sonnet-5-5`、`ollama/llama3`）；没有条目的档位会继承所选 Pi 模型。Pi 不读取 `models.codexMap`。每个角色都有明确的 Pi 工具列表；缺少映射或映射未知时会失败时关闭，而不是启用默认工具。子进程不会获得 MCP 授权（见 `child-mcp-grants`）。
 
 ### 审批中继
 
@@ -235,6 +235,14 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - `reviewer` 会运行 `navori handoff check <feature> --produced-by reviewer --since <dispatch time>`。sidecar 和判定结果必须有效；并且封存证据必须通过检查，检查所对应的 review 必须在派发时刻或之后开始。
 
 任何失败（包括检查无法读取）都会返回 `isError`，其中包含原因和子进程输出（失败时关闭）。子进程结束时不会验证 `scribe`；它只需要满足 `feature` 要求。
+
+### 模型选择与失败诊断
+
+- 角色模型来自 `models.piMap`（opus/sonnet/haiku 对应 `provider/id`；允许 `:thinking` 后缀）。没有条目的档位会继承所选 Pi 模型。
+- 当 Pi 已启用、`models.codexMap` 至少有一个档位且 `models.piMap` 未定义时，render 和 `navori doctor` 会发出警告。设置 `piMap`（即使为 `{}`）即可消除警告。
+- 降级注意：较旧的 navori 会忽略 `piMap`，并把 Pi 角色恢复为 `codexMap`。
+- 子进程失败时会报告 `stopReason` 和 `errorMessage`（或 `auto_retry_end.finalError`），并附带经过脱敏、有长度上限的 stderr 尾部。结果还包含附加字段 `details.childStop {stopReason, errorMessage?}`。退出码为 0 但 `stopReason` 为 `error` 或 `aborted` 时仍视为失败。脱敏只是下限，不是保证。
+- reviewer 或 scribe 预检被拒绝时，会附加交接失败详情。
 
 ## 限制与无头运行
 

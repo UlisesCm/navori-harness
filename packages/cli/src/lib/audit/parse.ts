@@ -597,22 +597,32 @@ function toolUses(lines: Rec[]): Rec[] {
  *  false positive, short enough that a pasted payload cannot ride along. */
 const EXAMPLE_MAX_CHARS = 160;
 
-/** Shapes of secrets a shell command can carry. Replaced BEFORE truncation, so a
- *  secret cut in half by the limit cannot survive as a recognisable prefix. */
-const SECRET_REDACTIONS: Array<[RegExp, string]> = [
-  [/\b(?:gh[opsu]|github_pat)_[A-Za-z0-9_]{8,}/g, "[redacted]"],
-  [/\bsk-[A-Za-z0-9_-]{8,}/g, "[redacted]"],
-  [/\bAKIA[0-9A-Z]{12,}/g, "[redacted]"],
-  [/\bxox[abposr]-[A-Za-z0-9-]{8,}/g, "[redacted]"],
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"],
-  [/:\/\/[^\s/:@]+:[^\s/@]+@/g, "://[redacted]@"],
-  [
-    /((?:api[_-]?key|token|passw(?:or)?d|secret|authorization)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
-    "$1[redacted]",
-  ],
-  [/(--(?:api[_-]?key|token|passw(?:or)?d|secret)[= ])\S+/gi, "$1[redacted]"],
-  [/\b(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{40,}\b/g, "[redacted]"],
-];
+/**
+ * Replace the shapes of secrets a shell command (or a provider error) can carry.
+ * Applied BEFORE truncation, so a secret cut in half by a limit cannot survive as
+ * a recognisable prefix. Self-contained on purpose (table inside the body): the
+ * Pi extension embeds it via `serializeAnonymousFunction`, so it must not
+ * reference anything outside its own scope.
+ */
+export function redactSecrets(text: string): string {
+  const redactions: Array<[RegExp, string]> = [
+    [/\b(?:gh[opsu]|github_pat)_[A-Za-z0-9_]{8,}/g, "[redacted]"],
+    [/\bsk-[A-Za-z0-9_-]{8,}/g, "[redacted]"],
+    [/\bAKIA[0-9A-Z]{12,}/g, "[redacted]"],
+    [/\bxox[abposr]-[A-Za-z0-9-]{8,}/g, "[redacted]"],
+    [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"],
+    [/:\/\/[^\s/:@]+:[^\s/@]+@/g, "://[redacted]@"],
+    [
+      /((?:api[_-]?key|token|passw(?:or)?d|secret|authorization)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+      "$1[redacted]",
+    ],
+    [/(--(?:api[_-]?key|token|passw(?:or)?d|secret)[= ])\S+/gi, "$1[redacted]"],
+    [/\b(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{40,}\b/g, "[redacted]"],
+  ];
+  let out = text;
+  for (const [re, to] of redactions) out = out.replace(re, to);
+  return out;
+}
 
 /**
  * A transcript command made safe to print as an example (R66): secrets and
@@ -623,8 +633,7 @@ const SECRET_REDACTIONS: Array<[RegExp, string]> = [
  * section and never `rangeMetrics` or a snapshot.
  */
 export function redactExample(command: string): string {
-  let out = command.replace(/\s+/g, " ").trim();
-  for (const [re, to] of SECRET_REDACTIONS) out = out.replace(re, to);
+  const out = redactSecrets(command.replace(/\s+/g, " ").trim());
   return out.length > EXAMPLE_MAX_CHARS ? `${out.slice(0, EXAMPLE_MAX_CHARS - 1)}…` : out;
 }
 
