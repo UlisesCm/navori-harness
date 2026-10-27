@@ -88,6 +88,7 @@ interface Sandbox {
   cleanup: () => void;
 }
 interface BenchHooks {
+  argumentFreeInvocation: (command: string, directory: string, hook: string) => boolean;
   parseBenchArgs: (argv: string[]) => {
     impl: "shell" | "rust";
     runs: number;
@@ -466,6 +467,28 @@ describe("bench scripts", () => {
   });
 
   // Covers: R17
+  // Covers: R17
+  it("bench --impl rust solo acepta las invocaciones sin argumentos que navori renderiza", () => {
+    const accept = hooksModule.argumentFreeInvocation;
+    const dir = ".claude/hooks";
+    const hook = "probe.sh";
+    const prefix = `f="$CLAUDE_PROJECT_DIR/${dir}/${hook}"; `;
+    const guard = `bash -n "$f" 2>/dev/null && exec bash "$f"; printf ask`;
+    const wrapper = `if "$nv_native" hook --via-command 'PreToolUse' "$f" --shadow; then x; fi`;
+    expect(accept(`bash "${dir}/${hook}"`, dir, hook)).toBe(true);
+    expect(accept(prefix + guard, dir, hook)).toBe(true);
+    expect(accept(`${prefix}${wrapper}\n${guard}`, dir, hook)).toBe(true);
+    expect(accept(prefix + wrapper.replace(" --shadow", ""), dir, hook)).toBe(true);
+    for (const command of [
+      prefix + guard.replace('exec bash "$f";', 'exec bash "$f" claude-stop;'),
+      `${prefix}${wrapper}\n${guard} "$f" extra`,
+      `f="$CLAUDE_PROJECT_DIR/${dir}/other.sh"; ${guard}`,
+      `bash "${dir}/${hook}" arg`,
+    ]) {
+      expect(accept(command, dir, hook), command).toBe(false);
+    }
+  });
+
   it("bench valida impl estrictamente y conserva shell por default y su API CPU", () => {
     expect(hooksModule.parseBenchArgs([])).toMatchObject({
       impl: "shell",

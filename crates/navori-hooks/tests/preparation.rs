@@ -70,6 +70,13 @@ fn metadata_locale_and_budget_rejections_do_not_need_a_script_or_process() {
         ("LC_ALL".into(), "unknown_LOCALE".into()),
     ];
     assert!(plan(request(&env), Limits::default()).is_err());
+    // macOS Terminal's default (LANG=C.UTF-8, LC_CTYPE=UTF-8) reaches the probes.
+    let env = vec![
+        ("PATH".into(), "/bin".into()),
+        ("LANG".into(), "C.UTF-8".into()),
+        ("LC_CTYPE".into(), "UTF-8".into()),
+    ];
+    assert!(plan(request(&env), Limits::default()).is_ok());
 }
 
 // Covers: R13

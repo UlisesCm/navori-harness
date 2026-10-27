@@ -78,7 +78,7 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, timeo
  * prepared scripts; this tool never signs, activates a hook or evaluates automatic shadow output.
  *
  * @param {{ manifestPath: string, binary: string, scriptsRoot?: string }} options
- * @returns {{ binary: string, resolveHook: (hook: string, engine: string) => string }}
+ * @returns {{ binary: string, registered: (hook: string) => boolean, resolveHook: (hook: string, engine: string) => string }}
  */
 export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
   /** @type {unknown} */
@@ -92,6 +92,10 @@ export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
   const scripts = scriptsRoot === undefined || scriptsRoot === "" ? undefined : resolve(scriptsRoot);
   return {
     binary: pinned,
+    /** Whether `<id>.sh` has a manifest entry; callers skip unported hooks instead of failing. */
+    registered(hook) {
+      return /^[A-Za-z0-9_-]+\.sh$/.test(hook) && Object.hasOwn(hooks, hook.slice(0, -3));
+    },
     resolveHook(hook, engine) {
       if (basename(hook) !== hook || !/^[A-Za-z0-9_-]+\.sh$/.test(hook)) {
         throw new Error("native unavailable: invalid hook identity");

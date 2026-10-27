@@ -205,10 +205,14 @@ pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible
     if env_value(request.env, "PATH").is_none() {
         return Err(Ineligible("PATH snapshot is missing".into()));
     }
+    // `UTF-8` alone is macOS Terminal's default LC_CTYPE. Naming it is not trust: the charmap and
+    // text probes still prove the real behavior (on glibc it is not a locale and fails there).
     let known = |value: &OsStr| {
         matches!(
             value.to_str(),
-            Some("" | "C" | "POSIX" | "en_US.UTF-8" | "en_US.utf8" | "C.UTF-8" | "C.utf8")
+            Some(
+                "" | "C" | "POSIX" | "en_US.UTF-8" | "en_US.utf8" | "C.UTF-8" | "C.utf8" | "UTF-8"
+            )
         )
     };
     for (key, value) in request.env {
