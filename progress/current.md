@@ -7,13 +7,14 @@ obligatorio antes del PR. Comandos manuales en chat. No activar hooks ni cortar 
 ## Estado
 
 Portados con paridad y mutaciones: `interpolate`, `frontmatter`, `hook-includes`, assets
-embebidos, núcleo de `render-plan`, carga de presets y registro de skills de librerías
-(validadores zod compartidos en `navori_core::zod`). En la carga de presets, las sondas de
-mutación (`custom`, `.`/`..`/vacío, BOM, id, libraries, local sobre incluido, tabla) mueren todas.
+embebidos, núcleo de `render-plan`, carga de presets, registro de skills de librerías
+(validadores zod compartidos en `navori_core::zod`) y carga de plugins (`render::plugins`).
+Plugins: el esquema reproduce la salida zod sin validar hojas (bytes embebidos, verificados por
+el oráculo); manifiestos sintéticos vía `loadPlugin` real con `readFileSync` parcheado.
+Mutaciones de presets y plugins muertas salvo `basename` (equivalente con los datos actuales).
 
 ## Siguiente paso
 
-Portar `plugins.ts` (managed entries de plugins habilitados en `render-plan`), luego
-`effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude (T14), `build-settings`/
+Portar `effectiveConfig`, el plan de bloques de `CLAUDE.md`, el motor Claude (T14), `build-settings`/
 coexist y el wiring nativo (T15) y las cadenas (T16). A5: `render_claude.rs` aún no existe.
 Pendiente ajeno: `navori-cli/tests/facts_cache.rs` (0057) es intermitente por un presupuesto de 1 ms.
