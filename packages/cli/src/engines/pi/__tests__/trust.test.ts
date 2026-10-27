@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { renderPiEngine } from "../index.ts";
@@ -93,7 +94,7 @@ function runtime(depth?: string): {
       if (id === "node:path") return { join };
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
-        return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };
+        return { VERSION: PINNED_PI_VERSION, defineTool: (value: unknown): unknown => value };
       throw new Error(`Unexpected extension import: ${id}`);
     },
     process: runtimeProcess,

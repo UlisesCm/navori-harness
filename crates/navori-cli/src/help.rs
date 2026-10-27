@@ -15,15 +15,14 @@ pub fn root_help(version: &str) -> String {
         "{ROOT_DESCRIPTION} (navori v{version})\n\nUSAGE navori {}\n\nCOMMANDS\n\n",
         names.join("|")
     );
-    // citty's `formatLineColumns`: names right-aligned to the longest name plus the two backticks
-    // it adds (the renderer then drops them), descriptions padded to the longest one plus the two
-    // trailing spaces TS emits (measured against `dist/`; the oracle checks every byte).
+    // citty 0.2's `formatLineColumns`: each column gets a two-space prefix, columns are joined by
+    // two spaces, names are right-aligned to the longest name and descriptions padded to the
+    // longest one, with no trailing trim (measured against `dist/`; the oracle checks every byte).
     let name_width = ROOT_COMMANDS
         .iter()
         .map(|(n, _)| n.len())
         .max()
-        .unwrap_or(0)
-        + 2;
+        .unwrap_or(0);
     let description_width = ROOT_COMMANDS
         .iter()
         .map(|(_, d)| d.len())
@@ -34,12 +33,10 @@ pub fn root_help(version: &str) -> String {
         // Writing to a String cannot fail.
         let _ = writeln!(
             out,
-            "{:pad$}{name}    {description:<description_width$}  ",
+            "  {:pad$}{name}    {description:<description_width$}",
             ""
         );
     }
-    // citty trims the whole command block, so the last row loses its trailing padding.
-    out.truncate(out.trim_end().len());
-    out.push_str("\n\nUse navori <command> --help for more information about a command.\n\n");
+    out.push_str("\nUse navori <command> --help for more information about a command.\n\n");
     out
 }

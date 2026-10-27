@@ -26,6 +26,7 @@ import {
 } from "./model.ts";
 import { attachHookEvents } from "./parse.ts";
 import { PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
+import { closedAgentResult, PiCompactionTracker } from "./engine-observations.ts";
 import { classifyPiExtensionDenial, type PiExtensionControl } from "../../engines/pi/denials.ts";
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,256}$/;
@@ -164,6 +165,8 @@ export function parsePiSession(
   const models: Record<string, number> = {};
   const toolCounts: Record<string, number> = {};
   const piExtensionDenials: Partial<Record<PiExtensionControl, number>> = {};
+  const tracker = new PiCompactionTracker();
+  const recovery = tracker.summary;
   const children: Array<{
     role: string;
     spawnToolUseId?: string;
@@ -171,6 +174,7 @@ export function parsePiSession(
     tokens: ReturnType<typeof emptyTokens> | null;
     at: string | null;
     ms: number;
+    result: ReturnType<typeof closedAgentResult>;
   }> = [];
   let turns = 0;
   let assistants = 0;
@@ -192,6 +196,7 @@ export function parsePiSession(
         : null;
     if (at && (!first || at < first)) first = at;
     if (at && (!last || at > last)) last = at;
+    tracker.observe(rec);
     if (rec.type === "usage") {
       const t = tokensOf(rec.usage);
       if (t) add(tokens, t);
@@ -237,12 +242,13 @@ export function parsePiSession(
           tokens: tokensOf(m.usage),
           at: iso(m.timestamp),
           ms: count(m.durationMs) ?? 0,
+          result: closedAgentResult(m.content),
         });
       }
     }
   });
   // Only counters and names were retained above; reserve them once against the shared budget.
-  retainAuditFact(budget, sessionId, { tokens, models, toolCounts, piExtensionDenials });
+  retainAuditFact(budget, sessionId, { tokens, models, toolCounts, piExtensionDenials, recovery });
 
   const failed = reading.sourceStatus !== "observed";
   const state: SourceHealth["state"] = failed
@@ -290,6 +296,7 @@ export function parsePiSession(
   const startedAt = typeof start.ts === "string" ? start.ts : (first ?? "");
   const session: SessionAudit = {
     sessionId,
+    ...(failed ? {} : { compactionRecovery: recovery }),
     startedAt,
     endedAt: last ?? startedAt,
     wallClockMs: first && last ? Math.max(0, Date.parse(last) - Date.parse(first)) : 0,
@@ -311,7 +318,7 @@ export function parsePiSession(
       toolCounts,
       turns: failed ? null : turns,
       contextPeak: null,
-      compactions: null,
+      compactions: failed ? null : recovery.total,
       toolResultBytes: null,
     },
     agents: [],
@@ -364,7 +371,8 @@ export function parsePiSession(
       toolErrors: emptyToolErrors(),
       repeatedCommands: {},
       classifierExemptBash: 0,
-      verdict: null,
+      verdict: child.outcome === "completed" ? child.result.verdict : null,
+      handoffBlocked: child.result.handoffBlocked,
       availability: {
         ...Object.fromEntries(TOKEN_KEYS.map((key) => [`tokens.${key}`, evidence(known)])),
         startupTokens: evidence(false),

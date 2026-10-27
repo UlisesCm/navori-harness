@@ -551,6 +551,9 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
     expect(open0(" | verify: `true` → exit 0").decision).toBe("allow");
     expect(open0(" | verify: `true` -> exit 0").decision).toBe("allow");
     expect(open0(" | verify: ``a | b → c`` → contains: x").decision).toBe("allow");
+    for (const expected of ["exit 7", "matches: /ok/im", "the check passes"]) {
+      expect(open0(` | verify: \`true\` → ${expected}`).decision, expected).toBe("allow");
+    }
 
     // Missing, empty or malformed: denied with the full grammar in the reason.
     for (const clause of [
@@ -573,6 +576,19 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
       "needs a feature",
     );
   });
+
+  // Covers: R12, R28
+  it.each(["exit 256", "exit 01", "contains:", "matches: /[/", "matches: /ok/ii"])(
+    "denies nivel-0 with invalid structured expected: %s",
+    (expected: string) => {
+      writeConfig(true);
+      const result = evaluatePlanGate(
+        payload("implementer", `nivel-0: README.md demo | verify: \`true\` → ${expected}`),
+      );
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("invalid structured expected");
+    },
+  );
 
   // Covers: R6
   it("nivel-0 deniega sin feature, con workplan existente, con ruta absoluta o .. y con ruta crítica", () => {

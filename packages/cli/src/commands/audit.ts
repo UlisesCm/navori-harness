@@ -71,10 +71,13 @@ import {
   readAuditHeaderFromFd,
   matchesAuditHeaderIdentity,
 } from "../lib/audit/cli-event.ts";
+import { isCittyCamelAlias, restoreRepeatedFlags } from "../lib/primitives/args.ts";
 import { NavoriError } from "../lib/primitives/errors.ts";
 import { DEFAULT_LANG, resolveLang } from "../lib/i18n.ts";
 import { readCliVersion } from "../lib/render/bundled-assets.ts";
 import { brand, color, dim } from "../lib/primitives/style.ts";
+import { benchmarkByEngine, renderEngineBenchmark } from "../lib/audit/engine-benchmark.ts";
+import { readPublications } from "../lib/audit/publications.ts";
 
 /**
  * `audit` — post-hoc report over sessions explicitly marked with audit-mode.
@@ -406,6 +409,8 @@ function readArm(file: string, cwd: string, root: string): Stats | null {
   return identity;
 }
 
+const CONSUME_ARM_KEYS: readonly string[] = ["consume-arm", "start", "host", "cwd", "root"];
+
 /** Serialize cooperating consumers with an exclusive private claim, fresh generation
  * validation and own-token cleanup before start. Crashes conservatively retain claims;
  * trusted-local-writer and ABA limits remain those of the existing private helpers. */
@@ -425,7 +430,8 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
     Object.keys(args).some(
       (key) =>
         key !== "_" &&
-        !["consume-arm", "start", "host", "cwd", "root"].includes(key) &&
+        !CONSUME_ARM_KEYS.includes(key) &&
+        !isCittyCamelAlias(key, CONSUME_ARM_KEYS) &&
         args[key] !== undefined,
     )
   )
@@ -470,6 +476,14 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
 }
 
 const auditArgs = {
+  "by-engine": {
+    type: "boolean",
+    description: "Read-only Claude/Pi comparison; --session may repeat",
+  },
+  "published-from": {
+    type: "string",
+    description: "Local bare fixture repository with retained reflogs; requires --by-engine",
+  },
   "consume-arm": {
     type: "boolean",
     description: "Consume private arm; requires start/host/cwd/root",
@@ -552,7 +566,12 @@ const auditArgs = {
 function unknownArgsOrExit(args: Readonly<Record<string, unknown>>): void {
   const positionals = Array.isArray(args._) ? args._.map(String) : [];
   const unknown = Object.keys(args)
-    .filter((key) => key !== "_" && !Object.hasOwn(auditArgs, key))
+    .filter(
+      (key) =>
+        key !== "_" &&
+        !Object.hasOwn(auditArgs, key) &&
+        !isCittyCamelAlias(key, Object.keys(auditArgs)),
+    )
     .map((key) => `--${key}`)
     .concat(positionals);
   if (unknown.length === 0) return;
@@ -577,8 +596,56 @@ export const auditCommand = defineCommand({
     description: "Report harness tokens and adherence gaps",
   },
   args: auditArgs,
-  async run({ args }) {
+  async run(context) {
+    const args = restoreRepeatedFlags(context.args, context.rawArgs, auditArgs);
     unknownArgsOrExit(args);
+    const byEngine = args["by-engine"] === true;
+    const selected: unknown = args.session;
+    const engineSessions: string[] = byEngine
+      ? (Array.isArray(selected) ? selected : selected === undefined ? [] : [selected]).filter(
+          (value: unknown): value is string =>
+            typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value),
+        )
+      : [];
+    if (
+      (args["by-engine"] !== undefined && typeof args["by-engine"] !== "boolean") ||
+      (args["published-from"] !== undefined &&
+        (!byEngine ||
+          typeof args["published-from"] !== "string" ||
+          !args["published-from"].trim())) ||
+      (byEngine && args.json !== undefined && typeof args.json !== "boolean") ||
+      (Array.isArray(selected) && !byEngine) ||
+      (byEngine &&
+        selected !== undefined &&
+        engineSessions.length !== (Array.isArray(selected) ? selected.length : 1)) ||
+      (byEngine &&
+        [
+          "consume-arm",
+          "record-metadata",
+          "repo",
+          "root",
+          "out",
+          "start",
+          "stop",
+          "arm",
+          "disarm",
+          "collect",
+          "capture-child",
+          "root-session",
+          "rollout",
+          "host",
+          "include-human-content",
+          "all-repos",
+          "snapshot",
+          "copy-to",
+          "compare",
+        ].some((key: string): boolean => args[key] !== undefined && args[key] !== false))
+    ) {
+      console.log(JSON.stringify({ ok: false, error: "engine-benchmark-flags-conflict" }));
+      process.exit(2);
+    }
+    // The regular report accepts one selector; comparison consumes its own list above.
+    if (byEngine) Reflect.deleteProperty(args, "session");
     const consuming = args["consume-arm"] !== undefined;
     if (consuming && !consumeArm(args)) {
       process.exitCode = 2;
@@ -594,7 +661,7 @@ export const auditCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const lang = reportLang(cwd);
     const isEs = lang === "es";
-    const json = args.json === true;
+    const json = args.json === true || byEngine;
     if (
       [args.start, args.stop, args.out].some(
         (value) => value !== undefined && typeof value !== "string",
@@ -1036,14 +1103,40 @@ export const auditCommand = defineCommand({
     const readContext = createAuditDiscoveryContext();
     // Read time: consolidate any spool files left by sessions that never reached --stop.
     // Best effort; consolidation is idempotent and drops invalid files individually.
-    if (!allRepos) consolidateRepoSpools(auditsRoot(), repo);
+    if (!allRepos && !byEngine) consolidateRepoSpools(auditsRoot(), repo);
     const audited = allRepos ? listAuditedRepos(periodFilters, readContext) : undefined;
-    const marked: MarkedSession[] = audited
+    let marked: MarkedSession[] = audited
       ? audited.repos.flatMap((r) => {
           consolidateRepoSpools(auditsRoot(), r.repo);
           return findMarkedSessions(r.repo, periodFilters, true, readContext);
         })
       : findMarkedSessions(repo, filters, true, readContext);
+    if (byEngine && engineSessions.length) {
+      const requested: MarkedSession[] = [];
+      for (const selector of engineSessions) {
+        const matches = findMarkedSessions(
+          repo,
+          { ...periodFilters, session: selector },
+          true,
+          readContext,
+        );
+        if (matches.length !== 1) {
+          console.log(
+            JSON.stringify({
+              ok: false,
+              error: matches.length ? "ambiguous-session-prefix" : "session-not-marked",
+            }),
+          );
+          process.exit(2);
+        }
+        requested.push(matches[0]!);
+      }
+      marked = [
+        ...new Map(
+          requested.map((session: MarkedSession) => [session.sessionId, session]),
+        ).values(),
+      ];
+    }
     const scopeLabel = allRepos ? "--all-repos" : repo;
     if (!json) for (const w of audited?.warnings ?? []) p.log.warn(w);
 
@@ -1168,6 +1261,28 @@ export const auditCommand = defineCommand({
         );
       else p.cancel(msg);
       process.exit(2);
+    }
+
+    if (byEngine) {
+      const benchmark = benchmarkByEngine(
+        parsed,
+        readPublications(
+          args["published-from"] ? resolve(cwd, args["published-from"]) : undefined,
+          parsed,
+        ),
+      );
+      if (
+        sourceProblems.length ||
+        readContext.budget.diagnostics.truncated ||
+        readContext.scanBudget.diagnostics.truncated
+      ) {
+        benchmark.inconclusiveReasons.push("incomplete-source");
+        if (benchmark.result !== "fail") benchmark.result = "inconclusive";
+      }
+      console.log(
+        args.json === true ? JSON.stringify(benchmark, null, 2) : renderEngineBenchmark(benchmark),
+      );
+      return;
     }
 
     // Provenance defines the Claude population, including missing Claude

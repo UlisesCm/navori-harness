@@ -56,6 +56,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
             "开发循环更快：门禁按内容标识复用结果并运行目标仓库的门禁，测试套件更快、钩子更轻。scribe 可并行运行（需主动启用），Codex 调度按会话隔离，当全局 CLAUDE.md 超出上下文上限或使用过时的工作区路径时，doctor 会发出警告。同时修复了进度上限、超限规格的完成、Pi 计划门禁诊断、CLI shebang 以及 reviewer 的真实 PR 基线。",
         },
       },
+      {
+        version: "0.12.3",
+        date: "2026-10-22",
+        note: {
+          es: "Auditoría de Pi con identidad de padre e invocación, fallas de hijos observables y cierre en el writer privado; Pi 1.4.0 es ahora el mínimo para lanzar subagentes y se corrigen las banderas y diagnósticos de los hijos. Los planes rechazan evidencia ausente o vencida, validan el `expected` de cada criterio y conservan la solicitud original para la revisión. La auditoría reconoce los registros api-request de las transcripciones de Claude Code 2.1.310 y la guarda 6d ya maneja acentos y comandos multilínea. La comparación de engines trae evidencia de publicación y un driver en vivo (spec 0053), y los benchmarks quedan ligados a su procedencia. Dependencias y toolchain al día (CI en Node 24, bun 1.4.4, astro 7, citty 0.2, clack 1.x). Incluye correcciones de perfiles nativos de Codex, protección anti-retroceso y diagnósticos de doctor, y rediseña la landing para mostrar las capacidades del harness.",
+          en: "Pi audit correlates parent and invocation identities, preserves child failures and records closure through the private writer; Pi 1.4.0 is now the minimum to launch subagents, and child flags and diagnostics are fixed. Plans reject missing or stale evidence, validate each criterion's `expected` and preserve the original request for review. Audit recognizes the api-request records in Claude Code 2.1.310 transcripts and guard 6d now handles accents and multiline commands. Engine comparison ships publication evidence and a live driver (spec 0053), and benchmark reports are tied to their provenance. Dependencies and toolchain are up to date (CI on Node 24, bun 1.4.4, astro 7, citty 0.2, clack 1.x). Includes fixes to native Codex profiles, anti-rollback protection and doctor diagnostics, and redesigns the landing to demonstrate harness capabilities.",
+          "zh-CN":
+            "Pi 审计关联父会话与调用标识，保留子进程失败，并通过私有写入器记录关闭；Pi 1.4.0 现为启动子代理的最低版本，并修复子进程参数与诊断。计划检查拒绝缺失或过期的证据，校验每条标准的 `expected`，并保留原始请求供审查。审计可识别 Claude Code 2.1.310 转录中的 api-request 记录，守卫 6d 现已正确处理重音字符与多行命令。引擎对比附带发布证据与实时驱动（spec 0053），基准报告与其来源绑定。依赖与工具链全面更新（CI 使用 Node 24、bun 1.4.4、astro 7、citty 0.2、clack 1.x）。同时修复 Codex 原生配置、防回滚保护及 doctor 诊断，首页重新设计以展示 harness 能力。",
+        },
+      },
     ],
     date: "2026-10-12",
     headline: {

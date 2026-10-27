@@ -31,6 +31,7 @@ const outroMock = vi.hoisted(() => vi.fn());
 const logInfoMock = vi.hoisted(() => vi.fn());
 const logWarnMock = vi.hoisted(() => vi.fn());
 const noteMock = vi.hoisted(() => vi.fn());
+const spinErrorMock = vi.hoisted(() => vi.fn());
 vi.mock("@clack/prompts", () => ({
   intro: () => undefined,
   outro: outroMock,
@@ -46,7 +47,12 @@ vi.mock("@clack/prompts", () => ({
   },
   confirm: confirmMock,
   isCancel: () => false,
-  spinner: () => ({ start: () => undefined, message: () => undefined, stop: () => undefined }),
+  spinner: () => ({
+    start: () => undefined,
+    message: () => undefined,
+    stop: () => undefined,
+    error: spinErrorMock,
+  }),
 }));
 
 // #974 — one test (render failure) needs a deterministic non-ok result;
@@ -270,7 +276,13 @@ describe("add — install verification + stderr capture (#960)", () => {
       stderr: "brew: command not found: gh (formula removed)",
     });
 
+    spinErrorMock.mockClear();
     await add("gh", "--yes");
+
+    // The failure is reported through the spinner's error state (clack 1.x),
+    // carrying the real stderr rather than only the exit code.
+    expect(spinErrorMock).toHaveBeenCalledTimes(1);
+    expect(String(spinErrorMock.mock.calls[0]?.[0])).toContain("formula removed");
 
     // The install command was invoked with stderr piped (captured) while
     // stdin/stdout stay inherited — long installs (brew/npm/pnpm) must still

@@ -31,12 +31,11 @@
             letter-spacing="3.4" fill="#64748b">CÓDIGO ABIERTO · 6 ENGINES</text>
     </g>
 
-    <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
-          font-size="132" fill="url(#word)">navori</text>
+    <text x="0" y="265" font-family="Helvetica, Arial, sans-serif" font-size="100" font-weight="600" letter-spacing="-4" fill="#0f172a">navori</text>
 
     <g font-family="Helvetica, Arial, sans-serif" font-size="31" font-weight="500" fill="#0f172a">
-      <text x="4" y="332">El harness multi-agente</text>
-      <text x="4" y="374">para cualquier repo.</text>
+      <text x="4" y="332">Tu IA escribe código.</text>
+      <text x="4" y="374">navori prepara el terreno.</text>
     </g>
 
     <rect x="4" y="416" width="118" height="3" rx="1.5" fill="url(#word)"/>
@@ -76,5 +75,5 @@
     github.com/UlisesCm/navori-harness
   </text>
   <text x="1124" y="600" text-anchor="end" font-family="ui-monospace, monospace"
-        font-size="18" fill="#64748b">MIT · Node &gt;=22.12 · v0.12.2</text>
+        font-size="18" fill="#64748b">MIT · Node &gt;=22.12 · v0.12.3</text>
 </svg>

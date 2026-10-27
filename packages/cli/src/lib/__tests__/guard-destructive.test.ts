@@ -285,8 +285,33 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       "git -c core.quotePath=false mv .claude /tmp/archive",
       "git --work-tree=/tmp/root mv .claude /tmp/archive",
       "git --unsupported mv .claude /tmp/archive",
+      // Lines after a heredoc terminator and after an arithmetic shift are commands.
+      "git commit -q -F - <<'EOF'\nmsg\nEOF\ncp x CLAUDE.md",
+      "git commit -q -F - <<'EOF'\nmsg\nEOF\necho ok; cp x CLAUDE.md",
+      ": $((1<<2))\ncp x CLAUDE.md",
+      "let x=1<<3\ncp x CLAUDE.md",
     ];
+    // Publisher commits from the 0053 live run (rule 6d false positives).
+    const publisherCommit = String.raw`git add src/text.js test/text.test.js && git commit -q -m "$(cat <<'EOF'
+feat(text): agrega slugify para generar slugs de URL
+
+Normaliza diacríticos, pasa a minúsculas y colapsa separadores en un
+solo guion. Incluye pruebas de frase básica, puntuación, diacríticos,
+recorte, entradas vacías y coerción de tipos.
+EOF
+)" ; echo exit=$?; git status --porcelain; git log -1 --stat --format='%H%n%s'; mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt; git status -sb | head -1`;
+    const publisherCommitStdin = String.raw`git add src/text.js test/text.test.js && git commit -q -F - <<'EOF'
+feat(text): agrega slugify para generar slugs de URL
+
+Normaliza diacríticos, pasa a minúsculas y colapsa separadores en un
+solo guion. Incluye pruebas de frase básica, puntuación, diacríticos,
+recorte, entradas vacías y coerción de tipos.
+EOF
+echo exit=$?; git status --porcelain; git log -1 --stat --format='%H%n%s'`;
     const allowed = [
+      publisherCommit,
+      publisherCommitStdin,
+      "git commit -q -F - <<'EOF'\ndon't\ncp x CLAUDE.md\nEOF",
       "cp CLAUDE.md /tmp/x",
       "command -- cp CLAUDE.md /tmp/x",
       "env -i cp CLAUDE.md /tmp/x",

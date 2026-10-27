@@ -7,7 +7,7 @@ Landing pública y sitio de documentación de Navori. Está construido con Astro
 ## Dev
 
 ```bash
-# desde la raíz del monorepo (Bun 1.4.2; el repo requiere Node.js >=24)
+# desde la raíz del monorepo (Bun 1.4.4; el repo requiere Node.js >=24)
 bun install
 bun run --cwd apps/website dev
 # abre http://localhost:4321
@@ -70,7 +70,7 @@ apps/website/
 
 `src/content/pages.ts` establece una ubicación canónica por tema e idioma. El inglés no lleva prefijo; los otros idiomas usan sus prefijos configurados. Al agregar una página o un comando, actualiza su fuente propietaria y conserva válidos la página localizada, su alternativa Markdown, los enlaces de idioma, los fragmentos y el sitemap. El checker del build señala recursos faltantes o desincronizados.
 
-El monorepo usa Bun `1.4.2` y requiere Node.js `>=24` (`package.json`) para desarrollar y compilar el sitio. El CLI publicado tiene su propio requisito mínimo de Node.js `>=22.12` (`packages/cli/package.json`); ese mínimo del CLI no sustituye el requisito de desarrollo del monorepo.
+El monorepo usa Bun `1.4.4` y requiere Node.js `>=24` (`package.json`) para desarrollar y compilar el sitio. El CLI publicado tiene su propio requisito mínimo de Node.js `>=22.12` (`packages/cli/package.json`); ese mínimo del CLI no sustituye el requisito de desarrollo del monorepo.
 
 ## Lo que no se edita a mano
 

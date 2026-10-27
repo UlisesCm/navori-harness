@@ -6,6 +6,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { ownsPiAgent, ownsPiSource } from "../owned-file.ts";
@@ -72,7 +73,7 @@ function loadRuntime(depth?: string): {
     "node:path": { join },
     "@earendil-works/pi-ai": { Type },
     "@earendil-works/pi-coding-agent": {
-      VERSION: "1.1.0",
+      VERSION: PINNED_PI_VERSION,
       defineTool: (value: unknown): unknown => value,
     },
   };

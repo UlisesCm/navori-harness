@@ -22,10 +22,10 @@ import { preflightReviewEdits } from "../lib/handoff/review-edit-binding.ts";
 
 export function resolveReceiptOptions(args: {
   feature: string;
-  target?: string;
-  dir?: string;
-  cwd?: string;
-  includeConsumed?: boolean;
+  target?: string | undefined;
+  dir?: string | undefined;
+  cwd?: string | undefined;
+  includeConsumed?: boolean | undefined;
 }): ReceiptOptions {
   const root = resolveStateRoot({
     cwd: args.cwd ?? process.cwd(),
@@ -199,7 +199,7 @@ function executeReview(
   else if (result.status === "changed-during-review") process.exitCode = 2;
 }
 const reviewArgs = {
-  feature: { type: "positional" as const, required: true, description: "Feature slug" },
+  feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
   target: { type: "string" as const },
   dir: { type: "string" as const },
   cwd: { type: "string" as const },
@@ -219,7 +219,7 @@ export function executeReviewPreflight(args: {
   if (result.status !== "ok") process.exitCode = 1;
 }
 const shared = {
-  feature: { type: "string" as const, required: true },
+  feature: { type: "string" as const, required: true as const },
   target: { type: "string" as const },
   dir: { type: "string" as const },
   cwd: { type: "string" as const },
@@ -275,7 +275,7 @@ export const receiptCommand = defineCommand({
             json: { type: "boolean" as const, description: "Print structured diagnostics" },
             "host-cwd": {
               type: "string" as const,
-              required: true,
+              required: true as const,
               description: "Native hook event's host checkout",
             },
           },
@@ -292,7 +292,7 @@ export const receiptCommand = defineCommand({
             ...reviewArgs,
             nonce: {
               type: "string" as const,
-              required: true,
+              required: true as const,
               description: "Nonce printed by begin",
             },
           },

@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="dd96b573" version="0.12.2" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="72016707" version="0.12.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -378,12 +378,14 @@ nv_is_spawn_tool() {
 # Depends on `payload`/`payload_field` (`extract-cmd`) and `nv_project_dir` /
 # `nv_progress_dir` (`hook-input`); include both in the same script.
 #
-# THE SUCCESS LANE. The host runs a criterion's `command` in its own Bash tool;
+# THE EVIDENCE LANE. The host runs a criterion's `command` in its own Bash tool;
 # `PostToolUse` fires only on success, so this lane's very firing is the success
 # signal. It appends ONE line per matching pending criterion to
 # `<state dir>/workplan_<feature>.evidence.jsonl`, which `plan update` compares
 # against the criterion and the current tree (`lib/plan/evidence.ts`). It never
 # runs the criterion's command and never writes anything but that line.
+# Claude failure events use the same writer only with a recognized structured
+# comparison; they never enter the legacy success path.
 #
 # FAIL-OPEN, NO PARTIAL LINE. Every path returns 0. The line is built entirely in
 # memory and written by a single `printf >>` as the LAST step, so a kill at any
@@ -685,8 +687,81 @@ try {
 } catch {}'
 }
 
-# Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
-# `claude-post-tool-use` (Codex fires PostToolUse on failure too, so no signal).
+# Compare only CLI-indexed predicates. Payload and output remain on stdin/in memory;
+# stdout contains comparison scalars only. No command is executed or output persisted.
+navori_bash_expected_fields() {
+  [ -s "$1" ] && [ ! -L "$1" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  printf '%s' "$payload" | NV_EXPECTED_INDEX=$1 NV_EXPECTED_FEATURE=$f NV_EXPECTED_ID=$i \
+    NV_EXPECTED_DIR=$d NV_EXPECTED_BINDING=$binding NV_EXPECTED_STAGE=$stage \
+    NV_EXPECTED_COMMAND=$c NV_EXPECTED_MODE=${2:-} node -e '
+const fs = require("node:fs");
+const vm = require("node:vm");
+const env = process.env;
+let input = "", inputBytes = 0, oversized = false;
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => {
+  inputBytes += Buffer.byteLength(chunk);
+  if (inputBytes > 32 * 1024 * 1024) oversized = true;
+  if (!oversized) input += chunk;
+});
+process.stdin.on("end", () => {
+  try {
+    const fd = fs.openSync(env.NV_EXPECTED_INDEX, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    let rows;
+    try {
+      if (!fs.fstatSync(fd).isFile() || fs.fstatSync(fd).size > 4 * 1024 * 1024) return;
+      rows = fs.readFileSync(fd, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+    } finally { fs.closeSync(fd); }
+    const matches = rows.filter(row => row.feature === env.NV_EXPECTED_FEATURE && row.id === env.NV_EXPECTED_ID &&
+      row.dir === env.NV_EXPECTED_DIR && row.stage === env.NV_EXPECTED_STAGE &&
+      JSON.stringify(row.binding) === (env.NV_EXPECTED_BINDING || "null") &&
+      typeof row.command === "string" && JSON.stringify(row.command).slice(1,-1) === env.NV_EXPECTED_COMMAND);
+    if (matches.length !== 1) return;
+    const row = matches[0];
+    if (typeof row.expected !== "string" || !row.spec || row.spec.kind === "free") return;
+    const result = { expected: row.expected, outcome: "unevaluated" };
+    const emit = () => process.stdout.write(JSON.stringify(result));
+    if (oversized) { emit(); return; }
+    const p = JSON.parse(input);
+    if (p.tool_name !== "Bash" || p.tool_input?.command !== row.command || p.tool_input?.run_in_background) return;
+    const spec = row.spec;
+    if (env.NV_EXPECTED_MODE === "failure") {
+      if (p.is_interrupt === true || typeof p.error !== "string" || /Command timed out/.test(p.error)) return;
+      const code = /^Exit code ([1-9]\d{0,2})(?:\r?\n|$)/.exec(p.error);
+      if (!code || Number(code[1]) > 255) return;
+      result.exit = Number(code[1]);
+    } else {
+      if (p.is_interrupt === true || p.tool_response?.interrupted === true) { emit(); return; }
+      result.exit = 0;
+    }
+    if (spec.kind === "exit" && Number.isInteger(spec.code) && spec.code >= 0 && spec.code <= 255) {
+      result.outcome = result.exit === spec.code ? "pass" : "fail";
+    } else if (["contains", "matches"].includes(spec.kind)) {
+      if (result.exit !== 0) result.outcome = "fail";
+      else {
+        const response = p.tool_response;
+        if (!response || typeof response.stdout !== "string" || typeof response.stderr !== "string" || response.isImage === true) { emit(); return; }
+        const output = response.stdout + "\n" + response.stderr;
+        if (Buffer.byteLength(output) > 4 * 1024 * 1024 || /\[\d+ characters truncated\]/.test(output)) { emit(); return; }
+        if (spec.kind === "contains" && typeof spec.text === "string" && spec.text.length > 0)
+          result.outcome = output.includes(spec.text) ? "pass" : "fail";
+        else if (spec.kind === "matches" && typeof spec.source === "string" && typeof spec.flags === "string" && /^[imsu]*$/.test(spec.flags)) {
+          // Fixed code, data-only context, bounded execution even for pathological regexes.
+          try {
+            result.outcome = new vm.Script("new RegExp(source, flags).test(output)").runInNewContext(
+              { source: spec.source, flags: spec.flags, output }, { timeout: 100 }) ? "pass" : "fail";
+          } catch { result.outcome = "unevaluated"; }
+        }
+      }
+    }
+    emit();
+  } catch {}
+});' 2>/dev/null
+}
+
+# Shared writer: Claude success/failure pass an explicit mode; Codex enters only
+# after a correlated completed success and never evaluates output predicates.
 navori_bash_success_lane() {
   # The index lives in the checkout that ran `plan update`: the git toplevel of
   # the payload `cwd` (a linked worktree has a `.git` FILE, main a directory),
@@ -708,9 +783,7 @@ navori_bash_success_lane() {
   [ -s "$idx" ] || return 0
   # A backgrounded call "succeeds" when it LAUNCHES, not when it finishes; an
   # interrupted one did not complete.
-  case "$payload" in
-    *'"run_in_background":true'* | *'"interrupted":true'*) return 0 ;;
-  esac
+  case "$payload" in *'"run_in_background":true'*) return 0 ;; esac
   local c f i d binding stage hits=
   while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$c" ] || continue
@@ -742,7 +815,7 @@ navori_bash_success_lane() {
     [ -n "$ctree" ] && [ "$ctree" = "$cproj" ] || return 0
   fi
 
-  local line extra file
+  local line extra file comparison
   while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$f" ] || continue
     # The index is CLI-written state, but the hook is the one that opens a path
@@ -763,6 +836,17 @@ navori_bash_success_lane() {
       case "$binding" in '{'*'}') ;; *) continue ;; esac
     elif [ -n "$stage" ]; then continue
     fi
+    comparison=
+    case "${1:-}" in
+      claude | failure)
+        if [ "${nv_engine:-}" = claude ]; then
+          comparison=$(navori_bash_expected_fields "$top/$nv_progress_dir/acceptance-expected.jsonl" "${1:-}") || comparison=
+        fi
+        ;;
+    esac
+    # Failure events never imply success; old/free predicates retain their old lane.
+    if [ "${1:-}" = failure ] && [ -z "$comparison" ]; then continue; fi
+    case "$payload" in *'"interrupted":true'*) [ -n "$comparison" ] || continue ;; esac
     wt=$(navori_tree_fingerprint "$tree" "$stage") || continue
     [ -n "$wt" ] || continue
     dirty=true
@@ -772,6 +856,8 @@ navori_bash_success_lane() {
     [ -z "$sid" ] || extra=$extra',"sessionId":"'$sid'"'
     [ -z "$agent" ] || extra=$extra',"agentId":"'$agent'"'
     [ -z "$binding" ] || extra=$extra',"deliveryBinding":'$binding
+    [ -z "$comparison" ] || extra=$extra','${comparison#\{}
+    [ -z "$comparison" ] || extra=${extra%\}}
     line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","fp":2,"dirty":'$dirty$extra'}'
     printf '%s\n' "$line" >> "$file" 2>/dev/null || true
   done <<NAVORI_HITS
@@ -1123,7 +1209,7 @@ esac
 # in the payload, and writes one complete line with a single `printf >>` or none.
 if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
   navori_bash_failure_state reset
-  navori_bash_success_lane
+  navori_bash_success_lane claude
 fi
 
 # Spec 0041 T12 (R11): the Codex Bash outcome lane, same hook, no new
@@ -1158,7 +1244,13 @@ fi
 # locate a stamp it will never open, for the same reason a `Read` does not pay
 # for the `case` above.
 if [ "$tool" = "Bash" ]; then
-  navori_has_write_token "${payload:-}" || exit 0
+  # Bash substitutions are quadratic on multi-MiB output. The loaded command is
+  # already exact; large responses must not enter the payload-wide write probe.
+  if [ "${#payload}" -gt 1048576 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+    navori_has_write_token "${_nv_pf_tool_input__command:-}" || exit 0
+  else
+    navori_has_write_token "${payload:-}" || exit 0
+  fi
 fi
 
 # One stamp per session, so two concurrent sessions never overwrite each other's

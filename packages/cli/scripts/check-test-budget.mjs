@@ -1,6 +1,6 @@
 import { globSync, readFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { summarizeReport } from "./bench-tests.mjs";
 
@@ -11,6 +11,10 @@ import { summarizeReport } from "./bench-tests.mjs";
  * named file and must say why. With `--report` (a Vitest JSON report or a
  * `bench:tests` summary) it enforces R3: a file over its budget x
  * `NAVORI_TEST_BUDGET_FACTOR` (default 1) fails, naming file, duration and budget.
+ *
+ * Reports are rejected when `success`/`vitestExit` are present and not green, and, when they
+ * carry `provenance`, when it is dirty or not the current `git rev-parse HEAD` (`--propose`
+ * also rejects mixing reports with and without provenance, or at different heads).
  *
  * Usage: node scripts/check-test-budget.mjs [--budget <path>] [--report <json>]
  * Proposal only: --propose <bench1.json> <bench2.json> <bench3.json> [--budget <path>]
@@ -177,6 +181,58 @@ export function reportFiles(report) {
   return summarizeReport(report, 0, PACKAGE_ROOT).files;
 }
 
+/**
+ * Why a report cannot be accredited as a passing run: a `success` / `vitestExit` that is
+ * present but not green (a crashed or partial run still writes a report).
+ *
+ * @param {unknown} report
+ * @returns {string[]}
+ */
+export function runProblems(report) {
+  if (typeof report !== "object" || report === null) return [];
+  const problems = [];
+  if ("success" in report && report.success !== true) problems.push("success is not true");
+  if ("vitestExit" in report && report.vitestExit !== 0) problems.push(`vitestExit is ${String(report.vitestExit)}`);
+  return problems;
+}
+
+/**
+ * Provenance rules (spec 0055 / #1354). Reports without `provenance` keep the legacy behavior;
+ * those carrying it must be clean and measured at `currentHead`. With several reports they must
+ * not mix with/without provenance nor differ in head.
+ *
+ * @param {unknown[]} reports
+ * @param {string | null} currentHead `git rev-parse HEAD` of this checkout
+ * @param {boolean} [cohort] several reports that must agree (`--propose`)
+ * @returns {string[]}
+ */
+export function provenanceProblems(reports, currentHead, cohort = false) {
+  const provenances = reports.map((report) =>
+    typeof report === "object" && report !== null && "provenance" in report ? report.provenance : undefined,
+  );
+  const present = provenances.filter((p) => p !== undefined);
+  if (present.length === 0) return [];
+  const problems = [];
+  if (cohort && present.length !== reports.length) problems.push("reports mix with and without provenance");
+  const heads = new Set();
+  for (const p of present) {
+    const head = typeof p === "object" && p !== null && "head" in p ? p.head : undefined;
+    const dirty = typeof p === "object" && p !== null && "dirty" in p ? p.dirty : undefined;
+    heads.add(head);
+    if (typeof head !== "string") problems.push("provenance without head");
+    else if (head !== currentHead) problems.push(`provenance head ${head} is not the current HEAD ${currentHead ?? "(none)"}`);
+    if (dirty !== false) problems.push("provenance is dirty or unknown");
+  }
+  if (cohort && heads.size > 1) problems.push("reports were measured at different heads");
+  return [...new Set(problems)];
+}
+
+/** `git rev-parse HEAD` of the checkout this script lives in; `null` outside git. */
+async function currentHead() {
+  const { gitHead } = await import(pathToFileURL(join(PACKAGE_ROOT, "..", "..", "scripts", "js", "bench-provenance.mjs")).href);
+  return gitHead(PACKAGE_ROOT);
+}
+
 /** Parses `NAVORI_TEST_BUDGET_FACTOR`; unset means 1, anything but a positive number throws. */
 function parseFactor(raw) {
   if (raw === undefined || raw === "") return 1;
@@ -187,7 +243,7 @@ function parseFactor(raw) {
 }
 
 /** @param {string[]} argv */
-function main(argv) {
+async function main(argv) {
   const flag = (name) => {
     const at = argv.indexOf(name);
     return at === -1 ? undefined : argv[at + 1];
@@ -219,11 +275,13 @@ function main(argv) {
       const files = globSync("src/**/*.test.ts", { cwd: PACKAGE_ROOT }).map((file) =>
         relative(PACKAGE_ROOT, resolve(PACKAGE_ROOT, file)).split("\\").join("/"),
       );
-      const proposal = proposeBudget(
-        paths.map((path) => JSON.parse(readFileSync(resolve(path), "utf8"))),
-        result.budget,
-        files,
-      );
+      const reports = paths.map((path) => JSON.parse(readFileSync(resolve(path), "utf8")));
+      const problems = [
+        ...reports.flatMap(runProblems),
+        ...provenanceProblems(reports, await currentHead(), true),
+      ];
+      if (problems.length > 0) throw new Error(problems.join("; "));
+      const proposal = proposeBudget(reports, result.budget, files);
       process.stdout.write(`${JSON.stringify(proposal, null, 2)}\n`);
       return 0;
     } catch (error) {
@@ -238,11 +296,10 @@ function main(argv) {
     let violations;
     try {
       const factor = parseFactor(process.env.NAVORI_TEST_BUDGET_FACTOR);
-      violations = budgetViolations(
-        result.budget,
-        reportFiles(JSON.parse(readFileSync(resolve(reportPath), "utf8"))),
-        factor,
-      );
+      const report = JSON.parse(readFileSync(resolve(reportPath), "utf8"));
+      const problems = [...runProblems(report), ...provenanceProblems([report], await currentHead())];
+      if (problems.length > 0) throw new Error(problems.join("; "));
+      violations = budgetViolations(result.budget, reportFiles(report), factor);
     } catch (error) {
       process.stderr.write(
         `check-test-budget: cannot use report ${reportPath}: ${error.message}\n`,
@@ -263,5 +320,5 @@ function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }
