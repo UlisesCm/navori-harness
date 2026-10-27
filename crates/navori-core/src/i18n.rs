@@ -94,6 +94,46 @@ pub const fn markerless_file_edited_resolvable(lang: Lang) -> &'static str {
     }
 }
 
+/// `engine.subBlockEditedByHand`.
+#[must_use]
+pub fn sub_block_edited_by_hand(lang: Lang, id: &str, plugin: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "sub-bloque '{id}' (de @navori/plugin-{plugin}) editado por el usuario; ajusta el destino a mano"
+        ),
+        Lang::En => format!(
+            "sub-block '{id}' (from @navori/plugin-{plugin}) edited by hand; adjust the destination manually"
+        ),
+    }
+}
+
+/// `engine.subBlockFromNewerNavori`.
+#[must_use]
+pub fn sub_block_from_newer_navori(lang: Lang, id: &str, version: Option<&str>) -> String {
+    let version = version.unwrap_or("?");
+    match lang {
+        Lang::Es => format!(
+            "sub-bloque '{id}' escrito por una navori m\u{e1}s nueva ({version}); no lo toqu\u{e9}. Actualiza tu CLI"
+        ),
+        Lang::En => format!(
+            "sub-block '{id}' written by a newer navori ({version}); left untouched. Update your CLI"
+        ),
+    }
+}
+
+/// `engine.pluginSkillNotInjected`.
+#[must_use]
+pub fn plugin_skill_not_injected(lang: Lang, id: &str, plugin: &str, target: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "skill '{id}' (de @navori/plugin-{plugin}) no inyectado: target {target} ausente (\u{bf}agente disabled en config.harness?)"
+        ),
+        Lang::En => format!(
+            "skill '{id}' (from @navori/plugin-{plugin}) not injected: target {target} missing (agent disabled in config.harness?)"
+        ),
+    }
+}
+
 /// `engine.blockFromNewerNavori`.
 #[must_use]
 pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {

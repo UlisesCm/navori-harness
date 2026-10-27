@@ -1,5 +1,6 @@
 //! Render pipeline pieces shared by the native commands (spec 0058).
 
+pub mod agent_mcp_tools;
 pub mod assets;
 pub mod block_plan;
 pub mod claude_files;
@@ -17,3 +18,4 @@ pub mod plan;
 pub mod plugin_scripts;
 pub mod plugins;
 pub mod presets;
+pub mod sub_blocks;
