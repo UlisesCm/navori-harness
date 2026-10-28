@@ -6,6 +6,7 @@ pub mod block_plan;
 pub mod claude;
 pub mod claude_files;
 pub mod claude_md;
+pub mod claude_settings;
 pub mod collect;
 pub mod context;
 pub mod frontmatter;
