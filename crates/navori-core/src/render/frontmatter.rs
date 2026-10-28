@@ -24,7 +24,7 @@ fn js_trim(text: &str) -> &str {
 }
 
 /// Byte offsets where a JS multiline `^` matches: 0 and after every line terminator.
-fn js_line_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+pub(crate) fn js_line_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
     std::iter::once(0).chain(
         text.char_indices()
             .filter(|(_, ch)| is_js_line_terminator(*ch))

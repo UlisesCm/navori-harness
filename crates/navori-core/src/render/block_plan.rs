@@ -116,6 +116,38 @@ pub struct PlanEntry {
     pub new_content: Option<String>,
 }
 
+/// `classifyVersionDrift`: a drifted block on disk is an update, or a downgrade when its
+/// version is newer than this CLI's.
+pub fn classify_version_drift(
+    details: &InjectDetails,
+    id: &str,
+    source: &str,
+    updates_available: &mut Vec<UpdateAvailable>,
+    downgrades: &mut Vec<UpdateAvailable>,
+) {
+    let Some(existing) = details
+        .existing_version
+        .as_deref()
+        .filter(|v| !v.is_empty())
+    else {
+        return;
+    };
+    if details.version_drift != Some(true) {
+        return;
+    }
+    let entry = UpdateAvailable {
+        id: id.to_owned(),
+        source: source.to_owned(),
+        from_version: existing.to_owned(),
+        to_version: STAMP_VERSION.to_owned(),
+    };
+    if semver::compare(Some(existing), Some(STAMP_VERSION)) == Some(Ordering::Greater) {
+        downgrades.push(entry);
+    } else {
+        updates_available.push(entry);
+    }
+}
+
 /// `UpdateAvailable`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateAvailable {
@@ -306,27 +338,13 @@ impl Planner<'_> {
 
     /// `classifyVersionDrift`.
     fn classify_drift(&mut self, details: &InjectDetails, id: &str, source: &str) {
-        let Some(existing) = details
-            .existing_version
-            .as_deref()
-            .filter(|v| !v.is_empty())
-        else {
-            return;
-        };
-        if details.version_drift != Some(true) {
-            return;
-        }
-        let entry = UpdateAvailable {
-            id: id.to_owned(),
-            source: source.to_owned(),
-            from_version: existing.to_owned(),
-            to_version: STAMP_VERSION.to_owned(),
-        };
-        if semver::compare(Some(existing), Some(STAMP_VERSION)) == Some(Ordering::Greater) {
-            self.downgrades.push(entry);
-        } else {
-            self.updates_available.push(entry);
-        }
+        classify_version_drift(
+            details,
+            id,
+            source,
+            &mut self.updates_available,
+            &mut self.downgrades,
+        );
     }
 
     /// A retired block, removed only when pristine (`removeManagedSectionGuarded`).
