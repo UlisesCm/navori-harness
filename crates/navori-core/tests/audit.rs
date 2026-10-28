@@ -9,6 +9,7 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use navori_core::audit::{
     AuditContext, AuditSnapshot, HookLabels, HookMetadata, HookPayload, Host, repo_from_cwd,
@@ -17,11 +18,23 @@ use serde_json::{Value, json};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-struct TempDir(PathBuf);
+/// A private fixture directory that also holds the file's exec lock while it lives.
+///
+/// Fixtures write a script and execute it at once. On Linux, a `fork` by another test thread
+/// while that script is still open for writing leaves the child holding the descriptor, and
+/// the `execve` fails with `ETXTBSY` (about 5% of runs in CI). Every test here spawns, so they
+/// run one at a time.
+struct TempDir {
+    path: PathBuf,
+    _serial: MutexGuard<'static, ()>,
+}
+
+static EXEC: Mutex<()> = Mutex::new(());
 
 impl TempDir {
     fn new() -> Result<Self, Box<dyn Error>> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
+        let serial = EXEC.lock().unwrap_or_else(PoisonError::into_inner);
         for _ in 0..100 {
             let path = std::env::temp_dir().join(format!(
                 "navori-rust-audit-{}-{}",
@@ -31,7 +44,10 @@ impl TempDir {
             match fs::create_dir(&path) {
                 Ok(()) => {
                     fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
-                    return Ok(Self(fs::canonicalize(path)?));
+                    return Ok(Self {
+                        path: fs::canonicalize(path)?,
+                        _serial: serial,
+                    });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => return Err(error.into()),
@@ -41,7 +57,7 @@ impl TempDir {
     }
 
     fn root(&self) -> &Path {
-        &self.0
+        &self.path
     }
 
     fn write(
@@ -50,7 +66,7 @@ impl TempDir {
         content: impl AsRef<[u8]>,
         mode: u32,
     ) -> Result<PathBuf, Box<dyn Error>> {
-        let path = self.0.join(relative);
+        let path = self.path.join(relative);
         let parent = path.parent().ok_or("missing parent")?;
         fs::create_dir_all(parent)?;
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
@@ -62,7 +78,7 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
