@@ -273,13 +273,13 @@ backup y poda no dependan del reloj.
   `render.ts:1260` y `runRender`), así que el TS imprime cada advertencia de config dos veces. E3 lo
   reproduce tal cual.
 - `writeConfig` (para `remove`) re-valida y preserva enums de compatibilidad futura
-  (`preserveForwardCompatEnums`); se porta en E4 junto con su único consumidor.
+  (`preserveForwardCompatEnums`); se porta en E3 M9 junto con su único consumidor.
 
 ### D23 — `render` Claude en preview (R39–R42)
 
 - **Subconjunto nativo** (Q8: el mínimo):
   - config: `engines` = `["claude"]` (o ausente), sin `monorepo.workspaces` habilitados;
-  - flags: `cwd`, `dry-run` y `json` en E3; `apply` y `force` en E4.
+  - flags: `cwd`, `dry-run` y `json` en E3 M6; `apply` y `force` en E3 M8.
   - Se re-delega con `--all`, `--prune`, `--workspace` o `--verbose`, con otro engine, con
     workspaces o con un plugin cuyo asset no esté embebido.
   - La re-delegación ocurre después de leer la config y **antes de cualquier salida** (D3 de 0057):
@@ -430,7 +430,7 @@ backup y poda no dependan del reloj.
   inválida y ausente.
 - **T22 — Markers (R35, R36).** Propiedades contra Node para inject, remove guardado, locate y
   reorder, con fences, huérfanos, CRLF, bloques vacíos y Unicode.
-- **T23 — Anti-rollback (R37, R34, R38).** Matriz unitaria en E2; matriz de oráculo en E4 (D26).
+- **T23 — Anti-rollback (R37, R34, R38).** Matriz unitaria en E2; matriz de oráculo en E3 M8 (D26).
 - **T24 — Render en preview (R39–R42).** Oráculo sobre los fixtures aplicables en `es` y `en`, con
   y sin `--json`; un fixture por condición de re-delegación; `wiring.snap`.
 - **T25 — Capa `Fs` (R14, R43–R46).** Los tests de D15 de 0057: orden, fsync, modos con umask
@@ -442,7 +442,14 @@ backup y poda no dependan del reloj.
 ## Plan de entregas
 
 Cada entrega es un PR contra `migration/rust` y exige `rust.yml` y `ci.yml` en verde. Relación con
-el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2; E4 = E5 M1–M2.
+el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2 y E5 M1–M2.
+
+**Replanificación (Q13, 2026-10-27).** Tras integrar E2 y la mayor parte de E3 M5 en tramos, el
+usuario pidió la mínima cantidad de PRs para lo que falta. La antigua E4 se funde en E3: quedan dos
+PRs, E1 y E3. E1 sigue aparte porque depende de la ventana de sombra y de la aprobación del usuario
+en su propio PR; E3 se mergea después de E1 porque M6 toca `ported.json` (Q2). El costo es un PR
+grande de área crítica (render y escrituras): cada mecanismo sigue en su propio commit y el cierre
+exige revisión independiente.
 
 ### E1 — Activación de `guard-destructive` (puerta de entrada)
 
@@ -456,13 +463,10 @@ el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2; E4 = E5 M1–M2.
 - **M3 —** Semver, versión de sello, config y contexto explícito.
 - **M4 —** Markers y matriz anti-rollback unitaria.
 
-### E3 — `render` Claude en preview
+### E3 — `render` Claude con escrituras
 
 - **M5 —** Plan Claude puro, settings y wiring nativo, cadenas `es`/`en`.
 - **M6 —** Comando `render` nativo en preview, re-delegación y cobertura del oráculo.
-
-### E4 — Escrituras
-
 - **M7 —** Capa `Fs`, escritura atómica, backup y poda.
 - **M8 —** `render --apply`, `adopt --apply`, `harnessVersion`, registro y matriz anti-rollback en el
   oráculo.
@@ -473,8 +477,8 @@ el plan de 0057: E1 = E5 M3; E2 = E4 M1; E3 = E4 M2; E4 = E5 M1–M2.
 - La activación es la puerta pedida y fija el wiring `active` que E3 reproduce.
 - Las bibliotecas (E2) no tocan el manifiesto: pueden avanzar mientras corre la ventana de sombra de
   E1 (Q2).
-- El preview (E3) prueba todo el plan sin riesgo de escritura antes de que exista `RealFs` (E4).
-- Dentro de E4, `sync` y `remove` van al final porque son los únicos con prompts y con cambio de
+- El preview (M5–M6) prueba todo el plan sin riesgo de escritura antes de que exista `RealFs` (M7).
+- Dentro de las escrituras, `sync` y `remove` van al final porque son los únicos con prompts y con cambio de
   esquema.
 
 ## NOT in scope
@@ -518,6 +522,7 @@ cada pregunta se conserva abajo con su resolución.
 | Q10 | `op: "deactivate"` |
 | Q11 | Máscara literal de lado para la línea de procedencia; Rust imprime `core: (embedded)` |
 | Q12 | Se acepta el tamaño de E3 sin recortar; M5 en un commit por mecanismo |
+| Q13 | (2026-10-27) Mínima cantidad de PRs para lo que falta: la antigua E4 (M7–M9) se funde en E3 y quedan dos PRs, E1 y E3. Los tramos de M5 ya integrados (#1411–#1433) quedan como están |
 
 ## Preguntas (resueltas)
 
