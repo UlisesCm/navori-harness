@@ -109,6 +109,30 @@ impl JsObject {
         self.get(key).is_some()
     }
 
+    /// Own property `key`, mutably.
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut JsValue> {
+        self.0
+            .iter_mut()
+            .find_map(|(existing, value)| existing.is(key).then_some(value))
+    }
+
+    /// `delete obj[key]`.
+    pub fn remove(&mut self, key: &str) {
+        self.0.retain(|(existing, _)| !existing.is(key));
+    }
+
+    /// The number of own properties (`Object.keys(obj).length`).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether there are no own properties.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Properties in JS enumeration order: array indices ascending, then the rest as inserted.
     #[must_use]
     pub fn ordered(&self) -> Vec<&(JsString, JsValue)> {

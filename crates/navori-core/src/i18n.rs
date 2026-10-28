@@ -160,6 +160,19 @@ pub const fn gitignore_header(lang: Lang) -> &'static str {
     }
 }
 
+/// `engine.settingsNotObject`.
+#[must_use]
+pub const fn settings_not_object(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "settings.json no es un objeto JSON \u{2014} no se puede fusionar. Corre 'navori render --force --apply' para regenerar."
+        }
+        Lang::En => {
+            "settings.json is not a JSON object \u{2014} can't merge. Run 'navori render --force --apply' to regenerate."
+        }
+    }
+}
+
 /// `engine.blockFromNewerNavori`.
 #[must_use]
 pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {

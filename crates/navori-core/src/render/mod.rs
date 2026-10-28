@@ -24,4 +24,5 @@ pub mod plugins;
 pub mod presets;
 pub mod removable;
 pub mod retirements;
+pub mod settings_file;
 pub mod sub_blocks;
