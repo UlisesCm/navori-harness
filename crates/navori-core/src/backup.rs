@@ -230,6 +230,116 @@ fn copy_recursive(
     Ok(())
 }
 
+/// `DEFAULT_RETENTION_DAYS`.
+pub const RETENTION_DAYS: f64 = 30.0;
+
+/// `DEFAULT_MAX_TOTAL_BYTES`: 2 GiB.
+pub const MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// `stat.mtimeMs`: milliseconds since the epoch, with the sub-millisecond fraction.
+fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
+    use std::os::unix::fs::MetadataExt;
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "`mtimeMs` is a JS number built from the same seconds and nanoseconds"
+    )]
+    let ms = meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6;
+    ms
+}
+
+/// `dirSizeBytes(dir)`: the regular files under `dir`, symlinks followed; a failure mid-walk
+/// keeps what was counted so far.
+fn dir_size_bytes(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut walk = || -> std::io::Result<()> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|e| e.file_name()))
+            .collect::<Result<_, _>>()?;
+        names.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        for name in names {
+            let full = dir.join(name);
+            let meta = std::fs::metadata(&full)?;
+            if meta.is_dir() {
+                total += dir_size_bytes(&full);
+            } else if meta.is_file() {
+                total += meta.len();
+            }
+        }
+        Ok(())
+    };
+    let _ = walk();
+    total
+}
+
+/// `purgeOldBackups({ retentionDays, maxTotalBytes })` at `now_ms` over `root`: first every
+/// backup older than the retention, then oldest-first until the rest fits under the cap. An entry
+/// that vanishes or fails mid-scan is skipped. The pruned directories, in order.
+///
+/// # Errors
+/// [`FsError`] with Node's message when `root` exists but cannot be listed, where the TS throws.
+pub fn purge_old_backups(
+    fs: &mut dyn Fs,
+    root: &Path,
+    now_ms: f64,
+    retention_days: f64,
+    max_total_bytes: u64,
+) -> Result<Vec<PathBuf>, FsError> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let cutoff = now_ms - retention_days * 24.0 * 60.0 * 60.0 * 1000.0;
+    let entries =
+        std::fs::read_dir(root).map_err(|e| fs_error(&e, Syscall::Scandir, root, None))?;
+    let mut names = Vec::new();
+    for entry in entries {
+        names.push(
+            entry
+                .map_err(|e| fs_error(&e, Syscall::Scandir, root, None))?
+                .file_name(),
+        );
+    }
+    names.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    let mut pruned = Vec::new();
+    let mut survivors: Vec<(PathBuf, f64)> = Vec::new();
+    for name in names {
+        let full = root.join(name);
+        let Ok(meta) = std::fs::metadata(&full) else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let mtime = mtime_ms(&meta);
+        if mtime < cutoff {
+            if fs.remove(&full, true).is_ok() {
+                pruned.push(full);
+            }
+        } else {
+            survivors.push((full, mtime));
+        }
+    }
+    // `Array.prototype.sort` is stable, as is `sort_by`.
+    survivors.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let sized: Vec<(PathBuf, u64)> = survivors
+        .into_iter()
+        .map(|(path, _)| {
+            let bytes = dir_size_bytes(&path);
+            (path, bytes)
+        })
+        .collect();
+    let mut total: u64 = sized.iter().map(|(_, bytes)| bytes).sum();
+    for (path, bytes) in sized {
+        if total <= max_total_bytes {
+            break;
+        }
+        if fs.remove(&path, true).is_ok() {
+            pruned.push(path);
+        }
+        total = total.saturating_sub(bytes);
+    }
+    Ok(pruned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

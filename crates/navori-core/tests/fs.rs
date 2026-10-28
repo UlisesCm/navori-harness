@@ -429,3 +429,108 @@ fn a_backup_copies_what_create_backup_copies() -> TestResult {
     assert_eq!(again.files, Vec::<String>::new());
     Ok(())
 }
+
+// --- purge ----------------------------------------------------------------------------------
+
+const DAY: u64 = 24 * 60 * 60;
+
+/// A backup store: two backups past 30 days, four recent ones of 300, 200, 100 and 50 bytes (one
+/// with a nested directory and a symlink to a file outside, followed when sized), a stray file
+/// and a symlink to a backup, which `statSync` sees as a second backup with its mtime.
+fn purge_fixture(store: &Path, outside: &Path) -> TestResult {
+    let now = std::time::SystemTime::now();
+    let dirs: [(&str, u64, usize); 6] = [
+        ("old-a", 40, 10),
+        ("old-b", 31, 10),
+        ("r1", 20, 300),
+        ("r2", 10, 200),
+        ("r3", 5, 60),
+        ("r4", 1, 50),
+    ];
+    for (name, _, bytes) in dirs {
+        fs::create_dir_all(store.join(name).join("nested"))?;
+        fs::write(store.join(name).join("nested/file"), vec![b'x'; bytes])?;
+    }
+    std::os::unix::fs::symlink(outside, store.join("r3/outside"))?;
+    std::os::unix::fs::symlink("r2", store.join("link-to-r2"))?;
+    fs::write(store.join("stray"), "not a backup\n")?;
+    for (name, days, _) in dirs {
+        let at = now - std::time::Duration::from_secs(days * DAY);
+        fs::File::open(store.join(name))?.set_modified(at)?;
+    }
+    Ok(())
+}
+
+fn names(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut out: Vec<String> = fs::read_dir(dir)?
+        .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<_, _>>()?;
+    out.sort();
+    Ok(out)
+}
+
+// Covers: R45
+#[test]
+fn purge_drops_30_day_old_backups_then_oldest_first_down_to_the_cap() -> TestResult {
+    let root = TempDir::new("purge")?;
+    let outside = root.0.join("outside");
+    fs::write(&outside, vec![b'y'; 40])?;
+    let (rust, node) = (root.0.join("rust"), root.0.join("node"));
+    purge_fixture(&rust, &outside)?;
+    purge_fixture(&node, &outside)?;
+
+    let script = format!(
+        "const {{ purgeOldBackups }} = await import({:?});\n\
+         const pruned = purgeOldBackups({{ retentionDays: 30, maxTotalBytes: 400 }});\n\
+         console.log(JSON.stringify(pruned.map((p) => p.split('/').at(-1))));",
+        backup_ts()
+    );
+    let out = Command::new("node")
+        .args(["--input-type=module", "--no-warnings", "-e", &script])
+        .env("NAVORI_BACKUP_ROOT", &node)
+        .output()?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
+    }
+    let node_pruned = String::from_utf8(out.stdout)?.trim_end().to_owned();
+
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "`Date.now()` is a JS number of milliseconds"
+    )]
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as f64;
+    let pruned = navori_core::backup::purge_old_backups(
+        &mut RealFs::default(),
+        &rust,
+        now_ms,
+        navori_core::backup::RETENTION_DAYS,
+        400,
+    )
+    .map_err(|e| e.message)?;
+    let pruned: Vec<String> = pruned
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    // Age first, then r1 (oldest) and the link (r2's mtime, sorted before it by name).
+    assert_eq!(json_list(&pruned), node_pruned);
+    assert_eq!(pruned, ["old-a", "old-b", "r1", "link-to-r2"]);
+    assert_eq!(names(&rust)?, names(&node)?);
+    assert_eq!(
+        fs::read(&outside)?.len(),
+        40,
+        "a followed symlink is never deleted through"
+    );
+    // A missing store is not an error.
+    let missing = navori_core::backup::purge_old_backups(
+        &mut RealFs::default(),
+        &root.0.join("absent"),
+        now_ms,
+        30.0,
+        0,
+    )
+    .map_err(|e| e.message)?;
+    assert_eq!(missing, Vec::<std::path::PathBuf>::new());
+    Ok(())
+}
