@@ -8,6 +8,7 @@ pub mod payload;
 pub mod prepare;
 pub(crate) mod ratchet;
 pub mod repo;
+pub mod subcommand;
 
 /// Shell text/character-count convention, supplied instead of inspecting LC_ALL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

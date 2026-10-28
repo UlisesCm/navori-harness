@@ -128,7 +128,9 @@ const NAVORI_CLI_PROBE: Duration = Duration::from_secs(5);
 /// this binary was built from; otherwise the hook runs that `navori`, as the shell does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NavoriCli {
-    /// `command -v navori`, canonical; `None` when `PATH` resolves no `navori`.
+    /// `command -v navori` (a relative `PATH` entry joined to the hook's working directory),
+    /// not canonicalized: the path the shell runs and exports as `_`. `None` when `PATH`
+    /// resolves no `navori`.
     pub path: Option<PathBuf>,
     /// First line of `navori --version` on a zero exit, trimmed; `None` when it printed none.
     pub version: Option<String>,
@@ -176,6 +178,7 @@ pub fn navori_cli(
             version: None,
         });
     };
+    // The cache is keyed by the binary behind any symlink; the probe runs the resolved path.
     let binary = found.canonicalize().map_err(io_failure)?;
     let absolute = std::env::split_paths(path).all(|entry| entry.is_absolute());
     let cache = cache
@@ -185,12 +188,12 @@ pub fn navori_cli(
         && let Some(version) = cache.load_cli(&binary, stamp, *now)
     {
         return Ok(NavoriCli {
-            path: Some(binary),
+            path: Some(found),
             version,
         });
     }
     let output = probe(
-        &binary,
+        &found,
         &["--version".into()],
         cwd,
         env,
@@ -205,7 +208,7 @@ pub fn navori_cli(
         cache.store_cli(&binary, stamp, version.as_deref(), *now);
     }
     Ok(NavoriCli {
-        path: Some(binary),
+        path: Some(found),
         version,
     })
 }
