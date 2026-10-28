@@ -1677,7 +1677,7 @@ describe.each(SHELLS)("event spool under %s", (shell) => {
     expect(readFileSync(logFile(), "utf-8")).toBe(before);
     const files = readdirSync(spool());
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^[0-9]*-\d+-\d+\.json$/);
+    expect(files[0]).toMatch(/^[0-9]*-\d+-\d{4}-\d+\.json$/);
     expect(statSync(join(spool(), files[0]!)).mode & 0o077).toBe(0);
     const text = readFileSync(join(spool(), files[0]!), "utf-8");
     expect(text).not.toContain("secret-prompt");
@@ -1703,6 +1703,52 @@ describe.each(SHELLS)("event spool under %s", (shell) => {
     run(shell, TRIGGER, payload("again"));
     expect(readFileSync(spool(), "utf-8")).toBe("not a dir");
     expect(existsSync(transport())).toBe(true);
+  });
+
+  // Covers: R26
+  it("dos eventos de una invocaci\u00f3n quedan en dos archivos, en orden, sin EPOCHREALTIME", () => {
+    // bash < 5 has no EPOCHREALTIME and, before 5.1, a subshell repeats the parent's next
+    // $RANDOM: both events of a gate run (gate-started, then the verdict) used to share one
+    // name and noclobber dropped the second. Unsetting it reproduces that stamp on any bash.
+    activate();
+    mkdirSync(spool(), { mode: 0o700 });
+    const probe = join(root, "two-events.sh");
+    writeFileSync(
+      probe,
+      expandHookIncludes(`set -eu
+# navori:include audit-repo
+# navori:include audit-log
+payload=$(cat)
+navori_audit_phase=PreToolUse
+navori_audit_name=fixture-hook
+navori_audit_begin
+navori_audit_log gate-started ""
+navori_audit_log allow ""
+`),
+    );
+    execFileSync(shell, ["-c", 'unset EPOCHREALTIME 2>/dev/null || true; . "$0"', probe], {
+      input: payload("x"),
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        NAVORI_AUDITS_ROOT: root,
+        PATH: `${recorderBin}:${process.env.PATH ?? ""}`,
+      },
+    });
+    const files = readdirSync(spool()).sort();
+    expect(files).toHaveLength(2);
+    for (const name of files) expect(name).toMatch(/^[0-9]*-\d+-\d{4}-\d+\.json$/);
+    expect(
+      files.map(
+        (name) =>
+          (
+            JSON.parse(readFileSync(join(spool(), name), "utf-8")) as {
+              metadata: { verdict: string };
+            }
+          ).metadata.verdict,
+      ),
+    ).toEqual(["gate-started", "allow"]);
+    expect(existsSync(transport())).toBe(false);
   });
 
   // Covers: R26

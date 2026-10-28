@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-28 15:40 Pi — Separa en dos archivos del spool los eventos de una invocación
+
+Con bash < 5.1 (macOS `/bin/bash` 3.2) o sin `EPOCHREALTIME`, los dos eventos de una corrida del gate (`gate-started` y luego el veredicto) calculaban el mismo nombre de spool: el sello valía 0 y el subshell repetía el `$RANDOM` del padre, así que `noclobber` descartaba el segundo y, sin `navori` en PATH, se perdía. `navori_audit_spool_write` agrega un contador por proceso, contado en el shell padre y desde 1000, para que los nombres `<stamp>-<pid>-<seq>-<rand>.json` sigan el orden de escritura. Regresión nueva en bash y zsh que falla sin el fix; hooks y goldens re-renderizados. Trabajo directo sin subagentes porque los de Pi devuelven 400 (Q18).
+
+Full `bun check` exit 0: 10463 aprobadas, 2 omitidas, 489 archivos, 1413.6 s. Replay del corpus en bash 2996/2996. Hallazgo aparte: `hook-verdict-replay.mjs --shell zsh` diverge en el caso 2162 (`plan-gate`, codex, audit off, status 2 esperado y 0 real) también sin el fix; `hooks-zsh-parity.test.ts` pasa. Desbloquea el corpus de `quality-gate-pre-commit` de spec 0059 T5 cuando llegue a `migration/rust`.
+
 ## 2026-10-22 13:33 Codex — Protege Markdown y copias sobre rutas administradas en #1364
 
 Reconstruye M3/T5–T7 de0053 desde el candidato preservado sobre dev3e5b7257, sin M1/M2/M4 ni compresión i18n. Pi usa el hook canónico para bash/edit/write y bloquea bindings ausentes o degradados. Las tres guardas reciben un inventario exacto por target, sellado antes de interpolar; sync conserva decisiones y bases. Añade catálogo por capa y regresiones. La revisión corrigió normalización de drives, falsos positivos de consultas y el piso antirretroceso perdido entre preparación y commit diferido. Trabajo y revisión directos por petición expresa del usuario.
