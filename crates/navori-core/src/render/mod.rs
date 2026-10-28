@@ -3,6 +3,7 @@
 pub mod agent_mcp_tools;
 pub mod assets;
 pub mod block_plan;
+pub mod claude;
 pub mod claude_files;
 pub mod claude_md;
 pub mod collect;

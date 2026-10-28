@@ -408,7 +408,7 @@ fn rust_plan(root: &Path, text: &str, settings_skipped: bool) -> Option<Value> {
     let out = plan_retirements(&Disk(root), &input).ok()?;
     Some(json!({
         "removals": out.removals.iter().map(|r| json!([r.rel_path, r.recursive])).collect::<Vec<_>>(),
-        "warnings": out.warnings,
+        "warnings": out.script_warnings.iter().chain(&out.warnings).collect::<Vec<_>>(),
     }))
 }
 

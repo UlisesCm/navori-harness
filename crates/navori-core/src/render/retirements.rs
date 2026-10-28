@@ -103,7 +103,9 @@ pub struct RetirementsDelegate;
 pub struct Retirements {
     /// Paths to delete, in step order.
     pub removals: Vec<PendingRemoval>,
-    /// `kept …` notes, in step order.
+    /// Notes on the disabled scripts kept (step 8.5), before the sub-block step 8.5-ter.
+    pub script_warnings: Vec<String>,
+    /// `kept …` notes of steps 8.6–8.7d.
     pub warnings: Vec<String>,
 }
 
@@ -227,14 +229,14 @@ impl Planner<'_> {
                     Authorship::Ours | Authorship::Foreign => self.remove(rel, false),
                     kept => {
                         self.out
-                            .warnings
+                            .script_warnings
                             .push(format!("kept {rel} \u{2014} {} file", kept.as_str()));
                         if input
                             .skipped_settings
                             .is_some_and(|settings| settings.contains(&script.dest))
                         {
                             self.out
-                                .warnings
+                                .script_warnings
                                 .push(i18n::claude_residual_plugin_hook(input.lang, &rel));
                         }
                     }
