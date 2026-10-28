@@ -2,14 +2,14 @@
 //! assembled in the TS order into one pure plan.
 //!
 //! Pending writes follow the TS array: step 1 (context files, then `CLAUDE.md`), step 2
-//! (`settings.json`), where `.mcp.json` will go (T15), the shared spine (agents, skills, hooks),
-//! then `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
-//! Skips follow the TS too: step 1, step 2, steps 5–7, the spine, then the sub-blocks.
+//! (`settings.json`), step 2.5 (`.mcp.json`), the shared spine (agents, skills, hooks), then
+//! `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
+//! Skips follow the TS too: steps 1–2.5, steps 5–7, the spine, then the sub-blocks.
 //!
 //! `force` is outside the native subset (T17), so every step plans without it.
 //!
-//! Not modeled yet, so absent from the plan: `.mcp.json` and the native hook wiring, which
-//! rewrites the planned `settings.json` (T15), and the warnings outside the ported steps (T16).
+//! Not modeled yet, so absent from the plan: the native hook wiring, which rewrites the planned
+//! `settings.json` (T15), and the warnings outside the ported steps (T16).
 
 use std::path::Path;
 
@@ -23,6 +23,7 @@ use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists
 use crate::render::context::Lang;
 use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
+use crate::render::mcp_file::{MCP_PATH, plan_mcp_registration};
 use crate::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 use crate::render::plugins::{load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
@@ -67,6 +68,37 @@ fn text(config: &JsValue, key: &str) -> Option<String> {
 
 fn delegate<T, E>(result: Result<T, E>) -> Result<T, ClaudeEngineDelegate> {
     result.map_err(|_| ClaudeEngineDelegate)
+}
+
+/// Pushes a JSON file's plan onto the plan arrays; whether it was skipped.
+fn place(
+    plan: SettingsPlan,
+    rel_path: &str,
+    pending: &mut Vec<PendingWrite>,
+    skipped: &mut Vec<SkippedFile>,
+) -> bool {
+    match plan {
+        SettingsPlan::Noop => false,
+        SettingsPlan::Skip { reason, status } => {
+            skipped.push(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason,
+                status,
+                resolution: None,
+                markerless_resolution: None,
+            });
+            true
+        }
+        SettingsPlan::Write { content, status } => {
+            pending.push(PendingWrite {
+                rel_path: rel_path.to_owned(),
+                content,
+                status,
+                chmod_exec: false,
+            });
+            false
+        }
+    }
 }
 
 /// Plans a full Claude render of the repo at `repo_root` (read through `view`).
@@ -152,30 +184,24 @@ pub fn plan_claude_engine(
         lang,
     ))?;
 
+    // 2.5. `.mcp.json`.
+    let mcp_plan = delegate(plan_mcp_registration(
+        view,
+        &enabled,
+        &disabled,
+        harness_version.as_deref(),
+        false,
+        lang,
+    ))?;
+
     let mut pending = step1.pending;
     let mut skipped = step1.skipped;
-    let mut skipped_settings = None;
-    match settings_plan {
-        SettingsPlan::Noop => {}
-        SettingsPlan::Skip { reason, status } => {
-            skipped.push(SkippedFile {
-                rel_path: SETTINGS_PATH.to_owned(),
-                reason,
-                status,
-                resolution: None,
-                markerless_resolution: None,
-            });
-            skipped_settings = delegate(read_if_exists(view, SETTINGS_PATH))?;
-        }
-        SettingsPlan::Write { content, status } => {
-            pending.push(PendingWrite {
-                rel_path: SETTINGS_PATH.to_owned(),
-                content,
-                status,
-                chmod_exec: false,
-            });
-        }
-    }
+    let skipped_settings = if place(settings_plan, SETTINGS_PATH, &mut pending, &mut skipped) {
+        delegate(read_if_exists(view, SETTINGS_PATH))?
+    } else {
+        None
+    };
+    place(mcp_plan, MCP_PATH, &mut pending, &mut skipped);
     pending.extend(harness.pending);
     pending.extend(own.pending);
     skipped.extend(own.skipped);

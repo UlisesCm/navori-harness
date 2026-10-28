@@ -15,7 +15,7 @@ use crate::render::context::Lang;
 use crate::semver::is_downgrade;
 
 /// `NAVORI_OWNERSHIP_KEY`.
-const OWNERSHIP_KEY: &str = "$navori";
+pub(crate) const OWNERSHIP_KEY: &str = "$navori";
 
 /// The settings path.
 pub const SETTINGS_PATH: &str = ".claude/settings.json";
@@ -60,7 +60,7 @@ fn ownership(value: &JsValue) -> Option<(bool, Option<String>)> {
     Some((navori.get("managed") == Some(&JsValue::Bool(true)), version))
 }
 
-fn pretty(value: &JsValue) -> String {
+pub(crate) fn pretty(value: &JsValue) -> String {
     format!("{}\n", value.stringify(Some(2)).unwrap_or_default())
 }
 

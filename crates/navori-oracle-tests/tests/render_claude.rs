@@ -5,9 +5,8 @@
 //! - Against the real `prepareClaudeEngine(...).finalize()` over repos rendered with another
 //!   config and then edited: pending writes, removals and skips, in order.
 //!
-//! `.mcp.json` is T15, so it is left out of both comparisons until then. So are, against the
-//! engine only, `settings.json` and the hooks in `crates/ported.json`: the native wiring (T15)
-//! rewrites them in `finalize`.
+//! Against the engine only, `settings.json` and the hooks in `crates/ported.json` are left out:
+//! the native wiring (T15) rewrites them in `finalize`.
 
 mod support;
 
@@ -17,6 +16,7 @@ use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
 use navori_core::config;
+use navori_core::js_json;
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::collect::RepoView;
@@ -99,7 +99,7 @@ fn write(root: &Path, rel: &str, text: &str) {
     let _ = std::fs::write(path, text);
 }
 
-/// T15 files: `.mcp.json`, plus `settings.json` and the hooks the native wiring rewrites.
+/// T15 files: `settings.json` and the hooks the native wiring rewrites.
 static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ported.json");
     let ported: Value = std::fs::read_to_string(manifest)
@@ -116,7 +116,6 @@ static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| {
         })
         .unwrap_or_default();
     out.push(".claude/settings.json".to_owned());
-    out.push(".mcp.json".to_owned());
     out
 });
 
@@ -217,9 +216,7 @@ fn claude_tree_matches_the_golden_snap() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::create_dir_all(&root);
     let plan = plan(&root, GOLDEN_CONFIG, None).ok_or("plan_claude_engine delegated")?;
-    let excluded = [".mcp.json"];
-    let mut golden = golden_sections()?;
-    golden.retain(|file, _| !excluded.contains(&file.as_str()));
+    let golden = golden_sections()?;
     let rendered: BTreeMap<String, (bool, String)> = plan
         .pending
         .iter()
@@ -389,6 +386,19 @@ fn build_repo(root: &Path, recipe: &Recipe) {
     }
 }
 
+/// `settings.json` or `.mcp.json` exists and does not parse: the TS skips it with the V8 parser
+/// message, which Rust does not reproduce, so the plan delegates.
+fn unparseable_json(root: &Path) -> bool {
+    [".claude/settings.json", ".mcp.json"].iter().any(|rel| {
+        let path = root.join(rel);
+        path.exists()
+            && std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| js_json::parse(&text))
+                .is_none()
+    })
+}
+
 fn report(plan: &ClaudeEnginePlan) -> Value {
     let keep = |rel: &str| !EXCLUDED.iter().any(|e| e == rel);
     json!({
@@ -421,7 +431,10 @@ proptest! {
                 let rust = report(&rust);
                 prop_assert!(ts == rust, "{}\n{}\n{:?}", first_difference(&ts, &rust), config, recipe);
             }
-            None => prop_assert!(ts.get("threw").is_some(), "rust declined, ts: {} for {}", ts, config),
+            None => prop_assert!(
+                ts.get("threw").is_some() || unparseable_json(&root),
+                "rust declined, ts: {} for {}", ts, config
+            ),
         }
     }
 }

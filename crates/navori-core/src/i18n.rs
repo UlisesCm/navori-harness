@@ -173,6 +173,19 @@ pub const fn settings_not_object(lang: Lang) -> &'static str {
     }
 }
 
+/// `engine.mcpJsonNotObject`.
+#[must_use]
+pub const fn mcp_json_not_object(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            ".mcp.json no es un objeto JSON \u{2014} no se puede fusionar. Se dejó intacto; corre 'navori render --force --apply' para regenerar."
+        }
+        Lang::En => {
+            ".mcp.json is not a JSON object \u{2014} cannot merge. Left untouched; run 'navori render --force --apply' to regenerate."
+        }
+    }
+}
+
 /// `engine.blockFromNewerNavori`.
 #[must_use]
 pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {
