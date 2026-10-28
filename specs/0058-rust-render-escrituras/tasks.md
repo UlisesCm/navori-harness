@@ -1,7 +1,8 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4
-y quedan **dos PRs** contra `migration/rust`: E1 (activación) y E3 (render Claude con escrituras) ·
+**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4.
+El 2026-10-28 el usuario mergeó la primera parte de E3 (#1434), así que quedan **dos PRs** por
+mergear contra `migration/rust`: E1 (activación) y el resto de E3 ·
 **Base:** `migration/rust`. Fase 2 del programa (ver `specs/0057-migracion-rust/requirements.md`
 § "Fases del programa"). El LOC es una estimación, no una medición.
 
@@ -13,10 +14,11 @@ E5 M1–M2.
 | PR | Entrega | Contenido | Se mergea cuando |
 |---|---|---|---|
 | 1 | E1 | M1–M2: evidencia de sombra y `guard-destructive` en `active` | A1 y A2 verdes y la aprobación del usuario en el PR (Q3: 500 invocaciones en ≥ 14 días por engine) |
-| 2 | E3 | M5–M9: cierre del plan Claude, preview nativo, capa `Fs`, `render --apply`, `adopt`, `sync` y `remove` | A5–A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente; después de PR 1, porque M6 toca `ported.json` (Q2) |
+| 2 | E3, parte 1 (#1434, integrado) | M5 hasta T14 y la primera mitad de T15 | Mergeado por el usuario el 2026-10-28, antes de PR 1 y sin revisión independiente; sin efecto en runtime porque ningún comando usa aún el render Rust |
+| 3 | E3, resto | El cierre de T15, T16 y M6–M9: preview nativo, capa `Fs`, `render --apply`, `adopt`, `sync` y `remove` | A5–A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente que cubra también lo de #1434; después de PR 1, porque M6 toca `ported.json` (Q2) |
 
 Si la ventana de sombra de E1 se alarga, M5 y M7 (sin manifiesto) pueden seguir en la rama de E3;
-partir E3 en más PRs requiere volver a preguntar al usuario.
+partir el resto de E3 en más PRs requiere volver a preguntar al usuario.
 
 **Precondición de entrada de E1** (cierre de 0057 E3, verificable antes de abrir E1):
 - `crates/ported.json` tiene `subagent-no-background` en `active` y `guard-destructive` en `shadow`
@@ -104,20 +106,21 @@ T14 cerrada en la rama de E3: `render::claude::plan_claude_engine` ensambla los 
 del TS; `render_claude.rs` compara el árbol con el snap `claude` (53 archivos) y el plan con el
 `finalize` real. El `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
 
-Falta, en este orden:
-1. Wiring nativo (T15); al cerrar, `render_claude.rs` deja de excluir `settings.json` y los hooks
-   de `crates/ported.json` en la comparación contra el motor. Hecho: `buildClaudeSettings`
-   (`render::claude_settings`), `planSettings` con coexist y `planStampedJson`
-   (`render::settings_file`) y `planMcpRegistration` (`render::mcp_file`), cableados como pasos 2 y
-   2.5; el golden ya compara ambos archivos y `.mcp.json` también contra el motor. Siguen
-   `finalizeNativeHooks`, `applyNativeClaudeSettings` y el brazo nativo de `claudeHookCommand`.
-2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
+T15 cerrada en la rama del resto de E3: `buildClaudeSettings` (`render::claude_settings`),
+`planSettings` con coexist y `planStampedJson` (`render::settings_file`) y `planMcpRegistration`
+(`render::mcp_file`) como pasos 2 y 2.5, y el wiring nativo al final del plan: el shell del
+runtime y el brazo nativo de `claudeHookCommand` (`render::native_hook`), `finalizeNativeHooks` y
+`applyNativeClaudeSettings` (`render::native_hooks`, con `referenceFor`/`depsFor` de `121568e7`).
+`render_claude.rs` ya no excluye nada contra el motor; el golden corre sin hooks portados, como su
+test TS.
+
+Falta: cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
 intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
-- [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
+- [x] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/native_hook_parity.rs`::"wiring nativo igual a wiring.snap y al TS en shadow y active"
 - [ ] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
 
 ### M6 — Comando `render` en preview (después de E1, Q2)
