@@ -19,7 +19,7 @@ use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists
 use crate::render::context::Lang;
 use crate::render::frontmatter::strip_frontmatter;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
-use crate::render::plan::CORE_SOURCE_ID;
+use crate::render::plan::{CORE_SOURCE_ID, condition_orchestration};
 use crate::render::plugins::{
     LoadedPlugin, PluginHookExtension, PluginSkill, RETIRED_PLUGIN_SUB_BLOCKS,
 };
@@ -214,11 +214,15 @@ pub fn apply_sub_block_inject(
         ));
         return Ok(());
     };
-    let body = interpolate(
+    // `navori:if` markers resolve for engine "claude", as `composeSubBlock` does; a skill without
+    // markers comes out byte-identical. An unbalanced marker throws in the TS.
+    let resolved = condition_orchestration(
         strip_frontmatter(plugin_text(plugin, &skill.path)?),
         ctx.config,
-        &InterpolateOptions::default(),
-    );
+        "claude",
+    )
+    .map_err(|_| SubBlocksDelegate)?;
+    let body = interpolate(&resolved, ctx.config, &InterpolateOptions::default());
     let source = format!("@navori/plugin-{plugin_id}");
     let result = inject(
         existing,
