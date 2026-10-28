@@ -89,18 +89,17 @@ TS real y mutaciones verificadas:
   scripts de plugins con la migración de #637 (`render::claude_files`, `render::plugin_scripts`);
   pasos 8–8.5-ter, sub-bloques con su grant de `tools:` (`render::sub_blocks`,
   `render::agent_mcp_tools`); retiros 8.5 y 8.6–8.8 con el criterio de `removable.ts`
-  (`render::retirements`, `render::removable`).
+  (`render::retirements`, `render::removable`); inventario de paths propios, el
+  `navoriOwnedPaths` de `guard-destructive` (`render::owned_paths`, en la rama de E3).
 - **Se delega al TS:** workspaces de monorepo, destinos no normalizados o ilegibles, assets de
   plugins retirados en disco (8.5-bis) y todo lo que el TS lanza.
 
 Falta, en este orden:
-1. Inventario de paths propios (`OwnedPathInventory`: `observe`, autoría, `seal`), que hoy las
-   pruebas toman del TS para `guard-destructive`.
-2. `.gitignore` anidados (`.codex` incluido en solo-Claude).
-3. `render_claude.rs`: el plan completo ensamblado en el orden del TS (pending, removals, skipped,
+1. `.gitignore` anidados (`.codex` incluido en solo-Claude).
+2. `render_claude.rs`: el plan completo ensamblado en el orden del TS (pending, removals, skipped,
    warnings) contra el snap `claude` de `golden-render-tree` (T14).
-4. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15).
-5. Cadenas y salida no-TTY (T16).
+3. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15).
+4. Cadenas y salida no-TTY (T16).
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
 intermitente (3/5 aislado) por un presupuesto de 1 ms.
