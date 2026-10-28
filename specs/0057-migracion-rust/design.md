@@ -620,6 +620,11 @@ cada llamada.
 
 ### D11 — Pi: la extensión sigue siendo TypeScript generado; refactor previo en `dev` (R19)
 
+> **Sustituida en parte por D29 de `specs/0059-rust-sesion-engines/design.md` (Q14, 2026-10-27).**
+> Rust emite la extensión desde un asset derivado del CLI TS construido, con un solo marcador
+> (`mcpPluginIds`), y no hay refactor E-Pi en `dev`. Sigue vigente que Rust no habla con Pi. La
+> plantilla editable queda para la fase 4.
+
 - Rust **no** habla con Pi. La extensión es un artefacto generado que ejecuta Pi (invariante 9).
   Rust la emite como texto.
 - **E-Pi (TS, contra `dev`):**

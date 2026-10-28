@@ -1,0 +1,113 @@
+# Migración a Rust, fase 3: hooks de sesión y engines restantes — Tasks
+
+**Estado:** aceptada (Q14–Q18 resueltas en `design.md`); E1 espera a #1432 · **Base:** `migration/rust`. Fase 3 del programa (ver
+`specs/0057-migracion-rust/requirements.md` § "Fases del programa"): tres entregas, **cada una con su
+propio PR contra `migration/rust`** y ninguna contra `dev` (D28). El LOC es una estimación, no una
+medición.
+
+Correspondencia con el "Plan de entregas" de 0057: E1 equivale a E6 M1–M2 (sin `plan resume` ni
+`audit`), E2 a E7 M1–M3 más la ampliación de los comandos de 0058, y E3 a E6 M3. E-Pi se sustituye
+por el asset derivado de D29 (Q14).
+
+**Precondiciones de entrada** (verificables antes de abrir cada entrega):
+- **E1:** #1432 integrado en `migration/rust`: `crates/ported.json` tiene `guard-destructive` en
+  `shadow` y existen `crates/navori-hooks/src/hooks/guard_destructive/{landing,ratchet}.rs`.
+- **E2:** 0058 E3 integrado: `ported.json` tiene `render`, `sync`, `remove` y `adopt` con
+  `when.engines = ["claude"]`, y existe el fixture `codex-trusted`.
+- **E3:** E1 integrada; 0058 E1 integrada (`rust-manifest-check.mjs` valida `activate`, y existe
+  `scripts/js/hook-shadow-report.mjs` con conteo por engine); la ventana de sombra de D35 cumplida.
+
+Reglas de ejecución:
+- Workplan por entrega: `0059-rust-sesion-engines-e<n>`, con fases = milestones; `tasks.md` es el
+  tracking canónico.
+- E1 y E2 pueden correr en paralelo con 0058 E3 y entre sí: sus archivos son disjuntos salvo
+  `crates/ported.json` y `ported-history.jsonl`, que se resuelven al integrar.
+- Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
+  archivos nuevos se crean en el milestone que los nombra.
+- Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets
+  --locked -- -D warnings && cargo test --workspace --locked`, además de `bun run check:fast` y sus
+  `A<n>`. El cierre de cada entrega corre `bun check` completo, `rust.yml` en verde y un reviewer
+  fresco.
+- Sin subagentes por instrucción del usuario (Q18): cada PR queda con revisión independiente
+  pendiente antes del merge. Antes de abrir cada entrega, la rama se actualiza con
+  `origin/migration/rust`, que a su vez sincroniza `dev` (D10 de 0057).
+- Hooks, render, markers y escrituras son área crítica: un commit por mecanismo. Ningún hook pasa a
+  `active` sin la evidencia de R60 y la aprobación del usuario en el PR de E3.
+
+## E1 — Hooks de sesión en sombra
+Estimated LOC: 13000
+
+### M1 — Base compartida
+- **A1** [observable] — mover los parciales no cambia `guard-destructive`, los modos diferidos no leen stdin y el corpus cubre cada clase y modo · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive.sh && bun run fuzz:hooks --hook guard-destructive.sh --seed 1 --cases 2000 && cargo test -p navori-cli --test hook --test facts_cache --locked && cd packages/cli && bun run vitest run src/__tests__/hook-verdict-replay.test.ts` → exit 0; 0 divergencias
+- [ ] **T1** (R50) — `navori_hooks::shell`: `extract_cmd`, `hook_input`, `landing` y `ratchet` salen de `hooks/guard_destructive` sin cambio de comportamiento, en un commit propio que actualiza el `impl` de `guard-destructive` con su línea en `ported-history.jsonl` (D32) · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"veredictos sin cambio tras mover los parciales a shell"
+- [ ] **T2** (R51, R50) — `NativeHook.phase` como función del modo con la tabla del `case "$mode"` de cada script; preflight que difiere con exit 3 antes de leer stdin para `model-advisor codex-pretool-profile`, `subagent-stop-handoff codex capture-start` y cualquier modo desconocido (D31) · effect: behavior · test: `crates/navori-cli/tests/hook.rs`::"un modo diferido sale 3 con stdin intacto"
+- [ ] **T3** (R53) — hecho del host `navori_cli` (versión que imprime el `navori` de `PATH`) en `hook_facts.rs`, guardado en `facts_cache` por inodo, tamaño y fechas (D30) · effect: behavior · test: `crates/navori-cli/tests/facts_cache.rs`::"la versión del navori de PATH se sondea una vez por binario"
+- [ ] **T4** (R52) — ejecutor de subproceso para el `navori` de `PATH` con los mismos argumentos, stdin, entorno y plazo que la rama shell equivalente, y con la interpretación de su salida que hace el script (D30) · effect: behavior · test: `crates/navori-hooks/tests/delegated_subcommand.rs`::"el subproceso recibe argv, stdin y entorno del shell"
+- [ ] **T5** (R54) — corpus: casos Claude de `plan-gate`, Codex `SubagentStop` de `subagent-stop-handoff`, Codex y Pi de `quality-gate-pre-commit` (commit, push, cache verde, gate rojo) y captura nueva de `model-advisor` en sus cuatro modos no diferidos; `coverage.json` regenerado (D35) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"cada hook de sesión cubre cada clase de veredicto y modo por engine"
+
+### M2 — `quality-gate-pre-commit` y `gate probe`
+- **Consumes:** `bun run oracle:rust --only gate` → ejecuta `navori-rust gate probe` nativo contra el TS sobre los fixtures
+- **A2** [observable] — el hook y `gate probe` coinciden con el shell y el TS, y la ruta sin commit cumple R55 · `node scripts/js/hook-verdict-replay.mjs --impl rust --only quality-gate-pre-commit.sh && bun run fuzz:hooks --hook quality-gate-pre-commit.sh --seed 1 --cases 2000 && bun run oracle:rust --only gate && node scripts/js/bench-hooks.mjs --impl rust --scenario Bash` → exit 0; 0 diferencias; p95 ≤ 5 ms en la ruta sin commit
+- [ ] **T6** (R56) — `navori-core::gate::cache` (`probeGreen` con el mismo hash de contenido y `withFileLock`) y comando nativo `gate probe` con `--clean`, con su entrada en `ported.json` (D33) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"gate-probe limpio, sucio y sin cache"
+- [ ] **T7** (R50, R52) — `hooks::quality_gate` con `shell::{gate_trigger, audit_signal}` nuevos, rama Pi de `git push`, trinquete de `progress/`, `gate foreign` y el quality gate por subproceso, y entrada `shadow` en `ported.json` · effect: behavior · test: `crates/navori-hooks/tests/quality_gate.rs`::"veredictos del corpus en claude, codex y pi"
+- [ ] **T8** (R55) — caso de `bench-hooks` para una llamada Bash que no es commit ni push, con `--impl rust` y `--impl shell` sobre los mismos payloads · effect: tests · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"quality-gate fuera de commit mide p95 rust y shell con los mismos payloads"
+- [ ] **T9** (R50) — matriz fail-closed sobre `quality-gate-pre-commit` en `shadow` por el comando registrado de cada engine · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"quality-gate-pre-commit nunca permite ante SIGSEGV, 101 o stdout cerrado"
+
+### M3 — `plan-gate` y `plan gate`
+- **Consumes:** `bun run oracle:rust --only plan-gate` → ejecuta `navori-rust plan gate` nativo con los payloads del corpus como stdin
+- **A3** [observable] — `plan gate` nativo deja el mismo veredicto y estado, y el hook coincide con el shell · `bun run oracle:rust --only plan-gate && node scripts/js/hook-verdict-replay.mjs --impl rust --only plan-gate.sh && bun run fuzz:hooks --hook plan-gate.sh --seed 1 --cases 2000 && cargo test -p navori-cli --test plan_gate --locked` → exit 0; 0 diferencias
+- [ ] **T10** (R56, R57) — `navori-core::plan::{gate, classify, check, expected, schema}`, `spec::{tasks, locate}` y `roster`; comando nativo `plan gate` con la reclamación del marcador por rename y su borrado, vigencia y `sessionId` (D33) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"plan-gate: cada caso del corpus como subcomando con su estado en .navori/state"
+- [ ] **T11** (R58) — re-delegación de `plan gate` antes de leer stdin cuando hay identidad de auditoría en el entorno y un `session-*.log` regular en la raíz de auditoría del repo (D33) · effect: behavior · test: `crates/navori-cli/tests/plan_gate.rs`::"con log de audit-mode re-delega antes de leer stdin"
+- [ ] **T12** (R50, R53) — `hooks::plan_gate`: `plan gate` en proceso con versión igual, subproceso con versión distinta, ramas "not installed" y "outdated" del script; entrada `shadow` · effect: behavior · test: `crates/navori-hooks/tests/plan_gate.rs`::"con otra versión de navori usa el subproceso y da el mismo veredicto"
+
+### M4 — Hooks de inicio, cierre y modelo
+- **Consumes:** `bun run oracle:rust --only tools` → ejecuta `tools session-context`, `tools notice` y `dominio inject` nativos contra el TS
+- **A4** [observable] — los cinco hooks en `shadow` coinciden con el shell y los subcomandos con el TS · `bun run oracle:rust --only tools && node scripts/js/hook-verdict-replay.mjs --impl rust --only session-start-context.sh,subagent-stop-handoff.sh,model-advisor.sh && for h in session-start-context subagent-stop-handoff model-advisor; do bun run fuzz:hooks --hook "$h.sh" --seed 1 --cases 500 || exit 1; done && cargo test -p navori-hooks --test golden_wiring --locked` → exit 0; 0 diferencias
+- [ ] **T13** (R56, R59) — `navori-core::tools::{session_context, notice}` y `workspace::dominio`; comandos nativos `tools session-context`, `tools notice` y `dominio inject`; el worker de versiones lo lanza el `navori` de `PATH` con el mismo flag y token (D34) · effect: behavior · test: `crates/navori-cli/tests/tools.rs`::"el worker de versiones lo lanza el navori de PATH con flag y token y Rust no abre sockets"
+- [ ] **T14** (R50) — `hooks::session_start`: memo de `--version`, contrato `#navori-session-context v1`, rama `plan resume` de Codex por subproceso, bloques acotados y JSON sin `node` con `js_json` · effect: behavior · test: `crates/navori-hooks/tests/session_start.rs`::"veredictos del corpus en claude y codex"
+- [ ] **T15** (R50, R51) — `hooks::subagent_stop`: comprobación de handoffs, aviso de handoff parcial y de compactación, `audit --capture-child` por subproceso; `capture-start` difiere · effect: behavior · test: `crates/navori-hooks/tests/subagent_stop.rs`::"veredictos del corpus en claude y codex"
+- [ ] **T16** (R50, R51) — `hooks::model_advisor`: modos `claude-session-start`, `claude-post-model-switch`, `claude-stop` y `codex-session-start` con estado en el scratchpad; `codex-pretool-profile` difiere · effect: behavior · test: `crates/navori-hooks/tests/model_advisor.rs`::"veredictos del corpus por modo"
+- [ ] **T17** (R50) — entradas `shadow` de `session-start-context`, `subagent-stop-handoff` y `model-advisor` en `ported.json`, `navori render --apply` del TS en este repo y wiring revisado a mano · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"hooks de sesión en shadow"
+
+## E2 — Render multi-engine
+Estimated LOC: 15000
+
+### M5 — Engines de prosa y orquestación
+- **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo con engines de prosa y multi-engine contra el TS
+- **A5** [observable] — prosa y multi-engine con diferencial cero · `cargo test -p navori-oracle-tests --test render_engines --locked && bun run oracle:rust --only render` → exit 0; 0 diferencias
+- [ ] **T18** (R62, R64) — `render::prose`: `prose-harness` y los adaptadores `agents-md`, `cursor` y `copilot`, con bloques de plugins para Pi (D36) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::"agents-md, cursor y copilot coinciden con sus snaps de golden-render-tree"
+- [ ] **T19** (R64, R65) — `render::engines`: inventario único, preparación y `finalize` de todos los engines antes de escribir, prosa en `commit`, dueño de `AGENTS.md` y advertencia de redundancia (D36) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"multi-engine con un recurso Pi ajeno no escribe nada"
+- [ ] **T20** (R62, R64) — fixtures `prose-engines` y `multi-engine` (contenido de usuario en `AGENTS.md`) con casos de preview y `--apply` en `es` y `en` · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures multi-engine cubren AGENTS.md compartido"
+
+### M6 — Codex
+- **A6** [observable] — el árbol Codex y el hash de trust coinciden con el TS · `cargo test -p navori-oracle-tests --test render_engines --test codex_trust --locked && bun run oracle:rust --only codex` → exit 0; 0 diferencias
+- [ ] **T21** (R62) — `render::codex`: `.codex/config.toml` y `.codex/rules/navori.rules` como texto con markers `#`, hooks, scripts, agentes, skills en `.agents/skills`, `openai.yaml`, orquestador y huérfanos (D37) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::"el árbol Codex coincide con el snap codex de golden-render-tree"
+- [ ] **T22** (R66) — `canonicalJson`, `codexHookHash` y `readCodexTrustState` con `toml` solo de lectura; pista de trust; ninguna operación de escritura sobre `~/.codex` (D37) · effect: behavior · test: `crates/navori-oracle-tests/tests/codex_trust.rs`::"codexHookHash coincide con Node y ~/.codex queda intacto"
+- [ ] **T23** (R69) — wiring nativo en los scripts de `.codex/hooks/` para hooks en `shadow` y `active` · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"codex shadow y active"
+- [ ] **T24** (R62) — `lib/codex/model-catalog` en la parte que usa el render (`codexMap` contra el catálogo local) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::"los modelos de agentes Codex y Pi coinciden con el catálogo"
+- [ ] **T25** (R66) — fixture `codex-untrusted` con la pista de trust en `es` y `en` · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"codex-untrusted emite la misma pista de trust"
+
+### M7 — Pi
+- **A7** [observable] — el asset está fresco y el árbol Pi coincide con el TS · `node scripts/js/gen-pi-extension-asset.mjs --check && cargo test -p navori-oracle-tests --test render_engines --locked && bun run oracle:rust --only pi` → exit 0; 0 diferencias
+- [ ] **T26** (R67) — `scripts/js/gen-pi-extension-asset.mjs` con modo `--check`, asset `crates/navori-core/assets/pi/extension.ts.in` con el único marcador `{{json:mcpPluginIds}}`, y el check en el job `oracle` de `rust.yml` (D29) · effect: behavior · test: `packages/cli/src/__tests__/gen-pi-extension-asset.test.ts`::"una línea cambiada en la extensión pone el check en rojo"
+- [ ] **T27** (R67) — `render::pi` emite la extensión desde el asset con `js_json` y la línea `navori:managed-file` con sha256 · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::"la extensión coincide con el TS con 0, 1 y 2 plugins MCP"
+- [ ] **T28** (R68) — `ownsPiManifest`, `ownsPiAgent` y `ownsPiSource` (parseo por `node` hijo con 1 MiB y 5 s), esquema más nuevo y todo-o-nada de `.pi/navori/**`; fixture `pi-foreign` (D38) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"pi-foreign rechaza con el mismo mensaje y sin escrituras"
+- [ ] **T29** (R62, R69) — manifiesto v2, `.pi/agents/*.md`, copias de hooks y scripts con wiring nativo, y snap `pi` en `golden-render-tree` (solo en `migration/rust`); fixtures `pi-controls` y `pi-mcp` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::"el árbol Pi coincide con el snap pi de golden-render-tree"
+
+### M8 — Comandos multi-engine y R19
+- **Consumes:** `bun run oracle:rust` → corrida completa sobre todos los comandos del manifiesto y fixtures
+- **A8** [observable] — todos los comandos portados con diferencial cero en todos los engines, y la extensión Rust carga en Pi · `bun run oracle:rust && bun run oracle:rust --only anti-rollback && cd packages/cli && bun run vitest run src/__tests__/rust-oracle.test.ts src/engines/pi/__tests__/rust-tree.test.ts` → exit 0; 0 diferencias
+- [ ] **T30** (R62, R63) — `when.engines` de `render`, `sync`, `remove` y `adopt` ampliado al conjunto de R62; casos de los cuatro comandos en los fixtures nuevos y la matriz anti-rollback sobre los markers de `.codex/config.toml` y `AGENTS.md` (D36) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render, sync, remove y adopt nativos en multi-engine"
+- [ ] **T31** (R19) — suite `engines/pi/__tests__/rust-tree.test.ts`, solo en `migration/rust`: renderiza el fixture `pi` con `navori-rust render --apply` y carga la extensión con el cargador real de Pi; lectura de `.codex/config.toml` con el parser de las suites de trust (D39) · effect: tests · test: `packages/cli/src/engines/pi/__tests__/rust-tree.test.ts`::"la extensión que renderiza navori-rust carga en Pi"
+- [ ] **T32** (R19) — test que enumera las dimensiones de config de las suites de aceptación de Codex y Pi y falla si alguna no tiene fixture del oráculo (D39) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada dimensión de las suites de aceptación tiene fixture"
+- [ ] **T33** (R67) — regeneración del asset en la guía de sincronización de CONTRIBUTING (en, es, zh-CN). La enmienda de la fila de la fase 3 y la nota en D11 de 0057 ya entraron con la spec (Q14) · effect: docs · test: `CONTRIBUTING.md`::"Regenerar el asset de la extensión Pi"
+
+## E3 — Activación de los hooks de sesión
+Estimated LOC: 1200
+
+### M9 — Evidencia y activación
+- **Consumes:** `node scripts/js/hook-shadow-report.mjs <hook>` → lee el ledger de sombra de sesiones reales por engine (0058 T3)
+- **A9** [observable] — cada hook activado cumple R60 en cada engine registrado · `node scripts/js/hook-verdict-replay.mjs --impl rust --only quality-gate-pre-commit.sh,plan-gate.sh,session-start-context.sh,subagent-stop-handoff.sh,model-advisor.sh && for h in quality-gate-pre-commit plan-gate; do bun run fuzz:hooks --hook "$h.sh" --seed 1 --cases 100000 || exit 1; done && for h in session-start-context subagent-stop-handoff model-advisor; do bun run fuzz:hooks --hook "$h.sh" --seed 1 --cases 20000 || exit 1; done && node scripts/js/hook-shadow-report.mjs --class-thresholds` → exit 0; 0 divergencias; umbral de D35 cumplido por cada hook activado
+- [ ] **T34** (R60) — `hook-shadow-report.mjs --class-thresholds`: umbral por clase de evento y engine según D35, sin crear un segundo reporte · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"un hook por sesión con 29 invocaciones en codex deja el reporte en rojo"
+- [ ] **T35** (R60, R61) — `ported.json` pasa a `active` los hooks que cumplen, con una línea `activate` por hook, el resumen de A9 en el PR y la aprobación del usuario; los que no cumplen siguen en `shadow` y se anotan en la fase 4 · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar varios hooks en un PR exige una línea activate por hook"
+- [ ] **T36** (R50) — matriz fail-closed sobre `plan-gate` y `quality-gate-pre-commit` en `active`, invocados por el comando registrado de cada engine, y re-render del wiring con el fragmento activo · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"plan-gate y quality-gate activos nunca permiten ante SIGSEGV, 101 o stdout cerrado"
