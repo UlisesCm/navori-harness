@@ -27,8 +27,9 @@ partir E3 en más PRs requiere volver a preguntar al usuario.
 Reglas de ejecución:
 - Workplan por entrega: `0058-rust-render-escrituras-e<n>`, con fases = milestones; `tasks.md` es el
   tracking canónico.
-- Un PR por entrega, contra `migration/rust`; ninguno contra `dev`. La rama de la entrega se empuja
-  en cada milestone para correr CI, sin abrir PRs intermedios.
+- Un PR por entrega, contra `migration/rust`; ninguno contra `dev`. `rust.yml` y `ci.yml` solo corren
+  en PRs (no en push de rama), así que el PR de la entrega se abre en draft desde su primer
+  milestone y cada push corre CI; se marca listo al cerrar la entrega. Sin PRs intermedios.
 - Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
   archivos nuevos se crean en el milestone que los nombra.
 - Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets
