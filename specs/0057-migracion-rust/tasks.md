@@ -238,6 +238,20 @@ las tres copias (Claude, Codex, Pi), con el evento de auditoría del shell. Sin 
 los `extraVars` del hook (`navoriOwnedPaths`, `piPermissionRules`) y compara `deps` contra el
 script desplegado, que lleva su propio marker; luego registro en sombra, corpus de Codex y A11.
 
+Avance T28 (PR 4b): el firmante nativo renderiza su referencia con los `extraVars` finales de cada
+colocación (`CollectedPlan.renderVars`, de Claude, Codex y Pi), y `deps` fija el asset fuente del
+script del plugin: la copia desplegada debe ser su render gestionado fresco y esos bytes entran en
+la firma. `guard-destructive` queda en `shadow` y el render firma sus tres copias. Sin
+`NAVORI_RUST_HOOKS_DIR`, replay y fuzz firman el asset expandido con sus deps fuente (los bytes
+que grabó el corpus); el shell del fuzz corre la misma copia que el binario. La gramática de fuzz
+del guard cubre cada familia de reglas, sus casi-aciertos, formas inertes y formas límite del
+payload; contra las copias renderizadas dispara todas salvo el bloqueo de búsqueda, que exige un
+índice tgrep vivo (lo cubre `guard_state.rs` con un tgrep falso). La copia Codex decide como la
+de Claude bajo bash y zsh.
+A11 verde: el replay reproduce los 886 casos con auditoría `off` y `active`, y el fuzz (semilla 1,
+contra las copias renderizadas) da 100 000 casos idénticos en Claude y 20 000 en Codex y en Pi.
+Pendientes para cerrar T28: regenerar el corpus con los casos de Codex y el gate completo.
+
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
 - [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 

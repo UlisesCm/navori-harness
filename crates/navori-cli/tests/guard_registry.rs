@@ -53,8 +53,14 @@ fn install(project: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
             let dest = project.join(engine).join(ROUTING);
             fs::create_dir_all(dest.parent().ok_or("scripts")?)?;
             fs::write(&dest, &routing)?;
-            let source =
+            let rendered =
                 fs::read_to_string(workspace().join(engine).join("hooks/guard-destructive.sh"))?;
+            // A checkout copy may already carry the renderer's signature: sign its body again
+            // for the implementation compiled into this test.
+            let source = match rendered.split_once('\n') {
+                Some((first, body)) if first.starts_with("# navori:native-hook ") => body,
+                _ => rendered.as_str(),
+            };
             let unsigned = format!(
                 "# navori:native-hook v=1 file=sha256:{zero} impl={}\n{source}",
                 implementation()?

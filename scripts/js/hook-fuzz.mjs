@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createScratch, firstDifference, loadDeps, runMode } from "./hook-verdict-replay.mjs";
+import { createScratch, firstDifference, runMode, signedAssets } from "./hook-verdict-replay.mjs";
 import { prepareRustReplay } from "./rust-hook-adapter.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -57,15 +57,91 @@ export function parseFuzzArgs(argv) {
   });
 }
 
+/** Fixed uint32 LCG: the same seed always yields the same stream.
+ * @param {number} seed
+ * @returns {() => number}
+ */
+function lcg(seed) {
+  let state = seed >>> 0;
+  return () => (state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0);
+}
+
+/** Commands aimed at every guard-destructive rule, its near misses and inert spellings of both. */
+const GUARD_CORES = [
+  // 1: hook skipping, and the inert spellings of it.
+  "git commit --no-verify -m wip", "git commit -n -m x", "git -C . commit \"--no-verify\"", "git push --no-verify",
+  "git commit -m \"skip --no-verify later\"", "git commit -am fix",
+  // 2: force-push to the base branch, and the safe forms.
+  "git push --force origin main", "git push -f origin dev", "git push origin +main", "git push --force origin feature",
+  "git push --force-with-lease origin main", "git push origin main",
+  // 3 and 3b: recursive rm over root, home, system dirs, variables and the scratch root.
+  "rm -rf /", "rm -rf ~", "rm -rf $HOME", "rm -rf /usr", "rm -rf /tmp", "rm -rf \"$DIR\"", "rm -rf ${X}/",
+  "rm -rf ./dist", "rm -rf node_modules/.cache", "rm -rf /*", "rm -rf --no-preserve-root /", "rm -r -f @TMP@",
+  "rm file.txt", "rm -rf @REPO@/build",
+  // 4 and 5: fork bomb and block devices.
+  ":(){ :|:& };:", "dd if=/dev/zero of=/dev/sda", "cat x > /dev/disk2", "mkfs.ext4 /dev/sdb1", "echo x > /dev/null",
+  // 6, 6b and 6d: rewrites and copies onto navori-managed files.
+  "echo x > CLAUDE.md", "printf y >> AGENTS.md", "sed -i '' s/a/b/ .claude/settings.json", "tee .codex/config.toml",
+  "cat a > @REPO@/.claude/hooks/guard-destructive.sh", "cp x .claude/settings.json", "mv a AGENTS.md",
+  "install -m 644 f .claude/agents/scout.md", "ln -sf a CLAUDE.md", "cp CLAUDE.md /tmp/x", "echo x > notes.md",
+  // 6c: the Pi control plane and shared rules.
+  "pi --no-extensions", "echo x > .pi/settings.json", "engram delete obs-1", "pi --version",
+  // 7: whole-tree discards, from here and from elsewhere.
+  "git reset --hard", "git checkout -- .", "git clean -fdx", "git restore .", "git stash clear", "git clean -n",
+  "cd /tmp && git reset --hard", "git -C sub clean -fd", "git reset --soft HEAD~1",
+  // tgrep search lane.
+  "grep -rn foo .", "rg foo", "grep -R x src", "FOO=1 rg bar", "git grep foo", "grep foo package.json", "rg --files",
+  // Benign and inert content.
+  "ls -la", "bun run test", "echo hello", "git status", "cat README.md", "git log --oneline -3",
+  "gh pr create --body \"git push --force origin main\"", "cat <<'EOF'\nrm -rf /\nEOF", "echo 'rm -rf /'",
+];
+const GUARD_PREFIXES = ["", "", "", "sudo ", "env A=1 ", "command ", "\\", "time ", "(", "nohup "];
+const GUARD_JOINERS = [" && ", " || ", "; ", " | ", "\n", " & ", " \\\n  "];
+const GUARD_TAILS = ["", "", "", "", " # \u00f1\u{1f680}", " 2>&1", "\u0000x", "\n"];
+
+/** One guard-destructive payload: one to three rule segments under the payload's edge shapes.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function guardPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const segments = Array.from({ length: 1 + ((next() >>> 16) % 3) }, () => {
+    const prefix = pick(GUARD_PREFIXES);
+    return `${prefix}${pick(GUARD_CORES)}${prefix === "(" ? ")" : ""}`;
+  });
+  let command = segments[0];
+  for (const segment of segments.slice(1)) command += pick(GUARD_JOINERS) + segment;
+  command += pick(GUARD_TAILS);
+  const shape = (next() >>> 16) % 16;
+  const toolInput = shape === 0 ? { command: 7 } : shape === 1 ? { command: [command] } : shape === 2 ? {} : { command };
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: shape === 3 ? "Read" : "Bash",
+    tool_input: shape === 4 ? command : { ...toolInput, ...(shape === 5 ? { file_path: "a\u0000b" } : {}) },
+  };
+  if (shape !== 6) payload.cwd = shape === 7 ? "@REPO@/sub" : shape === 8 ? "" : "@CWD@";
+  return JSON.stringify(payload);
+}
+
 /** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
+ * guard-destructive gets its own grammar over every rule; the others keep the original one.
  * @param {number} seed
  * @param {number} count
+ * @param {string} [hook]
  * @returns {string[]}
  */
-export function generatePayloads(seed, count) {
+export function generatePayloads(seed, count, hook = "subagent-no-background.sh") {
   optionsOf({ seed, cases: count });
-  let state = seed >>> 0;
-  const next = () => (state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0);
+  const next = lcg(seed);
+  if (hook === "guard-destructive.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
   const tools = ["Bash", "Agent", "Task", "Read", "Write", "Edit"];
   const commands = ["true", "git status", "git push --force origin main", "rm -rf /", "echo 'quoted'", "printf '%s' \"${HOME}\"", "cat file\npwd", "echo ñ🚀"];
   const agents = ["scout", "implementer", "general-purpose", "unknown"];
@@ -111,26 +187,42 @@ export async function fuzzHooks(input, fixtures = {}) {
   let payload;
   let scratch;
   let baselineRoot;
+  /** @type {string | undefined} */
+  let signed;
   try {
-    const native = prepareRustReplay({ manifestPath: fixtures.manifestPath ?? join(REPO_ROOT, "crates", "ported.json"), binary: fixtures.binary ?? process.env.NAVORI_RUST_BIN ?? "navori-rust", scriptsRoot: fixtures.scriptsRoot ?? process.env.NAVORI_RUST_HOOKS_DIR });
+    const scriptsRoot = fixtures.scriptsRoot ?? process.env.NAVORI_RUST_HOOKS_DIR ?? (signed = await signedAssets());
+    const native = prepareRustReplay({ manifestPath: fixtures.manifestPath ?? join(REPO_ROOT, "crates", "ported.json"), binary: fixtures.binary ?? process.env.NAVORI_RUST_BIN ?? "navori-rust", scriptsRoot });
     const prepared = native.resolveHook(options.hook, options.engine);
-    const shellDeps = fixtures.shellScript === undefined ? await loadDeps() : undefined;
     scratch = createScratch();
     const enginePath = options.engine === "pi" ? ".pi/navori" : `.${options.engine}`;
+    // Only what a hook runs: its script and the engine's sibling scripts (manifest `deps`). The
+    // rest of a rendered engine tree would be copied again by every per-case restore.
+    const copyHook = (root) => {
+      mkdirSync(join(root, "hooks"), { recursive: true });
+      cpSync(prepared, join(root, "hooks", basename(prepared)));
+      const scripts = join(dirname(dirname(prepared)), "scripts");
+      if (existsSync(scripts)) cpSync(scripts, join(root, "scripts"), { recursive: true });
+    };
     const nativeRoot = join(scratch.root, "native", enginePath);
-    mkdirSync(dirname(nativeRoot), { recursive: true });
-    cpSync(dirname(dirname(prepared)), nativeRoot, { recursive: true });
+    copyHook(nativeRoot);
     const nativeScript = join(nativeRoot, "hooks", basename(prepared));
-    const shellScript = join(scratch.root, "shell", enginePath, "hooks", options.hook);
-    mkdirSync(dirname(shellScript), { recursive: true });
-    if (fixtures.shellScript === undefined) cpSync(shellDeps.resolveHook(options.hook, options.engine, scratch), shellScript);
-    else cpSync(resolve(fixtures.shellScript), shellScript);
+    // The shell runs the very bytes the binary verified (its own engine tree, sibling scripts
+    // included), under NAVORI_HOOK_IMPL=shell, so a rendered copy is compared with itself.
+    const shellRoot = join(scratch.root, "shell", enginePath);
+    const shellScript = join(shellRoot, "hooks", options.hook);
+    if (fixtures.shellScript === undefined) copyHook(shellRoot);
+    else {
+      mkdirSync(dirname(shellScript), { recursive: true });
+      cpSync(resolve(fixtures.shellScript), shellScript);
+    }
     // Warm the host-fact cache once and keep it in the baseline: restoring the snapshot before each
     // case would otherwise erase it and make every case a cold probe run, which can defer under load.
     // The cold path has its own tests; R17 is about the warm path. Warming uses the first case, so a
     // deferral is still reported as case 1 with its reproducible payload.
-    payload = generatePayloads(options.seed, 1)[0];
-    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta: { NAVORI_HOOK_IMPL: "shell" }, cwdKind: "repo" };
+    payload = generatePayloads(options.seed, 1, options.hook)[0];
+    // Claude always exports the project directory; Codex and Pi derive it from the payload.
+    const envDelta = { NAVORI_HOOK_IMPL: "shell", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
+    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo" };
     for (let attempt = 1; ; attempt += 1) {
       try {
         runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs });
@@ -146,8 +238,8 @@ export async function fuzzHooks(input, fixtures = {}) {
       rmSync(scratch.root, { recursive: true, force: true });
       cpSync(baseline, scratch.root, { recursive: true });
     };
-    for (payload of generatePayloads(options.seed, options.cases)) {
-      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta: { NAVORI_HOOK_IMPL: "shell" }, cwdKind: "repo" };
+    for (payload of generatePayloads(options.seed, options.cases, options.hook)) {
+      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo" };
       restore();
       // Native first: a compiled-registry/integrity deferral aborts before a shell batch/later cases.
       const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs })[0];
@@ -163,6 +255,7 @@ export async function fuzzHooks(input, fixtures = {}) {
   } finally {
     scratch?.cleanup();
     if (baselineRoot !== undefined) rmSync(baselineRoot, { recursive: true, force: true });
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
   }
 }
 

@@ -455,9 +455,10 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * instead of stopping at the first. Across shells, stderr is compared in shell-neutral form
  * ({@link normalizeShellDiagnostics}) and hooks with a placeholder command are skipped.
  *
- * Native mode uses NAVORI_RUST_BIN (otherwise navori-rust on PATH) and
- * NAVORI_RUST_HOOKS_DIR containing renderer-prepared engine hook directories. No shell expansion
- * or live shell result can stand in for a native verdict.
+ * Native mode uses NAVORI_RUST_BIN (otherwise navori-rust on PATH) and NAVORI_RUST_HOOKS_DIR
+ * containing renderer-prepared engine hook directories or, without it, the expanded assets the
+ * corpus recorded, signed for the binary ({@link signedAssets}). No live shell result can stand
+ * in for a native verdict.
  *
  * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
  * @returns {Promise<{ ok: boolean, cases: number, failure?: string }>}
@@ -474,14 +475,17 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
   /** @type {string[]} */
   const failures = [];
   let resolved;
+  /** @type {string | undefined} */
+  let signed;
   try {
     // Native preflight cannot be replaced by shell test dependencies.
     resolved = impl === "rust" ? prepareRustReplay({
       manifestPath: join(REPO_ROOT, "crates", "ported.json"),
       binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
-      scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR,
+      scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR ?? (signed = await signedAssets()),
     }) : deps ?? (await loadDeps());
   } catch (error) {
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
     return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "native preflight failed" };
   }
   const scratch = createScratch();
@@ -510,6 +514,24 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "replay execution failed" };
   } finally {
     scratch.cleanup();
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Without NAVORI_RUST_HOOKS_DIR the binary runs the bytes the corpus recorded: each registered
+ * hook's expanded asset, signed in a fresh temporary directory the caller removes.
+ *
+ * @returns {Promise<string>}
+ */
+export async function signedAssets() {
+  const { writeSignedAssets } = await import("./rust-replay-assets.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "navori-rust-assets-"));
+  try {
+    return writeSignedAssets(dir);
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
   }
 }
 

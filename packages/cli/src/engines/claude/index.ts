@@ -1190,8 +1190,10 @@ export function prepareClaudeEngine(
     if (finalized !== undefined) return finalized;
     validateDestinations(destinations);
     const sharedWrites = [] as CollectedPlan["pending"];
+    const renderVars = new Map<string, Readonly<Record<string, string>>>();
     for (const prepared of preparedPlans) {
       const result = prepared.finalize();
+      for (const [path, vars] of result.renderVars ?? []) renderVars.set(path, vars);
       sharedWrites.push(...result.pending);
       skipped.push(...result.skipped);
       collisions.push(...result.collisions);
@@ -1637,6 +1639,7 @@ export function prepareClaudeEngine(
       hooks: trimmedHarness ? [] : inventory.plan.hooks,
       plugins: enabledPlugins,
       pending,
+      renderVars,
     });
     if (!trimmedHarness)
       applyNativeClaudeSettings(

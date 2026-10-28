@@ -403,6 +403,9 @@ export interface CollectedPlan {
   kept: KeptOrphan[];
   /** Markerless core assets adopted under the existing render policy. */
   collisions: CollisionNotice[];
+  /** Final `extraVars` of each asset placement, by destination: the native signer renders
+   * its fresh reference with them. */
+  renderVars?: ReadonlyMap<string, Readonly<Record<string, string>>>;
 }
 
 /** Retained basis for acquisition decisions; no provisional guard body is needed. */
@@ -560,6 +563,7 @@ function retainPlan(
       const pending: PendingWrite[] = [];
       const skipped: SkippedFile[] = [];
       const collisions: CollisionNotice[] = [];
+      const renderVars = new Map<string, Readonly<Record<string, string>>>();
       for (const req of retained) {
         const finalInput = req.finalize?.(ownedPaths);
         const materialized: PlacementRequest = { ...req };
@@ -568,6 +572,8 @@ function retainPlan(
           if ("extraVars" in finalInput) materialized.extraVars = finalInput.extraVars;
           if ("transform" in finalInput) materialized.transform = finalInput.transform;
         }
+        if (materialized.assetPath !== undefined && materialized.extraVars !== undefined)
+          renderVars.set(materialized.destRelPath, materialized.extraVars);
         collectRequest(
           materialized,
           ctx,
@@ -583,7 +589,7 @@ function retainPlan(
         options.prune !== false
           ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd, skipped)
           : { removals: [], kept: [] };
-      result = { pending, removals, skipped, kept, collisions };
+      result = { pending, removals, skipped, kept, collisions, renderVars };
       return result;
     },
   };

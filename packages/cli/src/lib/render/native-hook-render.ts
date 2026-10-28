@@ -5,6 +5,8 @@ import type { LoadedPlugin } from "../config/plugins.ts";
 import { isDowngrade } from "../primitives/semver.ts";
 import type { HookExtensionPending } from "../../engines/shared/hook-extension.ts";
 import { hookExtensionTarget } from "../../engines/shared/hook-extension.ts";
+import { pluginExtraVars } from "../../engines/shared/plugin-extra-vars.ts";
+import { pluginScriptPlacements } from "../../engines/shared/plugin-scripts.ts";
 import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
 import { expandHookIncludes } from "./hook-includes.ts";
 import { computeManagedHash, injectManagedSection, readMarkerAttrs } from "./marker.ts";
@@ -35,6 +37,8 @@ interface NativeRenderInput {
   plugins: readonly LoadedPlugin[];
   pending: HookExtensionPending[];
   manifest?: NativeHooks;
+  /** Final `extraVars` of each asset placement, by destination relative to `cwd`. */
+  renderVars?: ReadonlyMap<string, Readonly<Record<string, string>>>;
 }
 
 /** A native signature is a standalone owned comment, never part of a managed marker's hash. */
@@ -45,21 +49,44 @@ function stripSignature(content: string): string {
   );
 }
 
+/**
+ * Each dependency is a plugin script: `deps` pins its source asset, and the deployed copy (the
+ * planned write, else the file on disk) must be that asset's fresh render under its own marker.
+ * The returned bytes are the deployed ones, the bytes the binary re-hashes.
+ */
 function depsFor(input: NativeRenderInput, descriptor: NativeHook): Buffer[] | null {
   const deps: Buffer[] = [];
   for (const path of Object.keys(descriptor.deps).sort()) {
     const resolved = nativeDependencyPath(input.cwd, input.engine, path);
     if (resolved === null || !nativePathContained(input.cwd, resolved)) return null;
+    const script = input.plugins
+      .flatMap((plugin: LoadedPlugin) => pluginScriptPlacements(plugin, input.engine))
+      .find((placement): boolean => `scripts/${placement.dest}` === path);
+    if (script === undefined || sha256(readFileSync(script.src)) !== descriptor.deps[path])
+      return null;
     const planned = input.pending.find(
       (entry: HookExtensionPending): boolean => entry.path === resolved,
     );
-    const bytes = planned
-      ? Buffer.from(planned.content)
+    const content = planned
+      ? planned.content
       : existsSync(resolved)
-        ? readFileSync(resolved)
+        ? readFileSync(resolved, "utf8")
         : null;
-    if (bytes === null || sha256(bytes) !== descriptor.deps[path]) return null;
-    deps.push(bytes);
+    if (content === null) return null;
+    const meta = readMarkerAttrs(content, script.managedId, "shell");
+    if (meta?.existingSource !== script.meta.source || !meta.existingVersion) return null;
+    const fresh = renderManagedFile({
+      assetPath: script.src,
+      existingContent: null,
+      managedId: script.managedId,
+      meta: { source: meta.existingSource, version: meta.existingVersion },
+      config: input.config,
+      extraVars: pluginExtraVars(input.config),
+      engine: input.engine,
+      commentStyle: "shell",
+    }).content;
+    if (fresh !== content) return null;
+    deps.push(Buffer.from(content));
   }
   return deps;
 }
@@ -89,6 +116,7 @@ function referenceFor(
     managedId: hook.managedId,
     meta: { source: attrs.existingSource, version: attrs.existingVersion },
     config: input.config,
+    extraVars: input.renderVars?.get(target),
     engine: input.engine,
     commentStyle: "shell",
   }).content;

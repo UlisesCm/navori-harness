@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -40,7 +41,7 @@ interface Result {
 }
 interface Fuzzer {
   parseFuzzArgs: (args: string[]) => Options;
-  generatePayloads: (seed: number, count: number) => string[];
+  generatePayloads: (seed: number, count: number, hook?: string) => string[];
   fuzzHooks: (options: Partial<Options>, fixtures?: Fixtures) => Promise<Result>;
 }
 
@@ -107,6 +108,71 @@ describe("deterministic live hook fuzzing", () => {
       ["--unknown"],
     ])
       expect(() => fuzzer.parseFuzzArgs(args)).toThrow();
+  });
+
+  // Covers: R11
+  it("keeps the original grammar stream so recorded seeds still reproduce", () => {
+    const stream = JSON.stringify(fuzzer.generatePayloads(1, 2000));
+    expect(createHash("sha1").update(stream).digest("hex")).toBe(
+      "fb56db350100be26e4b8eac502c3733aa68ea289",
+    );
+    expect(fuzzer.generatePayloads(1, 50, "subagent-no-background.sh")).toEqual(
+      fuzzer.generatePayloads(1, 50),
+    );
+  });
+
+  // Covers: R11, R12
+  it("gives guard-destructive a grammar over every rule and the payload's edge shapes", () => {
+    const payloads = fuzzer.generatePayloads(1, 5000, "guard-destructive.sh");
+    expect(fuzzer.generatePayloads(1, 5000, "guard-destructive.sh")).toEqual(payloads);
+    expect(payloads).not.toEqual(fuzzer.generatePayloads(2, 5000, "guard-destructive.sh"));
+    const commands: string[] = [];
+    const shapes = new Set<string>();
+    for (const [index, payload] of payloads.entries()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        shapes.add("malformed");
+        continue;
+      }
+      if (index % 11 === 0) shapes.add("malformed");
+      if (typeof parsed !== "object" || parsed === null || !("tool_input" in parsed)) continue;
+      const input = (parsed as { tool_input: unknown }).tool_input;
+      if (typeof input === "string") shapes.add("string tool_input");
+      else if (typeof input === "object" && input !== null && "command" in input) {
+        const command = (input as { command: unknown }).command;
+        if (typeof command === "string") commands.push(command);
+        else shapes.add(`${typeof command} command`);
+      }
+      if (!("cwd" in parsed)) shapes.add("no cwd");
+    }
+    expect([...shapes].sort()).toEqual(
+      ["malformed", "no cwd", "number command", "object command", "string tool_input"].sort(),
+    );
+    for (const needle of [
+      "--no-verify",
+      "git push --force origin main",
+      "rm -rf /",
+      "--no-preserve-root",
+      ":(){ :|:& };:",
+      "of=/dev/sda",
+      "> CLAUDE.md",
+      "cp x .claude/settings.json",
+      "pi --no-extensions",
+      "engram delete",
+      "git reset --hard",
+      "git clean -fdx",
+      "grep -rn foo .",
+      "<<'EOF'",
+      "\u0000",
+      " && ",
+      "\n",
+    ])
+      expect(
+        commands.some((command) => command.includes(needle)),
+        needle,
+      ).toBe(true);
   });
 
   // Covers: R11
