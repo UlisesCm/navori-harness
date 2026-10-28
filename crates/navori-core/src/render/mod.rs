@@ -18,4 +18,6 @@ pub mod plan;
 pub mod plugin_scripts;
 pub mod plugins;
 pub mod presets;
+pub mod removable;
+pub mod retirements;
 pub mod sub_blocks;

@@ -12,7 +12,9 @@ use crate::STAMP_VERSION;
 use crate::js_json::JsValue;
 use crate::markers::CommentStyle;
 use crate::render::assets;
-use crate::render::collect::{PendingWrite, RepoView, SkippedFile, collect_managed};
+use crate::render::collect::{
+    PendingWrite, RepoView, SkippedFile, collect_managed, read_if_exists,
+};
 use crate::render::context::Lang;
 use crate::render::harness_plan::{AssetRef, HarnessPlan};
 use crate::render::managed_file::RenderManagedFileInput;
@@ -156,7 +158,7 @@ pub fn collect_harness_files(
             (false, _) => BTreeMap::new(),
         };
         let text = asset_text(&placement.asset)?;
-        let existing = view.read(&placement.dest);
+        let existing = read_if_exists(view, &placement.dest).map_err(|_| HarnessDelegate)?;
         let input = RenderManagedFileInput {
             asset: &text,
             style: placement.style,

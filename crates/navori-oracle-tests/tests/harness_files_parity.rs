@@ -77,6 +77,15 @@ impl RepoView for Disk<'_> {
     fn exists(&self, rel: &str) -> bool {
         self.0.join(rel).exists()
     }
+
+    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
+        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
+        Some(
+            entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect(),
+        )
+    }
 }
 
 fn write(root: &Path, rel: &str, text: &str) {

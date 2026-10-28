@@ -11,7 +11,9 @@ use crate::i18n;
 use crate::js_json::JsValue;
 use crate::markers::{CommentStyle, InjectStatus};
 use crate::render::assets;
-use crate::render::collect::{PendingWrite, RepoView, SkippedFile, collect_managed};
+use crate::render::collect::{
+    PendingWrite, RepoView, SkippedFile, collect_managed, read_if_exists,
+};
 use crate::render::context::Lang;
 use crate::render::harness_files::asset_text;
 use crate::render::harness_plan::{normalize_rel, preset_hooks};
@@ -82,13 +84,9 @@ fn owned_dest(rel: &str) -> Result<String, ClaudeFilesDelegate> {
     Ok(rel.to_owned())
 }
 
-/// `existsSync ? readFileSync : null`, where a destination that exists but cannot be read as
-/// UTF-8 text makes the TS throw.
+/// `existsSync ? readFileSync : null`.
 fn on_disk(view: &dyn RepoView, rel: &str) -> Result<Option<String>, ClaudeFilesDelegate> {
-    if !view.exists(rel) {
-        return Ok(None);
-    }
-    view.read(rel).map(Some).ok_or(ClaudeFilesDelegate)
+    read_if_exists(view, rel).map_err(|_| ClaudeFilesDelegate)
 }
 
 /// `inferCommentStyle`.

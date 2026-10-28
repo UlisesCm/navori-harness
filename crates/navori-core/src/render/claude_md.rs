@@ -22,7 +22,7 @@ use crate::render::assets;
 use crate::render::block_plan::{
     AssetStatus, PlanAsset, PlanOptions, RenderPlan, canonical_managed_order, compute_render_plan,
 };
-use crate::render::collect::collect_managed;
+use crate::render::collect::{collect_managed, read_if_exists};
 use crate::render::context::Lang;
 use crate::render::harness_plan::{ROSTER_AGENTS, is_agent_enabled};
 use crate::render::interpolate::sanitize_project_value;
@@ -277,7 +277,9 @@ pub fn plan_claude_md(
     let language = text(get(&config, "language")).unwrap_or_else(|| "es".to_owned());
     let ambient_floor = options.ambient_floor.as_deref();
 
-    let existing = view.read("CLAUDE.md").unwrap_or_default();
+    let existing = read_if_exists(view, "CLAUDE.md")
+        .map_err(|_| ClaudeMdDelegate)?
+        .unwrap_or_default();
     let split = split_user_section(&existing, CommentStyle::Html);
     let plan_options = PlanOptions {
         engine: None,
@@ -315,7 +317,7 @@ pub fn plan_claude_md(
         let (path, _) = resolve_asset_path(asset, &language);
         let source = String::from_utf8(assets::core(&path).ok_or(ClaudeMdDelegate)?.to_vec())
             .map_err(|_| ClaudeMdDelegate)?;
-        let current = view.read(&dest);
+        let current = read_if_exists(view, &dest).map_err(|_| ClaudeMdDelegate)?;
         let input = RenderManagedFileInput {
             asset: &source,
             style: CommentStyle::Html,
@@ -368,7 +370,7 @@ pub fn plan_claude_md(
         if removable(view, &legacy, AGENTS_INDEX_ID) {
             removals.push(legacy);
         }
-        let current = view.read(&dest);
+        let current = read_if_exists(view, &dest).map_err(|_| ClaudeMdDelegate)?;
         let status = match current.as_deref() {
             None => InjectStatus::Created,
             Some(current) if current == file.output => InjectStatus::Unchanged,
