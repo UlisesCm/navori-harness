@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 
@@ -54,7 +54,7 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[] }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], fixture?: Array<{ path: string, content: string, mode?: number }> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
  * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
@@ -64,7 +64,10 @@ export function caseKey(c) {
   const key = [c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()];
   // Hook arguments (spec 0059 T5) join the key only when present: argument-less keys, and so the
   // order of every corpus recorded before them, stay as they were.
-  if (c.args !== undefined && c.args.length > 0) key.push(c.args);
+  const hasArgs = c.args !== undefined && c.args.length > 0;
+  const hasFixture = c.fixture !== undefined && c.fixture.length > 0;
+  if (hasArgs || hasFixture) key.push(c.args ?? []);
+  if (hasFixture) key.push(c.fixture);
   return JSON.stringify(key);
 }
 
@@ -89,8 +92,12 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind, args } = line;
-      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind, ...(args !== undefined && args.length > 0 ? { args } : {}) });
+      const { hook, engine, shell, input, envDelta, cwdKind, args, fixture } = line;
+      included.set(caseKey(line), {
+        hook, engine, shell, input, envDelta, cwdKind,
+        ...(args !== undefined && args.length > 0 ? { args } : {}),
+        ...(fixture !== undefined && fixture.length > 0 ? { fixture } : {}),
+      });
     } else {
       const reason = line.reason ?? "unknown";
       slot.excluded[reason] = (slot.excluded[reason] ?? 0) + 1;
@@ -336,6 +343,14 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         else mkdirSync(join(caseRoot, "none"), { recursive: true });
         paths[i] = { project, root: caseRoot };
         const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
+        // Declared state (spec 0059 T5): recreated under the case's own cwd before it runs.
+        for (const file of c.fixture ?? []) {
+          if (isAbsolute(file.path) || normalizePath(file.path).split("/").includes("..")) throw new Error(`fixture escapes the case: ${file.path}`);
+          const target = join(cwd, file.path);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, hostPaths(file.content, project, cwd));
+          chmodSync(target, file.mode ?? 0o644);
+        }
         const auditsRoot = join(scratch.audits, String(i));
         const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));
         const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);

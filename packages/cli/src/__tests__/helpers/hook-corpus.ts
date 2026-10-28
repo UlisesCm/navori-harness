@@ -34,6 +34,8 @@ export interface RawCorpusLine {
   cwdKind: "none" | "repo";
   /** Hook arguments (the registration's mode); absent when the hook ran without any. */
   args?: string[];
+  /** Files the case declared under its cwd (`HookCase.fixture`); absent when none. */
+  fixture?: { path: string; content: string; mode?: number }[];
   /** `included` lines become cases; the others only feed the coverage denominator. */
   status: "included" | "excluded";
   reason?: string;
@@ -141,6 +143,15 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     envDelta,
     cwdKind: tempCwd ? "none" : "repo",
     ...(c.args !== undefined && c.args.length > 0 ? { args: c.args.map(tokenize) } : {}),
+    ...(c.fixture !== undefined && c.fixture.length > 0
+      ? {
+          fixture: c.fixture.map((f) => ({
+            path: f.path,
+            content: tokenize(f.content),
+            ...(f.mode === undefined ? {} : { mode: f.mode }),
+          })),
+        }
+      : {}),
     status: "included",
   };
   const out: RawCorpusLine =

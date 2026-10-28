@@ -40,6 +40,7 @@ interface Case {
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
   args?: string[];
+  fixture?: { path: string; content: string; mode?: number }[];
 }
 interface Verdict {
   status: number;
@@ -87,12 +88,18 @@ interface Replay {
   runMode: (
     cases: Case[],
     mode: "off" | "active",
-    deps: {
-      resolveHook: (hook: string, engine: string) => string;
-      binary: string;
-      impl: "rust";
-      scratch: { cleanup: () => void };
-    },
+    deps:
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          binary: string;
+          impl: "rust";
+          scratch: { cleanup: () => void };
+        }
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          runHookBatch: typeof runHookBatch;
+          scratch: { cleanup: () => void };
+        },
   ) => (Verdict & { event?: unknown[] })[];
 }
 
@@ -910,6 +917,63 @@ describe("hook verdict corpus", () => {
       script,
       "claude-stop",
     ]);
+  });
+
+  // Covers: R54
+  it("el estado declarado del caso se recrea en el replay", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const cwd = mkdtempSync(join(tmpdir(), "navori-fixture-cwd-"));
+    dirs.push(cwd);
+    // A hook that reads declared state and runs a declared tool stub from the case's PATH.
+    const hook = join(dir, ".claude", "hooks", "fixture.sh");
+    mkdirp(dirname(hook));
+    writeFileSync(hook, 'cat state/flag\nprintf "|"\nnavori --version\n');
+    const fixture = [
+      { path: "state/flag", content: `at ${cwd}\n` },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ];
+    const c = { input: "{}", cwd, env: { PATH: `${cwd}/bin:/usr/bin:/bin` }, fixture };
+    const expected = `at ${cwd}\n|stub-9.9.9\n`;
+    expect(runHookBatch(hook, "bash", [c])[0]?.stdout).toBe(expected);
+    expect(runHookIsolated(hook, "bash", c).stdout).toBe(expected);
+
+    // Recorded with the cwd as a token, then replayed in a fresh empty cwd that never saw it.
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    const core = installCoreHook(dir, "general-purpose-confirm.sh");
+    recordHookCase(core, "bash", c);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const [line] = rawLines(raw);
+    expect(line?.fixture).toEqual([
+      { path: "state/flag", content: "at @CWD@\n" },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ]);
+    expect(line?.envDelta).toEqual({ PATH: "@CWD@/bin:/usr/bin:/bin" });
+    const [merged] = replay.mergeRaw(line === undefined ? [] : [line]).cases;
+    if (merged === undefined) throw new Error("no case");
+    expect(replay.caseKey(merged)).not.toBe(replay.caseKey({ ...merged, fixture: undefined }));
+    const scratch = replay.createScratch();
+    try {
+      const [out] = replay.runMode([merged], "off", {
+        resolveHook: () => hook,
+        runHookBatch,
+        scratch,
+      });
+      expect(out?.stdout).toBe("at @CASE@/none\n|stub-9.9.9\n");
+    } finally {
+      scratch.cleanup();
+    }
+
+    // A fixture never lands outside a temp cwd, nor escapes it, nor races another lane.
+    expect(() => runHookIsolated(hook, "bash", { ...c, cwd: process.cwd() })).toThrow(
+      /not under the temp dir/,
+    );
+    expect(() =>
+      runHookIsolated(hook, "bash", { ...c, fixture: [{ path: "../x", content: "" }] }),
+    ).toThrow(/stay under the case cwd/);
+    expect(() =>
+      runHookBatch(hook, "bash", [c, { ...c, fixture: [{ path: "other", content: "" }] }]),
+    ).toThrow(/different fixtures/);
   });
 
   // Covers: R13
