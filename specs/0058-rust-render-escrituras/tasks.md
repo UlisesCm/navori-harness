@@ -114,14 +114,20 @@ runtime y el brazo nativo de `claudeHookCommand` (`render::native_hook`), `final
 `render_claude.rs` ya no excluye nada contra el motor; el golden corre sin hooks portados, como su
 test TS.
 
-Falta: cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
+T16 cerrada en la misma rama: el plan expone el `ClaudeEngineResult` que lee el reporte
+(`inspected`, avisos completos en el orden del TS, entradas de `CLAUDE.md`, fallbacks), comparado
+con el `runRender` real; `render::report` porta la salida no-TTY de clack y las secciones Claude
+del reporte, comparadas con el stdout del comando TS. M5 cerrado (A5 verde). La procedencia del
+core, los `.gitignore`, `.prettierignore` y el outro son del comando y llegan con M6. El wiring en
+`active` se verifica con el verificador de integridad del binario (el `ported.json` real está en
+`shadow`, así que el TS no lo puede renderizar en `active` por `prepareClaudeEngine`).
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
 intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [x] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/native_hook_parity.rs`::"wiring nativo igual a wiring.snap y al TS en shadow y active"
-- [ ] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
+- [x] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
 
 ### M6 — Comando `render` en preview (después de E1, Q2)
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
