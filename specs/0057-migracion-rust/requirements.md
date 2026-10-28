@@ -86,5 +86,5 @@ abrirse:
 |---|---|---|---|
 | 1 | 0057 | Cimientos, runtime de hooks, `subagent-no-background` y `guard-destructive` en sombra | R1–R13, R15–R17, R23 |
 | 2 | 0058 | Config, markers, render en preview y escrituras; activación de `guard-destructive` | Escrituras con preview, backup, fsync, markers y anti-rollback verificados con tests propios y el diferencial |
-| 3 | 0059 | Ruta caliente de sesión, Codex, agents-md, cursor, copilot y Pi (incluido el refactor de la extensión en `dev`) | Garantías first-class de cada engine con las mismas pruebas de aceptación que en TS |
+| 3 | 0059 | Ruta caliente de sesión, Codex, agents-md, cursor, copilot y Pi (la extensión Pi como asset derivado del TS, sin refactor en `dev`: D29 de 0059) | Garantías first-class de cada engine con las mismas pruebas de aceptación que en TS |
 | 4 | 0060 | Cola larga, ensayo de distribución y corte | Gate full ≤ 5 min tras el corte; corte solo con manifiesto completo, metas cumplidas y aprobación explícita; binarios macOS y Linux; TS congelado en otras plataformas; integración a `dev` en un solo PR con el gate full verde |
