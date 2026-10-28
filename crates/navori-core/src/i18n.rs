@@ -173,6 +173,59 @@ pub const fn settings_not_object(lang: Lang) -> &'static str {
     }
 }
 
+/// `render.wouldWrite`.
+#[must_use]
+pub const fn render_would_write(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} preview (se escribir\u{ed}a)",
+        Lang::En => "\u{2192} preview (would write)",
+    }
+}
+
+/// `render.noChangePreview`.
+#[must_use]
+pub const fn render_no_change_preview(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} sin cambios",
+        Lang::En => "\u{2192} no changes",
+    }
+}
+
+/// `render.written`.
+pub const RENDER_WRITTEN: &str = "\u{2192} written";
+
+/// `render.noChanges`.
+pub const RENDER_NO_CHANGES: &str = "\u{2192} no changes";
+
+/// `render.engineFilesTitle`.
+pub const RENDER_ENGINE_FILES_TITLE: &str = "Engine files:";
+
+/// `render.langFallback(list)`.
+#[must_use]
+pub fn render_lang_fallback(lang: Lang, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Fallback a espa\u{f1}ol para: {list} (versi\u{f3}n en ingl\u{e9}s a\u{fa}n no disponible)"
+        ),
+        Lang::En => {
+            format!("Language fallback to Spanish for: {list} (English version not available yet)")
+        }
+    }
+}
+
+/// `render.downgradeWarning({ count, newest, ids })`.
+#[must_use]
+pub fn render_downgrade_warning(lang: Lang, count: usize, newest: &str, ids: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Tu CLI est\u{e1} detr\u{e1}s del repo: {count} bloque(s) los escribi\u{f3} una navori m\u{e1}s nueva (hasta {newest}). Los preserv\u{e9} sin tocar para no degradarlos. Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  {ids}"
+        ),
+        Lang::En => format!(
+            "Your CLI is behind the repo: {count} block(s) were written by a newer navori (up to {newest}). They were preserved untouched to avoid downgrading them. Update your CLI to manage them again: npm i -g navori@latest\n  {ids}"
+        ),
+    }
+}
+
 /// `engine.qualityGateHookSkipped`.
 #[must_use]
 pub const fn quality_gate_hook_skipped(lang: Lang) -> &'static str {

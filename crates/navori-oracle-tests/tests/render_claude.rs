@@ -22,6 +22,10 @@ use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::claude_settings::claude_hook_command;
 use navori_core::render::collect::RepoView;
+use navori_core::render::context::Lang;
+use navori_core::render::report::{
+    Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
+};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use regex::Regex;
@@ -628,6 +632,145 @@ fn engine_result_warnings_match_run_render() -> Result<(), String> {
     Ok(())
 }
 
+fn report_prelude() -> String {
+    format!(
+        "process.env.NO_COLOR = '1';\nprocess.env.TERM = 'xterm-256color';\nconst r = await import({:?});",
+        cli_module("commands/render.ts")
+    )
+}
+
+/// `navori render --cwd <root>` (preview), its stdout captured.
+static REPORT: Shared = Shared::new(
+    report_prelude,
+    "const chunks = [];\n\
+     const write = process.stdout.write;\n\
+     const exit = process.exit;\n\
+     process.stdout.write = (chunk) => { chunks.push(String(chunk)); return true; };\n\
+     process.exit = (code) => { throw new Error('exit ' + code); };\n\
+     try { await r.renderCommand.run({ args: { cwd: request.root, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
+     catch (err) { return { threw: String(err && err.message || err) }; }\n\
+     finally { process.stdout.write = write; process.exit = exit; }\n\
+     return { out: chunks.join('') };",
+);
+
+/// The sections Rust prints for the Claude part of a preview, in order.
+fn report_sections(root: &Path, config: &str, plan: &ClaudeEnginePlan) -> Vec<String> {
+    let clack = Clack { unicode: true };
+    let language = config::read(config.as_bytes()).ok().and_then(|read| {
+        match navori_core::config::effective_config(&read.data) {
+            JsValue::Object(object) => match object.get("language") {
+                Some(JsValue::String(s)) => s.to_rust(),
+                _ => None,
+            },
+            _ => None,
+        }
+    });
+    let lang = Lang::resolve(language.as_deref());
+    let file = format!("{}/CLAUDE.md", root.display());
+    let mut sections = vec![
+        clack.intro("navori render"),
+        claude_md_section(clack, &file, plan, true, lang),
+    ];
+    sections.extend(engine_files_section(clack, plan));
+    sections.extend(lang_fallback_section(clack, plan, lang));
+    sections.extend(downgrade_section(clack, plan, lang));
+    sections
+}
+
+/// Every Rust section appears verbatim and in order in the TS output, the intro first.
+fn sections_in_order(out: &str, sections: &[String]) -> Result<(), String> {
+    if !sections
+        .first()
+        .is_some_and(|intro| out.starts_with(intro.as_str()))
+    {
+        return Err(format!("intro differs:\n{out}"));
+    }
+    let mut at = 0;
+    for section in sections {
+        match out[at..].find(section.as_str()) {
+            Some(found) => at += found + section.len(),
+            None => {
+                return Err(format!(
+                    "missing or out of order:\n{section}\n--- ts ---\n{out}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Replaces the body of the first managed block of `text` and re-hashes its marker.
+fn rewrite_first_block(text: &str, body: &str) -> String {
+    let Some(open_end) = text.find(" -->\n").map(|at| at + " -->\n".len()) else {
+        return text.to_owned();
+    };
+    let Some(close) = text[open_end..]
+        .find("<!-- /navori:managed")
+        .map(|at| at + open_end)
+    else {
+        return text.to_owned();
+    };
+    let open = &text[..open_end];
+    let hash = navori_core::integrity::marker_hash(body);
+    let open = match (open.find("hash=\""), open.find("hash=\"").map(|at| at + 14)) {
+        (Some(start), Some(end)) => {
+            format!("{}hash=\"{hash}\"{}", &open[..start], &open[end + 1..])
+        }
+        _ => open.to_owned(),
+    };
+    format!("{open}{body}\n{}", &text[close..])
+}
+
+/// The report over a repo a newer navori rendered, whose first `CLAUDE.md` block that render
+/// wants to rewrite (a downgrade), and one an older navori rendered, in both languages.
+// Covers: R41
+#[test]
+fn render_report_matches_after_restamps() -> Result<(), String> {
+    let root = BASE.join("report-restamp");
+    for language in ["es", "en"] {
+        for version in ["999.0.0", "0.1.0"] {
+            let config = format!(
+                r#"{{"name":"demo","preset":"custom","engines":["claude"],"language":"{language}","plugins":{{"engram":{{"enabled":true}}}}}}"#
+            );
+            build_repo(
+                &root,
+                &Recipe {
+                    baseline: Some(config.clone()),
+                    restamp: Some(version),
+                    edits: Vec::new(),
+                },
+            );
+            write(&root, "navori.config.json", &config);
+            // The first `CLAUDE.md` block becomes another navori's intact output: a body this
+            // render would replace, under its own valid hash.
+            let claude_md = root.join("CLAUDE.md");
+            let text = std::fs::read_to_string(&claude_md).map_err(|e| e.to_string())?;
+            write(
+                &root,
+                "CLAUDE.md",
+                &rewrite_first_block(&text, "Older body."),
+            );
+            let ts = REPORT.ask(&json!({ "root": root.to_string_lossy() }))?;
+            let out = ts
+                .get("out")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("ts failed: {ts}"))?;
+            let rust = plan(&root, &config, None).ok_or("rust declined")?;
+            let sections = report_sections(&root, &config, &rust);
+            if version == "999.0.0"
+                && !sections
+                    .iter()
+                    .any(|s| s.contains("(up to 999.0.0)") || s.contains("(hasta 999.0.0)"))
+            {
+                return Err(format!("{language}: no downgrade warning planned"));
+            }
+            sections_in_order(out, &sections)
+                .map_err(|why| format!("{language} {version}: {why}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// The Rust plan as the `ClaudeEngineResult` fields the report reads.
 fn engine_result(plan: &ClaudeEnginePlan) -> Value {
     let written: Vec<Value> = plan
@@ -649,6 +792,38 @@ fn engine_result(plan: &ClaudeEnginePlan) -> Value {
         "fallbacks": plan.language_fallbacks,
         "downgrades": plan.downgrades.iter().map(|d| json!([d.id, d.from_version])).collect::<Vec<_>>(),
     })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(40))]
+
+    // Covers: R41
+    #[test]
+    fn render_report_matches_the_ts_output(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.4),
+    ) {
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("report");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        build_repo(&root, &recipe);
+        write(&root, "navori.config.json", &config);
+        let ts = REPORT
+            .ask(&json!({ "root": root.to_string_lossy() }))
+            .map_err(TestCaseError::fail)?;
+        match (ts.get("out").and_then(Value::as_str), plan(&root, &config, None)) {
+            (Some(out), Some(rust)) => {
+                let sections = report_sections(&root, &config, &rust);
+                if let Err(why) = sections_in_order(out, &sections) {
+                    prop_assert!(false, "{why}\n{config}\n{recipe:?}");
+                }
+            }
+            (None, None) => {}
+            (_, None) => prop_assert!(unparseable_json(&root), "rust declined, ts: {ts}"),
+            (None, Some(_)) => prop_assert!(false, "ts failed: {ts}"),
+        }
+    }
 }
 
 proptest! {
