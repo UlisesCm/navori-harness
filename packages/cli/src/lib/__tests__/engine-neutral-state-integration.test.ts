@@ -78,7 +78,7 @@ describe("Spec 0036 engine-neutral state integration", () => {
       const claudeHook = readFileSync(join(cwd, ".claude/hooks/subagent-stop-handoff.sh"), "utf8");
       const codexHook = readFileSync(join(cwd, ".codex/hooks/subagent-stop-handoff.sh"), "utf8");
       for (const hook of [claudeHook, codexHook]) {
-        expect(hook.match(/payload=\$\{payload-\$\(cat\)\}/g)).toHaveLength(1);
+        expect(hook.match(/payload=\$\{payload-"\$\(cat\)"\}/g)).toHaveLength(1);
         expect(hook).toContain('".navori/state/handoffs"');
         expect(hook).not.toContain("navori_field() {");
       }
