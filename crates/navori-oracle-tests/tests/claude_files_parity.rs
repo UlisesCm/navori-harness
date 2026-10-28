@@ -291,7 +291,7 @@ fn rust_files(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
     .ok()?;
     Some(json!({
         "pending": files.pending.iter().map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
-        "skipped": files.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.as_str(), s.resolution, s.markerless_resolution])).collect::<Vec<_>>(),
+        "skipped": files.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution, s.markerless_resolution])).collect::<Vec<_>>(),
     }))
 }
 

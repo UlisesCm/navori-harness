@@ -5,8 +5,9 @@
 //! - Against the real `prepareClaudeEngine(...).finalize()` over repos rendered with another
 //!   config and then edited: pending writes, removals and skips, in order.
 //!
-//! `settings.json`, `.mcp.json` and the native wiring of the hooks in `crates/ported.json` are
-//! T15: they are left out of both comparisons until then.
+//! `.mcp.json` is T15, so it is left out of both comparisons until then. So are, against the
+//! engine only, `settings.json` and the hooks in `crates/ported.json`: the native wiring (T15)
+//! rewrites them in `finalize`.
 
 mod support;
 
@@ -98,7 +99,7 @@ fn write(root: &Path, rel: &str, text: &str) {
     let _ = std::fs::write(path, text);
 }
 
-/// T15 files: `settings.json`, `.mcp.json` and the hooks the native wiring rewrites.
+/// T15 files: `.mcp.json`, plus `settings.json` and the hooks the native wiring rewrites.
 static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ported.json");
     let ported: Value = std::fs::read_to_string(manifest)
@@ -216,7 +217,7 @@ fn claude_tree_matches_the_golden_snap() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::create_dir_all(&root);
     let plan = plan(&root, GOLDEN_CONFIG, None).ok_or("plan_claude_engine delegated")?;
-    let excluded = [".claude/settings.json", ".mcp.json"];
+    let excluded = [".mcp.json"];
     let mut golden = golden_sections()?;
     golden.retain(|file, _| !excluded.contains(&file.as_str()));
     let rendered: BTreeMap<String, (bool, String)> = plan
@@ -393,7 +394,7 @@ fn report(plan: &ClaudeEnginePlan) -> Value {
     json!({
         "pending": plan.pending.iter().filter(|w| keep(&w.rel_path)).map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
         "removals": plan.removals.iter().map(|r| json!([r.rel_path, r.recursive])).collect::<Vec<_>>(),
-        "skipped": plan.skipped.iter().filter(|s| keep(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.as_str(), s.resolution])).collect::<Vec<_>>(),
+        "skipped": plan.skipped.iter().filter(|s| keep(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
     })
 }
 

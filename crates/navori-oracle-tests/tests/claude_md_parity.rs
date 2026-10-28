@@ -459,7 +459,7 @@ proptest! {
         let rust = json!({
             "pending": rust.pending.iter().map(|w| json!([w.rel_path, w.content, w.status.as_str()])).collect::<Vec<_>>(),
             "removals": rust.removals,
-            "skipped": rust.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.as_str(), s.resolution])).collect::<Vec<_>>(),
+            "skipped": rust.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
             "entries": entries,
             "warnings": rust.warnings,
             "updates": updates(&rust.plan.updates_available),

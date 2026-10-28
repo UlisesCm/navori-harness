@@ -174,7 +174,7 @@ fn skip_kept(
     out.skipped.push(SkippedFile {
         rel_path: rel.to_owned(),
         reason,
-        status: result.status,
+        status: Some(result.status),
         resolution: None,
         markerless_resolution: None,
     });

@@ -310,7 +310,7 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
     };
     Some(json!({
         "pending": pending.iter().filter(|w| in_scope(&w.rel_path)).map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
-        "skipped": harness_skipped.iter().chain(&out.skipped).filter(|s| in_scope(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.as_str(), s.resolution])).collect::<Vec<_>>(),
+        "skipped": harness_skipped.iter().chain(&out.skipped).filter(|s| in_scope(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
         "warnings": out.warnings.iter().chain(&out.retired_warnings).collect::<Vec<_>>(),
         "updates": out.updates_available.iter().map(u).collect::<Vec<_>>(),
         "downgrades": out.downgrades.iter().map(u).collect::<Vec<_>>(),

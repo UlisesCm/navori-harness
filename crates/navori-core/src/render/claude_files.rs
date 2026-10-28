@@ -265,7 +265,7 @@ fn script_file(
                     i18n::managed_block_edited_by_hand(lang)
                 }
                 .to_owned(),
-                status: InjectStatus::UserModifiedSkipped,
+                status: Some(InjectStatus::UserModifiedSkipped),
                 resolution: None,
                 markerless_resolution: resolution,
             });

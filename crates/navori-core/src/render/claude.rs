@@ -1,13 +1,15 @@
 //! `prepareClaudeEngine(...).finalize()` of a full root render (spec 0058 T14): every ported step
 //! assembled in the TS order into one pure plan.
 //!
-//! Pending writes follow the TS array: step 1 (context files, then `CLAUDE.md`), where
-//! `settings.json` and `.mcp.json` will go (T15), the shared spine (agents, skills, hooks), then
-//! `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
-//! Skips follow the TS too: step 1, steps 5–7, the spine, then the sub-blocks.
+//! Pending writes follow the TS array: step 1 (context files, then `CLAUDE.md`), step 2
+//! (`settings.json`), where `.mcp.json` will go (T15), the shared spine (agents, skills, hooks),
+//! then `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
+//! Skips follow the TS too: step 1, step 2, steps 5–7, the spine, then the sub-blocks.
 //!
-//! Not modeled yet, so absent from the plan: `settings.json`, `.mcp.json` and the native hook
-//! wiring (T15), and the warnings outside the ported steps (T16).
+//! `force` is outside the native subset (T17), so every step plans without it.
+//!
+//! Not modeled yet, so absent from the plan: `.mcp.json` and the native hook wiring, which
+//! rewrites the planned `settings.json` (T15), and the warnings outside the ported steps (T16).
 
 use std::path::Path;
 
@@ -16,7 +18,8 @@ use crate::js_json::JsValue;
 use crate::render::block_plan::{PlanOptions, UpdateAvailable};
 use crate::render::claude_files::collect_claude_files;
 use crate::render::claude_md::plan_claude_md;
-use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
+use crate::render::claude_settings::build_claude_settings;
+use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists};
 use crate::render::context::Lang;
 use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
@@ -24,6 +27,7 @@ use crate::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 use crate::render::plugins::{load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
 use crate::render::retirements::{PendingRemoval, RetirementInput, plan_retirements};
+use crate::render::settings_file::{SETTINGS_PATH, SettingsPlan, plan_settings};
 use crate::render::sub_blocks::{SubBlockCtx, apply_sub_blocks};
 
 /// Some step delegates: the invocation goes to the TS.
@@ -137,10 +141,43 @@ pub fn plan_claude_engine(
         floor,
     ))?;
 
+    // 2. `settings.json`, stamped against the config's `harnessVersion`.
+    let settings = delegate(build_claude_settings(&config, &plan, &enabled))?;
+    let harness_version = text(&config, "harnessVersion");
+    let settings_plan = delegate(plan_settings(
+        view,
+        &settings,
+        harness_version.as_deref(),
+        false,
+        lang,
+    ))?;
+
     let mut pending = step1.pending;
+    let mut skipped = step1.skipped;
+    let mut skipped_settings = None;
+    match settings_plan {
+        SettingsPlan::Noop => {}
+        SettingsPlan::Skip { reason, status } => {
+            skipped.push(SkippedFile {
+                rel_path: SETTINGS_PATH.to_owned(),
+                reason,
+                status,
+                resolution: None,
+                markerless_resolution: None,
+            });
+            skipped_settings = delegate(read_if_exists(view, SETTINGS_PATH))?;
+        }
+        SettingsPlan::Write { content, status } => {
+            pending.push(PendingWrite {
+                rel_path: SETTINGS_PATH.to_owned(),
+                content,
+                status,
+                chmod_exec: false,
+            });
+        }
+    }
     pending.extend(harness.pending);
     pending.extend(own.pending);
-    let mut skipped = step1.skipped;
     skipped.extend(own.skipped);
     skipped.extend(harness.skipped);
 
@@ -161,7 +198,7 @@ pub fn plan_claude_engine(
             plan: &plan,
             preset_loaded,
             disabled: &disabled,
-            skipped_settings: None,
+            skipped_settings: skipped_settings.as_deref(),
         },
     ))?;
 
