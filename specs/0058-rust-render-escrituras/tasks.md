@@ -100,16 +100,20 @@ TS real y mutaciones verificadas:
 - **Se delega al TS:** workspaces de monorepo, destinos no normalizados o ilegibles, assets de
   plugins retirados en disco (8.5-bis) y todo lo que el TS lanza.
 
+T14 cerrada en la rama de E3: `render::claude::plan_claude_engine` ensambla los pasos en el orden
+del TS; `render_claude.rs` compara el árbol con el snap `claude` (53 archivos) y el plan con el
+`finalize` real. `settings.json`, `.mcp.json` y el wiring nativo se excluyen de ambas pruebas hasta
+T15; el `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
+
 Falta, en este orden:
-1. `render_claude.rs`: el plan completo ensamblado en el orden del TS (pending, removals, skipped,
-   warnings) contra el snap `claude` de `golden-render-tree` (T14).
-2. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15).
-3. Cadenas y salida no-TTY (T16).
+1. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15); al cerrar, `render_claude.rs` deja
+   de excluirlos.
+2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
 intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
-- [ ] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
+- [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
 - [ ] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
 
