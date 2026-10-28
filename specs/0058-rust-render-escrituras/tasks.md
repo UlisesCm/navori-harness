@@ -107,7 +107,9 @@ T15; el `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llega
 
 Falta, en este orden:
 1. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15); al cerrar, `render_claude.rs` deja
-   de excluirlos.
+   de excluirlos. Hecho: `buildClaudeSettings` con `deepMerge`, reglas de permisos derivadas y
+   hooks de plugins (`render::claude_settings`). Siguen `planSettings` (coexist y `planStampedJson`),
+   `.mcp.json` y el wiring nativo.
 2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
