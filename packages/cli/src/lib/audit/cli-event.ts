@@ -997,7 +997,7 @@ export function absorbAuditMetadataSpool(
 // single writer of the session log: `consolidateSpool` re-validates every file,
 // drops the invalid ones one by one, and appends the rest in one write.
 
-/** What a spool file may be called: the shell writes `<stamp>-<pid>-<rand>.json`. */
+/** What a spool file may be called: the shell writes `<stamp>-<pid>-<seq>-<rand>.json`. */
 const SPOOL_NAME = /^[A-Za-z0-9._-]{1,128}\.json$/;
 /** A file younger than this that fails to read or parse may still be mid-write. */
 const SPOOL_GRACE_MS = 5000;
