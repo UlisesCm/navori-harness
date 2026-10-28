@@ -237,3 +237,74 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
     assert!(collect_cached(request(&env), &temp.0, tight, Some(&cache)).is_ok());
     Ok(())
 }
+
+/// A fake `navori` that appends one line to `$COUNT` per run and prints `version` (exit `code`).
+fn fake_navori(dir: &Path, version: &str, code: i32) -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(dir)?;
+    let path = dir.join("navori");
+    fs::write(
+        &path,
+        format!("#!/bin/sh\necho run >> \"$COUNT\"\necho '{version}'\nexit {code}\n"),
+    )?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+fn runs(count: &Path) -> usize {
+    fs::read_to_string(count).map_or(0, |text| text.lines().count())
+}
+
+// Covers: R53
+#[test]
+fn la_version_del_navori_de_path_se_sondea_una_vez_por_binario() -> TestResult {
+    use navori_cli::hook_facts::navori_cli;
+    let temp = Temp::new()?;
+    let cache = FactsCache::in_project(&temp.0);
+    let bin = temp.0.join("bin");
+    let count = temp.0.join("count");
+    let env = |path: &Path| -> Vec<(OsString, OsString)> {
+        vec![
+            ("PATH".into(), path.as_os_str().to_owned()),
+            ("COUNT".into(), count.as_os_str().to_owned()),
+        ]
+    };
+    fake_navori(&bin, navori_core::STAMP_VERSION, 0)?;
+    let first = navori_cli(&env(&bin), &temp.0, Some(&cache))?;
+    assert_eq!(first.path, Some(bin.join("navori")));
+    assert_eq!(first.version.as_deref(), Some(navori_core::STAMP_VERSION));
+    assert!(first.in_process());
+    assert_eq!(navori_cli(&env(&bin), &temp.0, Some(&cache))?, first);
+    assert_eq!(runs(&count), 1, "the second call replays the cached probe");
+
+    // Another binary at the same path (new stamp) is probed again, and another version leaves
+    // the subcommand to that navori.
+    fake_navori(&bin, "0.0.1-other", 0)?;
+    let other = navori_cli(&env(&bin), &temp.0, Some(&cache))?;
+    assert_eq!(other.version.as_deref(), Some("0.0.1-other"));
+    assert!(!other.in_process());
+    assert_eq!(runs(&count), 2);
+
+    // A failing probe has no version (never in process), and is cached like any answer.
+    fake_navori(&bin, navori_core::STAMP_VERSION, 1)?;
+    let failed = navori_cli(&env(&bin), &temp.0, Some(&cache))?;
+    assert_eq!(failed.version, None);
+    assert!(!failed.in_process());
+    assert_eq!(navori_cli(&env(&bin), &temp.0, Some(&cache))?, failed);
+    assert_eq!(runs(&count), 3);
+
+    // No navori on PATH: the shell's "not installed" branch, nothing probed.
+    let empty = temp.0.join("empty");
+    fs::create_dir_all(&empty)?;
+    let absent = navori_cli(&env(&empty), &temp.0, Some(&cache))?;
+    assert_eq!(absent.path, None);
+    assert!(!absent.in_process());
+    assert_eq!(runs(&count), 3);
+
+    // A relative PATH entry depends on the working directory: probed every time, never cached.
+    fake_navori(&bin, navori_core::STAMP_VERSION, 0)?;
+    for _ in 0..2 {
+        assert!(navori_cli(&env(Path::new("bin")), &temp.0, Some(&cache))?.in_process());
+    }
+    assert_eq!(runs(&count), 5);
+    Ok(())
+}
