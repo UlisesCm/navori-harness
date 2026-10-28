@@ -10,6 +10,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const STAMP_VERSION: &str = env!("NAVORI_TS_CLI_VERSION");
 
 pub mod audit;
+pub mod backup;
 pub mod config;
 pub mod fs;
 pub mod i18n;

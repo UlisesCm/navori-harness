@@ -252,3 +252,180 @@ fn an_injected_failure_at_any_step_keeps_the_original_and_removes_the_temporary(
     }
     Ok(())
 }
+
+// --- backup ---------------------------------------------------------------------------------
+
+/// Set in the child run of [`zone_child`]: epoch milliseconds, comma-separated.
+const CHILD_EPOCHS: &str = "NAVORI_FS_TEST_CHILD_EPOCHS";
+
+fn backup_ts() -> String {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/src/lib/render/backup.ts");
+    format!(
+        "file://{}",
+        fs::canonicalize(&path).unwrap_or(path).display()
+    )
+}
+
+fn json_list<S: AsRef<str>>(items: &[S]) -> String {
+    let quoted: Vec<String> = items.iter().map(|p| format!("{:?}", p.as_ref())).collect();
+    format!("[{}]", quoted.join(","))
+}
+
+/// The child half of the zone test: each epoch as `timestamp()` prints it in the system zone of
+/// this process (`TZ` set by the parent); a no-op in a normal run.
+#[test]
+fn zone_child() -> TestResult {
+    let Some(epochs) = std::env::var_os(CHILD_EPOCHS) else {
+        return Ok(());
+    };
+    let zone = jiff::tz::TimeZone::system();
+    for epoch in epochs.to_string_lossy().split(',') {
+        let at = jiff::Timestamp::from_millisecond(epoch.parse()?)?.to_zoned(zone.clone());
+        println!("ZONE {}", navori_core::backup::timestamp(&at, 7));
+    }
+    Ok(())
+}
+
+// Covers: R44
+#[test]
+fn backup_names_use_the_local_time_node_reads_from_tz() -> TestResult {
+    // Plain, DST edges (Mexico City until 2022, Sao Paulo, Lord Howe's half hour), half-hour
+    // offsets, a leap day and millisecond padding.
+    let epochs =
+        "0,1667109599999,1667109600000,1554001199000,1582934400007,1704067199999,1712500000123";
+    for tz in [
+        "UTC",
+        "America/Mexico_City",
+        "America/Sao_Paulo",
+        "Asia/Kolkata",
+        "Australia/Lord_Howe",
+        "Pacific/Chatham",
+    ] {
+        let child = Command::new(std::env::current_exe()?)
+            .args(["zone_child", "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD_EPOCHS, epochs)
+            .env("TZ", tz)
+            .output()?;
+        let rust: Vec<String> = String::from_utf8(child.stdout)?
+            .lines()
+            // The first line may share its row with libtest's `test zone_child ... `.
+            .filter_map(|l| l.split("ZONE ").nth(1).map(str::to_owned))
+            .collect();
+        let script = "const pad = (n, w = 2) => String(n).padStart(w, '0');\n\
+             for (const ms of process.env.EPOCHS.split(',')) {\n\
+               const d = new Date(Number(ms));\n\
+               console.log(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +\n\
+                 `T${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}` +\n\
+                 `-${pad(d.getMilliseconds(), 3)}-p7`);\n\
+             }";
+        let node = Command::new("node")
+            .args(["-e", script])
+            .env("EPOCHS", epochs)
+            .env("TZ", tz)
+            .output()?;
+        let node: Vec<String> = String::from_utf8(node.stdout)?
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(rust.len(), 7, "{tz}: {rust:?}");
+        assert_eq!(rust, node, "{tz}");
+    }
+    Ok(())
+}
+
+/// A repo with nested files, a symlink to a file and one to a directory (both followed by
+/// `statSync`), a dangling link, an excluded subtree and a mode to keep.
+fn backup_fixture(repo: &Path) -> TestResult {
+    fs::create_dir_all(repo.join("dir/sub"))?;
+    fs::create_dir_all(repo.join(".claude/worktrees/w"))?;
+    fs::write(repo.join("a.txt"), "a\n")?;
+    fs::set_permissions(repo.join("a.txt"), fs::Permissions::from_mode(0o755))?;
+    fs::write(repo.join("dir/b.txt"), "b\n")?;
+    fs::write(repo.join("dir/sub/c.txt"), "c\n")?;
+    fs::write(repo.join(".claude/settings.json"), "{}\n")?;
+    fs::write(repo.join(".claude/worktrees/w/big"), "x\n")?;
+    std::os::unix::fs::symlink("../a.txt", repo.join("dir/link-file"))?;
+    std::os::unix::fs::symlink("sub", repo.join("dir/link-dir"))?;
+    std::os::unix::fs::symlink("nowhere", repo.join("broken"))?;
+    Ok(())
+}
+
+/// A file of a [`tree`]: relative path, mode and bytes.
+type Entry = (String, u32, Vec<u8>);
+
+/// Every file under `dir`, sorted.
+fn tree(dir: &Path) -> Result<Vec<Entry>, Box<dyn Error>> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<Entry>) -> TestResult {
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            let meta = fs::symlink_metadata(&path)?;
+            if meta.is_dir() {
+                walk(base, &path, out)?;
+            } else {
+                let rel = path.strip_prefix(base)?.to_string_lossy().into_owned();
+                out.push((rel, meta.permissions().mode() & 0o7777, fs::read(&path)?));
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+// Covers: R44
+#[test]
+fn a_backup_copies_what_create_backup_copies() -> TestResult {
+    let root = TempDir::new("backup")?;
+    let repo = root.0.join("my repo");
+    backup_fixture(&repo)?;
+    let paths = ["a.txt", "dir", ".claude", "nope", "broken"];
+    let exclude = [".claude/worktrees/", ".navori/state/"];
+
+    let script = format!(
+        "const {{ createBackup }} = await import({:?});\n\
+         const h = createBackup(process.env.REPO, JSON.parse(process.env.PATHS), {{ exclude: JSON.parse(process.env.EXCLUDE) }});\n\
+         console.log(JSON.stringify(h.files));",
+        backup_ts()
+    );
+    let out = Command::new("node")
+        .args(["--input-type=module", "--no-warnings", "-e", &script])
+        .env("REPO", &repo)
+        .env("PATHS", json_list(&paths))
+        .env("EXCLUDE", json_list(&exclude))
+        .env("NAVORI_BACKUP_ROOT", root.0.join("node-store"))
+        .output()?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
+    }
+    let node_files = String::from_utf8(out.stdout)?.trim_end().to_owned();
+
+    let mut store = navori_core::backup::BackupStore::new(root.0.join("rust-store"), 4242);
+    let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+    let now = navori_core::backup::local_now();
+    let handle = store
+        .create(&mut RealFs::default(), &repo, &paths, &exclude, &now)
+        .map_err(|e| e.message)?;
+    let name = handle
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let shape = regex::Regex::new(r"^my-repo-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-p4242-0$")?;
+    assert!(shape.is_match(&name), "{name}");
+    assert_eq!(json_list(&handle.files), node_files);
+    let node_dir = fs::read_dir(root.0.join("node-store"))?
+        .next()
+        .ok_or("no node backup")??
+        .path();
+    assert_eq!(tree(&handle.path)?, tree(&node_dir)?);
+    // A second backup in the same process takes the next sequence number.
+    let again = store
+        .create(&mut RealFs::default(), &repo, &[], &exclude, &now)
+        .map_err(|e| e.message)?;
+    assert!(again.path.to_string_lossy().ends_with("-p4242-1"));
+    assert_eq!(again.files, Vec::<String>::new());
+    Ok(())
+}

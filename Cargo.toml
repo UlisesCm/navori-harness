@@ -20,6 +20,8 @@ proptest = "=1.12.0"
 sha1 = "=0.11.0"
 sha2 = "=0.11.1"
 regex = "=1.13.1"
+# Local time for backup names, as `new Date()` reads it: `TZ`, then `/etc/localtime` (spec 0058 D24).
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 # Deviations need `#[allow(<lint>, reason = "...")]` at the same site (R16).
 [workspace.lints.rust]

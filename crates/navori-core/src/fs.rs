@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// An open file of an [`Fs`].
@@ -58,6 +58,25 @@ pub enum Op {
         /// `recursive`.
         recursive: bool,
     },
+    /// `mkdirSync(path, { recursive: true })`.
+    MkdirAll {
+        /// The directory.
+        path: PathBuf,
+    },
+    /// `copyFileSync(from, to)`.
+    Copy {
+        /// Source.
+        from: PathBuf,
+        /// Destination.
+        to: PathBuf,
+    },
+    /// `chmodSync(path, mode)`.
+    Chmod {
+        /// The path.
+        path: PathBuf,
+        /// The mode.
+        mode: u32,
+    },
 }
 
 /// The mutations a command may perform. Reads stay on `std::fs`: a preview reads the real repo.
@@ -97,6 +116,24 @@ pub trait Fs {
     /// # Errors
     /// The OS error.
     fn remove(&mut self, path: &Path, recursive: bool) -> io::Result<()>;
+
+    /// `mkdirSync(path, { recursive: true })`.
+    ///
+    /// # Errors
+    /// The OS error.
+    fn mkdir_all(&mut self, path: &Path) -> io::Result<()>;
+
+    /// `copyFileSync(from, to)`: bytes and mode.
+    ///
+    /// # Errors
+    /// The OS error.
+    fn copy(&mut self, from: &Path, to: &Path) -> io::Result<()>;
+
+    /// `chmodSync(path, mode)`.
+    ///
+    /// # Errors
+    /// The OS error.
+    fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()>;
 }
 
 /// The real filesystem.
@@ -164,6 +201,18 @@ impl Fs for RealFs {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             other => other,
         }
+    }
+
+    fn mkdir_all(&mut self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(path)
+    }
+
+    fn copy(&mut self, from: &Path, to: &Path) -> io::Result<()> {
+        std::fs::copy(from, to).map(drop)
+    }
+
+    fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()> {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
     }
 }
 
@@ -233,6 +282,29 @@ impl Fs for RecordingFs {
         });
         Ok(())
     }
+
+    fn mkdir_all(&mut self, path: &Path) -> io::Result<()> {
+        self.ops.push(Op::MkdirAll {
+            path: path.to_path_buf(),
+        });
+        Ok(())
+    }
+
+    fn copy(&mut self, from: &Path, to: &Path) -> io::Result<()> {
+        self.ops.push(Op::Copy {
+            from: from.to_path_buf(),
+            to: to.to_path_buf(),
+        });
+        Ok(())
+    }
+
+    fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()> {
+        self.ops.push(Op::Chmod {
+            path: path.to_path_buf(),
+            mode,
+        });
+        Ok(())
+    }
 }
 
 /// A failed filesystem step, with the message the TS prints.
@@ -250,14 +322,31 @@ impl fmt::Display for FsError {
 
 impl std::error::Error for FsError {}
 
-/// The step that failed, for Node's default message.
+/// The Node call that failed, for its `error.message`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Syscall {
+pub enum Syscall {
+    /// `openSync`.
     Open,
+    /// `writeSync`.
     Write,
+    /// `fsyncSync`.
     Fsync,
+    /// `closeSync`.
     Close,
+    /// `renameSync`.
     Rename,
+    /// `statSync`.
+    Stat,
+    /// `readdirSync`.
+    Scandir,
+    /// `mkdirSync`.
+    Mkdir,
+    /// `copyFileSync`.
+    Copyfile,
+    /// `chmodSync`.
+    Chmod,
+    /// `rmSync`, implemented in C++ with its own message shape.
+    Rm,
 }
 
 impl Syscall {
@@ -268,6 +357,12 @@ impl Syscall {
             Self::Fsync => "fsync",
             Self::Close => "close",
             Self::Rename => "rename",
+            Self::Stat => "stat",
+            Self::Scandir => "scandir",
+            Self::Mkdir => "mkdir",
+            Self::Copyfile => "copyfile",
+            Self::Chmod => "chmod",
+            Self::Rm => "rm",
         }
     }
 }
@@ -298,6 +393,26 @@ mod errno {
     pub const ELOOP: i32 = 40;
     #[cfg(not(target_os = "linux"))]
     pub const ELOOP: i32 = 62;
+    #[cfg(target_os = "linux")]
+    pub const ENOTEMPTY: i32 = 39;
+    #[cfg(not(target_os = "linux"))]
+    pub const ENOTEMPTY: i32 = 66;
+}
+
+/// `strerror(errno)`, the text `rmSync`'s C++ messages carry (same on Linux and macOS).
+fn strerror(raw: i32) -> Option<&'static str> {
+    Some(match raw {
+        errno::EPERM => "Operation not permitted",
+        errno::ENOENT => "No such file or directory",
+        errno::EIO => "Input/output error",
+        errno::EACCES => "Permission denied",
+        errno::EBUSY => "Device or resource busy",
+        errno::ENOTDIR => "Not a directory",
+        errno::EISDIR => "Is a directory",
+        errno::EROFS => "Read-only file system",
+        errno::ENOTEMPTY => "Directory not empty",
+        _ => return None,
+    })
 }
 
 /// `(code, libuv description)` of an errno, as Node names it in `error.message`.
@@ -321,19 +436,34 @@ fn uv_error(raw: i32) -> Option<(&'static str, &'static str)> {
         errno::EROFS => ("EROFS", "read-only file system"),
         errno::ENAMETOOLONG => ("ENAMETOOLONG", "name too long"),
         errno::ELOOP => ("ELOOP", "too many symbolic links encountered"),
+        errno::ENOTEMPTY => ("ENOTEMPTY", "directory not empty"),
         _ => return None,
     })
 }
 
 /// Node's `error.message` for a failed fs call: `CODE: description, syscall 'path'` (`-> 'dest'`
-/// for a rename; no path for calls on a descriptor). An errno outside the table keeps the OS text.
-fn node_message(error: &io::Error, syscall: Syscall, path: &Path, dest: Option<&Path>) -> String {
+/// for a rename or copy; no path for calls on a descriptor), or `CODE, strerror: path 'path'`
+/// for `rmSync`. An errno outside the tables keeps the OS text.
+#[must_use]
+pub fn node_message(
+    error: &io::Error,
+    syscall: Syscall,
+    path: &Path,
+    dest: Option<&Path>,
+) -> String {
     let Some((code, description)) = error.raw_os_error().and_then(uv_error) else {
         return error.to_string();
     };
+    if syscall == Syscall::Rm {
+        let Some(text) = error.raw_os_error().and_then(strerror) else {
+            return error.to_string();
+        };
+        let path = path.display();
+        return format!("{code}, {text}: {path} '{path}'");
+    }
     let target = match syscall {
         Syscall::Write | Syscall::Fsync | Syscall::Close => String::new(),
-        Syscall::Open | Syscall::Rename => format!(" '{}'", path.display()),
+        _ => format!(" '{}'", path.display()),
     };
     let dest = dest.map_or_else(String::new, |d| format!(" -> '{}'", d.display()));
     format!("{code}: {description}, {}{target}{dest}", syscall.name())
@@ -441,6 +571,12 @@ pub mod fault {
         Rename,
         /// [`Fs::remove`].
         Remove,
+        /// [`Fs::mkdir_all`].
+        MkdirAll,
+        /// [`Fs::copy`].
+        Copy,
+        /// [`Fs::chmod`].
+        Chmod,
     }
 
     impl Kind {
@@ -454,6 +590,9 @@ pub mod fault {
                 Op::Close { .. } => Self::Close,
                 Op::Rename { .. } => Self::Rename,
                 Op::Remove { .. } => Self::Remove,
+                Op::MkdirAll { .. } => Self::MkdirAll,
+                Op::Copy { .. } => Self::Copy,
+                Op::Chmod { .. } => Self::Chmod,
             }
         }
     }
@@ -546,6 +685,29 @@ pub mod fault {
                 recursive,
             })?;
             self.inner.remove(path, recursive)
+        }
+
+        fn mkdir_all(&mut self, path: &Path) -> io::Result<()> {
+            self.record(Op::MkdirAll {
+                path: path.to_path_buf(),
+            })?;
+            self.inner.mkdir_all(path)
+        }
+
+        fn copy(&mut self, from: &Path, to: &Path) -> io::Result<()> {
+            self.record(Op::Copy {
+                from: from.to_path_buf(),
+                to: to.to_path_buf(),
+            })?;
+            self.inner.copy(from, to)
+        }
+
+        fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()> {
+            self.record(Op::Chmod {
+                path: path.to_path_buf(),
+                mode,
+            })?;
+            self.inner.chmod(path, mode)
         }
     }
 }
