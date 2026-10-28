@@ -402,7 +402,7 @@ fn a_backup_copies_what_create_backup_copies() -> TestResult {
     }
     let node_files = String::from_utf8(out.stdout)?.trim_end().to_owned();
 
-    let mut store = navori_core::backup::BackupStore::new(root.0.join("rust-store"), 4242);
+    let mut store = navori_core::backup::BackupStore::new(Ok(root.0.join("rust-store")), 4242);
     let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
     let now = navori_core::backup::local_now();
     let handle = store
@@ -532,5 +532,396 @@ fn purge_drops_30_day_old_backups_then_oldest_first_down_to_the_cap() -> TestRes
     )
     .map_err(|e| e.message)?;
     assert_eq!(missing, Vec::<std::path::PathBuf>::new());
+    Ok(())
+}
+
+// --- commit ---------------------------------------------------------------------------------
+
+use navori_core::backup::BackupStore;
+use navori_core::commit::{CommitError, CommitInput, commit_writes};
+use navori_core::markers::InjectStatus;
+use navori_core::render::collect::PendingWrite;
+use navori_core::render::context::Lang;
+use navori_core::render::retirements::PendingRemoval;
+
+fn execute_plan_ts() -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/cli/src/engines/shared/execute-plan.ts");
+    format!(
+        "file://{}",
+        fs::canonicalize(&path).unwrap_or(path).display()
+    )
+}
+
+/// `(rel, content, status, chmodExec)` of each pending write, CLAUDE.md first so `writeLast`
+/// has something to move; then the removals as `(rel, recursive)`.
+type Plan = (
+    Vec<(&'static str, &'static str, InjectStatus, bool)>,
+    Vec<(&'static str, bool)>,
+);
+
+fn commit_plan() -> Plan {
+    (
+        vec![
+            ("CLAUDE.md", "# new\n", InjectStatus::Updated, false),
+            (
+                ".claude/settings.json",
+                "{\"v\":2}\n",
+                InjectStatus::Updated,
+                false,
+            ),
+            (
+                ".claude/hooks/guard.sh",
+                "#!/bin/sh\n",
+                InjectStatus::Created,
+                true,
+            ),
+        ],
+        vec![
+            (".claude/scripts/old.sh", false),
+            (".claude/progress", true),
+            (".claude/gone.md", false),
+        ],
+    )
+}
+
+/// The repo the plan runs over: existing CLAUDE.md, settings and a retired script, plus an
+/// ephemeral directory the plan removes but the backup must skip.
+fn commit_fixture(repo: &Path) -> TestResult {
+    fs::create_dir_all(repo.join(".claude/scripts"))?;
+    fs::create_dir_all(repo.join(".claude/progress"))?;
+    fs::write(repo.join("CLAUDE.md"), "# old\n")?;
+    fs::write(repo.join(".claude/settings.json"), "{\"v\":1}\n")?;
+    fs::write(repo.join(".claude/scripts/old.sh"), "old\n")?;
+    fs::write(repo.join(".claude/progress/notes.md"), "scratch\n")?;
+    Ok(())
+}
+
+/// `commitWrites` in Node over `repo`: `{ written, backup: [files], error }` as one JSON line.
+fn node_commit(
+    repo: &Path,
+    store: &Path,
+    lang: &str,
+    label: Option<&str>,
+) -> Result<String, Box<dyn Error>> {
+    let (pending, removals) = commit_plan();
+    let pending: Vec<String> = pending
+        .iter()
+        .map(|(rel, content, status, exec)| {
+            format!(
+                "{{\"relPath\":{rel:?},\"content\":{content:?},\"status\":{:?},\"chmodExec\":{exec}}}",
+                status.as_str()
+            )
+        })
+        .collect();
+    let removals: Vec<String> = removals
+        .iter()
+        .map(|(rel, recursive)| format!("{{\"relPath\":{rel:?},\"recursive\":{recursive}}}"))
+        .collect();
+    let script = format!(
+        "const {{ commitWrites }} = await import({:?});\n\
+         const {{ join }} = await import('node:path');\n\
+         const cwd = process.env.REPO;\n\
+         const pending = JSON.parse(process.env.PENDING).map((p) => ({{ ...p, path: join(cwd, p.relPath) }}));\n\
+         const removals = JSON.parse(process.env.REMOVALS).map((r) => ({{ path: join(cwd, r.relPath), recursive: r.recursive }}));\n\
+         const claudeMd = join(cwd, 'CLAUDE.md');\n\
+         try {{\n\
+           const out = commitWrites({{ pending, removals, cwd, writeLast: (p) => p.path === claudeMd, removalsBestEffort: true, lang: process.env.LANG_ID, engineLabel: process.env.LABEL || undefined }});\n\
+           console.log(JSON.stringify({{ written: out.written.map((w) => [w.path, w.status]), backup: out.backupPath !== null }}));\n\
+         }} catch (error) {{ console.log(JSON.stringify({{ error: error.message, backup: error.backupPath !== null }})); }}",
+        execute_plan_ts()
+    );
+    let out = Command::new("node")
+        .args(["--input-type=module", "--no-warnings", "-e", &script])
+        .env("REPO", repo)
+        .env("PENDING", format!("[{}]", pending.join(",")))
+        .env("REMOVALS", format!("[{}]", removals.join(",")))
+        .env("LANG_ID", lang)
+        .env("LABEL", label.unwrap_or_default())
+        .env("NAVORI_BACKUP_ROOT", store)
+        .output()?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
+    }
+    Ok(String::from_utf8(out.stdout)?.trim_end().to_owned())
+}
+
+/// The same commit in Rust, its outcome in [`node_commit`]'s shape, plus the recorded ops.
+fn rust_commit(
+    repo: &Path,
+    store: &Path,
+    lang: Lang,
+    label: Option<&str>,
+) -> Result<(String, Vec<Op>), Box<dyn Error>> {
+    let (plan, removals) = commit_plan();
+    let mut pending: Vec<PendingWrite> = plan
+        .iter()
+        .map(|(rel, content, status, exec)| PendingWrite {
+            rel_path: (*rel).to_owned(),
+            content: (*content).to_owned(),
+            status: *status,
+            chmod_exec: *exec,
+        })
+        .collect();
+    let removals: Vec<PendingRemoval> = removals
+        .iter()
+        .map(|(rel, recursive)| PendingRemoval {
+            rel_path: (*rel).to_owned(),
+            recursive: *recursive,
+        })
+        .collect();
+    let last = |w: &PendingWrite| w.rel_path == "CLAUDE.md";
+    let mut fs = FaultFs::new(RealFs::default(), None);
+    let mut store = BackupStore::new(Ok(store.to_path_buf()), 1);
+    let now = navori_core::backup::local_now();
+    let input = CommitInput {
+        cwd: repo,
+        backup_exclude: &[],
+        dry_run: false,
+        write_last: Some(&last),
+        engine_label: label,
+        removals_best_effort: true,
+        lang,
+        now: &now,
+    };
+    let line = match commit_writes(&mut fs, &mut store, &mut pending, &removals, &input) {
+        Ok(done) => {
+            let written: Vec<String> = done
+                .written
+                .iter()
+                .map(|(p, s)| format!("[{p:?},{s:?}]"))
+                .collect();
+            format!(
+                "{{\"written\":[{}],\"backup\":{}}}",
+                written.join(","),
+                done.backup_path.is_some()
+            )
+        }
+        Err(CommitError::Write {
+            message,
+            backup_path,
+        }) => format!(
+            "{{\"error\":{message:?},\"backup\":{}}}",
+            backup_path.is_some()
+        ),
+        Err(CommitError::Backup(error)) => return Err(error.message.into()),
+    };
+    Ok((line, fs.trace))
+}
+
+/// The only backup directory under `store`.
+fn only_backup(store: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let mut dirs = fs::read_dir(store)?;
+    let dir = dirs.next().ok_or("no backup")??.path();
+    assert!(
+        dirs.next().is_none(),
+        "more than one backup in {}",
+        store.display()
+    );
+    Ok(dir)
+}
+
+// Covers: R44
+#[test]
+fn the_backup_of_a_file_precedes_its_first_rename_or_remove_and_no_destruction_no_backup()
+-> TestResult {
+    let root = TempDir::new("commit")?;
+    let (rust_repo, node_repo) = (root.0.join("rust/repo"), root.0.join("node/repo"));
+    let (rust_store, node_store) = (root.0.join("rust/store"), root.0.join("node/store"));
+    commit_fixture(&rust_repo)?;
+    commit_fixture(&node_repo)?;
+
+    let node = node_commit(&node_repo, &node_store, "en", None)?;
+    let (rust, trace) = rust_commit(&rust_repo, &rust_store, Lang::En, None)?;
+    assert_eq!(rust, node);
+    assert_eq!(tree(&rust_repo)?, tree(&node_repo)?);
+    assert_eq!(
+        tree(&only_backup(&rust_store)?)?,
+        tree(&only_backup(&node_store)?)?
+    );
+    assert_eq!(mode(&rust_repo.join(".claude/hooks/guard.sh"))?, 0o755);
+
+    // Each backed-up file is copied before anything replaces or deletes it.
+    for (at, op) in trace.iter().enumerate() {
+        let Op::Copy { from, .. } = op else { continue };
+        let first_touch = trace.iter().position(|o| match o {
+            Op::Rename { to, .. } => to == from,
+            Op::Remove { path, .. } => path == from,
+            _ => false,
+        });
+        assert!(first_touch.is_none_or(|touch| at < touch), "{from:?}");
+    }
+    let copied = trace
+        .iter()
+        .filter(|o| matches!(o, Op::Copy { .. }))
+        .count();
+    assert_eq!(copied, 3, "CLAUDE.md, settings.json and the retired script");
+
+    // A first render destroys nothing: no backup directory at all.
+    let fresh = root.0.join("fresh");
+    fs::create_dir(&fresh)?;
+    let mut pending = vec![PendingWrite {
+        rel_path: "CLAUDE.md".to_owned(),
+        content: "# new\n".to_owned(),
+        status: InjectStatus::Created,
+        chmod_exec: false,
+    }];
+    let mut fs = FaultFs::new(RealFs::default(), None);
+    let store = root.0.join("fresh-store");
+    let now = navori_core::backup::local_now();
+    let done = commit_writes(
+        &mut fs,
+        &mut BackupStore::new(Ok(store.clone()), 1),
+        &mut pending,
+        &[],
+        &CommitInput {
+            cwd: &fresh,
+            backup_exclude: &[],
+            dry_run: false,
+            write_last: None,
+            engine_label: None,
+            removals_best_effort: true,
+            lang: Lang::Es,
+            now: &now,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(done.backup_path, None);
+    assert_eq!(done.real_writes, 1);
+    assert!(!store.exists());
+    assert!(!fs.trace.iter().any(|o| matches!(o, Op::Copy { .. })));
+    Ok(())
+}
+
+// Covers: R46
+#[test]
+fn a_failure_keeps_the_original_leaves_no_temporary_and_reports_the_ts_message() -> TestResult {
+    for (lang, lang_id, label) in [(Lang::En, "en", Some("Claude")), (Lang::Es, "es", None)] {
+        let root = TempDir::new("commit-fail")?;
+        let mut lines = Vec::new();
+        for side in ["rust", "node"] {
+            let repo = root.0.join(side).join("repo");
+            commit_fixture(&repo)?;
+            // The hook's directory is taken by a file: mkdir fails after settings.json is written.
+            fs::write(repo.join(".claude/hooks"), "in the way\n")?;
+            let store = root.0.join(side).join("store");
+            let line = if side == "rust" {
+                rust_commit(&repo, &store, lang, label)?.0
+            } else {
+                node_commit(&repo, &store, lang_id, label)?
+            };
+            let backup = only_backup(&store)?.display().to_string();
+            lines.push(
+                line.replace(&backup, "<backup>")
+                    .replace(&repo.display().to_string(), "<repo>"),
+            );
+            assert_eq!(fs::read_to_string(repo.join("CLAUDE.md"))?, "# old\n");
+            assert_eq!(
+                fs::read_to_string(repo.join(".claude/settings.json"))?,
+                "{\"v\":2}\n"
+            );
+            assert_eq!(temporaries(&repo)?, Vec::<String>::new());
+            assert_eq!(temporaries(&repo.join(".claude"))?, Vec::<String>::new());
+        }
+        assert!(lines[0].contains("<backup>"), "{}", lines[0]);
+        assert_eq!(lines[0], lines[1], "{lang_id}");
+    }
+    Ok(())
+}
+
+// Covers: R46
+#[test]
+fn injected_failures_after_the_backup_keep_every_unwritten_original() -> TestResult {
+    const EIO: i32 = 5;
+    // Writes run settings.json, guard.sh, then CLAUDE.md (written last).
+    for (kind, nth, completed, failing) in [
+        (Kind::Create, 0, "none", ".claude/settings.json"),
+        (
+            Kind::Write,
+            1,
+            ".claude/settings.json",
+            ".claude/hooks/guard.sh",
+        ),
+        (
+            Kind::Rename,
+            2,
+            ".claude/settings.json, .claude/hooks/guard.sh",
+            "CLAUDE.md",
+        ),
+    ] {
+        let root = TempDir::new("commit-fault")?;
+        let repo = root.0.join("repo");
+        commit_fixture(&repo)?;
+        let (plan, _) = commit_plan();
+        let mut pending: Vec<PendingWrite> = plan
+            .iter()
+            .map(|(rel, content, status, exec)| PendingWrite {
+                rel_path: (*rel).to_owned(),
+                content: (*content).to_owned(),
+                status: *status,
+                chmod_exec: *exec,
+            })
+            .collect();
+        let last = |w: &PendingWrite| w.rel_path == "CLAUDE.md";
+        let mut fs = FaultFs::new(RealFs::default(), Some((kind, nth, EIO)));
+        let store = root.0.join("store");
+        let now = navori_core::backup::local_now();
+        let result = commit_writes(
+            &mut fs,
+            &mut BackupStore::new(Ok(store.clone()), 1),
+            &mut pending,
+            &[],
+            &CommitInput {
+                cwd: &repo,
+                backup_exclude: &[],
+                dry_run: false,
+                write_last: Some(&last),
+                engine_label: None,
+                removals_best_effort: true,
+                lang: Lang::En,
+                now: &now,
+            },
+        );
+        let Err(CommitError::Write {
+            message,
+            backup_path: Some(backup),
+        }) = result
+        else {
+            return Err(format!("{kind:?}: {result:?}").into());
+        };
+        let unfinished: Vec<&str> = [
+            ".claude/settings.json",
+            ".claude/hooks/guard.sh",
+            "CLAUDE.md",
+        ]
+        .into_iter()
+        .filter(|p| !completed.contains(p))
+        .collect();
+        let prefix = format!(
+            "The render failed writing {}: EIO: i/o error, ",
+            repo.join(failing).display()
+        );
+        let suffix = format!(
+            ". Completed: {completed}; unfinished: {}. Backup available (pre-write) at: {}",
+            unfinished.join(", "),
+            backup.display()
+        );
+        assert!(message.starts_with(&prefix), "{kind:?}: {message}");
+        assert!(message.ends_with(&suffix), "{kind:?}: {message}");
+        // What was not reached keeps its bytes, and the backup holds every original.
+        assert_eq!(
+            fs::read_to_string(repo.join("CLAUDE.md"))?,
+            "# old\n",
+            "{kind:?}"
+        );
+        assert_eq!(fs::read_to_string(backup.join("CLAUDE.md"))?, "# old\n");
+        assert_eq!(
+            fs::read_to_string(backup.join(".claude/settings.json"))?,
+            "{\"v\":1}\n"
+        );
+        for dir in [repo.clone(), repo.join(".claude")] {
+            assert_eq!(temporaries(&dir)?, Vec::<String>::new(), "{kind:?}");
+        }
+    }
     Ok(())
 }

@@ -112,8 +112,9 @@ pub struct BackupHandle {
 /// The backup store of one process: its root, pid and the `backupSeq` counter.
 #[derive(Debug, Clone)]
 pub struct BackupStore {
-    /// Where snapshots go.
-    pub root: PathBuf,
+    /// Where snapshots go: [`backup_root`], resolved up front but reported only when used, as
+    /// `backupRootLazy` throws only once a backup is taken.
+    pub root: Result<PathBuf, String>,
     /// `process.pid`.
     pub pid: u32,
     seq: u64,
@@ -128,7 +129,7 @@ fn fs_error(error: &std::io::Error, syscall: Syscall, path: &Path, dest: Option<
 impl BackupStore {
     /// A store at `root` for process `pid`, its counter at 0.
     #[must_use]
-    pub const fn new(root: PathBuf, pid: u32) -> Self {
+    pub const fn new(root: Result<PathBuf, String>, pid: u32) -> Self {
         Self { root, pid, seq: 0 }
     }
 
@@ -137,7 +138,7 @@ impl BackupStore {
     /// symlinks followed) except the excluded ones.
     ///
     /// # Errors
-    /// [`FsError`] with Node's message for the first call that throws.
+    /// [`FsError`] with the root's error, or Node's message for the first call that throws.
     pub fn create(
         &mut self,
         fs: &mut dyn Fs,
@@ -146,7 +147,8 @@ impl BackupStore {
         exclude: &[&str],
         now: &Zoned,
     ) -> Result<BackupHandle, FsError> {
-        let dir = self.root.join(format!(
+        let root = self.root.clone().map_err(|message| FsError { message })?;
+        let dir = root.join(format!(
             "{}-{}-{}",
             backup_repo_label(repo_root),
             timestamp(now, self.pid),

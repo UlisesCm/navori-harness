@@ -339,6 +339,28 @@ pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {
     }
 }
 
+/// `engine.renderFailedWriting(label, path, detail)`.
+#[must_use]
+pub fn render_failed_writing(lang: Lang, label: Option<&str>, path: &str, detail: &str) -> String {
+    match (lang, label) {
+        (Lang::Es, Some(label)) => {
+            format!("El render {label} fall\u{f3} escribiendo {path}: {detail}")
+        }
+        (Lang::Es, None) => format!("El render fall\u{f3} escribiendo {path}: {detail}"),
+        (Lang::En, Some(label)) => format!("The {label} render failed writing {path}: {detail}"),
+        (Lang::En, None) => format!("The render failed writing {path}: {detail}"),
+    }
+}
+
+/// `engine.backupAvailableAt(path)`.
+#[must_use]
+pub fn backup_available_at(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(" Backup pre-escritura disponible en: {path}"),
+        Lang::En => format!(" Backup available (pre-write) at: {path}"),
+    }
+}
+
 /// `engine.managedBlocksOutOfOrder`.
 #[must_use]
 pub const fn managed_blocks_out_of_order(lang: Lang) -> &'static str {
