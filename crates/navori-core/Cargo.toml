@@ -15,6 +15,14 @@ regex.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 
+[features]
+# `fs::fault`: fault injection between filesystem steps, for tests only (spec 0058 D24).
+fault-injection = []
+
+[[test]]
+name = "fs"
+required-features = ["fault-injection"]
+
 [build-dependencies]
 serde_json.workspace = true
 

@@ -11,6 +11,7 @@ pub const STAMP_VERSION: &str = env!("NAVORI_TS_CLI_VERSION");
 
 pub mod audit;
 pub mod config;
+pub mod fs;
 pub mod i18n;
 pub mod integrity;
 pub mod js_json;
