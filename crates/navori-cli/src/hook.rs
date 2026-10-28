@@ -48,10 +48,17 @@ pub struct NativeHook {
     pub implementation: &'static str,
     /// Buffered evaluation. It never receives stdout/stderr writers.
     pub handler: Handler,
-    /// Audit phase the shell hook declares (`navori_audit_phase`).
-    pub phase: &'static str,
+    /// Audit phase the shell hook declares (`navori_audit_phase`) for the hook arguments, the
+    /// script's `case "$mode"` table. `None` is a mode this binary does not port: the call
+    /// defers to the shell before stdin (spec 0059 D31).
+    pub phase: fn(&[OsString]) -> Option<&'static str>,
     /// Tool the shell hook declares (`navori_audit_tool`), if any.
     pub tool: Option<&'static str>,
+}
+
+/// Phase of a hook without modes: the shell reads no mode argument, so none is checked.
+fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
+    Some("PreToolUse")
 }
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
@@ -63,7 +70,7 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
                 .unwrap_or_default(),
             handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
-            phase: "PreToolUse",
+            phase: pre_tool_use,
             tool: None,
         },
         NativeHook {
@@ -71,7 +78,7 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("guard-destructive")
                 .unwrap_or_default(),
             handler: Handler::Prepared(hook_facts::prepare_guard_destructive),
-            phase: "PreToolUse",
+            phase: pre_tool_use,
             tool: Some("Bash"),
         },
     ]
@@ -283,6 +290,9 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
             stderr,
         );
     }
+    let Some(phase) = (handler.phase)(&invocation.args) else {
+        return defer(mode, "hook mode is not ported", stderr);
+    };
     let Some(deps) = dependencies(&invocation.engine_root, hook.deps.keys()) else {
         return defer(
             mode,
@@ -403,7 +413,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                     audit: None,
                 });
             }
-            audited(&invocation, handler, payload, evaluate)
+            audited(&invocation, handler, phase, payload, evaluate)
         },
     );
     runner::emit(context, &response, stdout, stderr)
@@ -416,10 +426,10 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
 fn audited(
     invocation: &Invocation,
     handler: &NativeHook,
+    phase: &str,
     payload: &[u8],
     evaluate: impl FnOnce(&[u8]) -> Result<Evaluation, Failure>,
 ) -> Result<Evaluation, Failure> {
-    let phase = handler.phase;
     let root = audit_root();
     let parsed = HookPayload::parse(payload);
     let snapshot = root
