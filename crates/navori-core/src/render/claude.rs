@@ -11,7 +11,8 @@
 //! The native hook wiring runs last, as in `finalize`: ported hooks are wrapped and signed, and
 //! `settings.json` registers them natively.
 //!
-//! Not modeled yet, so absent from the plan: the warnings outside the ported steps (T16).
+//! Warnings follow the TS order (T16): the steps', then the preset, library and quality-gate
+//! notes, the sub-blocks, retirements, marker-less collisions and missing local skills.
 
 use std::path::Path;
 
