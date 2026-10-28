@@ -347,11 +347,39 @@ fn models() -> BoxedStrategy<Doc> {
         ],
         0.5,
     );
+    // `PiModelSchema` edges: case-insensitive provider, nested ids, `:thinking`, and every way
+    // the regex rejects (no slash, empty id, provider charset, JS whitespace after the slash).
+    let pi_model = one_of(&[
+        "anthropic/claude-sonnet-4-5",
+        "Ollama/llama3",
+        "openrouter/a/b:thinking",
+        "x.y_z-1/m",
+        "anthropic",
+        "anthropic/",
+        "/model",
+        "-a/b",
+        "a b/c",
+        "a/b c",
+        "a/b\u{a0}",
+        "a/b\u{feff}",
+        "a/b\u{85}",
+        "\u{e9}/b",
+    ]);
+    let pi_map = object_of(
+        vec![
+            ("opus", either(pi_model.clone())),
+            ("sonnet", either(pi_model.clone())),
+            ("haiku", either(pi_model)),
+            ("gpt", scalar()),
+        ],
+        0.5,
+    );
     roles(
         either(one_of(&["opus", "sonnet", "haiku"])),
         vec![
             ("codexProfiles", either(profiles)),
             ("codexMap", either(codex_map)),
+            ("piMap", either(pi_map)),
         ],
     )
 }

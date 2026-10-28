@@ -45,7 +45,7 @@ pub(crate) struct Fields {
     pub nul_substitutions: usize,
 }
 
-/// `payload=${payload-$(cat)}`: command substitution drops NUL bytes and every final newline.
+/// `payload=${payload-"$(cat)"}`: command substitution drops NUL bytes and every final newline.
 pub(crate) fn capture(payload: &[u8]) -> Vec<u8> {
     let mut captured: Vec<u8> = payload.iter().copied().filter(|b| *b != 0).collect();
     while captured.last() == Some(&b'\n') {

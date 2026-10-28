@@ -15,9 +15,16 @@ const workflows = readdirSync(workflowsDir)
 /** Every value of a `<key>: <value>` workflow line, across all workflows. */
 const workflowValues = (key: string): string[] =>
   workflows.flatMap(({ text }) =>
-    [...text.matchAll(new RegExp(`^\\s*${key}: (.+)$`, "gm"))].map((m) =>
-      (m[1] as string).trim().replace(/^["']|["']$/g, ""),
-    ),
+    text
+      .split("\n")
+      .map((line) => line.trimStart())
+      .filter((line) => line.startsWith(`${key}: `) && line.length > key.length + 2)
+      .map((line) =>
+        line
+          .slice(key.length + 2)
+          .trim()
+          .replace(/^["']|["']$/g, ""),
+      ),
   );
 
 const READMES = [

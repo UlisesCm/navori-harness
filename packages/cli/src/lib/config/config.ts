@@ -320,8 +320,11 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
       ],
     },
     models: {
-      keys: [...AGENT_ROLE_KEYS, "codexMap"],
-      children: { codexMap: { keys: ["opus", "sonnet", "haiku"] } },
+      keys: [...AGENT_ROLE_KEYS, "codexMap", "piMap"],
+      children: {
+        codexMap: { keys: ["opus", "sonnet", "haiku"] },
+        piMap: { keys: ["opus", "sonnet", "haiku"] },
+      },
     },
     effort: { keys: AGENT_ROLE_KEYS },
     plugins: { keys: [], recordValues: { keys: ["enabled", "nativeHook"] }, allowExtensions: true },

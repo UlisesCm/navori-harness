@@ -51,7 +51,7 @@ Adapter 不声明备份范围：`commitWrites` 会根据将要写入或删除的
 1. **Hook payload** — hook 会收到什么信息，通过哪个通道传入（stdin/env/arg）？有哪些事件（PreToolUse/SessionStart/Stop 等）？它们是否在 sandbox 中运行？
 2. **Skill 发现机制** — 工具从哪个目录读取 skills？（Codex：`.agents/skills/<id>/SKILL.md`；Claude：`.claude/skills/<id>/SKILL.md`，必须采用目录形式——Claude Code 只会自动发现这种形式，不会发现平铺的 `<id>.md` 文件。）
 3. **配置位置** — 项目配置存在哪里，采用什么格式？（Claude：`.claude/settings.json`；Codex：`.codex/config.toml`。）
-4. **模型映射** — 工具如何命名模型？将 Claude 的 tiers（opus/sonnet/haiku）映射到具体 id（参见 `CODEX_MODEL_BY_CLAUDE_TIER` 和 `models.codexMap` 覆盖项，Spec 0007 M3）。
+4. **模型映射** — 工具如何命名模型？将 Claude 的 tiers（opus/sonnet/haiku）映射到具体 id（参见 `CODEX_MODEL_BY_CLAUDE_TIER` 和 `models.codexMap` 覆盖项，Spec 0007 M3）。Pi 有自己的 `models.piMap`（`provider/id`），且一个引擎不得读取另一个引擎的模型映射。
 
 ## DT-2 标准 — 何时进一步抽象（三次原则）
 

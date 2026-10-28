@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
-const SOURCE:&[u8]=b"payload=${payload-$(cat)}\n    printf -v \"${_pf_spec%%=*}\" '%s' \"$(payload_field \"${_pf_spec#*=}\")\"\n";
+const SOURCE:&[u8]=b"payload=${payload-\"$(cat)\"}\n    printf -v \"${_pf_spec%%=*}\" '%s' \"$(payload_field \"${_pf_spec#*=}\")\"\n";
 fn request(env: &[(OsString, OsString)]) -> Request<'_> {
     Request {
         engine: Engine::Claude,
@@ -129,7 +129,7 @@ fn capture_contracts_are_exact_unique_and_not_an_assumed_line_184() {
     for source in [
         b"missing".as_slice(),
         [SOURCE, SOURCE].concat().as_slice(),
-        b"# payload=${payload-$(cat)}\n".as_slice(),
+        b"# payload=${payload-\"$(cat)\"}\n".as_slice(),
     ] {
         let mut bad = request(&env);
         bad.source = source;

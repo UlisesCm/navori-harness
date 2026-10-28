@@ -49,8 +49,8 @@ Cada fila corresponde a un control de Pi de `ENGINE_CAPABILITIES.pi.controls`. `
 | `local-skill-discovery` | enforced | `project.localSkills` se proyecta como referencias bajo `.agents/skills/<id>` y solo se escriben cuando Codex no está habilitado. |
 | `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash o falta `exit_code`, no registra nada. |
 | `repeat-failure-advice` | advisory | Después de tres fallas idénticas del bash integrado, se agrega una advertencia. Nunca bloquea ni altera el resultado, y no se muestra si falta `exit_code`. |
-| `compact-advice` | unsupported | Pi no ejecuta scripts de hooks de Navori, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
-| `general-purpose-confirm` | unsupported | Pi no ejecuta scripts de hooks de Claude y su lista de `navori_subagent` no tiene un rol general-purpose que confirmar. |
+| `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
+| `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene siete roles fijos y ningún rol general-purpose que confirmar. |
 
 Pi también detecta de forma nativa las skills de proyecto de confianza en `.agents/skills/`. Cuando se seleccionan Pi y Codex, Codex es dueño de los destinos compartidos y Pi no los duplica. Pi no copia ni ejecuta scripts de hooks de Claude y Codex.
 
@@ -64,7 +64,8 @@ Cada fila corresponde a una capacidad del entorno de ejecución hijo de `ENGINE_
 | `child-model-selection` | admitted | `--model <provider/id>` selecciona el modelo del hijo. No redefine el esfuerzo ni el razonamiento. |
 | `child-tool-allowlist` | admitted | `--tools` es una lista de herramientas permitidas visible para el modelo, no un aislamiento. `--no-mcp` cierra la exposición indirecta a MCP. |
 | `child-ipc-relay` | admitted | Node IPC (`stdio` `ipc`) del hijo al padre informa el comando rechazado exacto. Nunca aprueba nada; consulta [Reenvío de aprobaciones](#reenvío-de-aprobaciones). |
-| `child-mcp-grants` | deferred | Los hijos se ejecutan con `--no-mcp`. Pi 1.1.0 conecta cada servidor MCP habilitado y los enumera todos en la instrucción del hijo, por lo que no se pueden verificar los permisos MCP por rol. Los roles que necesitan MCP no están disponibles en hijos. |
+| `child-mcp-grants` | deferred | Los hijos se ejecutan con `--no-mcp`. Pi 1.1.0 conecta cada servidor MCP habilitado y los enumera todos en la instrucción del hijo, por lo que no se pueden verificar los permisos por rol del MCP propio de Pi. Las lecturas de codegraph y engram llegan a los hijos mediante herramientas `navori_*` de extensión propias de Navori; ver [Herramientas de conocimiento en hijos](#herramientas-de-conocimiento-en-hijos). |
+
 | `session-end-event` | admitted | `session_shutdown` se ejecuta únicamente al salir limpiamente o usar `/new`, en el padre. Un SIGKILL no dispara nada, así que la siguiente sesión hace la limpieza. Recargar, reanudar y bifurcar no terminan la sesión. |
 | `settle-boundary-entries` | admitted | `agent_before_settle` agrega una entrada visible al final de la ejecución del agente. Nunca establece `continue`, así que no puede forzar otra solicitud al modelo. |
 
@@ -77,6 +78,8 @@ Esto se ejecuta únicamente en la sesión padre; los hijos no hacen nada. Todas 
   2. `audit-mode-close` se ejecuta con un límite de 3 s y sella únicamente un registro de auditoría existente.
 - **Recargar, reanudar y bifurcar**: no se ejecuta nada.
 - **Recordatorio de verificación** (`agent_before_settle`, solo cuando está definido `hooks.verifyOnStop`): si el árbol tiene cambios sin confirmar, se agrega como `custom_message` visible un recordatorio fijo en español para ejecutar el quality gate y hacer commit. No dispara otra solicitud al modelo.
+
+**Inicio de audit-mode.** En `session_start` (`startup` o `new`) y en `before_agent_start` del usuario, el padre consume un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) e inicia su registro de auditoría. Con `audit.mode: always` (se emite como `controls.auditMode` opcional en `.pi/navori.json` tras `navori render`), el registro se inicia en el primer prompt del usuario. El modelo recibe un aviso único. Los hijos nunca inician un registro. Un arm sin etiqueta es del repo completo, así que una sesión Claude o Codex concurrente puede consumirlo antes.
 
 ## Puente de hooks
 
@@ -120,7 +123,8 @@ Por llamada de bash a través del puente, con todos los scripts vinculados ejecu
 Un plugin habilitado llega a Pi mediante `renderPiEngine` (`packages/cli/src/engines/pi/index.ts`) y `plugin-projection.ts`. Se omite un plugin que la matriz de superposición marque como nativo en Pi. Esto es lo que proyecta un plugin habilitado:
 
 - **Skills sobre skills.** Una skill de plugin con `injectInto: .claude/skills/<id>/SKILL.md` se convierte en un subbloque administrado de `.agents/skills/<id>/SKILL.md`. Pi solo lo escribe cuando Codex no está en `engines`; con Codex activo, Codex escribe esa skill y Pi nunca la duplica.
-- **Texto de roles.** Una skill de plugin con `injectInto: .claude/agents/<role>.md` se agrega a `.pi/agents/<role>.md`, interpolada y adaptada para Pi. Un plugin que declara `mcpServer` no aporta texto de rol: los hijos de Pi se ejecutan con `--no-mcp`.
+- **Texto de roles.** Una skill de plugin con `injectInto: .claude/agents/<role>.md` se agrega a `.pi/agents/<role>.md`, interpolada y adaptada para Pi. Un plugin que declara `mcpServer` aporta texto de rol solo a los roles que tienen sus herramientas de conocimiento `navori_*` (ver [Herramientas de conocimiento en hijos](#herramientas-de-conocimiento-en-hijos)); ahí el texto nombra esas herramientas en lugar de los nombres MCP sin prefijo. Los hijos de Pi siguen ejecutándose con `--no-mcp`.
+
 - **Bloques de orquestador y AGENTS.md.** Una skill inyectada en `.claude/agents/orchestrator.md` y los bloques `managed` del plugin se convierten en subbloques del `AGENTS.md` compartido. Pi solo los escribe si ningún otro motor habilitado es dueño de ese archivo (`ownsAgentsMd`); de lo contrario se conserva la salida de ese propietario.
 - **Scripts.** Los scripts de plugin se copian a `.pi/navori/scripts/<dest>` como copias ejecutables propias de Pi, incluso si Codex está activo. Un script se instala únicamente cuando una fila del puente lo ejecuta o cuando la extensión de hooks del plugin se incorpora a una copia de hook de Pi instalada. Se omiten los destinos duplicados.
 - **Hooks.** Los hooks `PreToolUse`/`Bash` de plugin usan la gramática que traduce Codex. Se convierten en filas de manifiesto v2 en `.pi/navori.json` que apuntan a `.pi/navori/scripts/<dest>`: `tool_call`, `bash`, alcance `all`, `enforced`, no interactivos y con el timeout del manifiesto. Si un hook no se puede traducir, se informa como advertencia y no se instala.
@@ -137,7 +141,8 @@ Por unidad, los estados en el [Inventario de paridad](#inventario-de-paridad) so
 | Hook de plugin | `enforced` | Los mismos límites que la protección compartida; solo se aplica mientras está cargada la extensión. |
 | `settingsFragment` | `n/a` | Solo reglas `allow`, que Pi no traduce (igual que Codex). |
 | Servidor MCP | `advisory` | Render advierte si el servidor falta o está deshabilitado en la configuración MCP de Pi. |
-| Skill MCP de plugin en un rol hijo | `unsupported` | Los hijos se ejecutan con `--no-mcp`, así que no se inyecta el texto. |
+| Skill MCP de plugin en un rol hijo | `advisory` | El texto nombra las herramientas `navori_*` de solo lectura que tiene el rol. Es un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI y el índice de codegraph puede estar desactualizado. |
+
 | Skill en un rol que Pi no renderiza (por ejemplo, `publisher`) | `unsupported` | Pendiente del trabajo de roles en la especificación 0048 R14 y M11. |
 | Script de protección tgrep y extensión de hook `tgrep-search-lane` | `enforced` (protección) | El script se instala bajo `.pi/navori/scripts/`. La ruta se ejecuta dentro de la copia de protección de Pi (`.pi/navori/hooks/guard-destructive.sh`) mediante el puente. Solo cubre grep/rg y falla de forma abierta si tgrep, su servidor o el índice no están disponibles. |
 
@@ -212,7 +217,7 @@ Una vez cargada la extensión de confianza del proyecto, Pi expone la herramient
 - `architect`: `read, grep, find, ls, bash, write`; no puede iniciar subagentes anidados en Pi (`navori:if-not onPi`)
 - `publisher`: `read, grep, find, ls, bash`; sus operaciones de git commit y push ejecutan el quality gate, y sus operaciones de publicación requieren la confirmación del padre (consulta [Protecciones](#protecciones))
 
-La herramienta requiere `role` y una `task` no vacía; `feature` es opcional, excepto para `reviewer`, que requiere un slug explícito de función Navori para verificar el handoff; `implementer`, `reviewer` y `scribe` requieren `feature`. Se conservan las instrucciones y descripciones de los roles. Se usa un modelo configurado cuando corresponde a un modelo `codexMap` concreto; de lo contrario, el hijo hereda el modelo Pi seleccionado. Cada rol tiene una lista explícita de herramientas Pi; si falta una asignación o no se reconoce, se falla de forma cerrada en vez de habilitar las herramientas predeterminadas. Los hijos nunca reciben permisos MCP (consulta `child-mcp-grants`).
+La herramienta requiere `role` y una `task` no vacía; `feature` es opcional, excepto para `reviewer`, que requiere un slug explícito de función Navori para verificar el handoff; `implementer`, `reviewer` y `scribe` requieren `feature`. Se conservan las instrucciones y descripciones de los roles. El modelo de cada rol sale de `models.piMap` (opus/sonnet/haiku como `provider/id`, p. ej. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); un tier sin entrada hereda el modelo Pi seleccionado. Pi no lee `models.codexMap`. Cada rol tiene una lista explícita de herramientas Pi; si falta una asignación o no se reconoce, se falla de forma cerrada en vez de habilitar las herramientas predeterminadas. Los hijos nunca reciben permisos MCP (consulta `child-mcp-grants`).
 
 ### Reenvío de aprobaciones
 
@@ -229,6 +234,14 @@ Al iniciar el hijo, la extensión toma una instantánea del handoff canónico: `
 
 Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `isError` con el motivo y la salida del hijo (falla de forma cerrada). No se valida `scribe` al terminar el hijo; solo se aplica el requisito de `feature`.
 
+### Selección de modelo y diagnóstico de fallos
+
+- Los modelos de rol salen de `models.piMap` (`opus`, `sonnet`, `haiku` como `provider/id`; se permite el sufijo `:thinking`). Un tier sin entrada hereda el modelo Pi seleccionado.
+- Render y `navori doctor` avisan cuando Pi está habilitado, `models.codexMap` tiene al menos un tier y `models.piMap` no está definido. Definir `piMap` (incluso `{}`) silencia el aviso.
+- Advertencia de downgrade: una versión anterior de navori ignora `piMap` y revierte los roles Pi a `codexMap`.
+- Un hijo fallido informa `stopReason` y `errorMessage` (o `auto_retry_end.finalError`), más una cola de stderr redactada y acotada. El resultado también incluye el campo aditivo `details.childStop {stopReason, errorMessage?}`. Salida 0 con `stopReason` `error` o `aborted` cuenta como fallo. La redacción es un mínimo, no una garantía.
+- Un rechazo del preflight de reviewer o scribe añade el detalle del fallo del handoff.
+
 ## Límites y ejecuciones sin interfaz
 
 - Los hijos están limitados a un nivel, tres procesos concurrentes y diez minutos cada uno.
@@ -236,7 +249,29 @@ Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `i
 - La cancelación envía `SIGTERM` y escala a `SIGKILL` después de cinco segundos. También se terminan los descendientes que sobrevivan al proceso líder.
 - El hijo no registra otra herramienta `navori_subagent`.
 - Los hijos sin interfaz no pueden aprobar operaciones. La extensión rechaza solicitudes de aprobación de un hijo y devuelve el comando a la sesión padre para que el usuario lo apruebe ahí. La confianza no equivale a aprobación: el hijo recibe `--approve` con alcance de proceso solo después de que el padre de confianza haya cargado la extensión.
-- Estos límites, listas de herramientas y `--no-mcp` no crean un entorno aislado del sistema operativo. Los procesos hijos heredan el entorno, la autoridad sobre el sistema de archivos y la red del usuario, y el directorio de agente de Pi.
+- Estos límites, listas de herramientas y `--no-mcp` no crean un entorno aislado del sistema operativo. Los procesos hijos heredan el entorno, la autoridad sobre el sistema de archivos y la red del usuario, y el directorio de agente de Pi. Lo mismo vale para las herramientas de conocimiento: `bash` en un hijo sigue alcanzando los CLI `codegraph` y `engram`, incluido `engram save`.
+
+
+## Herramientas de conocimiento en hijos
+
+Los hijos mantienen `--no-mcp`, así que codegraph y engram no son accesibles por el MCP de Pi. La extensión de Navori registra en su lugar tres herramientas de solo lectura dentro del hijo, solo para los roles que las tienen:
+
+| Herramienta | Respaldada por | Roles |
+|---|---|---|
+| `navori_codegraph_explore` | `codegraph serve --mcp --no-watch -p <cwd>` (`CODEGRAPH_MCP_TOOLS=explore`) | scout, implementer, reviewer, auditor, architect |
+| `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout, implementer, reviewer, auditor |
+| `navori_mem_get_observation` | el mismo servidor de engram | scout, implementer, reviewer, auditor |
+
+El scribe y el publisher no reciben ninguna. Ningún rol recibe `mem_save` ni otra herramienta de escritura: los permisos son los de Claude para cada rol (`tools:` del agente central más `skills[].mcpTools` del plugin habilitado) intersectados con una tabla cerrada de solo lectura, y solo con el plugin habilitado. Los nombres llevan el prefijo `navori_` para no chocar con las herramientas `mem_*` nativas del paquete `gentle-engram` del usuario (`engram setup pi`).
+
+Funcionamiento: la extensión inicia cada servidor de forma diferida en la primera llamada, con una lista de argumentos fija (ningún texto del modelo llega a ella) y un entorno filtrado, habla MCP por stdio, rechaza cualquier herramienta fuera de la lista cerrada antes de que llegue al servidor, acota la salida por bytes y detiene el servidor al cerrar la sesión. Un binario `codegraph` o `engram` ausente, o un índice de codegraph ausente, es un error de herramienta claro y el rol continúa con `read`/`grep`/`find`. Las herramientas se registran solo en hijos, nunca en la sesión padre, y no hay un interruptor exclusivo de Pi: deshabilita el plugin para quitarlas.
+
+Límites, dichos sin rodeos:
+
+- Es un techo que ve el modelo, no aislamiento. `bash` en un hijo sigue alcanzando los CLI `codegraph` y `engram` (incluido `engram save`) y los hijos heredan el entorno del padre.
+- codegraph se ejecuta con `--no-watch`, así que hasta tres hijos nunca sincronizan a la vez el mismo índice SQLite. Por eso el índice puede estar desactualizado respecto a las ediciones del propio hijo; vuelve a leer directamente los archivos editados.
+- Sin un `.codegraph/` propio en un worktree, el servidor resuelve el índice desde un directorio superior.
+- Un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos. Sus herramientas `mem_*` nativas quedan filtradas por `--tools`, pero sus hooks siguen ejecutándose. Navori no pasa `--no-extensions`; eso lo decide el usuario.
 
 ## Comparación en vivo con Claude
 
@@ -323,23 +358,23 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 
 | Unidad | Estado | Clase | Límite |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | solo sella un registro existente: Pi nunca abre un registro de audit-mode (el hook `audit-mode-trigger` no es compatible), así que no hace nada hasta que se inicie uno. Las fallas son silenciosas |
-| `hook:audit-mode-trigger` | unsupported | — | Pi nunca abre un registro de audit-mode mediante este hook (fuera del alcance de la especificación 0048, no es un objetivo de diseño) |
+| `hook:audit-mode-close` | advisory | — | solo sella un registro existente (abierto por audit-mode-trigger), así que no hace nada hasta que se inicie uno. Las fallas son silenciosas |
+| `hook:audit-mode-trigger` | advisory | — | los handlers `session_start` y `before_agent_start` de la extensión (solo padre) consumen un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) o, con `audit.mode: always`, inician el registro en el primer prompt del usuario; luego avisan al modelo. No se ejecuta el script compartido: la extensión llama `navori audit --start`. Un arm sin etiqueta es del repo completo, así que una sesión Claude/Codex concurrente puede consumirlo antes. Los hijos nunca inician un registro; las fallas son silenciosas |
 | `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | protección (clases de evasión anteriores) | un contenido en línea o ilegible solo se muestra como comando. No se muestran los contenidos stdin (`-F -`) ni una ruta construida por el shell (`$VAR`, `$(…)`). Hay una ventana entre la verificación y la ejecución. Las formas indirectas de shell lo omiten |
-| `hook:engram-write-guard` | n/a | — | Solo Codex: los hijos de Pi se ejecutan con `--no-mcp`, así que no hay permisos de engram que proteger (`child-mcp-grants` está aplazado) |
+| `hook:engram-write-guard` | n/a | — | Solo Codex: los hijos de Pi se ejecutan con `--no-mcp` y nunca reciben una herramienta de escritura de engram (solo las `navori_mem_*` de lectura; ver las filas `plugin-skill` de engram); `bash` sigue alcanzando el CLI de engram, que ningún control de Pi protege |
 | `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
 | `hook:guard-destructive` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando: reglas destructivas del script compartido, reglas de permisos compartidas `deny`, escrituras al plano de control de Pi (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) y `pi --no-extensions`. Las reglas compartidas `ask` responden `ask` (su propia fila) |
 | `hook:implementer-no-markdown` | advisory | control `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | nunca bloquea y solo detecta bloques con marcador hash (AGENTS.md, skills, copias de hooks); la extensión, el manifiesto y los archivos de roles no tienen hash por bloque y están protegidos por la protección y la ruta de edit/write. La deriva que no puede evaluar pasa inadvertida |
 | `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` y `delivery-slice --refresh`; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | En Pi, el modelo se elige con `/model` y se pasa a los hijos (especificación 0047 R17); no hay una carga útil de cambio de modelo por turno sobre la que avisar |
+| `hook:model-advisor` | unsupported | — | Un port a Pi necesita un modo Pi en el script y un binding; no está planeado (el modelo se elige con `/model` y se pasa a los hijos, especificación 0047 R17) |
 | `hook:plan-gate` | enforced | control `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | protección (clases de evasión anteriores) | solo se instala cuando el rol publisher está habilitado; un contenido en línea o ilegible solo se muestra como comando. Las formas indirectas de shell lo omiten |
 | `hook:quality-gate-pre-commit` | enforced | protección (clases de evasión anteriores) | solo con `qualityGate.fast` configurado (sin fila en otro caso, igual que en Claude y Codex); el resultado corresponde al árbol de trabajo en ese momento. Las formas indirectas de shell (`sh -c`, un script en disco) lo omiten; no detecta un hook externo al agente (la propia terminal del usuario) |
 | `hook:role-guard` | n/a | — | Solo Codex: Claude y Pi restringen los roles mediante su lista de herramientas permitidas, no con un hook (`HOOK_ENGINES`) |
-| `hook:routing-watch` | unsupported | — | Se vuelve `advisory` solo cuando el puente asigna los nombres de herramientas y campos de carga útil de Pi al contrato del script, y agrega `additionalContext` como bloque al resultado (especificación 0048 E1 M2/E3); nunca bloquea |
+| `hook:routing-watch` | advisory | — | como máximo un aviso por sesión; nunca bloquea; los resultados con error no se reenvían, así que una escritura fallida o un `navori_subagent` rechazado no cuenta como trabajo ni como delegación; igual que en Claude requiere iniciar Pi en la raíz del repositorio, y el carril bash solo cuenta escrituras por redirección/tee/sed -i |
 | `hook:session-start-context` | advisory | — | Solo aporta contexto, no es un límite; se omite la inyección si ocurre cualquier error |
 | `hook:stop-verify-reminder` | advisory | — | Nunca bloquea ni establece `continue`, así que no genera otra solicitud al modelo; un recordatorio por ejecución del agente; si falla, no muestra nada |
 | `hook:subagent-no-background` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando, solo hijos: el padre puede ejecutar tareas en segundo plano |
@@ -448,15 +483,15 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 | `plugin-settings:gh` | n/a | — | solo reglas `allow`: Pi no tiene sistema de permisos y no traduce allow, igual que Codex |
 | `plugin-settings:tgrep` | n/a | — | solo reglas `allow`: Pi no tiene sistema de permisos y no traduce allow, igual que Codex |
 | `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | solo son indicaciones; nada las hace cumplir. Con el rol publisher deshabilitado no existe un archivo de rol y el texto no se renderiza |
-| `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de architect; render nombra el rol (`mcpRoleDiagnostics`) |
-| `plugin-skill:codegraph/codegraph-access-v2-auditor` | unsupported | — | codegraph declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de auditor; render nombra el rol (`mcpRoleDiagnostics`) |
-| `plugin-skill:codegraph/codegraph-access-v2-implementer` | unsupported | — | codegraph declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de implementer; render nombra el rol (`mcpRoleDiagnostics`) |
+| `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
+| `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
+| `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi escribe el archivo AGENTS (con includePluginBlocks) solo cuando ni Codex ni agents-md son sus propietarios; entonces prevalece la salida de ese propietario. El bloque es texto: Pi lo lee, nada lo hace cumplir |
-| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | unsupported | — | codegraph declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de reviewer; render nombra el rol (`mcpRoleDiagnostics`) |
-| `plugin-skill:engram/engram-auditor-extension` | unsupported | — | engram declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de auditor; render nombra el rol (`mcpRoleDiagnostics`) |
-| `plugin-skill:engram/engram-implementer-extension` | unsupported | — | engram declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de implementer; render nombra el rol (`mcpRoleDiagnostics`) |
+| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
+| `plugin-skill:engram/engram-auditor-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
+| `plugin-skill:engram/engram-implementer-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi escribe el archivo AGENTS (con includePluginBlocks) solo cuando ni Codex ni agents-md son sus propietarios; entonces prevalece la salida de ese propietario. El bloque es texto: Pi lo lee, nada lo hace cumplir |
-| `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram declara un servidor MCP y los hijos de Pi usan --no-mcp, así que no se inyecta el texto de reviewer; render nombra el rol (`mcpRoleDiagnostics`) |
+| `plugin-skill:engram/engram-reviewer-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | solo son indicaciones; nada las hace cumplir. Con el rol publisher deshabilitado no existe un archivo de rol y el texto no se renderiza |
 <!-- pi-parity:end -->
 
@@ -529,6 +564,6 @@ La prueba en vivo es la única evidencia de que el diálogo TUI se representa y 
 10. Confirma el PR en el diálogo TUI y revisa el contenido que muestra.
 11. Cierra el criterio: `navori plan update <feature> --progress A<n>=cumplido`. Solo tiene éxito si hay evidencia registrada.
 
-Estado actual: **aún no se ejecutó**. La evidencia va en [evals.md](../specs/0048-pi-paridad/evals.md).
+Estado actual: la prueba en vivo se ejecutó el 2026-10-12 con Pi 1.1.0 (ejecución 4, GREEN; las ejecuciones 1–3 fueron RED y se corrigieron en #1301/#1302). Aún no se repite con la versión probada Pi 1.4.0. La evidencia está en [evals.md](../specs/0048-pi-paridad/evals.md).
 
 Consulta la [especificación del motor Pi](../specs/0040-pi-engine/requirements.md) y la [primera especificación de Pi](../specs/0047-pi-first/requirements.md) para ver los requisitos y el estado de implementación y revisión.

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
@@ -535,5 +536,126 @@ describe("hook bridge: managed drift", () => {
     expect(existsSync(join(dir, ".navori/state/hooks/managed-drift-stamp"))).toBe(false);
     // The tool itself is never blocked by drift.
     expect(await load().get("tool_call")!(bash("ls"), ctxFor(dir))).toBeUndefined();
+  });
+});
+
+describe("hook bridge: routing-watch", () => {
+  const binding = PI_HOOK_BINDINGS.filter((row) => row.script === "routing-watch");
+
+  /** A rendered Pi project that is its own git toplevel (the script is inert elsewhere). */
+  function routingProject(): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-routing-"));
+    dirs.push(dir);
+    repoTplMaster.copyInto(dir);
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    renderPiEngine(
+      dir,
+      NavoriConfigSchema.parse({
+        name: "pi-routing",
+        preset: "custom",
+        engines: ["pi"],
+        branchBase: "main",
+        qualityGate: { fast: "bun test", full: "bun test" },
+      }),
+      { hookBindings: binding },
+    );
+    return dir;
+  }
+
+  const result = (toolName: string, path?: string, isError = false): Record<string, unknown> => ({
+    toolName,
+    toolCallId: "call-r",
+    input: path === undefined ? {} : { path },
+    content: [{ type: "text", text: "out" }],
+    isError,
+  });
+  type Note = { content: Array<{ text: string }> };
+
+  /** Four distinct source writes through `tool_result`; returns the notes each one produced. */
+  async function fourWrites(
+    run: (event: Record<string, unknown>) => unknown,
+    toolName = "edit",
+  ): Promise<unknown[]> {
+    const out: unknown[] = [];
+    for (const name of ["a", "b", "c", "d"])
+      out.push(await run(result(toolName, `src/${name}.ts`)));
+    return out;
+  }
+
+  it("binds routing-watch to parent tool_result with skipOnError", () => {
+    expect(binding).toHaveLength(1);
+    expect(binding[0]).toMatchObject({
+      on: "tool_result",
+      scope: "parent",
+      class: "advisory",
+      timeoutMs: 10_000,
+      skipOnError: true,
+    });
+    expect(binding[0]!.tools).toEqual(["bash", "edit", "write", "navori_subagent"]);
+  });
+
+  it("advises after four distinct source writes", async () => {
+    const dir = routingProject();
+    const tool_result = load().get("tool_result")!;
+    const notes = await fourWrites((event) => tool_result(event, ctxFor(dir)));
+    expect(notes.slice(0, 3)).toEqual([undefined, undefined, undefined]);
+    const fourth = notes[3] as Note;
+    expect(fourth.content[0]!.text).toBe("out");
+    expect(fourth.content[1]!.text).toContain("routing check");
+  });
+
+  it("is suppressed once a navori_subagent result delegated the work", async () => {
+    const dir = routingProject();
+    const tool_result = load().get("tool_result")!;
+    expect(await tool_result(result("navori_subagent"), ctxFor(dir))).toBeUndefined();
+    const notes = await fourWrites((event) => tool_result(event, ctxFor(dir)));
+    expect(notes).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("does not count a refused navori_subagent as delegation", async () => {
+    const dir = routingProject();
+    const tool_result = load().get("tool_result")!;
+    await tool_result(result("navori_subagent", undefined, true), ctxFor(dir));
+    const notes = await fourWrites((event) => tool_result(event, ctxFor(dir)));
+    expect((notes[3] as Note).content[1]!.text).toContain("routing check");
+  });
+
+  it("does not count errored edit and write results", async () => {
+    const dir = routingProject();
+    const tool_result = load().get("tool_result")!;
+    for (const [tool, name] of [
+      ["edit", "a"],
+      ["write", "b"],
+      ["edit", "c"],
+      ["write", "d"],
+    ] as const) {
+      expect(await tool_result(result(tool, `src/${name}.ts`, true), ctxFor(dir))).toBeUndefined();
+    }
+    // Four failures left the counter at zero: three real writes stay under the threshold.
+    for (const name of ["e", "f", "g"]) {
+      expect(await tool_result(result("edit", `src/${name}.ts`), ctxFor(dir))).toBeUndefined();
+    }
+  });
+
+  it("does not run in a child session", async () => {
+    const dir = routingProject();
+    const child = load({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
+    });
+    const notes = await fourWrites((event) => child.get("tool_result")!(event, ctxFor(dir)));
+    expect(notes).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("keeps the hook well inside its timeout", async () => {
+    const dir = routingProject();
+    const tool_result = load().get("tool_result")!;
+    const timings: number[] = [];
+    for (const name of ["a", "b", "c", "d"]) {
+      const started = performance.now();
+      await tool_result(result("edit", `src/${name}.ts`), ctxFor(dir));
+      timings.push(Math.round(performance.now() - started));
+    }
+    console.info(`routing-watch tool_result ms per call: ${timings.join(", ")}`);
+    for (const ms of timings) expect(ms).toBeLessThan(binding[0]!.timeoutMs);
   });
 });

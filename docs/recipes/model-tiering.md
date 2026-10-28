@@ -60,7 +60,13 @@ The inventory includes the main agent and enabled Codex agents, along with proje
 
 An entry in `models_cache.json` only supplies candidates. Freshness is `unknown` when there is no externally verified source, timestamp, and context; if the catalog is missing, malformed, or has no compatible entries, status is `degraded`. The cache, its mtime, and its slugs do not prove current availability. `configured`, render candidate, and `observed` are distinct states: without an observation tied to the started context, the effective result remains unknown and application is `pending`, with the remedy to start a new Codex context and verify model and effort there. No quality equivalence between models is claimed.
 
-Pi keeps its explicit `codexMap` consumer, which resolves only the model; effort transformation and named overrides are limited to Codex. Claude profiles remain unchanged.
+Pi resolves its model from `models.piMap` (opus/sonnet/haiku as `provider/id`) and inherits the parent Pi model for tiers without an entry; it does not read `codexMap`. Effort transformation and named overrides are limited to Codex. Claude profiles remain unchanged.
+
+```json
+{
+  "models": { "piMap": { "sonnet": "anthropic/claude-sonnet-5-5", "opus": "anthropic/claude-opus-5-5" } }
+}
+```
 
 ## Do not put everything in the top tier
 

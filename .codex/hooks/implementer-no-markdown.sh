@@ -1,4 +1,4 @@
-# navori:managed start id="implementer-no-markdown-base" hash="7036d944" version="0.12.2" source="@navori/core"
+# navori:managed start id="implementer-no-markdown-base" hash="0b394ed0" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash|Edit|Write|NotebookEdit) guard — the mechanical half of R1
@@ -90,8 +90,9 @@ payload_load() { :; }
 # `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
 # tool names this hook does not otherwise read) keeps that value, empty or
 # not, instead of this partial re-reading an already-drained pipe and
-# clobbering it with "".
-payload=${payload-$(cat)}
+# clobbering it with "". The inner quotes matter: unquoted, zsh word-splits the
+# substitution and rejoins it with single spaces (bash does not).
+payload=${payload-"$(cat)"}
 payload_field() {
   case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
     if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then

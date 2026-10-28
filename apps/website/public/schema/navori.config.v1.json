@@ -387,6 +387,27 @@
             }
           },
           "additionalProperties": false
+        },
+        "piMap": {
+          "type": "object",
+          "properties": {
+            "opus": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
+            },
+            "sonnet": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
+            },
+            "haiku": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
