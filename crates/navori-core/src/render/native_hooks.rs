@@ -465,6 +465,230 @@ pub fn finalize_native_hooks(
     Ok(eligible)
 }
 
+// --- applyNativeClaudeSettings ---------------------------------------------------------------
+
+const SETTINGS: &str = ".claude/settings.json";
+
+/// `/^f="\$CLAUDE_PROJECT_DIR\/([^"\n]+)"; /.exec(command)?.[1]`.
+fn command_script(command: &str) -> Option<&str> {
+    let rest = command.strip_prefix("f=\"$CLAUDE_PROJECT_DIR/")?;
+    let end = rest.find(['"', '\n'])?;
+    (end > 0 && rest[end..].starts_with("\"; ")).then(|| &rest[..end])
+}
+
+/// `/exec bash "\$f"([^;]*); /.exec(command)?.[1]`: the first literal whose maximal run of
+/// non-`;` is followed by `"; "`.
+fn command_args(command: &str) -> Option<&str> {
+    const LITERAL: &str = "exec bash \"$f\"";
+    let mut from = 0;
+    while let Some(at) = index_from(command, LITERAL, from) {
+        let start = at + LITERAL.len();
+        let run = command[start..]
+            .find(';')
+            .map_or(command.len(), |i| start + i);
+        if command[run..].starts_with("; ") {
+            return Some(&command[start..run]);
+        }
+        from = at + 1;
+    }
+    None
+}
+
+fn variant(mode: crate::manifest::HookMode, gating: bool) -> Hook {
+    Hook {
+        mode,
+        gating,
+        blocks: BTreeMap::new(),
+        deps: BTreeMap::new(),
+        r#impl: format!("sha256:{}", "0".repeat(64)),
+        divergences: Vec::new(),
+    }
+}
+
+/// The desired command for a recognizable generated `command`, or `None` to leave it.
+fn rewired(event: &str, command: &str, eligible: &BTreeMap<String, Hook>) -> Option<String> {
+    use crate::manifest::HookMode;
+    use crate::render::claude_settings::claude_hook_command;
+    let script = command_script(command)?;
+    let args = command_args(command)?;
+    let args =
+        crate::integrity::js_trim_end(args.trim_start_matches(crate::integrity::is_js_whitespace));
+    let args = (!args.is_empty()).then_some(args);
+    let mut variants = vec![claude_hook_command(event, script, args, None)];
+    for mode in [HookMode::Shadow, HookMode::Active] {
+        for gating in [false, true] {
+            variants.push(claude_hook_command(
+                event,
+                script,
+                args,
+                Some(&variant(mode, gating)),
+            ));
+        }
+    }
+    variants
+        .iter()
+        .any(|v| v == command)
+        .then(|| claude_hook_command(event, script, args, eligible.get(script)))
+}
+
+/// `new Set(values)` over parsed JSON: primitives dedupe by value, objects and arrays never.
+fn dedupe(values: Vec<JsValue>) -> Vec<JsValue> {
+    let mut out: Vec<JsValue> = Vec::new();
+    for value in values {
+        let primitive = !matches!(value, JsValue::Object(_) | JsValue::Array(_));
+        if primitive && out.contains(&value) {
+            continue;
+        }
+        out.push(value);
+    }
+    out
+}
+
+/// `applyNativeClaudeSettings(cwd, pending, eligible, decision, floor, force)` with `force`
+/// off: rewrites only the generated hook commands to their native form for `eligible` hooks
+/// (or back to the shell form), drops duplicates that leaves, and restamps a managed file.
+///
+/// # Errors
+/// [`NativeHooksDelegate`] when `settings.json` exists but cannot be read.
+pub fn apply_native_claude_settings(
+    view: &dyn RepoView,
+    pending: &mut Vec<PendingWrite>,
+    eligible: &BTreeMap<String, Hook>,
+    skipped: bool,
+    floor: Option<&str>,
+) -> Result<(), NativeHooksDelegate> {
+    use crate::render::settings_file::{StampedPlan, plan_stamped_json, pretty};
+    if skipped || !native_path_contained(view, SETTINGS) {
+        return Ok(());
+    }
+    let index = pending.iter().position(|w| w.rel_path == SETTINGS);
+    let existing = read_if_exists(view, SETTINGS).map_err(|_| NativeHooksDelegate)?;
+    let Some(content) = index
+        .map(|i| pending[i].content.clone())
+        .or_else(|| existing.clone())
+    else {
+        return Ok(());
+    };
+    if eligible.is_empty() && !content.contains("# navori:native-runtime start") {
+        return Ok(());
+    }
+    let Some(JsValue::Object(mut settings)) = crate::js_json::parse(&content) else {
+        return Ok(());
+    };
+    let Some(JsValue::Object(mut hooks)) = settings.get("hooks").cloned() else {
+        return Ok(());
+    };
+    let mut changed = false;
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    let events: Vec<_> = hooks
+        .ordered()
+        .into_iter()
+        .map(|(k, _)| k.clone())
+        .collect();
+    for event in events {
+        let Some(name) = event.to_rust() else {
+            return Err(NativeHooksDelegate);
+        };
+        let Some(JsValue::Array(mut buckets)) = hooks.get(&name).cloned() else {
+            continue;
+        };
+        for bucket in &mut buckets {
+            let JsValue::Object(bucket) = bucket else {
+                continue;
+            };
+            let Some(JsValue::Array(entries)) = bucket.get("hooks").cloned() else {
+                continue;
+            };
+            let mut seen: Vec<String> = Vec::new();
+            let mut kept = Vec::new();
+            for entry in entries {
+                let JsValue::Object(mut object) = entry else {
+                    kept.push(entry);
+                    continue;
+                };
+                let command = match object.get("command") {
+                    Some(JsValue::String(text)) => text.to_rust().ok_or(NativeHooksDelegate)?,
+                    _ => {
+                        kept.push(JsValue::Object(object));
+                        continue;
+                    }
+                };
+                let Some(desired) = rewired(&name, &command, eligible) else {
+                    kept.push(JsValue::Object(object));
+                    continue;
+                };
+                changed |= desired != command;
+                match replacements.iter_mut().find(|(from, _)| *from == command) {
+                    Some(slot) => slot.1.clone_from(&desired),
+                    None => replacements.push((command, desired.clone())),
+                }
+                object.insert("command", JsValue::string(&desired));
+                let key = JsValue::Object(object.clone())
+                    .stringify(None)
+                    .ok_or(NativeHooksDelegate)?;
+                if seen.contains(&key) {
+                    changed = true;
+                    continue;
+                }
+                seen.push(key);
+                kept.push(JsValue::Object(object));
+            }
+            bucket.insert("hooks", JsValue::Array(kept));
+        }
+        hooks.insert(event, JsValue::Array(buckets));
+    }
+    if !changed {
+        return Ok(());
+    }
+    settings.insert("hooks", JsValue::Object(hooks));
+    let managed = match settings.get_mut("$navori") {
+        Some(JsValue::Object(ownership)) => {
+            if let Some(JsValue::Array(list)) = ownership.get("managedHooks").cloned() {
+                let mapped = list
+                    .into_iter()
+                    .map(|value| match &value {
+                        JsValue::String(text) => text
+                            .to_rust()
+                            .and_then(|t| replacements.iter().find(|(from, _)| *from == t))
+                            .map_or(value.clone(), |(_, to)| JsValue::string(to)),
+                        _ => value,
+                    })
+                    .collect();
+                ownership.insert("managedHooks", JsValue::Array(dedupe(mapped)));
+            }
+            let managed = ownership.get("managed") == Some(&JsValue::Bool(true));
+            if managed {
+                ownership.insert("version", JsValue::string(STAMP_VERSION));
+            }
+            managed
+        }
+        _ => false,
+    };
+    let mut output = pretty(&JsValue::Object(settings));
+    if managed && let Some(current) = existing.as_deref() {
+        match plan_stamped_json(current, &output, floor, false) {
+            StampedPlan::Downgrade(_) => return Ok(()),
+            StampedPlan::Noop => current.clone_into(&mut output),
+            StampedPlan::Write(content) => output = content,
+        }
+    }
+    if existing.as_deref() == Some(output.as_str()) {
+        if let Some(i) = index {
+            pending.remove(i);
+        }
+    } else if let Some(i) = index {
+        pending[i].content = output;
+    } else {
+        pending.push(PendingWrite {
+            rel_path: SETTINGS.to_owned(),
+            content: output,
+            status: InjectStatus::Updated,
+            chmod_exec: false,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,6 +733,49 @@ mod tests {
         assert_eq!(
             replace_first_hash("hash=\"1234567\"x", "deadbeef"),
             "hash=\"1234567\"x"
+        );
+    }
+
+    #[test]
+    fn command_patterns_follow_the_ts_regexes() {
+        // Expected values come from running the TS regexes in Node.
+        let cases: [(&str, Option<&str>, Option<&str>); 10] = [
+            (
+                "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\" a b; printf",
+                Some(".claude/hooks/x.sh"),
+                Some(" a b"),
+            ),
+            ("f=\"$CLAUDE_PROJECT_DIR/\"; x", None, None),
+            ("f=\"$CLAUDE_PROJECT_DIR/a\nb\"; x", None, None),
+            (" f=\"$CLAUDE_PROJECT_DIR/a\"; x", None, None),
+            ("f=\"$CLAUDE_PROJECT_DIR/a\";x", None, None),
+            ("exec bash \"$f\"; ", None, Some("")),
+            ("exec bash \"$f\" x;y; ", None, None),
+            ("exec bash \"$f\" x;exec bash \"$f\" y; z", None, Some(" y")),
+            ("exec bash \"$f\" x", None, None),
+            ("exec bash \"$f\"\tq ; ", None, Some("\tq ")),
+        ];
+        for (command, script, args) in cases {
+            assert_eq!(command_script(command), script, "{command:?}");
+            assert_eq!(command_args(command), args, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn dedupe_keeps_first_primitives_and_every_object() {
+        let values = [
+            "\"a\"", "\"b\"", "\"a\"", "1", "1", "-0", "0", "{}", "{}", "[]", "[]", "null", "null",
+        ]
+        .iter()
+        .filter_map(|t| crate::js_json::parse(t))
+        .collect();
+        let out: Vec<String> = dedupe(values)
+            .iter()
+            .filter_map(|v| v.stringify(None))
+            .collect();
+        assert_eq!(
+            out,
+            ["\"a\"", "\"b\"", "1", "0", "{}", "{}", "[]", "[]", "null"]
         );
     }
 

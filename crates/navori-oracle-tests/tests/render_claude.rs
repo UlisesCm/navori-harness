@@ -5,8 +5,8 @@
 //! - Against the real `prepareClaudeEngine(...).finalize()` over repos rendered with another
 //!   config and then edited: pending writes, removals and skips, in order.
 //!
-//! Against the engine only, `settings.json` is left out until `applyNativeClaudeSettings` (T15)
-//! is ported: the native wiring rewrites it in `finalize`.
+//! Every file is compared, the native wiring included: the golden runs without ported hooks, as
+//! its TS test mocks `loadNativeHooks`, and the engine with the real `crates/ported.json`.
 
 mod support;
 
@@ -16,10 +16,11 @@ use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
 use navori_core::config;
-use navori_core::js_json;
-use navori_core::manifest::Hook;
+use navori_core::js_json::{self, JsValue};
+use navori_core::manifest::{Hook, HookMode};
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
+use navori_core::render::claude_settings::claude_hook_command;
 use navori_core::render::collect::RepoView;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -45,11 +46,10 @@ static NODE: Shared = Shared::new(
        const prepared = e.prepareClaudeEngine(root, config, { dryRun: true });\n\
        prepared.inventory.seal();\n\
        const fin = prepared.finalize();\n\
-       const keep = (rel) => !request.excluded.includes(rel);\n\
        return {\n\
-         pending: fin.pending.filter((p) => keep(p.relPath)).map((p) => [p.relPath, p.content, p.status, p.chmodExec === true]),\n\
+         pending: fin.pending.map((p) => [p.relPath, p.content, p.status, p.chmodExec === true]),\n\
          removals: fin.removals.map((r) => [path.relative(root, r.path), r.recursive === true]),\n\
-         skipped: fin.skipped.filter((s) => keep(s.path)).map((s) => [s.path, s.reason, s.status ?? null, s.resolution ? s.resolution.content : null]),\n\
+         skipped: fin.skipped.map((s) => [s.path, s.reason, s.status ?? null, s.resolution ? s.resolution.content : null]),\n\
        };\n\
      } catch (err) { return { threw: String(err && err.message || err) }; }\n\
      finally { m.setMarkerFloorVersion(undefined); }",
@@ -107,9 +107,6 @@ fn write(root: &Path, rel: &str, text: &str) {
     }
     let _ = std::fs::write(path, text);
 }
-
-/// T15: `settings.json`, which the native wiring rewrites in `finalize`.
-static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| vec![".claude/settings.json".to_owned()]);
 
 fn plan(root: &Path, text: &str, floor: Option<&str>) -> Option<ClaudeEnginePlan> {
     plan_with(root, text, floor, None)
@@ -447,32 +444,123 @@ fn native_wiring_matches_the_engine_after_targeted_edits() -> Result<(), String>
                 }
                 write(&root, &w.rel_path, &text);
             }
-            let ts = NODE.ask(
-                &json!({ "root": root.to_string_lossy(), "floor": null, "excluded": *EXCLUDED }),
-            )?;
-            let rust = plan(&root, CONFIG, None).map(|p| report(&p));
-            match rust {
-                Some(rust) if rust == ts => {}
-                Some(rust) => {
-                    return Err(format!(
-                        "{target} kind {kind}: {}",
-                        first_difference(&ts, &rust)
-                    ));
+            compare_engine(&root, CONFIG, &format!("{target} kind {kind}"))?;
+        }
+    }
+    // `settings.json` from a previous shell-only render (no ported hooks), then, combined: stamped
+    // newer (1), made foreign with navori's coexist tracking (2), stamped older (4), and with a
+    // hook entry and a tracked command duplicated (8).
+    for kind in 0..16 {
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::create_dir_all(&root);
+        write(&root, "navori.config.json", CONFIG);
+        let shell =
+            plan_with(&root, CONFIG, None, Some(BTreeMap::new())).ok_or("shell delegated")?;
+        for w in &shell.pending {
+            let mut text = w.content.clone();
+            if w.rel_path == ".claude/settings.json" {
+                if kind & 1 == 1 {
+                    text = text.replacen(
+                        &format!("\"version\": \"{STAMP_VERSION}\""),
+                        "\"version\": \"999.0.0\"",
+                        1,
+                    );
                 }
-                None if ts.get("threw").is_some() || unparseable_json(&root) => {}
-                None => return Err(format!("{target} kind {kind}: rust declined, ts {ts}")),
+                if kind & 2 == 2 {
+                    text = text.replacen("\"managed\": true", "\"managed\": false", 1);
+                }
+                if kind & 4 == 4 {
+                    text = text.replacen(
+                        &format!("\"version\": \"{STAMP_VERSION}\""),
+                        "\"version\": \"0.1.0\"",
+                        1,
+                    );
+                }
+            }
+            write(&root, &w.rel_path, &text);
+        }
+        if kind & 2 == 2 {
+            // A coexist render first, so the file carries navori's tracking.
+            let coexist =
+                plan_with(&root, CONFIG, None, Some(BTreeMap::new())).ok_or("coexist delegated")?;
+            for w in coexist
+                .pending
+                .iter()
+                .filter(|w| w.rel_path == ".claude/settings.json")
+            {
+                write(&root, &w.rel_path, &w.content);
             }
         }
+        if kind & 8 == 8 {
+            let path = root.join(".claude/settings.json");
+            let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            write(&root, ".claude/settings.json", &duplicate_entries(&text));
+        }
+        compare_engine(&root, CONFIG, &format!("settings kind {kind}"))?;
     }
     Ok(())
 }
 
+/// Repeats the first entry of the first `PreToolUse` bucket under its native command variant
+/// (untracked, so a coexist merge keeps it beside navori's shell entry), and the first tracked
+/// command.
+fn duplicate_entries(text: &str) -> String {
+    let Some(JsValue::Object(mut settings)) = js_json::parse(text) else {
+        return text.to_owned();
+    };
+    if let Some(JsValue::Object(hooks)) = settings.get_mut("hooks")
+        && let Some(JsValue::Array(buckets)) = hooks.get_mut("PreToolUse")
+        && let Some(JsValue::Object(bucket)) = buckets.first_mut()
+        && let Some(JsValue::Array(entries)) = bucket.get_mut("hooks")
+        && let Some(JsValue::Object(mut copy)) = entries.first().cloned()
+    {
+        let script = match copy.get("command") {
+            Some(JsValue::String(command)) => command.to_rust().and_then(|c| {
+                let rest = c.strip_prefix("f=\"$CLAUDE_PROJECT_DIR/")?.to_owned();
+                Some(rest[..rest.find('"')?].to_owned())
+            }),
+            _ => None,
+        };
+        if let Some(script) = script {
+            let variant = Hook {
+                mode: HookMode::Shadow,
+                gating: true,
+                blocks: BTreeMap::new(),
+                deps: BTreeMap::new(),
+                r#impl: format!("sha256:{}", "0".repeat(64)),
+                divergences: Vec::new(),
+            };
+            let native = claude_hook_command("PreToolUse", &script, None, Some(&variant));
+            copy.insert("command", JsValue::string(&native));
+            entries.push(JsValue::Object(copy));
+        }
+    }
+    if let Some(JsValue::Object(ownership)) = settings.get_mut("$navori")
+        && let Some(JsValue::Array(tracked)) = ownership.get_mut("managedHooks")
+        && let Some(first) = tracked.first().cloned()
+    {
+        tracked.push(first);
+    }
+    JsValue::Object(settings)
+        .stringify(Some(2))
+        .map_or_else(|| text.to_owned(), |out| format!("{out}\n"))
+}
+
+fn compare_engine(root: &Path, config: &str, label: &str) -> Result<(), String> {
+    let ts = NODE.ask(&json!({ "root": root.to_string_lossy(), "floor": null }))?;
+    match plan(root, config, None).map(|p| report(&p)) {
+        Some(rust) if rust == ts => Ok(()),
+        Some(rust) => Err(format!("{label}: {}", first_difference(&ts, &rust))),
+        None if ts.get("threw").is_some() || unparseable_json(root) => Ok(()),
+        None => Err(format!("{label}: rust declined, ts {ts}")),
+    }
+}
+
 fn report(plan: &ClaudeEnginePlan) -> Value {
-    let keep = |rel: &str| !EXCLUDED.iter().any(|e| e == rel);
     json!({
-        "pending": plan.pending.iter().filter(|w| keep(&w.rel_path)).map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
+        "pending": plan.pending.iter().map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
         "removals": plan.removals.iter().map(|r| json!([r.rel_path, r.recursive])).collect::<Vec<_>>(),
-        "skipped": plan.skipped.iter().filter(|s| keep(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
+        "skipped": plan.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
     })
 }
 
@@ -492,7 +580,7 @@ proptest! {
         build_repo(&root, &recipe);
         write(&root, "navori.config.json", &config);
         let ts = NODE
-            .ask(&json!({ "root": root.to_string_lossy(), "floor": floor, "excluded": *EXCLUDED }))
+            .ask(&json!({ "root": root.to_string_lossy(), "floor": floor }))
             .map_err(TestCaseError::fail)?;
         match plan(&root, &config, floor) {
             Some(rust) => {

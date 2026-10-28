@@ -8,8 +8,10 @@
 //!
 //! `force` is outside the native subset (T17), so every step plans without it.
 //!
-//! Not modeled yet, so absent from the plan: the native hook wiring, which rewrites the planned
-//! `settings.json` (T15), and the warnings outside the ported steps (T16).
+//! The native hook wiring runs last, as in `finalize`: ported hooks are wrapped and signed, and
+//! `settings.json` registers them natively.
+//!
+//! Not modeled yet, so absent from the plan: the warnings outside the ported steps (T16).
 
 use std::path::Path;
 
@@ -24,7 +26,9 @@ use crate::render::context::Lang;
 use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
 use crate::render::mcp_file::{MCP_PATH, plan_mcp_registration};
-use crate::render::native_hooks::{NativeHooksInput, embedded_native_hooks, finalize_native_hooks};
+use crate::render::native_hooks::{
+    NativeHooksInput, apply_native_claude_settings, embedded_native_hooks, finalize_native_hooks,
+};
 use crate::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 use crate::render::plugins::{load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
@@ -197,7 +201,8 @@ pub fn plan_claude_engine(
 
     let mut pending = step1.pending;
     let mut skipped = step1.skipped;
-    let skipped_settings = if place(settings_plan, SETTINGS_PATH, &mut pending, &mut skipped) {
+    let settings_skipped = place(settings_plan, SETTINGS_PATH, &mut pending, &mut skipped);
+    let skipped_settings = if settings_skipped {
         delegate(read_if_exists(view, SETTINGS_PATH))?
     } else {
         None
@@ -234,7 +239,7 @@ pub fn plan_claude_engine(
         .native_hooks
         .clone()
         .unwrap_or_else(embedded_native_hooks);
-    delegate(finalize_native_hooks(
+    let eligible = delegate(finalize_native_hooks(
         &NativeHooksInput {
             view,
             config: &config,
@@ -245,6 +250,13 @@ pub fn plan_claude_engine(
             owned_paths: Some(&owned_paths),
         },
         &mut pending,
+    ))?;
+    delegate(apply_native_claude_settings(
+        view,
+        &mut pending,
+        &eligible,
+        settings_skipped,
+        harness_version.as_deref(),
     ))?;
 
     let mut removals: Vec<PendingRemoval> = step1
