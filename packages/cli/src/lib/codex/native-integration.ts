@@ -419,6 +419,7 @@ class NativeConnection {
   private buffer = "";
   private closed = false;
   private readonly deadline?: number;
+  private readonly limits?: ProtocolBudget;
   private operationTimer?: ReturnType<typeof setTimeout>;
   private exitObserved = false;
   private readonly scopedProcessGroup: boolean;
@@ -434,9 +435,10 @@ class NativeConnection {
     cwd: string,
     overrides: readonly string[],
     deadline?: number,
-    private readonly limits?: ProtocolBudget,
+    limits?: ProtocolBudget,
     env?: NodeJS.ProcessEnv,
   ) {
+    this.limits = limits;
     if (deadline !== undefined && Date.now() >= deadline)
       throw new Error("native-operation-timeout");
     this.deadline = deadline;

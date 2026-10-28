@@ -92,12 +92,14 @@ export interface PrivateAuditOptions {
 }
 
 class PrivateAuditFault extends Error {
-  constructor(
-    readonly reason: PrivateAuditReason,
-    /** True when only the mode bits of an own-uid file/dir are wrong (chmod fixes it). */
-    readonly permissionOnly = false,
-  ) {
+  readonly reason: PrivateAuditReason;
+  /** True when only the mode bits of an own-uid file/dir are wrong (chmod fixes it). */
+  readonly permissionOnly: boolean;
+
+  constructor(reason: PrivateAuditReason, permissionOnly = false) {
     super(reason);
+    this.reason = reason;
+    this.permissionOnly = permissionOnly;
   }
 }
 interface AuditIdentity {
