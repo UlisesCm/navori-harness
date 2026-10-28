@@ -6,10 +6,12 @@
 use crate::STAMP_VERSION;
 use crate::integrity::is_js_whitespace;
 use crate::js_json::{self, JsObject, JsValue};
+use crate::manifest::Hook;
 use crate::render::assets;
 use crate::render::block_plan::truthy;
 use crate::render::harness_plan::{HarnessPlan, is_agent_enabled};
 use crate::render::interpolate::{InterpolateOptions, interpolate};
+use crate::render::native_hook::{NativeEngine, NativeShell, native_runner_shell, quote};
 use crate::render::plugins::LoadedPlugin;
 
 /// The bundled base is missing or not JSON, or a plugin fragment has a shape Rust does not model.
@@ -86,13 +88,50 @@ fn merge_into(settings: &mut JsObject, over: JsValue) {
     }
 }
 
-/// The command `settings.json` registers for a hook script, without the native arm (that one
-/// belongs to the native wiring).
+/// Arguments the native arm may forward: plain words, so deferring never expands them twice.
+fn plain_args(args: &str) -> bool {
+    !args.is_empty()
+        && args.split(' ').all(|word| {
+            !word.is_empty()
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
+        })
+}
+
+/// `claudeHookCommand(event, scriptRel, args, native)`: the command `settings.json` registers
+/// for a hook script, with the native runtime arm first when `native` is a ported hook.
 #[must_use]
-pub fn claude_hook_command(event: &str, script_rel: &str, args: Option<&str>) -> String {
+pub fn claude_hook_command(
+    event: &str,
+    script_rel: &str,
+    args: Option<&str>,
+    native: Option<&Hook>,
+) -> String {
     let args = args.filter(|a| !a.is_empty());
+    let native = if args.is_some_and(|a| !plain_args(a)) {
+        None
+    } else {
+        native
+    };
+    let native_arm = native.map_or_else(String::new, |descriptor| {
+        let file = script_rel.rsplit('/').next().unwrap_or(script_rel);
+        let hook = file.strip_suffix(".sh").unwrap_or(file);
+        let invocation = format!("--via-command {} \"$f\"", quote(event));
+        format!(
+            "{}\n",
+            native_runner_shell(&NativeShell {
+                engine: NativeEngine::Claude,
+                hook,
+                mode: descriptor.mode,
+                gating: descriptor.gating && event == "PreToolUse",
+                invocation: &invocation,
+                args,
+            })
+        )
+    });
     let run = format!(
-        "f=\"$CLAUDE_PROJECT_DIR/{script_rel}\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"{}; ",
+        "f=\"$CLAUDE_PROJECT_DIR/{script_rel}\"; {native_arm}bash -n \"$f\" 2>/dev/null && exec bash \"$f\"{}; ",
         args.map(|a| format!(" {a}")).unwrap_or_default()
     );
     let reason = format!(
@@ -122,6 +161,7 @@ fn hook(event: &str, id: &str, args: Option<&str>, timeout: f64, status: &str) -
                 event,
                 &format!(".claude/hooks/{id}.sh"),
                 args,
+                None,
             )),
         ),
         ("timeout", JsValue::Number(timeout)),
@@ -507,7 +547,7 @@ fn plugin_hooks_to_claude_shape(entries: &[JsValue]) -> Result<JsValue, Settings
         let command = text(get(entry, "command")).ok_or(SettingsDelegate)?;
         let matcher = text(get(entry, "matcher"));
         let command = match plain_hook_command(&command) {
-            Some((path, args)) => claude_hook_command(&event, path, args),
+            Some((path, args)) => claude_hook_command(&event, path, args, None),
             None => command,
         };
         let mut inner = vec![
@@ -813,6 +853,7 @@ pub fn build_claude_settings(
                         JsValue::string(&claude_hook_command(
                             pre,
                             ".claude/hooks/quality-gate-pre-commit.sh",
+                            None,
                             None,
                         )),
                     ),

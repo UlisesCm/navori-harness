@@ -17,6 +17,7 @@ pub mod interpolate;
 pub mod library_skills;
 pub mod managed_file;
 pub mod mcp_file;
+pub mod native_hook;
 pub mod nested_gitignore;
 pub mod owned_paths;
 pub mod plan;
