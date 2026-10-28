@@ -6,7 +6,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "guard-destructive-base": "sha256:2a0a842f4cb713b7efae12566bc0d9b044128b895d05b1e727f3484d78e04bce",
+        "guard-destructive-base": "sha256:b2536c2222ab95f8bbf0b28aa91234963f035a7049ad1d2578bfa60317464dc3",
         "tgrep-search-lane": "sha256:24f3f6b3eb22b3269f99178b0fb1f56a91972c8ddf80aa754771e8af0f924f1e"
       },
       "deps": {
@@ -18,7 +18,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "subagent-no-background-base": "sha256:336a616d2316419ea53f2ba27c57c977aa08ed273f035c08092dc485ea3e5b68"
+        "subagent-no-background-base": "sha256:ecdca022cba414f887c19433fc8d6ca34672e6e3f70b30bd3500ac9ebb0a7f0e"
       },
       "impl": "sha256:565b17f2d94f45409b819f7ac20258f707d0f37849488682d22cecd94d626613"
     }
