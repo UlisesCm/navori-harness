@@ -253,6 +253,7 @@ describe("Codex profile rendering (Spec 0050 M4)", () => {
     cfg.models = {
       ...cfg.models,
       codexMap: { sonnet: "astra" },
+      piMap: { sonnet: "anthropic/claude-sonnet-5-5" },
       codexProfiles: { implementer: { model: "gpt-9-luna", effort: "low" } },
     };
     renderClaudeEngine(cwd, cfg);
@@ -260,7 +261,8 @@ describe("Codex profile rendering (Spec 0050 M4)", () => {
     expect(read(cwd, ".claude/agents/implementer.md")).toContain("effort: medium");
     renderPiEngine(cwd, cfg);
     const pi = read(cwd, ".pi/agents/implementer.md");
-    expect(pi).toContain("gpt-6-astra");
+    expect(pi).toContain('model: "anthropic/claude-sonnet-5-5"');
+    expect(pi).not.toContain("astra");
     expect(pi).not.toContain("gpt-9-luna");
     expect(pi).not.toContain("thinking: high");
   });

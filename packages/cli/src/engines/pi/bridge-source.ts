@@ -26,11 +26,11 @@ export const PI_BRIDGE_SOURCE = String.raw`
 // ---- Navori hook bridge (spec 0048): runs the shared hook scripts under bash with a Claude-shaped payload.
 type BridgeClass = "enforced" | "advisory" | "lifecycle";
 type BridgeHook = { script: string; path: string; on: string; tools?: string[]; scope: string; class: BridgeClass;
-  interactive: boolean; timeoutMs: number };
+  interactive: boolean; timeoutMs: number; skipOnError?: boolean };
 type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
-type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
+type BridgeCall = { event: string; hookEvent: string; toolName?: string; isError?: boolean; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
@@ -39,7 +39,7 @@ const BRIDGE_ADVISORY_CAP = 1_024;
 const BRIDGE_KILL_GRACE_MS = 2_000;
 const BRIDGE_DRAIN_MS = 250;
 const BRIDGE_RENDER_ACTION = "run navori render --apply with the current Navori CLI";
-const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
+const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write", navori_subagent: "Agent" };
 // Tools the bridge guards: an unreadable or incompatible manifest blocks these (fail-closed), never the read-only ones.
 const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
 const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
@@ -65,7 +65,7 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
   if (typeof raw.interactive !== "boolean" || typeof raw.timeoutMs !== "number" || !(raw.timeoutMs > 0)) return undefined;
   if (raw.tools !== undefined && !(Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string"))) return undefined;
   return { script: raw.script, path: raw.path, on: raw.on, tools: raw.tools as string[] | undefined, scope: raw.scope,
-    class: raw.class, interactive: raw.interactive, timeoutMs: raw.timeoutMs };
+    class: raw.class, interactive: raw.interactive, timeoutMs: raw.timeoutMs, skipOnError: raw.skipOnError === true };
 }
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
@@ -257,7 +257,7 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
  */
 async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSignal | undefined): Promise<BridgeResult> {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
-  const selected = hooks.filter((hook) => hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
+  const selected = hooks.filter((hook) => !(hook.skipOnError && call.isError === true) && hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
     && (hook.tools === undefined || (call.toolName !== undefined && hook.tools.includes(call.toolName))));
   const result: BridgeResult = { asks: [], bodyFiles: [], warnings: [] };
   if (!selected.length) return result;
@@ -283,12 +283,12 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
 }
 
 /** Advisory text after a tool result: manifest or script trouble is silent by contract (spec 0048 R15). */
-async function bridgeAdvisories(event: { toolName: string; toolCallId: string; input: unknown }, ctx: { cwd: string; hasUI?: boolean;
+async function bridgeAdvisories(event: { toolName: string; toolCallId: string; input: unknown; isError?: boolean }, ctx: { cwd: string; hasUI?: boolean;
     sessionManager?: { getSessionId?: () => string } }): Promise<string[]> {
   const manifest = bridgeManifest(ctx.cwd);
   if (!manifest.ok) return [];
   try {
-    const result = await runBridge(manifest.hooks, { event: "tool_result", hookEvent: "PostToolUse", toolName: event.toolName,
+    const result = await runBridge(manifest.hooks, { event: "tool_result", hookEvent: "PostToolUse", toolName: event.toolName, isError: event.isError,
       toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: ctx.hasUI === true }, undefined);
     return result.warnings;
   } catch { return []; }

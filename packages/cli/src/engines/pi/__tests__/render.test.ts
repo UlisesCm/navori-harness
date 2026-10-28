@@ -58,6 +58,52 @@ describe("Pi render base", () => {
   );
 
   // Covers: R6
+  it("pins Pi roles from models.piMap verbatim and ignores codexMap", () => {
+    const cwd = freshDir();
+    const withMaps = (models: object): ReturnType<typeof NavoriConfigSchema.parse> =>
+      NavoriConfigSchema.parse({
+        ...config,
+        models: { implementer: "sonnet", scout: "haiku", ...models },
+      });
+    const pinned = withMaps({
+      codexMap: { sonnet: "gpt-6.1-sol", haiku: "luna" },
+      piMap: { sonnet: "anthropic/claude-sonnet-5-5:thinking", haiku: "openrouter/a/b" },
+    });
+    renderPiEngine(cwd, pinned);
+    const implementer = readFileSync(join(cwd, ".pi/agents/implementer.md"), "utf-8");
+    expect(implementer).toContain('model: "anthropic/claude-sonnet-5-5:thinking"');
+    expect(readFileSync(join(cwd, ".pi/agents/scout.md"), "utf-8")).toContain(
+      'model: "openrouter/a/b"',
+    );
+    // No piMap entry: no model line (inherit the parent), whatever codexMap says.
+    const inherit = freshDir();
+    renderPiEngine(inherit, withMaps({ codexMap: { sonnet: "gpt-6.1-sol" } }));
+    expect(readFileSync(join(inherit, ".pi/agents/implementer.md"), "utf-8")).not.toContain(
+      "model:",
+    );
+  });
+
+  it("warns to set piMap when codexMap has tiers and piMap is undefined", () => {
+    const migrate = (models: object): string[] =>
+      renderPiEngine(freshDir(), NavoriConfigSchema.parse({ ...config, models })).warnings.filter(
+        (w) => w.includes("models.piMap"),
+      );
+    expect(migrate({ codexMap: { sonnet: "gpt-6.1-sol" } })).toHaveLength(1);
+    expect(migrate({ codexMap: { sonnet: "gpt-6.1-sol" }, piMap: {} })).toEqual([]);
+    expect(migrate({ piMap: { sonnet: "anthropic/claude-sonnet-5-5" } })).toEqual([]);
+    expect(migrate({})).toEqual([]);
+  });
+
+  it("rejects a provider-less Pi pin and accepts provider/id shapes", () => {
+    const ok = (piMap: object): boolean =>
+      NavoriConfigSchema.safeParse({ ...config, models: { piMap } }).success;
+    expect(ok({ sonnet: "gpt-6.1-sol" })).toBe(false);
+    expect(ok({ sonnet: "anthropic/" })).toBe(false);
+    expect(ok({ sonnet: "/x" })).toBe(false);
+    expect(ok({ sonnet: "openai-codex/gpt-x", haiku: "ollama/llama3" })).toBe(true);
+    expect(ok({ opus: "anthropic/claude-sonnet-5-5:thinking" })).toBe(true);
+  });
+
   it("preserves dangling symlinks at the Pi root and managed destinations", () => {
     const root = freshDir();
     symlinkSync(join(root, "missing-pi"), join(root, ".pi"));

@@ -14,6 +14,14 @@ export function load(
     shell?: Shell;
     env?: Record<string, string>;
     version?: string;
+    /** When given, receives EVERY handler per event (the returned map keeps only the first). */
+    collect?: Map<string, Handler[]>;
+    /** Extension source to load instead of the default one (e.g. rendered with knowledge grants). */
+    source?: string;
+    /** Receives every tool the extension registers, by name. */
+    tools?: Map<string, unknown>;
+    /** Becomes the sandbox `process.env` itself (after `env` is applied), so a test can mutate it later. */
+    liveEnv?: Record<string, string>;
     /** Node IPC `process.send` of a child, to observe what it relays to its parent. */
     send?: (message: Record<string, unknown>, callback: (error: Error | null) => void) => void;
   } = {},
@@ -29,14 +37,19 @@ export function load(
     },
   };
   const exports: { default?: (pi: unknown) => void } = {};
-  const source = stripTypeScriptTypes(PI_EXTENSION_SOURCE)
+  const source = stripTypeScriptTypes(options.source ?? PI_EXTENSION_SOURCE)
     .replace(/^import \{ (.+) \} from "(.+)";$/gm, 'const { $1 } = require("$2");')
     .replace("export default function", "exports.default = function");
   runInNewContext(source, {
     exports,
     require: (id: string): unknown => modules[id] ?? nodeRequire(id),
     process: {
-      env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "", NAVORI_PI_CHILD_ROLE: "", ...options.env },
+      env: Object.assign(options.liveEnv ?? {}, {
+        ...process.env,
+        NAVORI_PI_CHILD_DEPTH: "",
+        NAVORI_PI_CHILD_ROLE: "",
+        ...options.env,
+      }),
       platform: process.platform,
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
@@ -54,8 +67,11 @@ export function load(
     on: (name: string, handler: Handler) => {
       // The first handler of an event is the bridge's: the later ones are context helpers.
       if (!handlers.has(name)) handlers.set(name, handler);
+      options.collect?.set(name, [...(options.collect.get(name) ?? []), handler]);
     },
-    registerTool: () => {},
+    registerTool: (tool: { name: string }) => {
+      options.tools?.set(tool.name, tool);
+    },
   });
   return handlers;
 }

@@ -49,8 +49,8 @@ navori render --apply
 | `local-skill-discovery` | enforced | `project.localSkills` 会投影为 `.agents/skills/<id>` 下的指针；仅在未启用 Codex 时写入。 |
 | `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。此机制会关闭失败：若 bash 工具被替换或缺少 `exit_code`，则不会记录任何内容。 |
 | `repeat-failure-advice` | advisory | 内置 bash 连续出现三次相同失败后，会附加一条建议。它不会阻止操作或更改结果；缺少 `exit_code` 时也不会显示。 |
-| `compact-advice` | unsupported | Pi 不运行 Navori hook 脚本，因此 publisher 派发后不会注入上下文大小建议。 |
-| `general-purpose-confirm` | unsupported | Pi 不运行 Claude hook 脚本，而且其 `navori_subagent` 角色列表中没有可用于确认的 general-purpose 角色。 |
+| `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此 publisher 派发后不会注入上下文大小建议。 |
+| `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有七个固定角色，没有可确认的 general-purpose 角色。 |
 
 Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同时选择 Pi 和 Codex，共享目标位置由 Codex 管理，Pi 不会重复写入。Pi 不会复制或运行 Claude 与 Codex 的 hook 脚本。
 
@@ -64,7 +64,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 | `child-model-selection` | admitted | `--model <provider/id>` 用于选择子进程的模型。不会重新定义 effort 或 thinking。 |
 | `child-tool-allowlist` | admitted | `--tools` 是模型可见的允许列表，不提供隔离。通过 `--no-mcp` 关闭间接 MCP 暴露。 |
 | `child-ipc-relay` | admitted | 子进程通过 Node IPC（`stdio` `ipc`）向父进程报告被拒绝的确切命令。它绝不会批准命令；参见[审批中继](#审批中继)。 |
-| `child-mcp-grants` | deferred | 子进程以 `--no-mcp` 运行。Pi 1.1.0 会连接每个已启用的 MCP 服务器，并在子进程提示中列出所有服务器，因此无法验证按角色授予 MCP 的方式。需要 MCP 的角色在子进程中仍不可用。 |
+| `child-mcp-grants` | deferred | 子进程以 `--no-mcp` 运行。Pi 1.1.0 会连接每个已启用的 MCP 服务器，并在子进程提示中列出所有服务器，因此无法验证按角色授予 Pi 自身 MCP 的方式。codegraph 与 engram 的读取改由 Navori 自有的 `navori_*` 扩展工具提供；见 [子进程中的知识工具](#子进程中的知识工具)。 |
+
 | `session-end-event` | admitted | 仅当父会话正常退出或执行 `/new` 时，才会运行 `session_shutdown`。SIGKILL 不会触发该事件，因此会在下次关闭时清理。重新加载、恢复和分叉都不会结束会话。 |
 | `settle-boundary-entries` | admitted | `agent_before_settle` 会在代理运行结束时附加一条可见记录。它不会设置 `continue`，因此无法强制发起另一条模型请求。 |
 
@@ -77,6 +78,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
   2. `audit-mode-close` 会在 3 s 截止时间内运行，并且只封存现有审计日志。
 - **重新加载、恢复和分叉**：不运行任何操作。
 - **验证提醒**（仅在设置了 `hooks.verifyOnStop` 时触发的 `agent_before_settle`）：如果工作树存在未提交更改，会附加一条固定的西班牙语提醒，提示运行质量门禁并提交更改；该提醒以可见的 `custom_message` 显示。它不会触发另一条模型请求。
+
+**audit-mode 启动。** 在 `session_start`（`startup` 或 `new`）以及用户的 `before_agent_start` 时，父会话会消费待处理的 `navori audit --arm`（无标签或 `--host pi`）并启动其审计日志。若设置 `audit.mode: always`（`navori render` 之后会在 `.pi/navori.json` 中生成可选的 `controls.auditMode`），则改为在用户第一次提示时启动日志。模型会收到一次性通知。子会话从不启动日志。无标签的 arm 作用于整个仓库，因此并发的 Claude 或 Codex 会话可能先将其消费。
 
 ## Hook 桥接
 
@@ -126,7 +129,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 启用的插件通过 `renderPiEngine`（`packages/cli/src/engines/pi/index.ts`）和 `plugin-projection.ts` 接入 Pi。重叠矩阵标记为 Pi 原生支持的插件会被跳过。启用的插件会投影以下内容：
 
 - **技能写入技能目录。** 插件技能的 `injectInto: .claude/skills/<id>/SKILL.md` 会成为 `.agents/skills/<id>/SKILL.md` 中由 Navori 管理的子区块。仅当 `engines` 中没有 Codex 时，Pi 才会写入它；启用 Codex 后，由 Codex 写入该技能，Pi 不会重复写入。
-- **角色说明。** 插件技能的 `injectInto: .claude/agents/<role>.md` 会插入变量并按 Pi 的条件处理后，附加到 `.pi/agents/<role>.md`。声明了 `mcpServer` 的插件完全不会提供角色说明：Pi 子进程以 `--no-mcp` 运行。
+- **角色说明。** 插件技能的 `injectInto: .claude/agents/<role>.md` 会插入变量并按 Pi 的条件处理后，附加到 `.pi/agents/<role>.md`。声明了 `mcpServer` 的插件只会为持有其 `navori_*` 知识工具的角色提供角色说明（见 [子进程中的知识工具](#子进程中的知识工具)），说明中使用这些工具名，而不是无前缀的 MCP 名称。Pi 子进程仍以 `--no-mcp` 运行。
+
 - **Orchestrator 和 AGENTS.md 区块。** 注入到 `.claude/agents/orchestrator.md` 的技能以及插件的 `managed` 区块会成为共享 `AGENTS.md` 的子区块。只有在没有其他已启用引擎管理该文件（`ownsAgentsMd`）时，Pi 才会写入这些区块；否则以该引擎的输出为准。
 - **脚本。** 即使启用了 Codex，插件脚本也会作为 Pi 自己的可执行副本复制到 `.pi/navori/scripts/<dest>`。只有桥接行会运行该脚本，或插件的 hook 扩展包含在已安装的 Pi hook 副本中时，才会安装脚本。目标路径冲突时会跳过。
 - **Hooks。** 插件的 `PreToolUse`/`Bash` hooks 使用 Codex 转换时采用的语法。它们会成为 `.pi/navori.json` 中的 manifest v2 行，指向 `.pi/navori/scripts/<dest>`：`tool_call`、`bash`、范围 `all`、`enforced`、非交互式，并使用 manifest 中的超时时间。无法转换的 hook 会报告为警告，且不会安装。
@@ -143,7 +147,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 | 插件 hook | `enforced` | 限制与共享防护规则相同；仅在扩展已加载时强制执行。 |
 | `settingsFragment` | `n/a` | 只有 `allow` 规则，而 Pi 不会转换这类规则（Codex 也一样）。 |
 | MCP 服务器 | `advisory` | 如果 Pi 的 MCP 配置中缺少服务器或服务器已禁用，渲染时会发出警告。 |
-| 子角色上的 MCP 插件技能 | `unsupported` | 子进程以 `--no-mcp` 运行，因此不会注入说明文本。 |
+| 子角色上的 MCP 插件技能 | `advisory` | 说明文本使用该角色持有的只读 `navori_*` 工具。这是模型可见的上限，不是隔离：`bash` 仍可访问这些 CLI，codegraph 索引也可能已过期。 |
+
 | Pi 不会渲染其技能的角色（例如 `publisher`） | `unsupported` | 等待 spec 0048 的 R14 和 M11 中的角色工作完成。 |
 | tgrep 防护脚本和 `tgrep-search-lane` hook 扩展 | `enforced`（安全带） | 脚本安装在 `.pi/navori/scripts/` 下。该通道通过桥接在 Pi 防护副本（`.pi/navori/hooks/guard-destructive.sh`）中运行。它仅涵盖 grep/rg；tgrep、其服务器或索引不可用时会开放失败。 |
 
@@ -217,7 +222,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - `architect`：`read, grep, find, ls, bash, write`；在 Pi 上无法派发嵌套子代理（`navori:if-not onPi`）
 - `publisher`：`read, grep, find, ls, bash`；其 git commit 和 push 都会运行质量门禁，发布操作需要父会话确认（见[防护规则](#防护规则)）
 
-该工具要求提供 `role` 和非空的 `task`；`feature` 可选，但 reviewer 必须显式提供 Navori feature slug 以进行交接检查；`implementer`、`reviewer` 和 `scribe` 都必须提供 `feature`。角色指令和描述都会保留。仅当配置的模型能映射到具体的 `codexMap` 模型时才会使用该模型；否则子进程会继承所选 Pi 模型。每个角色都有明确的 Pi 工具列表；缺少映射或映射未知时会失败时关闭，而不是启用默认工具。子进程不会获得 MCP 授权（见 `child-mcp-grants`）。
+该工具要求提供 `role` 和非空的 `task`；`feature` 可选，但 reviewer 必须显式提供 Navori feature slug 以进行交接检查；`implementer`、`reviewer` 和 `scribe` 都必须提供 `feature`。角色指令和描述都会保留。角色模型来自 `models.piMap`（opus/sonnet/haiku 对应 `provider/id`，例如 `anthropic/claude-sonnet-5-5`、`ollama/llama3`）；没有条目的档位会继承所选 Pi 模型。Pi 不读取 `models.codexMap`。每个角色都有明确的 Pi 工具列表；缺少映射或映射未知时会失败时关闭，而不是启用默认工具。子进程不会获得 MCP 授权（见 `child-mcp-grants`）。
 
 ### 审批中继
 
@@ -234,6 +239,14 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 任何失败（包括检查无法读取）都会返回 `isError`，其中包含原因和子进程输出（失败时关闭）。子进程结束时不会验证 `scribe`；它只需要满足 `feature` 要求。
 
+### 模型选择与失败诊断
+
+- 角色模型来自 `models.piMap`（opus/sonnet/haiku 对应 `provider/id`；允许 `:thinking` 后缀）。没有条目的档位会继承所选 Pi 模型。
+- 当 Pi 已启用、`models.codexMap` 至少有一个档位且 `models.piMap` 未定义时，render 和 `navori doctor` 会发出警告。设置 `piMap`（即使为 `{}`）即可消除警告。
+- 降级注意：较旧的 navori 会忽略 `piMap`，并把 Pi 角色恢复为 `codexMap`。
+- 子进程失败时会报告 `stopReason` 和 `errorMessage`（或 `auto_retry_end.finalError`），并附带经过脱敏、有长度上限的 stderr 尾部。结果还包含附加字段 `details.childStop {stopReason, errorMessage?}`。退出码为 0 但 `stopReason` 为 `error` 或 `aborted` 时仍视为失败。脱敏只是下限，不是保证。
+- reviewer 或 scribe 预检被拒绝时，会附加交接失败详情。
+
 ## 限制与无头运行
 
 - 子进程最多嵌套一层，最多并发运行三个，且每个子进程限时十分钟。
@@ -241,7 +254,29 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - 取消时会发送 `SIGTERM`，五秒后升级为 `SIGKILL`。超出主进程生命周期的后代进程也会被升级终止。
 - 子进程不会再注册另一个 `navori_subagent` 工具。
 - 无头子进程无法批准操作。扩展会拒绝子进程发出的审批请求，并将命令返回给父会话，由用户在那里批准。信任并不等于批准：只有在受信任的父会话加载扩展后，子进程才会收到进程范围内的 `--approve`。
-- 这些限制、工具列表和 `--no-mcp` 都不会创建操作系统沙箱。子进程会继承用户的环境、文件系统和网络权限，以及 Pi 代理目录。
+- 这些限制、工具列表和 `--no-mcp` 都不会创建操作系统沙箱。子进程会继承用户的环境、文件系统和网络权限，以及 Pi 代理目录。知识工具同理：子进程中的 `bash` 仍可访问 `codegraph` 和 `engram` CLI，包括 `engram save`。
+
+
+## 子进程中的知识工具
+
+子进程保留 `--no-mcp`，因此无法通过 Pi 的 MCP 访问 codegraph 和 engram。Navori 扩展改为在子进程内注册三个只读工具，且只提供给持有它们的角色：
+
+| 工具 | 后端 | 角色 |
+|---|---|---|
+| `navori_codegraph_explore` | `codegraph serve --mcp --no-watch -p <cwd>`（`CODEGRAPH_MCP_TOOLS=explore`） | scout、implementer、reviewer、auditor、architect |
+| `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout、implementer、reviewer、auditor |
+| `navori_mem_get_observation` | 同一个 engram 服务器 | scout、implementer、reviewer、auditor |
+
+scribe 和 publisher 不获得任何工具。任何角色都不会获得 `mem_save` 或其他写入工具：授权取自各角色在 Claude 中的授权（核心代理的 `tools:` 加上已启用插件的 `skills[].mcpTools`），再与封闭的只读表求交集，并且仅在插件已启用时生效。工具名带 `navori_` 前缀，以免与用户安装的 `gentle-engram` 包（`engram setup pi`）的原生 `mem_*` 工具冲突。
+
+工作方式：扩展在首次调用时按需启动各服务器，使用固定的参数列表（模型文本绝不会进入其中）和过滤后的环境，通过 stdio 使用 MCP，在请求到达服务器之前拒绝封闭列表之外的任何工具，按字节限制输出，并在会话关闭时停止服务器。缺少 `codegraph` 或 `engram` 可执行文件，或缺少 codegraph 索引，都会得到明确的工具错误，角色会改用 `read`/`grep`/`find` 继续。这些工具只在子进程中注册，从不在父会话中注册，也没有仅限 Pi 的开关：禁用对应插件即可移除。
+
+限制，直说如下：
+
+- 这是模型可见的上限，不是隔离。子进程中的 `bash` 仍可访问 `codegraph` 和 `engram` CLI（包括 `engram save`），并且子进程继承父进程的环境。
+- codegraph 以 `--no-watch` 运行，因此最多三个子进程不会同时自动同步同一个 SQLite 索引。代价是索引相对子进程自己的编辑可能已过期；请直接重新读取已编辑的文件。
+- 工作树中没有自己的 `.codegraph/` 时，服务器会从上级目录解析索引。
+- 用户安装的 `gentle-engram` 包仍会在子进程中加载。它的原生 `mem_*` 工具会被 `--tools` 过滤掉，但其 hooks 仍会运行。Navori 不传 `--no-extensions`，这由用户决定。
 
 ## 与 Claude 的实时比较
 
@@ -329,23 +364,23 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 
 | 单元 | 状态 | 类别 | 边界 |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | 只封存已经存在的日志：Pi 不会通过此 hook 启动审计模式日志（`audit-mode-trigger` 不受支持），因此在日志启动前它不起作用。失败会静默处理。 |
-| `hook:audit-mode-trigger` | unsupported | — | Pi 不会通过此 hook 启动审计模式日志（不在 spec 0048 范围内，设计目标明确排除）。 |
+| `hook:audit-mode-close` | advisory | — | 只封存已经存在的日志（由 audit-mode-trigger 打开），因此在日志启动前它不起作用。失败会静默处理。 |
+| `hook:audit-mode-trigger` | advisory | — | 扩展的 `session_start` 和 `before_agent_start` 处理器（仅父会话）消费待处理的 `navori audit --arm`（无标签或 `--host pi`），或在 `audit.mode=always` 时于用户首次提示时启动日志；随后通知模型。不运行共享脚本：扩展自行调用 `navori audit --start`。无标签的 arm 作用于整个仓库，因此并发的 Claude 或 Codex 会话可能先将其消费。子会话从不启动日志；失败会静默处理。 |
 | `hook:bash-outcome-watch` | advisory | 控制项 `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | 安全带（上述绕过方式类别） | 内联正文或无法读取的正文只会作为命令显示；stdin 正文（`-F -`）和由 shell 构建的路径（`$VAR`、`$(…)`）不会显示。检查与执行之间仍有一个时间窗口。间接 shell 形式可以绕过它。 |
-| `hook:engram-write-guard` | n/a | — | 仅适用于 Codex：Pi 子进程以 `--no-mcp` 运行，因此没有 engram 授权需要防护（`child-mcp-grants` 尚未实现）。 |
+| `hook:engram-write-guard` | n/a | — | 仅适用于 Codex：Pi 子进程以 `--no-mcp` 运行，且从不获得 engram 写入工具（只有只读的 `navori_mem_*`；见 engram 的 `plugin-skill` 行）；`bash` 仍可访问 engram CLI，Pi 没有任何控制对此设防 |
 | `hook:general-purpose-confirm` | unsupported | 控制项 `general-purpose-confirm` | — |
 | `hook:guard-destructive` | enforced | 安全带（上述绕过方式类别） | 对命令字符串实施文本策略：共享脚本中的破坏性规则、共享 `deny` 权限规则、对 Pi 控制平面（`.pi/navori/**`、`.pi/extensions/**`、`.pi/settings.json`、`.pi/navori.json`）的写入，以及 `pi --no-extensions`。共享 `ask` 规则会给出 `ask`（见对应行）。 |
 | `hook:implementer-no-markdown` | advisory | 控制项 `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | 不会阻止操作；只会检查带有哈希标记的区块（AGENTS.md、skills、hook 副本）。扩展、manifest 和角色文件没有逐区块哈希，因此改由防护规则和 edit/write 通道保护。无法评估的漂移会静默处理。 |
 | `hook:master-accept-confirm` | enforced | 安全带（上述绕过方式类别） | 覆盖 `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`、`master close`、`delivery-review\|decision\|publication\|revoke` 和 `delivery-slice --refresh`；间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过。该确认是安全带，不是沙箱。 |
 | `hook:master-plan-context` | advisory | 控制项 `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | 在 Pi 中通过 `/model` 选择模型并传给子进程（spec 0047 R17）；没有可供建议器使用的逐轮模型更改载荷。 |
+| `hook:model-advisor` | unsupported | — | 移植到 Pi 需要脚本提供 Pi 模式并添加绑定；目前没有计划（模型通过 `/model` 选择并传给子进程，spec 0047 R17）。 |
 | `hook:plan-gate` | enforced | 控制项 `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | 安全带（上述绕过方式类别） | 仅在启用 publisher 角色时安装；内联正文或无法读取的正文只会作为命令显示。间接 shell 形式可以绕过它。 |
 | `hook:quality-gate-pre-commit` | enforced | 安全带（上述绕过方式类别） | 仅在配置了 `qualityGate.fast` 时存在（与 Claude 和 Codex 一样，否则没有对应行）；结果仅适用于当时的工作树。间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过；代理以外的 hook（例如用户自己的终端）无法被检测到。 |
 | `hook:role-guard` | n/a | — | 仅适用于 Codex：Claude 和 Pi 通过工具允许列表限制角色，而不是通过 hook（`HOOK_ENGINES`）。 |
-| `hook:routing-watch` | unsupported | — | 只有在桥接将 Pi 工具名称和载荷字段映射到脚本契约，并将其 `additionalContext` 作为附加结果区块写入后，才会变为 `advisory`（spec 0048 E1 M2/E3）；它永远不会阻止操作。 |
+| `hook:routing-watch` | advisory | — | 每个会话最多一条提示；永不阻止操作；出错的结果不会转发，因此失败的写入或被拒绝的 `navori_subagent` 既不算工作也不算委派；与 Claude 一样需要在仓库根目录启动 Pi，bash 通道只统计重定向/tee/sed -i 写入。 |
 | `hook:session-start-context` | advisory | — | 仅提供上下文，不是边界；发生任何错误时都会跳过注入。 |
 | `hook:stop-verify-reminder` | advisory | — | 不会阻止操作，也不会设置 `continue`，因此不会产生额外模型请求；每次代理运行最多提醒一次；失败时不显示任何内容。 |
 | `hook:subagent-no-background` | enforced | 安全带（上述绕过方式类别） | 仅对命令字符串实施文本策略，仅适用于子会话：父会话可以将工作放到后台。 |
@@ -454,15 +489,15 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 | `plugin-settings:gh` | n/a | — | 只有 `allow` 规则：Pi 没有权限系统，不会转换此类规则，与 Codex 相同。 |
 | `plugin-settings:tgrep` | n/a | — | 只有 `allow` 规则：Pi 没有权限系统，不会转换此类规则，与 Codex 相同。 |
 | `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | 仅提供指导，没有任何机制强制执行；禁用 publisher 角色时，没有对应角色文件，因此不会渲染该说明文本。 |
-| `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 architect 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
-| `plugin-skill:codegraph/codegraph-access-v2-auditor` | unsupported | — | codegraph 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 auditor 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
-| `plugin-skill:codegraph/codegraph-access-v2-implementer` | unsupported | — | codegraph 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 implementer 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
+| `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
+| `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
+| `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | 只有在 Codex 和 agents-md 都不管理 AGENTS 文件时，Pi 才会通过 includePluginBlocks 写入该文件；否则以所有者的输出为准。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
-| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | unsupported | — | codegraph 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 reviewer 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
-| `plugin-skill:engram/engram-auditor-extension` | unsupported | — | engram 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 auditor 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
-| `plugin-skill:engram/engram-implementer-extension` | unsupported | — | engram 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 implementer 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
+| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
+| `plugin-skill:engram/engram-auditor-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
+| `plugin-skill:engram/engram-implementer-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | 只有在 Codex 和 agents-md 都不管理 AGENTS 文件时，Pi 才会通过 includePluginBlocks 写入该文件；否则以所有者的输出为准。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
-| `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram 声明了 MCP 服务器，而 Pi 子进程以 `--no-mcp` 运行，因此不会注入 reviewer 说明文本；渲染时会通过 `mcpRoleDiagnostics` 指出该角色。 |
+| `plugin-skill:engram/engram-reviewer-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | 仅提供指导，没有任何机制强制执行；禁用 publisher 角色时，没有对应角色文件，因此不会渲染该说明文本。 |
 <!-- pi-parity:end -->
 
@@ -535,6 +570,6 @@ Navori 不会读取、复制、生成、刷新或记录 Pi 的 `auth.json`，也
 10. 在 TUI 对话框中确认 PR，并检查对话框显示的正文。
 11. 关闭验收标准：`navori plan update <feature> --progress A<n>=cumplido`。只有记录了证据后此命令才会成功。
 
-当前状态：**尚未运行**。证据记录在 [evals.md](../specs/0048-pi-paridad/evals.md) 中。
+当前状态：实时冒烟测试已于 2026-10-12 使用 Pi 1.1.0 运行（第 4 次运行，GREEN；第 1–3 次为 RED，已由 #1301/#1302 修复）。尚未在经过测试的 Pi 1.4.0 上重复。证据记录在 [evals.md](../specs/0048-pi-paridad/evals.md) 中。
 
 有关要求以及实施/review 状态，请参见 [Pi 引擎规范](../specs/0040-pi-engine/requirements.md)和 [Pi first 规范](../specs/0047-pi-first/requirements.md)。

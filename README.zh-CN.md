@@ -56,7 +56,7 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — 可跨预设复用的模块化 skills，根据依赖检测注入。无论使用哪个预设，只要仓库包含相应依赖，就会获得 `socketio`、`mongoose`、`redux-toolkit`、`formik`、`zod` 等 skills。
 - **Workspace** — 可继承的默认设置，以及涉及多个仓库时使用的跨仓库 tickets。
 - **Project config** — 在 `navori.config.json` 中设置项目覆盖项。
-- **Engine adapters** — Claude Code（`.claude/`）和完整 Codex（`AGENTS.md`、`.agents/skills`、`.codex/agents`、hooks 和 MCP），以及通用 `AGENTS.md`、Cursor 和 Copilot。Pi 需显式启用（`.pi/` 中包含扩展和 agents，skills 位于 `.agents/skills`）；最低且经过测试的版本为 1.1.0，Pi 要求 Node.js >= 22.19。矩阵和限制见 [docs/pi.md](./docs/pi.zh-CN.md)。
+- **Engine adapters** — Claude Code（`.claude/`）和完整 Codex（`AGENTS.md`、`.agents/skills`、`.codex/agents`、hooks 和 MCP），以及通用 `AGENTS.md`、Cursor 和 Copilot。Pi 需显式启用（`.pi/` 中包含扩展和 agents，skills 位于 `.agents/skills`）；最低版本为 1.1.0，经过测试的版本为 1.4.0，Pi 要求 Node.js >= 22.19。矩阵和限制见 [docs/pi.md](./docs/pi.zh-CN.md)。
 
 要启用完整支持，请使用 `"engines": ["claude", "codex"]`。要在 Claude 旁边使用轻量的 Codex 配置，请使用 `["claude", "agents-md"]`；无需额外设置 `codexMode`。
 

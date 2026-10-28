@@ -5,6 +5,7 @@ import {
   accessSync,
   constants,
   existsSync,
+  lstatSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -54,6 +55,7 @@ import {
   enabledMonorepoWorkspaces,
 } from "../lib/workspace/monorepo.ts";
 import { hasBinary } from "../lib/primitives/which.ts";
+import { auditRootRepairCommand, auditsRoot } from "../lib/audit/paths.ts";
 import { probeEnabledToolVersions } from "../lib/primitives/tool-version-probe.ts";
 import { scanToolUpdates } from "../lib/primitives/tool-version-notice.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
@@ -265,6 +267,7 @@ export const doctorCommand = defineCommand({
     const operationalTools = scanOperationalTools(cwd, config);
     const tgrepIndexFreshness = operationalTools.tgrep?.staleIndex ?? null;
     const codegraphIndexDrift = operationalTools.codegraph?.indexDrift ?? null;
+    const auditRootOpen = scanAuditRootPermissions();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     const workspaceDeadRepos = scanWorkspaceDeadRepos(cwd, config);
@@ -946,6 +949,13 @@ export const doctorCommand = defineCommand({
       }
     }
 
+    if (auditRootOpen) {
+      const rows = auditRootOpen.paths
+        .map((path) => `  ${color.yellow(sym.update)} ${accent(path)}`)
+        .join("\n");
+      p.log.warn(td.auditRootOpen(rows, auditRootRepairCommand(auditRootOpen.root)));
+    }
+
     if (tgrepIndexFreshness) {
       p.log.warn(td.tgrepIndexStale(tgrepIndexFreshness.age, tgrepIndexFreshness.rootPath));
     }
@@ -1267,6 +1277,7 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.piForeignExtensions(piHealth.foreignExtensions.join(", "))}`,
         );
       }
+      if (piHealth.piMapMigration) pi.push(`  ${color.yellow(sym.update)} ${td.piMapMigration}`);
       if (pi.length > 0) p.note(pi.join("\n"), "Pi");
     }
 
@@ -2548,6 +2559,43 @@ export function scanOperationalTools(
         }
       : null;
   return { tgrep, codegraph, engram };
+}
+
+/**
+ * Read-only (lstat only, never chmod): the audit root and its immediate repo
+ * directories that belong to this user but are open to group/other. `navori
+ * audit` refuses such a root ("unsafe-audit-target"), so this surfaces it
+ * before an audit session silently fails to start. Foreign-uid and symlinked
+ * entries are skipped: the chmod repair does not fix them. Silent when the
+ * root does not exist yet. `root` is a test seam; default is the real root.
+ */
+export function scanAuditRootPermissions(root?: string): { root: string; paths: string[] } | null {
+  let base: string;
+  try {
+    base = root ?? auditsRoot();
+  } catch {
+    return null;
+  }
+  if (typeof process.getuid !== "function") return null;
+  const uid = process.getuid();
+  const open: string[] = [];
+  const inspect = (path: string): boolean => {
+    try {
+      const stat = lstatSync(path);
+      if (stat.isDirectory() && stat.uid === uid && (stat.mode & 0o077) !== 0) open.push(path);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  if (!inspect(base)) return null;
+  try {
+    for (const entry of readdirSync(base, { withFileTypes: true }))
+      if (entry.isDirectory()) inspect(join(base, entry.name));
+  } catch {
+    /* unreadable root: nothing reliable to report */
+  }
+  return open.length > 0 ? { root: base, paths: open } : null;
 }
 
 /**

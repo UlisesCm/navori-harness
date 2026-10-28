@@ -38,7 +38,7 @@ function bareNames(entries: readonly string[]): string[] {
 }
 
 /** Entries declared in a core agent's own `tools:` frontmatter. */
-function coreAgentEntries(agentId: string): string[] {
+export function coreAgentEntries(agentId: string): string[] {
   const file = resolve(getCoreRoot(), "core-assets/agents", `${agentId}.md`);
   const { frontmatter } = splitFrontmatter(readFileSync(file, "utf-8"));
   const declared = getFrontmatterField(frontmatter, "tools");

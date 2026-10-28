@@ -51,7 +51,7 @@ Before writing the adapter, resolve these four questions against the real CLI (t
 1. **Hook payload** — What does a hook receive, and through which channel (stdin/env/arg)? Which events are available (PreToolUse/SessionStart/Stop…)? Do hooks run in a sandbox?
 2. **Skill discovery** — Which directory does the tool read? (Codex: `.agents/skills/<id>/SKILL.md`; Claude: `.claude/skills/<id>/SKILL.md`, directory form—Claude Code auto-discovers that form only, not a flat `<id>.md` file.)
 3. **Config location** — Where does project config live, and in what format? (Claude: `.claude/settings.json`; Codex: `.codex/config.toml`.)
-4. **Model map** — How does the tool name its models? Map Claude tiers (opus/sonnet/haiku) to concrete ids (see `CODEX_MODEL_BY_CLAUDE_TIER` plus the `models.codexMap` override, Spec 0007 M3).
+4. **Model map** — How does the tool name its models? Map Claude tiers (opus/sonnet/haiku) to concrete ids (see `CODEX_MODEL_BY_CLAUDE_TIER` plus the `models.codexMap` override, Spec 0007 M3). Pi has its own `models.piMap` (`provider/id`); an engine must not read another engine's model map.
 
 ## DT-2 criterion — when to factor further (the rule of three)
 

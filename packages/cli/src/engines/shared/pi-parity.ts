@@ -196,10 +196,6 @@ const viaControl = (control: ControlId, boundary?: string): PiControlParity => (
   ...(boundary === undefined ? {} : { boundary }),
 });
 
-/** Why the audit-mode trigger has no Pi counterpart: the bridge does not map it. */
-const NO_BRIDGE =
-  "the extension bridge runs other Navori hook scripts but has no handler that opens an audit-mode log; Pi's audit capture is the one of spec 0047 R12";
-
 const hookEntries = (): Array<[string, PiParity]> => {
   const h = (id: string, row: PiParity): [string, PiParity] => [piParityKey("hook", id), row];
   return [
@@ -233,16 +229,17 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "routing-watch",
-      unsupported(
-        "none today. Evaluated against Pi 1.1.0 (spec 0048 D11): the signal exists in `tool_result` (edit/write path, `navori_subagent` call), but the script keys on Claude tool names. Probe: with 4 distinct files, tool_name `Edit` makes it emit its additionalContext note and the Pi name `edit` emits nothing",
-        "Becomes `advisory` only once the bridge maps Pi tool names and payload fields to the script's contract and turns its additionalContext into an appended result block (spec 0048 E1 M2/E3); never blocks",
+      advisory(
+        "the extension's tool_result handler runs the Pi copy of the script for the parent on bash/edit/write/navori_subagent results; `navori_subagent` reaches the script as `Agent` (delegation) and its additionalContext is appended to the result (PI_HOOK_BINDINGS)",
+        "at most one note per session; never blocks; errored results are not forwarded, so a failed write or a refused `navori_subagent` is neither work nor delegation; like Claude it needs Pi started at the repository root, and the bash lane counts only redirect/tee/sed -i writes",
+        "pi-extension:tool_result",
       ),
     ),
     h(
       "model-advisor",
       unsupported(
-        "none: the script reads the Claude model-change contract (host-contracts.ts)",
-        "In Pi the model is chosen with `/model` and passed to children (spec 0047 R17); there is no per-turn model-change payload to advise on",
+        "none: Pi 1.4.0 emits `model_select` and `thinking_level_select`, but the script only knows the Claude and Codex modes and recommends vendor-specific models",
+        "A Pi port needs a Pi mode in the script and a binding; not planned (the model is chosen with `/model` and passed to children, spec 0047 R17)",
       ),
     ),
     h(
@@ -279,16 +276,17 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "audit-mode-trigger",
-      unsupported(
-        NO_BRIDGE,
-        "Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal)",
+      advisory(
+        "the extension's session_start and before_agent_start handlers (parent only) consume a pending `navori audit --arm` (untagged or `--host pi`) or, with `audit.mode: always`, start the log on the first user prompt, then tell the model audit mode is active",
+        "the shared hook script is not run: the extension calls `navori audit --start` itself. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first. Children never start a log; failures are silent",
+        "pi-extension:before_agent_start",
       ),
     ),
     h(
       "audit-mode-close",
       advisory(
         "the extension's session_shutdown handler (parent only, reason quit or new) runs the shared script after the reclaim, 3 s, with a SessionEnd payload",
-        "seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent",
+        "seals only a log that already exists (opened by `audit-mode-trigger`), so it is a no-op until one is started. Failures are silent",
         "pi-extension:session_shutdown",
       ),
     ),
@@ -333,7 +331,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
     h(
       "engram-write-guard",
       notApplicable(
-        "Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred)",
+        "Codex-only: Pi children run with `--no-mcp` and are never granted an engram write tool (only the read-only navori_mem_* tools, see the engram plugin-skill rows); bash still reaches the engram CLI, which no Pi control guards",
       ),
     ),
   ];
@@ -417,12 +415,22 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       PLUGIN_PROJECTION,
     ),
   ];
-  /** A skill extending a child role of an MCP plugin: Pi children run `--no-mcp`, so it is not injected. */
-  const skillOnMcpRole = (plugin: string, id: string, role: string): [string, PiParity] => [
+  /**
+   * A skill extending a child role of an MCP plugin. Pi children run `--no-mcp`, so the role reaches
+   * the plugin through navori-owned read-only extension tools (`navori_*`, knowledge-tools.ts) and the
+   * prose names those tools. A ceiling the model sees, not isolation.
+   */
+  const skillOnMcpRole = (
+    plugin: string,
+    id: string,
+    role: string,
+    tools: string,
+  ): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
-    unsupported(
-      "none",
-      `${plugin} declares an MCP server and Pi children run with --no-mcp, so the ${role} prose is not injected; render names the role (mcpRoleDiagnostics)`,
+    advisory(
+      `prose appended to .pi/agents/${role}.md naming the read-only ${tools} the child holds; the extension serves them through a private lazy stdio MCP server per plugin, children keep --no-mcp and no write tool is ever granted`,
+      "a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools)",
+      PLUGIN_PROJECTION,
     ),
   ];
   /** A skill extending the publisher role: prose appended to the role file Pi renders. */
@@ -461,13 +469,23 @@ const pluginEntries = (): Array<[string, PiParity]> => {
     settings("codegraph"),
     skillOnOrchestrator("codegraph", "codegraph-access-v2-orchestrator"),
     ...["implementer", "reviewer", "auditor", "architect"].map((role) =>
-      skillOnMcpRole("codegraph", `codegraph-access-v2-${role}`, role),
+      skillOnMcpRole(
+        "codegraph",
+        `codegraph-access-v2-${role}`,
+        role,
+        "navori_codegraph_explore tool",
+      ),
     ),
     mcp("engram"),
     settings("engram"),
     skillOnOrchestrator("engram", "engram-orchestrator-extension"),
     ...["implementer", "reviewer", "auditor"].map((role) =>
-      skillOnMcpRole("engram", `engram-${role}-extension`, role),
+      skillOnMcpRole(
+        "engram",
+        `engram-${role}-extension`,
+        role,
+        "navori_mem_search and navori_mem_get_observation tools",
+      ),
     ),
     settings("gh"),
     skillOnPublisher("gh", "gh-comment-channel-publisher"),

@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:0f6e683cc24ac5160622d86d8f00bb6c3f1a8564fe25acfa131bfaa6abe48e6b impl=sha256:2907906cba21ccdc6ea7dbb31306a500302a535ccafa5076e413f2b6f6c09d04
-# navori:managed start id="guard-destructive-base" hash="bc723058" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:32f338b26c2678ef5c6309c18d8e7fd924c00634da905bf80d93e2f30c70ce50 impl=sha256:493867da4620c968e6cf4f0adf8e0b5761f5ce6c8ef7e6f816427c363d97f8bf
+# navori:managed start id="guard-destructive-base" hash="2d11533b" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -79,8 +79,9 @@ payload_load() { :; }
 # `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
 # tool names this hook does not otherwise read) keeps that value, empty or
 # not, instead of this partial re-reading an already-drained pipe and
-# clobbering it with "".
-payload=${payload-$(cat)}
+# clobbering it with "". The inner quotes matter: unquoted, zsh word-splits the
+# substitution and rejoins it with single spaces (bash does not).
+payload=${payload-"$(cat)"}
 payload_field() {
   case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
     if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
@@ -920,6 +921,7 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .pi/navori/hooks/master-accept-confirm.sh
 .pi/navori/hooks/pr-publisher-confirm.sh
 .pi/navori/hooks/quality-gate-pre-commit.sh
+.pi/navori/hooks/routing-watch.sh
 .pi/navori/hooks/subagent-no-background.sh
 .pi/navori/hooks/worktree-reclaim.sh
 .pi/navori/scripts/guard-search-routing.sh
