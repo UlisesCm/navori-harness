@@ -39,8 +39,10 @@ const ORCHESTRATOR: &str = ".claude/agents/orchestrator.md";
 pub struct SubBlocks {
     /// Targets kept.
     pub skipped: Vec<SkippedFile>,
-    /// `pluginSkillNotInjected` notes and retired blocks kept.
+    /// `pluginSkillNotInjected` notes (step 8).
     pub warnings: Vec<String>,
+    /// Retired blocks kept (step 8.5-ter), which the TS reports after the disabled scripts.
+    pub retired_warnings: Vec<String>,
     /// Sub-blocks whose version on disk is older.
     pub updates_available: Vec<UpdateAvailable>,
     /// Sub-blocks written by a newer navori.
@@ -172,7 +174,7 @@ fn skip_kept(
     out.skipped.push(SkippedFile {
         rel_path: rel.to_owned(),
         reason,
-        status: result.status,
+        status: Some(result.status),
         resolution: None,
         markerless_resolution: None,
     });
@@ -444,7 +446,7 @@ pub fn strip_retired_sub_blocks(
                         Kept::Newer => "from a newer navori",
                         Kept::Modified => "edited by hand",
                     };
-                    out.warnings.push(format!(
+                    out.retired_warnings.push(format!(
                         "kept {target} \u{2014} retired block {id} is {why}"
                     ));
                     continue;

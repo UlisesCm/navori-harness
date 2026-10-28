@@ -17,6 +17,8 @@ pub trait RepoView {
     fn read_regular(&self, rel: &str) -> Option<String>;
     /// `existsSync`: follows symlinks, true for directories.
     fn exists(&self, rel: &str) -> bool;
+    /// `lstatSync(p, { throwIfNoEntry: false }) !== undefined`: true for a dangling symlink.
+    fn lexists(&self, rel: &str) -> bool;
     /// `readdirSync` entry names; `None` when it throws.
     fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
 }
@@ -56,8 +58,8 @@ pub struct SkippedFile {
     pub rel_path: String,
     /// Localized reason.
     pub reason: String,
-    /// `user-modified-skipped` or `downgrade-skipped`.
-    pub status: InjectStatus,
+    /// `user-modified-skipped` or `downgrade-skipped`; `None` where the TS leaves it unset.
+    pub status: Option<InjectStatus>,
     /// `resolution.content`: what `sync` would write to accept the rendered version.
     pub resolution: Option<String>,
     /// `markerlessResolution.content`: the whole-file replace only `sync --interactive` offers.
@@ -108,7 +110,7 @@ pub fn collect_managed(
             collected.skip = Some(SkippedFile {
                 rel_path: rel_path.to_owned(),
                 reason: reason.to_owned(),
-                status: rendered.status,
+                status: Some(rendered.status),
                 resolution,
                 markerless_resolution: None,
             });
@@ -120,7 +122,7 @@ pub fn collect_managed(
                     lang,
                     rendered.details.existing_version.as_deref(),
                 ),
-                status: rendered.status,
+                status: Some(rendered.status),
                 resolution: None,
                 markerless_resolution: None,
             });

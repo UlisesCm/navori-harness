@@ -51,6 +51,8 @@ pub struct ClaudeMdPlan {
     pub warnings: Vec<String>,
     /// Destinations inspected.
     pub inspected: usize,
+    /// `(relPath, managedId)` this step records in the owned-path inventory.
+    pub observed: Vec<(String, String)>,
 }
 
 /// `{ skipIds, forceIds }` of a root render, plus the run-wide marker floor.
@@ -293,6 +295,15 @@ pub fn plan_claude_md(
     let mut removals = Vec::new();
     let mut warnings = Vec::new();
     let mut inspected = 1;
+    let mut observed: Vec<(String, String)> = plan
+        .entries
+        .iter()
+        .filter(|entry| {
+            !matches!(&entry.asset, PlanAsset::Core(asset) if asset.audience == Audience::Orchestrator)
+                && entry.new_content.is_some()
+        })
+        .map(|entry| ("CLAUDE.md".to_owned(), entry.asset.id().to_owned()))
+        .collect();
 
     // 1a-bis: blocks addressed to the orchestrator get their own context file.
     for entry in &plan.entries {
@@ -314,6 +325,7 @@ pub fn plan_claude_md(
             }
             continue;
         }
+        observed.push((dest.clone(), asset.id.to_owned()));
         let (path, _) = resolve_asset_path(asset, &language);
         let source = String::from_utf8(assets::core(&path).ok_or(ClaudeMdDelegate)?.to_vec())
             .map_err(|_| ClaudeMdDelegate)?;
@@ -366,6 +378,7 @@ pub fn plan_claude_md(
             InjectOptions::default(),
         );
         let dest = format!("{CONTEXT_DIR}/{}", context_file_name(AGENTS_INDEX_ID));
+        observed.push((dest.clone(), AGENTS_INDEX_ID.to_owned()));
         let legacy = format!("{CONTEXT_DIR}/{AGENTS_INDEX_ID}.md");
         if removable(view, &legacy, AGENTS_INDEX_ID) {
             removals.push(legacy);
@@ -393,6 +406,7 @@ pub fn plan_claude_md(
 
     // 1c: project context rules.
     if let Some(body) = contexto_proyecto_body(&config, lang)? {
+        observed.push(("CLAUDE.md".to_owned(), CONTEXTO_PROYECTO_ID.to_owned()));
         let result = inject_managed_section(
             &content,
             CONTEXTO_PROYECTO_ID,
@@ -451,6 +465,7 @@ pub fn plan_claude_md(
         removals,
         warnings,
         inspected,
+        observed,
     })
 }
 

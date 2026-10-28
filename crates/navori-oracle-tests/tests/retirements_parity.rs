@@ -95,6 +95,10 @@ impl RepoView for Disk<'_> {
         self.0.join(rel).exists()
     }
 
+    fn lexists(&self, rel: &str) -> bool {
+        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
+    }
+
     fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
         let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
         Some(
@@ -404,7 +408,7 @@ fn rust_plan(root: &Path, text: &str, settings_skipped: bool) -> Option<Value> {
     let out = plan_retirements(&Disk(root), &input).ok()?;
     Some(json!({
         "removals": out.removals.iter().map(|r| json!([r.rel_path, r.recursive])).collect::<Vec<_>>(),
-        "warnings": out.warnings,
+        "warnings": out.script_warnings.iter().chain(&out.warnings).collect::<Vec<_>>(),
     }))
 }
 
