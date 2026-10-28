@@ -12,7 +12,7 @@ import { availableParallelism, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative } from "node:path";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import type { HookShell } from "../../lib/__tests__/helpers/shells.ts";
-import { recordHookCase } from "./hook-corpus.ts";
+import { helperSpawn, recordHookCase } from "./hook-corpus.ts";
 
 /**
  * Batched hook runner (spec 0054 D4). One shell process runs N cases, each in
@@ -119,12 +119,14 @@ const LANES = Math.max(1, Math.min(4, availableParallelism() - 1));
 export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase): HookCaseResult {
   recordHookCase(hookPath, shell, c);
   writeFixture(c);
-  const r = spawnSync(shell, [hookPath, ...(c.args ?? [])], {
-    input: c.input,
-    cwd: c.cwd,
-    env: { ...process.env, ...c.env },
-    encoding: "utf-8",
-  });
+  const r = helperSpawn(() =>
+    spawnSync(shell, [hookPath, ...(c.args ?? [])], {
+      input: c.input,
+      cwd: c.cwd,
+      env: { ...process.env, ...c.env },
+      encoding: "utf-8",
+    }),
+  );
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 

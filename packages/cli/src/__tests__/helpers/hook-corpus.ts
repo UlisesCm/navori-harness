@@ -162,6 +162,24 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
   appendFileSync(join(dir, `raw-${process.pid}.jsonl`), `${JSON.stringify(out)}\n`);
 }
 
+/** Depth of helper-owned spawns, which {@link recordHookCase} already recorded in full. */
+let helperSpawns = 0;
+
+/**
+ * Runs a spawn the hook helpers already recorded (with its fixture), so the `child_process`
+ * wrapper does not record it again as a second, fixture-less case.
+ *
+ * @param spawn the helper's own spawn
+ */
+export function helperSpawn<T>(spawn: () => T): T {
+  helperSpawns += 1;
+  try {
+    return spawn();
+  } finally {
+    helperSpawns -= 1;
+  }
+}
+
 /**
  * The `child_process` wrapper's entry: records a direct `spawnSync`/`execFileSync` of a hook.
  * Recognizes `<shell> <hook>.sh [args...]` with a string `input` and string arguments; its env
@@ -173,6 +191,7 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
  */
 export function recordSpawnedHook(command: unknown, args: readonly unknown[]): void {
   if (process.env.NAVORI_HOOK_CORPUS === undefined || process.env.NAVORI_HOOK_CORPUS === "") return;
+  if (helperSpawns > 0) return;
   if (command !== "bash" && command !== "zsh" && command !== "sh") return;
   const argv = Array.isArray(args[0]) ? (args[0] as unknown[]) : [];
   const hookPath = argv[0];
