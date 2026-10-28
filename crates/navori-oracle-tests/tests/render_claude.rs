@@ -699,6 +699,62 @@ fn sections_in_order(out: &str, sections: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The wiring in both modes (D23: `guard-destructive` and `subagent-no-background` also in
+/// `active`): every ported hook is signed so the runtime verifier accepts it, against its
+/// dependency bytes and the manifest's `impl`, and `active` leaves no `--shadow` behind.
+// Covers: R42
+#[test]
+fn native_wiring_verifies_in_shadow_and_active() -> Result<(), String> {
+    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}}}"#;
+    let root = BASE.join("modes");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::create_dir_all(&root);
+    write(&root, "navori.config.json", CONFIG);
+    for mode in [HookMode::Shadow, HookMode::Active] {
+        let mut manifest = navori_core::render::native_hooks::embedded_native_hooks();
+        if manifest.len() < 2 {
+            return Err("ported.json lost a hook".to_owned());
+        }
+        for hook in manifest.values_mut() {
+            hook.mode = mode;
+        }
+        let rendered =
+            plan_with(&root, CONFIG, None, Some(manifest.clone())).ok_or("plan delegated")?;
+        let content = |rel: &str| {
+            rendered
+                .pending
+                .iter()
+                .find(|w| w.rel_path == rel)
+                .map(|w| w.content.clone())
+        };
+        for (id, hook) in &manifest {
+            let script = content(&format!(".claude/hooks/{id}.sh"))
+                .ok_or_else(|| format!("{id}: not planned"))?;
+            let deps: Vec<String> = hook
+                .deps
+                .keys()
+                .map(|dep| {
+                    content(&format!(".claude/{dep}")).ok_or_else(|| format!("{dep}: not planned"))
+                })
+                .collect::<Result<_, _>>()?;
+            let slices: Vec<&[u8]> = deps.iter().map(String::as_bytes).collect();
+            if !navori_core::integrity::verify(script.as_bytes(), &slices, &hook.r#impl) {
+                return Err(format!("{id} {mode:?}: signature does not verify"));
+            }
+            if script.contains("--shadow") != (mode == HookMode::Shadow) {
+                return Err(format!("{id} {mode:?}: wrong runtime arm"));
+            }
+        }
+        let settings = content(".claude/settings.json").ok_or("settings not planned")?;
+        if !settings.contains("native-runtime start")
+            || settings.contains("--shadow") != (mode == HookMode::Shadow)
+        {
+            return Err(format!("settings.json {mode:?}: wrong native commands"));
+        }
+    }
+    Ok(())
+}
+
 /// Replaces the body of the first managed block of `text` and re-hashes its marker.
 fn rewrite_first_block(text: &str, body: &str) -> String {
     let Some(open_end) = text.find(" -->\n").map(|at| at + " -->\n".len()) else {
