@@ -173,6 +173,92 @@ pub const fn settings_not_object(lang: Lang) -> &'static str {
     }
 }
 
+/// `engine.qualityGateHookSkipped`.
+#[must_use]
+pub const fn quality_gate_hook_skipped(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "quality-gate hook omitido: config.qualityGate.fast no est\u{e1} definido",
+        Lang::En => "quality-gate hook skipped: config.qualityGate.fast is not set",
+    }
+}
+
+/// `engine.libraryRemovedFromRegistry`.
+#[must_use]
+pub fn library_removed_from_registry(lang: Lang, id: &str, successors: &[&str]) -> String {
+    let now = successors.join(", ");
+    match (lang, successors.is_empty()) {
+        (Lang::Es, false) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro (ahora: {now}) y su skill se elimina de disco. Corre 'navori refresh' para re-detectar las sucesoras."
+        ),
+        (Lang::Es, true) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori refresh' para limpiar la selecci\u{f3}n."
+        ),
+        (Lang::En, false) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry (now: {now}) and its skill is removed from disk. Run 'navori refresh' to re-detect the successors."
+        ),
+        (Lang::En, true) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry and its skill is removed from disk. Run 'navori refresh' to clean the selection."
+        ),
+    }
+}
+
+/// `engine.libraryUnknownInRegistry`.
+#[must_use]
+pub fn library_unknown_in_registry(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "project.libraries/extraLibraries: '{id}' no existe en el registro de esta versi\u{f3}n del CLI; se omite. Corre 'navori refresh' para re-detectar librer\u{ed}as."
+        ),
+        Lang::En => format!(
+            "project.libraries/extraLibraries: '{id}' is unknown to this CLI version's registry; skipped. Run 'navori refresh' to re-detect libraries."
+        ),
+    }
+}
+
+/// `engine.markerlessCollision(path, keys, backup)`.
+#[must_use]
+pub fn markerless_collision(
+    lang: Lang,
+    path: &str,
+    keys: &[String],
+    backup: Option<&str>,
+) -> String {
+    let list = keys.join(", ");
+    match lang {
+        Lang::Es => format!(
+            "{path} ya exist\u{ed}a sin marcador de navori: navori lo adopta por nombre. {}Tu cuerpo y las keys ajenas se conservan.{}",
+            if keys.is_empty() {
+                "No sobrescribe keys de frontmatter existentes. ".to_owned()
+            } else {
+                format!("Sobrescribe las keys de frontmatter: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Respaldo del original: {b}")),
+        ),
+        Lang::En => format!(
+            "{path} already existed without a navori marker: navori adopts it by name. {}Your body and unrelated keys are preserved.{}",
+            if keys.is_empty() {
+                "It overwrites no existing frontmatter keys. ".to_owned()
+            } else {
+                format!("It overwrites the frontmatter keys: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Original backed up at: {b}")),
+        ),
+    }
+}
+
+/// `engine.localSkillMissing`.
+#[must_use]
+pub fn local_skill_missing(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Skill project-local '{id}' declarada en project.localSkills, pero ausente de .claude/skills/{id}/SKILL.md."
+        ),
+        Lang::En => format!(
+            "Project-local skill '{id}' declared in project.localSkills, but absent from .claude/skills/{id}/SKILL.md."
+        ),
+    }
+}
+
 /// `engine.mcpJsonNotObject`.
 #[must_use]
 pub const fn mcp_json_not_object(lang: Lang) -> &'static str {

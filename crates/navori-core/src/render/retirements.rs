@@ -107,6 +107,9 @@ pub struct Retirements {
     pub script_warnings: Vec<String>,
     /// `kept …` notes of steps 8.6–8.7d.
     pub warnings: Vec<String>,
+    /// Destinations inspected: every removal, plus each disabled script kept (8.5 counts every
+    /// script on disk).
+    pub inspected: usize,
 }
 
 /// What the retirements read besides the repo.
@@ -160,6 +163,7 @@ struct Planner<'a> {
 
 impl Planner<'_> {
     fn remove(&mut self, rel_path: String, recursive: bool) {
+        self.out.inspected += 1;
         self.out.removals.push(PendingRemoval {
             rel_path,
             recursive,
@@ -228,6 +232,7 @@ impl Planner<'_> {
                 match navori_authorship(self.view, &rel, None, true) {
                     Authorship::Ours | Authorship::Foreign => self.remove(rel, false),
                     kept => {
+                        self.out.inspected += 1;
                         self.out
                             .script_warnings
                             .push(format!("kept {rel} \u{2014} {} file", kept.as_str()));

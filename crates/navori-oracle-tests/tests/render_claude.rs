@@ -564,8 +564,124 @@ fn report(plan: &ClaudeEnginePlan) -> Value {
     })
 }
 
+fn render_prelude() -> String {
+    format!(
+        "const r = await import({:?});",
+        cli_module("commands/render.ts")
+    )
+}
+
+/// `runRender(root, { dryRun: true })`: the engine result the report prints from.
+static RENDER: Shared = Shared::new(
+    render_prelude,
+    "try {\n\
+       const out = r.runRender(request.root, { dryRun: true });\n\
+       if (!out.ok || !out.engineResult) return { failed: out.reasonCode ?? 'no-engine' };\n\
+       const e = out.engineResult;\n\
+       return {\n\
+         written: e.written.map((w) => [w.path, w.status]),\n\
+         skipped: e.skipped.map((s) => [s.path, s.reason, s.status ?? null]),\n\
+         warnings: e.warnings,\n\
+         inspected: e.inspected,\n\
+         entries: out.entries.map((x) => [x.asset.id, x.status]),\n\
+         fallbacks: out.languageFallbacks,\n\
+         downgrades: out.downgrades.map((d) => [d.id, d.fromVersion]),\n\
+       };\n\
+     } catch (err) { return { threw: String(err && err.message || err) }; }",
+);
+
+/// The engine notes random configs rarely reach: a missing preset, a local preset with a library
+/// the registry dropped, unknown and retired libraries, and local skills (present, missing,
+/// not a plain id).
+// Covers: R41
+#[test]
+fn engine_result_warnings_match_run_render() -> Result<(), String> {
+    let configs = [
+        r#"{"name":"demo","preset":"nope","engines":["claude"]}"#,
+        r#"{"name":"demo","preset":"mine","engines":["claude"],"language":"en"}"#,
+        r#"{"name":"demo","preset":"custom","engines":["claude"],"project":{"libraries":["socketio","zzz","zod-validation"],"extraLibraries":["formik","zzz"]}}"#,
+        r#"{"name":"demo","preset":"custom","engines":["claude"],"language":"en","project":{"libraries":["nativewind"],"localSkills":["present","missing","../x"," pad","zod-validation"]}}"#,
+    ];
+    let root = BASE.join("warnings");
+    for config in configs {
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::create_dir_all(&root);
+        write(&root, "navori.config.json", config);
+        write(
+            &root,
+            ".claude/skills/present/SKILL.md",
+            "---\nname: present\n---\nMine.\n",
+        );
+        write(
+            &root,
+            ".navori/presets/mine/mine.json",
+            r#"{"id":"mine","displayName":"Mine","extends":"core","libraries":["zod-validation","zzz-lib"],"extras":{"managed":[],"agents":[],"skills":[],"hooks":[]}}"#,
+        );
+        let ts = RENDER.ask(&json!({ "root": root.to_string_lossy() }))?;
+        let rust = plan(&root, config, None).map(|p| engine_result(&p));
+        match rust {
+            Some(rust) if rust == ts => {}
+            Some(rust) => return Err(format!("{config}: {}", first_difference(&ts, &rust))),
+            None => return Err(format!("{config}: rust declined, ts {ts}")),
+        }
+    }
+    Ok(())
+}
+
+/// The Rust plan as the `ClaudeEngineResult` fields the report reads.
+fn engine_result(plan: &ClaudeEnginePlan) -> Value {
+    let written: Vec<Value> = plan
+        .pending
+        .iter()
+        .map(|w| json!([w.rel_path, w.status.as_str()]))
+        .chain(
+            plan.removals
+                .iter()
+                .map(|r| json!([r.rel_path, "removed-condition-false"])),
+        )
+        .collect();
+    json!({
+        "written": written,
+        "skipped": plan.skipped.iter().map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str())])).collect::<Vec<_>>(),
+        "warnings": plan.warnings,
+        "inspected": plan.inspected,
+        "entries": plan.claude_md_entries.iter().map(|(id, status)| json!([id, status.as_str()])).collect::<Vec<_>>(),
+        "fallbacks": plan.language_fallbacks,
+        "downgrades": plan.downgrades.iter().map(|d| json!([d.id, d.from_version])).collect::<Vec<_>>(),
+    })
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(80))]
+
+    // Covers: R41
+    #[test]
+    fn engine_result_matches_run_render(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.4),
+    ) {
+        // `runRender` seals every engine's owned paths into the guard; the native subset is
+        // Claude-only and re-delegates with another engine (Q8).
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("result");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        build_repo(&root, &recipe);
+        write(&root, "navori.config.json", &config);
+        let ts = RENDER
+            .ask(&json!({ "root": root.to_string_lossy() }))
+            .map_err(TestCaseError::fail)?;
+        match plan(&root, &config, None) {
+            Some(rust) => {
+                let rust = engine_result(&rust);
+                prop_assert!(ts == rust, "{}\n{}\n{:?}", first_difference(&ts, &rust), config, recipe);
+            }
+            None => prop_assert!(
+                ts.get("threw").is_some() || ts.get("failed").is_some() || unparseable_json(&root),
+                "rust declined, ts: {} for {}", ts, config
+            ),
+        }
+    }
 
     // Covers: R41
     #[test]

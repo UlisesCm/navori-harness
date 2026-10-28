@@ -47,6 +47,9 @@ pub struct SubBlocks {
     pub updates_available: Vec<UpdateAvailable>,
     /// Sub-blocks written by a newer navori.
     pub downgrades: Vec<UpdateAvailable>,
+    /// Destinations these steps inspected (the TS `inspected` increments of 8, 8.3, 8.5 and
+    /// 8.5-ter).
+    pub inspected: usize,
 }
 
 /// What a target holds before the sub-block lands.
@@ -458,6 +461,7 @@ pub fn strip_retired_sub_blocks(
             if stripped == existing {
                 continue;
             }
+            out.inspected += 1;
             store(pending, &at, target, stripped, InjectStatus::Updated, false);
         }
     }
@@ -482,11 +486,13 @@ pub fn apply_sub_blocks(
             .iter()
             .filter(|s| s.inject_into.is_some())
         {
+            out.inspected += 1;
             apply_sub_block_inject(ctx, plugin, skill, pending, &mut out)?;
         }
     }
     for plugin in enabled {
         for extension in &plugin.hook_extension_assets {
+            out.inspected += 1;
             apply_hook_extension(ctx, plugin, extension, pending, &mut out)?;
         }
     }
@@ -497,9 +503,11 @@ pub fn apply_sub_blocks(
             .iter()
             .filter(|s| s.inject_into.is_some())
         {
+            out.inspected += 1;
             remove_sub_block(ctx, plugin, skill, pending)?;
         }
         for extension in &plugin.hook_extension_assets {
+            out.inspected += 1;
             remove_hook_extension(ctx, extension, pending)?;
         }
     }
