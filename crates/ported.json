@@ -12,7 +12,7 @@
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
       },
-      "impl": "sha256:2907906cba21ccdc6ea7dbb31306a500302a535ccafa5076e413f2b6f6c09d04"
+      "impl": "sha256:9191a0f78e30fb7200879f09126c0cbd9b7ec95c9bc59e32e6b0e52f2927cf24"
     },
     "subagent-no-background": {
       "mode": "shadow",
@@ -20,7 +20,7 @@
       "blocks": {
         "subagent-no-background-base": "sha256:eac83249eb0740c46559c1a64a86eedcaff81fd569de6c4b21b316e8b981b5d5"
       },
-      "impl": "sha256:d72fed60ec6b2cca00a8cb7c4e9b3f25befd58ba7a9009a0ed78a5938b140a43"
+      "impl": "sha256:0ce0abffe2fed46016cd8111b8adeb46e694e97e9f66f38bf9a9fee9c524358f"
     }
   }
 }

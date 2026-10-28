@@ -1,9 +1,13 @@
 //! Shell text conventions shared by every ported hook (spec 0057 D8: hashed with each hook).
 
 pub mod capture;
+pub mod hook_input;
 pub mod inert;
+pub(crate) mod landing;
 pub mod payload;
 pub mod prepare;
+pub(crate) mod ratchet;
+pub mod repo;
 
 /// Shell text/character-count convention, supplied instead of inspecting LC_ALL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

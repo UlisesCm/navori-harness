@@ -1,10 +1,12 @@
 //! The rendered script end to end: `payload_load` and `cmd=$(extract_cmd)`, `hook-input`'s
 //! project directory, then [`decide`] and the exit trap's audit category.
 
-use super::{Host, Rendered, decide, repo::Repo};
+use super::{Rendered, decide};
 use crate::runner::{AuditLabel, Engine, Evaluation, Failure, Verdict};
 use crate::shell::capture::{self, CaptureContext};
+use crate::shell::hook_input::{self, Host};
 use crate::shell::payload::{self, Profile};
+use crate::shell::repo::Repo;
 
 /// Hosts that register guard-destructive.
 pub const ENGINES: &[Engine] = &[Engine::Claude, Engine::Codex, Engine::Pi];
@@ -60,12 +62,12 @@ pub fn evaluate(
         return Err(Failure("command is not valid UTF-8".to_owned()));
     }
     let mut host = context.host.clone();
-    host.project_dir = if context.engine == Engine::Claude {
-        host.claude_project_dir.clone().unwrap_or_default()
-    } else {
-        let dir = if cwd.is_empty() { "." } else { cwd.as_str() };
-        repo.toplevel(dir).unwrap_or_else(|| dir.to_owned())
-    };
+    host.project_dir = hook_input::project_dir(
+        context.engine,
+        host.claude_project_dir.as_deref(),
+        &cwd,
+        repo,
+    );
     host.cwd = cwd;
     let decision = decide(
         &cmd,

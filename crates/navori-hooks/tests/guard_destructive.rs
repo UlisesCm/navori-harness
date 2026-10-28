@@ -6,14 +6,15 @@ use std::fs;
 use std::path::Path;
 
 use navori_hooks::hooks::guard_destructive::entry::{self, Context};
-use navori_hooks::hooks::guard_destructive::repo::{Loss, Repo};
 use navori_hooks::hooks::guard_destructive::{
-    Host, Outcome, Rendered, ask_answer, block_stderr, evaluate,
+    Outcome, Rendered, ask_answer, block_stderr, evaluate,
 };
 use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::hook_input::{self, Host};
 use navori_hooks::shell::payload::{Extractor, Profile};
+use navori_hooks::shell::repo::{Loss, Repo, System};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -372,4 +373,39 @@ fn rendered_values_are_read_as_the_shell_assigns_them() {
         Rendered::from_script("base=\"$X\"\nnv_pi_rules=-\nnv_owned_paths=-\nnavori_pg_lane=0\n"),
         None
     );
+}
+
+// Covers: R50
+#[test]
+fn veredictos_sin_cambio_tras_mover_los_parciales_a_shell() -> TestResult {
+    // `hook-input`'s `nv_project_dir`, now shared from `shell::hook_input`: Claude reads only
+    // `CLAUDE_PROJECT_DIR`; Codex and Pi take the git toplevel of the payload's cwd, else that
+    // cwd, else `.`.
+    assert_eq!(
+        hook_input::project_dir(Engine::Claude, Some("/p"), "/elsewhere", &NoState),
+        "/p"
+    );
+    assert_eq!(
+        hook_input::project_dir(Engine::Claude, None, "/x", &NoState),
+        ""
+    );
+    for engine in [Engine::Codex, Engine::Pi] {
+        assert_eq!(
+            hook_input::project_dir(engine, Some("/p"), "", &NoState),
+            "."
+        );
+        assert_eq!(hook_input::project_dir(engine, None, "/x", &NoState), "/x");
+    }
+    let checkout = workspace().to_str().ok_or("workspace path")?;
+    let top = System
+        .toplevel(checkout)
+        .ok_or("the checkout is a git work tree")?;
+    assert_ne!(top, checkout, "toplevel normalizes the `..` components");
+    assert_eq!(
+        hook_input::project_dir(Engine::Codex, None, checkout, &System),
+        top
+    );
+    // The corpus verdicts themselves are pinned by `cada_regla_…` above, by the Rust replay and
+    // by the fuzz (A1), which run unchanged before and after the move.
+    Ok(())
 }

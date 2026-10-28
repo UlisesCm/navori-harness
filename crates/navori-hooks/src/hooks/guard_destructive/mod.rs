@@ -8,16 +8,15 @@
 //! render-owned paths), 6c (the Pi arm: control plane, `pi --no-extensions`, shared `deny` and
 //! `ask` rules) and 7 (whole-tree discards of uncommitted work), which is the whole base block.
 //! Nothing here audits; host facts arrive in [`Host`] and repository state through a
-//! [`repo::Repo`] ([`repo::System`] is the one adapter that runs `git`).
+//! [`Repo`] ([`crate::shell::repo::System`] is the one adapter that runs `git`). The partials
+//! this script shares with other hooks (`hook-input`, `resolve-worktree`, `progress-ratchet`)
+//! live in [`crate::shell`].
 
 pub mod copy_dest;
 mod discard;
 pub mod entry;
-mod landing;
 mod pi;
-mod ratchet;
 mod rendered;
-pub mod repo;
 mod rules;
 pub mod search;
 mod tr;
@@ -25,31 +24,10 @@ mod tr;
 pub use pi::ask_answer;
 pub use rendered::Rendered;
 
-/// Host facts the shell reads from its environment before the rules run.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Host {
-    /// `nv_project_dir`: `$CLAUDE_PROJECT_DIR` under Claude; under Codex and Pi the git
-    /// toplevel of the payload's `cwd`, else that `cwd`, else `.`.
-    pub project_dir: String,
-    /// The payload's `cwd` field (`payload_field cwd`), empty when absent.
-    pub cwd: String,
-    /// `PWD` of the hook process.
-    pub pwd: String,
-    /// `HOME`, `None` when unset (rule 7 expands `~` with it).
-    pub home: Option<String>,
-    /// `CLAUDE_PROJECT_DIR` as the environment holds it, under every engine (rule 1b's home
-    /// repository and its fallback comparison).
-    pub claude_project_dir: Option<String>,
-    /// `CDPATH`: a non-empty value leaves a relative `cd` unproven in rule 1b.
-    pub cdpath: Option<String>,
-    /// `navori_hook_path`: `$0`, prefixed with `PWD/` when relative.
-    pub hook_path: String,
-    /// `PATH`, where the search lane looks for `tgrep`.
-    pub path: Option<String>,
-}
-
 use crate::runner::Engine;
 use crate::shell::Locale;
+use crate::shell::hook_input::Host;
+use crate::shell::repo::Repo;
 
 /// What the ported rules decide for one command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +83,7 @@ pub fn evaluate(
     rendered: &Rendered,
     engine: Engine,
     host: &Host,
-    repo: &dyn repo::Repo,
+    repo: &dyn Repo,
     locale: Locale,
 ) -> Result<Outcome, String> {
     rules::evaluate(cmd, rendered, engine, host, repo, locale)
@@ -137,7 +115,7 @@ pub fn decide(
     rendered: &Rendered,
     engine: Engine,
     host: &Host,
-    repo: &dyn repo::Repo,
+    repo: &dyn Repo,
     locale: Locale,
 ) -> Result<Decision, String> {
     let blocked = |stderr: Vec<u8>, reason: &str| Decision {

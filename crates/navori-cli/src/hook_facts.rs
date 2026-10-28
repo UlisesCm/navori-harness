@@ -18,9 +18,10 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
 
+use navori_hooks::hooks::guard_destructive::Rendered;
 use navori_hooks::hooks::guard_destructive::entry::{self, Context};
-use navori_hooks::hooks::guard_destructive::repo::System;
-use navori_hooks::hooks::guard_destructive::{Host, Rendered};
+use navori_hooks::shell::hook_input::Host;
+use navori_hooks::shell::repo::System;
 
 use crate::facts_cache::{self, FactsCache};
 use crate::hook::{Evaluator, Invocation, Snapshot};

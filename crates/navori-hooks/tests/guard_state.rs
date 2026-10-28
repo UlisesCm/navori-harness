@@ -7,10 +7,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use navori_hooks::hooks::guard_destructive::repo::{Repo, System};
-use navori_hooks::hooks::guard_destructive::{Host, Rendered, ask_answer, decide};
+use navori_hooks::hooks::guard_destructive::{Rendered, ask_answer, decide};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
+use navori_hooks::shell::hook_input::Host;
+use navori_hooks::shell::repo::{Repo, System};
 
 type TestResult = Result<(), Box<dyn Error>>;
 

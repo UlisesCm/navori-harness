@@ -4,9 +4,10 @@
 
 use regex::Regex;
 
-use super::repo::{Loss, Repo};
-use super::{Host, tr};
+use super::tr;
 use crate::shell::Locale;
+use crate::shell::hook_input::Host;
+use crate::shell::repo::{Loss, Repo};
 
 /// Candidate segments past this count are not inspected: the command blocks.
 const CANDIDATES_MAX: usize = 16;
