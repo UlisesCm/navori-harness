@@ -102,14 +102,15 @@ TS real y mutaciones verificadas:
 
 T14 cerrada en la rama de E3: `render::claude::plan_claude_engine` ensambla los pasos en el orden
 del TS; `render_claude.rs` compara el árbol con el snap `claude` (53 archivos) y el plan con el
-`finalize` real. `settings.json`, `.mcp.json` y el wiring nativo se excluyen de ambas pruebas hasta
-T15; el `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
+`finalize` real. El `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
 
 Falta, en este orden:
-1. `settings.json`, coexist, `.mcp.json` y wiring nativo (T15); al cerrar, `render_claude.rs` deja
-   de excluirlos. Hecho: `buildClaudeSettings` con `deepMerge`, reglas de permisos derivadas y
-   hooks de plugins (`render::claude_settings`). Siguen `planSettings` (coexist y `planStampedJson`),
-   `.mcp.json` y el wiring nativo.
+1. Wiring nativo (T15); al cerrar, `render_claude.rs` deja de excluir `settings.json` y los hooks
+   de `crates/ported.json` en la comparación contra el motor. Hecho: `buildClaudeSettings`
+   (`render::claude_settings`), `planSettings` con coexist y `planStampedJson`
+   (`render::settings_file`) y `planMcpRegistration` (`render::mcp_file`), cableados como pasos 2 y
+   2.5; el golden ya compara ambos archivos y `.mcp.json` también contra el motor. Siguen
+   `finalizeNativeHooks`, `applyNativeClaudeSettings` y el brazo nativo de `claudeHookCommand`.
 2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
