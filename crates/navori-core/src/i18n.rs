@@ -134,6 +134,19 @@ pub fn plugin_skill_not_injected(lang: Lang, id: &str, plugin: &str, target: &st
     }
 }
 
+/// `engine.claudeResidualPluginHook`.
+#[must_use]
+pub fn claude_residual_plugin_hook(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "ALERTA: {path} puede seguir registrado en .claude/settings.json, que no se pudo actualizar; el hook puede seguir activo y no es confiable. Revisa ambos archivos manualmente."
+        ),
+        Lang::En => format!(
+            "WARNING: {path} may remain registered in .claude/settings.json, which could not be updated; the hook may remain active and is untrusted. Review both files manually."
+        ),
+    }
+}
+
 /// `engine.blockFromNewerNavori`.
 #[must_use]
 pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {

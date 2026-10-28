@@ -17,6 +17,23 @@ pub trait RepoView {
     fn read_regular(&self, rel: &str) -> Option<String>;
     /// `existsSync`: follows symlinks, true for directories.
     fn exists(&self, rel: &str) -> bool;
+    /// `readdirSync` entry names; `None` when it throws.
+    fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
+}
+
+/// The path exists but `readFileSync` throws on it (a directory, say).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unreadable;
+
+/// `existsSync(p) ? readFileSync(p, "utf-8") : null`.
+///
+/// # Errors
+/// [`Unreadable`] when the path exists and is not a readable text file, where the TS throws.
+pub fn read_if_exists(view: &dyn RepoView, rel: &str) -> Result<Option<String>, Unreadable> {
+    if !view.exists(rel) {
+        return Ok(None);
+    }
+    view.read(rel).map(Some).ok_or(Unreadable)
 }
 
 /// A file the render would write (`PendingWrite`).

@@ -15,7 +15,7 @@ use crate::markers::{
 use crate::render::agent_mcp_tools::{with_agent_mcp_tools, without_agent_mcp_tools};
 use crate::render::assets;
 use crate::render::block_plan::{UpdateAvailable, classify_version_drift};
-use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
+use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists};
 use crate::render::context::Lang;
 use crate::render::frontmatter::strip_frontmatter;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
@@ -92,10 +92,9 @@ fn current(
     if let Some(index) = pending.iter().position(|w| w.rel_path == rel) {
         return Ok(Current::Pending(index));
     }
-    if !view.exists(rel) {
-        return Ok(Current::Absent);
-    }
-    view.read(rel).map(Current::Disk).ok_or(SubBlocksDelegate)
+    Ok(read_if_exists(view, rel)
+        .map_err(|_| SubBlocksDelegate)?
+        .map_or(Current::Absent, Current::Disk))
 }
 
 /// Replaces the pending write or queues a new one.
