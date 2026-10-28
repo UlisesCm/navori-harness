@@ -5,8 +5,8 @@
 //! - Against the real `prepareClaudeEngine(...).finalize()` over repos rendered with another
 //!   config and then edited: pending writes, removals and skips, in order.
 //!
-//! Against the engine only, `settings.json` and the hooks in `crates/ported.json` are left out:
-//! the native wiring (T15) rewrites them in `finalize`.
+//! Against the engine only, `settings.json` is left out until `applyNativeClaudeSettings` (T15)
+//! is ported: the native wiring rewrites it in `finalize`.
 
 mod support;
 
@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 use navori_core::STAMP_VERSION;
 use navori_core::config;
 use navori_core::js_json;
+use navori_core::manifest::Hook;
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::collect::RepoView;
@@ -61,6 +62,14 @@ static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
 struct Disk<'a>(&'a Path);
 
 impl RepoView for Disk<'_> {
+    fn symlink(&self, rel: &str) -> Option<bool> {
+        match std::fs::symlink_metadata(self.0.join(rel)) {
+            Ok(meta) => Some(meta.file_type().is_symlink()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    }
+
     fn read(&self, rel: &str) -> Option<String> {
         std::fs::read_to_string(self.0.join(rel)).ok()
     }
@@ -99,30 +108,23 @@ fn write(root: &Path, rel: &str, text: &str) {
     let _ = std::fs::write(path, text);
 }
 
-/// T15 files: `settings.json` and the hooks the native wiring rewrites.
-static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ported.json");
-    let ported: Value = std::fs::read_to_string(manifest)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or(Value::Null);
-    let mut out: Vec<String> = ported["hooks"]
-        .as_object()
-        .map(|hooks| {
-            hooks
-                .keys()
-                .map(|id| format!(".claude/hooks/{id}.sh"))
-                .collect()
-        })
-        .unwrap_or_default();
-    out.push(".claude/settings.json".to_owned());
-    out
-});
+/// T15: `settings.json`, which the native wiring rewrites in `finalize`.
+static EXCLUDED: LazyLock<Vec<String>> = LazyLock::new(|| vec![".claude/settings.json".to_owned()]);
 
 fn plan(root: &Path, text: &str, floor: Option<&str>) -> Option<ClaudeEnginePlan> {
+    plan_with(root, text, floor, None)
+}
+
+fn plan_with(
+    root: &Path,
+    text: &str,
+    floor: Option<&str>,
+    native_hooks: Option<BTreeMap<String, Hook>>,
+) -> Option<ClaudeEnginePlan> {
     let read = config::read(text.as_bytes()).ok()?;
     let options = PlanOptions {
         ambient_floor: floor.map(str::to_owned),
+        native_hooks,
         ..PlanOptions::default()
     };
     plan_claude_engine(&Disk(root), &read.data, root, &options).ok()
@@ -215,7 +217,9 @@ fn claude_tree_matches_the_golden_snap() -> Result<(), String> {
     let root = BASE.join("golden");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::create_dir_all(&root);
-    let plan = plan(&root, GOLDEN_CONFIG, None).ok_or("plan_claude_engine delegated")?;
+    // The golden is the product render: no native wrapping (`loadNativeHooks: () => ({})`).
+    let plan = plan_with(&root, GOLDEN_CONFIG, None, Some(BTreeMap::new()))
+        .ok_or("plan_claude_engine delegated")?;
     let golden = golden_sections()?;
     let rendered: BTreeMap<String, (bool, String)> = plan
         .pending
@@ -397,6 +401,70 @@ fn unparseable_json(root: &Path) -> bool {
                 .and_then(|text| js_json::parse(&text))
                 .is_none()
     })
+}
+
+/// The native wiring's edge cases against the engine: a tgrep repo rendered with its own config
+/// (both ported hooks signed), then one edit on a hook or the guard's dependency script.
+// Covers: R42
+#[test]
+fn native_wiring_matches_the_engine_after_targeted_edits() -> Result<(), String> {
+    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}}}"#;
+    let targets = [
+        ".claude/scripts/guard-search-routing.sh",
+        ".claude/hooks/guard-destructive.sh",
+        ".claude/hooks/subagent-no-background.sh",
+    ];
+    let root = BASE.join("native");
+    for target in targets {
+        for kind in 0..6 {
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::create_dir_all(&root);
+            write(&root, "navori.config.json", CONFIG);
+            let rendered = plan(&root, CONFIG, None).ok_or("baseline delegated")?;
+            for w in &rendered.pending {
+                let mut text = w.content.clone();
+                if w.rel_path == target {
+                    match kind {
+                        0 => text = text.replacen("\nfi\n", "\nfi\n# hand edit\n", 1),
+                        1 => text.push_str("\nUser tail.\n"),
+                        2 => text = "mine\n".to_owned(),
+                        3 => {
+                            text = text.replacen(
+                                &format!("version=\"{STAMP_VERSION}\""),
+                                "version=\"0.1.0\"",
+                                1,
+                            )
+                        }
+                        4 => {
+                            text = text.replacen(
+                                &format!("version=\"{STAMP_VERSION}\""),
+                                "version=\"999.0.0\"",
+                                1,
+                            )
+                        }
+                        _ => text = text.replace('\n', "\r\n"),
+                    }
+                }
+                write(&root, &w.rel_path, &text);
+            }
+            let ts = NODE.ask(
+                &json!({ "root": root.to_string_lossy(), "floor": null, "excluded": *EXCLUDED }),
+            )?;
+            let rust = plan(&root, CONFIG, None).map(|p| report(&p));
+            match rust {
+                Some(rust) if rust == ts => {}
+                Some(rust) => {
+                    return Err(format!(
+                        "{target} kind {kind}: {}",
+                        first_difference(&ts, &rust)
+                    ));
+                }
+                None if ts.get("threw").is_some() || unparseable_json(&root) => {}
+                None => return Err(format!("{target} kind {kind}: rust declined, ts {ts}")),
+            }
+        }
+    }
+    Ok(())
 }
 
 fn report(plan: &ClaudeEnginePlan) -> Value {

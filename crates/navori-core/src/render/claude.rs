@@ -24,6 +24,7 @@ use crate::render::context::Lang;
 use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
 use crate::render::mcp_file::{MCP_PATH, plan_mcp_registration};
+use crate::render::native_hooks::{NativeHooksInput, embedded_native_hooks, finalize_native_hooks};
 use crate::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 use crate::render::plugins::{load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
@@ -226,6 +227,24 @@ pub fn plan_claude_engine(
             disabled: &disabled,
             skipped_settings: skipped_settings.as_deref(),
         },
+    ))?;
+
+    // The native wiring, over the finished pending writes.
+    let native_manifest = options
+        .native_hooks
+        .clone()
+        .unwrap_or_else(embedded_native_hooks);
+    delegate(finalize_native_hooks(
+        &NativeHooksInput {
+            view,
+            config: &config,
+            hooks: &plan.hooks,
+            plugins: &enabled,
+            manifest: &native_manifest,
+            ambient_floor: floor,
+            owned_paths: Some(&owned_paths),
+        },
+        &mut pending,
     ))?;
 
     let mut removals: Vec<PendingRemoval> = step1

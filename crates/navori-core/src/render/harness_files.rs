@@ -135,6 +135,23 @@ pub struct HarnessFiles {
     pub collisions: Vec<(String, Vec<String>)>,
 }
 
+/// The final `extraVars` of the placement at `dest`; `None` when it is not rendered (the guard
+/// without its sealed owned paths).
+#[must_use]
+pub fn placement_extra_vars(
+    dest: &str,
+    owned_paths: Option<&str>,
+) -> Option<BTreeMap<String, String>> {
+    match (dest == ".claude/hooks/guard-destructive.sh", owned_paths) {
+        (true, None) => None,
+        (true, Some(paths)) => Some(BTreeMap::from([(
+            "navoriOwnedPaths".to_owned(),
+            paths.to_owned(),
+        )])),
+        (false, _) => Some(BTreeMap::new()),
+    }
+}
+
 /// Collects every placement of `plan` (`collectPlan` with `prune: false`).
 ///
 /// # Errors
@@ -149,13 +166,8 @@ pub fn collect_harness_files(
 ) -> Result<HarnessFiles, HarnessDelegate> {
     let mut files = HarnessFiles::default();
     for placement in claude_placements(plan) {
-        let is_guard = placement.dest == ".claude/hooks/guard-destructive.sh";
-        let extra_vars = match (is_guard, owned_paths) {
-            (true, None) => continue,
-            (true, Some(paths)) => {
-                BTreeMap::from([("navoriOwnedPaths".to_owned(), paths.to_owned())])
-            }
-            (false, _) => BTreeMap::new(),
+        let Some(extra_vars) = placement_extra_vars(&placement.dest, owned_paths) else {
+            continue;
         };
         let text = asset_text(&placement.asset)?;
         let existing = read_if_exists(view, &placement.dest).map_err(|_| HarnessDelegate)?;

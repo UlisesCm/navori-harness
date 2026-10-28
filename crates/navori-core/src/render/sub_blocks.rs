@@ -149,7 +149,10 @@ fn inject(
     )
 }
 
-fn plugin_text(plugin: &LoadedPlugin, path: &str) -> Result<&'static str, SubBlocksDelegate> {
+pub(crate) fn plugin_text(
+    plugin: &LoadedPlugin,
+    path: &str,
+) -> Result<&'static str, SubBlocksDelegate> {
     assets::plugin(&plugin.dir, path)
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
         .ok_or(SubBlocksDelegate)

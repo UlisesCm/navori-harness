@@ -495,6 +495,10 @@ mod tests {
         fn list_dir(&self, _rel: &str) -> Option<Vec<String>> {
             None
         }
+
+        fn symlink(&self, _rel: &str) -> Option<bool> {
+            Some(false)
+        }
     }
 
     fn settings(version: &str) -> JsValue {
