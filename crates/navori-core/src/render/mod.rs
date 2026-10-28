@@ -14,6 +14,7 @@ pub mod hook_includes;
 pub mod interpolate;
 pub mod library_skills;
 pub mod managed_file;
+pub mod owned_paths;
 pub mod plan;
 pub mod plugin_scripts;
 pub mod plugins;

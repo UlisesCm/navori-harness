@@ -3,8 +3,8 @@
 //! (`collectPlan` of `execute-plan.ts`): agents, skills and hooks under `.claude/`.
 //!
 //! `guard-destructive` embeds the sealed inventory of every path the render owns
-//! (`withOwnedGuard`), which only the whole engine knows; the caller passes it, and without it
-//! the hook is left out of this step.
+//! (`withOwnedGuard`, `render::owned_paths`); the caller passes it, and without it the hook is
+//! left out of this step.
 
 use std::collections::BTreeMap;
 

@@ -17,6 +17,8 @@ pub trait RepoView {
     fn read_regular(&self, rel: &str) -> Option<String>;
     /// `existsSync`: follows symlinks, true for directories.
     fn exists(&self, rel: &str) -> bool;
+    /// `lstatSync(p, { throwIfNoEntry: false }) !== undefined`: true for a dangling symlink.
+    fn lexists(&self, rel: &str) -> bool;
     /// `readdirSync` entry names; `None` when it throws.
     fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
 }
