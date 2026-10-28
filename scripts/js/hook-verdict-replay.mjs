@@ -54,14 +54,18 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo" }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[] }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
  * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
 export function caseKey(c) {
-  return JSON.stringify([c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()]);
+  const key = [c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()];
+  // Hook arguments (spec 0059 T5) join the key only when present: argument-less keys, and so the
+  // order of every corpus recorded before them, stay as they were.
+  if (c.args !== undefined && c.args.length > 0) key.push(c.args);
+  return JSON.stringify(key);
 }
 
 /**
@@ -85,8 +89,8 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind } = line;
-      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind });
+      const { hook, engine, shell, input, envDelta, cwdKind, args } = line;
+      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind, ...(args !== undefined && args.length > 0 ? { args } : {}) });
     } else {
       const reason = line.reason ?? "unknown";
       slot.excluded[reason] = (slot.excluded[reason] ?? 0) + 1;
@@ -340,7 +344,8 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
           spools[i] = armAudit(auditsRoot, input, cwd);
         }
         env.NAVORI_AUDITS_ROOT = mode === "active" ? auditsRoot : join(scratch.root, "no-audits");
-        return { input, env, cwd };
+        const args = (c.args ?? []).map((arg) => hostPaths(arg, project, cwd));
+        return { input, env, cwd, args };
       });
       const outputs = impl === "rust" ? batchCases.map((c) => {
         const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });

@@ -32,6 +32,8 @@ export interface RawCorpusLine {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  /** Hook arguments (the registration's mode); absent when the hook ran without any. */
+  args?: string[];
   /** `included` lines become cases; the others only feed the coverage denominator. */
   status: "included" | "excluded";
   reason?: string;
@@ -138,6 +140,7 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     input: tokenize(c.input),
     envDelta,
     cwdKind: tempCwd ? "none" : "repo",
+    ...(c.args !== undefined && c.args.length > 0 ? { args: c.args.map(tokenize) } : {}),
     status: "included",
   };
   const out: RawCorpusLine =
@@ -150,8 +153,9 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
 
 /**
  * The `child_process` wrapper's entry: records a direct `spawnSync`/`execFileSync` of a hook.
- * Recognizes `<shell> <hook>.sh` with a string `input`; its env delta is the keys whose value
- * differs from the worker's own environment, so the per-file temp HOME does not count.
+ * Recognizes `<shell> <hook>.sh [args...]` with a string `input` and string arguments; its env
+ * delta is the keys whose value differs from the worker's own environment, so the per-file temp
+ * HOME does not count.
  *
  * @param command the program the test spawned
  * @param args the arguments the test passed (the options object may be last)
@@ -164,7 +168,12 @@ export function recordSpawnedHook(command: unknown, args: readonly unknown[]): v
   const options = args.find(
     (a): a is Record<string, unknown> => typeof a === "object" && a !== null && !Array.isArray(a),
   );
-  if (typeof hookPath !== "string" || argv.length !== 1 || typeof options?.input !== "string")
+  const hookArgs = argv.slice(1);
+  if (
+    typeof hookPath !== "string" ||
+    !hookArgs.every((arg): arg is string => typeof arg === "string") ||
+    typeof options?.input !== "string"
+  )
     return;
   const env = (options.env ?? {}) as Record<string, string | undefined>;
   const delta: Record<string, string> = {};
@@ -174,5 +183,6 @@ export function recordSpawnedHook(command: unknown, args: readonly unknown[]): v
     input: options.input,
     env: delta,
     cwd: typeof options.cwd === "string" ? options.cwd : undefined,
+    args: hookArgs,
   });
 }

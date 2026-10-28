@@ -19,7 +19,12 @@ import { createHash } from "node:crypto";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { runHookBatch, runHookIsolated } from "./helpers/hook-batch.ts";
-import { normalizeCorpusText, recordHookCase, type RawCorpusLine } from "./helpers/hook-corpus.ts";
+import {
+  normalizeCorpusText,
+  recordHookCase,
+  recordSpawnedHook,
+  type RawCorpusLine,
+} from "./helpers/hook-corpus.ts";
 
 /**
  * Spec 0055 R13 — corpus capture (inside the hook helpers) and replay tool. Fixed fixtures and a
@@ -34,6 +39,7 @@ interface Case {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  args?: string[];
 }
 interface Verdict {
   status: number;
@@ -100,6 +106,7 @@ interface RustAdapter {
     input: string;
     cwd?: string;
     env?: NodeJS.ProcessEnv;
+    args?: string[];
     timeoutMs?: number;
   }) => NativeResult;
   prepareRustReplay: (options: { manifestPath: string; binary: string; scriptsRoot?: string }) => {
@@ -846,6 +853,63 @@ describe("hook verdict corpus", () => {
         { status: 0, stdout: "a", stderr: "" },
       ),
     ).toBeNull();
+  });
+
+  // Covers: R54
+  it("los argumentos del hook viajan de la captura al replay shell y nativo", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const hook = installCoreHook(dir, "general-purpose-confirm.sh");
+    const payload = JSON.stringify({ tool_name: "Agent" });
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    // A direct spawn with a mode is recorded with it; without one the line has no `args` key, so
+    // every corpus recorded before modes keeps its exact bytes.
+    recordSpawnedHook("bash", [[hook, "claude-stop"], { input: payload }]);
+    recordSpawnedHook("bash", [[hook], { input: payload }]);
+    recordSpawnedHook("bash", [[hook, 3], { input: payload }]);
+    runHookBatch(hook, "bash", [{ input: payload, args: ["codex", "capture-start"] }]);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const lines = rawLines(raw);
+    expect(lines.map((l) => l.args)).toEqual([
+      ["claude-stop"],
+      undefined,
+      ["codex", "capture-start"],
+    ]);
+    expect(Object.keys(lines[1] ?? {})).not.toContain("args");
+
+    // Arguments make distinct cases; an argument-less key is the one recorded before T5.
+    const { cases } = replay.mergeRaw(lines);
+    expect(cases).toHaveLength(3);
+    const plain = base("x");
+    expect(replay.caseKey(plain)).toBe(
+      JSON.stringify([plain.hook, plain.engine, plain.shell, plain.cwdKind, "x", []]),
+    );
+    expect(replay.caseKey({ ...plain, args: [] })).toBe(replay.caseKey(plain));
+
+    // The batch and the isolated spawn hand the hook the same `$@` (quoting kept).
+    const echo = join(dir, "fixture", "echo.sh");
+    mkdirp(dirname(echo));
+    writeFileSync(echo, `printf '[%s]' "$@"\n`);
+    const args = ["codex", "two words", "it's"];
+    const [batched, none] = runHookBatch(echo, "bash", [{ input: "", args }, { input: "" }]);
+    expect(batched?.stdout).toBe("[codex][two words][it's]");
+    expect(none?.stdout).toBe("[]");
+    expect(runHookIsolated(echo, "bash", { input: "", args }).stdout).toBe(batched?.stdout);
+
+    // The native transport passes them after the script, as the rendered prologue passes `"$@"`.
+    const binary = nativeFixture(
+      dir,
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)));",
+    );
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    const native = rustAdapter.runRustHook({ binary, script, input: "", args: ["claude-stop"] });
+    if (!native.available) throw new Error(native.reason);
+    expect(JSON.parse(native.stdout.toString("utf8")) as unknown).toEqual([
+      "hook",
+      "--via-script",
+      script,
+      "claude-stop",
+    ]);
   });
 
   // Covers: R13

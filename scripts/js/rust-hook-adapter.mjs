@@ -35,19 +35,20 @@ function executable(binary) {
  * Execute an already prepared script through the binary. Rust owns definitive integrity and
  * compiled-registry validation; an ordinary exit 1 is still a valid advisory/error verdict.
  *
- * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, timeoutMs?: number }} options
+ * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, args?: string[], timeoutMs?: number }} options
  * @returns {NativeResult}
  */
-export function runRustHook({ binary, script, input, event, cwd, env = {}, timeoutMs = 10_000 }) {
+export function runRustHook({ binary, script, input, event, cwd, env = {}, args = [], timeoutMs = 10_000 }) {
   let pinned;
   try {
     pinned = executable(binary);
   } catch (error) {
     return { available: false, reason: error instanceof Error ? error.message : "native binary unavailable" };
   }
+  // Hook arguments (the registration's mode) follow the script, as the rendered prologue passes `"$@"`.
   const argv = event === undefined
-    ? ["hook", "--via-script", resolve(script)]
-    : ["hook", "--via-command", event, resolve(script)];
+    ? ["hook", "--via-script", resolve(script), ...args]
+    : ["hook", "--via-command", event, resolve(script), ...args];
   const output = spawnSync(pinned, argv, {
     input,
     cwd,
