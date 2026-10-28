@@ -508,7 +508,7 @@ describe("renderCodexEngine", () => {
     }
     for (const hook of [claudeHook, codexHook]) {
       expect(hook).toContain('".navori/state/handoffs"');
-      expect(hook.match(/payload=\$\{payload-\$\(cat\)\}/g)).toHaveLength(1);
+      expect(hook.match(/payload=\$\{payload-"\$\(cat\)"\}/g)).toHaveLength(1);
       expect(hook).not.toContain("navori_field() {");
     }
     expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).toContain(
