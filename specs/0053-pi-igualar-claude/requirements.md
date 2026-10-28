@@ -106,6 +106,6 @@ Pi (código en `origin/dev`, sesiones en `~/.pi/agent/sessions`, paquete upstrea
 - No se replican subagentes ni permisos nativos en Pi; los hijos siguen siendo procesos `pi` y la
   enforcement sigue en `tool_call`.
 - MCP en hijos sigue con `--no-mcp`.
-- `audit-mode` en Pi queda fuera: `navori audit` ya lee las sesiones Pi.
+- `audit-mode` en Pi queda fuera: `navori audit` ya lee las sesiones Pi. Nota: el disparo de audit-mode en Pi (arm/`--host pi` y `audit.mode=always`) se promovió en la spec pi-audit-mode.
 - Que el hook de gate de Claude ejecute una cadena distinta de `qualityGate.fast` es un hallazgo aparte;
   se abre como issue, no entra aquí.

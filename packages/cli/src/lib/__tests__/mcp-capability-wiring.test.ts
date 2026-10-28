@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { describe, it, expect, afterAll } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderPiEngine } from "../../engines/pi/index.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
+import { conditionOrchestration } from "../render/render-plan.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { getFrontmatterField, splitFrontmatter } from "../render/frontmatter.ts";
 import { isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
@@ -488,5 +492,98 @@ describe("codegraph reaches the reading roster and not publisher (spec 0026 T12/
     const codegraph = MCP_PLUGINS.find((p) => p.manifest.id === "codegraph");
     const targets = (codegraph?.manifest.skills ?? []).map((skill) => skill.injectInto);
     expect(targets).toContain(".claude/agents/architect.md");
+  });
+});
+
+/**
+ * Pi is the third host of the same class (#501): its children run `--no-mcp`, so a plugin's prose
+ * may only name a tool the role's own `tools:` list carries. Pi roles reach codegraph and engram
+ * through `navori_*` extension tools; this pins prose and list together on the rendered files.
+ */
+describe("Pi role prose names only tools the role holds (#501)", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function renderPiRoles(): Map<string, { tools: string[]; body: string }> {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-wiring-"));
+    dirs.push(dir);
+    renderPiEngine(
+      dir,
+      NavoriConfigSchema.parse({
+        name: "pi-wiring",
+        preset: "custom",
+        engines: ["pi"],
+        branchBase: "main",
+        qualityGate: { fast: "bun test", full: "bun test" },
+        plugins: { codegraph: { enabled: true }, engram: { enabled: true } },
+      }),
+    );
+    const roles = new Map<string, { tools: string[]; body: string }>();
+    for (const file of readdirSync(join(dir, ".pi/agents"))) {
+      const raw = readFileSync(join(dir, ".pi/agents", file), "utf-8");
+      const tools = /^tools: (\[.*\])$/m.exec(raw)?.[1];
+      roles.set(file.replace(/\.md$/, ""), {
+        tools: tools === undefined ? [] : (JSON.parse(tools) as string[]),
+        body: raw,
+      });
+    }
+    return roles;
+  }
+
+  const KNOWLEDGE = ["codegraph_explore", "mem_search", "mem_get_observation"] as const;
+
+  it("every knowledge tool a Pi role is told to use is prefixed and in its tools list", () => {
+    const roles = renderPiRoles();
+    expect(roles.size).toBeGreaterThan(3);
+    for (const [role, { tools, body }] of roles) {
+      for (const name of KNOWLEDGE) {
+        expect(body, `${role} names the bare MCP tool ${name}`).not.toContain(`\`${name}\``);
+        if (body.includes(`\`navori_${name}\``)) {
+          expect(tools, `${role} names navori_${name} without holding it`).toContain(
+            `navori_${name}`,
+          );
+        }
+      }
+      // Never a write tool, never an MCP entry: children run --no-mcp.
+      expect(
+        tools.some((tool) => /mem_save|^mcp/i.test(tool)),
+        role,
+      ).toBe(false);
+    }
+    // The roles the prose is for do hold the tools it names.
+    expect(roles.get("reviewer")?.body).toContain("`navori_mem_search`");
+    expect(roles.get("architect")?.tools).toContain("navori_codegraph_explore");
+    expect(roles.get("architect")?.tools).not.toContain("navori_mem_search");
+  });
+
+  // The auditor's Claude prose also orders mem_save and an `engram save` CLI fallback; Pi has no
+  // such tool, so that text must be gated off Pi (`navori:if-not onPi` in engram-subagent).
+  it("the Pi auditor is not ordered to save memory", () => {
+    const auditor = renderPiRoles().get("auditor");
+    expect(auditor?.body).toContain("`navori_mem_search`");
+    expect(auditor?.body).not.toContain("`mem_save`");
+    expect(auditor?.body).not.toContain("engram save");
+  });
+
+  it("the Pi gating leaves Claude and Codex prose byte-identical to the markerless text", () => {
+    const raw = readFileSync(resolve(PLUGINS_DIR, "engram/skills/engram-subagent.md"), "utf-8");
+    const config = NavoriConfigSchema.parse({
+      name: "w",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+    });
+    // What Claude and Codex shipped before the gating: Pi-only spans gone, the others kept as written.
+    const markerless = raw
+      .replace(/<!-- navori:if onPi -->[\s\S]*?<!-- \/navori:if -->/g, "")
+      .replaceAll("<!-- navori:if-not onPi -->", "")
+      .replaceAll("<!-- /navori:if-not -->", "");
+    for (const engine of ["claude", "codex"]) {
+      expect(conditionOrchestration(raw, config, engine), engine).toBe(markerless);
+    }
+    // Still the text Claude shipped before the gating: the save instructions survive there.
+    expect(conditionOrchestration(raw, config, "claude")).toContain("mem_save");
   });
 });

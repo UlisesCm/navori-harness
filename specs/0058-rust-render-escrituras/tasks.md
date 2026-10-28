@@ -1,13 +1,24 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada; E2 implementada con gate full verde (revisión independiente pendiente), E1 bloqueada por el cierre de 0057 E3 · **Base:** `migration/rust`. Fase 2 del programa (ver
-`specs/0057-migracion-rust/requirements.md` § "Fases del programa"): cuatro entregas, **cada una con
-su propio PR contra `migration/rust`**. El LOC es una estimación, no una medición.
+**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4
+y quedan **dos PRs** contra `migration/rust`: E1 (activación) y E3 (render Claude con escrituras) ·
+**Base:** `migration/rust`. Fase 2 del programa (ver `specs/0057-migracion-rust/requirements.md`
+§ "Fases del programa"). El LOC es una estimación, no una medición.
 
-Correspondencia con `design.md` § "Plan de entregas": E1–E4 son las mismas entregas del diseño.
-Equivalen a E5 M3, E4 M1, E4 M2 y E5 M1–M2 del plan de 0057.
+Correspondencia con `design.md` § "Plan de entregas": E1 = E5 M3 de 0057; E2 = E4 M1; E3 = E4 M2 y
+E5 M1–M2.
 
-**Precondición de entrada** (cierre de 0057 E3, verificable antes de abrir E1):
+**PRs que faltan**
+
+| PR | Entrega | Contenido | Se mergea cuando |
+|---|---|---|---|
+| 1 | E1 | M1–M2: evidencia de sombra y `guard-destructive` en `active` | A1 y A2 verdes y la aprobación del usuario en el PR (Q3: 500 invocaciones en ≥ 14 días por engine) |
+| 2 | E3 | M5–M9: cierre del plan Claude, preview nativo, capa `Fs`, `render --apply`, `adopt`, `sync` y `remove` | A5–A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente; después de PR 1, porque M6 toca `ported.json` (Q2) |
+
+Si la ventana de sombra de E1 se alarga, M5 y M7 (sin manifiesto) pueden seguir en la rama de E3;
+partir E3 en más PRs requiere volver a preguntar al usuario.
+
+**Precondición de entrada de E1** (cierre de 0057 E3, verificable antes de abrir E1):
 - `crates/ported.json` tiene `subagent-no-background` en `active` y `guard-destructive` en `shadow`
   con `blocks` (`guard-destructive-base`, `tgrep-search-lane`) y `deps`
   (`scripts/guard-search-routing.sh`).
@@ -16,10 +27,9 @@ Equivalen a E5 M3, E4 M1, E4 M2 y E5 M1–M2 del plan de 0057.
 Reglas de ejecución:
 - Workplan por entrega: `0058-rust-render-escrituras-e<n>`, con fases = milestones; `tasks.md` es el
   tracking canónico.
-- Cada PR de entrega va contra `migration/rust`; ninguno contra `dev`. Las entregas paralelas
-  necesitan archivos disjuntos y PR propio (Q2 de `design.md`). Por indicación
-  del usuario, varias entregas o hitos pequeños pueden agruparse en un solo PR; un hito de
-  área crítica nunca se agrupa con trabajo ajeno a su entrega.
+- Un PR por entrega, contra `migration/rust`; ninguno contra `dev`. `rust.yml` y `ci.yml` solo corren
+  en PRs (no en push de rama), así que el PR de la entrega se abre en draft desde su primer
+  milestone y cada push corre CI; se marca listo al cerrar la entrega. Sin PRs intermedios.
 - Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
   archivos nuevos se crean en el milestone que los nombra.
 - Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets
@@ -29,10 +39,10 @@ Reglas de ejecución:
 - Hooks, render, sync, backup y markers son área crítica: un commit por mecanismo. El paso de
   `guard-destructive` a `active` exige los criterios de D9 de 0057 y la aprobación del usuario en
   el PR de activación.
-- Las preguntas Q2–Q12 están resueltas (`design.md` § "Decisiones del usuario"); cambiar una
+- Las preguntas Q2–Q13 están resueltas (`design.md` § "Decisiones del usuario"); cambiar una
   resolución requiere volver a preguntar al usuario.
 
-## E1 — Activación de `guard-destructive`
+## E1 — Activación de `guard-destructive` (PR 1)
 Estimated LOC: 1200
 
 ### M1 — Evidencia previa a la activación
@@ -48,19 +58,13 @@ Estimated LOC: 1200
 - [ ] **T5** (R30) — matriz fail-closed de T8 de 0057 sobre `guard-destructive` en `active`, invocado por el comando registrado exacto de cada engine · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"guard-destructive activo nunca permite ante SIGSEGV, 101 o stdout cerrado"
 - [ ] **T6** (R42, R30) — re-render de los tres scripts con el fragmento activo y actualización revisada a mano de `wiring.snap` · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"guard-destructive active"
 
-## E2 — Config, markers y anti-rollback
-Estimated LOC: 4500
+## E2 — Config, markers y anti-rollback (integrada)
+
+Integrada en #1410. Sin subagentes por instrucción del usuario; A3 y A4 verdes, `bun check` completo
+y `oracle:rust` con 0 diferencias al cierre. El detalle de propiedades y mutaciones está en el
+historial de git de este archivo.
 
 ### M3 — Semver, versión de sello y config
-
-Implementado en `feat/0058-rust-e2` sin subagentes, por instrucción del usuario. A3 verde: propiedades
-contra `semver.ts` (2 000 casos) y contra el `readConfig` real (6 000 casos, ~29 % válidos), más
-unitarios. Las mutaciones (trim JS, defaults, strip/passthrough/strict, claves de record, gates, enteros
-seguros, advertencias, retiradas y redondeo de floats) se detectan todas. Hallazgos: `navori-hooks`
-activa `arbitrary_precision` en `serde_json` y, por unificación de features, el parser de
-`js_json` lo soporta; sin `float_roundtrip`, `serde_json` no redondea como `JSON.parse`. Workspace,
-fmt y clippy en verde. La re-delegación por config inválida en el CLI llega con su primer consumidor
-(T17).
 - **A3** [observable] — config y semver coinciden con Node en documentos generados · `cargo test -p navori-core --test semver --test config --test markers --locked && cargo test -p navori-oracle-tests --test semver_parity --test config_parity --locked` → exit 0
 - [x] **T7** (R38) — `navori-core` (`semver`) con la semántica de `semver.ts` (prerelease ignorada, inparseable nunca es retroceso) y `build.rs` que emite `TS_CLI_VERSION` desde `packages/cli/package.json` (D20) · effect: behavior · test: `crates/navori-core/tests/semver.rs`::"0.13.0-rust.1 se ordena como 0.13.0 y el sello usa la versión del TS"
 - [x] **T8** (R32) — `navori-core` (`config`): `NavoriConfig` en serde con defaults, migración de claves retiradas y advertencias de claves desconocidas, con propiedades contra `NavoriConfigSchema.safeParse` (D22) · effect: behavior · test: `crates/navori-oracle-tests/tests/config_parity.rs`::"acepta, rechaza y completa defaults igual que NavoriConfigSchema"
@@ -68,81 +72,61 @@ fmt y clippy en verde. La re-delegación por config inválida en el CLI llega co
 - [x] **T10** (R34) — `render::context::RenderContext` con `cli_version`, `floor`, `lang`, `mode`, `now` y `pid` (D19); ninguna función de markers lee estado global · effect: behavior · test: `crates/navori-core/tests/markers.rs`::"el floor solo llega por el contexto o por meta"
 
 ### M4 — Markers y anti-rollback
-
-Implementado en `feat/0058-rust-e2` sin subagentes. A4 en verde. Propiedades contra el `marker.ts`
-real (3 000 casos por operación: inject, remove guardado, locate, proseLines, reorder, split y emit),
-con bloques HTML y shell, hashes correctos, editados y vacíos, huérfanos, fences, bloques colapsados,
-CRLF y Unicode no BMP. Las 14 mutaciones probadas (fences, re-escaneo, atributos vacíos, anclaje de
-`created`, `restamp`, floor ambiental, remove sin versión, colapso de líneas, preámbulo, zona de
-usuario, trim JS, U+FEFF y salto final) se detectan. Matriz anti-rollback unitaria con la expectativa
-calculada aparte. Workspace (118), fmt y clippy en verde.
-
-Cierre de E2 tras integrar `origin/migration/rust` (`3faa2c01`: dev 0.12.3, zod 4.6.7, citty 0.2.2):
-workspace 134/134 y `navori-core` aislado 34/34, sin y con `arbitrary_precision`. `bun check` en verde:
-10 474 pruebas, dos omitidas, 496 archivos en 546.8 s; cobertura 88.08/86.39/91.32/80.99 % con piso
-ok. `oracle:rust`: 52 casos, 0 diferencias. Antes de integrar, el único rojo fue
-`cli.e2e` `update --yes`, porque npm ya publicaba 0.12.3 y el checkout seguía en 0.12.2; no depende de
-esta entrega. Sin subagentes por instrucción del usuario, así que el PR necesita revisión
-independiente antes del merge.
 - **A4** [observable] — inject, remove y la matriz unitaria coinciden con Node · `cargo test -p navori-core --test markers --test anti_rollback --locked && cargo test -p navori-oracle-tests --test marker_parity --locked` → exit 0
 - [x] **T11** (R35) — `navori-core` (`markers`): `proseLines`, `findMarker`, `stripOrphanMarkers`, `buildBlock`, `inject_managed_section`, `locate`/`reorder` y secciones de usuario, con propiedades contra Node que incluyen fences, huérfanos, CRLF, bloques vacíos y Unicode no BMP (D21) · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"inject coincide con injectManagedSection en bytes, status y details"
 - [x] **T12** (R36) — `remove_managed_section_guarded` con la versión de sello y sin floor, como `marker.ts:562` · effect: behavior · test: `crates/navori-oracle-tests/tests/marker_parity.rs`::"remove guardado conserva newer, sin versión y editado igual que el TS"
 - [x] **T13** (R37, R34) — matriz unitaria: floor {ausente, menor, igual, mayor} × `version=` {ausente, menor, igual, mayor} × CLI × {inject, remove}, incluida la asimetría de floor en remove (F25) · effect: tests · test: `crates/navori-core/tests/anti_rollback.rs`::"matriz floor × marker × CLI coincide con el TS"
 
-## E3 — `render` Claude en preview
-Estimated LOC: 9000
+## E3 — `render` Claude con escrituras (PR 2)
+Estimated LOC: 10000 restantes (M5 ~3000, M6 ~1500, M7–M9 ~5500)
 
 ### M5 — Plan de render Claude
 
-En curso (adelantado antes de E1 por decisión del usuario, Q2): tramos integrados en #1411, #1417,
-#1422, #1425, #1428 y #1431, sigue en `feat/0058-rust-e3-retirements`. Portado
-con paridad contra los módulos TS reales, cada uno con mutaciones verificadas: `interpolate`,
-`frontmatter`, `hook-includes`, acceso a assets embebidos y el núcleo de `render-plan`
-(`CORE_MANAGED_ASSETS`, `conditionOrchestration`, `resolveAssetPath`), la carga de presets
-(`presets.ts`, locales sobre incluidos; lo que el TS rechaza se delega) y el registro de skills
-de librerías, con los validadores zod compartidos en `navori_core::zod`, y la carga de plugins
-(`plugins.ts`: registros de retirados, `loadPlugin` sobre el bundle embebido, conjuntos
-habilitado/deshabilitado y `nativeHook`; los manifiestos sintéticos pasan por el `loadPlugin`
-real con `readFileSync` parcheado). Las paridades de presets y plugins comparan la salida zod
-como texto para fijar el orden de claves. También `effectiveConfig` y el plan de bloques de
-`CLAUDE.md` (`computeRenderPlan`, `canonicalManagedOrder`: core, extras de preset, plugins
-declarados y retirados, skip/force, workspace, engine y piso anti-rollback). Del motor Claude:
-`renderManagedFile` (con `parseAsset` y `mergeFrontmatter`) y el paso 1 de
-`prepareClaudeEngine` (`CLAUDE.md` y `.claude/context/`, con `attachResolution`), contra el
-`prepareClaudeEngine` real en dry-run; los workspaces de monorepo se delegan. También
-`resolveHarnessPlan` con el roster, `filterInventory` y la colocación de agentes, skills y
-hooks del adapter Claude (`render::harness_files`); `guard-destructive` espera al inventario de
-paths propios del render completo y los hooks de `ported.json` al wiring nativo. También los
-pasos 5, 6.5-bis y 7 (`render::claude_files`): arranque de `progress/`, hooks del preset y
-scripts de plugins con la migración sin marcador de #637, la resolución markerless y las
-huellas legacy (`render::plugin_scripts`); destinos no normalizados se delegan porque el
-inventario de paths propios del TS los rechaza. También los sub-bloques (`render::sub_blocks`,
-pasos 8–8.4 y la parte de sub-bloques de 8.5 y 8.5-ter): `injectInto` con el grant de `tools:`
-(`render::agent_mcp_tools`), extensiones de hooks, la advertencia de revisión cruzada de Codex,
-su retiro al deshabilitar el plugin y los retirados de plugins vivos. Y los retiros de archivos
-(`render::retirements`, con el criterio de autoría de `removable.ts` en `render::removable`):
-scripts de plugins deshabilitados (8.5), skills de librerías quitadas, huérfanas y retiradas,
-hooks y agentes retirados (8.6–8.7d) y gemelos planos de skills (8.8). Un asset de plugin
-retirado en disco (8.5-bis) se delega; 8.7e es inerte en Claude y 8.9–8.10 son de workspace.
-Faltan `.gitignore`, ese inventario,
-`build-settings`/coexist, `.mcp.json`, el wiring nativo y las cadenas del render. Pendiente ajeno a
-0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma intermitente (3/5
-aislado) por un presupuesto de 1 ms.
+Adelantado antes de E1 por decisión del usuario (Q2), en tramos ya integrados en `migration/rust`
+(#1411, #1417, #1422, #1425, #1428, #1431 y #1433, antes de Q13). Cada módulo tiene paridad contra el
+TS real y mutaciones verificadas:
+- **Base del render:** `interpolate`, `frontmatter`, `hook-includes`, assets embebidos, núcleo de
+  `render-plan`, presets, skills de librerías, plugins, `effectiveConfig` y el plan de bloques de
+  `CLAUDE.md` (`render::block_plan`).
+- **Motor Claude (`prepareClaudeEngine` en dry-run):** `renderManagedFile`; paso 1, `CLAUDE.md` y
+  `.claude/context/` (`render::claude_md`); `resolveHarnessPlan`, `filterInventory` y la colocación
+  de agentes, skills y hooks (`render::harness_files`); pasos 5–7, `progress/`, hooks del preset y
+  scripts de plugins con la migración de #637 (`render::claude_files`, `render::plugin_scripts`);
+  pasos 8–8.5-ter, sub-bloques con su grant de `tools:` (`render::sub_blocks`,
+  `render::agent_mcp_tools`); retiros 8.5 y 8.6–8.8 con el criterio de `removable.ts`
+  (`render::retirements`, `render::removable`); inventario de paths propios, el
+  `navoriOwnedPaths` de `guard-destructive` (`render::owned_paths`, en la rama de E3); `.gitignore`
+  anidados de `.claude`, `.codex` y `.navori` (`render::nested_gitignore`, en la rama de E3).
+- **Se delega al TS:** workspaces de monorepo, destinos no normalizados o ilegibles, assets de
+  plugins retirados en disco (8.5-bis) y todo lo que el TS lanza.
+
+T14 cerrada en la rama de E3: `render::claude::plan_claude_engine` ensambla los pasos en el orden
+del TS; `render_claude.rs` compara el árbol con el snap `claude` (53 archivos) y el plan con el
+`finalize` real. El `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
+
+Falta, en este orden:
+1. Wiring nativo (T15); al cerrar, `render_claude.rs` deja de excluir `settings.json` y los hooks
+   de `crates/ported.json` en la comparación contra el motor. Hecho: `buildClaudeSettings`
+   (`render::claude_settings`), `planSettings` con coexist y `planStampedJson`
+   (`render::settings_file`) y `planMcpRegistration` (`render::mcp_file`), cableados como pasos 2 y
+   2.5; el golden ya compara ambos archivos y `.mcp.json` también contra el motor. Siguen
+   `finalizeNativeHooks`, `applyNativeClaudeSettings` y el brazo nativo de `claudeHookCommand`.
+2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
+
+Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
+intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
-- [ ] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
+- [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
 - [ ] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
 
-### M6 — Comando `render` en preview
+### M6 — Comando `render` en preview (después de E1, Q2)
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
 - [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
 - [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
 - [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
 - [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
-
-## E4 — Escrituras
-Estimated LOC: 5500
 
 ### M7 — Capa `Fs`, backup y poda
 - **A7** [observable] — los tests de D15 pasan sobre registro y disco real · `cargo test -p navori-core --features fault-injection --test fs --locked` → exit 0

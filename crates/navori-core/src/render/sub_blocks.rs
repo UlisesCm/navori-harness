@@ -19,7 +19,7 @@ use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists
 use crate::render::context::Lang;
 use crate::render::frontmatter::strip_frontmatter;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
-use crate::render::plan::CORE_SOURCE_ID;
+use crate::render::plan::{CORE_SOURCE_ID, condition_orchestration};
 use crate::render::plugins::{
     LoadedPlugin, PluginHookExtension, PluginSkill, RETIRED_PLUGIN_SUB_BLOCKS,
 };
@@ -39,8 +39,10 @@ const ORCHESTRATOR: &str = ".claude/agents/orchestrator.md";
 pub struct SubBlocks {
     /// Targets kept.
     pub skipped: Vec<SkippedFile>,
-    /// `pluginSkillNotInjected` notes and retired blocks kept.
+    /// `pluginSkillNotInjected` notes (step 8).
     pub warnings: Vec<String>,
+    /// Retired blocks kept (step 8.5-ter), which the TS reports after the disabled scripts.
+    pub retired_warnings: Vec<String>,
     /// Sub-blocks whose version on disk is older.
     pub updates_available: Vec<UpdateAvailable>,
     /// Sub-blocks written by a newer navori.
@@ -172,7 +174,7 @@ fn skip_kept(
     out.skipped.push(SkippedFile {
         rel_path: rel.to_owned(),
         reason,
-        status: result.status,
+        status: Some(result.status),
         resolution: None,
         markerless_resolution: None,
     });
@@ -214,11 +216,15 @@ pub fn apply_sub_block_inject(
         ));
         return Ok(());
     };
-    let body = interpolate(
+    // `navori:if` markers resolve for engine "claude", as `composeSubBlock` does; a skill without
+    // markers comes out byte-identical. An unbalanced marker throws in the TS.
+    let resolved = condition_orchestration(
         strip_frontmatter(plugin_text(plugin, &skill.path)?),
         ctx.config,
-        &InterpolateOptions::default(),
-    );
+        "claude",
+    )
+    .map_err(|_| SubBlocksDelegate)?;
+    let body = interpolate(&resolved, ctx.config, &InterpolateOptions::default());
     let source = format!("@navori/plugin-{plugin_id}");
     let result = inject(
         existing,
@@ -444,7 +450,7 @@ pub fn strip_retired_sub_blocks(
                         Kept::Newer => "from a newer navori",
                         Kept::Modified => "edited by hand",
                     };
-                    out.warnings.push(format!(
+                    out.retired_warnings.push(format!(
                         "kept {target} \u{2014} retired block {id} is {why}"
                     ));
                     continue;

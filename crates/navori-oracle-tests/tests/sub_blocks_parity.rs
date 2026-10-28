@@ -1,10 +1,15 @@
 //! `navori_core::render::sub_blocks` and `agent_mcp_tools` against the real TS (spec 0058 T14):
 //! the `injectInto` sub-blocks of enabled plugins with their `tools:` grant, the hook extensions
 //! and the Codex cross-review advisory, on top of the harness files `prepareClaudeEngine` writes.
-//! The owned-path inventory is not ported yet, so `guard-destructive` renders with the TS's
-//! sealed value.
+//! `guard-destructive` embeds the native owned-path inventory, compared with the TS's seal
+//! (`owned_paths_parity` covers it on its own).
 
 mod support;
+
+use navori_core::render::block_plan::PlanOptions;
+use navori_core::render::claude_md::plan_claude_md;
+use navori_core::render::harness_plan::preset_hooks;
+use navori_core::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -91,6 +96,10 @@ impl RepoView for Disk<'_> {
 
     fn exists(&self, rel: &str) -> bool {
         self.0.join(rel).exists()
+    }
+
+    fn lexists(&self, rel: &str) -> bool {
+        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
     }
 
     fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
@@ -235,8 +244,9 @@ fn string_at(config: &JsValue, key: &str) -> Option<String> {
     }
 }
 
-fn rust_render(root: &Path, text: &str, floor: Option<&str>, owned: &str) -> Option<Value> {
-    let config = config::effective_config(&config::read(text.as_bytes()).ok()?.data);
+fn rust_render(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
+    let read = config::read(text.as_bytes()).ok()?;
+    let config = config::effective_config(&read.data);
     let preset = match string_at(&config, "preset").as_deref() {
         None | Some("" | "custom") => None,
         Some(id) => load_preset(id, root).ok()?,
@@ -256,7 +266,20 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>, owned: &str) -> Opt
         true,
         Some("claude"),
     ));
-    let harness = collect_harness_files(&view, &plan, &config, lang, floor, Some(owned)).ok()?;
+    let step1 = plan_claude_md(&view, &read.data, root, &PlanOptions::default()).ok()?;
+    let hooks = preset_hooks(preset.as_ref(), &config);
+    let owned = claude_owned_paths(
+        &view,
+        &ClaudeOwnedInput {
+            claude_md: &step1.observed,
+            plan: &plan,
+            preset_hooks: &hooks,
+            enabled: &plugins.loaded,
+            disabled: &disabled.loaded,
+        },
+    )
+    .ok()?;
+    let harness = collect_harness_files(&view, &plan, &config, lang, floor, Some(&owned)).ok()?;
     let mut pending = harness.pending;
     let harness_skipped = harness.skipped;
     pending.extend(
@@ -287,11 +310,12 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>, owned: &str) -> Opt
     };
     Some(json!({
         "pending": pending.iter().filter(|w| in_scope(&w.rel_path)).map(|w| json!([w.rel_path, w.content, w.status.as_str(), w.chmod_exec])).collect::<Vec<_>>(),
-        "skipped": harness_skipped.iter().chain(&out.skipped).filter(|s| in_scope(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.as_str(), s.resolution])).collect::<Vec<_>>(),
-        "warnings": out.warnings,
+        "skipped": harness_skipped.iter().chain(&out.skipped).filter(|s| in_scope(&s.rel_path)).map(|s| json!([s.rel_path, s.reason, s.status.map(|st| st.as_str()), s.resolution])).collect::<Vec<_>>(),
+        "warnings": out.warnings.iter().chain(&out.retired_warnings).collect::<Vec<_>>(),
         "updates": out.updates_available.iter().map(u).collect::<Vec<_>>(),
         "downgrades": out.downgrades.iter().map(u).collect::<Vec<_>>(),
         "bare": bare,
+        "owned": owned,
     }))
 }
 
@@ -301,19 +325,7 @@ fn build_repo(root: &Path, recipe: &Recipe) {
     let Some(baseline) = recipe.baseline.as_deref() else {
         return;
     };
-    // The baseline's guard carries the owned paths the TS seals for that config.
-    let empty = BASE.join("empty");
-    let _ = std::fs::remove_dir_all(&empty);
-    write(&empty, "navori.config.json", baseline);
-    let owned = NODE
-        .ask(&json!({
-            "op": "render", "root": empty.to_string_lossy(), "floor": null,
-            "excluded": *EXCLUDED, "ids": [],
-        }))
-        .ok()
-        .and_then(|ts| ts["owned"].as_str().map(str::to_owned))
-        .unwrap_or_else(|| "-".to_owned());
-    let Some(rendered) = rust_render(root, baseline, None, &owned) else {
+    let Some(rendered) = rust_render(root, baseline, None) else {
         return;
     };
     let (Value::Array(files), Value::Object(bare)) = (&rendered["pending"], &rendered["bare"])
@@ -533,13 +545,26 @@ proptest! {
                 "excluded": *EXCLUDED, "ids": sub_block_ids(),
             }))
             .map_err(TestCaseError::fail)?;
-        let owned = ts["owned"].as_str().unwrap_or("-");
-        let rust = rust_render(&root, &config, floor, owned).map(|mut rust| {
+        let rust = rust_render(&root, &config, floor).map(|mut rust| {
             if let Some(object) = rust.as_object_mut() {
                 object.remove("bare");
+                let owned = object.remove("owned");
+                if ts.get("owned").is_some() {
+                    object.insert("sealed".to_owned(), owned.unwrap_or_default());
+                }
             }
             rust
         });
+        let ts = match ts.get("owned") {
+            Some(owned) => {
+                let mut report = ts["report"].clone();
+                if let Some(object) = report.as_object_mut() {
+                    object.insert("sealed".to_owned(), owned.clone());
+                }
+                json!({ "report": report })
+            }
+            None => ts,
+        };
         match rust {
             Some(rust) => prop_assert!(ts["report"] == rust, "{}\n{}\n{:?}", first_difference(&ts["report"], &rust), config, recipe),
             None => prop_assert!(ts.get("threw").is_some(), "rust declined, ts: {} for {}", ts, config),

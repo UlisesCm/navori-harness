@@ -41,7 +41,7 @@ export interface PiHookBinding {
   /** Hook script id, without extension: the asset is `core-assets/hooks/<script>.sh`. */
   readonly script: string;
   readonly on: PiBridgeEvent;
-  /** Pi tool names the row matches (`bash`, `edit`, `write`); absent = every tool of the event. */
+  /** Pi tool names the row matches (`bash`, `edit`, `write`, `navori_subagent`); absent = every tool of the event. */
   readonly tools?: readonly string[];
   readonly scope: PiBridgeScope;
   readonly class: PiBridgeClass;
@@ -49,6 +49,8 @@ export interface PiHookBinding {
   readonly interactive: boolean;
   /** Per-script deadline; a timeout is a block for `enforced` and silence otherwise. */
   readonly timeoutMs: number;
+  /** `tool_result` rows only: skip the script when the tool result is an error (Claude's PostToolUse is success-only). */
+  readonly skipOnError?: boolean;
   /** Installed only when this returns true; always installed when absent. */
   readonly when?: (config: NavoriConfig) => boolean;
 }
@@ -143,6 +145,19 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     class: "advisory",
     interactive: false,
     timeoutMs: 10_000,
+  },
+  // Spec 0048 D8 (promoted from unsupported): the parent's source writes without a delegation. A
+  // `navori_subagent` result reaches the script as `Agent`; errored results are not forwarded, so a
+  // failed write or a refused dispatch neither counts as work nor as delegation.
+  {
+    script: "routing-watch",
+    on: "tool_result",
+    tools: ["bash", "edit", "write", "navori_subagent"],
+    scope: "parent",
+    class: "advisory",
+    interactive: false,
+    timeoutMs: 10_000,
+    skipOnError: true,
   },
   // Spec 0048 R10 (D8): parent session close, 15 s in total (reclaim 12 s, then the audit seal 3 s).
   {

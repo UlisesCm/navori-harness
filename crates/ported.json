@@ -6,21 +6,21 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "guard-destructive-base": "sha256:8e931a685743f2453cac9b06782fe60f57e1708ab2767d109f70e60f7fcb433f",
+        "guard-destructive-base": "sha256:2a0a842f4cb713b7efae12566bc0d9b044128b895d05b1e727f3484d78e04bce",
         "tgrep-search-lane": "sha256:24f3f6b3eb22b3269f99178b0fb1f56a91972c8ddf80aa754771e8af0f924f1e"
       },
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
       },
-      "impl": "sha256:7cf6df070df4a38b23663f4b464faab6f9013b357d08da910db610279b781676"
+      "impl": "sha256:b6688e9eb3d08afcf1d9b9559db71420cc719277245f9d472f6e1cd7f57e373e"
     },
     "subagent-no-background": {
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "subagent-no-background-base": "sha256:eac83249eb0740c46559c1a64a86eedcaff81fd569de6c4b21b316e8b981b5d5"
+        "subagent-no-background-base": "sha256:336a616d2316419ea53f2ba27c57c977aa08ed273f035c08092dc485ea3e5b68"
       },
-      "impl": "sha256:e39e7b440b75ca4213d9109929913e407375df56db0eeb2cb910e02c5a86fd71"
+      "impl": "sha256:565b17f2d94f45409b819f7ac20258f707d0f37849488682d22cecd94d626613"
     }
   }
 }

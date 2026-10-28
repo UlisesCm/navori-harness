@@ -214,7 +214,7 @@ fn cada_cascada_de_extraccion_llega_al_veredicto_del_shell() -> TestResult {
     let capture = CaptureContext {
         shell: dialect()?,
         script: &script,
-        input_line: line_of(&source, "payload=${payload-$(cat)}")?,
+        input_line: line_of(&source, "payload=${payload-\"$(cat)\"}")?,
         fallback_line: line_of(
             &source,
             r#"    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")""#,

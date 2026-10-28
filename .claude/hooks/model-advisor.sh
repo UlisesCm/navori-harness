@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="1fd5699b" version="0.12.2" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="1fd5699b" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Startup/lifecycle modes advise the main session; `/model` remains the user's

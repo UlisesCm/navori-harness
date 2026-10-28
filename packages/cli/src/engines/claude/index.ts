@@ -2575,7 +2575,12 @@ function composeSubBlock(
   skill: LoadedPlugin["skillAssets"][number],
   config: NavoriConfig,
 ): { result: InjectResult; finalContent: string; source: string } {
-  const skillBody = stripFrontmatter(readFileSync(skill.absPath, "utf-8"));
+  // `navori:if` markers resolve here like on Codex and Pi (engine "claude"); a skill without any
+  // marker comes out byte-identical, so existing sub-blocks do not move.
+  const skillBody = conditionOrchestration(
+    stripFrontmatter(readFileSync(skill.absPath, "utf-8")),
+    config,
+  );
   const interpolated = interpolate(skillBody, config, {
     extraVars: pluginExtraVars(config),
   });

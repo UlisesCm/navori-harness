@@ -6,6 +6,22 @@ import type { NavoriConfig } from "../config/config.ts";
 import { isVerifiedPiRuntime, MIN_PI_VERSION } from "../../engines/pi/runtime-version.ts";
 
 /**
+ * True when Pi roles silently changed behaviour: Pi is enabled, `models.codexMap` still names tiers
+ * (older navori used it for Pi) and `models.piMap` is undefined. Defining `piMap` (even `{}`) silences it.
+ */
+export function piMapMigrationPending(config: NavoriConfig): boolean {
+  return (
+    config.engines.includes("pi") &&
+    config.models?.piMap === undefined &&
+    Object.values(config.models?.codexMap ?? {}).some((model) => model !== undefined)
+  );
+}
+
+/** Shared by render and doctor; plain English like the other render warnings. */
+export const PI_MAP_MIGRATION_WARNING =
+  "Pi roles no longer take their model from models.codexMap: they now inherit the parent Pi model. Set models.piMap (opus/sonnet/haiku as provider/id) to pin them, or {} to keep inheriting and silence this warning.";
+
+/**
  * Spec 0048 D4/D10: what `navori doctor` reports about the Pi runtime. Every finding is advisory and
  * best-effort (an absent `pi` binary or an unreadable settings file is "nothing to check", never an error),
  * and none of them flips doctor's `ok`: the extension itself already fails closed on them.
@@ -17,6 +33,8 @@ export interface PiHealth {
   powershellDefault: boolean;
   /** Project extension entries other than Navori's own, from `.pi/extensions/` and the project `extensions` setting. */
   foreignExtensions: string[];
+  /** `models.codexMap` is set but `models.piMap` is not: Pi roles changed from codexMap to inheriting. */
+  piMapMigration: boolean;
 }
 
 /** Parse a settings file; anything that is not a JSON object reads as "no settings". */
@@ -81,6 +99,7 @@ export function scanPiHealth(
       found !== null && !isVerifiedPiRuntime(found) ? { found, min: MIN_PI_VERSION } : null,
     powershellDefault: selectsPowershell(defaultTools),
     foreignExtensions: foreign.sort(),
+    piMapMigration: piMapMigrationPending(config),
   };
 }
 

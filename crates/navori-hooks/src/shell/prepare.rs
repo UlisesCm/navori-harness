@@ -230,7 +230,7 @@ pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible
         .filter_map(|key| env_value(request.env, key))
         .find(|value| !value.is_empty());
     let utf8 = effective.is_some_and(|value| !matches!(value.to_str(), Some("C" | "POSIX")));
-    let input_line = source_line(request.source, b"payload=${payload-$(cat)}")?;
+    let input_line = source_line(request.source, b"payload=${payload-\"$(cat)\"}")?;
     let fallback_line = source_line(
         request.source,
         br#"    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")""#,
