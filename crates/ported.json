@@ -5,8 +5,7 @@
     { "path": ["--help"] },
     {
       "path": ["master", "check"],
-      "flags": ["cwd", "fit", "h", "help", "json", "part"],
-      "requires": [["part"], ["fit"], ["h"], ["help"]]
+      "flags": ["cwd", "fit", "h", "help", "json", "part", "stage"]
     },
     { "path": ["master", "template"], "flags": ["cwd", "h", "help", "part"] },
     {

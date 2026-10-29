@@ -13,6 +13,7 @@ use std::path::Path;
 use navori_core::integrity::is_js_whitespace;
 use navori_core::js_json::JsValue;
 use navori_core::master::check_part::check_part;
+use navori_core::master::checks::{build_stage_ctx, check_closed_stage, run_master_check};
 use navori_core::master::fit::{FitResult, evaluate_fit};
 use navori_core::master::index::{self, StageEntry};
 use navori_core::master::state;
@@ -228,29 +229,95 @@ fn check(args: &[OsString]) -> Option<Output> {
     if rest.iter().any(|a| *a == "--help" || *a == "-h") {
         return Some(Output::usage(&CHECK, MASTER_PARENT, None));
     }
-    let parsed = parse_options(rest, &["fit", "json"], &["part", "cwd"])?;
+    let parsed = parse_options(rest, &["fit", "json"], &["part", "stage", "cwd"])?;
     let (fit, json, part) = (
         parsed.flag("fit"),
         parsed.flag("json"),
         parsed.value("part"),
     );
-    // The mutual-exclusion error, the stage checks and `--stage` belong to the TS.
-    if !parsed.positionals.is_empty()
-        || (part.is_some() && fit)
-        || (json && !fit)
-        || (part.is_none() && !fit)
-    {
+    // `args.stage` is read for its truthiness: an empty value is no stage.
+    let stage = parsed.value("stage").filter(|s| !s.is_empty());
+    // The mutual-exclusion error belongs to the TS.
+    let exclusive = [stage.is_some(), part.is_some(), fit]
+        .iter()
+        .filter(|b| **b)
+        .count();
+    if !parsed.positionals.is_empty() || exclusive > 1 || (json && !fit) {
         return None;
     }
     let cwd = cwd_of(&parsed)?;
     if fit {
         return check_fit(cwd, json);
     }
-    let id = part?.trim_matches(is_js_whitespace);
+    if let Some(stage) = stage {
+        return check_stage(cwd, stage);
+    }
+    let Some(part) = part else {
+        return check_active(cwd);
+    };
+    let id = part.trim_matches(is_js_whitespace);
     if id.is_empty() {
         return Some(fail("--part requires a P<n> value"));
     }
     check_part_command(cwd, id)
+}
+
+/// Reports `failures` as `master check` does, one `[navori] …` line each with exit 1; whether
+/// there were none.
+fn report_failures(out: &mut Output, failures: &[String]) -> bool {
+    for failure in failures {
+        out.stderr.push_str(&format!("[navori] {failure}\n"));
+    }
+    if !failures.is_empty() {
+        out.code = 1;
+    }
+    failures.is_empty()
+}
+
+/// `runMasterCheck(cwd)` and the report of a plain `master check`.
+fn check_active(cwd: String) -> Option<Output> {
+    let mut out = Output::default();
+    let repo = Repo::open(&mut out, cwd)?;
+    let built = match build_stage_ctx(&repo.master_dir, repo.index.as_ref()).ok()? {
+        Ok(built) => built,
+        Err(message) => {
+            out.stderr.push_str(&format!("{message}\n"));
+            out.code = 1;
+            return Some(out);
+        }
+    };
+    let result = run_master_check(
+        &repo.cwd,
+        &repo.specs_dir,
+        &repo.master_dir,
+        part_config(&repo.config),
+        repo.index.as_ref()?,
+        &built,
+    )
+    .ok()?;
+    // `readMasterStatus` and each `checkPart` read the config again before the report.
+    for _ in 0..result.config_reads {
+        push_warnings(&mut out, &repo.config.warnings);
+    }
+    if report_failures(&mut out, &result.failures) {
+        let next = result
+            .next_phase
+            .map_or_else(String::new, |n| format!(" · lista para avanzar a {n}"));
+        out.stdout
+            .push_str(&format!("fase {}{next}\n", result.phase));
+    }
+    Some(out)
+}
+
+/// `checkClosedStage` and the report of `master check --stage <NN-slug>`.
+fn check_stage(cwd: String, stage: &str) -> Option<Output> {
+    let mut out = Output::default();
+    let repo = Repo::open(&mut out, cwd)?;
+    let failures = check_closed_stage(&repo.cwd, &repo.master_dir, stage, repo.english()).ok()?;
+    if report_failures(&mut out, &failures) {
+        out.stdout.push_str(&format!("{stage}: ok\n"));
+    }
+    Some(out)
 }
 
 /// `/^P[1-9]\d*$/`.
@@ -339,41 +406,15 @@ fn check_fit(cwd: String, json: bool) -> Option<Output> {
     let mut out = Output::default();
     let repo = Repo::open(&mut out, cwd)?;
     // `buildCheckContext`: its setup failures are reported, the rest is thrown.
-    let setup_error = |mut out: Output, message: String| {
-        out.stderr.push_str(&format!("{message}\n"));
-        out.code = 1;
-        Some(out)
+    let built = match build_stage_ctx(&repo.master_dir, repo.index.as_ref()).ok()? {
+        Ok(built) => built,
+        Err(message) => {
+            out.stderr.push_str(&format!("{message}\n"));
+            out.code = 1;
+            return Some(out);
+        }
     };
-    let Some(stage) = repo.active() else {
-        return setup_error(
-            out,
-            "no hay etapa activa: corra 'navori master init <slug>'".to_owned(),
-        );
-    };
-    if stage.deliveries {
-        return setup_error(
-            out,
-            format!(
-                "{}: deliveries workflow is not supported by legacy checks",
-                stage.dir
-            ),
-        );
-    }
-    let stage_path = format!("{}/{}", repo.master_dir, stage.dir);
-    if !Path::new(&stage_path).exists() {
-        return setup_error(
-            out,
-            format!(
-                "{}: la etapa activa no tiene carpeta en disco (repárelo con: navori master init)",
-                stage.dir
-            ),
-        );
-    }
-    let state_path = format!("{stage_path}/state.json");
-    if !Path::new(&state_path).exists() {
-        return setup_error(out, format!("{}: falta state.json", stage.dir));
-    }
-    state::master_state(&read_json(Path::new(&state_path)).ok()?).ok()?;
+    let stage_path = built.stage_path;
     let read = |name: &str| -> Option<String> {
         let path = format!("{stage_path}/context/{name}");
         // A missing file is a plain `Error` in the TS: it crashes there.
