@@ -11,14 +11,14 @@ decisiones D1–D17 de `specs/0057-migracion-rust/design.md` y los requisitos R1
 R25 y R26, que siguen vigentes en `migration/rust`.
 
 Alcance de la fase, según la tabla del programa: config, markers, render en preview y escrituras,
-más la activación de `guard-destructive`. La fase entrega por primera vez comandos nativos que
+más la activación de `guard-destructive`, que pasa a la fase 4 (0060) por decisión del usuario
+(Q14 de `design.md`, 2026-10-28). La fase entrega por primera vez comandos nativos que
 **escriben en el repo del usuario**, así que lo central son las garantías de escritura: preview,
 backup, fsync, markers y anti-rollback, verificados con tests propios y con el diferencial.
 
-**Puerta de entrada.** 0058 empieza cuando 0057 E3 esté cerrada: `subagent-no-background` en
-`active`, y `guard-destructive-base` y `tgrep-search-lane` en `shadow`, con replay y fuzz a cero. La
-primera entrega de esta fase activa `guard-destructive` (T28 de 0057 → `active`). Las demás
-entregas dependen de eso según el orden de `tasks.md`.
+**Puerta de entrada.** 0058 cierra cuando 0057 E3 esté cerrada: `guard-destructive-base` y
+`tgrep-search-lane` en `shadow`, con replay y fuzz a cero. Ningún hook pasa a `active` en esta fase:
+las activaciones de `subagent-no-background` y `guard-destructive` se resuelven en 0060 (Q14).
 
 **Numeración.** Los `R<n>` siguen la numeración del programa. R14 es un requisito del programa que
 0057 no declaró. Esta spec lo redeclara con el texto reconstruido a partir de la tabla de fases y
@@ -28,22 +28,25 @@ quedan en el programa: los redeclara la fase 4 (0060). R19 lo redeclara la fase 
 
 ## Requirements (EARS)
 
-### Activación de `guard-destructive` (puerta de entrada)
+### Activación de `guard-destructive` (movida a 0060)
 
-- **R27** — WHEN un PR cambia un hook de `shadow` a `active` en `crates/ported.json`, el job
+R27–R31 pasan a la fase 4 (0060) con E1 (Q14): 0060 los redeclara y los cubre con pruebas. Esta
+spec cierra sin ellos; el texto se conserva como insumo.
+
+- R27 (→ 0060) — WHEN un PR cambia un hook de `shadow` a `active` en `crates/ported.json`, el job
   `manifest` SHALL fallar, salvo que la merge-base ya tuviera ese hook en `shadow` y el PR añada
   una línea `activate` para ese id a `crates/ported-history.jsonl`.
-- **R28** — El PR que activa `guard-destructive` SHALL adjuntar replay a cero, fuzz local de
+- R28 (→ 0060) — El PR que activa `guard-destructive` SHALL adjuntar replay a cero, fuzz local de
   100 000 entradas a cero y un resumen de sombra con ≥ 500 invocaciones reales en ≥ 14 días y cero
   divergencias en cada engine donde el hook está registrado (Claude, Codex y Pi). Además SHALL
   tener la aprobación explícita del usuario en el PR.
-- **R29** — Antes de activar `guard-destructive`, su corpus de veredictos SHALL tener al menos un
+- R29 (→ 0060) — Antes de activar `guard-destructive`, su corpus de veredictos SHALL tener al menos un
   caso de cada clase de veredicto (permitir, preguntar o bloquear según el engine) en cada engine
   donde el hook está registrado.
-- **R30** — WHILE `guard-destructive` esté en `active`, el hook invocado por su comando registrado
+- R30 (→ 0060) — WHILE `guard-destructive` esté en `active`, el hook invocado por su comando registrado
   exacto SHALL dar en cada engine el mismo veredicto que el shell. Ante una salida anómala del
   binario SHALL caer al shell o emitir el veredicto seguro, y nunca SHALL resolver en permitir.
-- **R31** — IF un hook activo produce una divergencia confirmada THEN SHALL volver a `shadow`
+- R31 (→ 0060) — IF un hook activo produce una divergencia confirmada THEN SHALL volver a `shadow`
   con un evento registrado en `crates/ported-history.jsonl` antes de cualquier otro cambio en su
   implementación.
 
@@ -120,6 +123,6 @@ quedan en el programa: los redeclara la fase 4 (0060). R19 lo redeclara la fase 
 - **R5, R7 y R9:** cada comando portado entra al manifiesto por ruta y flags, con diferencial cero
   en todos sus fixtures.
 - **R10:** un cambio TS que llegue por merge de `dev` y altere un comando portado pone CI en rojo.
-- **R11–R13:** la activación de `guard-destructive` conserva el contrato de salidas, el
-  fail-closed y el fallback al shell.
+- **R11–R13:** el wiring nativo que emite el render conserva el contrato de salidas, el
+  fail-closed y el fallback al shell (la activación de `guard-destructive` los ejerce en 0060).
 - **R15 y R16:** misma barra de calidad Rust.

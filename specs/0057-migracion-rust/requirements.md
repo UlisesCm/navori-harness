@@ -85,6 +85,6 @@ abrirse:
 | Fase | Spec | Alcance | Requisitos que hereda de este programa |
 |---|---|---|---|
 | 1 | 0057 | Cimientos, runtime de hooks, `subagent-no-background` y `guard-destructive` en sombra | R1–R13, R15–R17, R23 |
-| 2 | 0058 | Config, markers, render en preview y escrituras; activación de `guard-destructive` | Escrituras con preview, backup, fsync, markers y anti-rollback verificados con tests propios y el diferencial |
+| 2 | 0058 | Config, markers, render en preview y escrituras (la activación de `guard-destructive` pasa a 0060: Q14 de 0058) | Escrituras con preview, backup, fsync, markers y anti-rollback verificados con tests propios y el diferencial |
 | 3 | 0059 | Ruta caliente de sesión, Codex, agents-md, cursor, copilot y Pi (la extensión Pi como asset derivado del TS, sin refactor en `dev`: D29 de 0059) | Garantías first-class de cada engine con las mismas pruebas de aceptación que en TS |
-| 4 | 0060 | Cola larga, ensayo de distribución y corte | Gate full ≤ 5 min tras el corte; corte solo con manifiesto completo, metas cumplidas y aprobación explícita; binarios macOS y Linux; TS congelado en otras plataformas; integración a `dev` en un solo PR con el gate full verde |
+| 4 | 0060 | Cola larga, ensayo de distribución y corte; activación de `subagent-no-background` (T27 y A10 de 0057) de `guard-destructive` (E1 de 0058: T1–T6, A1, A2, R27–R31) y de los hooks de sesión (E3 de 0059: T34–T36, A9, R60, R61) en un solo PR, con la sombra acumulada desde el cierre de 0057 (decisión del usuario, 2026-10-28) | Gate full ≤ 5 min tras el corte; corte solo con manifiesto completo, metas cumplidas y aprobación explícita; binarios macOS y Linux; TS congelado en otras plataformas; integración a `dev` en un solo PR con el gate full verde |

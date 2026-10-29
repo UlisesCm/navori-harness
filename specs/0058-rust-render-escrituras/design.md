@@ -1,6 +1,7 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Design
 
-**Estado:** aceptado; decisiones Q2–Q12 resueltas por el usuario (§ "Decisiones del usuario") ·
+**Estado:** aceptado; decisiones Q2–Q14 resueltas por el usuario (§ "Decisiones del usuario"); Q14
+(2026-10-28) mueve E1 a la fase 4 (0060) ·
 **Fecha:** 2026-10-23 · **Base verificada:**
 `origin/migration/rust` = `73fa052f` (merge de #1393). Toda afirmación "ya existe" o "falta" se
 leyó en ese commit; las referencias `archivo:línea` apuntan a él. Cada entrega abre su propio PR
@@ -185,6 +186,11 @@ seguido de un **commit**. Preview = plan sin commit, y eso hace R40 verificable 
 
 ### D18 — Activar `guard-destructive` primero, como puerta de entrada (R27–R31)
 
+> Superada en el orden por Q14 (2026-10-28): la activación pasa a 0060 y se resuelve junto con la
+> de `subagent-no-background` (T27 de 0057). El resto de D18 (herramientas, corpus Codex, umbral
+> Q3) sigue vigente como insumo de 0060. El caso `active` de R42 se prueba en E3 con un manifiesto
+> de prueba, el costo que este mismo D18 anticipaba.
+
 - **Orden.** E1 de 0058 es la activación (E5 M3 en el plan de 0057). Así lo pidió el usuario: la
   activación es la puerta de entrada de la fase. Además, el render Rust de E3 tiene que reproducir
   el wiring de un hook **activo** (R42); si la activación llegara al final, ese caso solo se
@@ -294,7 +300,7 @@ backup y poda no dependan del reloj.
 - **Wiring de hooks (R42).** El render Rust reproduce `nativeRunnerShell`, la conformidad de D8 y
   la finalización tras plugins de `native-hook-render.ts`. Se compara con el TS (oráculo) y con
   `wiring.snap` (golden manual), con `guard-destructive` en `active` y `subagent-no-background`
-  también en `active`.
+  también en `active` sobre un manifiesto de prueba (Q14: la activación real es de 0060).
 - **Salida.** Las cadenas de `render` y de `engine` de `lib/i18n.ts` en `es` y `en`. La salida
   no-TTY de clack (`p.intro`, `p.log.*`, `p.outro`) se reproduce byte a byte (D16 de 0057);
   `NO_COLOR` y la ausencia de TTY son las del oráculo.
@@ -411,7 +417,7 @@ backup y poda no dependan del reloj.
 ## Migration
 
 - Ningún contrato de usuario cambia. Los comandos nativos existen solo en `navori-rust`.
-- **Activación.** Al pasar `guard-destructive` a `active`, el siguiente `render --apply` en
+- **Activación (en 0060, Q14).** Al pasar `guard-destructive` a `active`, el siguiente `render --apply` en
   `migration/rust` reescribe el fragmento nativo de sus tres scripts (sin `--shadow`). Esos archivos
   renderizados cambian en la rama, con conflicto de clase 1 en la siguiente sincronización con
   `dev` (D1 de 0057).
@@ -450,6 +456,10 @@ PRs, E1 y E3. E1 sigue aparte porque depende de la ventana de sombra y de la apr
 en su propio PR; E3 se mergea después de E1 porque M6 toca `ported.json` (Q2). El costo es un PR
 grande de área crítica (render y escrituras): cada mecanismo sigue en su propio commit y el cierre
 exige revisión independiente.
+
+**Replanificación (Q14, 2026-10-28).** El usuario no espera la ventana de sombra de 14 días para
+cerrar fases: E1 pasa a la fase 4 (0060), junto con T27 de 0057, y queda un PR, E3. E3 ya no espera
+a E1; M6 toca `ported.json` sin activar hooks.
 
 ### E1 — Activación de `guard-destructive` (puerta de entrada)
 
@@ -523,6 +533,7 @@ cada pregunta se conserva abajo con su resolución.
 | Q11 | Máscara literal de lado para la línea de procedencia; Rust imprime `core: (embedded)` |
 | Q12 | Se acepta el tamaño de E3 sin recortar; M5 en un commit por mecanismo |
 | Q13 | (2026-10-27) Mínima cantidad de PRs para lo que falta: la antigua E4 (M7–M9) se funde en E3 y quedan dos PRs, E1 y E3. Los tramos de M5 ya integrados (#1411–#1433) quedan como están |
+| Q14 | (2026-10-28) La ventana de sombra no bloquea el cierre de fases: E1 (activación de `guard-destructive`, R27–R31) pasa a 0060 junto con T27 de 0057, en un solo PR con la sombra acumulada; queda un PR, E3, que ya no espera a E1 |
 
 ## Preguntas (resueltas)
 
