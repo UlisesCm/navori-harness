@@ -243,6 +243,167 @@ pub fn harness_version_not_recorded(outcome: &str) -> String {
     )
 }
 
+/// `sync.planTitle(label)`, the same in both languages.
+#[must_use]
+pub fn sync_plan_title(label: &str) -> String {
+    format!("Plan [{label}]:")
+}
+
+/// `sync.updatesAvailableTitle`, the same in both languages.
+pub const SYNC_UPDATES_AVAILABLE_TITLE: &str = "Updates available:";
+
+/// `sync.writtenToken(n)` and `sync.conflictKeptToken(n)`, the same in both languages.
+#[must_use]
+pub fn sync_tokens(written: usize, kept: usize) -> (String, String) {
+    (
+        format!("{written} written"),
+        format!("{kept} conflict kept"),
+    )
+}
+
+/// `sync.upToDate`.
+#[must_use]
+pub const fn sync_up_to_date(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Al d\u{ed}a \u{2014} sin cambios",
+        Lang::En => "Up to date \u{2014} no changes",
+    }
+}
+
+/// `sync.dryRunComplete(summary)`.
+#[must_use]
+pub fn sync_dry_run_complete(lang: Lang, summary: &str) -> String {
+    let tail = if summary.is_empty() {
+        String::new()
+    } else {
+        format!(" \u{2014} {summary}")
+    };
+    match lang {
+        Lang::Es => format!("Dry-run completo{tail}"),
+        Lang::En => format!("Dry-run complete{tail}"),
+    }
+}
+
+/// `sync.conflictsWithYes(count, lines)`.
+#[must_use]
+pub fn sync_conflicts_with_yes(lang: Lang, count: usize, lines: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Se detectaron {count} conflict(s) con --yes. Resu\u{e9}lvelos a mano o corre 'sync --apply' sin --yes para el flujo interactivo.\n{lines}"
+        ),
+        Lang::En => format!(
+            "{count} conflict(s) detected with --yes. Resolve them by hand or run 'sync --apply' without --yes for the interactive flow.\n{lines}"
+        ),
+    }
+}
+
+/// `sync.bulkPreview(mode, count)`.
+#[must_use]
+pub fn sync_bulk_preview(lang: Lang, mode: &str, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{mode} resolver\u{ed}a {count} conflicto(s) de bloques en CLAUDE.md. No escrib\u{ed} nada: vuelve a correrlo con --apply (o --yes) para aplicarlo."
+        ),
+        Lang::En => format!(
+            "{mode} would resolve {count} CLAUDE.md block conflict(s). Nothing was written: re-run it with --apply (or --yes) to apply it."
+        ),
+    }
+}
+
+/// `sync.bulkApplied(mode, count)`.
+#[must_use]
+pub fn sync_bulk_applied(lang: Lang, mode: &str, count: usize) -> String {
+    match lang {
+        Lang::Es => format!("{mode}: resolv\u{ed} {count} conflicto(s) de bloques en CLAUDE.md"),
+        Lang::En => format!("{mode}: resolved {count} CLAUDE.md block conflict(s)"),
+    }
+}
+
+/// `sync.fileConflictsRemain(count)`.
+#[must_use]
+pub fn sync_file_conflicts_remain(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} conflicto(s) en archivos completos se mantienen \u{2014} sync no los resuelve; aj\u{fa}stalos a mano o mueve el archivo aparte y corre 'navori render --apply' (lo regenera con el marcador)."
+        ),
+        Lang::En => format!(
+            "{count} whole-file conflict(s) remain \u{2014} sync does not resolve them; edit by hand or move the file aside and run 'navori render --apply' (it regenerates the file with the marker)."
+        ),
+    }
+}
+
+/// `sync.markerlessFilesInteractiveOnly(count)`.
+#[must_use]
+pub fn sync_markerless_files_interactive_only(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) sin marcador de navori quedan intactos: solo 'navori sync --interactive' puede reemplazarlos, ning\u{fa}n flag masivo los toca."
+        ),
+        Lang::En => format!(
+            "{count} file(s) without a navori marker stay untouched: only 'navori sync --interactive' can replace them, no bulk flag touches them."
+        ),
+    }
+}
+
+/// `sync.fileConflictsKept(count)`.
+#[must_use]
+pub fn sync_file_conflicts_kept(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) con tu edici\u{f3}n se mantienen. Corre 'navori sync --interactive' para resolverlos."
+        ),
+        Lang::En => format!(
+            "{count} file(s) with your edit stay as they are. Run 'navori sync --interactive' to resolve them."
+        ),
+    }
+}
+
+/// `sync.wroteFiles(n)`.
+#[must_use]
+pub fn sync_wrote_files(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::Es => format!("Escrib\u{ed} {n} archivo(s)"),
+        Lang::En => format!("Wrote {n} file(s)"),
+    }
+}
+
+/// `sync.conflictDiffSummary(changed, shown)`.
+#[must_use]
+pub fn sync_conflict_diff_summary(lang: Lang, changed: usize, shown: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{changed} l\u{ed}nea(s) de diff (mostrando {shown}; - tu versi\u{f3}n, + la renderizada)"
+        ),
+        Lang::En => format!("{changed} diff line(s) (showing {shown}; - yours, + rendered)"),
+    }
+}
+
+/// `sync.conflictDiffTruncated(hidden)`.
+#[must_use]
+pub fn sync_conflict_diff_truncated(lang: Lang, hidden: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "\u{2026} +{hidden} l\u{ed}nea(s) de diff sin mostrar \u{2014} 'navori sync --interactive' trae el diff completo"
+        ),
+        Lang::En => format!(
+            "\u{2026} +{hidden} diff line(s) not shown \u{2014} 'navori sync --interactive' has the full diff"
+        ),
+    }
+}
+
+/// `sync.conflictDiffFileLevel`.
+#[must_use]
+pub const fn sync_conflict_diff_file_level(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "(conflicto de archivo completo: el preview no trae diff \u{2014} resu\u{e9}lvelo a mano o mueve el archivo aparte y corre 'navori render --apply')"
+        }
+        Lang::En => {
+            "(whole-file conflict: the preview carries no diff \u{2014} resolve it by hand or move the file aside and run 'navori render --apply')"
+        }
+    }
+}
+
 /// `adopt.refused[reason](path)`.
 #[must_use]
 pub fn adopt_refused(lang: Lang, reason: crate::adopt::AdoptRefusal, path: &str) -> String {

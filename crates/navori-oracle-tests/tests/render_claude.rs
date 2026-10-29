@@ -18,7 +18,7 @@ use navori_core::STAMP_VERSION;
 use navori_core::backup::{BackupStore, local_now};
 use navori_core::config;
 use navori_core::config::HarnessRecord;
-use navori_core::fs::RealFs;
+use navori_core::fs::{RealFs, RecordingFs};
 use navori_core::js_json::{self, JsValue};
 use navori_core::manifest::{Hook, HookMode};
 use navori_core::render::block_plan::PlanOptions;
@@ -29,6 +29,7 @@ use navori_core::render::command::{
     Apply, RenderOptions, human_report, plan_render, render_json, run_render,
 };
 use navori_core::render::report::Clack;
+use navori_core::sync::{SyncFlags, SyncRun, run_sync};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use regex::Regex;
@@ -661,6 +662,89 @@ fn engine_result_warnings_match_run_render() -> Result<(), String> {
     Ok(())
 }
 
+fn sync_prelude() -> String {
+    format!(
+        "process.env.NO_COLOR = '1';\nprocess.env.TERM = 'xterm-256color';\nconst s = await import({:?});",
+        cli_module("commands/sync.ts")
+    )
+}
+
+/// `navori sync --dry-run --cwd <root> [--json] [bulk]`, its stdout and stderr captured.
+static SYNC: Shared = Shared::new(
+    sync_prelude,
+    "const out = [];\n\
+     const err = [];\n\
+     const write = process.stdout.write;\n\
+     const ewrite = process.stderr.write;\n\
+     const exit = process.exit;\n\
+     process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
+     process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
+     process.exit = (code) => { throw new Error('exit ' + code); };\n\
+     const args = { cwd: request.root, 'dry-run': true, json: request.json === true, _: [] };\n\
+     if (request.bulk) args[request.bulk] = true;\n\
+     try { await s.syncCommand.run({ args, rawArgs: [], cmd: s.syncCommand }); }\n\
+     catch (e) { return { threw: String(e && e.message || e), partial: out.join('') }; }\n\
+     finally { process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit; }\n\
+     return { out: out.join(''), err: err.join('') };",
+);
+
+/// `sync --dry-run` (and `--json`) agree with the TS byte for byte; `Ok(false)` when Rust
+/// delegates.
+fn compare_sync(root: &Path, config: &str, json: bool, bulk: Option<&str>) -> Result<bool, String> {
+    let ts = SYNC.ask(&json!({ "root": root.to_string_lossy(), "json": json, "bulk": bulk }))?;
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    let flags = SyncFlags {
+        dry_run: true,
+        json,
+        accept_new: bulk == Some("accept-new"),
+        keep_mine: bulk == Some("keep-mine"),
+        ..SyncFlags::default()
+    };
+    let mut fs = RecordingFs::default();
+    let mut store = BackupStore::new(Err("no backups in a dry run".to_owned()), 0);
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let rust = run_sync(
+        &DiskView(root),
+        &read,
+        root,
+        flags,
+        Clack { unicode: true },
+        &mut apply,
+    );
+    if !fs.ops.is_empty() {
+        return Err(format!("a dry run wrote: {:?}", fs.ops));
+    }
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return match rust {
+            Err(_) | Ok(SyncRun::Delegate) => Ok(true),
+            Ok(_) => Err(format!("ts failed: {ts}")),
+        };
+    };
+    let Ok(SyncRun::Done { stdout, stderr, .. }) = rust else {
+        return Ok(false);
+    };
+    let warnings: String = read.warnings.iter().map(|w| format!("{w}\n")).collect();
+    if out != stdout {
+        return Err(format!(
+            "stdout (json: {json}, {bulk:?}):\n--- ts ---\n{out}\n--- rust ---\n{stdout}"
+        ));
+    }
+    if err != format!("{warnings}{stderr}") {
+        return Err(format!(
+            "stderr:\n--- ts ---\n{err}\n--- rust ---\n{warnings}{stderr}"
+        ));
+    }
+    Ok(true)
+}
+
 fn report_prelude() -> String {
     format!(
         "process.env.NO_COLOR = '1';\nprocess.env.TERM = 'xterm-256color';\nconst r = await import({:?});",
@@ -1110,6 +1194,33 @@ proptest! {
                 Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
                 Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
             }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(30))]
+
+    /// `sync --dry-run`, human and `--json`, with each bulk flag: the same plan report, the same
+    /// conflict diffs and the same payload, and no write.
+    // Covers: R14, R36
+    #[test]
+    fn sync_preview_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.6),
+        json in prop::bool::ANY,
+        bulk in prop::sample::select(vec![None, Some("accept-new"), Some("keep-mine")]),
+    ) {
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("sync");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        build_repo(&root, &recipe);
+        write(&root, "navori.config.json", &config);
+        match compare_sync(&root, &config, json, bulk) {
+            Ok(true) => {}
+            Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}"),
         }
     }
 }

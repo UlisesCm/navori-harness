@@ -143,7 +143,7 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
 }
 
 /// `config.engines ?? ["claude"]`, its strings.
-fn engines(config: &JsValue) -> Vec<String> {
+pub(crate) fn configured_engines(config: &JsValue) -> Vec<String> {
     let JsValue::Object(root) = config else {
         return vec!["claude".to_owned()];
     };
@@ -169,7 +169,7 @@ pub fn admit(args: RenderArgs, entry: &Command) -> Option<Admitted> {
     let bytes = std::fs::read(args.cwd.join("navori.config.json")).ok()?;
     let config = config::read(&bytes).ok()?;
     if let Some(allowed) = entry.when.as_ref().and_then(|w| w.engines.as_ref()) {
-        let configured = engines(&config.data);
+        let configured = configured_engines(&config.data);
         if configured.is_empty() || !configured.iter().all(|e| allowed.contains(e)) {
             return None;
         }

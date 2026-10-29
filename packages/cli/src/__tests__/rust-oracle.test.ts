@@ -339,7 +339,10 @@ describe("rust oracle", () => {
             `${label} --json`,
           ).toBe(true);
         }
-        for (const c of mine) expect(c.mask, c.id).toContain("provenance");
+        // `render` names the core it read; that line is masked on the TS side.
+        if (command.path.join(" ") === "render") {
+          for (const c of mine) expect(c.mask, c.id).toContain("provenance");
+        }
         languages.add(config.language ?? "es");
       }
       expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);

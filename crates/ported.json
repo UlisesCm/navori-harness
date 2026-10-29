@@ -4,7 +4,13 @@
     { "path": ["--version"] },
     { "path": ["--help"] },
     { "path": ["render"], "flags": ["cwd", "dry-run", "json", "apply", "force"], "when": { "engines": ["claude"] } },
-    { "path": ["adopt"], "flags": ["apply", "cwd"] }
+    { "path": ["adopt"], "flags": ["apply", "cwd"] },
+    {
+      "path": ["sync"],
+      "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine"],
+      "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"]],
+      "when": { "engines": ["claude"] }
+    }
   ],
   "hooks": {
     "guard-destructive": {

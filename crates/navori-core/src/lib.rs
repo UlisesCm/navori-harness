@@ -22,6 +22,7 @@ pub mod manifest;
 pub mod markers;
 pub mod render;
 pub mod semver;
+pub mod sync;
 mod zod;
 
 /// Embedded managed assets as `(repo-relative path, bytes)`, sorted by path.

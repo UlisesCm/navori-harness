@@ -11,6 +11,7 @@ pub mod journal;
 pub mod parser;
 pub mod render;
 pub mod shadow;
+pub mod sync;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -73,6 +74,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["adopt"],
         run: adopt::run,
+    },
+    NativeCommand {
+        path: &["sync"],
+        run: sync::run,
     },
 ];
 

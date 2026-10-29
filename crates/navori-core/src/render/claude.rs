@@ -20,7 +20,7 @@ use std::path::Path;
 use crate::config::effective_config;
 use crate::i18n;
 use crate::js_json::JsValue;
-use crate::render::block_plan::{AssetStatus, PlanOptions, UpdateAvailable};
+use crate::render::block_plan::{AssetStatus, PlanEntry, PlanOptions, UpdateAvailable};
 use crate::render::claude_files::collect_claude_files;
 use crate::render::claude_md::plan_claude_md;
 use crate::render::claude_settings::build_claude_settings;
@@ -70,6 +70,9 @@ pub struct ClaudeEnginePlan {
     pub inspected: usize,
     /// `claudeMdEntries`: `(asset id, status)` of every `CLAUDE.md` block, in plan order.
     pub claude_md_entries: Vec<(String, AssetStatus)>,
+    /// The same entries as the plan built them: asset (with its condition) and rendered body,
+    /// which `sync` reports for a conflicting block.
+    pub claude_md_plan: Vec<PlanEntry>,
     /// `languageFallbacks`.
     pub language_fallbacks: Vec<String>,
 }
@@ -414,6 +417,7 @@ pub fn plan_claude_engine(
             .iter()
             .map(|e| (e.asset.id().to_owned(), e.status))
             .collect(),
+        claude_md_plan: step1.plan.entries.clone(),
         language_fallbacks: step1.plan.language_fallbacks,
     })
 }

@@ -284,6 +284,53 @@ fn commit_ignore_file(
     ))
 }
 
+/// `prepareClaudeEngine(...).commit()`: one `commitWrites` with `CLAUDE.md` last and removals
+/// best-effort, then the collision warnings rewritten with the backup path. Returns the backup
+/// and the real writes; `claude.pending` is left in commit order.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+pub fn commit_claude(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    claude: &mut ClaudeEnginePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let claude_md = |w: &PendingWrite| w.rel_path == "CLAUDE.md";
+    let input = CommitInput {
+        cwd: repo_root,
+        backup_exclude: &[],
+        dry_run: false,
+        write_last: Some(&claude_md),
+        engine_label: None,
+        removals_best_effort: true,
+        lang,
+        now: apply.now,
+    };
+    let committed = commit_writes(
+        apply.fs,
+        apply.backups,
+        &mut claude.pending,
+        &claude.removals,
+        &input,
+    )
+    .map_err(RenderError::Commit)?;
+    let backup_path = committed.backup_path.map(|p| p.display().to_string());
+    if let Some(backup) = &backup_path {
+        // `collisionWarnings(collisions, backupPath, lang)`, now with the backup.
+        for (offset, (path, keys)) in claude.collisions.iter().enumerate() {
+            if let Some(slot) = claude
+                .warnings
+                .get_mut(claude.collision_warnings_at + offset)
+            {
+                let original = Path::new(backup).join(path).display().to_string();
+                *slot = i18n::markerless_collision(lang, path, keys, Some(&original));
+            }
+        }
+    }
+    Ok((backup_path, committed.real_writes))
+}
+
 /// `readFileOrEmpty` + `measureDocBudget` on the root `CLAUDE.md`.
 fn claude_md_budget(view: &dyn RepoView) -> DocBudget {
     measure_doc_budget(&view.read("CLAUDE.md").unwrap_or_default())
@@ -315,41 +362,10 @@ pub fn run_render(
         .map_err(|_| RenderError::Delegate)?;
     let mut applied = None;
     if let Some(apply) = apply.as_deref_mut() {
-        let claude_md = |w: &PendingWrite| w.rel_path == "CLAUDE.md";
-        let input = CommitInput {
-            cwd: repo_root,
-            backup_exclude: &[],
-            dry_run: false,
-            write_last: Some(&claude_md),
-            engine_label: None,
-            removals_best_effort: true,
-            lang,
-            now: apply.now,
-        };
-        let committed = commit_writes(
-            apply.fs,
-            apply.backups,
-            &mut claude.pending,
-            &claude.removals,
-            &input,
-        )
-        .map_err(RenderError::Commit)?;
-        let backup_path = committed.backup_path.map(|p| p.display().to_string());
-        if let Some(backup) = &backup_path {
-            // `collisionWarnings(collisions, backupPath, lang)`, now with the backup.
-            for (offset, (path, keys)) in claude.collisions.iter().enumerate() {
-                if let Some(slot) = claude
-                    .warnings
-                    .get_mut(claude.collision_warnings_at + offset)
-                {
-                    let original = Path::new(backup).join(path).display().to_string();
-                    *slot = i18n::markerless_collision(lang, path, keys, Some(&original));
-                }
-            }
-        }
+        let (backup_path, real_writes) = commit_claude(apply, repo_root, &mut claude, lang)?;
         applied = Some(Applied {
             backup_path,
-            real_writes: committed.real_writes,
+            real_writes,
             harness: None,
             budget_crossed: None,
         });
