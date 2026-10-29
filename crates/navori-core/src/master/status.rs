@@ -2,12 +2,12 @@
 //!
 //! What this layer does not reproduce yet returns [`Delegate`] before anything is printed:
 //! `run` evidence (its age comes from `git`, which goes through the process transport of spec
-//! 0060 D42), the content checks of `UX.md`/`ux.json` (`checkUxContent`), the linked-spec check of
-//! a part that is effectively done (`checkPart`), and a `deliveries` stage.
+//! 0060 D42), the content checks of `UX.md`/`ux.json` (`checkUxContent`) and a `deliveries` stage.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::check_part::{PartConfig, check_part};
 use super::index::{MasterIndex, StageEntry, StageState};
 use super::state::{self, Evidence, MASTER_PHASES, MasterState, Part};
 use crate::integrity::is_js_whitespace;
@@ -62,6 +62,8 @@ pub struct LegacyStatus {
     pub last_closed: Option<StageEntry>,
     /// Present (maybe `None` inside) only from stage 2 on.
     pub architect_context: Option<Option<ArchitectContext>>,
+    /// How many times `checkPart` read the config again (its warnings print each time).
+    pub config_reads: usize,
 }
 
 /// `path.resolve` over absolute UTF-8 POSIX paths.
@@ -287,6 +289,7 @@ pub fn legacy(
     master_dir: &Path,
     index: &MasterIndex,
     stage: &StageEntry,
+    config: PartConfig,
 ) -> Result<LegacyStatus, Delegate> {
     if stage.deliveries {
         return Err(Delegate);
@@ -310,6 +313,7 @@ pub fn legacy(
     let mut discrepancies = Vec::new();
     let mut blockers = ux_blockers(&stage.dir, &stage_path, &state)?;
     let mut mapped = Vec::new();
+    let mut config_reads = 0;
     for part in &parts {
         let spec = part
             .spec
@@ -354,8 +358,14 @@ pub fn legacy(
             blockers.extend(missing.iter().cloned());
         }
         if effective == "hecho" && part.spec.is_some() {
-            // `checkPart`: the linked spec's task fields, design and requirements.
-            return Err(Delegate);
+            let (failures, read) = check_part(cwd, specs_dir, config, part, &parts)?;
+            config_reads += usize::from(read);
+            blockers.extend(
+                failures
+                    .iter()
+                    .filter(|f| !f.starts_with("warning:"))
+                    .map(|f| format!("{}: {f}", part.id)),
+            );
         }
         mapped.push(EffectivePart {
             id: part.id.clone(),
@@ -419,6 +429,7 @@ pub fn legacy(
         blockers,
         last_closed: index.last_closed().cloned(),
         architect_context: (stage.number >= 2.0).then(|| architect_context(index, master_dir)),
+        config_reads,
     })
 }
 
