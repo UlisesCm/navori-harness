@@ -20,8 +20,11 @@ export interface CliInProcessOptions {
 
 /** Thrown by the intercepted `process.exit` so the code after it does not run, like the real one. */
 class CliExit extends Error {
-  constructor(readonly code: number) {
+  readonly code: number;
+
+  constructor(code: number) {
     super(`process.exit(${code})`);
+    this.code = code;
   }
 }
 
