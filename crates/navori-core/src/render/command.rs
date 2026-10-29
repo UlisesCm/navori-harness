@@ -230,8 +230,17 @@ fn engines(config: &JsValue) -> Vec<String> {
     }
 }
 
-/// `runRenderCore(cwd, { dryRun: true })` on the root at `repo_root`, read through `view`.
-/// `native_hooks` overrides the embedded manifest's hooks, as in [`PlanOptions`].
+/// The render's options besides apply.
+#[derive(Debug, Clone, Default)]
+pub struct RenderOptions {
+    /// Overrides the embedded manifest's hooks, as in [`PlanOptions`].
+    pub native_hooks: Option<std::collections::BTreeMap<String, crate::manifest::Hook>>,
+    /// `--force`.
+    pub force: bool,
+}
+
+/// `runRenderCore(cwd, { dryRun: true, force })` on the root at `repo_root`, read through
+/// `view`.
 ///
 /// # Errors
 /// [`RenderDelegate`] when any step delegates.
@@ -239,9 +248,9 @@ pub fn plan_render(
     view: &dyn RepoView,
     config: &Config,
     repo_root: &Path,
-    native_hooks: Option<std::collections::BTreeMap<String, crate::manifest::Hook>>,
+    options: &RenderOptions,
 ) -> Result<RenderPlan, RenderDelegate> {
-    run_render(view, config, repo_root, native_hooks, None).map_err(|_| RenderDelegate)
+    run_render(view, config, repo_root, options, None).map_err(|_| RenderDelegate)
 }
 
 /// One ignore file's `commitWrites` (no `writeLast`, no removals): its backup path.
@@ -289,18 +298,20 @@ pub fn run_render(
     view: &dyn RepoView,
     config: &Config,
     repo_root: &Path,
-    native_hooks: Option<std::collections::BTreeMap<String, crate::manifest::Hook>>,
+    options: &RenderOptions,
     mut apply: Option<&mut Apply<'_>>,
 ) -> Result<RenderPlan, RenderError> {
     let lang = config.lang();
     let floor = config.harness_version();
+    let force = options.force;
     let budget_before = apply.is_some().then(|| claude_md_budget(view));
-    let options = PlanOptions {
+    let plan_options = PlanOptions {
         ambient_floor: floor.clone(),
-        native_hooks,
+        native_hooks: options.native_hooks.clone(),
+        force,
         ..PlanOptions::default()
     };
-    let mut claude = plan_claude_engine(view, &config.data, repo_root, &options)
+    let mut claude = plan_claude_engine(view, &config.data, repo_root, &plan_options)
         .map_err(|_| RenderError::Delegate)?;
     let mut applied = None;
     if let Some(apply) = apply.as_deref_mut() {
@@ -360,7 +371,7 @@ pub fn run_render(
         }
         Ok(Some(file))
     };
-    let gitignore = plan_gitignore(view, &config.data, false, lang, floor)
+    let gitignore = plan_gitignore(view, &config.data, force, lang, floor)
         .map_err(|_| RenderError::Delegate)?
         .map(IgnoreResult::from_ignore_file);
     let gitignore = ignore(gitignore, &mut applied)?;
@@ -368,7 +379,7 @@ pub fn run_render(
     let mut nested = Vec::with_capacity(NESTED_GITIGNORE_DIRS.len());
     for dir in NESTED_GITIGNORE_DIRS {
         let enabled = (dir != ".navori").then_some(engines.as_slice());
-        let file = plan_nested_gitignore(view, dir, enabled, false, lang, floor)
+        let file = plan_nested_gitignore(view, dir, enabled, force, lang, floor)
             .map_err(|_| RenderError::Delegate)?
             .map(|f| IgnoreResult {
                 path: f.rel_path,
@@ -386,7 +397,7 @@ pub fn run_render(
         nested.next().flatten(),
         nested.next().flatten(),
     );
-    let prettierignore = plan_prettierignore(view, &config.data, false, lang, floor)
+    let prettierignore = plan_prettierignore(view, &config.data, force, lang, floor)
         .map_err(|_| RenderError::Delegate)?
         .map(IgnoreResult::from_ignore_file);
     let prettierignore = ignore(prettierignore, &mut applied)?;

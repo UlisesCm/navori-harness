@@ -232,7 +232,7 @@ siguen siendo solo TypeScript.
 - **Delegación:** un subcomando que no está en `crates/ported.json` va al CLI TS (`NAVORI_TS_CLI`,
   luego `packages/cli/dist` de este checkout, luego `navori` en `PATH`). Corre antes `bun run build`.
 - **Comandos nativos:** `render` corre nativo en una raíz solo Claude sin workspaces, con
-  `--cwd`, `--dry-run`, `--json` y `--apply`, y solo sin color (stdout que no es TTY, sin
+  `--cwd`, `--dry-run`, `--json`, `--apply` y `--force`, y solo sin color (stdout que no es TTY, sin
   `FORCE_COLOR` y `CI` solo con `NO_COLOR`); lo demás se delega antes de imprimir. Un apply
   también se delega cuando `~/.navori/registry.json` lista el repo con otro nombre. Su línea de
   procedencia dice `core: (embedded)` y los comandos nativos omiten el aviso de actualización

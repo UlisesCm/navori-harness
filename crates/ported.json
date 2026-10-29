@@ -3,7 +3,7 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
-    { "path": ["render"], "flags": ["cwd", "dry-run", "json", "apply"], "when": { "engines": ["claude"] } }
+    { "path": ["render"], "flags": ["cwd", "dry-run", "json", "apply", "force"], "when": { "engines": ["claude"] } }
   ],
   "hooks": {
     "guard-destructive": {

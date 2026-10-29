@@ -352,6 +352,7 @@ proptest! {
             engine: engine.map(str::to_owned),
             ambient_floor: floor.map(str::to_owned),
             native_hooks: None,
+            force: false,
         };
         let rust = compute_render_plan(&existing, &parsed, &ROOT, &options).and_then(|plan| {
             let order = canonical_managed_order(&parsed, &ROOT, omit_root_only, &["agentes-disponibles"])?;

@@ -25,7 +25,9 @@ use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::claude_settings::claude_hook_command;
 use navori_core::render::collect::DiskView;
-use navori_core::render::command::{Apply, human_report, plan_render, render_json, run_render};
+use navori_core::render::command::{
+    Apply, RenderOptions, human_report, plan_render, render_json, run_render,
+};
 use navori_core::render::report::Clack;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -679,7 +681,7 @@ static REPORT: Shared = Shared::new(
      process.exit = (code) => { throw new Error('exit ' + code); };\n\
      const env = { home: process.env.HOME, backups: process.env.NAVORI_BACKUP_ROOT };\n\
      if (request.backups) { process.env.HOME = request.home; process.env.NAVORI_BACKUP_ROOT = request.backups; }\n\
-     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, apply: request.apply === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
+     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, apply: request.apply === true, force: request.force === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
      catch (e) { return { threw: String(e && e.message || e), partial: out.join(''), errors: err.join('') }; }\n\
      finally {\n\
        process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit;\n\
@@ -714,9 +716,13 @@ fn mask_provenance(text: &str) -> String {
 }
 
 /// The native command's stdout and stderr on `root`; `None` when it delegates.
-fn rust_command(root: &Path, config: &str, json: bool) -> Option<(String, String)> {
+fn rust_command(root: &Path, config: &str, json: bool, force: bool) -> Option<(String, String)> {
     let read = config::read(config.as_bytes()).ok()?;
-    let plan = plan_render(&DiskView(root), &read, root, None).ok()?;
+    let options = RenderOptions {
+        force,
+        ..RenderOptions::default()
+    };
+    let plan = plan_render(&DiskView(root), &read, root, &options).ok()?;
     let cwd = root.to_str()?;
     let stdout = if json {
         format!("{}\n", render_json(cwd, &plan).stringify(Some(2))?)
@@ -787,6 +793,7 @@ fn compare_apply(
     root: &Path,
     config: &str,
     json: bool,
+    force: bool,
     setup: &dyn Fn(),
 ) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
     let backups = BASE.join("apply-backups");
@@ -803,6 +810,7 @@ fn compare_apply(
         "root": root.to_string_lossy(),
         "json": json,
         "apply": true,
+        "force": force,
         "home": home.to_string_lossy(),
         "backups": backups.to_string_lossy(),
     }))?;
@@ -820,7 +828,11 @@ fn compare_apply(
     );
     reset();
     let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
-    if plan_render(&DiskView(root), &read, root, None).is_err() {
+    let options = RenderOptions {
+        force,
+        ..RenderOptions::default()
+    };
+    if plan_render(&DiskView(root), &read, root, &options).is_err() {
         return Ok(None);
     }
     let mut fs = RealFs::default();
@@ -831,7 +843,7 @@ fn compare_apply(
         backups: &mut store,
         now: &now,
     };
-    let plan = run_render(&DiskView(root), &read, root, None, Some(&mut apply))
+    let plan = run_render(&DiskView(root), &read, root, &options, Some(&mut apply))
         .map_err(|e| format!("rust apply failed: {e:?}"))?;
     let cwd = root.to_str().ok_or("path")?;
     let stdout = if json {
@@ -894,19 +906,20 @@ fn apply_difference(ts: &ApplyOutcome, rust: &ApplyOutcome) -> Option<String> {
 
 /// The TS command and the native one print the same bytes, provenance aside; `Ok(false)` when
 /// Rust delegates.
-fn compare_command(root: &Path, config: &str, json: bool) -> Result<bool, String> {
-    let ts = REPORT.ask(&json!({ "root": root.to_string_lossy(), "json": json }))?;
+fn compare_command(root: &Path, config: &str, json: bool, force: bool) -> Result<bool, String> {
+    let ts =
+        REPORT.ask(&json!({ "root": root.to_string_lossy(), "json": json, "force": force }))?;
     let (Some(out), Some(err)) = (
         ts.get("out").and_then(Value::as_str),
         ts.get("err").and_then(Value::as_str),
     ) else {
         // Both refusing is agreement; the TS failing alone is not.
-        return match rust_command(root, config, json) {
+        return match rust_command(root, config, json, force) {
             None => Ok(true),
             Some(_) => Err(format!("ts failed: {ts}")),
         };
     };
-    let Some((stdout, stderr)) = rust_command(root, config, json) else {
+    let Some((stdout, stderr)) = rust_command(root, config, json, force) else {
         return Ok(false);
     };
     let out = mask_provenance(out);
@@ -1035,14 +1048,14 @@ fn render_report_matches_after_restamps() -> Result<(), String> {
                 "CLAUDE.md",
                 &rewrite_first_block(&text, "Older body."),
             );
-            let (rust, _) = rust_command(&root, &config, false).ok_or("rust declined")?;
+            let (rust, _) = rust_command(&root, &config, false, false).ok_or("rust declined")?;
             if version == "999.0.0"
                 && !(rust.contains("(up to 999.0.0)") || rust.contains("(hasta 999.0.0)"))
             {
                 return Err(format!("{language}: no downgrade warning planned"));
             }
             for json in [false, true] {
-                compare_command(&root, &config, json)
+                compare_command(&root, &config, json, false)
                     .map_err(|why| format!("{language} {version}: {why}"))?;
             }
         }
@@ -1083,6 +1096,7 @@ proptest! {
         recipe in recipe(),
         same_config in prop::bool::weighted(0.4),
         extras in extras(),
+        force in prop::bool::weighted(0.3),
     ) {
         prop_assume!(!config.contains("codex"));
         let root = BASE.join("report");
@@ -1091,7 +1105,7 @@ proptest! {
         let config = extras.apply(&root, &config);
         write(&root, "navori.config.json", &config);
         for json in [false, true] {
-            match compare_command(&root, &config, json) {
+            match compare_command(&root, &config, json, force) {
                 Ok(true) => {}
                 Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
                 Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
@@ -1114,6 +1128,7 @@ proptest! {
         extras in extras(),
         canonical in prop::bool::ANY,
         json in prop::bool::weighted(0.3),
+        force in prop::bool::weighted(0.3),
     ) {
         prop_assume!(!config.contains("codex"));
         let root = BASE.join("apply");
@@ -1128,7 +1143,7 @@ proptest! {
             extras.apply(&root, &config);
             write(&root, "navori.config.json", &text);
         };
-        match compare_apply(&root, &text, json, &setup) {
+        match compare_apply(&root, &text, json, force, &setup) {
             Ok(Some((ts, rust))) => {
                 if let Some(why) = apply_difference(&ts, &rust) {
                     prop_assert!(false, "{why}\n{text}\n{recipe:?}\n{extras:?}");

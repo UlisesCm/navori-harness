@@ -28,7 +28,8 @@ use navori_core::manifest::Command;
 use navori_core::render::claude_md::has_monorepo_workspaces;
 use navori_core::render::collect::DiskView;
 use navori_core::render::command::{
-    Apply, RenderError, RenderPlan, human_report, plan_render, render_json, run_render,
+    Apply, RenderError, RenderOptions, RenderPlan, human_report, plan_render, render_json,
+    run_render,
 };
 use navori_core::render::report::Clack;
 
@@ -45,6 +46,8 @@ pub struct RenderArgs {
     pub json: bool,
     /// `--apply`.
     pub apply: bool,
+    /// `--force`.
+    pub force: bool,
 }
 
 impl RenderArgs {
@@ -93,6 +96,7 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
     let mut dry_run = false;
     let mut json = false;
     let mut apply = false;
+    let mut force = false;
     while let Some(arg) = parser.next().ok()? {
         let Arg::Long(name) = arg else {
             return None;
@@ -118,6 +122,10 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
                 parser.optional_value().is_none().then_some(())?;
                 apply = true;
             }
+            "force" if declared("force") && !force => {
+                parser.optional_value().is_none().then_some(())?;
+                force = true;
+            }
             _ => return None,
         }
     }
@@ -130,6 +138,7 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
         dry_run,
         json,
         apply,
+        force,
     })
 }
 
@@ -257,7 +266,11 @@ fn home() -> Option<PathBuf> {
 
 /// What an apply printed besides the report: the error that stopped it, or the stderr of
 /// `recordHarnessVersionIfWritten`.
-fn apply_render(cwd: &Path, config: &Config) -> Result<(RenderPlan, String), String> {
+fn apply_render(
+    cwd: &Path,
+    config: &Config,
+    options: &RenderOptions,
+) -> Result<(RenderPlan, String), String> {
     let mut fs = RealFs::default();
     let mut backups = BackupStore::new(backup_root(), std::process::id());
     let now = local_now();
@@ -266,7 +279,7 @@ fn apply_render(cwd: &Path, config: &Config) -> Result<(RenderPlan, String), Str
         backups: &mut backups,
         now: &now,
     };
-    match run_render(&DiskView(cwd), config, cwd, None, Some(&mut apply)) {
+    match run_render(&DiskView(cwd), config, cwd, options, Some(&mut apply)) {
         Ok(plan) => {
             let stderr = match plan.applied.as_ref().and_then(|a| a.harness.as_ref()) {
                 Some(outcome @ (HarnessRecord::NonCanonical | HarnessRecord::Unreadable)) => {
@@ -312,7 +325,11 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     let Some(cwd_text) = cwd.to_str() else {
         return Outcome::Delegate;
     };
-    let Ok(preview) = plan_render(&DiskView(&cwd), &admitted.config, &cwd, None) else {
+    let options = RenderOptions {
+        force: admitted.args.force,
+        ..RenderOptions::default()
+    };
+    let Ok(preview) = plan_render(&DiskView(&cwd), &admitted.config, &cwd, &options) else {
         return Outcome::Delegate;
     };
     let mut stderr = String::new();
@@ -333,7 +350,7 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
         }
         let _ = std::io::stderr().write_all(stderr.as_bytes());
         stderr.clear();
-        match apply_render(&cwd, &admitted.config) {
+        match apply_render(&cwd, &admitted.config, &options) {
             Ok((plan, record)) => {
                 stderr = record;
                 plan

@@ -6,7 +6,8 @@
 //! `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
 //! Skips follow the TS too: steps 1–2.5, steps 5–7, the spine, then the sub-blocks.
 //!
-//! `force` is outside the native subset (T17), so every step plans without it.
+//! `options.force` (`render --force`) reaches the steps that honor it in the TS: `settings.json`,
+//! `.mcp.json` and the native settings wiring.
 //!
 //! The native hook wiring runs last, as in `finalize`: ported hooks are wrapped and signed, and
 //! `settings.json` registers them natively.
@@ -240,7 +241,7 @@ pub fn plan_claude_engine(
         view,
         &settings,
         harness_version.as_deref(),
-        false,
+        options.force,
         lang,
     ))?;
 
@@ -250,7 +251,7 @@ pub fn plan_claude_engine(
         &enabled,
         &disabled,
         harness_version.as_deref(),
-        false,
+        options.force,
         lang,
     ))?;
 
@@ -312,6 +313,7 @@ pub fn plan_claude_engine(
         &eligible,
         settings_skipped,
         harness_version.as_deref(),
+        options.force,
     ))?;
 
     let mut removals: Vec<PendingRemoval> = step1

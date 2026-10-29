@@ -16,7 +16,7 @@ use navori_core::manifest::{Command, Manifest};
 type TestResult = Result<(), Box<dyn Error>>;
 
 const ENTRY: &str = r#"{"schema":2,"commands":[
-    {"path":["render"],"flags":["cwd","dry-run","json","apply"],"when":{"engines":["claude"]}}
+    {"path":["render"],"flags":["cwd","dry-run","json","apply","force"],"when":{"engines":["claude"]}}
 ]}"#;
 
 fn manifest() -> Result<Manifest, Box<dyn Error>> {
@@ -56,6 +56,7 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
             dry_run: false,
             json: false,
             apply: false,
+            force: false,
         })
     );
     assert_eq!(
@@ -65,6 +66,7 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
             dry_run: true,
             json: true,
             apply: false,
+            force: false,
         })
     );
     // `--apply` writes; `--dry-run` wins over it, as in the TS.
@@ -73,6 +75,8 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
     let both = parsed(&["render", "--apply", "--dry-run"]).ok_or("both")?;
     assert!(both.preview());
     assert!(parsed(&["render"]).ok_or("plain")?.preview());
+    let forced = parsed(&["render", "--force", "--apply"]).ok_or("force")?;
+    assert!(forced.force && !forced.preview());
     assert_eq!(
         parsed(&["render", "--cwd=/abs"]).map(|a| a.cwd),
         Some(PathBuf::from("/abs"))
@@ -80,7 +84,7 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
     for args in [
         &["render", "--apply=yes"][..],
         &["render", "--apply", "--apply"],
-        &["render", "--force"],
+        &["render", "--force=1"],
         &["render", "--all"],
         &["render", "--prune"],
         &["render", "--verbose"],
@@ -121,6 +125,7 @@ fn the_config_decides_before_any_output() -> TestResult {
         dry_run: false,
         json: false,
         apply: false,
+        force: false,
     };
     // No config, or one readConfig rejects: the TS reports it.
     assert!(admit(args(), e).is_none());
@@ -163,6 +168,7 @@ fn the_config_decides_before_any_output() -> TestResult {
         dry_run: false,
         json: false,
         apply: false,
+        force: false,
     };
     assert!(admit(missing, e).is_none());
     Ok(())
@@ -177,9 +183,9 @@ fn render_is_dispatched_only_when_an_entry_lists_it() -> TestResult {
     let embedded = Manifest::embedded()?;
     let (_, selected) = dispatch(&embedded, &inv).ok_or("embedded manifest lacks render")?;
     assert_eq!(selected, entry(&m)?);
-    let force = parser::parse(&argv(&["render", "--force"]));
-    assert!(dispatch(&m, &force).is_none());
-    assert!(dispatch(&embedded, &force).is_none());
+    let prune = parser::parse(&argv(&["render", "--prune"]));
+    assert!(dispatch(&m, &prune).is_none());
+    assert!(dispatch(&embedded, &prune).is_none());
     Ok(())
 }
 

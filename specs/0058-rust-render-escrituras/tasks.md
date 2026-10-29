@@ -177,11 +177,13 @@ solo lo ve Codex (Claude borra best-effort).
 ### M8 — `render --apply` y `adopt`
 - **Consumes:** `bun run oracle:rust --only apply` → ejecuta `render --apply` y `adopt --apply` nativos (capa `Fs` de M7) contra el TS
 - **A8** [observable] — escrituras nativas con diferencial cero, matriz incluida · `bun run oracle:rust --only apply && bun run oracle:rust --only anti-rollback` → exit 0, 0 diferencias
-- [ ] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
+- [x] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
 - [ ] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
 - [ ] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
 
-T25, primera mitad (sin `force`): `render --apply` es nativo (flag `apply` en `ported.json`).
+T25 cerrada: `render --apply` y `--force` son nativos (flags `apply` y `force` en `ported.json`);
+`force` llega a `settings.json`, `.mcp.json`, el wiring nativo de settings y los ignore files,
+que son los pasos que lo honran en el TS.
 `render::command::run_render` hace un `commitWrites` por paso (motor Claude con `CLAUDE.md` al
 final y remociones best-effort; cada ignore file con el suyo) antes de que el siguiente lea el
 disco, reescribe los avisos de colisión con la ruta del backup, registra `harnessVersion`
@@ -191,7 +193,7 @@ planea antes en preview, así que una re-delegación nunca llega después de esc
 `refreshRepoName` no se porta: cuando reescribiría el registro (el TS lo ordena con
 `localeCompare`) o `HOME` no sirve, el apply se delega antes de cualquier efecto. Un error de
 escritura imprime el mensaje de `RenderWriteError` y sale con 1; el formato de citty/consola del TS
-no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply en `fresh-init`,
+no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply y force en `fresh-init`,
 `drifted-block` y `claude-en`; proptest `render_apply_matches_the_ts_command` (stdout, stderr,
 árbol del repo y de backups); paridad de `measureDocBudget` y `recordHarnessVersion`.
 
