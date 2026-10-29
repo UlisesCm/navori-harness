@@ -1,6 +1,12 @@
 {
   "schema": 2,
-  "commands": [{ "path": ["--version"] }, { "path": ["--help"] }],
+  "commands": [
+    { "path": ["--version"] },
+    { "path": ["--help"] },
+    { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec"], "flags": ["h", "help"] }
+  ],
   "hooks": {
     "guard-destructive": {
       "mode": "shadow",

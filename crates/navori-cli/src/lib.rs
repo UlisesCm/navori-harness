@@ -10,6 +10,7 @@ pub mod journal;
 pub mod parser;
 pub mod render;
 pub mod shadow;
+pub mod spec;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -68,6 +69,18 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
+    },
+    NativeCommand {
+        path: &["spec", "classify"],
+        run: spec::run_classify,
+    },
+    NativeCommand {
+        path: &["spec", "check"],
+        run: spec::run_check,
+    },
+    NativeCommand {
+        path: &["spec"],
+        run: spec::run_group,
     },
 ];
 
