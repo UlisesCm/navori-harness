@@ -1,0 +1,504 @@
+//! Legacy `<stage>/state.json` and `<stage>/parts.json` as `MasterStateSchema` and `PartsSchema`
+//! (`lib/master/schema.ts`, zod 4) accept them.
+//!
+//! Only acceptance is modeled: anything the schema rejects is [`Invalid`], and the native
+//! command hands the invocation to the TS, which throws with the exact issue text. Where zod
+//! would strip a stray key that could look like a mistake (a second method block in a
+//! criterion), this port rejects too: delegating is always safe.
+
+use crate::js_json::{JsObject, JsValue};
+
+/// The schema would reject the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Invalid;
+
+/// `MASTER_PHASES`, in order.
+pub const MASTER_PHASES: [&str; 9] = [
+    "context",
+    "transcribed",
+    "mapped",
+    "planned",
+    "questioned",
+    "mastered",
+    "ux",
+    "executing",
+    "closed",
+];
+const MASTER_MODES: [&str; 3] = ["template", "en-curso", "desde-cero"];
+const UX_CHOICES: [&str; 3] = ["none", "md", "md-json"];
+const OUTCOMES: [&str; 3] = ["entregada", "convertida", "abandonada"];
+/// `PART_STATES`.
+pub const PART_STATES: [&str; 5] = ["pendiente", "parcial", "hecho", "descartada", "diferida"];
+
+/// `Number.MAX_SAFE_INTEGER`: zod 4 `.int()` is a safe integer.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+/// A legacy `state.json` the schema accepts: the fields `readMasterStatus` reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MasterState {
+    pub phase: &'static str,
+    pub mode: Option<&'static str>,
+    pub ux: Option<&'static str>,
+}
+
+/// `evidence` of a criterion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Evidence {
+    None,
+    Run,
+    Approval,
+}
+
+/// An acceptance criterion: what status reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Criterion {
+    pub id: String,
+    pub method: &'static str,
+    pub evidence: Evidence,
+}
+
+/// A part the schema accepts: what status reads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Part {
+    pub id: String,
+    pub title: String,
+    pub depends_on: Vec<String>,
+    pub acceptance: Vec<Criterion>,
+    pub state: &'static str,
+    pub reason: Option<String>,
+    pub spec: Option<String>,
+    pub issue: Option<f64>,
+}
+
+fn object(value: &JsValue) -> Result<&JsObject, Invalid> {
+    match value {
+        JsValue::Object(object) => Ok(object),
+        _ => Err(Invalid),
+    }
+}
+
+/// `undefined` (absent) for an optional or defaulted key.
+fn absent(value: Option<&JsValue>) -> bool {
+    matches!(value, None | Some(JsValue::Undefined))
+}
+
+fn text(value: Option<&JsValue>) -> Result<String, Invalid> {
+    match value {
+        Some(JsValue::String(s)) => s.to_rust().ok_or(Invalid),
+        _ => Err(Invalid),
+    }
+}
+
+/// `z.string().min(1)`.
+fn non_empty(value: Option<&JsValue>) -> Result<String, Invalid> {
+    text(value).and_then(|s| if s.is_empty() { Err(Invalid) } else { Ok(s) })
+}
+
+/// `z.enum(options)`.
+fn one_of(value: Option<&JsValue>, options: &[&'static str]) -> Result<&'static str, Invalid> {
+    let s = text(value)?;
+    options.iter().copied().find(|o| *o == s).ok_or(Invalid)
+}
+
+/// `/^\d{4}-\d{2}-\d{2}$/`.
+fn date(value: Option<&JsValue>) -> Result<String, Invalid> {
+    let s = text(value)?;
+    let b = s.as_bytes();
+    let ok = b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            _ => c.is_ascii_digit(),
+        });
+    if ok { Ok(s) } else { Err(Invalid) }
+}
+
+/// `x.nullable()` (required key) or `x.nullable().default(null)` (`default_null`).
+fn nullable<T>(
+    value: Option<&JsValue>,
+    default_null: bool,
+    inner: impl FnOnce(Option<&JsValue>) -> Result<T, Invalid>,
+) -> Result<Option<T>, Invalid> {
+    match value {
+        None | Some(JsValue::Undefined) if default_null => Ok(None),
+        Some(JsValue::Null) => Ok(None),
+        None | Some(JsValue::Undefined) => Err(Invalid),
+        other => inner(other).map(Some),
+    }
+}
+
+/// `z.number().int()` with `.nonnegative()` or `.positive()`.
+fn integer(value: Option<&JsValue>, min: f64) -> Result<f64, Invalid> {
+    match value {
+        Some(JsValue::Number(n))
+            if n.fract() == 0.0 && *n >= min && n.abs() <= MAX_SAFE_INTEGER =>
+        {
+            Ok(*n)
+        }
+        _ => Err(Invalid),
+    }
+}
+
+/// `z.array(item).default([])`.
+fn array_or_empty<T>(
+    value: Option<&JsValue>,
+    item: impl Fn(&JsValue) -> Result<T, Invalid>,
+) -> Result<Vec<T>, Invalid> {
+    match value {
+        None | Some(JsValue::Undefined) => Ok(Vec::new()),
+        Some(JsValue::Array(items)) => items.iter().map(item).collect(),
+        _ => Err(Invalid),
+    }
+}
+
+fn string_item(value: &JsValue) -> Result<String, Invalid> {
+    text(Some(value))
+}
+
+/// `versionField`: exactly 1.
+fn version_one(value: Option<&JsValue>) -> Result<(), Invalid> {
+    match value {
+        Some(JsValue::Number(n)) if *n == 1.0 => Ok(()),
+        _ => Err(Invalid),
+    }
+}
+
+/// `MasterStateSchema.parse(raw)` when it succeeds.
+///
+/// # Errors
+/// [`Invalid`] wherever zod would throw.
+pub fn master_state(raw: &JsValue) -> Result<MasterState, Invalid> {
+    let o = object(raw)?;
+    version_one(o.get("version"))?;
+    let phase = one_of(o.get("phase"), &MASTER_PHASES)?;
+    let mode = nullable(o.get("mode"), false, |v| one_of(v, &MASTER_MODES))?;
+    // signal
+    let signal = object(o.get("signal").ok_or(Invalid)?)?;
+    nullable(signal.get("commits"), false, |v| integer(v, 0.0))?;
+    nullable(signal.get("firstCommit"), false, date)?;
+    nullable(signal.get("filesChangedSinceFirst"), false, |v| {
+        integer(v, 0.0)
+    })?;
+    nullable(signal.get("framework"), false, text)?;
+    array_or_empty(signal.get("libraries"), string_item)?;
+    one_of(signal.get("suggested"), &MASTER_MODES)?;
+    let outcome = nullable(o.get("outcome"), true, |v| one_of(v, &OUTCOMES))?;
+    if !absent(o.get("closedAt")) {
+        date(o.get("closedAt"))?;
+    }
+    let abandonment = if absent(o.get("abandonment")) {
+        false
+    } else {
+        let a = object(o.get("abandonment").ok_or(Invalid)?)?;
+        non_empty(a.get("reason"))?;
+        one_of(a.get("phase"), &MASTER_PHASES)?;
+        true
+    };
+    let conversion = if absent(o.get("conversion")) {
+        false
+    } else {
+        let c = object(o.get("conversion").ok_or(Invalid)?)?;
+        non_empty(c.get("spec"))?;
+        non_empty(c.get("reason"))?;
+        true
+    };
+    array_or_empty(o.get("history"), |entry| {
+        let e = object(entry)?;
+        one_of(e.get("phase"), &MASTER_PHASES)?;
+        date(e.get("at"))
+    })?;
+    let ux = if absent(o.get("ux")) {
+        None
+    } else {
+        Some(one_of(o.get("ux"), &UX_CHOICES)?)
+    };
+    let converted = outcome == Some("convertida");
+    let abandoned = outcome == Some("abandonada");
+    if converted != conversion || abandoned != abandonment {
+        return Err(Invalid);
+    }
+    Ok(MasterState { phase, mode, ux })
+}
+
+/// `/^<prefix>\d+$/`, with the number it carries (`Number(id.slice(1))`).
+fn numbered_id(s: &str, prefix: char) -> Option<u64> {
+    let digits = s.strip_prefix(prefix)?;
+    if digits.is_empty() || digits.len() > 15 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// A text `renderMasterParts` writes into the STATUS region: no line break, no `<!--`.
+fn region_safe(s: &str) -> bool {
+    !s.contains(['\r', '\n']) && !s.contains("<!--")
+}
+
+/// `ids` are `1..=n` exactly once each.
+fn consecutive(mut ids: Vec<u64>) -> bool {
+    ids.sort_unstable();
+    ids.iter().enumerate().all(|(i, n)| *n == i as u64 + 1)
+}
+
+fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
+    let o = object(value)?;
+    let id = text(o.get("id"))?;
+    numbered_id(&id, 'A').ok_or(Invalid)?;
+    let description = non_empty(o.get("description"))?;
+    let evidence = match o.get("evidence") {
+        None | Some(JsValue::Undefined | JsValue::Null) => Evidence::None,
+        Some(e) => {
+            let e = object(e)?;
+            match text(e.get("kind"))?.as_str() {
+                "run" => {
+                    non_empty(e.get("command"))?;
+                    non_empty(e.get("result"))?;
+                    non_empty(e.get("commit"))?;
+                    date(e.get("date"))?;
+                    Evidence::Run
+                }
+                "approval" => {
+                    if text(e.get("approvedBy"))? != "user" {
+                        return Err(Invalid);
+                    }
+                    date(e.get("date"))?;
+                    Evidence::Approval
+                }
+                _ => return Err(Invalid),
+            }
+        }
+    };
+    let method = one_of(o.get("method"), &["test", "comando", "manual"])?;
+    let blocks = ["test", "command", "manual"];
+    let own = match method {
+        "test" => "test",
+        "comando" => "command",
+        _ => "manual",
+    };
+    if blocks.iter().any(|b| *b != own && !absent(o.get(b))) {
+        return Err(Invalid);
+    }
+    let block = object(o.get(own).ok_or(Invalid)?)?;
+    let mut texts = vec![description];
+    match method {
+        "test" => {
+            texts.push(non_empty(block.get("file"))?);
+            texts.push(non_empty(block.get("case"))?);
+        }
+        "comando" => {
+            texts.push(non_empty(block.get("run"))?);
+            non_empty(block.get("expected"))?;
+        }
+        _ => {
+            texts.push(non_empty(block.get("check"))?);
+            non_empty(block.get("how"))?;
+        }
+    }
+    let valid_evidence = match evidence {
+        Evidence::None => true,
+        Evidence::Run => method != "manual",
+        Evidence::Approval => method == "manual",
+    };
+    if !valid_evidence {
+        return Err(Invalid);
+    }
+    Ok((
+        Criterion {
+            id,
+            method,
+            evidence,
+        },
+        texts,
+    ))
+}
+
+fn part(value: &JsValue) -> Result<Part, Invalid> {
+    let o = object(value)?;
+    let id = text(o.get("id"))?;
+    numbered_id(&id, 'P').ok_or(Invalid)?;
+    let title = non_empty(o.get("title"))?;
+    let objective = non_empty(o.get("objective"))?;
+    let scope = array_or_empty(o.get("scope"), string_item)?;
+    let out_of_scope = array_or_empty(o.get("outOfScope"), string_item)?;
+    let depends_on = array_or_empty(o.get("dependsOn"), |v| {
+        let s = string_item(v)?;
+        numbered_id(&s, 'P').ok_or(Invalid).map(|_| s)
+    })?;
+    let seed = array_or_empty(o.get("seedRequirements"), string_item)?;
+    let (acceptance, criterion_texts): (Vec<_>, Vec<_>) = match o.get("acceptance") {
+        Some(JsValue::Array(items)) if !items.is_empty() => items
+            .iter()
+            .map(criterion)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .unzip(),
+        _ => return Err(Invalid),
+    };
+    nullable(o.get("inheritedFrom"), true, non_empty)?;
+    let state = if absent(o.get("state")) {
+        "pendiente"
+    } else {
+        one_of(o.get("state"), &PART_STATES)?
+    };
+    let reason = nullable(o.get("reason"), true, non_empty)?;
+    let spec = nullable(o.get("spec"), true, non_empty)?;
+    let issue = nullable(o.get("issue"), true, |v| integer(v, 1.0))?;
+    let needs_reason = state == "descartada" || state == "diferida";
+    let texts_ok = [&title, &objective]
+        .into_iter()
+        .chain(&scope)
+        .chain(&out_of_scope)
+        .chain(&seed)
+        .chain(criterion_texts.iter().flatten())
+        .all(|s| region_safe(s));
+    let acceptance_ok = consecutive(
+        acceptance
+            .iter()
+            .filter_map(|c| numbered_id(&c.id, 'A'))
+            .collect(),
+    );
+    if needs_reason != reason.is_some() || !texts_ok || !acceptance_ok {
+        return Err(Invalid);
+    }
+    Ok(Part {
+        id,
+        title,
+        depends_on,
+        acceptance,
+        state,
+        reason,
+        spec,
+        issue,
+    })
+}
+
+/// `findCycle` over `dependsOn` (known ids only): true when any cycle exists.
+fn has_cycle(parts: &[Part]) -> bool {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        Visiting,
+        Done,
+    }
+    fn visit(i: usize, parts: &[Part], marks: &mut [Option<Mark>]) -> bool {
+        marks[i] = Some(Mark::Visiting);
+        for dep in &parts[i].depends_on {
+            let Some(j) = parts.iter().position(|p| &p.id == dep) else {
+                continue;
+            };
+            let mark = marks[j];
+            if mark == Some(Mark::Visiting) || (mark.is_none() && visit(j, parts, marks)) {
+                return true;
+            }
+        }
+        marks[i] = Some(Mark::Done);
+        false
+    }
+    let mut marks = vec![None; parts.len()];
+    (0..parts.len()).any(|i| marks[i].is_none() && visit(i, parts, &mut marks))
+}
+
+/// `PartsSchema.parse(raw).parts` when it succeeds.
+///
+/// # Errors
+/// [`Invalid`] wherever zod would throw.
+pub fn parts(raw: &JsValue) -> Result<Vec<Part>, Invalid> {
+    let o = object(raw)?;
+    version_one(o.get("version"))?;
+    let parts = array_or_empty(o.get("parts"), part)?;
+    let ids_ok = consecutive(
+        parts
+            .iter()
+            .filter_map(|p| numbered_id(&p.id, 'P'))
+            .collect(),
+    );
+    let deps_known = parts.iter().all(|p| {
+        p.depends_on
+            .iter()
+            .all(|d| parts.iter().any(|q| &q.id == d))
+    });
+    if !ids_ok || !deps_known || has_cycle(&parts) {
+        return Err(Invalid);
+    }
+    Ok(parts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::js_json;
+
+    fn state(text: &str) -> Result<MasterState, Invalid> {
+        master_state(&js_json::parse(text).ok_or(Invalid)?)
+    }
+
+    fn doc(text: &str) -> Result<Vec<Part>, Invalid> {
+        parts(&js_json::parse(text).ok_or(Invalid)?)
+    }
+
+    const SIGNAL: &str = r#""signal":{"commits":null,"firstCommit":null,"filesChangedSinceFirst":null,"framework":null,"suggested":"template"}"#;
+
+    #[test]
+    fn state_follows_the_schema_and_its_refinements() {
+        let ok = state(&format!(
+            r#"{{"version":1,"phase":"executing","mode":"en-curso",{SIGNAL},"ux":"md"}}"#
+        ));
+        assert_eq!(
+            ok,
+            Ok(MasterState {
+                phase: "executing",
+                mode: Some("en-curso"),
+                ux: Some("md")
+            })
+        );
+        for bad in [
+            format!(r#"{{"version":2,"phase":"context","mode":null,{SIGNAL}}}"#),
+            format!(r#"{{"version":1,"phase":"context",{SIGNAL}}}"#),
+            format!(r#"{{"version":1,"phase":"context","mode":null,{SIGNAL},"ux":null}}"#),
+            format!(r#"{{"version":1,"phase":"context","mode":null,{SIGNAL},"outcome":"convertida"}}"#),
+            format!(r#"{{"version":1,"phase":"context","mode":null,{SIGNAL},"abandonment":{{"reason":"x","phase":"context"}}}}"#),
+            r#"{"version":1,"phase":"context","mode":null,"signal":{"commits":-1,"firstCommit":null,"filesChangedSinceFirst":null,"framework":null,"suggested":"template"}}"#.to_owned(),
+        ] {
+            assert_eq!(state(&bad), Err(Invalid), "{bad}");
+        }
+    }
+
+    const A1: &str =
+        r#"{"id":"A1","description":"d","method":"test","test":{"file":"f","case":"c"}}"#;
+
+    #[test]
+    fn parts_follow_the_schema_and_its_refinements() {
+        let ok = doc(&format!(
+            r#"{{"version":1,"parts":[{{"id":"P1","title":"t","objective":"o","acceptance":[{A1}]}},{{"id":"P2","title":"t","objective":"o","dependsOn":["P1"],"state":"diferida","reason":"r","acceptance":[{A1}]}}]}}"#
+        ));
+        assert_eq!(
+            ok.map(|p| p.iter().map(|p| p.state).collect::<Vec<_>>()),
+            Ok(vec!["pendiente", "diferida"])
+        );
+        let part = |extra: &str, acceptance: &str| {
+            format!(
+                r#"{{"version":1,"parts":[{{"id":"P1","title":"t","objective":"o"{extra},"acceptance":[{acceptance}]}}]}}"#
+            )
+        };
+        for bad in [
+            part("", ""),
+            part(r#","state":"descartada""#, A1),
+            part(r#","reason":"r""#, A1),
+            part(r#","dependsOn":["P1"]"#, A1),
+            part(r#","dependsOn":["P9"]"#, A1),
+            part(r#","scope":["a\nb"]"#, A1),
+            part(r#","issue":0"#, A1),
+            part("", &A1.replace("A1", "A2")),
+            part("", &A1.replace(r#""method":"test""#, r#""method":"manual""#)),
+            part(
+                "",
+                &format!(
+                    r#"{},"command":{{"run":"r","expected":"e"}}}}"#,
+                    &A1[..A1.len() - 1]
+                ),
+            ),
+            part("", &A1.replace(r#""description":"d""#, r#""description":"d","evidence":{"kind":"approval","approvedBy":"user","date":"2026-01-01"}"#)),
+            r#"{"version":1,"parts":[{"id":"P2","title":"t","objective":"o","acceptance":[]}]}"#.to_owned(),
+        ] {
+            assert_eq!(doc(&bad), Err(Invalid), "{bad}");
+        }
+    }
+}
