@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 type TestResult = Result<(), Box<dyn Error>>;
-const SOURCE:&[u8]=b"payload=${payload-$(cat)}\n    printf -v \"${_pf_spec%%=*}\" '%s' \"$(payload_field \"${_pf_spec#*=}\")\"\n";
+const SOURCE:&[u8]=b"payload=${payload-\"$(cat)\"}\n    printf -v \"${_pf_spec%%=*}\" '%s' \"$(payload_field \"${_pf_spec#*=}\")\"\n";
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Result<Self, Box<dyn Error>> {
@@ -91,7 +91,7 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
         );
         assert_eq!(
             expanded.lines().nth(prepared.capture().input_line - 1),
-            Some("payload=${payload-$(cat)}")
+            Some("payload=${payload-\"$(cat)\"}")
         );
         for payload in [b"{}\0\n".as_slice(),br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"run_in_background":true,"command":"sleep \u0000&"}}"#.as_slice(),br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"printf ok"}}"#.as_slice()]{
             let actual=subagent_no_background::evaluate_prepared(&prepared, payload)?;

@@ -137,8 +137,11 @@ fn run_hook(
         "tool_name": "Bash",
         "tool_input": { "command": cmd },
     });
+    // The rendered copy carries the native runtime: without this, a `navori-rust` in PATH (cargo
+    // prepends `~/.cargo/bin`) would answer instead of the shell under comparison.
     let mut child = Command::new("bash")
         .arg(script)
+        .env("NAVORI_HOOK_IMPL", "shell")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env("LC_ALL", lc_all)
         .env("PWD", cwd)

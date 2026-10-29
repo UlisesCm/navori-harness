@@ -549,8 +549,9 @@ fn spool_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".json") else {
         return false;
     };
+    // `<stamp>-<pid>-<seq>-<random>`, the partial's grammar since #1439.
     let parts: Vec<&str> = stem.split('-').collect();
-    parts.len() == 3
+    parts.len() == 4
         && parts
             .iter()
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))

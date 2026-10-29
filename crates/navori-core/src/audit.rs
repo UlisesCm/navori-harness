@@ -12,7 +12,12 @@ use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// `navori_audit_seq`: the partial's per-process event counter, which starts after 1000 so the
+/// names sort in write order.
+static SPOOL_SEQ: AtomicU64 = AtomicU64::new(1000);
 
 use crate::js_json::{JsObject, JsValue};
 
@@ -527,7 +532,11 @@ impl AuditContext {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_micros());
         let random = RandomState::new().build_hasher().finish() % 32_768;
-        let path = spool.join(format!("{micros}-{}-{random}.json", std::process::id()));
+        let seq = SPOOL_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
+        let path = spool.join(format!(
+            "{micros}-{}-{seq}-{random}.json",
+            std::process::id()
+        ));
         let Ok(mut file) = OpenOptions::new()
             .write(true)
             .create_new(true)

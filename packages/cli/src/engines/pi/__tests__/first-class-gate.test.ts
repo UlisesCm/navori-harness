@@ -1,7 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire, stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { PI_HOOK_BINDINGS } from "../hook-bindings.ts";
@@ -13,6 +17,8 @@ import {
   PI_ROLE_TOOLS,
 } from "../role-tools.ts";
 import { load } from "./fixtures/load-extension.ts";
+import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
+import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 
 interface Ctx {
   cwd: string;
@@ -171,5 +177,108 @@ describe("Pi quality gate on commit and push", () => {
     for (const role of bashRoles) {
       expect(PI_ROLE_TIMEOUT_MS[role]).toBeGreaterThanOrEqual(PI_GATE_TIMEOUT_MS + 600_000);
     }
+  });
+});
+
+describe("Pi implementer dispatch plan gate payload", () => {
+  /** Dispatches an implementer with `navori plan gate` scripted to deny; returns the stdin it received. */
+  async function gatePayload(sessionId: string | undefined): Promise<Record<string, unknown>> {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-pi-gate-payload-"));
+    dirs.push(cwd);
+    execFileSync("git", ["init", "-q", cwd]);
+    renderPiEngine(
+      cwd,
+      NavoriConfigSchema.parse({
+        name: "pi-gate-payload",
+        preset: "custom",
+        engines: ["pi"],
+        harness: { planTiers: true },
+      }),
+    );
+    let stdin = "";
+    const spawn = (program: string): EventEmitter => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 7,
+        stdin: {
+          end: (chunk?: string): void => {
+            stdin += chunk ?? "";
+          },
+          write: (chunk: string): void => {
+            stdin += chunk;
+          },
+          on: (): void => {},
+        },
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(),
+      });
+      if (program === "navori") setImmediate(() => child.emit("close", 2));
+      return child;
+    };
+    const nodeRequire = createRequire(import.meta.url);
+    const stubs: Record<string, unknown> = {
+      "node:child_process": { spawn },
+      "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
+      "@earendil-works/pi-coding-agent": {
+        VERSION: PINNED_PI_VERSION,
+        defineTool: <T>(v: T): T => v,
+      },
+    };
+    const sandbox = {
+      exports: {} as { default?: (pi: unknown) => void },
+      require: (id: string): unknown => stubs[id] ?? nodeRequire(id),
+      process: {
+        env: {},
+        platform: process.platform,
+        versions: { node: "22.19.0" },
+        stderr: { write: () => true },
+        getBuiltinModule: process.getBuiltinModule.bind(process),
+      },
+      Buffer,
+      AbortController,
+      setTimeout,
+      clearTimeout,
+    };
+    const code = stripTypeScriptTypes(PI_EXTENSION_SOURCE);
+    runInNewContext(
+      code
+        .replace(/^import \{ (.+) \} from "(.+)";$/gm, 'const { $1 } = require("$2");')
+        .replace("export default function", "exports.default = function"),
+      sandbox,
+    );
+    let tool: { execute: (...args: unknown[]) => Promise<unknown> } | undefined;
+    sandbox.exports.default?.({
+      on: () => () => {},
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      registerTool: (value: typeof tool) => {
+        tool = value;
+      },
+    });
+    await tool!
+      .execute(
+        "call",
+        { role: "implementer", task: "Do the scoped task", feature: "demo" },
+        new AbortController().signal,
+        () => {},
+        {
+          cwd,
+          isProjectTrusted: () => true,
+          model: { provider: "p", id: "m" },
+          ...(sessionId === undefined ? {} : { sessionManager: { getSessionId: () => sessionId } }),
+        },
+      )
+      .catch(() => undefined);
+    return JSON.parse(stdin) as Record<string, unknown>;
+  }
+
+  it("sends the sanitized Pi session id as session_id", async () => {
+    const payload = await gatePayload("sess/gate 1");
+    expect(payload.session_id).toBe("sessgate1");
+    expect(payload.tool_input).toMatchObject({ agent_type: "implementer" });
+  });
+
+  it("omits session_id when the session id is unavailable", async () => {
+    const payload = await gatePayload(undefined);
+    expect("session_id" in payload).toBe(false);
   });
 });

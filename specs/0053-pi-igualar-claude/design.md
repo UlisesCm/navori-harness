@@ -621,7 +621,7 @@ son las que reportó npm ese día y no se re-verificaron aquí.
 
 - Adoptar cualquier paquete del ecosistema Pi (sección anterior): permisos genéricos y sandbox de SO quedan
   como candidatos para una spec futura; los demás, descartados por los motivos dados.
-- `audit-mode` en Pi y abrir sesiones Pi en la auditoría sin `navori audit --start <id> --host pi`.
+- `audit-mode` en Pi y abrir sesiones Pi en la auditoría sin `navori audit --start <id> --host pi`. Nota: el disparo de audit-mode en Pi (arm/`--host pi` y `audit.mode=always`) se promovió en la spec pi-audit-mode.
 - Cobertura por población de Pi en `discovery.ts` (`hostPopulation`, `populations`).
 - `outsideCohort` en `lib/audit/discovery.ts` no excluye sesiones Pi por rango (`--since/--days`): parece un
   bug; la corrida de R2 usa `--session` explícito y lo evita. Se abre como issue.
@@ -634,7 +634,7 @@ son las que reportó npm ese día y no se re-verificaron aquí.
   rutas gestionadas; los cubre `managed-drift-watch` después del hecho.
 - Pasar los brazos existentes `>`/`sed -i`/`tee` de la regla 6 de `managed_dir` a `nv_owned_paths`: hoy
   bloquean por directorio y seguirán así; unificarlos es un cambio de comportamiento aparte.
-- `routing-watch` y `model-advisor` en Pi (siguen `unsupported` en `PI_PARITY`).
+- `model-advisor` en Pi (sigue `unsupported` en `PI_PARITY`). `routing-watch` pasó a `advisory` en Pi (feature pi-routing-watch), como anticipaba 0048 design.md:402-405.
 - Subagentes o permisos nativos en Pi; MCP en hijos (`--no-mcp`).
 - Umbrales de calidad (`CHANGES_REQUESTED`, `BLOCKED`, retrabajo): se registran, no se exigen.
 

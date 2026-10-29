@@ -30,7 +30,7 @@ export function parseExpected(text: string): ExpectedSpec {
     const match = /^matches: \/(.+)\/([imsu]*)$/.exec(text);
     if (match && match[0] === text) {
       try {
-        new RegExp(match[1]!, match[2]!);
+        new RegExp(match[1]!, match[2]!); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- syntax check only on an author-owned workplan; never run against input
         return { kind: "matches", source: match[1]!, flags: match[2]! };
       } catch {
         /* Invalid syntax and repeated flags are never downgraded to prose. */

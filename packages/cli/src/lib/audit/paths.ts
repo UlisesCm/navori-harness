@@ -57,6 +57,16 @@ export function auditsRoot(): string {
   return join(safeHomedir(), ".navori", "audits");
 }
 
+/**
+ * Copy-paste command that re-privatizes an audit root left too open (dirs 700,
+ * files 600). Text only: navori never runs it. The path is single-quoted with
+ * embedded quotes escaped, so it cannot inject shell syntax.
+ */
+export function auditRootRepairCommand(root: string): string {
+  const quoted = "'" + root.replaceAll("'", "'\\''") + "'";
+  return `find ${quoted} -type d -exec chmod 700 {} + && find ${quoted} -type f -exec chmod 600 {} +`;
+}
+
 export type PrivateAuditReason =
   | "unsafe"
   | "changed"
@@ -69,15 +79,27 @@ export type PrivateAuditReason =
   | "io";
 export type PrivateAuditResult<T> =
   | { ok: true; value: T }
-  | { ok: false; reason: PrivateAuditReason; partial: boolean };
+  | {
+      ok: false;
+      reason: PrivateAuditReason;
+      partial: boolean;
+      /** Set only when the sole fault is group/other permission bits on an owned entry. */
+      permissionOnly?: true;
+    };
 export interface PrivateAuditOptions {
   /** Default: audit-owned root. null explicitly selects ordinary user ancestors. */
   ownedRoot?: string | null;
 }
 
 class PrivateAuditFault extends Error {
-  constructor(readonly reason: PrivateAuditReason) {
+  readonly reason: PrivateAuditReason;
+  /** True when only the mode bits of an own-uid file/dir are wrong (chmod fixes it). */
+  readonly permissionOnly: boolean;
+
+  constructor(reason: PrivateAuditReason, permissionOnly = false) {
     super(reason);
+    this.reason = reason;
+    this.permissionOnly = permissionOnly;
   }
 }
 interface AuditIdentity {
@@ -104,6 +126,9 @@ function refused<T>(error: unknown, partial = false): PrivateAuditResult<T> {
   const code = (error as NodeJS.ErrnoException | null)?.code;
   return {
     ok: false,
+    ...(error instanceof PrivateAuditFault && error.permissionOnly
+      ? { permissionOnly: true as const }
+      : {}),
     reason:
       error instanceof PrivateAuditFault
         ? error.reason
@@ -124,8 +149,8 @@ function auditUid(): number {
   return process.getuid();
 }
 function regularAuditFile(stat: Stats, privateFile = true): void {
-  if (!stat.isFile() || stat.uid !== auditUid() || (privateFile && (stat.mode & 0o177) !== 0))
-    throw new PrivateAuditFault("unsafe");
+  if (!stat.isFile() || stat.uid !== auditUid()) throw new PrivateAuditFault("unsafe");
+  if (privateFile && (stat.mode & 0o177) !== 0) throw new PrivateAuditFault("unsafe", true);
 }
 
 /** Validate every observed ancestor; ordinary user ancestors are never chmodded.
@@ -160,8 +185,9 @@ function auditParents(
       stat = lstatSync(dir);
     }
     const isOwned = owned !== null && (dir === owned || dir.startsWith(owned + sep));
-    if (!stat.isDirectory() || (isOwned && (stat.uid !== auditUid() || (stat.mode & 0o077) !== 0)))
+    if (!stat.isDirectory() || (isOwned && stat.uid !== auditUid()))
       throw new PrivateAuditFault("unsafe");
+    if (isOwned && (stat.mode & 0o077) !== 0) throw new PrivateAuditFault("unsafe", true);
     identities.push({ path: dir, stat });
   }
   return identities;

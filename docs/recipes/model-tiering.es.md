@@ -90,9 +90,13 @@ permanece desconocido y la aplicación queda `pending`, con el remedio de inicia
 Codex nuevo y verificar ahí modelo y esfuerzo. No se afirma equivalencia de calidad entre
 modelos.
 
-Pi conserva su consumidor explícito de `codexMap`, que solo resuelve el modelo; la
-transformación de esfuerzo y los overrides nombrados se limitan a Codex. Los perfiles de
-Claude permanecen sin cambios.
+Pi resuelve su modelo desde `models.piMap` (opus/sonnet/haiku como `provider/id`) y hereda el modelo Pi seleccionado para los tiers sin entrada; no lee `codexMap`. La transformación de esfuerzo y los overrides nombrados se limitan a Codex. Los perfiles de Claude permanecen sin cambios.
+
+```json
+{
+  "models": { "piMap": { "sonnet": "anthropic/claude-sonnet-5-5", "opus": "anthropic/claude-opus-5-5" } }
+}
+```
 
 ## No definas todo en el tier top
 

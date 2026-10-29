@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:c65987fce165c11541fd425cd2a25f39e1ec38a32e3ea2e037449fe4e7d372e9 impl=sha256:2907906cba21ccdc6ea7dbb31306a500302a535ccafa5076e413f2b6f6c09d04
-# navori:managed start id="guard-destructive-base" hash="a233278f" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:1a46538c663970ee16a3887d1b0c320f5ad85740b9fe640e1180ca202cde33f8 impl=sha256:493867da4620c968e6cf4f0adf8e0b5761f5ce6c8ef7e6f816427c363d97f8bf
+# navori:managed start id="guard-destructive-base" hash="292b3fb5" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -79,8 +79,9 @@ payload_load() { :; }
 # `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
 # tool names this hook does not otherwise read) keeps that value, empty or
 # not, instead of this partial re-reading an already-drained pipe and
-# clobbering it with "".
-payload=${payload-$(cat)}
+# clobbering it with "". The inner quotes matter: unquoted, zsh word-splits the
+# substitution and rejoins it with single spaces (bash does not).
+payload=${payload-"$(cat)"}
 payload_field() {
   case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
     if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
@@ -463,7 +464,13 @@ navori_audit_spool_write() {
   [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
   navori_audit_stamp=${EPOCHREALTIME:-0}
   navori_audit_stamp=${navori_audit_stamp//[.,]/}
-  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  # A per-process sequence keeps the events of one invocation apart where the stamp and
+  # $RANDOM cannot: without EPOCHREALTIME (bash < 5) the stamp is 0, and before bash 5.1 a
+  # subshell repeats its parent's next $RANDOM, so a second event (gate-started, then the
+  # verdict) took the first one's name and noclobber dropped it. Counted in this shell, never
+  # in the subshell below; it starts at 1000 so the names sort in write order.
+  navori_audit_seq=$(( ${navori_audit_seq:-1000} + 1 ))
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$navori_audit_seq-$RANDOM.json" ) 2>/dev/null || return 1
   return 0
 }
 
@@ -753,6 +760,7 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .pi/navori/hooks/master-accept-confirm.sh
 .pi/navori/hooks/pr-publisher-confirm.sh
 .pi/navori/hooks/quality-gate-pre-commit.sh
+.pi/navori/hooks/routing-watch.sh
 .pi/navori/hooks/subagent-no-background.sh
 .pi/navori/hooks/worktree-reclaim.sh
 .pi/navori/scripts/guard-search-routing.sh

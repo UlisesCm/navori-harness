@@ -157,7 +157,7 @@ function project(
       engines: ["pi"],
       branchBase: "main",
       qualityGate: { fast: "bun test", full: "bun test" },
-      models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
+      models: { scout: "haiku", piMap: { haiku: "openai-codex/gpt-5" } },
       harness,
     }),
     // Dispatch-only fixtures need no scripts; ownership verdicts opt into the real hook bridge.

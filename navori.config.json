@@ -34,6 +34,7 @@
     "codexMap": {
       "sonnet": "gpt-6.1-sol"
     },
+    "piMap": {},
     "orchestrator": "opus",
     "implementer": "sonnet",
     "reviewer": "sonnet",

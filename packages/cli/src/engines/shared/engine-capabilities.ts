@@ -792,7 +792,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       {
         surface: "claude-hook-parity",
         reason:
-          "Pi does not run Claude/Codex hook scripts yet; only mapped project-extension controls apply. " +
+          "Pi does not load Claude/Codex hook configuration; the project extension runs the shared hook scripts " +
+          "listed in PI_HOOK_BINDINGS through its bridge as emulated controls, and the rest stay unmapped. " +
           "The per-unit state and boundary of every core hook, shared permission rule and plugin unit " +
           "is PI_PARITY (engines/shared/pi-parity.ts, spec 0048 R1).",
       },
@@ -878,12 +879,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "compact-advice": {
         state: "unsupported",
         reason:
-          "Pi runs no navori hook scripts, so no context-size advice is injected after a publisher dispatch.",
+          "No Pi binding runs compact-advice, so no context-size advice is injected after a publisher dispatch.",
       },
       "general-purpose-confirm": {
         state: "unsupported",
         reason:
-          "Pi runs no Claude hook scripts and its navori_subagent roster has no general-purpose role to confirm.",
+          "Pi's `navori_subagent` roster has seven fixed roles and no general-purpose role to confirm.",
       },
     },
     analyticWriteTools: {
@@ -946,7 +947,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         probe:
           "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
         boundary:
-          "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
+          "Pi's own MCP stays unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable. codegraph and engram reads reach the roles that hold them through navori-owned navori_* extension tools instead (knowledge-tools.ts): a model-visible ceiling, not isolation.",
       },
       {
         capability: "session-end-event",

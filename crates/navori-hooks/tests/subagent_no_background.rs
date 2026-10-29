@@ -129,7 +129,7 @@ fn shell_oracle(bytes: &[u8], profile: Profile) -> Result<ShellOracle, Box<dyn E
     let source = shell_source()?;
     let input_line = source
         .lines()
-        .position(|line| line == "payload=${payload-$(cat)}")
+        .position(|line| line == "payload=${payload-\"$(cat)\"}")
         .ok_or("initial capture not found in expanded oracle")?
         + 1;
     let fallback_line = source

@@ -391,7 +391,7 @@ mod unknown_keys {
             (
                 "models",
                 &Rule {
-                    children: &[("codexMap", &CODEX_MAP)],
+                    children: &[("codexMap", &CODEX_MAP), ("piMap", &CODEX_MAP)],
                     ..rule(&[
                         "orchestrator",
                         "implementer",
@@ -402,6 +402,7 @@ mod unknown_keys {
                         "scribe",
                         "architect",
                         "codexMap",
+                        "piMap",
                     ])
                 },
             ),
@@ -590,7 +591,7 @@ mod unknown_keys {
 
 /// `NavoriConfigSchema`, field by field, with zod 4 semantics.
 mod schema {
-    use super::{JsObject, JsString, JsValue, js_trim};
+    use super::{JsObject, JsString, JsValue, is_js_whitespace, js_trim};
     use crate::zod::{
         Invalid, Parsed, Shape, array_of, boolean, empty_array, kebab, non_empty,
         non_empty_strings, object, one_of, safe_integer_at_least, safe_rel_path, string, strings,
@@ -837,13 +838,41 @@ mod schema {
             .strip())
     }
 
+    /// `PiModelSchema`: `/^[a-z0-9][a-z0-9._-]*\/\S+$/i`, a `provider/id` with no JS whitespace
+    /// after the first slash (nested ids and a `:thinking` suffix included).
+    fn pi_model(value: &JsValue) -> Parsed {
+        let content = text(value)?;
+        let Some((provider, id)) = content.split_once('/') else {
+            return Err(Invalid);
+        };
+        let mut head = provider.bytes();
+        let provider_ok = head.next().is_some_and(|b| b.is_ascii_alphanumeric())
+            && head.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        if provider_ok && !id.is_empty() && !id.chars().any(is_js_whitespace) {
+            Ok(value.clone())
+        } else {
+            Err(Invalid)
+        }
+    }
+
+    fn pi_map(value: &JsValue) -> Parsed {
+        Ok(Shape::new(value)?
+            .optional("opus", pi_model)?
+            .optional("sonnet", pi_model)?
+            .optional("haiku", pi_model)?
+            .strip())
+    }
+
     fn models(value: &JsValue) -> Parsed {
         let mut shape = Shape::new(value)?
             .optional("codexProfiles", |v| record(v, profile_name, codex_profile))?;
         for key in ROLES {
             shape = shape.optional(key, |v| one_of(v, &["opus", "sonnet", "haiku"]))?;
         }
-        Ok(shape.optional("codexMap", codex_map)?.strip())
+        Ok(shape
+            .optional("codexMap", codex_map)?
+            .optional("piMap", pi_map)?
+            .strip())
     }
 
     fn effort(value: &JsValue) -> Parsed {

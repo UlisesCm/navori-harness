@@ -24,8 +24,9 @@ import { renderPiEngine } from "../index.ts";
 import { PI_PARITY, piParityKey } from "../../shared/pi-parity.ts";
 import { load as loadExtension } from "./fixtures/load-extension.ts";
 import { rolePluginProse } from "../plugin-projection.ts";
-import type { LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { loadEnabledPlugins, type LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
+import { piKnowledgeGrants } from "../knowledge-tools.ts";
 
 interface Tool {
   execute: (
@@ -56,7 +57,10 @@ class FakeChild extends EventEmitter {
 }
 
 /** Loads the rendered extension against stubs: no Pi, no MCP server, no credentials. */
-function load(): { tool: Tool; children: Spawned[] } {
+function load(source: string = PI_EXTENSION_SOURCE): {
+  tool: Tool;
+  children: Spawned[];
+} {
   const children: Spawned[] = [];
   let registered: Tool | undefined;
   const sandbox = {
@@ -93,7 +97,7 @@ function load(): { tool: Tool; children: Spawned[] } {
     clearTimeout,
   };
   runInNewContext(
-    stripTypeScriptTypes(PI_EXTENSION_SOURCE)
+    stripTypeScriptTypes(source)
       .replace(/^import \{ (.+) \} from "(.+)";$/gm, 'const { $1 } = require("$2");')
       .replace("export default function", "exports.default = function"),
     sandbox,
@@ -133,38 +137,38 @@ describe("Pi MCP in children", () => {
     ]);
     for (const [path, content] of fixtures) writeFileSync(path, content);
 
-    // An enabled MCP plugin injecting prose into Pi roles is diagnosed at render time.
-    const { warnings } = renderPiEngine(
-      dir,
-      NavoriConfigSchema.parse({
-        name: "pi-plugins",
-        preset: "custom",
-        engines: ["pi"],
-        branchBase: "main",
-        qualityGate: { fast: "bun test", full: "bun test" },
-        plugins: { engram: { enabled: true } },
-      }),
-    );
-    for (const role of ["implementer", "reviewer"]) {
-      expect(warnings).toContainEqual(
-        expect.stringMatching(
-          new RegExp(
-            `Pi role ${role} needs MCP tools from plugin engram \\(mcp__engram__mem_search.*unavailable.*--no-mcp.*direct, discovery and codemode`,
-          ),
-        ),
-      );
+    // An enabled MCP plugin injecting prose into Pi roles is diagnosed at render time unless knowledge tools cover it.
+    const config = NavoriConfigSchema.parse({
+      name: "pi-plugins",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+      qualityGate: { fast: "bun test", full: "bun test" },
+      plugins: { engram: { enabled: true } },
+    });
+    const { warnings } = renderPiEngine(dir, config);
+    // The roles engram reaches are covered by the navori read-only knowledge tools: no diagnostic.
+    for (const role of ["implementer", "reviewer", "auditor"]) {
+      expect(warnings.some((w) => w.includes(`Pi role ${role} needs MCP tools`))).toBe(false);
     }
+    const knowledge = piKnowledgeGrants(loadEnabledPlugins(config.plugins).loaded);
     // The orchestrator is not a Pi child role: no false diagnostic for it.
     expect(warnings.some((w) => w.includes("Pi role orchestrator"))).toBe(false);
 
     // Every child carries --no-mcp, allowlisted or not: --tools alone does not remove MCP.
-    const { tool, children } = load();
+    const { tool, children } = load(renderPiExtensionSource(["engram"], knowledge));
     for (const role of ["scout", "implementer", "reviewer"]) {
       const pending = run(tool, dir, role);
       await vi.waitFor(() => expect(children.length).toBeGreaterThan(0));
       const { args, child } = children.at(-1)!;
       expect(args).toContain("--no-mcp");
       expect(args).toContain("--tools");
+      // The navori read-only tools ride in --tools (Pi filters extension tools by it); never a write tool.
+      const tools = args[args.indexOf("--tools") + 1]!.split(",");
+      expect(tools).toEqual(
+        expect.arrayContaining(["navori_mem_search", "navori_mem_get_observation"]),
+      );
+      expect(tools.some((name) => /mem_save|^mcp/.test(name))).toBe(false);
       child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
       child.emit("close", 0);
       await pending;
@@ -174,7 +178,10 @@ describe("Pi MCP in children", () => {
     // A role asking for direct, discovery or codemode MCP access is rejected before spawning.
     const path = join(dir, ".pi/agents/scout.md");
     for (const wanted of ["mcp__engram__mem_search", "mcp__engram__*", "codemode"]) {
-      writeFileSync(path, readFileSync(path, "utf8").replace('"write"]', `"write","${wanted}"]`));
+      writeFileSync(
+        path,
+        readFileSync(path, "utf8").replace(/^(tools: \[.*)\]$/m, `$1,"${wanted}"]`),
+      );
       await expect(run(tool, dir, "scout")).rejects.toThrow(
         wanted === "codemode"
           ? /Unknown or missing Pi role tool mapping: scout/
@@ -505,10 +512,46 @@ describe("Pi plugin projection", () => {
   });
 
   // Covers: R12
-  it("an MCP plugin's prose is not injected into a child role", () => {
+  it("an MCP plugin's prose reaches a child role naming the navori tools it really holds", () => {
     const { dir, config } = project(["pi"], { engram: { enabled: true } });
     renderPiEngine(dir, config);
-    expect(read(dir, ".pi/agents/reviewer.md")).not.toContain("engram");
+    const reviewer = read(dir, ".pi/agents/reviewer.md");
+    expect(reviewer).toContain("`navori_mem_search`");
+    expect(reviewer).toContain("`navori_mem_get_observation`");
+    expect(reviewer).not.toContain("`mem_search`");
+    expect(reviewer).not.toContain("`mem_get_observation`");
+    // The rendered role list and the rendered extension agree, and neither carries a write tool.
+    expect(reviewer).toMatch(/^tools: \[.*"navori_mem_search".*\]$/m);
+    expect(read(dir, ".pi/extensions/navori.ts")).toContain('"navori_mem_search"');
+    expect(read(dir, ".pi/agents/auditor.md")).not.toMatch(/^tools: .*mem_save/m);
+  });
+
+  // Covers: R12
+  it("grants derive from the same sources as Claude, intersected with the read-only table", () => {
+    const both = loadEnabledPlugins({
+      codegraph: { enabled: true },
+      engram: { enabled: true },
+    }).loaded;
+    const all = ["navori_codegraph_explore", "navori_mem_search", "navori_mem_get_observation"];
+    expect(piKnowledgeGrants(both)).toEqual({
+      scout: all,
+      implementer: all,
+      reviewer: all,
+      auditor: all,
+      architect: ["navori_codegraph_explore"],
+    });
+    // A disabled plugin grants nothing, even when a core role's own frontmatter names its tools (scout does).
+    const onlyCodegraph = piKnowledgeGrants(
+      loadEnabledPlugins({ codegraph: { enabled: true } }).loaded,
+    );
+    expect(onlyCodegraph.scout).toEqual(["navori_codegraph_explore"]);
+    expect(onlyCodegraph.reviewer).toEqual(["navori_codegraph_explore"]);
+    expect(piKnowledgeGrants([])).toEqual({});
+    // No write tool exists anywhere in the grants, whatever the Claude grant says (auditor holds mem_save there).
+    expect(JSON.stringify(piKnowledgeGrants(both))).not.toContain("mem_save");
+    // A role outside the grant has no knowledge tool in its Pi tool list.
+    expect(piKnowledgeGrants(both).scribe).toBeUndefined();
+    expect(piKnowledgeGrants(both).publisher).toBeUndefined();
   });
 
   // Covers: R12

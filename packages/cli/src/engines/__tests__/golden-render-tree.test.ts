@@ -17,6 +17,7 @@ import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
+import { renderPiEngine } from "../pi/index.ts";
 
 /**
  * Golden snapshot of the rendered tree, one file per engine (#394).
@@ -174,6 +175,11 @@ const ENGINE_CASES: readonly EngineCase[] = [
     id: "copilot",
     engines: ["copilot"],
     render: (cwd, config) => void renderCopilotEngine(cwd, config),
+  },
+  {
+    id: "pi",
+    engines: ["pi"],
+    render: (cwd, config) => void renderPiEngine(cwd, config),
   },
 ];
 
