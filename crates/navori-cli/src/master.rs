@@ -1,5 +1,5 @@
-//! `navori master status --json|--line [--cwd <dir>]`, native while no stage is active (spec 0060
-//! T8, first layer).
+//! `navori master status --json|--line [--cwd <dir>]`, native without an active stage and with an
+//! active legacy one (spec 0060 T8, layers 1 and 2; `master::status` lists what still delegates).
 //!
 //! Read-only, like those two forms in the TS (`commands/master.ts`): `master status` without them
 //! regenerates `STATUS.md` and `INDEX.md`, and the manifest entry's `requires` keeps it on the TS.
@@ -11,10 +11,11 @@ use std::path::Path;
 
 use navori_core::js_json::JsValue;
 use navori_core::master::index::{self, MasterIndex};
+use navori_core::master::status;
 
 use crate::help::{ArgDef, ArgKind, CommandDef, Parent};
 use crate::js_path::js_resolve;
-use crate::native_io::{Output, json_line, object, read_config, specs_dir, string};
+use crate::native_io::{self, Output, json_line, object, read_config};
 use crate::{NativeCall, Outcome};
 
 const STATUS: CommandDef = CommandDef {
@@ -125,11 +126,28 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
         out.stderr.push_str(warning);
         out.stderr.push('\n');
     }
-    let specs_dir = specs_dir(Some(&config))?;
+    let specs_dir = native_io::specs_dir(Some(&config))?;
     let master_dir = js_resolve(&[&cwd, &specs_dir, index::MASTER_DIR_NAME]);
     let index = index::read(Path::new(&master_dir)).ok()?;
-    if index.as_ref().and_then(MasterIndex::active).is_some() {
-        return None;
+    if let Some((index, stage)) = index
+        .as_ref()
+        .and_then(|i| i.active().map(|stage| (i, stage)))
+    {
+        let legacy = status::legacy(&cwd, &specs_dir, Path::new(&master_dir), index, stage).ok()?;
+        if options.json {
+            json_line(&mut out, &legacy.to_json());
+            return Some(out);
+        }
+        // `--line` reads the config a second time for `specsDir`: its warnings print again.
+        let again = read_config(&cwd)??;
+        for warning in &again.warnings {
+            out.stderr.push_str(warning);
+            out.stderr.push('\n');
+        }
+        out.stdout
+            .push_str(&legacy.line(&native_io::specs_dir(Some(&again))?));
+        out.stdout.push('\n');
+        return Some(out);
     }
     if options.line {
         // No active stage: exit 1 with no line, so the hook falls back to INDEX.md.
@@ -142,19 +160,7 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
 
 /// `readMasterStatus`'s `empty`: no active stage, with the last closed one when there is any.
 fn empty_status(index: Option<&MasterIndex>) -> JsValue {
-    let last_closed = index
-        .and_then(MasterIndex::last_closed)
-        .map_or(JsValue::Null, |stage| {
-            object(vec![
-                ("number", JsValue::Number(stage.number)),
-                ("slug", string(&stage.slug)),
-                ("state", string(stage.state.as_str())),
-                (
-                    "closedAt",
-                    stage.closed_at.as_deref().map_or(JsValue::Null, string),
-                ),
-            ])
-        });
+    let last_closed = status::last_closed_json(index.and_then(MasterIndex::last_closed));
     object(vec![
         ("stage", JsValue::Null),
         ("phase", JsValue::Null),
