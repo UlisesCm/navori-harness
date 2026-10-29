@@ -1,0 +1,85 @@
+# Master
+
+## Metadatos
+
+Proyecto, etapa, fecha, modo, archivos de `context/md/` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+## Resumen ejecutivo
+
+Qué se construye y por qué.
+
+Origen: <plan(es) o D<n>>
+
+## Alcance (MoSCoW)
+
+Must / Should / Could / Won't consolidados.
+
+Origen: <plan(es) o D<n>>
+
+## Actores y permisos
+
+Origen: <plan(es) o D<n>>
+
+## Reglas de negocio
+
+`RN-<n>` consolidadas.
+
+Origen: <plan(es) o D<n>>
+
+## Requisitos funcionales
+
+`RF-<n>` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+## Requisitos no funcionales
+
+`RNF-<n>` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+## Dominio y datos
+
+Origen: <plan(es) o D<n>>
+
+## Arquitectura
+
+Origen: <plan(es) o D<n>>
+
+## Stack y librerías
+
+Origen: <plan(es) o D<n>>
+
+## Contratos
+
+Origen: <plan(es) o D<n>>
+
+## Seguridad
+
+Origen: <plan(es) o D<n>>
+
+## Infraestructura y operación
+
+Origen: <plan(es) o D<n>>
+
+## Entrega en partes
+
+Región `navori:master-parts` (la genera `navori master status`, spec 0034 T8): cada `P<n>` con objetivo, alcance, fuera de alcance, dependencias, requisitos semilla, criterios `P<n>.A<m>` y, en `en-curso`, su estado.
+
+Origen: <plan(es) o D<n>>
+
+## Testing
+
+Origen: <plan(es) o D<n>>
+
+## Riesgos
+
+Origen: <plan(es) o D<n>>
+
+## Preguntas abiertas
+
+Una pregunta
+
+[SUPUESTO] y [SIN VERIFICAR]

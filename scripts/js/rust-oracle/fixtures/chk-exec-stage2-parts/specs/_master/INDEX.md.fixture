@@ -1,0 +1,6 @@
+Etapa activa: specs/_master/02-dos/STATUS.md
+
+| Número | Slug | Estado | Apertura | Cierre | Enlace |
+|---|---|---|---|---|---|
+| 1 | uno | cerrada | 2026-01-01 | 2026-02-01 | [CLOSURE.md](01-uno/CLOSURE.md) |
+| 2 | dos | activa | 2026-01-02 | — | [MASTER.md](02-dos/MASTER.md) |

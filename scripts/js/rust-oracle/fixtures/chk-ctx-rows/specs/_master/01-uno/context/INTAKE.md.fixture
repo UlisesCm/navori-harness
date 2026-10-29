@@ -1,0 +1,10 @@
+# Intake
+
+| Archivo | Método | Resultado |
+|---|---|---|
+| a.pdf | markitdown | context/md/a.md |
+| b.pdf | markitdown | context/md/b.md |
+| c.pdf | pdftotext | context/md/c.md |
+| d.pdf | MarkItDown | context/md/d.md |
+| e.pdf | manual |  |
+| g.pdf | manual | sobrante |

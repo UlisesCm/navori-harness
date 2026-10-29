@@ -1,0 +1,6 @@
+# Intake
+
+| Archivo | Método | Resultado |
+|---|---|---|
+| a.pdf | markitdown | context/md/a.md |
+| b.txt | copia | no se pudo: sin texto |

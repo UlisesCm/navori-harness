@@ -1,0 +1,6 @@
+# Intake
+
+| File | Method | Result |
+|---|---|---|
+| a.pdf | markitdown | context/md/a.md |
+| b.pdf | markitdown | context/md/b.md |

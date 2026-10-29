@@ -1,0 +1,27 @@
+# Estado de etapa 01-uno
+
+Fase: mastered
+Parte activa: P1
+Cerrable: no
+
+| Parte | Estado | Tareas | Spec | Issue |
+|---|---|---|---|---|
+| P1 | pendiente | 0/0 | — | — |
+| P2 | pendiente | 0/0 | — | — |
+
+## Evidencia
+
+- P1.A1 (test): sin evidencia
+- P1.A2 (manual): verificado
+- P2.A1 (test): sin evidencia
+- P2.A2 (manual): verificado
+
+## Discrepancias
+
+Ninguna
+
+## Bloqueos
+
+- 01-uno: falta la decisión de UX; registre una con: navori master ux <none|md|md-json>
+- P1: pendiente
+- P2: pendiente

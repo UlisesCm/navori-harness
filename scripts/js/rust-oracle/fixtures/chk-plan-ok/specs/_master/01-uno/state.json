@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "phase": "mapped",
+  "mode": null,
+  "signal": {
+    "commits": null,
+    "firstCommit": null,
+    "filesChangedSinceFirst": null,
+    "framework": null,
+    "suggested": "en-curso"
+  },
+  "history": [
+    {
+      "phase": "context",
+      "at": "2026-01-01"
+    },
+    {
+      "phase": "transcribed",
+      "at": "2026-01-02"
+    },
+    {
+      "phase": "mapped",
+      "at": "2026-01-03"
+    }
+  ]
+}

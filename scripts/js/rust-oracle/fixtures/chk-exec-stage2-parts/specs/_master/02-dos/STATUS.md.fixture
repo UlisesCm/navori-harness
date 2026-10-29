@@ -1,0 +1,27 @@
+# Estado de etapa 02-dos
+
+Fase: executing
+UX: none
+Parte activa: P1
+Cerrable: no
+
+| Parte | Estado | Tareas | Spec | Issue |
+|---|---|---|---|---|
+| P1 | pendiente | 0/0 | — | — |
+| P2 | pendiente | 0/0 | — | — |
+
+## Evidencia
+
+- P1.A1 (test): sin evidencia
+- P1.A2 (manual): verificado
+- P2.A1 (test): sin evidencia
+- P2.A2 (manual): verificado
+
+## Discrepancias
+
+Ninguna
+
+## Bloqueos
+
+- P1: pendiente
+- P2: pendiente

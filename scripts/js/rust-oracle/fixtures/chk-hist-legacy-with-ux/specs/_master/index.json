@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "stages": [
+    {
+      "number": 1,
+      "slug": "uno",
+      "dir": "01-uno",
+      "state": "activa",
+      "openedAt": "2026-01-01",
+      "closedAt": null
+    }
+  ]
+}
