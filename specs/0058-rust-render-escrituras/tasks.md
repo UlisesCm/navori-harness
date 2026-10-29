@@ -222,6 +222,14 @@ no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply y f
 - [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
 - [x] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
 
+T31 cerrada: un fixture puede traer `oracle.json` (nunca se copia al repo) con backups previos en
+la raíz de backups: archivos, archivos dispersos (`truncate`, sin ocupar disco) y `mtime`
+relativo (`-40d`, `-2h`, `-30m`) aplicado en cada copia, así TS y Rust ven la misma edad. El
+snapshot compara por tamaño los archivos de más de 64 MiB. Fixtures nuevos: `aged-backups`
+(poda por 30 días y por 2 GiB tras un `render --apply` o `sync --apply` que respalda),
+`foreign-blocks` (sin versión, hash editado, versión mayor y bloque ajeno) y `codex-trusted`
+(todo se re-delega); `sync-conflicts` llegó con T29.
+
 T30 cerrada: `remove <plugin> --yes` es nativo (`navori_core::remove`: `readRaw` + `writeConfig`
 de `config::write_config`, con la salida de zod y `preserveForwardCompatEnums`); entrada con
 `requires: [["yes"]]`, así que sin `--yes` se delega. Antes de escribir decide todo: la config
@@ -242,4 +250,4 @@ apply con el mismo commit que `render` (`command::commit_claude`). Se delegan `-
 contradicción `--accept-new --keep-mine`. Pruebas: fixture `sync-conflicts` con cada modo,
 casos en cada fixture aplicable, proptest `sync_preview_matches_the_ts_command` y el parseo en
 `navori-cli/tests/sync.rs`.
-- [ ] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"
+- [x] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"

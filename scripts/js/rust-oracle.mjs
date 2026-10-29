@@ -11,6 +11,8 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  truncateSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -226,12 +228,68 @@ export function snapshotTree(root, skip = () => false) {
         out.set(rel, { type, mode, bytes: Buffer.alloc(0) });
         walk(full);
       } else {
-        out.set(rel, { type, mode, bytes: readFileSync(full) });
+        // A fixture's sparse file (D26) is compared by size: reading gigabytes of zeros proves
+        // nothing navori wrote.
+        const bytes =
+          stat.size > LARGE_FILE_BYTES ? Buffer.from(`@LARGE@ ${stat.size}`) : readFileSync(full);
+        out.set(rel, { type, mode, bytes });
       }
     }
   };
   walk(root);
   return out;
+}
+
+/** Files above this size are compared by size only (they come from fixture `sparse` entries). */
+export const LARGE_FILE_BYTES = 64 * 1024 * 1024;
+
+/** The fixture manifest: read by the oracle, never copied into the repo. */
+export const FIXTURE_MANIFEST = "oracle.json";
+
+/**
+ * `-40d`, `-5d`, `-2h`, `-30m` relative to `now`, in milliseconds since the epoch.
+ *
+ * @param {string} relative
+ * @param {number} now
+ * @returns {number}
+ */
+export function relativeTime(relative, now) {
+  const m = /^-(\d+)([dhm])$/.exec(relative);
+  if (!m) throw new Error(`bad relative mtime: ${relative}`);
+  const unit = { d: 86_400_000, h: 3_600_000, m: 60_000 }[m[2] ?? "d"] ?? 0;
+  return now - Number(m[1]) * unit;
+}
+
+/**
+ * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
+ * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
+ * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
+ * Called on every copy, so the TS and the Rust run see the same ages.
+ *
+ * @param {string} fixtureDir
+ * @param {string} work
+ * @param {number} now
+ */
+export function applyFixtureManifest(fixtureDir, work, now) {
+  const path = join(fixtureDir, FIXTURE_MANIFEST);
+  if (!existsSync(path)) return;
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }> }} */
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const backup of manifest.backups ?? []) {
+    const dir = join(work, "backups", backup.name);
+    mkdirSync(dir, { recursive: true });
+    for (const [rel, text] of Object.entries(backup.files ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    for (const [rel, size] of Object.entries(backup.sparse ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), "");
+      truncateSync(join(dir, rel), size);
+    }
+    const at = new Date(relativeTime(backup.mtime, now));
+    utimesSync(dir, at, at);
+  }
 }
 
 /** `.git/` minus `index`, `logs/` and `objects/` (D5). */
@@ -412,6 +470,7 @@ function gitInit(repo, env) {
 export function copyFixture(from, to) {
   mkdirSync(to, { recursive: true });
   for (const entry of readdirSync(from, { withFileTypes: true })) {
+    if (entry.name === FIXTURE_MANIFEST) continue;
     const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
     const target = join(to, name);
     if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
@@ -441,6 +500,7 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
+  applyFixtureManifest(join(fixturesDir, testCase.fixture), work, Date.now());
   writeFileSync(join(work, "gitconfig"), "");
   const env = hermeticEnv(work, tsCli);
   gitInit(repo, env);

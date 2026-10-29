@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,6 +53,10 @@ interface Oracle {
     where: { stream: "stdout" | "stderr" | "file"; mask: string[] },
   ) => string;
   loadCases: () => OracleCase[];
+  copyFixture: (from: string, to: string) => void;
+  applyFixtureManifest: (fixtureDir: string, work: string, now: number) => void;
+  relativeTime: (relative: string, now: number) => number;
+  FIXTURE_MANIFEST: string;
   antiRollbackCases: (cliVersion: string) => OracleCase[];
   ANTI_ROLLBACK_LEVELS: string[];
   ANTI_ROLLBACK_OPS: string[];
@@ -348,6 +353,46 @@ describe("rust oracle", () => {
       }
       expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);
     }
+  });
+
+  // Covers: R45, R49
+  it("los fixtures de escritura se copian con sus mtimes relativos", () => {
+    for (const name of ["aged-backups", "foreign-blocks", "sync-conflicts", "codex-trusted"]) {
+      expect(existsSync(join(oracle.FIXTURES_DIR, name)), name).toBe(true);
+      expect(
+        oracle.loadCases().some((c) => c.fixture === name),
+        `${name} has cases`,
+      ).toBe(true);
+    }
+    const now = Date.UTC(2026, 9, 29, 12, 0, 0);
+    expect(oracle.relativeTime("-40d", now)).toBe(now - 40 * 86_400_000);
+    expect(oracle.relativeTime("-2h", now)).toBe(now - 2 * 3_600_000);
+    expect(oracle.relativeTime("-30m", now)).toBe(now - 30 * 60_000);
+    for (const bad of ["40d", "-40", "-1w", "+1d"]) {
+      expect(() => oracle.relativeTime(bad, now), bad).toThrow();
+    }
+    // A fixture with a manifest: the backups land in the backup root with their ages and
+    // sparse sizes, and the manifest itself never reaches the repo.
+    const fixture = tmp();
+    writeFileSync(join(fixture, "file.txt"), "x");
+    writeFileSync(
+      join(fixture, oracle.FIXTURE_MANIFEST),
+      JSON.stringify({
+        backups: [
+          { name: "old", mtime: "-40d", files: { "a/b.txt": "old" } },
+          { name: "big", mtime: "-2d", sparse: { "big.bin": 3 * 1024 * 1024 * 1024 } },
+        ],
+      }),
+    );
+    const work = tmp();
+    oracle.copyFixture(fixture, join(work, "repo"));
+    expect(existsSync(join(work, "repo", oracle.FIXTURE_MANIFEST))).toBe(false);
+    expect(readFileSync(join(work, "repo", "file.txt"), "utf8")).toBe("x");
+    oracle.applyFixtureManifest(fixture, work, now);
+    expect(readFileSync(join(work, "backups", "old", "a", "b.txt"), "utf8")).toBe("old");
+    expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
+    expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
+    expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
   });
 
   // Covers: R37, R49
