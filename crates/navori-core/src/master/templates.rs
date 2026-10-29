@@ -139,6 +139,19 @@ pub fn read_template_file(name: &str, english: bool) -> Option<String> {
     String::from_utf8(bytes.to_vec()).ok()
 }
 
+/// `templateHeaders(name, language, mode)`: the headings `check` validates a document against.
+#[must_use]
+pub fn template_headers(name: &str, english: bool, mode: Option<&str>) -> Option<Vec<String>> {
+    let sections = split_template_sections(&read_template_file(name, english)?);
+    Some(
+        sections
+            .into_iter()
+            .filter(|s| s.only_mode.is_none() || s.only_mode == mode)
+            .map(|s| s.heading)
+            .collect(),
+    )
+}
+
 /// `printTemplate(name, language, mode)`.
 #[must_use]
 pub fn print_template(name: &str, english: bool, mode: Option<&str>) -> Option<String> {

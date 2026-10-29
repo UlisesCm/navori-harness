@@ -39,6 +39,8 @@ pub struct MasterState {
     pub phase: &'static str,
     pub mode: Option<&'static str>,
     pub ux: Option<&'static str>,
+    /// The phases of `history`, in order.
+    pub history: Vec<&'static str>,
 }
 
 /// `evidence` of a criterion.
@@ -55,6 +57,9 @@ pub struct Criterion {
     pub id: String,
     pub description: String,
     pub method: &'static str,
+    /// What `renderMasterParts` prints after the description: `file#case`, the command to run
+    /// or the manual check.
+    pub detail: String,
     pub evidence: Evidence,
 }
 
@@ -67,6 +72,7 @@ pub struct Part {
     pub scope: Vec<String>,
     pub out_of_scope: Vec<String>,
     pub depends_on: Vec<String>,
+    pub seed_requirements: Vec<String>,
     pub acceptance: Vec<Criterion>,
     pub state: &'static str,
     pub reason: Option<String>,
@@ -205,10 +211,11 @@ pub fn master_state(raw: &JsValue) -> Result<MasterState, Invalid> {
         non_empty(c.get("reason"))?;
         true
     };
-    array_or_empty(o.get("history"), |entry| {
+    let history = array_or_empty(o.get("history"), |entry| {
         let e = object(entry)?;
-        one_of(e.get("phase"), &MASTER_PHASES)?;
-        date(e.get("at"))
+        let phase = one_of(e.get("phase"), &MASTER_PHASES)?;
+        date(e.get("at"))?;
+        Ok(phase)
     })?;
     let ux = if absent(o.get("ux")) {
         None
@@ -220,7 +227,12 @@ pub fn master_state(raw: &JsValue) -> Result<MasterState, Invalid> {
     if converted != conversion || abandoned != abandonment {
         return Err(Invalid);
     }
-    Ok(MasterState { phase, mode, ux })
+    Ok(MasterState {
+        phase,
+        mode,
+        ux,
+        history,
+    })
 }
 
 /// `/^<prefix>\d+$/`, with the number it carries (`Number(id.slice(1))`).
@@ -283,20 +295,25 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
     }
     let block = object(o.get(own).ok_or(Invalid)?)?;
     let mut texts = vec![description.clone()];
-    match method {
+    let detail = match method {
         "test" => {
-            texts.push(non_empty(block.get("file"))?);
-            texts.push(non_empty(block.get("case"))?);
+            let (file, case) = (non_empty(block.get("file"))?, non_empty(block.get("case"))?);
+            texts.extend([file.clone(), case.clone()]);
+            format!("{file}#{case}")
         }
         "comando" => {
-            texts.push(non_empty(block.get("run"))?);
+            let run = non_empty(block.get("run"))?;
             non_empty(block.get("expected"))?;
+            texts.push(run.clone());
+            run
         }
         _ => {
-            texts.push(non_empty(block.get("check"))?);
+            let check = non_empty(block.get("check"))?;
             non_empty(block.get("how"))?;
+            texts.push(check.clone());
+            check
         }
-    }
+    };
     let valid_evidence = match evidence {
         Evidence::None => true,
         Evidence::Run => method != "manual",
@@ -310,6 +327,7 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
             id,
             description,
             method,
+            detail,
             evidence,
         },
         texts,
@@ -371,6 +389,7 @@ fn part(value: &JsValue) -> Result<Part, Invalid> {
         scope,
         out_of_scope,
         depends_on,
+        seed_requirements: seed,
         acceptance,
         state,
         reason,
@@ -447,14 +466,15 @@ mod tests {
     #[test]
     fn state_follows_the_schema_and_its_refinements() {
         let ok = state(&format!(
-            r#"{{"version":1,"phase":"executing","mode":"en-curso",{SIGNAL},"ux":"md"}}"#
+            r#"{{"version":1,"phase":"executing","mode":"en-curso",{SIGNAL},"ux":"md","history":[{{"phase":"context","at":"2026-01-01"}},{{"phase":"transcribed","at":"2026-01-02"}}]}}"#
         ));
         assert_eq!(
             ok,
             Ok(MasterState {
                 phase: "executing",
                 mode: Some("en-curso"),
-                ux: Some("md")
+                ux: Some("md"),
+                history: vec!["context", "transcribed"],
             })
         );
         for bad in [

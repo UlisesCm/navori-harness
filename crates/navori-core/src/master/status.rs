@@ -159,8 +159,19 @@ pub fn read_json(path: &Path) -> Result<JsValue, Delegate> {
     js_json::parse(text).ok_or(Delegate)
 }
 
-/// `checkUxDecision` and the presence half of `checkUxArtifacts`; `Err` when the content checks
-/// would run (a consistent presence with `UX.md` on disk).
+/// `checkUxDecision`: the decision must be recorded before leaving phase `ux`.
+#[must_use]
+pub fn ux_decision(stage_dir: &str, state: &MasterState) -> Vec<String> {
+    if state.ux.is_some() {
+        return Vec::new();
+    }
+    vec![format!(
+        "{stage_dir}: falta la decisión de UX; registre una con: navori master ux <none|md|md-json>"
+    )]
+}
+
+/// The UX blockers of `readMasterStatus`: the decision in `mastered` and `ux`, the artifacts in
+/// those and in `executing`.
 fn ux_blockers(
     stage_dir: &str,
     stage_path: &Path,
@@ -168,12 +179,27 @@ fn ux_blockers(
 ) -> Result<Vec<String>, Delegate> {
     let mut blockers = Vec::new();
     let phase = state.phase;
-    if (phase == "mastered" || phase == "ux") && state.ux.is_none() {
-        blockers.push(format!(
-            "{stage_dir}: falta la decisión de UX; registre una con: navori master ux <none|md|md-json>"
-        ));
+    if phase == "mastered" || phase == "ux" {
+        blockers.extend(ux_decision(stage_dir, state));
     }
     if phase == "mastered" || phase == "ux" || phase == "executing" {
+        blockers.extend(ux_artifacts(stage_dir, stage_path, state)?);
+    }
+    Ok(blockers)
+}
+
+/// `checkUxArtifacts`: presence of `UX.md` and `ux.json` against the recorded decision. `Err` when
+/// the content checks (`checkUxContent`) would run, which is a consistent presence with `UX.md`
+/// on disk.
+///
+/// # Errors
+/// [`Delegate`] for the content checks.
+pub fn ux_artifacts(
+    stage_dir: &str,
+    stage_path: &Path,
+    state: &MasterState,
+) -> Result<Vec<String>, Delegate> {
+    {
         let has_md = stage_path.join("UX.md").exists();
         let has_json = stage_path.join("ux.json").exists();
         let mut failures = Vec::new();
@@ -216,9 +242,8 @@ fn ux_blockers(
         if failures.is_empty() && has_md {
             return Err(Delegate);
         }
-        blockers.extend(failures);
+        Ok(failures)
     }
-    Ok(blockers)
 }
 
 /// `closeBlockers` is empty.
