@@ -142,6 +142,32 @@ describe("deterministic live hook fuzzing", () => {
       expect(() => fuzzer.parseFuzzArgs(args)).toThrow();
   });
 
+  // Covers: R70
+  it("la gramática de general-purpose-confirm cubre cada campo y sus formas inertes", () => {
+    const inputs = fuzzer
+      .generatePayloads(1, 2000, "general-purpose-confirm.sh")
+      .map((payload) => {
+        try {
+          return (JSON.parse(payload) as { tool_input?: unknown }).tool_input;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter(
+        (input): input is Record<string, unknown> => typeof input === "object" && input !== null,
+      );
+    const has = (check: (input: Record<string, unknown>) => boolean): boolean => inputs.some(check);
+    expect(has((i) => i.subagent_type === "general-purpose")).toBe(true);
+    expect(has((i) => !("subagent_type" in i) && i.agent_type === "general-purpose")).toBe(true);
+    expect(has((i) => i.subagent_type === "" && i.agent_type === "general-purpose")).toBe(true);
+    expect(has((i) => typeof i.subagent_type !== "string" && "subagent_type" in i)).toBe(true);
+    expect(has((i) => i.subagent_type === "general-purpose-lite")).toBe(true);
+    expect(has((i) => i.subagent_type === "scout" && typeof i.prompt === "string")).toBe(true);
+    expect(fuzzer.generatePayloads(1, 50, "general-purpose-confirm.sh")).toEqual(
+      fuzzer.generatePayloads(1, 50, "general-purpose-confirm.sh"),
+    );
+  });
+
   // Covers: R11
   it("keeps the original grammar stream so recorded seeds still reproduce", () => {
     const stream = JSON.stringify(fuzzer.generatePayloads(1, 2000));
