@@ -332,8 +332,12 @@ backup y poda no dependan del reloj.
   - remociones best-effort o dentro del `try`, según el motor;
   - el mensaje de `RenderWriteError`.
 - **Backup (R44).** Nombre `<label>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>` en hora local, con `now`,
-  `pid` y `seq` tomados del contexto. Se copian archivos regulares y se omiten symlinks y sockets
-  (`backup.ts:129`).
+  `pid` y `seq` tomados del contexto. La hora local la da `jiff` (`TZ` y luego `/etc/localtime`,
+  como Node), aprobado por el usuario el 2026-10-28; sin ella, `std` solo da UTC. Se copian
+  archivos regulares y se omiten sockets y FIFOs. Los symlinks **se siguen**: `statSync` no es
+  `lstatSync`, así que un enlace a un archivo se copia como archivo y uno a un directorio se
+  recorre (el comentario de `backup.ts:129` dice lo contrario). Las entradas van en el orden de
+  `scandir` de libuv, ordenadas por bytes.
 - **Poda (R45).** Antigüedad > 30 días por `mtime`, luego tamaño > 2 GiB del más viejo al más
   nuevo. Los errores de `stat`/`rm` por carrera se ignoran.
 - **Preview (R40).** El comando recibe `RecordingFs` salvo con `--apply` sin `--dry-run` (en el TS,

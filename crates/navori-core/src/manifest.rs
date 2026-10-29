@@ -12,8 +12,8 @@ use serde::Deserialize;
 /// The embedded `crates/ported.json` (what this build runs natively).
 pub const EMBEDDED_MANIFEST: &str = include_str!("../../ported.json");
 
-/// Schema version this validator accepts.
-pub const SCHEMA: u32 = 1;
+/// Schema version this validator accepts (2 added `requires`, D25).
+pub const SCHEMA: u32 = 2;
 
 /// A manifest or history entry that breaks the schema.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +49,10 @@ pub struct Command {
     /// Normalized citty flag names (no dashes, `--no-x` counts as `x`).
     #[serde(default)]
     pub flags: Vec<String>,
+    /// Alternative sets of flags, one of which the invocation must carry in full (D25, R48).
+    /// `None` admits any subset of `flags`, including none.
+    #[serde(default)]
+    pub requires: Option<Vec<Vec<String>>>,
     /// Optional config conditions.
     #[serde(default)]
     pub when: Option<When>,
@@ -131,31 +135,42 @@ impl Manifest {
         Self::parse(EMBEDDED_MANIFEST)
     }
 
-    /// Returns the entry that selects an invocation by command path and flag set (D3), if any.
+    /// Returns the first entry that selects an invocation by command path and flag set (D3), if
+    /// any.
     ///
-    /// The invocation is native only when its path starts with the entry's path and **its** flags
-    /// are contained in the entry's list; an empty list admits only a flag-less invocation.
+    /// The invocation is native only when its path starts with the entry's path, **its** flags are
+    /// contained in the entry's list (an empty list admits only a flag-less invocation) and, when
+    /// the entry has `requires`, it carries every flag of at least one alternative (D25).
     #[must_use]
     pub fn select(&self, path: &[String], flags: &BTreeSet<String>) -> Option<&Command> {
-        self.commands
-            .iter()
-            .find(|c| path.starts_with(&c.path) && flags.iter().all(|flag| c.flags.contains(flag)))
+        self.commands.iter().find(|c| {
+            path.starts_with(&c.path)
+                && flags.iter().all(|flag| c.flags.contains(flag))
+                && c.requires.as_ref().is_none_or(|alternatives| {
+                    alternatives
+                        .iter()
+                        .any(|required| required.iter().all(|flag| flags.contains(flag)))
+                })
+        })
     }
 
     fn validate(&self) -> Result<(), ManifestError> {
         if self.schema != SCHEMA {
             return err(format!("ported.json: unsupported schema {}", self.schema));
         }
-        let mut seen: BTreeSet<&[String]> = BTreeSet::new();
+        let mut seen: BTreeSet<(&[String], Option<RequiresKey>)> = BTreeSet::new();
         for command in &self.commands {
             let name = command.path.join(" ");
             if command.path.is_empty() || command.path.iter().any(String::is_empty) {
                 return err(format!("commands[{name}]: path needs non-empty tokens"));
             }
-            if !seen.insert(&command.path) {
-                return err(format!("commands[{name}]: duplicate path"));
-            }
             validate_flags(&name, &command.flags)?;
+            let requires = validate_requires(&name, command)?;
+            if !seen.insert((&command.path, requires)) {
+                return err(format!(
+                    "commands[{name}]: duplicate path (entries of one path must differ in `requires`)"
+                ));
+            }
             if let Some(engines) = command.when.as_ref().and_then(|w| w.engines.as_ref())
                 && (engines.is_empty() || engines.iter().any(String::is_empty))
             {
@@ -186,6 +201,48 @@ fn validate_flags(name: &str, flags: &[String]) -> Result<(), ManifestError> {
         }
     }
     Ok(())
+}
+
+/// `requires` as a set of flag sets, so that alternative and flag order do not count.
+type RequiresKey<'a> = BTreeSet<BTreeSet<&'a str>>;
+
+/// Validates `requires` and returns it as a set of flag sets, the key that tells apart the entries
+/// of one path: every alternative is a non-empty set of declared flags, without repeats.
+fn validate_requires<'a>(
+    name: &str,
+    command: &'a Command,
+) -> Result<Option<RequiresKey<'a>>, ManifestError> {
+    let Some(alternatives) = &command.requires else {
+        return Ok(None);
+    };
+    if alternatives.is_empty() {
+        return err(format!(
+            "commands[{name}]: requires needs at least one alternative"
+        ));
+    }
+    let mut key = BTreeSet::new();
+    for required in alternatives {
+        let set: BTreeSet<&str> = required.iter().map(String::as_str).collect();
+        if set.is_empty() || set.len() != required.len() {
+            return err(format!(
+                "commands[{name}]: requires alternative {required:?} must be non-empty, without repeats"
+            ));
+        }
+        if let Some(flag) = set
+            .iter()
+            .find(|flag| !command.flags.iter().any(|f| f == *flag))
+        {
+            return err(format!(
+                "commands[{name}]: required flag {flag:?} is not in flags"
+            ));
+        }
+        if !key.insert(set) {
+            return err(format!(
+                "commands[{name}]: duplicate requires alternative {required:?}"
+            ));
+        }
+    }
+    Ok(Some(key))
 }
 
 /// True for `sha256:` followed by exactly 64 lowercase hex digits.

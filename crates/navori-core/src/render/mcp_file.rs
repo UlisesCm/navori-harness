@@ -34,6 +34,12 @@ fn mcp_server(plugin: &LoadedPlugin) -> Option<&JsObject> {
     }
 }
 
+/// Whether `plugin` declares an `mcpServer`.
+#[must_use]
+pub fn declares_mcp_server(plugin: &LoadedPlugin) -> bool {
+    mcp_server(plugin).is_some()
+}
+
 /// `buildDesiredMcpServers(enabledPlugins)`: `(id, entry)` in plugin order.
 #[must_use]
 pub fn build_desired_mcp_servers(enabled: &[LoadedPlugin]) -> Vec<(String, JsValue)> {

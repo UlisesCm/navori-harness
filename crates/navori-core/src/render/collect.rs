@@ -21,6 +21,9 @@ pub trait RepoView {
     fn lexists(&self, rel: &str) -> bool;
     /// `readdirSync` entry names; `None` when it throws.
     fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
+    /// `lstatSync(p).isSymbolicLink()`: `Some(false)` when absent (`ENOENT`), `None` when the
+    /// `lstat` fails any other way.
+    fn symlink(&self, rel: &str) -> Option<bool>;
 }
 
 /// The path exists but `readFileSync` throws on it (a directory, say).

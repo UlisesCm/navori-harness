@@ -61,6 +61,26 @@ pub const REMOVED_LIB_SKILLS: &[&str] = &["formik", "joi-validation", "socketio"
 pub const REMOVED_LIB_SKILL_SUCCESSORS: &[(&str, &[&str])] =
     &[("socketio", &["socketio-server", "socketio-client"])];
 
+/// `unknownLibraries(ids)`: each id the registry does not ship, with whether it was retired and
+/// its successors.
+#[must_use]
+pub fn unknown_libraries(ids: &[String]) -> Vec<(String, bool, &'static [&'static str])> {
+    ids.iter()
+        .filter(|id| !LIBRARY_SKILLS.iter().any(|(known, _)| known == id))
+        .map(|id| {
+            let successors = REMOVED_LIB_SKILL_SUCCESSORS
+                .iter()
+                .find(|(removed, _)| removed == id)
+                .map_or(&[][..], |(_, s)| *s);
+            (
+                id.clone(),
+                REMOVED_LIB_SKILLS.contains(&id.as_str()),
+                successors,
+            )
+        })
+        .collect()
+}
+
 /// `librarySkillById`: the label of a registered lib skill.
 #[must_use]
 pub fn library_skill_label(id: &str) -> Option<&'static str> {

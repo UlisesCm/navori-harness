@@ -8,14 +8,18 @@
 //!
 //! `force` is outside the native subset (T17), so every step plans without it.
 //!
-//! Not modeled yet, so absent from the plan: the native hook wiring, which rewrites the planned
-//! `settings.json` (T15), and the warnings outside the ported steps (T16).
+//! The native hook wiring runs last, as in `finalize`: ported hooks are wrapped and signed, and
+//! `settings.json` registers them natively.
+//!
+//! Warnings follow the TS order (T16): the steps', then the preset, library and quality-gate
+//! notes, the sub-blocks, retirements, marker-less collisions and missing local skills.
 
 use std::path::Path;
 
 use crate::config::effective_config;
+use crate::i18n;
 use crate::js_json::JsValue;
-use crate::render::block_plan::{PlanOptions, UpdateAvailable};
+use crate::render::block_plan::{AssetStatus, PlanOptions, UpdateAvailable};
 use crate::render::claude_files::collect_claude_files;
 use crate::render::claude_md::plan_claude_md;
 use crate::render::claude_settings::build_claude_settings;
@@ -23,7 +27,11 @@ use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists
 use crate::render::context::Lang;
 use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
-use crate::render::mcp_file::{MCP_PATH, plan_mcp_registration};
+use crate::render::library_skills::unknown_libraries;
+use crate::render::mcp_file::{MCP_PATH, declares_mcp_server, plan_mcp_registration};
+use crate::render::native_hooks::{
+    NativeHooksInput, apply_native_claude_settings, embedded_native_hooks, finalize_native_hooks,
+};
 use crate::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
 use crate::render::plugins::{load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
@@ -54,6 +62,12 @@ pub struct ClaudeEnginePlan {
     pub downgrades: Vec<UpdateAvailable>,
     /// The sealed owned paths `guard-destructive` embeds.
     pub owned_paths: String,
+    /// `inspected`: destinations the engine looked at, written or not.
+    pub inspected: usize,
+    /// `claudeMdEntries`: `(asset id, status)` of every `CLAUDE.md` block, in plan order.
+    pub claude_md_entries: Vec<(String, AssetStatus)>,
+    /// `languageFallbacks`.
+    pub language_fallbacks: Vec<String>,
 }
 
 fn text(config: &JsValue, key: &str) -> Option<String> {
@@ -64,6 +78,49 @@ fn text(config: &JsValue, key: &str) -> Option<String> {
         },
         _ => None,
     }
+}
+
+/// `config.project?.[key] ?? []`, its strings.
+fn project_list(config: &JsValue, key: &str) -> Vec<String> {
+    let JsValue::Object(root) = config else {
+        return Vec::new();
+    };
+    let Some(JsValue::Object(project)) = root.get("project") else {
+        return Vec::new();
+    };
+    match project.get(key) {
+        Some(JsValue::Array(items)) => items
+            .iter()
+            .filter_map(|item| match item {
+                JsValue::String(s) => s.to_rust(),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `config.qualityGate?.fast` is truthy.
+fn quality_gate_fast(config: &JsValue) -> bool {
+    let JsValue::Object(root) = config else {
+        return false;
+    };
+    match root.get("qualityGate") {
+        Some(JsValue::Object(gate)) => gate
+            .get("fast")
+            .is_some_and(crate::render::block_plan::truthy),
+        _ => false,
+    }
+}
+
+/// `resolveLocalSkillPath(cwd, id) !== null`: a plain id whose directory form exists.
+fn local_skill_present(view: &dyn RepoView, id: &str) -> bool {
+    let trimmed =
+        crate::integrity::js_trim_end(id.trim_start_matches(crate::integrity::is_js_whitespace));
+    if id.is_empty() || trimmed != id || id.contains(['/', '\\']) || id.contains("..") {
+        return false;
+    }
+    view.exists(&format!(".claude/skills/{id}/SKILL.md"))
 }
 
 fn delegate<T, E>(result: Result<T, E>) -> Result<T, ClaudeEngineDelegate> {
@@ -196,7 +253,8 @@ pub fn plan_claude_engine(
 
     let mut pending = step1.pending;
     let mut skipped = step1.skipped;
-    let skipped_settings = if place(settings_plan, SETTINGS_PATH, &mut pending, &mut skipped) {
+    let settings_skipped = place(settings_plan, SETTINGS_PATH, &mut pending, &mut skipped);
+    let skipped_settings = if settings_skipped {
         delegate(read_if_exists(view, SETTINGS_PATH))?
     } else {
         None
@@ -228,6 +286,31 @@ pub fn plan_claude_engine(
         },
     ))?;
 
+    // The native wiring, over the finished pending writes.
+    let native_manifest = options
+        .native_hooks
+        .clone()
+        .unwrap_or_else(embedded_native_hooks);
+    let eligible = delegate(finalize_native_hooks(
+        &NativeHooksInput {
+            view,
+            config: &config,
+            hooks: &plan.hooks,
+            plugins: &enabled,
+            manifest: &native_manifest,
+            ambient_floor: floor,
+            owned_paths: Some(&owned_paths),
+        },
+        &mut pending,
+    ))?;
+    delegate(apply_native_claude_settings(
+        view,
+        &mut pending,
+        &eligible,
+        settings_skipped,
+        harness_version.as_deref(),
+    ))?;
+
     let mut removals: Vec<PendingRemoval> = step1
         .removals
         .into_iter()
@@ -238,14 +321,75 @@ pub fn plan_claude_engine(
         .collect();
     removals.extend(retirements.removals);
     let mut warnings = step1.warnings;
+    // `loadActivePreset`, `unknownLibraries` and the quality-gate note, before the spine.
+    if let Some(id) = preset_id
+        .as_deref()
+        .filter(|id| !id.is_empty() && *id != "custom")
+    {
+        match &preset {
+            None => warnings.push(format!(
+                "preset '{id}' not found (no .navori/presets/{id}/ nor bundled). Workspace will render with the core baseline only."
+            )),
+            Some(loaded) => warnings.extend(loaded.dropped_libraries.iter().map(|lib| {
+                format!(
+                    "preset '{}' declares library '{lib}', unknown to this CLI's registry; skipped.",
+                    text(&loaded.def, "id").unwrap_or_default()
+                )
+            })),
+        }
+    }
+    let mut libraries = project_list(&config, "libraries");
+    libraries.extend(project_list(&config, "extraLibraries"));
+    for (id, removed, successors) in unknown_libraries(&libraries) {
+        warnings.push(if removed {
+            i18n::library_removed_from_registry(lang, &id, successors)
+        } else {
+            i18n::library_unknown_in_registry(lang, &id)
+        });
+    }
+    if !quality_gate_fast(&config) {
+        warnings.push(i18n::quality_gate_hook_skipped(lang).to_owned());
+    }
     warnings.extend(sub_blocks.warnings);
     warnings.extend(retirements.script_warnings);
     warnings.extend(sub_blocks.retired_warnings);
     warnings.extend(retirements.warnings);
+    // `collisionWarnings` at commit, without a backup in a preview.
+    warnings.extend(
+        harness
+            .collisions
+            .iter()
+            .map(|(path, keys)| i18n::markerless_collision(lang, path, keys, None)),
+    );
+    // `reportMissingLocalSkills`, which `runRenderCore` appends to the engine's warnings.
+    for id in project_list(&config, "localSkills") {
+        if plan.skills.iter().any(|s| s.id == id) {
+            continue;
+        }
+        if !local_skill_present(view, &id) {
+            warnings.push(i18n::local_skill_missing(lang, &id));
+        }
+    }
     let mut updates_available = step1.plan.updates_available;
     updates_available.extend(sub_blocks.updates_available);
     let mut downgrades = step1.plan.downgrades;
     downgrades.extend(sub_blocks.downgrades);
+
+    // `inspected`, step by step: 1 to 1e, settings, `.mcp.json` when there is one to manage, the
+    // spine, `progress/`, preset hooks, plugin scripts, the sub-blocks and the retirements.
+    let has_mcp = enabled.iter().any(declares_mcp_server) || view.exists(MCP_PATH);
+    let scripts: usize = enabled.iter().map(|p| p.script_assets.len()).sum();
+    let inspected = step1.inspected
+        + 1
+        + usize::from(has_mcp)
+        + plan.agents.len()
+        + plan.skills.len()
+        + plan.hooks.len()
+        + 2
+        + hooks.len()
+        + scripts
+        + sub_blocks.inspected
+        + retirements.inspected;
 
     Ok(ClaudeEnginePlan {
         pending,
@@ -256,5 +400,13 @@ pub fn plan_claude_engine(
         updates_available,
         downgrades,
         owned_paths,
+        inspected,
+        claude_md_entries: step1
+            .plan
+            .entries
+            .iter()
+            .map(|e| (e.asset.id().to_owned(), e.status))
+            .collect(),
+        language_fallbacks: step1.plan.language_fallbacks,
     })
 }

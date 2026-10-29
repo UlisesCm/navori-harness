@@ -79,6 +79,14 @@ static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
 struct Disk<'a>(&'a Path);
 
 impl RepoView for Disk<'_> {
+    fn symlink(&self, rel: &str) -> Option<bool> {
+        match std::fs::symlink_metadata(self.0.join(rel)) {
+            Ok(meta) => Some(meta.file_type().is_symlink()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    }
+
     fn read(&self, rel: &str) -> Option<String> {
         std::fs::read_to_string(self.0.join(rel)).ok()
     }

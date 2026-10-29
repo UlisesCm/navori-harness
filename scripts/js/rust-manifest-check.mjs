@@ -18,6 +18,66 @@ function ids(manifest) {
   ];
 }
 
+const SCHEMA = 2;
+const sameSet = (a, b) => a.size === b.size && [...a].every((item) => b.has(item));
+
+/** `requires` as sets of flags, so alternative and flag order do not count (D25). */
+function requiresKey(name, command, flags) {
+  if (command.requires === undefined) return undefined;
+  if (!Array.isArray(command.requires) || command.requires.length === 0)
+    throw new Error(`commands[${name}]: requires needs at least one alternative`);
+  const key = [];
+  for (const required of command.requires) {
+    const set = new Set(Array.isArray(required) ? required : []);
+    if (set.size === 0 || set.size !== required.length)
+      throw new Error(`commands[${name}]: requires alternative must be non-empty, without repeats`);
+    for (const flag of set) {
+      if (!flags.includes(flag))
+        throw new Error(`commands[${name}]: required flag ${flag} is not in flags`);
+    }
+    if (key.some((other) => sameSet(other, set)))
+      throw new Error(`commands[${name}]: duplicate requires alternative`);
+    key.push(set);
+  }
+  return key;
+}
+
+const sameKey = (a, b) =>
+  a === undefined || b === undefined
+    ? a === b
+    : a.length === b.length && a.every((set) => b.some((other) => sameSet(set, other)));
+
+/** The command half of `manifest.rs`'s validator: schema, paths, flags and `requires` (D25). */
+export function checkCommands(manifest) {
+  if (manifest.schema !== SCHEMA) throw new Error(`unsupported schema ${manifest.schema}`);
+  const seen = [];
+  for (const command of manifest.commands) {
+    const name = (command.path ?? []).join(" ");
+    if (!Array.isArray(command.path) || command.path.length === 0 || command.path.includes(""))
+      throw new Error(`commands[${name}]: path needs non-empty tokens`);
+    const flags = command.flags ?? [];
+    for (const [index, flag] of flags.entries()) {
+      if (typeof flag !== "string" || !/^(?!-|no-)[^= ]+$/.test(flag))
+        throw new Error(`commands[${name}]: flag ${flag} is not normalized`);
+      if (flags.indexOf(flag) !== index)
+        throw new Error(`commands[${name}]: duplicate flag ${flag}`);
+    }
+    const engines = command.when?.engines;
+    if (
+      engines !== undefined &&
+      (!Array.isArray(engines) || engines.length === 0 || engines.includes(""))
+    )
+      throw new Error(`commands[${name}]: when.engines needs engine names`);
+    const path = JSON.stringify(command.path);
+    const key = requiresKey(name, command, flags);
+    if (seen.some((other) => other.path === path && sameKey(other.key, key)))
+      throw new Error(
+        `commands[${name}]: duplicate path (entries of one path must differ in requires)`,
+      );
+    seen.push({ path, key });
+  }
+}
+
 /** Validate append-only history and require a NEW unport for every removed entry. */
 export function checkHistory(before, after, previousText, currentText, now = Date.now()) {
   const lines = (text) => (text.trimEnd() === "" ? [] : text.trimEnd().split("\n"));
@@ -150,8 +210,9 @@ export function checkManifest(root, base = "origin/migration/rust") {
     git(["ls-tree", "--name-only", mergeBase, "--", path])
       ? git(["show", `${mergeBase}:${path}`])
       : "";
-  const before = JSON.parse(readAtBase(MANIFEST) || '{"schema":1,"commands":[],"hooks":{}}');
+  const before = JSON.parse(readAtBase(MANIFEST) || '{"schema":2,"commands":[],"hooks":{}}');
   const after = json(join(root, MANIFEST));
+  checkCommands(after);
   const warnings = checkHistory(
     before,
     after,

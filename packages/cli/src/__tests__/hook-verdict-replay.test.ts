@@ -466,16 +466,16 @@ process.exit(1);`,
     const manifestPath = join(dir, "ported.json");
     const prepare = (): ReturnType<RustAdapter["prepareRustReplay"]> =>
       rustAdapter.prepareRustReplay({ manifestPath, binary: process.execPath, scriptsRoot: dir });
-    writeFileSync(manifestPath, JSON.stringify({ schema: 1, hooks: {} }));
+    writeFileSync(manifestPath, JSON.stringify({ schema: 2, hooks: {} }));
     expect(prepare).toThrow("hook registry is empty");
     writeFileSync(
       manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "unknown" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "unknown" } } }),
     );
     expect(() => prepare().resolveHook("fixture.sh", "claude")).toThrow("unsupported hook mode");
     writeFileSync(
       manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
     );
     expect(() => prepare().resolveHook("other.sh", "claude")).toThrow("not registered");
     expect(() =>
@@ -508,7 +508,7 @@ process.exit(1);`,
     const manifestPath = join(dir, "ported.json");
     writeFileSync(
       manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "shadow" } } }),
     );
     const prepared = rustAdapter.prepareRustReplay({ manifestPath, binary, scriptsRoot: dir });
     const resolved = prepared.resolveHook("fixture.sh", "claude");
@@ -549,7 +549,7 @@ process.exit(1);`,
     const manifestPath = join(dir, "ported.json");
     writeFileSync(
       manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
     );
     const prepared = rustAdapter.prepareRustReplay({
       manifestPath,

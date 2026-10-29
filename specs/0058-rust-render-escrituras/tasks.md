@@ -1,8 +1,10 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4
-y quedan **dos PRs** contra `migration/rust`: E1 (activación) y E3 (render Claude con escrituras).
-Replanificada el 2026-10-28 (Q14): E1 pasa a la fase 4 (0060) y queda **un PR**, E3 ·
+**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4.
+Replanificada el 2026-10-28 (Q14): E1 pasa a la fase 4 (0060). El 2026-10-28 el usuario mergeó la
+primera parte de E3 (#1434) y el 2026-10-29 decidió partir el resto: la parte 2 (#1438) lleva lo
+que no toca las entradas del manifiesto; la parte 3, el resto. Quedan **dos PRs** contra
+`migration/rust`: E3 parte 2 y E3 parte 3 ·
 **Base:** `migration/rust`. Fase 2 del programa (ver `specs/0057-migracion-rust/requirements.md`
 § "Fases del programa"). El LOC es una estimación, no una medición.
 
@@ -13,9 +15,11 @@ E5 M1–M2.
 
 | PR | Entrega | Contenido | Se mergea cuando |
 |---|---|---|---|
-| 1 | E3 | M5–M9: cierre del plan Claude, preview nativo, capa `Fs`, `render --apply`, `adopt`, `sync` y `remove` | A5–A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente |
+| 1 | E3, parte 1 (#1434, integrado) | M5 hasta T14 y la primera mitad de T15 | Mergeado por el usuario el 2026-10-28 sin revisión independiente; sin efecto en runtime porque ningún comando usa aún el render Rust |
+| 2 | E3, parte 2 (#1438) | El cierre de T15 y T16 (M5), M7, T28 (`schema: 2` sin entradas nuevas) y la preparación de M6 sin manifiesto: `NativeCommand` con la invocación, el gate de `render` y los archivos de ignore del comando | A5 y A7 verdes, `bun check` completo y `rust.yml` verde; sin efecto en runtime porque ningún comando del manifiesto usa el render Rust. Revisión inline por instrucción del usuario, declarada en el PR |
+| 3 | E3, parte 3 | El resto de M6 (salida del comando, T18 con `RecordingFs`, T17, T19 y T20), M8 y M9 | A6, A8 y A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente que cubra también #1434 y #1438 |
 
-Partir E3 en más PRs requiere volver a preguntar al usuario.
+Partir la parte 3 en más PRs requiere volver a preguntar al usuario.
 
 **Precondición de entrada** (cierre de 0057, verificable antes de cerrar E3):
 - `crates/ported.json` tiene `subagent-no-background` y `guard-destructive` en `shadow`, este con
@@ -108,36 +112,59 @@ T14 cerrada en la rama de E3: `render::claude::plan_claude_engine` ensambla los 
 del TS; `render_claude.rs` compara el árbol con el snap `claude` (53 archivos) y el plan con el
 `finalize` real. El `.gitignore` raíz y `.prettierignore` los reconcilia el comando y llegan con M6.
 
-Falta, en este orden:
-1. Wiring nativo (T15); al cerrar, `render_claude.rs` deja de excluir `settings.json` y los hooks
-   de `crates/ported.json` en la comparación contra el motor. Hecho: `buildClaudeSettings`
-   (`render::claude_settings`), `planSettings` con coexist y `planStampedJson`
-   (`render::settings_file`) y `planMcpRegistration` (`render::mcp_file`), cableados como pasos 2 y
-   2.5; el golden ya compara ambos archivos y `.mcp.json` también contra el motor. Siguen
-   `finalizeNativeHooks`, `applyNativeClaudeSettings` y el brazo nativo de `claudeHookCommand`.
-2. Cadenas y salida no-TTY (T16), incluidos los avisos que el plan todavía no emite.
+T15 cerrada en la rama del resto de E3: `buildClaudeSettings` (`render::claude_settings`),
+`planSettings` con coexist y `planStampedJson` (`render::settings_file`) y `planMcpRegistration`
+(`render::mcp_file`) como pasos 2 y 2.5, y el wiring nativo al final del plan: el shell del
+runtime y el brazo nativo de `claudeHookCommand` (`render::native_hook`), `finalizeNativeHooks` y
+`applyNativeClaudeSettings` (`render::native_hooks`, con `referenceFor`/`depsFor` de `121568e7`).
+`render_claude.rs` ya no excluye nada contra el motor; el golden corre sin hooks portados, como su
+test TS.
+
+T16 cerrada en la misma rama: el plan expone el `ClaudeEngineResult` que lee el reporte
+(`inspected`, avisos completos en el orden del TS, entradas de `CLAUDE.md`, fallbacks), comparado
+con el `runRender` real; `render::report` porta la salida no-TTY de clack y las secciones Claude
+del reporte, comparadas con el stdout del comando TS. M5 cerrado (A5 verde). La procedencia del
+core, los `.gitignore`, `.prettierignore` y el outro son del comando y llegan con M6. El wiring en
+`active` se verifica con el verificador de integridad del binario (el `ported.json` real está en
+`shadow`, así que el TS no lo puede renderizar en `active` por `prepareClaudeEngine`).
 
 Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
 intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
-- [ ] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` (el caso `active` sobre un manifiesto de prueba: Q14) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
-- [ ] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
+- [x] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` (el caso `active` sobre un manifiesto de prueba: Q14) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
+- [x] **T16** (R41) — `navori-core` (`i18n`): cadenas de `render` y `engine` en `es` y `en`, y salida no-TTY de clack (`intro`, `log.*`, `outro`) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"la salida no-TTY de render en es y en coincide con el TS"
 
 ### M6 — Comando `render` en preview (sin esperar a E1: Q14)
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
 - [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
 - [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
+
+Preparación de M6 integrada en la parte 2 (#1438), sin entrada en el manifiesto: `NativeCommand.run`
+recibe el argv y la entrada que lo seleccionó y devuelve `Exit` o `Delegate`; `navori-cli::render`
+parsea en estricto (`cwd`, `dry-run`, `json`; cualquier otra forma delega) y re-delega antes de
+cualquier salida con config ausente o inválida, engines fuera de `when.engines`, workspaces o un
+directorio inexistente; por ahora `run` siempre delega. `render::ignore_files` porta
+`renderGitignore`, `ensurePrettierIgnore` y `scanOrphanedEngineOutputs` con paridad contra el TS.
+Falta en la parte 3: la salida humana y `--json` (procedencia `core: (embedded)`; en `--json`,
+`coreRoot`/`bundled`/`staleCore` necesitan la misma decisión de máscara que T20) y T18.
 - [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
 - [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
 
 ### M7 — Capa `Fs`, backup y poda
 - **A7** [observable] — los tests de D15 pasan sobre registro y disco real · `cargo test -p navori-core --features fault-injection --test fs --locked` → exit 0
-- [ ] **T21** (R43, R14) — `navori-core` (`fs`): `RealFs`, escritura atómica con el nombre y el modo de `atomic.ts`, apertura `O_CREAT|O_TRUNC` sin `O_EXCL` como el TS (Q7) y mensajes de `friendlyFsError` · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"todo rename va precedido por fsync y los modos con umask 022 y 077 coinciden con Node"
-- [ ] **T22** (R44) — `navori-core` (`backup`, `commit`): backup proporcional, excludes efímeros, nombre `<label>-<ts>-p<pid>-<seq>`, `writeLast` y `chmod 0o755` best-effort · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"el backup de un archivo precede a su primer rename o remove y no hay backup sin destrucción"
-- [ ] **T23** (R45) — poda por 30 días y luego por 2 GiB, del más viejo al más nuevo, ignorando carreras, con `now` del contexto · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"poda 30 días y 2 GiB con mtimes sintéticos"
-- [ ] **T24** (R46) — inyección de fallos después del backup, después del write y antes del rename; mensaje de `RenderWriteError` · effect: tests · test: `crates/navori-core/tests/fs.rs`::"un fallo deja el original intacto, ningún temporal y el mensaje del TS"
+- [x] **T21** (R43, R14) — `navori-core` (`fs`): `RealFs`, escritura atómica con el nombre y el modo de `atomic.ts`, apertura `O_CREAT|O_TRUNC` sin `O_EXCL` como el TS (Q7) y mensajes de `friendlyFsError` · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"todo rename va precedido por fsync y los modos con umask 022 y 077 coinciden con Node"
+- [x] **T22** (R44) — `navori-core` (`backup`, `commit`): backup proporcional, excludes efímeros, nombre `<label>-<ts>-p<pid>-<seq>`, `writeLast` y `chmod 0o755` best-effort · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"el backup de un archivo precede a su primer rename o remove y no hay backup sin destrucción"
+- [x] **T23** (R45) — poda por 30 días y luego por 2 GiB, del más viejo al más nuevo, ignorando carreras, con `now` del contexto · effect: behavior · test: `crates/navori-core/tests/fs.rs`::"poda 30 días y 2 GiB con mtimes sintéticos"
+- [x] **T24** (R46) — inyección de fallos después del backup, después del write y antes del rename; mensaje de `RenderWriteError` · effect: tests · test: `crates/navori-core/tests/fs.rs`::"un fallo deja el original intacto, ningún temporal y el mensaje del TS"
+
+M7 cerrado en `feat/0058-rust-e3-native-wiring` (A7 verde, 11 pruebas contra `atomic.ts`,
+`backup.ts` y `commitWrites` reales; `rust.yml` corre A7). `navori-core::fs` (trait `Fs`, `RealFs`,
+`RecordingFs`, `FaultFs` tras la feature `fault-injection`), `backup` (crear y podar, hora local con
+`jiff`) y `commit` (`commitWrites`). Los mensajes siguen a Node, incluido el formato C++ de `rmSync`.
+Ninguna escritura nativa está cableada todavía: llega con M8. Un `rm` que falla dentro del bucle
+solo lo ve Codex (Claude borra best-effort).
 
 ### M8 — `render --apply` y `adopt`
 - **Consumes:** `bun run oracle:rust --only apply` → ejecuta `render --apply` y `adopt --apply` nativos (capa `Fs` de M7) contra el TS
@@ -149,7 +176,12 @@ intermitente (3/5 aislado) por un presupuesto de 1 ms.
 ### M9 — `sync` y `remove` no interactivos
 - **Consumes:** `bun run oracle:rust` → corrida completa del oráculo sobre todos los comandos del manifiesto y los fixtures de escritura
 - **A9** [observable] — todos los comandos portados con diferencial cero y cobertura completa · `bun run oracle:rust && bun run vitest run src/__tests__/rust-oracle.test.ts src/__tests__/rust-manifest-check.test.ts` → exit 0, 0 diferencias
-- [ ] **T28** (R48) — flags requeridas en el manifiesto: `requires: string[][]`, `schema: 2` y varias entradas por ruta (Q5), con validador en Rust y en TS · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"una invocación sin las flags requeridas se delega"
+- [x] **T28** (R48) — flags requeridas en el manifiesto: `requires: string[][]`, `schema: 2` y varias entradas por ruta (Q5), con validador en Rust y en TS · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"una invocación sin las flags requeridas se delega"
+  T28 cerrada en `feat/0058-rust-e3-native-wiring` sin entradas nuevas: `ported.json` pasa a
+  `schema: 2`; `manifest.rs` y `checkCommands` de `rust-manifest-check.mjs` validan `requires`
+  (alternativas no vacías, sin repetir, contenidas en `flags`) y distinguen las entradas de una
+  ruta por `requires` como conjunto de conjuntos. `loadNativeHooks` y `rust-hook-adapter.mjs`
+  exigen el schema 2.
 - [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
 - [ ] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
 - [ ] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"

@@ -314,12 +314,24 @@ fn invocation(path: &[&str], flags: &[&str]) -> Invocation {
 #[test]
 fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     let embedded = Manifest::embedded()?;
-    let empty = manifest(r#"{"schema":1,"commands":[]}"#)?;
+    let empty = manifest(r#"{"schema":2,"commands":[]}"#)?;
     assert!(!NATIVE.is_empty());
     for native in NATIVE {
         let inv = invocation(native.path, &[]);
-        // Listed: native. Unlisted: delegated, whatever else is listed.
-        assert!(dispatch(&embedded, &inv).is_some(), "{:?}", native.path);
+        let listed = embedded.commands.iter().any(|c| {
+            native
+                .path
+                .iter()
+                .copied()
+                .eq(c.path.iter().map(String::as_str))
+        });
+        // Listed: native. Unlisted (an implementation still in progress): delegated.
+        assert_eq!(
+            dispatch(&embedded, &inv).is_some(),
+            listed,
+            "{:?}",
+            native.path
+        );
         assert!(dispatch(&empty, &inv).is_none(), "{:?}", native.path);
         let others: Vec<String> = embedded
             .commands
@@ -328,7 +340,7 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
             .map(|c| format!(r#"{{"path":{:?}}}"#, c.path))
             .collect();
         let without = manifest(&format!(
-            r#"{{"schema":1,"commands":[{}]}}"#,
+            r#"{{"schema":2,"commands":[{}]}}"#,
             others.join(",")
         ))?;
         assert!(dispatch(&without, &inv).is_none(), "{:?}", native.path);

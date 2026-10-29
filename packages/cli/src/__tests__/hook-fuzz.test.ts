@@ -91,7 +91,7 @@ function fixtures(nativeSource: string, shellSource = "cat\n"): Fixtures {
   const manifestPath = join(dir, "ported.json");
   writeFileSync(
     manifestPath,
-    JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+    JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
   );
   return { binary, manifestPath, shellScript, scriptsRoot: dir };
 }
@@ -296,7 +296,7 @@ process.stdout.write(JSON.stringify(value));`;
     expect(active).toMatchObject({ ok: false, completed: 0 });
     expect(active.failure).toContain("audit active requires CLI-writer fixtures");
     for (const hooks of [{}, { fixture: { mode: "unknown" } }]) {
-      writeFileSync(transport.manifestPath, JSON.stringify({ schema: 1, hooks }));
+      writeFileSync(transport.manifestPath, JSON.stringify({ schema: 2, hooks }));
       expect(await fuzzer.fuzzHooks({ ...options, cases: 100000 }, transport)).toMatchObject({
         ok: false,
         completed: 0,
@@ -304,7 +304,7 @@ process.stdout.write(JSON.stringify(value));`;
     }
     writeFileSync(
       transport.manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
     );
     expect(
       await fuzzer.fuzzHooks(
@@ -341,7 +341,7 @@ if (process.env.NAVORI_HOOK_IMPL !== 'rust' || args.length !== 3 || args[0] !== 
 ${echo}`);
     writeFileSync(
       transport.manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "shadow" } } }),
     );
     expect(await fuzzer.fuzzHooks(options, transport)).toEqual({
       ok: true,

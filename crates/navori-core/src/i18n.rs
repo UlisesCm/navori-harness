@@ -160,6 +160,19 @@ pub const fn gitignore_header(lang: Lang) -> &'static str {
     }
 }
 
+/// `render.prettierIgnoreHeader`.
+#[must_use]
+pub const fn prettier_ignore_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "# .prettierignore gestionado por navori. El bloque de abajo evita que el formateador\n# reescriba los archivos del harness e invalide el hash de sus bloques managed.\n# Edita fuera del bloque con libertad.\n"
+        }
+        Lang::En => {
+            "# .prettierignore managed by navori. The block below keeps the formatter from\n# rewriting the harness files and invalidating their managed blocks' hashes.\n# Edit freely outside the block.\n"
+        }
+    }
+}
+
 /// `engine.settingsNotObject`.
 #[must_use]
 pub const fn settings_not_object(lang: Lang) -> &'static str {
@@ -170,6 +183,145 @@ pub const fn settings_not_object(lang: Lang) -> &'static str {
         Lang::En => {
             "settings.json is not a JSON object \u{2014} can't merge. Run 'navori render --force --apply' to regenerate."
         }
+    }
+}
+
+/// `render.wouldWrite`.
+#[must_use]
+pub const fn render_would_write(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} preview (se escribir\u{ed}a)",
+        Lang::En => "\u{2192} preview (would write)",
+    }
+}
+
+/// `render.noChangePreview`.
+#[must_use]
+pub const fn render_no_change_preview(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} sin cambios",
+        Lang::En => "\u{2192} no changes",
+    }
+}
+
+/// `render.written`.
+pub const RENDER_WRITTEN: &str = "\u{2192} written";
+
+/// `render.noChanges`.
+pub const RENDER_NO_CHANGES: &str = "\u{2192} no changes";
+
+/// `render.engineFilesTitle`.
+pub const RENDER_ENGINE_FILES_TITLE: &str = "Engine files:";
+
+/// `render.langFallback(list)`.
+#[must_use]
+pub fn render_lang_fallback(lang: Lang, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Fallback a espa\u{f1}ol para: {list} (versi\u{f3}n en ingl\u{e9}s a\u{fa}n no disponible)"
+        ),
+        Lang::En => {
+            format!("Language fallback to Spanish for: {list} (English version not available yet)")
+        }
+    }
+}
+
+/// `render.downgradeWarning({ count, newest, ids })`.
+#[must_use]
+pub fn render_downgrade_warning(lang: Lang, count: usize, newest: &str, ids: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Tu CLI est\u{e1} detr\u{e1}s del repo: {count} bloque(s) los escribi\u{f3} una navori m\u{e1}s nueva (hasta {newest}). Los preserv\u{e9} sin tocar para no degradarlos. Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  {ids}"
+        ),
+        Lang::En => format!(
+            "Your CLI is behind the repo: {count} block(s) were written by a newer navori (up to {newest}). They were preserved untouched to avoid downgrading them. Update your CLI to manage them again: npm i -g navori@latest\n  {ids}"
+        ),
+    }
+}
+
+/// `engine.qualityGateHookSkipped`.
+#[must_use]
+pub const fn quality_gate_hook_skipped(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "quality-gate hook omitido: config.qualityGate.fast no est\u{e1} definido",
+        Lang::En => "quality-gate hook skipped: config.qualityGate.fast is not set",
+    }
+}
+
+/// `engine.libraryRemovedFromRegistry`.
+#[must_use]
+pub fn library_removed_from_registry(lang: Lang, id: &str, successors: &[&str]) -> String {
+    let now = successors.join(", ");
+    match (lang, successors.is_empty()) {
+        (Lang::Es, false) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro (ahora: {now}) y su skill se elimina de disco. Corre 'navori refresh' para re-detectar las sucesoras."
+        ),
+        (Lang::Es, true) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori refresh' para limpiar la selecci\u{f3}n."
+        ),
+        (Lang::En, false) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry (now: {now}) and its skill is removed from disk. Run 'navori refresh' to re-detect the successors."
+        ),
+        (Lang::En, true) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry and its skill is removed from disk. Run 'navori refresh' to clean the selection."
+        ),
+    }
+}
+
+/// `engine.libraryUnknownInRegistry`.
+#[must_use]
+pub fn library_unknown_in_registry(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "project.libraries/extraLibraries: '{id}' no existe en el registro de esta versi\u{f3}n del CLI; se omite. Corre 'navori refresh' para re-detectar librer\u{ed}as."
+        ),
+        Lang::En => format!(
+            "project.libraries/extraLibraries: '{id}' is unknown to this CLI version's registry; skipped. Run 'navori refresh' to re-detect libraries."
+        ),
+    }
+}
+
+/// `engine.markerlessCollision(path, keys, backup)`.
+#[must_use]
+pub fn markerless_collision(
+    lang: Lang,
+    path: &str,
+    keys: &[String],
+    backup: Option<&str>,
+) -> String {
+    let list = keys.join(", ");
+    match lang {
+        Lang::Es => format!(
+            "{path} ya exist\u{ed}a sin marcador de navori: navori lo adopta por nombre. {}Tu cuerpo y las keys ajenas se conservan.{}",
+            if keys.is_empty() {
+                "No sobrescribe keys de frontmatter existentes. ".to_owned()
+            } else {
+                format!("Sobrescribe las keys de frontmatter: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Respaldo del original: {b}")),
+        ),
+        Lang::En => format!(
+            "{path} already existed without a navori marker: navori adopts it by name. {}Your body and unrelated keys are preserved.{}",
+            if keys.is_empty() {
+                "It overwrites no existing frontmatter keys. ".to_owned()
+            } else {
+                format!("It overwrites the frontmatter keys: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Original backed up at: {b}")),
+        ),
+    }
+}
+
+/// `engine.localSkillMissing`.
+#[must_use]
+pub fn local_skill_missing(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Skill project-local '{id}' declarada en project.localSkills, pero ausente de .claude/skills/{id}/SKILL.md."
+        ),
+        Lang::En => format!(
+            "Project-local skill '{id}' declared in project.localSkills, but absent from .claude/skills/{id}/SKILL.md."
+        ),
     }
 }
 
@@ -197,6 +349,28 @@ pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {
         Lang::En => format!(
             "block written by a newer navori ({version}); left untouched. Update your CLI: npm i -g navori@latest"
         ),
+    }
+}
+
+/// `engine.renderFailedWriting(label, path, detail)`.
+#[must_use]
+pub fn render_failed_writing(lang: Lang, label: Option<&str>, path: &str, detail: &str) -> String {
+    match (lang, label) {
+        (Lang::Es, Some(label)) => {
+            format!("El render {label} fall\u{f3} escribiendo {path}: {detail}")
+        }
+        (Lang::Es, None) => format!("El render fall\u{f3} escribiendo {path}: {detail}"),
+        (Lang::En, Some(label)) => format!("The {label} render failed writing {path}: {detail}"),
+        (Lang::En, None) => format!("The render failed writing {path}: {detail}"),
+    }
+}
+
+/// `engine.backupAvailableAt(path)`.
+#[must_use]
+pub fn backup_available_at(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(" Backup pre-escritura disponible en: {path}"),
+        Lang::En => format!(" Backup available (pre-write) at: {path}"),
     }
 }
 

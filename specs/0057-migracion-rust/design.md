@@ -712,6 +712,7 @@ codegen-units = 1
 | `sha1` | 0.11.0 | hash de marker (sha1/8) |
 | `sha2` | 0.11.1 | integridad, manifiesto, `canonicalJson` de Codex, ids de auditoría |
 | `lexopt` | 0.3.2 | tokenizar argv (D2) |
+| `jiff` | 0.2.38 | hora local de los nombres de backup (0058 D24; sin features por defecto) |
 | `dialoguer` | 0.12.0 | prompts interactivos (D16) |
 | `assert_cmd` (dev) | 2.2.2 | tests del binario |
 | `similar-asserts` (dev) | 2.0.0 | diffs legibles |

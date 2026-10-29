@@ -9,7 +9,7 @@ const HASH: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef01234
 
 fn hook(blocks_hash: &str, impl_hash: &str) -> String {
     format!(
-        r#"{{"schema":1,"commands":[],"hooks":{{"h":{{"mode":"shadow","gating":true,
+        r#"{{"schema":2,"commands":[],"hooks":{{"h":{{"mode":"shadow","gating":true,
         "blocks":{{"b":"{blocks_hash}"}},"deps":{{"s.sh":"{HASH}"}},"impl":"{impl_hash}"}}}}}}"#
     )
 }
@@ -39,7 +39,7 @@ fn the_committed_files_are_valid() -> Result<(), Box<dyn Error>> {
 fn rejects_entries_without_normalized_flags_or_complete_hashes() -> Result<(), Box<dyn Error>> {
     for bad_flag in ["--json", "-j", "no-color", "json=1", ""] {
         let text =
-            format!(r#"{{"schema":1,"commands":[{{"path":["spec"],"flags":["{bad_flag}"]}}]}}"#);
+            format!(r#"{{"schema":2,"commands":[{{"path":["spec"],"flags":["{bad_flag}"]}}]}}"#);
         let e = Manifest::parse(&text).err().ok_or("accepted a bad flag")?;
         assert!(e.to_string().contains("not normalized"), "{bad_flag}: {e}");
     }
@@ -63,17 +63,18 @@ fn rejects_entries_without_normalized_flags_or_complete_hashes() -> Result<(), B
 #[test]
 fn rejects_structural_violations() {
     for text in [
-        r#"{"schema":2,"commands":[]}"#,
-        r#"{"schema":1,"commands":[{"path":[]}]}"#,
-        r#"{"schema":1,"commands":[{"path":["a"]},{"path":["a"]}]}"#,
-        r#"{"schema":1,"commands":[{"path":["a"],"extra":1}]}"#,
-        r#"{"schema":1,"commands":[{"path":["a"],"when":{"engines":[]}}]}"#,
-        r#"{"schema":1,"commands":[],"hooks":{"h":{"mode":"live","gating":false,"blocks":{},"impl":""}}}"#,
+        r#"{"schema":1,"commands":[]}"#,
+        r#"{"schema":3,"commands":[]}"#,
+        r#"{"schema":2,"commands":[{"path":[]}]}"#,
+        r#"{"schema":2,"commands":[{"path":["a"]},{"path":["a"]}]}"#,
+        r#"{"schema":2,"commands":[{"path":["a"],"extra":1}]}"#,
+        r#"{"schema":2,"commands":[{"path":["a"],"when":{"engines":[]}}]}"#,
+        r#"{"schema":2,"commands":[],"hooks":{"h":{"mode":"live","gating":false,"blocks":{},"impl":""}}}"#,
     ] {
         assert!(Manifest::parse(text).is_err(), "accepted {text}");
     }
     let no_blocks = format!(
-        r#"{{"schema":1,"commands":[],"hooks":{{"h":{{"mode":"active","gating":false,"blocks":{{}},"impl":"{HASH}"}}}}}}"#
+        r#"{{"schema":2,"commands":[],"hooks":{{"h":{{"mode":"active","gating":false,"blocks":{{}},"impl":"{HASH}"}}}}}}"#
     );
     assert!(Manifest::parse(&no_blocks).is_err());
 }
@@ -83,7 +84,7 @@ fn rejects_structural_violations() {
 fn validates_divergences() -> Result<(), Box<dyn Error>> {
     let with = |category: &str, requirement: &str| {
         format!(
-            r#"{{"schema":1,"commands":[],"hooks":{{"h":{{"mode":"shadow","gating":true,
+            r#"{{"schema":2,"commands":[],"hooks":{{"h":{{"mode":"shadow","gating":true,
             "blocks":{{"b":"{HASH}"}},"impl":"{HASH}","divergences":[{{"case":"c#1",
             "category":"{category}","reason":"zsh parse error","requirement":"{requirement}"}}]}}}}}}"#
         )
@@ -99,7 +100,7 @@ fn validates_divergences() -> Result<(), Box<dyn Error>> {
 #[test]
 fn selection_uses_path_and_flag_containment() -> Result<(), Box<dyn Error>> {
     let m = Manifest::parse(
-        r#"{"schema":1,"commands":[{"path":["spec","check"],"flags":["json"]},{"path":["--version"]}]}"#,
+        r#"{"schema":2,"commands":[{"path":["spec","check"],"flags":["json"]},{"path":["--version"]}]}"#,
     )?;
     let spec = path(&["spec", "check"]);
     assert!(m.select(&spec, &flags(&[])).is_some());
@@ -113,6 +114,87 @@ fn selection_uses_path_and_flag_containment() -> Result<(), Box<dyn Error>> {
     // An empty flag list admits only the invocation without flags.
     assert!(m.select(&path(&["--version"]), &flags(&["json"])).is_none());
     assert!(m.select(&path(&["--version"]), &flags(&[])).is_some());
+    Ok(())
+}
+
+// Covers: R48
+#[test]
+fn an_invocation_without_the_required_flags_is_delegated() -> Result<(), Box<dyn Error>> {
+    let m = Manifest::parse(
+        r#"{"schema":2,"commands":[
+            {"path":["sync"],"flags":["apply","yes","accept-new","json"],
+             "requires":[["apply"],["yes"]]},
+            {"path":["sync"],"flags":["dry-run","json"],"requires":[["dry-run"]]},
+            {"path":["remove"],"flags":["plugin","yes"],"requires":[["plugin","yes"]]}
+        ]}"#,
+    )?;
+    let sync = path(&["sync"]);
+    let selected = |p: &[String], f: &[&str]| {
+        m.select(p, &flags(f))
+            .map(|c| c.requires.clone().unwrap_or_default())
+    };
+    // Without any alternative the command would prompt: no entry selects it.
+    assert_eq!(selected(&sync, &[]), None);
+    assert_eq!(selected(&sync, &["json"]), None);
+    assert_eq!(selected(&sync, &["accept-new"]), None);
+    // One complete alternative is enough; the first matching entry wins.
+    let apply_or_yes = vec![vec!["apply".to_owned()], vec!["yes".to_owned()]];
+    assert_eq!(selected(&sync, &["apply"]), Some(apply_or_yes.clone()));
+    assert_eq!(selected(&sync, &["yes", "accept-new"]), Some(apply_or_yes));
+    assert_eq!(
+        selected(&sync, &["dry-run", "json"]),
+        Some(vec![vec!["dry-run".to_owned()]])
+    );
+    // Flags must still be contained in the entry that carries the alternative.
+    assert_eq!(selected(&sync, &["apply", "dry-run"]), None);
+    // Every flag of the alternative is required, not just one.
+    let remove = path(&["remove"]);
+    assert_eq!(selected(&remove, &["plugin"]), None);
+    assert_eq!(selected(&remove, &["yes"]), None);
+    assert!(selected(&remove, &["plugin", "yes"]).is_some());
+    Ok(())
+}
+
+// Covers: R48
+#[test]
+fn requires_is_validated_and_tells_apart_entries_of_one_path() -> Result<(), Box<dyn Error>> {
+    let entry =
+        |requires: &str| format!(r#"{{"path":["sync"],"flags":["apply","yes"]{requires}}}"#);
+    let manifest =
+        |entries: &[String]| format!(r#"{{"schema":2,"commands":[{}]}}"#, entries.join(","));
+    for (requires, message) in [
+        (r#","requires":[]"#, "at least one alternative"),
+        (r#","requires":[[]]"#, "must be non-empty"),
+        (r#","requires":[["apply","apply"]]"#, "without repeats"),
+        (r#","requires":[["force"]]"#, "not in flags"),
+        (
+            r#","requires":[["apply","yes"],["yes","apply"]]"#,
+            "duplicate requires",
+        ),
+    ] {
+        let e = Manifest::parse(&manifest(&[entry(requires)]))
+            .err()
+            .ok_or("accepted bad requires")?;
+        assert!(e.to_string().contains(message), "{requires}: {e}");
+    }
+    // Entries of one path must differ in `requires`, compared as sets of sets.
+    for pair in [
+        [entry(""), entry("")],
+        [
+            entry(r#","requires":[["apply"],["yes"]]"#),
+            entry(r#","requires":[["yes"],["apply"]]"#),
+        ],
+    ] {
+        let e = Manifest::parse(&manifest(&pair))
+            .err()
+            .ok_or("accepted a duplicate path")?;
+        assert!(e.to_string().contains("duplicate path"), "{e}");
+    }
+    Manifest::parse(&manifest(&[
+        entry(""),
+        entry(r#","requires":[["apply"]]"#),
+        entry(r#","requires":[["apply","yes"]]"#),
+    ]))?;
     Ok(())
 }
 
