@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -59,7 +60,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[] }} OracleCase
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string> }} OracleCase  `files` overlay the fixture copy
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -433,6 +434,10 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
   copyFixture(join(fixturesDir, testCase.fixture), repo);
+  for (const [rel, text] of Object.entries(testCase.files ?? {})) {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  }
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
@@ -481,6 +486,75 @@ export function runCase(testCase, opts) {
   };
 }
 
+/** `computeManagedHash(body)` (`marker.ts`): sha1 of the body with CRLF/CR folded and the end trimmed. */
+function managedHash(body) {
+  const normalized = body.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  return createHash("sha1").update(normalized, "utf-8").digest("hex").slice(0, 8);
+}
+
+/** A managed block whose hash matches its body (so it reads as navori's, never hand-edited). */
+function managedBlock(style, id, body, version) {
+  const attrs = `id="${id}" hash="${managedHash(body)}"${version ? ` version="${version}"` : ""} source="@navori/core"`;
+  return style === "shell"
+    ? `# navori:managed start ${attrs}\n${body}\n# navori:managed end id="${id}"\n`
+    : `<!-- navori:managed ${attrs} -->\n${body}\n<!-- /navori:managed id="${id}" -->\n`;
+}
+
+/** The anti-rollback levels of D26: absent, lower, equal to the checkout's CLI, higher. */
+export const ANTI_ROLLBACK_LEVELS = ["absent", "lower", "equal", "higher"];
+
+/** The operations of the matrix that have a native command (`remove --yes` joins with M9). */
+export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings"];
+
+/**
+ * The anti-rollback matrix (spec 0058 D26, T27): config floor (`harnessVersion`) × the stamp
+ * on navori's own content × operation, each cell a `render --apply` over `fresh-init` with one
+ * file overlaid whose content differs from what this CLI renders:
+ *
+ * - `inject`: a `CLAUDE.md` block with an older body;
+ * - `hook`: a hook script's base block with an older body;
+ * - `settings`: a managed `settings.json` with an older body under `$navori.version`.
+ *
+ * @param {string} cliVersion the checkout's TS CLI version (the stamp Rust also writes, D20)
+ * @returns {OracleCase[]}
+ */
+export function antiRollbackCases(cliVersion) {
+  const level = (name) =>
+    ({ absent: null, lower: "0.1.0", equal: cliVersion, higher: "999.0.0" })[name];
+  const base = JSON.parse(readFileSync(join(FIXTURES_DIR, "fresh-init", "navori.config.json"), "utf8"));
+  /** @type {OracleCase[]} */
+  const cases = [];
+  for (const op of ANTI_ROLLBACK_OPS) {
+    for (const floor of ANTI_ROLLBACK_LEVELS) {
+      for (const marker of ANTI_ROLLBACK_LEVELS) {
+        const config = { ...base };
+        if (level(floor) === null) delete config.harnessVersion;
+        else config.harnessVersion = level(floor);
+        const stamp = level(marker);
+        /** @type {Record<string, string>} */
+        const files = { "navori.config.json": `${JSON.stringify(config, null, 2)}\n` };
+        if (op === "inject") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "idioma-rol", "Older body.", stamp)}`;
+        } else if (op === "hook") {
+          files[".claude/hooks/implementer-no-markdown.sh"] =
+            `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
+        } else {
+          const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
+          files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
+        }
+        cases.push({
+          id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
+          fixture: "fresh-init",
+          args: ["render", "--apply"],
+          mask: ["provenance"],
+          files,
+        });
+      }
+    }
+  }
+  return cases;
+}
+
 /**
  * Cases to run: the hand-written ones plus one per entry of the CLI surface golden. A surface case
  * whose args are a native command of the manifest masks the Rust version (see {@link maskSide}).
@@ -499,7 +573,8 @@ export function loadCases(paths = {}) {
     args: c.args,
     ...(native.has(c.args.join(" ")) ? { mask: ["version"] } : {}),
   }));
-  return [...casesFile.cases, ...surface];
+  const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
+  return [...casesFile.cases, ...surface, ...antiRollbackCases(cliVersion)];
 }
 
 /** `version` of the workspace package in the root `Cargo.toml`. */

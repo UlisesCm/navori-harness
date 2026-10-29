@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { computeManagedHash } from "../lib/render/marker.ts";
 
 /**
  * Spec 0057 R8-R10 / D5 - the differential oracle (`scripts/js/rust-oracle.mjs`). The real
@@ -32,6 +33,7 @@ interface OracleCase {
   fixture: string;
   args: string[];
   mask?: string[];
+  files?: Record<string, string>;
 }
 interface Rule {
   name: string;
@@ -50,6 +52,9 @@ interface Oracle {
     where: { stream: "stdout" | "stderr" | "file"; mask: string[] },
   ) => string;
   loadCases: () => OracleCase[];
+  antiRollbackCases: (cliVersion: string) => OracleCase[];
+  ANTI_ROLLBACK_LEVELS: string[];
+  ANTI_ROLLBACK_OPS: string[];
   runCase: (
     testCase: OracleCase,
     opts: { ts: Runner; rust: Runner; tsCli: string; base: string },
@@ -339,6 +344,44 @@ describe("rust oracle", () => {
       }
       expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);
     }
+  });
+
+  // Covers: R37, R49
+  it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
+    const cells = oracle.antiRollbackCases("0.12.3");
+    const levels = oracle.ANTI_ROLLBACK_LEVELS;
+    expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings"]);
+    const ids = new Set(cells.map((c) => c.id));
+    for (const op of oracle.ANTI_ROLLBACK_OPS)
+      for (const floor of levels)
+        for (const marker of levels)
+          expect(ids.has(`anti-rollback:${op}:floor-${floor}:marker-${marker}`)).toBe(true);
+    expect(cells).toHaveLength(oracle.ANTI_ROLLBACK_OPS.length * levels.length ** 2);
+    // every cell runs in the oracle, natively and masked like any render
+    const loaded = new Set(oracle.loadCases().map((c) => c.id));
+    for (const c of cells) {
+      expect(loaded.has(c.id), c.id).toBe(true);
+      expect(c.args).toEqual(["render", "--apply"]);
+      expect(c.mask).toEqual(["provenance"]);
+    }
+    // the floor lands in the config, the stamp on the block, and the block hash matches its body
+    const cell = (id: string): OracleCase => {
+      const found = cells.find((c) => c.id === id);
+      if (!found) throw new Error(id);
+      return found;
+    };
+    const higher = cell("anti-rollback:inject:floor-higher:marker-lower").files ?? {};
+    expect(JSON.parse(higher["navori.config.json"] ?? "{}").harnessVersion).toBe("999.0.0");
+    expect(higher["CLAUDE.md"]).toContain('version="0.1.0"');
+    const absent = cell("anti-rollback:inject:floor-absent:marker-absent").files ?? {};
+    expect(JSON.parse(absent["navori.config.json"] ?? "{}")).not.toHaveProperty("harnessVersion");
+    expect(absent["CLAUDE.md"]).not.toContain("version=");
+    expect(absent["CLAUDE.md"]).toContain(`hash="${computeManagedHash("Older body.")}"`);
+    const hook = cell("anti-rollback:hook:floor-equal:marker-equal").files ?? {};
+    expect(hook[".claude/hooks/implementer-no-markdown.sh"]).toContain(
+      `hash="${computeManagedHash("#!/usr/bin/env bash\nexit 0")}" version="0.12.3"`,
+    );
   });
 
   // Covers: R9

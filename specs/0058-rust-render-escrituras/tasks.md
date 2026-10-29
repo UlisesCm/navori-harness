@@ -179,7 +179,13 @@ solo lo ve Codex (Claude borra best-effort).
 - **A8** [observable] — escrituras nativas con diferencial cero, matriz incluida · `bun run oracle:rust --only apply && bun run oracle:rust --only anti-rollback` → exit 0, 0 diferencias
 - [x] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
 - [x] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
-- [ ] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
+- [x] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
+
+T27 cerrada: `antiRollbackCases` en `rust-oracle.mjs` genera 48 celdas, floor (`harnessVersion`)
+× sello {ausente, menor, igual, mayor} × {inject en `CLAUDE.md`, bloque base de un hook,
+`$navori.version` de `settings.json`}, cada una un `render --apply` sobre `fresh-init` con un
+archivo superpuesto de hash válido; los casos admiten `files`. La operación `remove` entra con
+`remove --yes` en M9 (T30), en la misma matriz. `rust-oracle.test.ts` comprueba cada celda.
 
 T26 cerrada: `adopt` es nativo con `apply` y `cwd` (`navori_core::adopt`: `planAdoption` con las
 rutas de `path.resolve`/`path.relative` de Node y `listMarkers`; el apply hace el backup y luego
