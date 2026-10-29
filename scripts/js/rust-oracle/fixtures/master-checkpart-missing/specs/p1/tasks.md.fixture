@@ -1,0 +1,8 @@
+- [x] **T1** titulo
+  - **Archivos:** `a.ts`
+  - **Interfaces:** Foo, Bar
+  - **Patrón:** `pattern.ts`
+  - **Lectura:** design.md
+  - **Librerías:** zod@4.6.7, @s/p@1.2.3-beta.1
+  - **Done:** comando `bun t` esperado exit 0; casos de test: `parsea bien` cubre P1.A1
+  - **Fuera de alcance:** nada

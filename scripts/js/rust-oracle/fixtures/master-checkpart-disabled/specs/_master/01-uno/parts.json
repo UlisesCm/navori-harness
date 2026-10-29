@@ -5,6 +5,7 @@
       "id": "P1",
       "title": "Parte P1",
       "objective": "o",
+      "spec": "specs/p1",
       "acceptance": [
         {
           "id": "A1",
@@ -20,8 +21,7 @@
             "date": "2026-02-02"
           }
         }
-      ],
-      "spec": "specs/p1"
+      ]
     }
   ]
 }

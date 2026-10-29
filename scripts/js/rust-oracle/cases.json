@@ -69,6 +69,17 @@
     { "id": "master-status:ux-line", "fixture": "master-ux", "args": ["master", "status", "--line"], "native": true },
     { "id": "master-status:run-evidence-delegates", "fixture": "master-run-evidence", "args": ["master", "status", "--json"] },
     { "id": "master-status:ux-content-delegates", "fixture": "master-ux-content", "args": ["master", "status", "--json"] },
-    { "id": "master-status:check-part-delegates", "fixture": "master-check-part", "args": ["master", "status", "--json"] }
+    { "id": "master-status:checkpart-ok-json", "fixture": "master-checkpart-ok", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-ok-line", "fixture": "master-checkpart-ok", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:checkpart-bad-json", "fixture": "master-checkpart-bad", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-bad-line", "fixture": "master-checkpart-bad", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:checkpart-en-json", "fixture": "master-checkpart-en", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-en-line", "fixture": "master-checkpart-en", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:checkpart-disabled-json", "fixture": "master-checkpart-disabled", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-disabled-line", "fixture": "master-checkpart-disabled", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:checkpart-missing-json", "fixture": "master-checkpart-missing", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-missing-line", "fixture": "master-checkpart-missing", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:checkpart-outside-json", "fixture": "master-checkpart-outside", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:checkpart-outside-line", "fixture": "master-checkpart-outside", "args": ["master", "status", "--line"], "native": true }
   ]
 }
