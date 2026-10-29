@@ -427,10 +427,28 @@ impl<'a> Facts<'a> {
 
     /// `navori_commit_landing` reduced to the one answer the guard reads: `foreign`.
     pub(crate) fn foreign(&self, cmd: &str) -> Result<bool, String> {
+        Ok(self.foreign_root(cmd)?.is_some())
+    }
+
+    /// `navori_commit_landing`: `Some(navori_landing_root)` when every gated op provably lands
+    /// in one other repository (`navori_landing=foreign`), `None` for any other answer.
+    ///
+    /// # Errors
+    /// A trigger pattern that does not compile.
+    pub(crate) fn foreign_root(&self, cmd: &str) -> Result<Option<String>, String> {
+        Ok(match self.landing(cmd)? {
+            Some(Kind::Foreign(root)) => Some(root),
+            _ => None,
+        })
+    }
+
+    /// The folded landing of every gated op, `None` when unproven.
+    fn landing(&self, cmd: &str) -> Result<Option<Kind>, String> {
+        const UNPROVEN: Result<Option<Kind>, String> = Ok(None);
         let locale = self.locale;
         let hits = count_triggers(cmd, self.trigger, locale)?;
         if hits < 1 {
-            return Ok(false);
+            return UNPROVEN;
         }
         let stripped = strip_heredoc_bodies(cmd, locale).replace("\\\n", " ");
         let mut rest = trim_end(&stripped, locale);
@@ -454,7 +472,7 @@ impl<'a> Facts<'a> {
                 && self.trigger.is_match(first);
             if gated {
                 let Some(target) = op_target(first, locale) else {
-                    return Ok(false);
+                    return UNPROVEN;
                 };
                 ops.push(target);
                 let mut tail = format!("{}\n", &seg[first.len()..]);
@@ -462,62 +480,62 @@ impl<'a> Facts<'a> {
                     tail = format!("{}\n{tail}", &first[at + 1..]);
                 }
                 if mentions_shellish(&tail) {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 continue;
             }
             if seg.contains('\n') {
-                return Ok(false);
+                return UNPROVEN;
             }
             let seg = trim_end(seg, locale);
             if ops.is_empty() {
                 if starts_word(seg, "cd", locale) {
                     if cd_seen {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                     cd_seen = true;
                     let Some((token, after)) = take_token(&seg[2..], locale) else {
-                        return Ok(false);
+                        return UNPROVEN;
                     };
                     if after.chars().any(|c| !locale.whitespace(c)) || token.starts_with('-') {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                     token.clone_into(&mut cd_dir);
                 } else if starts_word(seg, "git", locale) {
                     if seg.contains([';', '|', '&', '<', '>', '(', ')', '$', '`']) {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                 } else {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 continue;
             }
             if seg.contains([';', '|', '&', '<', '>', '(', ')', '$', '`', '\\', '\t']) {
-                return Ok(false);
+                return UNPROVEN;
             }
             if let Some(after) = seg.strip_prefix("git ") {
                 if ["--exec", "--receive-pack", "--upload-pack", "--config-env"]
                     .iter()
                     .any(|flag| seg.contains(flag))
                 {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 let sub = after.split(' ').next().unwrap_or(after);
                 if !matches!(
                     sub,
                     "status" | "diff" | "log" | "show" | "rev-parse" | "push"
                 ) {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
             } else if !matches!(
                 first_word(seg, locale),
                 "echo" | "printf" | "true" | ":" | "ls" | "pwd"
             ) {
-                return Ok(false);
+                return UNPROVEN;
             }
         }
         if ops.is_empty() || ops.len() != hits {
-            return Ok(false);
+            return UNPROVEN;
         }
         let mut folded: Option<Kind> = None;
         let mut last: Option<(&str, Option<Kind>)> = None;
@@ -536,10 +554,10 @@ impl<'a> Facts<'a> {
                 (Some(Kind::Foreign(top)), Some(Kind::Foreign(seen))) if top == seen => {
                     Some(Kind::Foreign(top))
                 }
-                _ => return Ok(false),
+                _ => return UNPROVEN,
             };
         }
-        Ok(matches!(folded, Some(Kind::Foreign(_))))
+        Ok(folded)
     }
 
     /// `navori_worktree`: the root of the tree the commit acts on, `""` when none resolves.

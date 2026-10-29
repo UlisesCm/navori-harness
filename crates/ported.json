@@ -16,7 +16,7 @@
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
       },
-      "impl": "sha256:b6688e9eb3d08afcf1d9b9559db71420cc719277245f9d472f6e1cd7f57e373e"
+      "impl": "sha256:1e23446aa65c0933aa32c2b419c54ddd98b00bdae66802663cd5a28541e2b686"
     },
     "subagent-no-background": {
       "mode": "shadow",
@@ -24,7 +24,15 @@
       "blocks": {
         "subagent-no-background-base": "sha256:ecdca022cba414f887c19433fc8d6ca34672e6e3f70b30bd3500ac9ebb0a7f0e"
       },
-      "impl": "sha256:565b17f2d94f45409b819f7ac20258f707d0f37849488682d22cecd94d626613"
+      "impl": "sha256:568fac4caca4b60c895cc87bf302f3319e2c17518b5e8d17087a866122de9666"
+    },
+    "quality-gate-pre-commit": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "qg-pre-commit-base": "sha256:d3c7042757072656ceba4b9000acb37e492a3a48098d22a735bc0bf09c21b631"
+      },
+      "impl": "sha256:ef99f5f6c9da3b13f053fdb59142ecec1b927e837525caae5abe6c8df3ef1eb3"
     }
   }
 }

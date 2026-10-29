@@ -30,6 +30,9 @@ pub struct ShellInvocation<'a> {
 /// Byte-exact comparison without retaining a payload or additional output copies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comparison {
+    /// The native lane stopped at a branch with effects (spec 0059 D40). Nothing was compared:
+    /// every other native flag is false, and the call never counts as a divergence.
+    pub native_unobserved: bool,
     /// Native evaluation returned an error or panicked.
     pub native_failed: bool,
     /// Shell spawning, transport or its exit status failed the hook protocol.
@@ -46,6 +49,10 @@ impl Comparison {
     /// Whether either evaluation failed or any verdict/output bytes differ.
     #[must_use]
     pub const fn diverged(self) -> bool {
+        self.shell_failed || (!self.native_unobserved && self.compared_diverged())
+    }
+
+    const fn compared_diverged(self) -> bool {
         self.native_failed
             || self.shell_failed
             || self.code_differs
@@ -79,13 +86,16 @@ where
     H: FnOnce(&[u8]) -> Result<Evaluation, Failure>,
 {
     let mut native_succeeded = false;
+    let mut native_unobserved = false;
     let mut native_input = payload;
     let native = runner::run(
         context,
         &mut native_input,
         || Ok(true),
         |bytes| {
-            let evaluated = native(bytes)?;
+            let evaluated = native(bytes).inspect_err(|failure| {
+                native_unobserved = failure.is_unobserved();
+            })?;
             native_succeeded = true;
             Ok(evaluated)
         },
@@ -102,12 +112,14 @@ where
             Ok(evaluated)
         },
     );
+    let compared = !native_unobserved;
     let comparison = Comparison {
-        native_failed: !native_succeeded,
+        native_unobserved,
+        native_failed: compared && !native_succeeded,
         shell_failed: !shell_succeeded,
-        code_differs: native.code() != shell.code(),
-        stdout_differs: native.stdout() != shell.stdout(),
-        stderr_differs: native.stderr() != shell.stderr(),
+        code_differs: compared && native.code() != shell.code(),
+        stdout_differs: compared && native.stdout() != shell.stdout(),
+        stderr_differs: compared && native.stderr() != shell.stderr(),
     };
     ShadowResult { shell, comparison }
 }

@@ -87,7 +87,12 @@ fn command(data: &JsValue, kind: &str) -> Result<Option<String>, ()> {
 }
 
 /// Exit code and stderr lines, or `None` to delegate.
-fn probe(cwd: &Path, process_cwd: &Path, env: &Env, mode: ProbeMode) -> Option<(u8, Vec<String>)> {
+pub(crate) fn probe(
+    cwd: &Path,
+    process_cwd: &Path,
+    env: &Env,
+    mode: ProbeMode,
+) -> Option<(u8, Vec<String>)> {
     let miss = Some((1, Vec::new()));
     let Ok(repo) = checkout_root(cwd, process_cwd, env) else {
         return miss;

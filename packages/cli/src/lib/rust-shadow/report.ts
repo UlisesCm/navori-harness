@@ -21,6 +21,8 @@ export interface EngineReport {
   matched: number;
   divergences: number;
   pending: number;
+  /** Completed calls whose native lane stopped at a branch with effects (spec 0059 D40). */
+  unobserved: number;
   spanMs: number;
 }
 export type Report =
@@ -89,6 +91,7 @@ export function analyze(bytes: Uint8Array, expected: unknown, nowMs: number): Re
     matched: 0,
     divergences: 0,
     pending: 0,
+    unobserved: 0,
     spanMs: 0,
   }));
   const spans = new Map<Engine, { min: number; max: number }>();
@@ -103,7 +106,11 @@ export function analyze(bytes: Uint8Array, expected: unknown, nowMs: number): Re
     }
     summary.complete++;
     if (diverged(end.comparison)) summary.divergences++;
-    else summary.matched++;
+    else if (end.comparison.nativeUnobserved === true) {
+      // Not evidence either way: it neither matches nor moves the observation window.
+      summary.unobserved++;
+      continue;
+    } else summary.matched++;
     const previous = spans.get(begin.engine);
     spans.set(begin.engine, {
       min: Math.min(previous?.min ?? begin.timeMs, begin.timeMs),

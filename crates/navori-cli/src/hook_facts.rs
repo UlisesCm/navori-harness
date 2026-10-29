@@ -24,7 +24,7 @@ use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::repo::System;
 
 use crate::facts_cache::{self, FactsCache};
-use crate::hook::{Evaluator, Invocation, Snapshot};
+use crate::hook::{Evaluator, Invocation, Recorder, Snapshot};
 use crate::journal;
 
 /// Registry adapter: collect host facts before stdin and keep the evaluation pure.
@@ -49,7 +49,7 @@ pub fn prepare_subagent_no_background<'a>(
         .map(FactsCache::in_project);
     let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
         .map_err(|e| e.to_string())?;
-    Ok(Box::new(move |payload: &[u8]| {
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
         subagent_no_background::evaluate_prepared(&prepared, payload)
     }))
 }
@@ -115,7 +115,7 @@ pub fn prepare_guard_destructive<'a>(
             ..Host::default()
         },
     };
-    Ok(Box::new(move |payload: &[u8]| {
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
         entry::evaluate(payload, &context, &System)
     }))
 }
@@ -216,7 +216,7 @@ pub fn navori_cli(
 /// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
 /// the physical directory. A `PWD` bash would canonicalize first (`.`, `..` or `//`
 /// components) is not modeled and defers.
-fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
+pub(crate) fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
     use std::os::unix::fs::MetadataExt;
     let physical = || {
         cwd.to_str()

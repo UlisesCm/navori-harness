@@ -382,7 +382,8 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
 - **Qué no.** La corrida del gate propio y la de `gate foreign`: las prueban el replay del corpus y
   el fuzz con `--impl rust`, que corren aislados.
 - **User-section.** El nativo no ejecuta la user-section del script. Si el script trae en ella algo
-  distinto de la plantilla del asset, la preparación falla y el hook difiere antes de stdin.
+  más que comentarios y líneas en blanco, la preparación falla y el hook difiere antes de stdin
+  (el renderer, además, solo envuelve en nativo una copia idéntica al render fresco).
 - **Alternativas descartadas.** Correr el gate también en el nativo (doble costo y divergencia
   falsa por cache). Diferir todo commit antes de stdin: saber si es commit exige leer el payload.
 

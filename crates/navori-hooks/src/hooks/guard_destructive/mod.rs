@@ -16,7 +16,7 @@ pub mod copy_dest;
 mod discard;
 pub mod entry;
 mod pi;
-mod rendered;
+pub(crate) mod rendered;
 mod rules;
 pub mod search;
 mod tr;

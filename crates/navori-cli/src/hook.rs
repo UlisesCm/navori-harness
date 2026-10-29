@@ -13,10 +13,10 @@ use std::sync::LazyLock;
 use navori_core::audit::{self, AuditContext, AuditSnapshot, HookLabels, HookPayload, Host};
 use navori_core::integrity;
 use navori_core::manifest::{HookMode, Manifest};
-use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
+use navori_hooks::runner::{self, AuditLabel, Context, Engine, Evaluation, Failure, Verdict};
 
 use crate::journal::{self, CliJournal, ShadowJournal};
-use crate::{hook_facts, shadow};
+use crate::{hook_facts, quality_gate, shadow};
 
 /// Read-only facts captured before stdin for handlers that select a profile from the host.
 #[derive(Debug, Clone, Copy)]
@@ -29,8 +29,28 @@ pub struct Snapshot<'a> {
     pub cwd: &'a Path,
 }
 
+/// What a prepared evaluation may ask of the runtime while it decides.
+pub trait Recorder {
+    /// Whether this is the native lane of a shadow call: a branch with effects must answer
+    /// [`navori_hooks::runner::unobserved`] instead of running (spec 0059 D40).
+    fn shadow(&self) -> bool;
+    /// Record one audit event now, ahead of the decision's own (`gate-started`).
+    fn record(&self, label: &AuditLabel);
+}
+
 /// Buffered payload evaluation produced by a successful preparation.
-pub type Evaluator<'a> = Box<dyn Fn(&[u8]) -> Result<Evaluation, Failure> + 'a>;
+pub type Evaluator<'a> = Box<dyn Fn(&[u8], &dyn Recorder) -> Result<Evaluation, Failure> + 'a>;
+
+/// The native lane of a shadow call: no effects, nothing recorded.
+struct ShadowLane;
+
+impl Recorder for ShadowLane {
+    fn shadow(&self) -> bool {
+        true
+    }
+
+    fn record(&self, _: &AuditLabel) {}
+}
 
 /// How a compiled hook turns payload bytes into a buffered evaluation.
 pub enum Handler {
@@ -63,7 +83,7 @@ fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 3]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -78,6 +98,14 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("guard-destructive")
                 .unwrap_or_default(),
             handler: Handler::Prepared(hook_facts::prepare_guard_destructive),
+            phase: pre_tool_use,
+            tool: Some("Bash"),
+        },
+        NativeHook {
+            id: "quality-gate-pre-commit",
+            implementation: navori_hooks::compiled::implementation_hash("quality-gate-pre-commit")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(quality_gate::prepare),
             phase: pre_tool_use,
             tool: Some("Bash"),
         },
@@ -351,8 +379,8 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
         }
         _ => None,
     };
-    let evaluate = |bytes: &[u8]| match (&prepared, &handler.handler) {
-        (Some(evaluator), _) => evaluator(bytes),
+    let evaluate = |bytes: &[u8], recorder: &dyn Recorder| match (&prepared, &handler.handler) {
+        (Some(evaluator), _) => evaluator(bytes, recorder),
         (None, Handler::Pure(evaluate)) => evaluate(bytes, &invocation),
         (None, Handler::Prepared(_)) => Err(Failure("hook preparation is missing".to_owned())),
     };
@@ -391,7 +419,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                         cwd,
                         env,
                     },
-                    evaluate,
+                    |bytes| evaluate(bytes, &ShadowLane),
                 );
                 if let Some((journal, root, receipt)) = &observation {
                     journal.complete(root, receipt, observed.comparison, payload);
@@ -428,7 +456,7 @@ fn audited(
     handler: &NativeHook,
     phase: &str,
     payload: &[u8],
-    evaluate: impl FnOnce(&[u8]) -> Result<Evaluation, Failure>,
+    evaluate: impl FnOnce(&[u8], &dyn Recorder) -> Result<Evaluation, Failure>,
 ) -> Result<Evaluation, Failure> {
     let root = audit_root();
     let parsed = HookPayload::parse(payload);
@@ -436,21 +464,52 @@ fn audited(
         .as_deref()
         .zip(parsed.as_ref())
         .map(|(root, parsed)| AuditSnapshot::begin(root, phase, parsed, false, audit::now_ms));
-    let evaluation = evaluate(payload)?;
-    if let (Some(root), Some(parsed), Some(snapshot), Some(label)) =
-        (&root, &parsed, &snapshot, &evaluation.audit)
-    {
+    let recorder = Audited {
+        invocation,
+        tool: handler.tool,
+        phase,
+        state: root
+            .as_deref()
+            .zip(parsed.as_ref())
+            .zip(snapshot.as_ref())
+            .map(|((root, parsed), snapshot)| (root, parsed, snapshot)),
+    };
+    let evaluation = evaluate(payload, &recorder)?;
+    if let Some(label) = &evaluation.audit {
+        recorder.record(label);
+    }
+    Ok(evaluation)
+}
+
+/// Records a decision Rust makes the way `navori_audit_log` does, against the activity snapshot
+/// taken before evaluation. Best-effort: nothing it does changes the verdict.
+struct Audited<'a> {
+    invocation: &'a Invocation,
+    tool: Option<&'static str>,
+    phase: &'a str,
+    state: Option<(&'a Path, &'a HookPayload, &'a AuditSnapshot)>,
+}
+
+impl Recorder for Audited<'_> {
+    fn shadow(&self) -> bool {
+        false
+    }
+
+    fn record(&self, label: &AuditLabel) {
+        let Some((root, parsed, snapshot)) = self.state else {
+            return;
+        };
         let labels = HookLabels {
-            name: &invocation.id,
-            phase,
+            name: &self.invocation.id,
+            phase: self.phase,
             verdict: label.verdict,
             source: "core",
-            tool: handler.tool,
+            tool: self.tool,
             reason: Some(&label.reason),
             kind: None,
         };
         let skip_noops = std::env::var_os("NAVORI_AUDIT_SKIP_NOOPS").is_some_and(|v| v == "1");
-        let host = match invocation.engine {
+        let host = match self.invocation.engine {
             Engine::Claude => Host::Claude,
             Engine::Codex => Host::Codex,
             Engine::Pi => Host::Pi,
@@ -458,12 +517,11 @@ fn audited(
         let cwd = std::env::current_dir().unwrap_or_default();
         if let Some(metadata) = snapshot.metadata(parsed, labels, skip_noops, audit::now_ms)
             && let Some(target) =
-                AuditContext::resolve(root, parsed, &cwd, &invocation.requested, Some(host))
+                AuditContext::resolve(root, parsed, &cwd, &self.invocation.requested, Some(host))
         {
             let _ = target.record_metadata(&metadata, OsStr::new("navori"));
         }
     }
-    Ok(evaluation)
 }
 
 /// `${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}`, absent when both are unset or empty.

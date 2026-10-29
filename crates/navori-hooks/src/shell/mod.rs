@@ -1,6 +1,8 @@
 //! Shell text conventions shared by every ported hook (spec 0057 D8: hashed with each hook).
 
 pub mod capture;
+pub mod gate_ask;
+pub mod gate_trigger;
 pub mod hook_input;
 pub mod inert;
 pub(crate) mod landing;

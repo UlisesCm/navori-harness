@@ -9,6 +9,7 @@ pub mod hook;
 pub mod hook_facts;
 pub mod journal;
 pub mod parser;
+pub mod quality_gate;
 pub mod shadow;
 
 use std::ffi::OsString;

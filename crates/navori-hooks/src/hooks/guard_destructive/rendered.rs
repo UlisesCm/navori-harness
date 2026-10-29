@@ -39,7 +39,7 @@ impl Rendered {
 }
 
 /// The first `name=<word>` after leading spaces: the partial assigns inside a function body.
-fn indented(source: &str, name: &str) -> Option<String> {
+pub(crate) fn indented(source: &str, name: &str) -> Option<String> {
     let prefix = format!("{name}=");
     let mut offset = 0;
     for line in source.split_inclusive('\n') {

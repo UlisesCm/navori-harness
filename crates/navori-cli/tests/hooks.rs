@@ -1054,7 +1054,7 @@ fn same_pid_hook_recursion_exits_70_while_a_real_child_still_defers() -> TestRes
 
 mod prepared_handlers {
     use super::*;
-    use navori_cli::hook::{Evaluator, Snapshot};
+    use navori_cli::hook::{Evaluator, Recorder, Snapshot};
 
     fn ineligible<'a>(_: &'a Invocation, _: Snapshot<'a>) -> Result<Evaluator<'a>, String> {
         Err("fixture host is not accredited".to_owned())
@@ -1075,7 +1075,7 @@ mod prepared_handlers {
                 .source
                 .starts_with(b"# navori:native-hook v=1 file=sha256:"),
         );
-        Ok(Box::new(move |payload: &[u8]| {
+        Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
             let mut stdout = seen.clone().into_bytes();
             stdout.extend_from_slice(payload);
             Ok(Evaluation {
@@ -1408,6 +1408,7 @@ mod journal_bridge {
     use std::cell::RefCell;
 
     const MATCH: Comparison = Comparison {
+        native_unobserved: false,
         native_failed: false,
         shell_failed: false,
         code_differs: false,
@@ -1487,6 +1488,16 @@ mod journal_bridge {
             ..MATCH
         };
         assert!(completion("{}", diverged, b"{}").ends_with(r#""payloadBase64":"e30="}"#));
+        // Covers: R50 (D40): an unobserved lane names its flag and carries no payload.
+        let unobserved = Comparison {
+            native_unobserved: true,
+            ..MATCH
+        };
+        assert!(!unobserved.diverged());
+        assert_eq!(
+            completion("{}", unobserved, b"secret"),
+            r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false,"nativeUnobserved":true}}"#
+        );
         assert_eq!(
             project_root(Engine::Pi, Path::new("/repo/.pi/navori")),
             Some(Path::new("/repo"))

@@ -94,6 +94,23 @@ impl fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
+const UNOBSERVED: &str = "shadow: the native lane reached a branch with effects (spec 0059 D40)";
+
+/// What a native lane answers in shadow when its next step has effects (running the quality
+/// gate): the shadow comparison records the call as not observed, never as a divergence.
+#[must_use]
+pub fn unobserved() -> Failure {
+    Failure(UNOBSERVED.to_owned())
+}
+
+impl Failure {
+    /// Whether this is [`unobserved`].
+    #[must_use]
+    pub fn is_unobserved(&self) -> bool {
+        self.0 == UNOBSERVED
+    }
+}
+
 impl From<io::Error> for Failure {
     fn from(error: io::Error) -> Self {
         Self(format!("input I/O error: {error}"))
