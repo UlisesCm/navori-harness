@@ -13,7 +13,7 @@ use navori_core::tools::{Printed, notice::notice_reserve, notice_command, sessio
 use navori_core::workspace::registry::Stop;
 
 /// `spawnPrivateWorker(flag, token)` through the `navori` of `PATH`, never waited for.
-fn spawn_worker(flag: &str, token: &str) {
+pub(crate) fn spawn_worker(flag: &str, token: &str) {
     let _ = Command::new("navori")
         .args([flag, token])
         .stdin(Stdio::null())

@@ -13,6 +13,7 @@ pub mod parser;
 pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod quality_gate;
+pub mod session_start;
 pub mod shadow;
 pub mod tools;
 
