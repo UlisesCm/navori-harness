@@ -663,7 +663,11 @@ pub fn run_sync(
             written_total,
             &backups,
         );
-        let text = value.stringify(Some(2)).ok_or(RenderError::Delegate)?;
+        // Never a delegation here: the apply above may already have written, and a delegated
+        // run would sync the repo a second time.
+        let text = value.stringify(Some(2)).ok_or_else(|| {
+            RenderError::Thrown("sync: cannot serialize the --json result".to_owned())
+        })?;
         return Ok(SyncRun::Done {
             stdout: format!("{text}\n"),
             stderr,
