@@ -7,6 +7,9 @@ pub mod help;
 pub mod hook;
 pub mod hook_facts;
 pub mod journal;
+pub(crate) mod js_path;
+pub mod master;
+pub(crate) mod native_io;
 pub mod parser;
 pub mod render;
 pub mod shadow;
@@ -69,6 +72,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
+    },
+    NativeCommand {
+        path: &["master", "status"],
+        run: master::run_status,
     },
     NativeCommand {
         path: &["spec", "classify"],

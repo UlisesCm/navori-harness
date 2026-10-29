@@ -3,6 +3,11 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
+    {
+      "path": ["master", "status"],
+      "flags": ["cwd", "h", "help", "json", "line"],
+      "requires": [["json"], ["line"], ["h"], ["help"]]
+    },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec"], "flags": ["h", "help"] }
