@@ -216,7 +216,8 @@ fn contexto_proyecto_body(
 }
 
 /// `enabledMonorepoWorkspaces(config).length > 0`: the root map block, not modelled.
-fn has_monorepo_workspaces(config: &JsValue) -> bool {
+#[must_use]
+pub fn has_monorepo_workspaces(config: &JsValue) -> bool {
     let monorepo = get(config, "monorepo");
     truthy(monorepo.and_then(|m| get(m, "enabled")))
         && matches!(monorepo.and_then(|m| get(m, "workspaces")), Some(JsValue::Array(items)) if !items.is_empty())
