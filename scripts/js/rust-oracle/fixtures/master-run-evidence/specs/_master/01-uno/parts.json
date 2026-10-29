@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parte P1",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "comando",
+          "command": {
+            "run": "bun t",
+            "expected": "0"
+          },
+          "evidence": {
+            "kind": "run",
+            "command": "bun t",
+            "result": "ok",
+            "commit": "abc1234",
+            "date": "2026-02-02"
+          }
+        }
+      ]
+    }
+  ]
+}

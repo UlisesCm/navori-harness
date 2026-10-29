@@ -60,6 +60,15 @@
     { "id": "master-status:active-delegates", "fixture": "master-active", "args": ["master", "status", "--line"] },
     { "id": "master-status:invalid-index-delegates", "fixture": "spec-master", "args": ["master", "status", "--json"] },
     { "id": "master-status:no-config-delegates", "fixture": "empty", "args": ["master", "status", "--json"] },
-    { "id": "master-status:write-delegates", "fixture": "master-closed", "args": ["master", "status"] }
+    { "id": "master-status:write-delegates", "fixture": "master-closed", "args": ["master", "status"] },
+    { "id": "master-status:legacy-json", "fixture": "master-legacy", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:legacy-line", "fixture": "master-legacy", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:early-json", "fixture": "master-early", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:early-line", "fixture": "master-early", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:ux-json", "fixture": "master-ux", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:ux-line", "fixture": "master-ux", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:run-evidence-delegates", "fixture": "master-run-evidence", "args": ["master", "status", "--json"] },
+    { "id": "master-status:ux-content-delegates", "fixture": "master-ux-content", "args": ["master", "status", "--json"] },
+    { "id": "master-status:check-part-delegates", "fixture": "master-check-part", "args": ["master", "status", "--json"] }
   ]
 }

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "phase": "planned",
+  "mode": null,
+  "signal": {
+    "commits": null,
+    "firstCommit": null,
+    "filesChangedSinceFirst": null,
+    "framework": null,
+    "suggested": "en-curso"
+  },
+  "history": [
+    {
+      "phase": "context",
+      "at": "2026-01-01"
+    }
+  ]
+}
