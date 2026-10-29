@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:2d8242b3bfa2c2178ab46be42244fd21b6bb2bc3baa7f83435ec51067aa1eeea impl=sha256:eefab0264e966929704ce5725699080411a60d6fdbb959c867585cbff9a4a16a
-# navori:managed start id="subagent-no-background-base" hash="a3f80925" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:c06763849f9c757c49b70b35bf587897cb2cb5a13e251c66d18e6bf3ec307d9f impl=sha256:eefab0264e966929704ce5725699080411a60d6fdbb959c867585cbff9a4a16a
+# navori:managed start id="subagent-no-background-base" hash="b76981f7" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -343,7 +343,13 @@ navori_audit_spool_write() {
   [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
   navori_audit_stamp=${EPOCHREALTIME:-0}
   navori_audit_stamp=${navori_audit_stamp//[.,]/}
-  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  # A per-process sequence keeps the events of one invocation apart where the stamp and
+  # $RANDOM cannot: without EPOCHREALTIME (bash < 5) the stamp is 0, and before bash 5.1 a
+  # subshell repeats its parent's next $RANDOM, so a second event (gate-started, then the
+  # verdict) took the first one's name and noclobber dropped it. Counted in this shell, never
+  # in the subshell below; it starts at 1000 so the names sort in write order.
+  navori_audit_seq=$(( ${navori_audit_seq:-1000} + 1 ))
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$navori_audit_seq-$RANDOM.json" ) 2>/dev/null || return 1
   return 0
 }
 
