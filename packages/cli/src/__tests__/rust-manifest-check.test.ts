@@ -12,6 +12,16 @@ interface Manifest {
     { blocks: Record<string, string>; deps?: Record<string, string>; impl: string }
   >;
 }
+interface CommandEntry {
+  path: string[];
+  flags?: string[];
+  requires?: string[][];
+  when?: { engines?: string[] };
+}
+interface CommandManifest {
+  schema: number;
+  commands: CommandEntry[];
+}
 interface ManifestCheck {
   checkHistory: (
     before: Manifest,
@@ -21,6 +31,7 @@ interface ManifestCheck {
     now?: number,
   ) => string[];
   checkHashes: (root: string, manifest: Manifest) => void;
+  checkCommands: (manifest: CommandManifest) => void;
   implementationHash: (root: string, id: string) => string;
 }
 const checks = (await import(
@@ -90,4 +101,38 @@ it("recalcula los hashes de assets, deps y fuentes Rust compartidos", (): void =
   write("packages/core/core-assets/scripts/dep.sh", "dep\n");
   write("crates/navori-hooks/src/runner.rs", "new runner\n");
   expect((): void => checks.checkHashes(root, m)).toThrow("impl");
+});
+
+// Covers: R48
+it("valida schema 2, requires y varias entradas por ruta como manifest.rs", (): void => {
+  const sync = (requires?: string[][]): CommandEntry => ({
+    path: ["sync"],
+    flags: ["apply", "yes"],
+    ...(requires === undefined ? {} : { requires }),
+  });
+  const check = (commands: CommandEntry[], schema = 2): void => {
+    checks.checkCommands({ schema, commands });
+  };
+  expect((): void => check([], 1)).toThrow("unsupported schema 1");
+  expect((): void => check([sync([])])).toThrow("at least one alternative");
+  expect((): void => check([sync([[]])])).toThrow("non-empty");
+  expect((): void => check([sync([["apply", "apply"]])])).toThrow("without repeats");
+  expect((): void => check([sync([["force"]])])).toThrow("not in flags");
+  expect((): void =>
+    check([
+      sync([
+        ["apply", "yes"],
+        ["yes", "apply"],
+      ]),
+    ]),
+  ).toThrow("duplicate requires");
+  expect((): void => check([sync(), sync()])).toThrow("duplicate path");
+  expect((): void => check([sync([["apply"], ["yes"]]), sync([["yes"], ["apply"]])])).toThrow(
+    "duplicate path",
+  );
+  expect((): void => check([{ path: ["sync"], flags: ["--apply"] }])).toThrow("not normalized");
+  expect((): void => check([{ path: ["sync"], when: { engines: [] } }])).toThrow("when.engines");
+  expect((): void =>
+    check([sync(), sync([["apply"]]), sync([["apply", "yes"]]), { path: ["remove"] }]),
+  ).not.toThrow();
 });
