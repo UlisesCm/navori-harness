@@ -65,15 +65,6 @@ pub struct Context<'a> {
     pub pid: u32,
 }
 
-impl Context<'_> {
-    fn var(&self, name: &str) -> Option<String> {
-        self.env
-            .iter()
-            .find(|(k, _)| k == name)
-            .and_then(|(_, v)| v.to_str().map(str::to_owned))
-    }
-}
-
 /// A non-allow stop inside the evaluation.
 enum Stop {
     Deny(String),
@@ -998,30 +989,43 @@ fn config_root(cwd: &str, ctx: &Context<'_>) -> String {
     }
 }
 
-/// Whether `emitDispatchOutcome` might write: a session identity (payload or environment) and a
-/// regular `session-*.log` in the repo's audit directory. A superset of `hasAuditTarget`.
-fn maybe_audit_target(cwd: &str, session: Option<&str>, ctx: &Context<'_>) -> bool {
-    let identity = session.is_some()
-        || [
-            "NAVORI_AUDIT_HOST",
-            "NAVORI_AUDIT_SESSION_ID",
-            "CLAUDE_CODE_SESSION_ID",
-            "CODEX_SESSION_ID",
-            "CODEX_THREAD_ID",
-        ]
-        .iter()
-        .any(|name| ctx.var(name).is_some_and(|v| !js_trim(&v).is_empty()));
-    if !identity {
-        return false;
-    }
+/// Whether the environment carries an audit session identity `contextFromEnv` could read.
+#[must_use]
+pub fn audit_identity_in_env(env: &Env) -> bool {
+    [
+        "NAVORI_AUDIT_HOST",
+        "NAVORI_AUDIT_SESSION_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "CODEX_SESSION_ID",
+        "CODEX_THREAD_ID",
+    ]
+    .iter()
+    .any(|name| {
+        env.iter()
+            .find(|(k, _)| k == name)
+            .and_then(|(_, v)| v.to_str())
+            .is_some_and(|v| !js_trim(v).is_empty())
+    })
+}
+
+/// Whether the audit directory of `cwd`'s repo holds a regular `session-*.log`, under
+/// `NAVORI_AUDITS_ROOT` or `~/.navori/audits` (both are checked: a superset of `auditsRoot()`).
+/// A repo name the port cannot derive counts as present.
+#[must_use]
+pub fn audit_log_present(cwd: &str, env: &Env) -> bool {
+    let var = |name: &str| {
+        env.iter()
+            .find(|(k, _)| k == name)
+            .and_then(|(_, v)| v.to_str().map(str::to_owned))
+    };
     let Some(repo) = crate::audit::repo_from_cwd(cwd) else {
         return true;
     };
     let mut roots = Vec::new();
-    if let Some(root) = ctx.var("NAVORI_AUDITS_ROOT").filter(|r| !r.is_empty()) {
+    if let Some(root) = var("NAVORI_AUDITS_ROOT").filter(|r| !r.is_empty()) {
         roots.push(PathBuf::from(root));
     }
-    if let Some(home) = ctx.var("HOME").filter(|h| !h.is_empty()) {
+    if let Some(home) = var("HOME").filter(|h| !h.is_empty()) {
         roots.push(Path::new(&home).join(".navori/audits"));
     }
     roots.iter().any(|root| {
@@ -1160,8 +1164,10 @@ fn run(stdin: &[u8], force_codex: bool, ctx: &Context<'_>, warnings: &mut Vec<St
             evaluate_workplan(&root, &feature, &config, false, warnings, ctx, p)?;
         }
     }
-    // An allow with a feature reports a dispatch outcome; only the TS writes audit events.
-    if feature.is_some() && maybe_audit_target(&cwd, payload.session_id.as_deref(), ctx) {
+    // An allow with a feature reports a dispatch outcome; only the TS writes audit events. The
+    // payload's own session is an explicit identity, so it counts even without the environment.
+    let identity = payload.session_id.is_some() || audit_identity_in_env(ctx.env);
+    if feature.is_some() && identity && audit_log_present(&cwd, ctx.env) {
         return delegate("possible audit target");
     }
     if let Some((file, raw)) = consume

@@ -10,7 +10,9 @@ use std::io::Read as _;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use navori_core::plan::gate::{Context, Outcome, evaluate};
+use navori_core::plan::gate::{
+    Context, Outcome, audit_identity_in_env, audit_log_present, evaluate,
+};
 
 use crate::delegate;
 
@@ -20,14 +22,17 @@ pub fn run(args: &[OsString]) -> Option<ExitCode> {
     if args.len() != 2 {
         return None;
     }
+    let process_cwd = std::env::current_dir().ok()?;
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    // Audit mode (D33, R58): the TS writes the dispatch outcome, so the whole invocation goes to
+    // it before stdin is read when the environment names a session and the repo has a log.
+    if audit_identity_in_env(&env) && audit_log_present(&process_cwd.to_string_lossy(), &env) {
+        return None;
+    }
     let mut stdin = Vec::new();
     if std::io::stdin().read_to_end(&mut stdin).is_err() {
         return Some(delegate::run_with_stdin(args, "plan", &stdin));
     }
-    let Ok(process_cwd) = std::env::current_dir() else {
-        return Some(delegate::run_with_stdin(args, "plan", &stdin));
-    };
-    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis());
