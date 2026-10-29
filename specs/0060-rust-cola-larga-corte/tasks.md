@@ -55,11 +55,16 @@ Estimated LOC: 16000
 ### M1 — Slice de referencia de hooks: `general-purpose-confirm`
 Entregable: `general-purpose-confirm` decide en Rust en `shadow` en Claude y Codex, y existe el
 inventario por área.
+
+Cerrado (2026-10-28): A1 verde. Replay `--impl rust` de 15 casos idénticos con auditoría `off` y
+`active` (el corpus suma la clase `skip` de Codex); fuzz semilla 1 contra las copias renderizadas,
+100 000 casos en Claude y 20 000 en Codex, idénticos; `rust-areas` asigna los 29 comandos raíz y
+los 22 hooks.
 - **A1** [observable] — el hook reproduce el corpus y el fuzz, y todo subcomando y hook tiene área · `node scripts/js/hook-verdict-replay.mjs --impl rust --only general-purpose-confirm.sh && bun run fuzz:hooks --hook general-purpose-confirm.sh --engine claude --seed 1 --cases 100000 && bun run fuzz:hooks --hook general-purpose-confirm.sh --engine codex --seed 1 --cases 20000 && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts` → exit 0; 0 divergencias
-- [ ] **T1** (R77, R78) — `scripts/js/rust-areas.mjs` con `inventory()` (subcomandos y flags de `cli.ts` desde `dist/`, hooks de `core-assets` y plugins), `areaOf()` con la tabla de D40 y `areaInventoryCheck(area, manifest)`, que también corre con las otras áreas de la fase retiradas del manifiesto (D41, F39) · effect: behavior · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"todo subcomando, flag y hook tiene un área"
-- [ ] **T2** (R71) — corpus de `general-purpose-confirm` con al menos un caso por clase de veredicto (`skip`, `ask`, `deny`) en Claude y Codex; `coverage.json` regenerado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"general-purpose-confirm cubre cada clase de veredicto por engine"
-- [ ] **T3** (R70) — `navori-hooks` (`hooks/general_purpose_confirm`): la vía rápida por subcadena, `subagent_type` con respaldo en `agent_type`, la rama por engine y el evento de auditoría igual que el shell; entrada `mode: "shadow"` en `ported.json` con sus `blocks` · effect: behavior · test: `crates/navori-hooks/tests/general_purpose_confirm.rs`::"veredictos del corpus en shadow"
-- [ ] **T4** (R70) — gramática de fuzz de `general-purpose-confirm` en `hook-fuzz.mjs`: `subagent_type` y `agent_type` con `general-purpose`, otros roles, valores no texto y la subcadena fuera de esos campos · effect: tests · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"la gramática de general-purpose-confirm cubre cada campo y sus formas inertes"
+- [x] **T1** (R77, R78) — `scripts/js/rust-areas.mjs` con `inventory()` (subcomandos y flags de `cli.ts` desde `dist/`, hooks de `core-assets` y plugins), `areaOf()` con la tabla de D40 y `areaInventoryCheck(area, manifest)`, que también corre con las otras áreas de la fase retiradas del manifiesto (D41, F39) · effect: behavior · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"todo subcomando, flag y hook tiene un área"
+- [x] **T2** (R71) — corpus de `general-purpose-confirm` con al menos un caso por clase de veredicto (`skip`, `ask`, `deny`) en Claude y Codex; `coverage.json` regenerado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"general-purpose-confirm cubre cada clase de veredicto por engine"
+- [x] **T3** (R70) — `navori-hooks` (`hooks/general_purpose_confirm`): la vía rápida por subcadena, `subagent_type` con respaldo en `agent_type`, la rama por engine y el evento de auditoría igual que el shell; entrada `mode: "shadow"` en `ported.json` con sus `blocks` · effect: behavior · test: `crates/navori-hooks/tests/general_purpose_confirm.rs`::"veredictos del corpus en shadow"
+- [x] **T4** (R70) — gramática de fuzz de `general-purpose-confirm` en `hook-fuzz.mjs`: `subagent_type` y `agent_type` con `general-purpose`, otros roles, valores no texto y la subcadena fuera de esos campos · effect: tests · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"la gramática de general-purpose-confirm cubre cada campo y sus formas inertes"
 
 ### M2 — Slice de referencia de comandos: `spec`
 Entregable: `navori-rust spec` (todos sus subcomandos y flags) es nativo con diferencial cero.
