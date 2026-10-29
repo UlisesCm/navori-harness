@@ -2,6 +2,8 @@
 //! state and parts, and `readMasterStatus`.
 
 pub mod check_part;
+pub mod fit;
 pub mod index;
 pub mod state;
 pub mod status;
+pub mod templates;
