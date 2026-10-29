@@ -176,6 +176,37 @@ function guardPayload(next, seed, index) {
   return JSON.stringify(payload);
 }
 
+/** Role spellings around `general-purpose`: the exact role, near misses and other roles. */
+const GP_ROLES = ["general-purpose", "general-purpose", "scout", "implementer", "general-purpose-lite", "General-Purpose", "", " general-purpose", "general-purpose\n", "general\u0000purpose"];
+/** Non-text values the extractor must not read as the role. */
+const GP_ODD = [7, null, ["general-purpose"], { type: "general-purpose" }, true];
+
+/** One general-purpose-confirm payload: `subagent_type` and/or `agent_type`, odd values, and the
+ * substring elsewhere so the fast path passes without the role.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function gpConfirmPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const value = () => ((next() >>> 16) % 6 === 0 ? pick(GP_ODD) : pick(GP_ROLES));
+  const shape = (next() >>> 16) % 8;
+  /** @type {Record<string, unknown>} */
+  const input = {};
+  if (shape !== 1) input.subagent_type = value();
+  if (shape === 1 || shape === 2 || shape === 3) input.agent_type = value();
+  if (shape === 4) input.prompt = "use general-purpose for this";
+  if (shape === 5) input.command = "echo general-purpose";
+  if (shape === 6) input.message = pick(GP_ROLES);
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    tool_name: pick(["Agent", "spawn_agent", "Task", "Bash"]),
+    tool_input: shape === 7 ? pick(GP_ROLES) : input,
+  };
+  return JSON.stringify(payload);
+}
+
 /** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
  * guard-destructive gets its own grammar over every rule; the others keep the original one.
  * @param {number} seed
@@ -190,6 +221,12 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
       index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "general-purpose-confirm.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", "general-purpose", '{"tool_input":{"subagent_type":"general-purpose"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : gpConfirmPayload(next, seed, index),
     );
   }
   const tools = ["Bash", "Agent", "Task", "Read", "Write", "Edit"];
