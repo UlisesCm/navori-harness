@@ -216,6 +216,33 @@ pub const RENDER_ENGINE_FILES_TITLE: &str = "Engine files:";
 /// `render.previewWord`, the same in both languages.
 pub const RENDER_PREVIEW_WORD: &str = "Preview";
 
+/// `render.doneWord`, the same in both languages.
+pub const RENDER_DONE_WORD: &str = "Done";
+
+/// `common.backupLabel`, the same in both languages.
+pub const BACKUP_LABEL: &str = "Backup:";
+
+/// `render.docBudgetCrossed(file, managed, ceiling)`.
+#[must_use]
+pub fn render_doc_budget_crossed(lang: Lang, file: &str, managed: usize, ceiling: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Este render cruz\u{f3} el presupuesto de arranque: '{file}' queda con {managed} palabras de bloques con techo contra un techo derivado de {ceiling}. Corre 'navori doctor' para ver qu\u{e9} bloque lo cruz\u{f3} y con qu\u{e9} palanca se recorta."
+        ),
+        Lang::En => format!(
+            "This render crossed the startup budget: '{file}' now carries {managed} words of budgeted blocks against a derived ceiling of {ceiling}. Run 'navori doctor' to see which block crossed it and which lever trims it."
+        ),
+    }
+}
+
+/// The stderr line of `recordHarnessVersionIfWritten` when the config is left untouched.
+#[must_use]
+pub fn harness_version_not_recorded(outcome: &str) -> String {
+    format!(
+        "navori: harnessVersion not recorded in navori.config.json ({outcome}); the file is left untouched."
+    )
+}
+
 /// `render.gitignoreTitle`.
 #[must_use]
 pub const fn render_gitignore_title(lang: Lang) -> &'static str {

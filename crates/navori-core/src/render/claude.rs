@@ -56,6 +56,9 @@ pub struct ClaudeEnginePlan {
     pub warnings: Vec<String>,
     /// `(relPath, overwrittenKeys)` of markerless destinations adopted by name.
     pub collisions: Vec<(String, Vec<String>)>,
+    /// Index in `warnings` of the first `collisionWarnings` line (one per collision), which the
+    /// commit rewrites with the backup path.
+    pub collision_warnings_at: usize,
     /// Blocks whose version on disk is older (`CLAUDE.md` plan, then sub-blocks).
     pub updates_available: Vec<UpdateAvailable>,
     /// Blocks written by a newer navori.
@@ -355,6 +358,7 @@ pub fn plan_claude_engine(
     warnings.extend(sub_blocks.retired_warnings);
     warnings.extend(retirements.warnings);
     // `collisionWarnings` at commit, without a backup in a preview.
+    let collision_warnings_at = warnings.len();
     warnings.extend(
         harness
             .collisions
@@ -397,6 +401,7 @@ pub fn plan_claude_engine(
         skipped,
         warnings,
         collisions: harness.collisions,
+        collision_warnings_at,
         updates_available,
         downgrades,
         owned_paths,

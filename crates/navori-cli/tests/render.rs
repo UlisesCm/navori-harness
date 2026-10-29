@@ -9,14 +9,14 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 
-use navori_cli::render::{RenderArgs, admit, colorless, parse_args};
+use navori_cli::render::{RenderArgs, admit, colorless, parse_args, registry_needs_refresh};
 use navori_cli::{dispatch, parser};
 use navori_core::manifest::{Command, Manifest};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
 const ENTRY: &str = r#"{"schema":2,"commands":[
-    {"path":["render"],"flags":["cwd","dry-run","json"],"when":{"engines":["claude"]}}
+    {"path":["render"],"flags":["cwd","dry-run","json","apply"],"when":{"engines":["claude"]}}
 ]}"#;
 
 fn manifest() -> Result<Manifest, Box<dyn Error>> {
@@ -54,7 +54,8 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
         Some(RenderArgs {
             cwd: base.to_path_buf(),
             dry_run: false,
-            json: false
+            json: false,
+            apply: false,
         })
     );
     assert_eq!(
@@ -62,15 +63,23 @@ fn only_the_declared_flags_in_their_plain_form_are_native() -> TestResult {
         Some(RenderArgs {
             cwd: PathBuf::from("/repo/other/x"),
             dry_run: true,
-            json: true
+            json: true,
+            apply: false,
         })
     );
+    // `--apply` writes; `--dry-run` wins over it, as in the TS.
+    let apply = parsed(&["render", "--apply"]).ok_or("apply")?;
+    assert!(apply.apply && !apply.preview());
+    let both = parsed(&["render", "--apply", "--dry-run"]).ok_or("both")?;
+    assert!(both.preview());
+    assert!(parsed(&["render"]).ok_or("plain")?.preview());
     assert_eq!(
         parsed(&["render", "--cwd=/abs"]).map(|a| a.cwd),
         Some(PathBuf::from("/abs"))
     );
     for args in [
-        &["render", "--apply"][..],
+        &["render", "--apply=yes"][..],
+        &["render", "--apply", "--apply"],
         &["render", "--force"],
         &["render", "--all"],
         &["render", "--prune"],
@@ -111,6 +120,7 @@ fn the_config_decides_before_any_output() -> TestResult {
         cwd: dir.clone(),
         dry_run: false,
         json: false,
+        apply: false,
     };
     // No config, or one readConfig rejects: the TS reports it.
     assert!(admit(args(), e).is_none());
@@ -152,6 +162,7 @@ fn the_config_decides_before_any_output() -> TestResult {
         cwd: dir.join("missing"),
         dry_run: false,
         json: false,
+        apply: false,
     };
     assert!(admit(missing, e).is_none());
     Ok(())
@@ -166,9 +177,9 @@ fn render_is_dispatched_only_when_an_entry_lists_it() -> TestResult {
     let embedded = Manifest::embedded()?;
     let (_, selected) = dispatch(&embedded, &inv).ok_or("embedded manifest lacks render")?;
     assert_eq!(selected, entry(&m)?);
-    let apply = parser::parse(&argv(&["render", "--apply"]));
-    assert!(dispatch(&m, &apply).is_none());
-    assert!(dispatch(&embedded, &apply).is_none());
+    let force = parser::parse(&argv(&["render", "--force"]));
+    assert!(dispatch(&m, &force).is_none());
+    assert!(dispatch(&embedded, &force).is_none());
     Ok(())
 }
 
@@ -258,12 +269,8 @@ fn render_without_apply_performs_no_real_operation() -> TestResult {
         r#"{"repos":[{"path":"/elsewhere","name":"old"}]}"#,
     )?;
     let before = [snapshot(&repo)?, snapshot(&home)?, snapshot(&backups)?];
-    for args in [
-        &["render"][..],
-        &["render", "--dry-run"],
-        &["render", "--json"],
-    ] {
-        let out = Process::new(env!("CARGO_BIN_EXE_navori-rust"))
+    let run = |args: &[&str]| {
+        Process::new(env!("CARGO_BIN_EXE_navori-rust"))
             .args(args)
             .current_dir(&repo)
             .env_clear()
@@ -273,7 +280,15 @@ fn render_without_apply_performs_no_real_operation() -> TestResult {
             .env("NAVORI_TS_CLI", dir.join("missing/index.js"))
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
-            .output()?;
+            .output()
+    };
+    for args in [
+        &["render"][..],
+        &["render", "--dry-run"],
+        &["render", "--json"],
+        &["render", "--apply", "--dry-run"],
+    ] {
+        let out = run(args)?;
         let stdout = String::from_utf8(out.stdout)?;
         assert_eq!(out.status.code(), Some(0), "{args:?}: {stdout}");
         assert!(stdout.contains("(embedded)"), "{args:?}: {stdout}");
@@ -284,5 +299,70 @@ fn render_without_apply_performs_no_real_operation() -> TestResult {
     }
     let after = [snapshot(&repo)?, snapshot(&home)?, snapshot(&backups)?];
     assert_eq!(before, after);
+
+    // With the registry name in step, the apply is native and writes the repo and its backups
+    // only.
+    let canonical = fs::canonicalize(&repo)?;
+    let registry = |name: &str| {
+        fs::write(
+            home.join(".navori/registry.json"),
+            format!(r#"{{"repos":[{{"path":{canonical:?},"name":"{name}"}}]}}"#),
+        )
+    };
+    registry("demo")?;
+    let home_before = snapshot(&home)?;
+    let out = run(&["render", "--apply"])?;
+    let stdout = String::from_utf8(out.stdout)?;
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("core: (embedded)"), "{stdout}");
+    assert!(stdout.contains("Done"), "{stdout}");
+    assert!(repo.join("CLAUDE.md").is_file());
+    assert!(
+        !snapshot(&backups)?.is_empty(),
+        "the hand-written .gitignore is backed up"
+    );
+    assert_eq!(home_before, snapshot(&home)?);
+
+    // Under another name `refreshRepoName` would rewrite the registry: the apply goes to the TS
+    // (this checkout's `dist`, when built), never native.
+    registry("old")?;
+    let out = run(&["render", "--apply"])?;
+    assert!(!String::from_utf8(out.stdout)?.contains("core: (embedded)"));
+    Ok(())
+}
+
+/// `refreshRepoName`'s pre-check: only an entry for this very repo under another name rewrites
+/// the registry; an absent, foreign or malformed registry never does.
+// Covers: R47
+#[test]
+fn only_a_stale_name_in_the_registry_needs_a_refresh() -> TestResult {
+    let dir = scratch("registry")?;
+    let repo = dir.join("repo");
+    let home = dir.join("home");
+    fs::create_dir_all(&repo)?;
+    fs::create_dir_all(home.join(".navori"))?;
+    let path = fs::canonicalize(&repo)?;
+    let needs = |body: Option<String>| -> Result<bool, Box<dyn Error>> {
+        let file = home.join(".navori/registry.json");
+        match body {
+            Some(text) => fs::write(&file, text)?,
+            None => {
+                let _ = fs::remove_file(&file);
+            }
+        }
+        Ok(registry_needs_refresh(&home, &repo, Some("demo")))
+    };
+    let entry = |name: &str| format!(r#"{{"repos":[{{"path":{path:?}{name}}}]}}"#);
+    assert!(!needs(None)?);
+    assert!(!needs(Some(entry(r#","name":"demo""#)))?);
+    assert!(needs(Some(entry(r#","name":"old""#)))?);
+    assert!(needs(Some(entry("")))?);
+    assert!(!needs(Some(
+        r#"{"repos":[{"path":"/elsewhere","name":"old"}]}"#.to_owned()
+    ))?);
+    // `RegistrySchema` rejects the whole file, which then reads as empty.
+    assert!(!needs(Some(entry(r#","name":null"#)))?);
+    assert!(!needs(Some("not json".to_owned()))?);
+    assert!(!needs(Some(r#"{"repos":{}}"#.to_owned()))?);
     Ok(())
 }

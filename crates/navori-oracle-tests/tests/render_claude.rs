@@ -15,14 +15,17 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
+use navori_core::backup::{BackupStore, local_now};
 use navori_core::config;
+use navori_core::config::HarnessRecord;
+use navori_core::fs::RealFs;
 use navori_core::js_json::{self, JsValue};
 use navori_core::manifest::{Hook, HookMode};
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::claude_settings::claude_hook_command;
 use navori_core::render::collect::DiskView;
-use navori_core::render::command::{human_report, plan_render, render_json};
+use navori_core::render::command::{Apply, human_report, plan_render, render_json, run_render};
 use navori_core::render::report::Clack;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -292,7 +295,7 @@ struct Extras {
 
 fn extras() -> BoxedStrategy<Extras> {
     (
-        prop::sample::select(vec![None, Some("off"), Some("minimal"), Some("full")]),
+        prop::sample::select(vec![None, Some("off"), Some("local"), Some("full")]),
         0u8..3,
         prop::bool::ANY,
         prop::bool::ANY,
@@ -674,9 +677,14 @@ static REPORT: Shared = Shared::new(
      process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
      process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
      process.exit = (code) => { throw new Error('exit ' + code); };\n\
-     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
-     catch (e) { return { threw: String(e && e.message || e) }; }\n\
-     finally { process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit; }\n\
+     const env = { home: process.env.HOME, backups: process.env.NAVORI_BACKUP_ROOT };\n\
+     if (request.backups) { process.env.HOME = request.home; process.env.NAVORI_BACKUP_ROOT = request.backups; }\n\
+     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, apply: request.apply === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
+     catch (e) { return { threw: String(e && e.message || e), partial: out.join(''), errors: err.join('') }; }\n\
+     finally {\n\
+       process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit;\n\
+       if (request.backups) { process.env.HOME = env.home; if (env.backups === undefined) delete process.env.NAVORI_BACKUP_ROOT; else process.env.NAVORI_BACKUP_ROOT = env.backups; }\n\
+     }\n\
      return { out: out.join(''), err: err.join('') };",
 );
 
@@ -720,6 +728,168 @@ fn rust_command(root: &Path, config: &str, json: bool) -> Option<(String, String
         .map(|w| format!("{w}\n"))
         .collect();
     Some((stdout, stderr))
+}
+
+/// Every file under `root`: relative path \u{2192} (executable, bytes).
+fn tree(root: &Path) -> BTreeMap<String, (bool, Vec<u8>)> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if meta.is_dir() {
+                stack.push(path);
+            } else if let Ok(rel) = path.strip_prefix(root) {
+                out.insert(
+                    mask_backup(&rel.to_string_lossy()),
+                    (
+                        meta.permissions().mode() & 0o111 != 0,
+                        std::fs::read(&path).unwrap_or_default(),
+                    ),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// A backup directory name: `<label>-<local timestamp>-p<pid>-<seq>`.
+static BACKUP_NAME: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"[^/\s]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-p\d+-\d+").ok()
+});
+
+fn mask_backup(text: &str) -> String {
+    BACKUP_NAME.as_ref().map_or_else(
+        || text.to_owned(),
+        |re| re.replace_all(text, "@BACKUP@").into_owned(),
+    )
+}
+
+/// What one side of an apply left: stdout and stderr (backup names masked), the repo tree and
+/// the backup tree.
+type ApplyOutcome = (
+    String,
+    String,
+    BTreeMap<String, (bool, Vec<u8>)>,
+    BTreeMap<String, (bool, Vec<u8>)>,
+);
+
+/// `render --apply` on a fresh copy of the repo `setup` builds at `root`, TS then Rust, with the
+/// same backup root and a scratch home. `Ok(None)` when Rust delegates.
+fn compare_apply(
+    root: &Path,
+    config: &str,
+    json: bool,
+    setup: &dyn Fn(),
+) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
+    let backups = BASE.join("apply-backups");
+    let home = BASE.join("apply-home");
+    let reset = || {
+        let _ = std::fs::remove_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&home);
+        setup();
+    };
+    let mask = mask_backup;
+    reset();
+    let ts = REPORT.ask(&json!({
+        "root": root.to_string_lossy(),
+        "json": json,
+        "apply": true,
+        "home": home.to_string_lossy(),
+        "backups": backups.to_string_lossy(),
+    }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return Err(format!("ts failed: {ts}"));
+    };
+    let ts_side = (
+        mask(&mask_provenance(out)),
+        mask(err),
+        tree(root),
+        tree(&backups),
+    );
+    reset();
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    if plan_render(&DiskView(root), &read, root, None).is_err() {
+        return Ok(None);
+    }
+    let mut fs = RealFs::default();
+    let mut store = BackupStore::new(Ok(backups.clone()), std::process::id());
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let plan = run_render(&DiskView(root), &read, root, None, Some(&mut apply))
+        .map_err(|e| format!("rust apply failed: {e:?}"))?;
+    let cwd = root.to_str().ok_or("path")?;
+    let stdout = if json {
+        format!(
+            "{}\n",
+            render_json(cwd, &plan).stringify(Some(2)).ok_or("json")?
+        )
+    } else {
+        human_report(Clack { unicode: true }, cwd, &plan)
+    };
+    let mut stderr: String = std::iter::repeat_n(&read.warnings, 2)
+        .flatten()
+        .map(|w| format!("{w}\n"))
+        .collect();
+    if let Some(outcome @ (HarnessRecord::NonCanonical | HarnessRecord::Unreadable)) =
+        plan.applied.as_ref().and_then(|a| a.harness.as_ref())
+    {
+        stderr.push_str(&format!(
+            "{}\n",
+            navori_core::i18n::harness_version_not_recorded(outcome.as_str())
+        ));
+    }
+    let rust_side = (mask(&stdout), mask(&stderr), tree(root), tree(&backups));
+    Ok(Some((ts_side, rust_side)))
+}
+
+/// The first difference between two apply outcomes, if any.
+fn apply_difference(ts: &ApplyOutcome, rust: &ApplyOutcome) -> Option<String> {
+    if ts.0 != rust.0 {
+        return Some(format!(
+            "stdout:\n--- ts ---\n{}\n--- rust ---\n{}",
+            ts.0, rust.0
+        ));
+    }
+    if ts.1 != rust.1 {
+        return Some(format!(
+            "stderr:\n--- ts ---\n{}\n--- rust ---\n{}",
+            ts.1, rust.1
+        ));
+    }
+    for (label, a, b) in [("repo", &ts.2, &rust.2), ("backups", &ts.3, &rust.3)] {
+        let keys: std::collections::BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+        for key in keys {
+            if a.get(key) != b.get(key) {
+                let show = |v: Option<&(bool, Vec<u8>)>| {
+                    v.map_or("(absent)".to_owned(), |(x, bytes)| {
+                        format!("exec={x}\n{}", String::from_utf8_lossy(bytes))
+                    })
+                };
+                return Some(format!(
+                    "{label} {key}:\n--- ts ---\n{}\n--- rust ---\n{}",
+                    show(a.get(key)),
+                    show(b.get(key))
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// The TS command and the native one print the same bytes, provenance aside; `Ok(false)` when
@@ -926,6 +1096,46 @@ proptest! {
                 Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
                 Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
             }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(25))]
+
+    /// `render --apply`: the same report, the same tree written, the same backups and the same
+    /// `harnessVersion` bookkeeping (a pretty-printed config is canonical, a compact one is not).
+    // Covers: R14, R47
+    #[test]
+    fn render_apply_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.4),
+        extras in extras(),
+        canonical in prop::bool::ANY,
+        json in prop::bool::weighted(0.3),
+    ) {
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("apply");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        let mut text = extras.apply(&root, &config);
+        if canonical {
+            let value: Value = serde_json::from_str(&text).map_err(|e| TestCaseError::fail(e.to_string()))?;
+            text = format!("{}\n", serde_json::to_string_pretty(&value).map_err(|e| TestCaseError::fail(e.to_string()))?);
+        }
+        let setup = || {
+            build_repo(&root, &recipe);
+            extras.apply(&root, &config);
+            write(&root, "navori.config.json", &text);
+        };
+        match compare_apply(&root, &text, json, &setup) {
+            Ok(Some((ts, rust))) => {
+                if let Some(why) = apply_difference(&ts, &rust) {
+                    prop_assert!(false, "{why}\n{text}\n{recipe:?}\n{extras:?}");
+                }
+            }
+            Ok(None) => prop_assert!(unparseable_json(&root), "rust declined\n{text}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{text}\n{recipe:?}\n{extras:?}"),
         }
     }
 }

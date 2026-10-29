@@ -94,9 +94,10 @@
   预发布版本 `0.13.0-rust.<n>`。
 - **委托：** 未列入 `crates/ported.json` 的子命令交给 TS CLI（依次为 `NAVORI_TS_CLI`、本检出的
   `packages/cli/dist`、`PATH` 中的 `navori`）。请先运行 `bun run build`。
-- **原生命令：** 预览模式的 `render` 在仅 Claude、无 workspace 的根目录中以原生方式运行，支持
-  `--cwd`、`--dry-run` 与 `--json`，且仅在无颜色时（stdout 不是 TTY、未设置 `FORCE_COLOR`，且 `CI` 仅与 `NO_COLOR` 同时出现）；
-  其他情况在输出前委托。其来源行显示 `core: (embedded)`，原生命令在 spec 0060 之前不显示更新提示。
+- **原生命令：** `render` 在仅 Claude、无 workspace 的根目录中以原生方式运行，支持 `--cwd`、
+  `--dry-run`、`--json` 与 `--apply`，且仅在无颜色时（stdout 不是 TTY、未设置 `FORCE_COLOR`，且
+  `CI` 仅与 `NO_COLOR` 同时出现）；其他情况在输出前委托。若 `~/.navori/registry.json` 以其他名称
+  列出该仓库，apply 也会委托。其来源行显示 `core: (embedded)`，原生命令在 spec 0060 之前不显示更新提示。
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
   无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`

@@ -359,7 +359,7 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     }
     // A listed command with a flag outside its list is delegated.
     assert!(dispatch(&embedded, &invocation(&["--version"], &["json"])).is_none());
-    assert!(dispatch(&embedded, &invocation(&["render"], &["apply"])).is_none());
+    assert!(dispatch(&embedded, &invocation(&["render"], &["force"])).is_none());
     Ok(())
 }
 

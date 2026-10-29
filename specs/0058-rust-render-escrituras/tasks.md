@@ -181,6 +181,20 @@ solo lo ve Codex (Claude borra best-effort).
 - [ ] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
 - [ ] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
 
+T25, primera mitad (sin `force`): `render --apply` es nativo (flag `apply` en `ported.json`).
+`render::command::run_render` hace un `commitWrites` por paso (motor Claude con `CLAUDE.md` al
+final y remociones best-effort; cada ignore file con el suyo) antes de que el siguiente lea el
+disco, reescribe los avisos de colisión con la ruta del backup, registra `harnessVersion`
+(`config::record_harness_version`, forma canónica) solo con escrituras reales y avisa del cruce
+del presupuesto de `CLAUDE.md` (`render::doc_budget`, tablas comparadas con el TS). El apply se
+planea antes en preview, así que una re-delegación nunca llega después de escribir.
+`refreshRepoName` no se porta: cuando reescribiría el registro (el TS lo ordena con
+`localeCompare`) o `HOME` no sirve, el apply se delega antes de cualquier efecto. Un error de
+escritura imprime el mensaje de `RenderWriteError` y sale con 1; el formato de citty/consola del TS
+no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply en `fresh-init`,
+`drifted-block` y `claude-en`; proptest `render_apply_matches_the_ts_command` (stdout, stderr,
+árbol del repo y de backups); paridad de `measureDocBudget` y `recordHarnessVersion`.
+
 ### M9 — `sync` y `remove` no interactivos
 - **Consumes:** `bun run oracle:rust` → corrida completa del oráculo sobre todos los comandos del manifiesto y los fixtures de escritura
 - **A9** [observable] — todos los comandos portados con diferencial cero y cobertura completa · `bun run oracle:rust && bun run vitest run src/__tests__/rust-oracle.test.ts src/__tests__/rust-manifest-check.test.ts` → exit 0, 0 diferencias

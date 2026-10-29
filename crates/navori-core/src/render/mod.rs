@@ -10,6 +10,7 @@ pub mod claude_settings;
 pub mod collect;
 pub mod command;
 pub mod context;
+pub mod doc_budget;
 pub mod frontmatter;
 pub mod harness_files;
 pub mod harness_plan;
