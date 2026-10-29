@@ -887,3 +887,48 @@ describe("hook verdict corpus", () => {
     ).toMatchObject({ field: "event" });
   });
 });
+
+/** A committed corpus case with what the class table reads (spec 0060 R71). */
+interface ClassedCase extends Case {
+  args?: string[];
+  expected: { active: { event: Array<{ metadata?: Record<string, unknown> }> } };
+}
+
+/**
+ * Verdict class of a case: the audit verdicts of its active run (`verdict` or `verdict:reason`,
+ * joined by `>`), the same reading as the session hooks of spec 0059 D35.
+ */
+function verdictClass(c: ClassedCase): string {
+  return c.expected.active.event
+    .map(({ metadata = {} }) => {
+      const reason = metadata.reason;
+      return typeof reason === "string" && reason !== "unspecified" && reason !== ""
+        ? `${String(metadata.verdict)}:${String(reason)}`
+        : String(metadata.verdict);
+    })
+    .join(">");
+}
+
+/** Classes each phase-4 hook must have in the corpus, per engine and mode, before shadow (R71). */
+const PHASE4_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  { hook: "general-purpose-confirm.sh", engine: "claude", mode: "", classes: ["skip", "ask"] },
+  { hook: "general-purpose-confirm.sh", engine: "codex", mode: "", classes: ["skip", "deny"] },
+];
+
+describe("hook verdict corpus — phase 4 classes", () => {
+  // Covers: R71
+  it("general-purpose-confirm cubre cada clase de veredicto por engine", () => {
+    const corpus = replay.readCorpus() as ClassedCase[];
+    const missing = PHASE4_HOOK_CLASSES.flatMap(({ hook, engine, mode, classes }) => {
+      const seen = new Set(
+        corpus
+          .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+          .map((c) => verdictClass(c)),
+      );
+      return classes
+        .filter((cls) => !seen.has(cls))
+        .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+    });
+    expect(missing).toEqual([]);
+  });
+});
