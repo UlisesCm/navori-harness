@@ -21,11 +21,9 @@ use navori_core::manifest::{Hook, HookMode};
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::claude_settings::claude_hook_command;
-use navori_core::render::collect::RepoView;
-use navori_core::render::context::Lang;
-use navori_core::render::report::{
-    Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
-};
+use navori_core::render::collect::DiskView;
+use navori_core::render::command::{human_report, plan_render, render_json};
+use navori_core::render::report::Clack;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use regex::Regex;
@@ -63,47 +61,6 @@ static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-render-claude-{}", std::process::id()))
 });
 
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn symlink(&self, rel: &str) -> Option<bool> {
-        match std::fs::symlink_metadata(self.0.join(rel)) {
-            Ok(meta) => Some(meta.file_type().is_symlink()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
-
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
     if let Some(parent) = path.parent() {
@@ -128,7 +85,7 @@ fn plan_with(
         native_hooks,
         ..PlanOptions::default()
     };
-    plan_claude_engine(&Disk(root), &read.data, root, &options).ok()
+    plan_claude_engine(&DiskView(root), &read.data, root, &options).ok()
 }
 
 // --- golden -------------------------------------------------------------------------------
@@ -320,6 +277,73 @@ fn config() -> BoxedStrategy<String> {
         )
     })
     .boxed()
+}
+
+/// What the command reconciles beside the Claude engine: the root `.gitignore` mode and what
+/// the user already has, prettier, the user's `.prettierignore` and a disabled engine's outputs.
+#[derive(Debug, Clone)]
+struct Extras {
+    gitignore_mode: Option<&'static str>,
+    user_gitignore: u8,
+    prettier: bool,
+    user_prettierignore: bool,
+    orphans: bool,
+}
+
+fn extras() -> BoxedStrategy<Extras> {
+    (
+        prop::sample::select(vec![None, Some("off"), Some("minimal"), Some("full")]),
+        0u8..3,
+        prop::bool::ANY,
+        prop::bool::ANY,
+        prop::bool::ANY,
+    )
+        .prop_map(
+            |(gitignore_mode, user_gitignore, prettier, user_prettierignore, orphans)| Extras {
+                gitignore_mode,
+                user_gitignore,
+                prettier,
+                user_prettierignore,
+                orphans,
+            },
+        )
+        .boxed()
+}
+
+impl Extras {
+    /// Writes the extras into `root` and returns `config` with the `.gitignore` mode.
+    fn apply(&self, root: &Path, config: &str) -> String {
+        match self.user_gitignore {
+            0 => {}
+            1 => write(root, ".gitignore", "node_modules/\n.env\n"),
+            // A harness block edited by hand, under a hash that no longer matches.
+            _ => write(
+                root,
+                ".gitignore",
+                &format!(
+                    "# mine\n# navori:managed start id=\"gitignore-harness\" hash=\"00000000\" version=\"{STAMP_VERSION}\" source=\"@navori/core\"\nedited/\n# navori:managed end id=\"gitignore-harness\"\n"
+                ),
+            ),
+        }
+        if self.prettier {
+            write(
+                root,
+                "package.json",
+                r#"{"scripts":{"format":"prettier --write ."}}"#,
+            );
+        }
+        if self.user_prettierignore {
+            write(root, ".prettierignore", ".claude/\nCLAUDE.md\n");
+        }
+        if self.orphans {
+            write(root, "AGENTS.md", "# mine\n");
+            write(root, ".cursor/rules/mine.mdc", "mine\n");
+        }
+        match self.gitignore_mode {
+            Some(mode) => config.replacen('{', &format!(r#"{{"gitignoreHarness":"{mode}","#), 1),
+            None => config.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -639,64 +663,99 @@ fn report_prelude() -> String {
     )
 }
 
-/// `navori render --cwd <root>` (preview), its stdout captured.
+/// `navori render --cwd <root> [--json]` (preview), its stdout and stderr captured.
 static REPORT: Shared = Shared::new(
     report_prelude,
-    "const chunks = [];\n\
+    "const out = [];\n\
+     const err = [];\n\
      const write = process.stdout.write;\n\
+     const ewrite = process.stderr.write;\n\
      const exit = process.exit;\n\
-     process.stdout.write = (chunk) => { chunks.push(String(chunk)); return true; };\n\
+     process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
+     process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
      process.exit = (code) => { throw new Error('exit ' + code); };\n\
-     try { await r.renderCommand.run({ args: { cwd: request.root, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
-     catch (err) { return { threw: String(err && err.message || err) }; }\n\
-     finally { process.stdout.write = write; process.exit = exit; }\n\
-     return { out: chunks.join('') };",
+     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
+     catch (e) { return { threw: String(e && e.message || e) }; }\n\
+     finally { process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit; }\n\
+     return { out: out.join(''), err: err.join('') };",
 );
 
-/// The sections Rust prints for the Claude part of a preview, in order.
-fn report_sections(root: &Path, config: &str, plan: &ClaudeEnginePlan) -> Vec<String> {
-    let clack = Clack { unicode: true };
-    let language = config::read(config.as_bytes()).ok().and_then(|read| {
-        match navori_core::config::effective_config(&read.data) {
-            JsValue::Object(object) => match object.get("language") {
-                Some(JsValue::String(s)) => s.to_rust(),
-                _ => None,
-            },
-            _ => None,
-        }
-    });
-    let lang = Lang::resolve(language.as_deref());
-    let file = format!("{}/CLAUDE.md", root.display());
-    let mut sections = vec![
-        clack.intro("navori render"),
-        claude_md_section(clack, &file, plan, true, lang),
-    ];
-    sections.extend(engine_files_section(clack, plan));
-    sections.extend(lang_fallback_section(clack, plan, lang));
-    sections.extend(downgrade_section(clack, plan, lang));
-    sections
+/// The TS side's provenance, which names the `core-assets` it read, as Rust prints it (Q11).
+static PROVENANCE: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
+    [
+        (
+            r"(?m)^(\S+  )core: .+ \((?:dev sources|fuentes de dev|build copy|copia del build)\)$",
+            "${1}core: (embedded)",
+        ),
+        (
+            r#""coreRoot": "[^"]*",\n  "bundled": (?:true|false),"#,
+            "\"coreRoot\": \"(embedded)\",\n  \"bundled\": true,",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(pattern, replacement)| Some((Regex::new(pattern).ok()?, replacement)))
+    .collect()
+});
+
+fn mask_provenance(text: &str) -> String {
+    PROVENANCE
+        .iter()
+        .fold(text.to_owned(), |text, (pattern, replacement)| {
+            pattern.replace(&text, *replacement).into_owned()
+        })
 }
 
-/// Every Rust section appears verbatim and in order in the TS output, the intro first.
-fn sections_in_order(out: &str, sections: &[String]) -> Result<(), String> {
-    if !sections
-        .first()
-        .is_some_and(|intro| out.starts_with(intro.as_str()))
-    {
-        return Err(format!("intro differs:\n{out}"));
+/// The native command's stdout and stderr on `root`; `None` when it delegates.
+fn rust_command(root: &Path, config: &str, json: bool) -> Option<(String, String)> {
+    let read = config::read(config.as_bytes()).ok()?;
+    let plan = plan_render(&DiskView(root), &read, root, None).ok()?;
+    let cwd = root.to_str()?;
+    let stdout = if json {
+        format!("{}\n", render_json(cwd, &plan).stringify(Some(2))?)
+    } else {
+        human_report(Clack { unicode: true }, cwd, &plan)
+    };
+    let stderr: String = std::iter::repeat_n(&read.warnings, 2)
+        .flatten()
+        .map(|w| format!("{w}\n"))
+        .collect();
+    Some((stdout, stderr))
+}
+
+/// The TS command and the native one print the same bytes, provenance aside; `Ok(false)` when
+/// Rust delegates.
+fn compare_command(root: &Path, config: &str, json: bool) -> Result<bool, String> {
+    let ts = REPORT.ask(&json!({ "root": root.to_string_lossy(), "json": json }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        // Both refusing is agreement; the TS failing alone is not.
+        return match rust_command(root, config, json) {
+            None => Ok(true),
+            Some(_) => Err(format!("ts failed: {ts}")),
+        };
+    };
+    let Some((stdout, stderr)) = rust_command(root, config, json) else {
+        return Ok(false);
+    };
+    let out = mask_provenance(out);
+    if out != stdout {
+        let at = out
+            .bytes()
+            .zip(stdout.bytes())
+            .position(|(a, b)| a != b)
+            .unwrap_or(out.len().min(stdout.len()));
+        return Err(format!(
+            "stdout (json: {json}) differs at byte {at}\n--- ts ---\n{out}\n--- rust ---\n{stdout}"
+        ));
     }
-    let mut at = 0;
-    for section in sections {
-        match out[at..].find(section.as_str()) {
-            Some(found) => at += found + section.len(),
-            None => {
-                return Err(format!(
-                    "missing or out of order:\n{section}\n--- ts ---\n{out}"
-                ));
-            }
-        }
+    if err != stderr {
+        return Err(format!(
+            "stderr:\n--- ts ---\n{err}\n--- rust ---\n{stderr}"
+        ));
     }
-    Ok(())
+    Ok(true)
 }
 
 /// The wiring in both modes (D23: `guard-destructive` and `subagent-no-background` also in
@@ -806,22 +865,16 @@ fn render_report_matches_after_restamps() -> Result<(), String> {
                 "CLAUDE.md",
                 &rewrite_first_block(&text, "Older body."),
             );
-            let ts = REPORT.ask(&json!({ "root": root.to_string_lossy() }))?;
-            let out = ts
-                .get("out")
-                .and_then(Value::as_str)
-                .ok_or_else(|| format!("ts failed: {ts}"))?;
-            let rust = plan(&root, &config, None).ok_or("rust declined")?;
-            let sections = report_sections(&root, &config, &rust);
+            let (rust, _) = rust_command(&root, &config, false).ok_or("rust declined")?;
             if version == "999.0.0"
-                && !sections
-                    .iter()
-                    .any(|s| s.contains("(up to 999.0.0)") || s.contains("(hasta 999.0.0)"))
+                && !(rust.contains("(up to 999.0.0)") || rust.contains("(hasta 999.0.0)"))
             {
                 return Err(format!("{language}: no downgrade warning planned"));
             }
-            sections_in_order(out, &sections)
-                .map_err(|why| format!("{language} {version}: {why}"))?;
+            for json in [false, true] {
+                compare_command(&root, &config, json)
+                    .map_err(|why| format!("{language} {version}: {why}"))?;
+            }
         }
     }
     Ok(())
@@ -859,25 +912,20 @@ proptest! {
         config in config(),
         recipe in recipe(),
         same_config in prop::bool::weighted(0.4),
+        extras in extras(),
     ) {
         prop_assume!(!config.contains("codex"));
         let root = BASE.join("report");
         let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
         build_repo(&root, &recipe);
+        let config = extras.apply(&root, &config);
         write(&root, "navori.config.json", &config);
-        let ts = REPORT
-            .ask(&json!({ "root": root.to_string_lossy() }))
-            .map_err(TestCaseError::fail)?;
-        match (ts.get("out").and_then(Value::as_str), plan(&root, &config, None)) {
-            (Some(out), Some(rust)) => {
-                let sections = report_sections(&root, &config, &rust);
-                if let Err(why) = sections_in_order(out, &sections) {
-                    prop_assert!(false, "{why}\n{config}\n{recipe:?}");
-                }
+        for json in [false, true] {
+            match compare_command(&root, &config, json) {
+                Ok(true) => {}
+                Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+                Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
             }
-            (None, None) => {}
-            (_, None) => prop_assert!(unparseable_json(&root), "rust declined, ts: {ts}"),
-            (None, Some(_)) => prop_assert!(false, "ts failed: {ts}"),
         }
     }
 }

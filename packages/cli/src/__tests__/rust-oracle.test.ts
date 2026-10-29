@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,6 +39,7 @@ interface Rule {
 }
 interface Oracle {
   RULES: Rule[];
+  EMBEDDED_CORE: string;
   FIXTURES_DIR: string;
   CASES_PATH: string;
   normalizeText: (text: string) => string;
@@ -236,6 +245,100 @@ describe("rust oracle", () => {
       "0.13.0-rust.1\n",
     );
     expect(oracle.maskSide("v0.13.0-rust.10\n", "rust", ctx, stdout)).toBe("v0.13.0-rust.10\n");
+  });
+
+  // Covers: R41
+  it("la máscara de procedencia solo toca su línea literal", () => {
+    const ctx = { tsVersion: "0.12.2", rustVersion: "0.13.0-rust.1", tsCli: "/w/dist/index.js" };
+    const stdout = { stream: "stdout" as const, mask: ["provenance"] };
+    const embedded = `│  core: ${oracle.EMBEDDED_CORE}\n`;
+    const mask = (
+      text: string,
+      side: "ts" | "rust" = "ts",
+      where: { stream: "stdout" | "stderr" | "file"; mask: string[] } = stdout,
+    ): string => oracle.maskSide(text, side, ctx, where);
+    // the bundled TS line, in both languages, becomes the Rust one
+    expect(mask("│  core: /w/dist/assets/core (build copy)\n│  next\n")).toBe(
+      `${embedded}│  next\n`,
+    );
+    expect(mask("│  core: /w/dist/assets/core (copia del build)\n")).toBe(embedded);
+    expect(mask(`  "coreRoot": "/w/dist/assets/core",\n  "bundled": true,\n`)).toBe(
+      `  "coreRoot": "(embedded)",\n  "bundled": true,\n`,
+    );
+    // mutations: another root, the dev sources, a stale core, another key or another
+    // place in the line stay visible
+    for (const visible of [
+      "│  core: /x/dist/assets/core (build copy)\n",
+      "│  core: /w/dist/assets/core (dev sources)\n",
+      "│  core: /w/dist/assets/core (build copy) stale\n",
+      `  "pluginRoot": "/w/dist/assets/core",\n`,
+      `  "coreRoot": "/w/dist/assets/core/x",\n`,
+    ]) {
+      expect(mask(visible), visible).toBe(visible);
+    }
+    // only the TS side, only stdout, only the cases that ask for it
+    const line = "│  core: /w/dist/assets/core (build copy)\n";
+    expect(mask(line, "rust")).toBe(line);
+    expect(mask(line, "ts", { stream: "stderr", mask: ["provenance"] })).toBe(line);
+    expect(mask(line, "ts", { stream: "stdout", mask: [] })).toBe(line);
+  });
+
+  // Covers: R41, R49
+  it("cada comando portado tiene caso en cada fixture aplicable", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(here, "..", "..", "..", "..", "crates", "ported.json"), "utf8"),
+    ) as {
+      commands: Array<{ path: string[]; flags?: string[]; when?: { engines?: string[] } }>;
+    };
+    const cases = oracle.loadCases();
+    const fixtures = readdirSync(oracle.FIXTURES_DIR);
+    const ported = manifest.commands.filter((c) => c.when?.engines);
+    expect(ported.map((c) => c.path.join(" "))).toContain("render");
+    for (const command of ported) {
+      const engines = command.when?.engines ?? [];
+      const languages = new Set<string>();
+      for (const fixture of fixtures) {
+        const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
+        if (!existsSync(configPath)) continue;
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          engines?: string[];
+          language?: string;
+          monorepo?: { enabled?: boolean; workspaces?: unknown[] };
+        };
+        const workspaces =
+          config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+        const applicable =
+          !workspaces && (config.engines ?? ["claude"]).every((e) => engines.includes(e));
+        if (!applicable) continue;
+        // Cases inside the native subset: the command, then only its declared flags.
+        const declared = (args: string[]): boolean =>
+          args.every(
+            (arg, i) =>
+              (arg.startsWith("--") && (command.flags ?? []).includes(arg.slice(2))) ||
+              args[i - 1] === "--cwd",
+          );
+        const mine = cases.filter(
+          (c) =>
+            c.fixture === fixture &&
+            command.path.every((part, i) => c.args[i] === part) &&
+            declared(c.args.slice(command.path.length)),
+        );
+        const label = `${command.path.join(" ")} on ${fixture}`;
+        expect(
+          mine.some((c) => !c.args.includes("--json")),
+          label,
+        ).toBe(true);
+        if (command.flags?.includes("json")) {
+          expect(
+            mine.some((c) => c.args.includes("--json")),
+            `${label} --json`,
+          ).toBe(true);
+        }
+        for (const c of mine) expect(c.mask, c.id).toContain("provenance");
+        languages.add(config.language ?? "es");
+      }
+      expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);
+    }
   });
 
   // Covers: R9

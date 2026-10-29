@@ -213,6 +213,102 @@ pub const RENDER_NO_CHANGES: &str = "\u{2192} no changes";
 /// `render.engineFilesTitle`.
 pub const RENDER_ENGINE_FILES_TITLE: &str = "Engine files:";
 
+/// `render.previewWord`, the same in both languages.
+pub const RENDER_PREVIEW_WORD: &str = "Preview";
+
+/// `render.gitignoreTitle`.
+#[must_use]
+pub const fn render_gitignore_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => ".gitignore del harness:",
+        Lang::En => "Harness .gitignore:",
+    }
+}
+
+/// `render.prettierIgnoreTitle`.
+#[must_use]
+pub const fn render_prettier_ignore_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => ".prettierignore del harness:",
+        Lang::En => "Harness .prettierignore:",
+    }
+}
+
+/// `prettierIgnoreAlreadyCovered`.
+#[must_use]
+pub const fn prettier_ignore_already_covered(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "Prettier detectado: tu .prettierignore ya cubre los archivos del harness \u{2014} no toqu\u{e9} nada."
+        }
+        Lang::En => {
+            "Prettier detected: your .prettierignore already covers the harness files \u{2014} left untouched."
+        }
+    }
+}
+
+/// `render.orphanedEngineOutputs(count, list)`.
+#[must_use]
+pub fn render_orphaned_engine_outputs(lang: Lang, count: usize, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Outputs hu\u{e9}rfanos de engines desactivados ({count}) \u{2014} quedaron de un engine que ya no est\u{e1} en config.engines; render no los toca. Corre 'navori render --prune --apply' para borrarlos:\n{list}"
+        ),
+        Lang::En => format!(
+            "Orphaned outputs from disabled engines ({count}) \u{2014} left over from an engine no longer in config.engines; render never touches them. Run 'navori render --prune --apply' to delete them:\n{list}"
+        ),
+    }
+}
+
+/// `render.previewHint`.
+#[must_use]
+pub const fn render_preview_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "corre 'navori render --apply' para escribir",
+        Lang::En => "run 'navori render --apply' to write",
+    }
+}
+
+/// `render.upToDate`.
+#[must_use]
+pub const fn render_up_to_date(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Al d\u{ed}a",
+        Lang::En => "Up to date",
+    }
+}
+
+/// `render.upToDateHint`.
+#[must_use]
+pub const fn render_up_to_date_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "nada que aplicar",
+        Lang::En => "nothing to apply",
+    }
+}
+
+/// `render.skippedWord`.
+#[must_use]
+pub const fn render_skipped_word(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Con omisiones",
+        Lang::En => "Files skipped",
+    }
+}
+
+/// `render.skippedOutro(count)`.
+#[must_use]
+pub fn render_skipped_outro(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) que render se neg\u{f3} a sobrescribir \u{2014} el espejo NO est\u{e1} al d\u{ed}a; aj\u{fa}stalos a mano o mu\u{e9}velos aparte y corre 'navori render --apply'"
+        ),
+        Lang::En => format!(
+            "{count} file(s) render refused to overwrite \u{2014} the mirror is NOT up to date; adjust them by hand or move them aside and run 'navori render --apply'"
+        ),
+    }
+}
+
 /// `render.langFallback(list)`.
 #[must_use]
 pub fn render_lang_fallback(lang: Lang, list: &str) -> String {

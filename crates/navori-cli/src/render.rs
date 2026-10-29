@@ -10,13 +10,18 @@
 //! positional) delegates instead of guessing.
 
 use std::ffi::OsString;
+use std::io::{IsTerminal, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::ExitCode;
 
 use lexopt::Arg;
 use navori_core::config::{self, Config};
 use navori_core::js_json::JsValue;
 use navori_core::manifest::Command;
 use navori_core::render::claude_md::has_monorepo_workspaces;
+use navori_core::render::collect::DiskView;
+use navori_core::render::command::{human_report, plan_render, render_json};
+use navori_core::render::report::Clack;
 
 use crate::{NativeCall, Outcome};
 
@@ -143,9 +148,59 @@ pub fn gate(call: &NativeCall<'_>, base: &Path) -> Option<Admitted> {
     admit(parse_args(call.args, call.entry, base)?, call.entry)
 }
 
-/// The native `render`. The preview body is not ported yet, so every invocation is handed to the
-/// TS; no manifest entry selects `render` either.
+/// Whether the TS human report would print without any escape: picocolors (`isColorSupported`)
+/// and `util.styleText` (clack) both off. Only a non-TTY stdout without `FORCE_COLOR` and without
+/// a non-empty `CI` (unless `NO_COLOR` is non-empty) qualifies; a terminal always delegates, so
+/// the colored report stays the TS's.
 #[must_use]
-pub fn run(_: &NativeCall<'_>) -> Outcome {
-    Outcome::Delegate
+pub fn colorless(var: impl Fn(&str) -> Option<OsString>, stdout_tty: bool) -> bool {
+    let set = |name: &str| var(name).is_some_and(|value| !value.is_empty());
+    var("FORCE_COLOR").is_none() && !stdout_tty && (set("NO_COLOR") || !set("CI"))
+}
+
+/// The native `render` in preview: the plan of `runRenderCore`, the config warnings `readConfig`
+/// writes on each of its two reads, then the report. Any step that delegates does so before the
+/// first byte of output.
+#[must_use]
+pub fn run(call: &NativeCall<'_>) -> Outcome {
+    let Ok(base) = std::env::current_dir() else {
+        return Outcome::Delegate;
+    };
+    let Some(admitted) = gate(call, &base) else {
+        return Outcome::Delegate;
+    };
+    let json = admitted.args.json;
+    if !json
+        && !colorless(
+            |name| std::env::var_os(name),
+            std::io::stdout().is_terminal(),
+        )
+    {
+        return Outcome::Delegate;
+    }
+    let cwd = admitted.args.cwd;
+    let Some(cwd_text) = cwd.to_str() else {
+        return Outcome::Delegate;
+    };
+    let Ok(plan) = plan_render(&DiskView(&cwd), &admitted.config, &cwd, None) else {
+        return Outcome::Delegate;
+    };
+    let mut stderr = String::new();
+    for _ in 0..2 {
+        for warning in &admitted.config.warnings {
+            stderr.push_str(warning);
+            stderr.push('\n');
+        }
+    }
+    let stdout = if json {
+        let Some(text) = render_json(cwd_text, &plan).stringify(Some(2)) else {
+            return Outcome::Delegate;
+        };
+        format!("{text}\n")
+    } else {
+        human_report(Clack::from_env(), cwd_text, &plan)
+    };
+    let _ = std::io::stderr().write_all(stderr.as_bytes());
+    let _ = std::io::stdout().write_all(stdout.as_bytes());
+    Outcome::Exit(ExitCode::SUCCESS)
 }

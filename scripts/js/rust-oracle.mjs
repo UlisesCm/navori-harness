@@ -128,6 +128,10 @@ export const RULES = [
  *
  * - `notice`: the one-line delegation warning (D3) `navori-rust` prints before `exec`.
  * - `version`: the Rust version in the stdout of a command that runs natively.
+ * - `provenance` (spec 0058 D23, Q11): the TS names the `core-assets` root it read; Rust reads
+ *   embedded assets and prints `(embedded)`. Only the TS side's literal line `core: <root> (build
+ *   copy)` (or its Spanish form) and the `--json` value `"coreRoot": "<root>"` are rewritten,
+ *   with `<root>` the `assets/core` next to `tsCli`; a dev-sources or stale-core line stays visible.
  *
  * @param {string} text
  * @param {"ts" | "rust"} side
@@ -136,9 +140,12 @@ export const RULES = [
  */
 export function maskSide(text, side, ctx, where) {
   if (side !== "rust") {
+    let out = text;
+    if (where.mask.includes("provenance") && where.stream === "stdout")
+      out = replaceProvenance(out, ctx.tsCli);
     return where.mask.includes("version") && where.stream === "stdout"
-      ? replaceVersion(text, ctx.tsVersion)
-      : text;
+      ? replaceVersion(out, ctx.tsVersion)
+      : out;
   }
   let out = text;
   if (where.stream === "stderr") {
@@ -148,6 +155,19 @@ export function maskSide(text, side, ctx, where) {
   if (where.mask.includes("version") && where.stream === "stdout")
     out = replaceVersion(out, ctx.rustVersion);
   return out;
+}
+
+/** What Rust prints in place of the TS core root. */
+export const EMBEDDED_CORE = "(embedded)";
+
+function replaceProvenance(text, tsCli) {
+  const root = join(dirname(tsCli), "assets", "core");
+  let out = text;
+  for (const label of ["(build copy)", "(copia del build)"])
+    out = out.split(`core: ${root} ${label}\n`).join(`core: ${EMBEDDED_CORE}\n`);
+  return out
+    .split(`"coreRoot": ${JSON.stringify(root)},\n`)
+    .join(`"coreRoot": ${JSON.stringify(EMBEDDED_CORE)},\n`);
 }
 
 function replaceVersion(text, version) {

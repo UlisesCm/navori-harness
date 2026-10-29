@@ -8,6 +8,7 @@ pub mod claude_files;
 pub mod claude_md;
 pub mod claude_settings;
 pub mod collect;
+pub mod command;
 pub mod context;
 pub mod frontmatter;
 pub mod harness_files;

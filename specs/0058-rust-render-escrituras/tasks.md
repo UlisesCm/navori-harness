@@ -138,8 +138,8 @@ intermitente (3/5 aislado) por un presupuesto de 1 ms.
 ### M6 — Comando `render` en preview (sin esperar a E1: Q14)
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
-- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
-- [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
+- [x] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
+- [x] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
 
 Preparación de M6 integrada en la parte 2 (#1438), sin entrada en el manifiesto: `NativeCommand.run`
 recibe el argv y la entrada que lo seleccionó y devuelve `Exit` o `Delegate`; `navori-cli::render`
@@ -147,10 +147,18 @@ parsea en estricto (`cwd`, `dry-run`, `json`; cualquier otra forma delega) y re-
 cualquier salida con config ausente o inválida, engines fuera de `when.engines`, workspaces o un
 directorio inexistente; por ahora `run` siempre delega. `render::ignore_files` porta
 `renderGitignore`, `ensurePrettierIgnore` y `scanOrphanedEngineOutputs` con paridad contra el TS.
-Falta en la parte 3: la salida humana y `--json` (procedencia `core: (embedded)`; en `--json`,
-`coreRoot`/`bundled`/`staleCore` necesitan la misma decisión de máscara que T20) y T18.
-- [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
-- [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
+M6 cerrado en la parte 3 (A6 verde: 18 casos de `render`, 0 diferencias). `render::command`
+ensambla el plan de `runRenderCore` (Claude, `.gitignore` raíz y anidados, `.prettierignore`,
+huérfanos), el reporte humano y el `--json` (`coreRoot: "(embedded)"`, `bundled: true`,
+`staleCore: null`); `collect::DiskView` es la vista de producción. Los avisos de `readConfig` salen
+dos veces a stderr, como las dos lecturas del TS. El reporte humano solo es nativo sin color (stdout
+no TTY, sin `FORCE_COLOR` y `CI` solo con `NO_COLOR`); una terminal delega. La máscara `provenance`
+del oráculo reescribe solo el lado TS. T18 se verifica corriendo el binario sin TS disponible y
+comparando los árboles del repo, el home y `NAVORI_BACKUP_ROOT` antes y después: el preview no
+pasa por la capa `Fs`, así que `RecordingFs` llega con el commit de M8. Fixture nuevo `claude-en`
+(inglés, `.gitignore` en modo `full`, prettier, huérfano `AGENTS.md`, clave desconocida).
+- [x] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
+- [x] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
 
 ### M7 — Capa `Fs`, backup y poda
 - **A7** [observable] — los tests de D15 pasan sobre registro y disco real · `cargo test -p navori-core --features fault-injection --test fs --locked` → exit 0

@@ -98,6 +98,10 @@ stay TypeScript-only.
   `navori-rust --version` reports the internal prerelease `0.13.0-rust.<n>`.
 - **Delegation:** a subcommand missing from `crates/ported.json` goes to the TS CLI (`NAVORI_TS_CLI`,
   then this checkout's `packages/cli/dist`, then `navori` in `PATH`). Run `bun run build` first.
+- **Native commands:** `render` in preview runs natively on a Claude-only root without
+  workspaces, with `--cwd`, `--dry-run` and `--json`, and only without color (a non-TTY stdout,
+  no `FORCE_COLOR`, and `CI` only with `NO_COLOR`); anything else delegates before printing. Its provenance line reads
+  `core: (embedded)`, and native commands skip the update notice until spec 0060.
 - **Native hooks:** a hook in `ported.json` runs natively only where `navori-rust` is in `PATH`;
   otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and
   `NAVORI_HOOK_IMPL=rust` forces native evaluation, failing instead of deferring. Shadow
