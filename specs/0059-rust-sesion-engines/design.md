@@ -1,6 +1,6 @@
 # Migración a Rust, fase 3: hooks de sesión y engines restantes — Design
 
-**Estado:** aceptado; Q14–Q18 resueltas por el usuario (§ "Decisiones del usuario") · **Fecha:**
+**Estado:** aceptado; Q14–Q19 resueltas por el usuario (§ "Decisiones del usuario") · **Fecha:**
 2026-10-27 · **Base verificada:** `origin/migration/rust` = `702be44f` (merge de #1433). Las
 afirmaciones sobre `crates/` también se contrastaron con `origin/feat/0058-rust-e3-delivery`
 (#1434, borrador) y con #1432. Las referencias citan archivo y símbolo, no línea.
@@ -194,6 +194,8 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
   en `shadow` y pasa a la fase 4 (R61), sin abrir un PR más en esta fase.
 - **Alternativa de dos PRs:** llevar E3 a la fase 4 junto con los hooks de la cola larga. Ahorra un
   PR a cambio de retrasar la ganancia de latencia hasta 0060 (Q17).
+- **Enmienda (Q19, 2026-10-28):** se adopta la alternativa. E3 pasa a 0060 con las activaciones de
+  0057 (T27) y 0058 (E1), en un solo PR con la sombra acumulada; quedan dos PRs, E1 y E2.
 
 ### D29 — Extensión Pi como asset derivado (R67, R10)
 
@@ -449,7 +451,7 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
 - **M7 —** Pi: asset derivado (D29) y propiedad (D38).
 - **M8 —** `render`, `sync`, `remove --yes` y `adopt` con `when.engines` ampliado; R19 (D39).
 
-### E3 — Activación de los hooks de sesión (→ `migration/rust`; tras E1, la ventana de sombra y 0058 E1)
+### E3 — Activación de los hooks de sesión (movida a 0060 por Q19)
 
 - **M9 —** Evidencia por hook y engine (R60) y activación de los que la cumplen; los demás, a la fase
   4 (R61).
@@ -499,6 +501,7 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
 | Q16 | R19 por igualdad de árbol más humo de carga (D39) |
 | Q17 | Tres PRs (E1, E2, E3) contra `migration/rust`, con la rama actualizada entre cada uno |
 | Q18 | Toda la fase sin subagentes; sin challenge del `auditor`; revisión independiente en cada PR |
+| Q19 | (2026-10-28) La ventana de sombra no bloquea el cierre de fases: E3 (activación, R60 y R61) pasa a 0060 junto con T27 de 0057 y E1 de 0058; quedan dos PRs, E1 y E2. Enmienda Q17 |
 
 ## Preguntas (resueltas)
 
