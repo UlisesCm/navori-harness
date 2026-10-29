@@ -68,7 +68,7 @@ pub struct Admitted {
 }
 
 /// `path.resolve(base, value)`: lexical, without touching the disk.
-fn resolve(base: &Path, value: &Path) -> PathBuf {
+pub(crate) fn resolve(base: &Path, value: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in base.join(value).components() {
         match component {

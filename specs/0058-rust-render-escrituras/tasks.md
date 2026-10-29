@@ -178,8 +178,15 @@ solo lo ve Codex (Claude borra best-effort).
 - **Consumes:** `bun run oracle:rust --only apply` → ejecuta `render --apply` y `adopt --apply` nativos (capa `Fs` de M7) contra el TS
 - **A8** [observable] — escrituras nativas con diferencial cero, matriz incluida · `bun run oracle:rust --only apply && bun run oracle:rust --only anti-rollback` → exit 0, 0 diferencias
 - [x] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
-- [ ] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
+- [x] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
 - [ ] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
+
+T26 cerrada: `adopt` es nativo con `apply` y `cwd` (`navori_core::adopt`: `planAdoption` con las
+rutas de `path.resolve`/`path.relative` de Node y `listMarkers`; el apply hace el backup y luego
+`writeFileSync`, no atómico como el TS, y registra `harnessVersion`). Delega sin ruta posicional,
+con config inválida, con color o sin raíz de backups. Pruebas: fixture `adopt` (preview, apply,
+ya adoptado y cada rechazo), `adopt_parity.rs` contra `planAdoption` y el parseo en
+`navori-cli/tests/adopt.rs`.
 
 T25 cerrada: `render --apply` y `--force` son nativos (flags `apply` y `force` en `ported.json`);
 `force` llega a `settings.json`, `.mcp.json`, el wiring nativo de settings y los ignore files,

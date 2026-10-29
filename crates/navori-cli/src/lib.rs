@@ -1,5 +1,6 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
+pub mod adopt;
 pub mod commands;
 pub mod delegate;
 pub mod facts_cache;
@@ -68,6 +69,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
+    },
+    NativeCommand {
+        path: &["adopt"],
+        run: adopt::run,
     },
 ];
 

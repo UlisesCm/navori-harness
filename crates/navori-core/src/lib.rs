@@ -9,6 +9,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// written by Rust look newer than the TS CLI and freeze it behind the anti-rollback guard.
 pub const STAMP_VERSION: &str = env!("NAVORI_TS_CLI_VERSION");
 
+pub mod adopt;
 pub mod audit;
 pub mod backup;
 pub mod commit;

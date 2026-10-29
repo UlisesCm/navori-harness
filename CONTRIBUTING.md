@@ -104,6 +104,8 @@ stay TypeScript-only.
   apply also delegates when `~/.navori/registry.json` lists the repo under another name. Its
   provenance line reads `core: (embedded)`, and native commands skip the update notice until
   spec 0060.
+- **`adopt`** is native with `--apply` and `--cwd` (a positional path, a valid config or none,
+  a usable backup root, no color).
 - **Native hooks:** a hook in `ported.json` runs natively only where `navori-rust` is in `PATH`;
   otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and
   `NAVORI_HOOK_IMPL=rust` forces native evaluation, failing instead of deferring. Shadow

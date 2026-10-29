@@ -98,6 +98,8 @@
   `--dry-run`、`--json`、`--apply` 与 `--force`，且仅在无颜色时（stdout 不是 TTY、未设置 `FORCE_COLOR`，且
   `CI` 仅与 `NO_COLOR` 同时出现）；其他情况在输出前委托。若 `~/.navori/registry.json` 以其他名称
   列出该仓库，apply 也会委托。其来源行显示 `core: (embedded)`，原生命令在 spec 0060 之前不显示更新提示。
+- **`adopt`** 以原生方式运行，支持 `--apply` 与 `--cwd`（一个位置参数路径、有效配置或无配置、可用的
+  备份根目录，且无颜色）。
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
   无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`

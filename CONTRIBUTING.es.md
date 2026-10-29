@@ -237,6 +237,8 @@ siguen siendo solo TypeScript.
   también se delega cuando `~/.navori/registry.json` lista el repo con otro nombre. Su línea de
   procedencia dice `core: (embedded)` y los comandos nativos omiten el aviso de actualización
   hasta la spec 0060.
+- **`adopt`** es nativo con `--apply` y `--cwd` (una ruta posicional, config válida o ninguna,
+  raíz de backups usable y sin color).
 - **Hooks nativos:** un hook de `ported.json` corre nativo solo donde `navori-rust` está en `PATH`;
   si no, corre el shell renderizado. `NAVORI_HOOK_IMPL=shell` fuerza el shell y
   `NAVORI_HOOK_IMPL=rust` fuerza la evaluación nativa, que falla en vez de diferir. Las

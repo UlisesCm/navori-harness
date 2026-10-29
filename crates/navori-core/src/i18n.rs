@@ -243,6 +243,85 @@ pub fn harness_version_not_recorded(outcome: &str) -> String {
     )
 }
 
+/// `adopt.refused[reason](path)`.
+#[must_use]
+pub fn adopt_refused(lang: Lang, reason: crate::adopt::AdoptRefusal, path: &str) -> String {
+    use crate::adopt::AdoptRefusal as R;
+    match (lang, reason) {
+        (Lang::Es, R::OutsideRepo) => format!(
+            "'{path}' est\u{e1} fuera del repo. navori solo escribe dentro del repositorio: lo de afuera se resuelve a mano, o se asume."
+        ),
+        (Lang::En, R::OutsideRepo) => format!(
+            "'{path}' is outside the repo. navori only writes inside the repository: what lives out there you resolve yourself, or live with."
+        ),
+        (Lang::Es, R::Missing) => format!("'{path}' no existe."),
+        (Lang::En, R::Missing) => format!("'{path}' does not exist."),
+        (Lang::Es, R::NotAFile) => format!("'{path}' no es un archivo."),
+        (Lang::En, R::NotAFile) => format!("'{path}' is not a file."),
+        (Lang::Es, R::NotAdoptablePath) => format!(
+            "'{path}' no es un asset del harness. Adoptar solo aplica a archivos .md bajo .claude/ \u{2014} escribir un marcador en cualquier otro archivo es un riesgo sin beneficio."
+        ),
+        (Lang::En, R::NotAdoptablePath) => format!(
+            "'{path}' is not a harness asset. Adoption only applies to .md files under .claude/ \u{2014} writing a marker into any other file is risk with no upside."
+        ),
+        (Lang::Es, R::AlreadyManaged) => format!(
+            "'{path}' ya lleva un bloque managed, as\u{ed} que no es un archivo hecho a mano. Si el bloque es de otra herramienta, resu\u{e9}lvelo t\u{fa} antes."
+        ),
+        (Lang::En, R::AlreadyManaged) => format!(
+            "'{path}' already carries a managed block, so it is not a hand-made file. If the block belongs to another tool, resolve that first."
+        ),
+    }
+}
+
+/// `adopt.alreadyAdopted(path)`.
+#[must_use]
+pub fn adopt_already_adopted(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{path}' ya estaba adoptado \u{2014} sin cambios."),
+        Lang::En => format!("'{path}' was already adopted \u{2014} no changes."),
+    }
+}
+
+/// `adopt.preview(path, id)`.
+#[must_use]
+pub fn adopt_preview(lang: Lang, path: &str, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "envolver\u{ed}a '{path}' en un bloque managed id=\"{id}\", dejando su contenido intacto"
+        ),
+        Lang::En => format!(
+            "would wrap '{path}' in a managed block id=\"{id}\", leaving its content untouched"
+        ),
+    }
+}
+
+/// `adopt.previewHint`.
+#[must_use]
+pub const fn adopt_preview_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Preview: no se escribi\u{f3} nada. Vuelve a correrlo con --apply.",
+        Lang::En => "Preview: nothing was written. Run it again with --apply.",
+    }
+}
+
+/// `adopt.adopted(path, id)`.
+#[must_use]
+pub fn adopt_adopted(lang: Lang, path: &str, id: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{path}' adoptado (bloque managed id=\"{id}\")."),
+        Lang::En => format!("'{path}' adopted (managed block id=\"{id}\")."),
+    }
+}
+
+/// `adopt.backupAt(path)`.
+#[must_use]
+pub fn adopt_backup_at(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!("Backup en {path}"),
+        Lang::En => format!("Backup at {path}"),
+    }
+}
+
 /// `render.gitignoreTitle`.
 #[must_use]
 pub const fn render_gitignore_title(lang: Lang) -> &'static str {
