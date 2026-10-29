@@ -21,6 +21,14 @@
         "subagent-no-background-base": "sha256:ecdca022cba414f887c19433fc8d6ca34672e6e3f70b30bd3500ac9ebb0a7f0e"
       },
       "impl": "sha256:eefab0264e966929704ce5725699080411a60d6fdbb959c867585cbff9a4a16a"
+    },
+    "general-purpose-confirm": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "general-purpose-confirm-base": "sha256:d4bb6163f26cd30623bd959fcf474145f6ff0acf19a68edbfdca991941891231"
+      },
+      "impl": "sha256:1a5aa62e2ab6319ddfad41be36eb1f323f3b104fcff082a07ac1b00efdfa72fd"
     }
   }
 }
