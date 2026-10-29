@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod delegate;
 pub mod facts_cache;
+pub mod gate_probe;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;
@@ -22,18 +23,18 @@ use parser::Invocation;
 pub struct NativeCommand {
     /// Command path, equal to the manifest entry's `path`.
     pub path: &'static [&'static str],
-    /// The implementation.
-    pub run: fn() -> ExitCode,
+    /// The implementation, given the whole argv; `None` hands it to the TS before any output (D3).
+    pub run: fn(&[OsString]) -> Option<ExitCode>,
 }
 
-fn print_version() -> ExitCode {
+fn print_version(_: &[OsString]) -> Option<ExitCode> {
     println!("{}", navori_core::VERSION);
-    ExitCode::SUCCESS
+    Some(ExitCode::SUCCESS)
 }
 
-fn print_root_help() -> ExitCode {
+fn print_root_help(_: &[OsString]) -> Option<ExitCode> {
     print!("{}", help::root_help(navori_core::VERSION));
-    ExitCode::SUCCESS
+    Some(ExitCode::SUCCESS)
 }
 
 /// Every native implementation in this build.
@@ -45,6 +46,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["--help"],
         run: print_root_help,
+    },
+    NativeCommand {
+        path: &["gate", "probe"],
+        run: gate_probe::run,
     },
 ];
 
@@ -88,8 +93,8 @@ pub fn run(args: &[OsString]) -> ExitCode {
         }
     };
     let invocation = parser::parse(args);
-    if let Some(native) = dispatch(&manifest, &invocation) {
-        return (native.run)();
+    if let Some(code) = dispatch(&manifest, &invocation).and_then(|native| (native.run)(args)) {
+        return code;
     }
     let subcommand = args
         .first()

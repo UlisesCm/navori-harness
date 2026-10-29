@@ -11,13 +11,18 @@ pub const STAMP_VERSION: &str = env!("NAVORI_TS_CLI_VERSION");
 
 pub mod audit;
 pub mod config;
+pub mod content_identity;
+pub mod gate;
 pub mod i18n;
 pub mod integrity;
 pub mod js_json;
 pub mod manifest;
 pub mod markers;
+pub mod posix;
+pub mod process;
 pub mod render;
 pub mod semver;
+pub mod state_root;
 mod zod;
 
 /// Embedded managed assets as `(repo-relative path, bytes)`, sorted by path.

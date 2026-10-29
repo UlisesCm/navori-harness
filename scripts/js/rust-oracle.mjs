@@ -59,7 +59,8 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[] }} OracleCase
+ * @typedef {{ navori: string[] } | { write: string, content: string } | { git: string[] }} SetupStep
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], setup?: SetupStep[] }} OracleCase
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -359,8 +360,8 @@ export function hermeticEnv(work, tsCli) {
   };
 }
 
-/** Deterministic `git init` + one commit of the fixture (D5). */
-function gitInit(repo, env) {
+/** Runs git in `repo` with a fixed identity and dates; throws on failure. */
+function git(repo, env, args) {
   const identity = {
     ...env,
     GIT_AUTHOR_NAME: "oracle",
@@ -370,13 +371,43 @@ function gitInit(repo, env) {
     GIT_COMMITTER_EMAIL: "oracle@example.invalid",
     GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
   };
+  const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
+  if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+}
+
+/** Deterministic `git init` + one commit of the fixture (D5). */
+function gitInit(repo, env) {
   for (const args of [
     ["init", "-q", "-b", "main"],
     ["add", "-A"],
     ["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
   ]) {
-    const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
-    if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+    git(repo, env, args);
+  }
+}
+
+/**
+ * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
+ * from), `write` lays a file, `git` runs git. Any failure aborts the case.
+ *
+ * @param {string} repo
+ * @param {Record<string, string>} env
+ * @param {Runner} ts
+ * @param {SetupStep[]} steps
+ */
+function applySetup(repo, env, ts, steps) {
+  for (const step of steps) {
+    if ("navori" in step) {
+      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env, input: "" });
+      if (run.status !== 0)
+        throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("write" in step) {
+      const path = join(repo, step.write);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, step.content);
+    } else {
+      git(repo, env, step.git);
+    }
   }
 }
 
@@ -399,26 +430,45 @@ export function copyFixture(from, to) {
 }
 
 /**
- * Wipes `work`, lays out a fresh copy of the fixture and the state roots, and runs `runner`.
+ * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
  *
  * @param {string} work
- * @param {Runner} runner
  * @param {OracleCase} testCase
- * @param {string} tsCli
- * @param {string} fixturesDir
- * @returns {Outcome}
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string }} opts
  */
-function runOnce(work, runner, testCase, tsCli, fixturesDir) {
+function layout(work, testCase, opts) {
   rmSync(work, { recursive: true, force: true });
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
-  copyFixture(join(fixturesDir, testCase.fixture), repo);
+  copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
   writeFileSync(join(work, "gitconfig"), "");
-  const env = hermeticEnv(work, tsCli);
+  const env = hermeticEnv(work, opts.tsCli);
   gitInit(repo, env);
+  applySetup(repo, env, opts.ts, testCase.setup ?? []);
+}
+
+/**
+ * Lays out `work` (from `template` when given: a setup's output is laid out once, so files it
+ * names after the clock are the same for both runners) and runs `runner`.
+ *
+ * @param {string} work
+ * @param {Runner} runner
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string }} opts
+ * @returns {Outcome}
+ */
+function runOnce(work, runner, testCase, opts) {
+  if (opts.template) {
+    rmSync(work, { recursive: true, force: true });
+    cpSync(opts.template, work, { recursive: true, verbatimSymlinks: true });
+  } else {
+    layout(work, testCase, opts);
+  }
+  const repo = join(work, "repo");
+  const env = hermeticEnv(work, opts.tsCli);
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
@@ -448,10 +498,17 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCase(testCase, opts) {
-  const fixturesDir = opts.fixturesDir ?? FIXTURES_DIR;
+  const layoutOpts = { ts: opts.ts, tsCli: opts.tsCli, fixturesDir: opts.fixturesDir ?? FIXTURES_DIR };
   const work = join(opts.base, "w");
-  const ts = runOnce(work, opts.ts, testCase, opts.tsCli, fixturesDir);
-  const rust = runOnce(work, opts.rust, testCase, opts.tsCli, fixturesDir);
+  if (testCase.setup) {
+    layoutOpts.template = join(opts.base, "template");
+    layout(work, testCase, layoutOpts);
+    rmSync(layoutOpts.template, { recursive: true, force: true });
+    cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
+  }
+  const ts = runOnce(work, opts.ts, testCase, layoutOpts);
+  const rust = runOnce(work, opts.rust, testCase, layoutOpts);
+  if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
   rmSync(work, { recursive: true, force: true });
   return {

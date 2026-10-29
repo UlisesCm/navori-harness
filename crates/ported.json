@@ -1,6 +1,10 @@
 {
   "schema": 1,
-  "commands": [{ "path": ["--version"] }, { "path": ["--help"] }],
+  "commands": [
+    { "path": ["--version"] },
+    { "path": ["--help"] },
+    { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] }
+  ],
   "hooks": {
     "guard-destructive": {
       "mode": "shadow",

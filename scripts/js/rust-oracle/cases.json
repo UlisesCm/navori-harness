@@ -21,6 +21,23 @@
     { "id": "monorepo:render-apply", "fixture": "monorepo", "args": ["render", "--apply"] },
     { "id": "monorepo:scan", "fixture": "monorepo", "args": ["scan"] },
     { "id": "pi:render-apply", "fixture": "pi", "args": ["render", "--apply"] },
-    { "id": "delegation:ported-command-unported-flag", "fixture": "empty", "args": ["--version", "--bogus-flag"] }
+    { "id": "delegation:ported-command-unported-flag", "fixture": "empty", "args": ["--version", "--bogus-flag"] },
+    { "id": "gate-probe:sin-cache", "fixture": "gate", "args": ["gate", "probe"] },
+    { "id": "gate-probe:sin-cache-clean", "fixture": "gate", "args": ["gate", "probe", "--clean"] },
+    { "id": "gate-probe:sin-config", "fixture": "empty", "args": ["gate", "probe"] },
+    { "id": "gate-probe:fuera-del-checkout", "fixture": "gate", "args": ["gate", "probe", "--cwd", "../home"] },
+    { "id": "gate-probe:limpio", "fixture": "gate", "args": ["gate", "probe"], "setup": [{ "navori": ["gate", "fast"] }] },
+    { "id": "gate-probe:limpio-index", "fixture": "gate", "args": ["gate", "probe", "--index"], "setup": [{ "navori": ["gate", "fast"] }] },
+    { "id": "gate-probe:limpio-clean", "fixture": "gate", "args": ["gate", "probe", "--clean"], "setup": [{ "navori": ["gate", "fast"] }] },
+    { "id": "gate-probe:limpio-cwd-subdir", "fixture": "gate", "args": ["gate", "probe", "--clean", "--cwd=src"], "setup": [{ "navori": ["gate", "fast"] }] },
+    { "id": "gate-probe:full-cubre-fast", "fixture": "gate", "args": ["gate", "probe", "--clean"], "setup": [{ "navori": ["gate", "full"] }] },
+    { "id": "gate-probe:sucio", "fixture": "gate", "args": ["gate", "probe"], "setup": [{ "navori": ["gate", "fast"] }, { "write": "src/app.txt", "content": "two\n" }] },
+    { "id": "gate-probe:sucio-index", "fixture": "gate", "args": ["gate", "probe", "--index"], "setup": [{ "navori": ["gate", "fast"] }, { "write": "src/app.txt", "content": "two\n" }] },
+    { "id": "gate-probe:sucio-clean", "fixture": "gate", "args": ["gate", "probe", "--clean"], "setup": [{ "navori": ["gate", "fast"] }, { "write": "src/app.txt", "content": "two\n" }] },
+    { "id": "gate-probe:sucio-staged-index", "fixture": "gate", "args": ["gate", "probe", "--index"], "setup": [{ "navori": ["gate", "fast"] }, { "write": "src/app.txt", "content": "two\n" }, { "git": ["add", "-A"] }] },
+    { "id": "gate-probe:untracked-clean", "fixture": "gate", "args": ["gate", "probe", "--clean"], "setup": [{ "write": "src/new.txt", "content": "new\n" }, { "navori": ["gate", "fast"] }] },
+    { "id": "gate-probe:record-ilegible", "fixture": "gate", "args": ["gate", "probe"], "setup": [{ "write": ".navori/state/gate/results.json", "content": "{" }] },
+    { "id": "gate-probe:aviso-de-config", "fixture": "gate", "args": ["gate", "probe"], "setup": [{ "write": "navori.config.json", "content": "{\"name\":\"x\",\"version\":\"1.0.0\",\"engines\":[\"claude\"],\"bogus\":1,\"qualityGate\":{\"fast\":\"true\",\"full\":\"true\"}}\n" }] },
+    { "id": "gate-probe:flag-no-portado", "fixture": "gate", "args": ["gate", "probe", "--force"], "setup": [{ "navori": ["gate", "fast"] }] }
   ]
 }
