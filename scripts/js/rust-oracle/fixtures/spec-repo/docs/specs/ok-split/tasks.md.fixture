@@ -1,0 +1,21 @@
+# Tasks
+
+## E1 — Core (foundation)
+Estimated LOC: 1,200
+
+### M1 — Parser
+- **Consumes:** `bun run x` → reads the parser
+- **A1** [observable] — parses the file · `bun test parser` → exit 0
+- [x] **T1** (R1) — parser · effect: behavior · test: `src/a.test.ts`::"parses" · more
+- [ ] **T2** (R2, R1) — docs · effect: docs · test: `README.md`::"Parser"
+
+## E2: Command
+**Estimated LOC:** ~300
+
+### M2 Command
+- **A2** — the command answers
+  `navori x --json`
+  → `{"ok":true}` on stdout
+- [ ] **T3** (R3) — command
+  effect: Behavior
+  test: `src/b.test.ts`::"answers"

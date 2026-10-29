@@ -59,7 +59,8 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[] }} OracleCase
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], native?: boolean }} OracleCase
+ *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -398,6 +399,33 @@ export function copyFixture(from, to) {
   }
 }
 
+/** Fixture name of the checkout's own `specs/` and `navori.config.json` (spec 0060 T5). */
+export const REPO_SPECS_FIXTURE = "@repo-specs";
+
+/** @param {string} to */
+function copyRepoSpecs(to) {
+  mkdirSync(to, { recursive: true });
+  cpSync(join(REPO_ROOT, "specs"), join(to, "specs"), { recursive: true, verbatimSymlinks: true });
+  cpSync(join(REPO_ROOT, "navori.config.json"), join(to, "navori.config.json"));
+}
+
+/**
+ * `spec check --json` over every spec of the checkout: the real specs, not only the fixtures. The
+ * JSON carries the parse, the classification and every finding.
+ *
+ * @returns {OracleCase[]}
+ */
+export function repoSpecCases() {
+  return readdirSync(join(REPO_ROOT, "specs"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
+    .map((entry) => ({
+      id: `repo-specs:${entry.name}`,
+      fixture: REPO_SPECS_FIXTURE,
+      args: ["spec", "check", entry.name, "--json"],
+      native: true,
+    }));
+}
+
 /**
  * Wipes `work`, lays out a fresh copy of the fixture and the state roots, and runs `runner`.
  *
@@ -412,11 +440,14 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
   rmSync(work, { recursive: true, force: true });
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
-  copyFixture(join(fixturesDir, testCase.fixture), repo);
+  if (testCase.fixture === REPO_SPECS_FIXTURE) copyRepoSpecs(repo);
+  else copyFixture(join(fixturesDir, testCase.fixture), repo);
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
-  writeFileSync(join(work, "gitconfig"), "");
+  // No detached auto-maintenance after the fixture commit: it would keep writing under `.git/`
+  // while the next run wipes the work dir, and its packs are not output of either CLI.
+  writeFileSync(join(work, "gitconfig"), "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n");
   const env = hermeticEnv(work, tsCli);
   gitInit(repo, env);
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
@@ -451,7 +482,8 @@ export function runCase(testCase, opts) {
   const fixturesDir = opts.fixturesDir ?? FIXTURES_DIR;
   const work = join(opts.base, "w");
   const ts = runOnce(work, opts.ts, testCase, opts.tsCli, fixturesDir);
-  const rust = runOnce(work, opts.rust, testCase, opts.tsCli, fixturesDir);
+  const rustCli = testCase.native ? decoyCli(opts.base) : opts.tsCli;
+  const rust = runOnce(work, opts.rust, testCase, rustCli, fixturesDir);
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
   rmSync(work, { recursive: true, force: true });
   return {
@@ -462,8 +494,49 @@ export function runCase(testCase, opts) {
 }
 
 /**
+ * A TS CLI that only reports it was reached: a `native` case that delegates prints this instead of
+ * the TS output (and a delegation notice naming this path), so the difference is never silent.
+ *
+ * @param {string} base
+ * @returns {string}
+ */
+function decoyCli(base) {
+  const path = join(base, "decoy", "dist", "index.js");
+  if (!existsSync(path)) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'process.stderr.write("rust-oracle: delegated to the TS\\n");\nprocess.exitCode = 97;\n');
+  }
+  return path;
+}
+
+/**
+ * Whether the manifest selects `args` for native execution, as `parser.rs` and
+ * `Manifest::select` read them: the leading positionals as the path and the option names, without
+ * dashes, value or `no-` prefix, as the flags.
+ *
+ * @param {{ commands: Array<{ path: string[], flags?: string[] }> }} manifest
+ * @param {string[]} args
+ */
+export function selectsNative(manifest, args) {
+  if (args.length === 1 && ["--version", "--help", "-h"].includes(args[0])) {
+    return manifest.commands.some((c) => c.path.join(" ") === (args[0] === "-h" ? "--help" : args[0]));
+  }
+  const first = args.findIndex((a) => a.startsWith("-"));
+  const path = first === -1 ? args : args.slice(0, first);
+  const flags = args
+    .filter((a) => a.startsWith("-") && a !== "--")
+    .flatMap((a) =>
+      a.startsWith("--") ? [a.slice(2).split("=")[0].replace(/^no-/, "")] : [...a.slice(1)],
+    );
+  return manifest.commands.some(
+    (c) =>
+      c.path.every((token, i) => path[i] === token) && flags.every((f) => (c.flags ?? []).includes(f)),
+  );
+}
+
+/**
  * Cases to run: the hand-written ones plus one per entry of the CLI surface golden. A surface case
- * whose args are a native command of the manifest masks the Rust version (see {@link maskSide}).
+ * the manifest selects natively masks the Rust version (see {@link maskSide}).
  *
  * @param {{ casesPath?: string, goldenPath?: string, manifestPath?: string }} [paths]
  * @returns {OracleCase[]}
@@ -472,14 +545,13 @@ export function loadCases(paths = {}) {
   const casesFile = JSON.parse(readFileSync(paths.casesPath ?? CASES_PATH, "utf8"));
   const golden = JSON.parse(readFileSync(paths.goldenPath ?? SURFACE_GOLDEN, "utf8"));
   const manifest = JSON.parse(readFileSync(paths.manifestPath ?? MANIFEST_PATH, "utf8"));
-  const native = new Set(manifest.commands.map((c) => c.path.join(" ")));
   const surface = golden.cases.map((c) => ({
     id: `surface:${c.args.join("_")}`,
     fixture: casesFile.surfaceFixture,
     args: c.args,
-    ...(native.has(c.args.join(" ")) ? { mask: ["version"] } : {}),
+    ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
   }));
-  return [...casesFile.cases, ...surface];
+  return [...casesFile.cases, ...surface, ...repoSpecCases()];
 }
 
 /** `version` of the workspace package in the root `Cargo.toml`. */

@@ -1,0 +1,5 @@
+## E1 — Only
+Estimated LOC: 5
+### M1 — Only
+- **A1** `x` → y
+- [ ] **T1** (R1) — x · effect: behavior · test: `t`

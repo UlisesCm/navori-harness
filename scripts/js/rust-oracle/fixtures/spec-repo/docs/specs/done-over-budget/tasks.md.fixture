@@ -1,0 +1,12 @@
+## E1 — A
+### M1 — a
+- **A1** [observable] `a` → ok
+- [x] **T1** (R1) — a · effect: behavior
+## E2 — B
+### M2 — b
+- **A2** [observable] `b` -> ok
+- [x] **T2** (R1) — b · effect: behavior
+## E3 — C
+### M3 — c
+- **A3** [OBSERVABLE] `c` → ok
+- [X] **T3** (R1) — c · effect: behavior

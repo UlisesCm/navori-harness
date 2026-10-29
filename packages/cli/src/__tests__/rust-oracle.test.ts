@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,6 +32,7 @@ interface OracleCase {
   fixture: string;
   args: string[];
   mask?: string[];
+  native?: boolean;
 }
 interface Rule {
   name: string;
@@ -32,6 +41,11 @@ interface Rule {
 interface Oracle {
   RULES: Rule[];
   FIXTURES_DIR: string;
+  REPO_SPECS_FIXTURE: string;
+  selectsNative: (
+    manifest: { commands: Array<{ path: string[]; flags?: string[] }> },
+    args: string[],
+  ) => boolean;
   CASES_PATH: string;
   normalizeText: (text: string) => string;
   maskSide: (
@@ -48,6 +62,7 @@ interface Oracle {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, "..", "..", "..", "..");
 const oracle = (await import(
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "rust-oracle.mjs")).href
 )) as Oracle;
@@ -244,6 +259,7 @@ describe("rust oracle", () => {
     const user = cases.find((c) => c.id === "user-content-outside-markers");
     expect(user, "case user-content-outside-markers").toBeDefined();
     for (const c of cases) {
+      if (c.fixture === oracle.REPO_SPECS_FIXTURE) continue;
       expect(existsSync(join(oracle.FIXTURES_DIR, c.fixture)), `fixture of ${c.id}`).toBe(true);
     }
     // the fixture really has hand-written content outside the markers
@@ -263,5 +279,41 @@ describe("rust oracle", () => {
     // natively ported commands mask the Rust version; delegated ones mask nothing
     expect(surface.find((c) => c.id === "surface:--version")?.mask).toEqual(["version"]);
     expect(surface.find((c) => c.id === "surface:init_--help")?.mask).toBeUndefined();
+    expect(surface.find((c) => c.id === "surface:spec_--help")?.mask).toEqual(["version"]);
+  });
+
+  // Covers: R73
+  it("spec check y classify sobre las specs reales y fixtures con errores", () => {
+    const cases = oracle.loadCases();
+    const real = cases.filter((c) => c.fixture === oracle.REPO_SPECS_FIXTURE);
+    const specs = readdirSync(join(root, "specs"), { withFileTypes: true }).filter(
+      (e) => e.isDirectory() && !e.name.startsWith("_"),
+    );
+    expect(real.map((c) => c.args[2]).sort()).toEqual(specs.map((e) => e.name).sort());
+    expect(real.every((c) => c.native === true && c.args[1] === "check")).toBe(true);
+    const fixtures = cases.filter((c) => c.id.startsWith("spec:"));
+    for (const sub of ["check", "classify"]) {
+      expect(fixtures.some((c) => c.args[1] === sub && c.args.includes("--json") && c.native)).toBe(
+        true,
+      );
+      expect(
+        fixtures.some((c) => c.args[1] === sub && !c.args.includes("--json") && c.native),
+      ).toBe(true);
+    }
+    expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
+    // A spec of a master plan is `master`'s (M3): that case must stay delegated.
+    expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
+  });
+
+  // Covers: R7
+  it("selectsNative lee argv como el parser y el manifiesto", () => {
+    const manifest = {
+      commands: [{ path: ["--help"] }, { path: ["spec", "check"], flags: ["json", "help"] }],
+    };
+    expect(oracle.selectsNative(manifest, ["-h"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "x", "--json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--no-json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--cwd=x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["spec", "classify"])).toBe(false);
   });
 });
