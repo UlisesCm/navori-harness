@@ -57,8 +57,11 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  * `--summarize <report.json ...>` groups comparable, provenance-bearing reports by head and
  * prints per-cell medians; it exits 1 when any report is not admissible.
  *
+ * `--hook <id>.sh` (repeatable) keeps only those registrations; a name no selected scenario
+ * registers is an error, never an empty pass.
+ *
  * Usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N]
- *          [--scenario NAME ...] [--root DIR]
+ *          [--scenario NAME ...] [--hook NAME.sh ...] [--root DIR]
  *        node scripts/js/bench-hooks.mjs --summarize <report.json> ...
  */
 
@@ -202,6 +205,40 @@ export function selectHooks(registrations, scenario, engine) {
     // Matchers are regexes by contract, read from the repo's own hook registrations (trusted, not user input).
     return new RegExp(pattern).test(subject); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   });
+}
+
+/**
+ * Registrations narrowed to the `--hook` names. Each requested name must fire in at least one
+ * selected scenario and engine, so a typo or an unregistered hook fails instead of measuring nothing.
+ *
+ * @param {Registration[]} registrations
+ * @param {string[]} scenarios
+ * @param {string[] | undefined} hooks `<id>.sh` names; undefined keeps every registration
+ * @returns {Registration[]}
+ */
+export function filterHooks(registrations, scenarios, hooks) {
+  if (hooks === undefined) return registrations;
+  const kept = registrations.filter((reg) => hooks.includes(hookName(reg)));
+  const fired = new Set(
+    scenarios.flatMap((scenario) =>
+      /** @type {Engine[]} */ (["claude", "codex", "pi"]).flatMap((engine) =>
+        selectHooks(kept, scenario, engine).map(hookName),
+      ),
+    ),
+  );
+  const missing = hooks.filter((hook) => !fired.has(hook));
+  if (missing.length > 0) {
+    throw new Error(`--hook not registered in the selected scenarios: ${missing.join(", ")}`);
+  }
+  return kept;
+}
+
+/** The `<id>.sh` a registered command runs.
+ * @param {Registration} reg
+ * @returns {string}
+ */
+function hookName(reg) {
+  return /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
 }
 
 /**
@@ -694,7 +731,7 @@ export function writePayload(sandbox, scenario, reg) {
 
 /** Parse the implementation selector without silently falling back to shell.
  * @param {string[]} argv
- * @returns {{ impl: "shell" | "rust", reportOnly: boolean, runs: number, scenarios: string[], audit?: AuditScenario, root?: string }}
+ * @returns {{ impl: "shell" | "rust", reportOnly: boolean, runs: number, scenarios: string[], hooks?: string[], audit?: AuditScenario, root?: string }}
  */
 export function parseBenchArgs(argv) {
   /** @type {"shell" | "rust"} */
@@ -705,6 +742,7 @@ export function parseBenchArgs(argv) {
   let runs;
   let root;
   const requested = [];
+  const hooks = [];
   const allScenarios = { ...SCENARIOS, ...SUPPLEMENTAL_SCENARIOS };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -735,6 +773,10 @@ export function parseBenchArgs(argv) {
         throw new Error("--scenario needs a known scenario name");
       }
       requested.push(value);
+    } else if (arg === "--hook") {
+      const value = argv[++index];
+      if (!/^[\w-]+\.sh$/.test(value ?? "")) throw new Error("--hook needs a hook file name");
+      hooks.push(value);
     } else if (arg === "--root") {
       const value = argv[++index];
       if (root !== undefined || value === undefined || value === "" || value.startsWith("--")) {
@@ -754,6 +796,7 @@ export function parseBenchArgs(argv) {
     root,
     runs: runs ?? (impl === "rust" ? 40 : 3),
     scenarios: requested.length > 0 ? [...new Set(requested)] : Object.keys(allScenarios),
+    ...(hooks.length > 0 ? { hooks: [...new Set(hooks)] } : {}),
   };
 }
 
@@ -822,7 +865,7 @@ async function signedAssets() {
  * @param {ReturnType<typeof parseBenchArgs>} options
  * @returns {Promise<number>}
  */
-async function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
+async function benchRust({ scenarios, hooks, runs, reportOnly, audit = "absent" }) {
   if (audit !== "absent") {
     throw new Error(
       `native audit ${audit} unsupported: CLI-writer fixtures and log validation are pending`,
@@ -840,7 +883,7 @@ async function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
     if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
     throw error;
   }
-  const registrations = readRegistrations();
+  const registrations = filterHooks(readRegistrations(), scenarios, hooks);
   const sandbox = createSandbox();
   const loadBefore = loadavg();
   const measurements = [];
@@ -848,7 +891,7 @@ async function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
     for (const scenario of scenarios) {
       for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
         for (const reg of selectHooks(registrations, scenario, engine)) {
-          const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
+          const hook = hookName(reg);
           // Only ported hooks have a native implementation to time; the rest stay shell-only.
           if (!native.registered(hook)) continue;
           const directory = {
@@ -907,6 +950,7 @@ async function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
     comparable: isComparable(loadBefore, cpus),
     runs,
     scenarios,
+    ...(hooks ? { hooks } : {}),
     budget: { metric: "wallMsP95", limitMs: RUST_P95_BUDGET_MS },
     measurements,
   };
@@ -968,7 +1012,13 @@ export async function main(argv) {
     );
     return 2;
   }
-  const registrations = readRegistrations(sourceRoot);
+  let registrations;
+  try {
+    registrations = filterHooks(readRegistrations(sourceRoot), scenarios, options.hooks);
+  } catch (error) {
+    process.stderr.write(`bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
   const sandbox = createSandbox(sourceRoot, { requireDist: true });
   const provenance = { ...readProvenance(sourceRoot), observer: readProvenance(REPO_ROOT).head };
   const loadBefore = loadavg();
@@ -979,7 +1029,7 @@ export async function main(argv) {
       for (const engine of /** @type {Engine[]} */ (["claude", "codex", "pi"])) {
         for (const reg of selectHooks(registrations, scenario, engine)) {
           const payloadPath = writePayload(sandbox, scenario, reg);
-          const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
+          const hook = hookName(reg);
           for (const audit of /** @type {AuditScenario[]} */ (["absent", "root", "active"])) {
             const timed = Array.from({ length: runs }, () =>
               timeOnce(
@@ -1047,6 +1097,7 @@ export async function main(argv) {
     provenance,
     runs,
     scenarios,
+    ...(options.hooks ? { hooks: options.hooks } : {}),
     budgetMs: BASH_BUDGET_MS,
     sums,
     measurements,

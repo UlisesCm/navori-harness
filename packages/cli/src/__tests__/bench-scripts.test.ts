@@ -93,8 +93,14 @@ interface BenchHooks {
     impl: "shell" | "rust";
     runs: number;
     scenarios: string[];
+    hooks?: string[];
     reportOnly: boolean;
   };
+  filterHooks: (
+    registrations: Registration[],
+    scenarios: string[],
+    hooks: string[] | undefined,
+  ) => Registration[];
   p95: (samples: number[]) => number;
   SCENARIOS: Record<string, unknown>;
   SUPPLEMENTAL_SCENARIOS: Record<string, unknown>;
@@ -624,6 +630,39 @@ describe("bench scripts", () => {
     } finally {
       fixture.cleanup();
     }
+  });
+
+  // Covers: R55
+  it("bench --hook acota las registrations y rechaza un hook que no dispara", () => {
+    const reg = (engine: Registration["engine"], hook: string, matcher = "Bash"): Registration => ({
+      engine,
+      event: "PreToolUse",
+      matcher,
+      command: `bash ".${engine}/hooks/${hook}"`,
+    });
+    const all = [
+      reg("claude", "guard-destructive.sh"),
+      reg("claude", "quality-gate-pre-commit.sh"),
+      reg("codex", "quality-gate-pre-commit.sh"),
+      reg("claude", "edit-only.sh", "Edit"),
+    ];
+    expect(
+      hooksModule.parseBenchArgs(["--hook", "quality-gate-pre-commit.sh", "--hook", "a.sh"]),
+    ).toMatchObject({ hooks: ["quality-gate-pre-commit.sh", "a.sh"] });
+    expect(hooksModule.parseBenchArgs([]).hooks).toBeUndefined();
+    for (const args of [["--hook"], ["--hook", "../x.sh"], ["--hook", "quality-gate"]]) {
+      expect(() => hooksModule.parseBenchArgs(args), args.join(" ")).toThrow(/--hook/);
+    }
+    expect(hooksModule.filterHooks(all, ["Bash"], undefined)).toBe(all);
+    expect(hooksModule.filterHooks(all, ["Bash"], ["quality-gate-pre-commit.sh"])).toEqual([
+      all[1],
+      all[2],
+    ]);
+    // Registered, but not for the selected scenario: measuring nothing must not pass.
+    expect(() => hooksModule.filterHooks(all, ["Bash"], ["edit-only.sh"])).toThrow(
+      /not registered in the selected scenarios: edit-only\.sh/,
+    );
+    expect(() => hooksModule.filterHooks(all, ["Bash"], ["missing.sh"])).toThrow(/missing\.sh/);
   });
 
   it("bench valida impl estrictamente y conserva shell por default y su API CPU", () => {
