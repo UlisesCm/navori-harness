@@ -639,9 +639,74 @@ pub fn parse(text: &str) -> ParsedTasks {
     result
 }
 
+/// A delivery as `plan gate` reads it: its id and its milestone ids, in file order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryOutline {
+    pub id: String,
+    pub milestones: Vec<String>,
+}
+
+/// The structure `plan gate` reads of a `tasks.md` (spec 0059 D33): format, deliveries with their
+/// milestones, and how many orphan and malformed items it refuses.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TasksOutline {
+    /// `true` for the delivery format, `false` for `legacy`.
+    pub deliveries_format: bool,
+    pub deliveries: Vec<DeliveryOutline>,
+    pub orphan_tasks: usize,
+    pub orphan_criteria: usize,
+    pub malformed: usize,
+    pub legacy_task_count: usize,
+}
+
+/// [`parse`] reduced to what `plan gate` reads. Always `Some`: the `Option` keeps the contract of
+/// the regex-based parser 0059 E1 ships, whose `None` meant a pattern that failed to compile.
+#[must_use]
+pub fn parse_tasks(text: &str) -> Option<TasksOutline> {
+    let parsed = parse(text);
+    Some(TasksOutline {
+        deliveries_format: parsed.format == Format::Deliveries,
+        deliveries: parsed
+            .deliveries
+            .iter()
+            .map(|d| DeliveryOutline {
+                id: d.id.clone(),
+                milestones: d.milestones.iter().map(|m| m.id.clone()).collect(),
+            })
+            .collect(),
+        orphan_tasks: parsed.orphan_tasks.len(),
+        orphan_criteria: parsed.orphan_criteria.len(),
+        malformed: parsed.malformed.len(),
+        legacy_task_count: parsed.legacy_task_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_tasks_outlines_what_plan_gate_reads() {
+        let text = "## E1 \u{2014} A\n### M1 \u{2014} a\n- **A1** `a` \u{2192} b\n- [ ] **T1** (R1) x\n\
+                    ### M2\n## Notes\n- [ ] **T9** orphan\n- **A9** orphan `c` \u{2192} d\n- [ ] no id\n";
+        assert_eq!(
+            parse_tasks(text),
+            Some(TasksOutline {
+                deliveries_format: true,
+                deliveries: vec![DeliveryOutline {
+                    id: "E1".to_owned(),
+                    milestones: vec!["M1".to_owned(), "M2".to_owned()],
+                }],
+                orphan_tasks: 1,
+                orphan_criteria: 1,
+                malformed: 1,
+                legacy_task_count: 3,
+            })
+        );
+        let legacy = parse_tasks("- [ ] one\n- [x] two\n").unwrap_or_default();
+        assert!(!legacy.deliveries_format);
+        assert_eq!(legacy.legacy_task_count, 2);
+    }
 
     #[test]
     fn heading_keeps_the_js_lazy_title() {
