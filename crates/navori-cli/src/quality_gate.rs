@@ -74,13 +74,25 @@ fn executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
+/// The program Bash runs for `name` from `dir`: the first executable along `PATH`.
+pub(crate) fn resolve(env: &[(OsString, OsString)], name: &str, dir: &str) -> Option<PathBuf> {
+    let path = env_text(env, "PATH")?;
+    entries(path, dir)
+        .map(|d| d.join(name))
+        .find(|c| executable(c))
+}
+
+/// `command -v name` for a name without `/` and no function or builtin: any non-directory
+/// file along `PATH` from `dir`.
+pub(crate) fn on_path(env: &[(OsString, OsString)], name: &str, dir: &str) -> bool {
+    env_text(env, "PATH").is_some_and(|path| {
+        entries(path, dir).any(|d| fs::metadata(d.join(name)).is_ok_and(|meta| !meta.is_dir()))
+    })
+}
+
 impl SystemGate<'_> {
-    /// The program Bash runs for `name` from `dir`: the first executable along `PATH`.
     fn resolve(&self, name: &str, dir: &str) -> Option<PathBuf> {
-        let path = env_text(self.env, "PATH")?;
-        entries(path, dir)
-            .map(|d| d.join(name))
-            .find(|c| executable(c))
+        resolve(self.env, name, dir)
     }
 
     /// `$PWD`-relative `GIT_INDEX_FILE` made absolute, as the probe passes it.
@@ -120,10 +132,7 @@ impl Gate for SystemGate<'_> {
             };
             return executable(&path);
         }
-        let Some(path) = env_text(self.env, "PATH") else {
-            return false;
-        };
-        entries(path, dir).any(|d| fs::metadata(d.join(name)).is_ok_and(|meta| !meta.is_dir()))
+        on_path(self.env, name, dir)
     }
 
     fn probe_hit(&self, dir: &str) -> bool {

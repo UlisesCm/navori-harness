@@ -10,6 +10,7 @@ pub mod hook_facts;
 pub mod journal;
 pub mod parser;
 pub mod plan_gate;
+pub mod plan_gate_hook;
 pub mod quality_gate;
 pub mod shadow;
 

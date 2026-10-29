@@ -1,5 +1,19 @@
-# navori:managed start id="plan-gate-base" hash="52a22b31" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:fb896b700e6da9d5cbcc6eb234d893a49cd83c7b03d897e1465bdddbf35d703b impl=sha256:00a0c02d31ce150c2a7d077aa181346e92d99f8a71dd6f68aba58de0bfe3e559
+# navori:managed start id="plan-gate-base" hash="0dcf0afc" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: plan-gate native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: plan-gate could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: plan-gate native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Agent) gate — spec 0032 (#1011), R16/R17/R19: while
 # `harness.planTiers` is `true`, the orchestrator may not dispatch the

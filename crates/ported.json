@@ -34,6 +34,14 @@
         "qg-pre-commit-base": "sha256:d3c7042757072656ceba4b9000acb37e492a3a48098d22a735bc0bf09c21b631"
       },
       "impl": "sha256:ef99f5f6c9da3b13f053fdb59142ecec1b927e837525caae5abe6c8df3ef1eb3"
+    },
+    "plan-gate": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "plan-gate-base": "sha256:91c2a84f8ea30a96660917681b3a2f39e84d3cec8bebace16f7c2eea1948b3c6"
+      },
+      "impl": "sha256:00a0c02d31ce150c2a7d077aa181346e92d99f8a71dd6f68aba58de0bfe3e559"
     }
   }
 }
