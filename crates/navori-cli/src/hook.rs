@@ -56,7 +56,7 @@ pub struct NativeHook {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 3]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -73,6 +73,14 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             handler: Handler::Prepared(hook_facts::prepare_guard_destructive),
             phase: "PreToolUse",
             tool: Some("Bash"),
+        },
+        NativeHook {
+            id: "general-purpose-confirm",
+            implementation: navori_hooks::compiled::implementation_hash("general-purpose-confirm")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(hook_facts::prepare_general_purpose_confirm),
+            phase: "PreToolUse",
+            tool: Some("Agent"),
         },
     ]
 });

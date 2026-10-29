@@ -1,5 +1,19 @@
-# navori:managed start id="general-purpose-confirm-base" hash="6a7d4b08" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:e4e5bb1d68f1a81beb27336d36a316fa530dc99caeed436ac1d741d26cd5a93c impl=sha256:1a5aa62e2ab6319ddfad41be36eb1f323f3b104fcff082a07ac1b00efdfa72fd
+# navori:managed start id="general-purpose-confirm-base" hash="b6f914f5" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: general-purpose-confirm native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: general-purpose-confirm could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: general-purpose-confirm native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Agent|spawn_agent): dispatching `general-purpose` is raised to a user
 # confirmation that names the `scout` (spec 0039 R40).
