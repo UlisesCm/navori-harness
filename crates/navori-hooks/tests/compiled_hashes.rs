@@ -50,7 +50,7 @@ impl Fixture {
         let module =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/js/rust-manifest-check.mjs");
         let output = Command::new("node")
-            .args(["--experimental-transform-types", "--input-type=module", "-e", "const { implementationHash } = await import(process.argv[2]); process.stdout.write(implementationHash(process.argv[3], process.argv[4]));", "hash-probe"])
+            .args(["--input-type=module", "-e", "const { implementationHash } = await import(process.argv[2]); process.stdout.write(implementationHash(process.argv[3], process.argv[4]));", "hash-probe"])
             .arg(module).arg(&self.0).arg(id).output()?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
