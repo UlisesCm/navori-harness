@@ -13,6 +13,7 @@ pub mod frontmatter;
 pub mod harness_files;
 pub mod harness_plan;
 pub mod hook_includes;
+pub mod ignore_files;
 pub mod interpolate;
 pub mod library_skills;
 pub mod managed_file;

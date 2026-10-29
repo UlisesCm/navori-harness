@@ -160,6 +160,19 @@ pub const fn gitignore_header(lang: Lang) -> &'static str {
     }
 }
 
+/// `render.prettierIgnoreHeader`.
+#[must_use]
+pub const fn prettier_ignore_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "# .prettierignore gestionado por navori. El bloque de abajo evita que el formateador\n# reescriba los archivos del harness e invalide el hash de sus bloques managed.\n# Edita fuera del bloque con libertad.\n"
+        }
+        Lang::En => {
+            "# .prettierignore managed by navori. The block below keeps the formatter from\n# rewriting the harness files and invalidating their managed blocks' hashes.\n# Edit freely outside the block.\n"
+        }
+    }
+}
+
 /// `engine.settingsNotObject`.
 #[must_use]
 pub const fn settings_not_object(lang: Lang) -> &'static str {
