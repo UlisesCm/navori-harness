@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parte P1",
+      "objective": "Objetivo de P1",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "comando",
+          "command": {
+            "run": "bun t",
+            "expected": "0"
+          },
+          "evidence": null
+        }
+      ],
+      "scope": [
+        "alcance uno",
+        "alcance dos"
+      ],
+      "outOfScope": [
+        "fuera de alcance"
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Parte P2",
+      "objective": "con {{stage}} y {{desconocido}} literal",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "comando",
+          "command": {
+            "run": "bun t",
+            "expected": "0"
+          },
+          "evidence": null
+        }
+      ],
+      "dependsOn": [
+        "P1"
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Título {{partId}} y $& y $1 y `código`",
+      "objective": "Objetivo de P3",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "comando",
+          "command": {
+            "run": "bun t",
+            "expected": "0"
+          },
+          "evidence": null
+        }
+      ]
+    }
+  ]
+}
