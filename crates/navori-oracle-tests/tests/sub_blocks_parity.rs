@@ -20,7 +20,7 @@ use navori_core::js_json::JsValue;
 use navori_core::markers::{InjectOptions, MarkerMeta, inject_managed_section};
 use navori_core::render::agent_mcp_tools::{with_agent_mcp_tools, without_agent_mcp_tools};
 use navori_core::render::claude_files::collect_claude_files;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::harness_files::{collect_harness_files, filter_inventory};
 use navori_core::render::harness_plan::resolve_harness_plan;
@@ -78,47 +78,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-sub-blocks-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn symlink(&self, rel: &str) -> Option<bool> {
-        match std::fs::symlink_metadata(self.0.join(rel)) {
-            Ok(meta) => Some(meta.file_type().is_symlink()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -267,7 +226,7 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
         _ => return None,
     };
     let lang = Lang::resolve(string_at(&config, "language").as_deref());
-    let view = Disk(root);
+    let view = DiskView(root);
     let plan = filter_inventory(resolve_harness_plan(
         &config,
         preset.as_ref(),

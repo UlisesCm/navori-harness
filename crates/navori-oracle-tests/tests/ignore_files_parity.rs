@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
 use navori_core::js_json;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::ignore_files::{
     ENGINE_OUTPUTS, IgnoreFile, engine_output_paths, engine_owned_paths, plan_gitignore,
@@ -63,47 +63,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-ignore-files-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn symlink(&self, rel: &str) -> Option<bool> {
-        match std::fs::symlink_metadata(self.0.join(rel)) {
-            Ok(meta) => Some(meta.file_type().is_symlink()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -281,7 +240,7 @@ proptest! {
         }
         let lang = if es { "es" } else { "en" };
         let l = Lang::resolve(Some(lang));
-        let view = Disk(&root);
+        let view = DiskView(&root);
         let rust = json!([
             summary(plan_gitignore(&view, &config, force, l, floor)),
             summary(plan_prettierignore(&view, &config, force, l, floor)),
