@@ -19,6 +19,7 @@ pub mod integrity;
 pub mod js_json;
 pub mod manifest;
 pub mod markers;
+pub mod master;
 pub mod render;
 pub mod semver;
 pub mod spec;
