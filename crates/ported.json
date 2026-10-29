@@ -3,7 +3,8 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
-    { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] }
+    { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
+    { "path": ["plan", "gate"] }
   ],
   "hooks": {
     "guard-destructive": {

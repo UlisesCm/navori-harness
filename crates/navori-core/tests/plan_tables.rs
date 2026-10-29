@@ -225,3 +225,15 @@ fn locate_spec_dir_accepts_and_rejects_like_the_ts() {
     }
     report("locateSpecDir", &bad);
 }
+
+#[test]
+fn the_roles_the_gate_never_gates_are_the_ts_roster() {
+    let table = table();
+    let ts = strings(&table["nonImplementerRoles"]);
+    let rust: Vec<String> = navori_core::plan::roster::NON_IMPLEMENTER_ROLES
+        .iter()
+        .map(|r| (*r).to_owned())
+        .collect();
+    assert!(!ts.is_empty(), "the table has no roster");
+    assert_eq!(rust, ts);
+}

@@ -60,7 +60,7 @@ const RUN_TIMEOUT_MS = 120_000;
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[] } | { write: string, content: string } | { git: string[] }} SetupStep
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], setup?: SetupStep[] }} OracleCase
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], setup?: SetupStep[] }} OracleCase
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -388,7 +388,9 @@ function gitInit(repo, env) {
 
 /**
  * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
- * from), `write` lays a file, `git` runs git. Any failure aborts the case.
+ * from), `write` lays a file, `git` runs git. Any failure aborts the case. In `write` content,
+ * `@NOW_ISO@` becomes the current `toISOString()`: the setup runs once and both sides copy its
+ * output, so a time-bound file (a dispatch marker) is identical and fresh for both.
  *
  * @param {string} repo
  * @param {Record<string, string>} env
@@ -404,7 +406,7 @@ function applySetup(repo, env, ts, steps) {
     } else if ("write" in step) {
       const path = join(repo, step.write);
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, step.content);
+      writeFileSync(path, step.content.replaceAll("@NOW_ISO@", new Date().toISOString()));
     } else {
       git(repo, env, step.git);
     }
@@ -468,7 +470,8 @@ function runOnce(work, runner, testCase, opts) {
     layout(work, testCase, opts);
   }
   const repo = join(work, "repo");
-  const env = hermeticEnv(work, opts.tsCli);
+  // A case's `env` (e.g. `NAVORI_HOOK_ENGINE`) applies to the measured run only.
+  const env = { ...hermeticEnv(work, opts.tsCli), ...testCase.env };
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,

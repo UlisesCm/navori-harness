@@ -11,6 +11,7 @@ import {
 import { parseExpected } from "../../../packages/cli/src/lib/plan/expected.ts";
 import { locateSpecDir } from "../../../packages/cli/src/lib/spec/locate.ts";
 import { parseTasks } from "../../../packages/cli/src/lib/spec/tasks.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../../packages/cli/src/engines/shared/roster.ts";
 
 /**
  * Spec 0059 T10: the TS answers for the pure plan helpers `plan gate` uses, written as a table the
@@ -192,6 +193,7 @@ function table() {
       globs,
       hits: PATHS.filter((path) => matchesCriticalPaths([path], globs)),
     })),
+    nonImplementerRoles: NON_IMPLEMENTER_ROLES,
     parseTasks: [
       ...TASK_TEXTS.map((text, i) => ({ name: `edge-${i}`, text })),
       ...realTasks(),

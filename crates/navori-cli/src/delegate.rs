@@ -275,6 +275,64 @@ pub fn exec(plan: &Plan, args: &[OsString]) -> ExitCode {
     ExitCode::from(EXIT_NO_TS)
 }
 
+/// Like [`run`] for a native command that already read its stdin: the TS child gets those exact
+/// bytes on a pipe, inherits stdout and stderr, and its exit status becomes ours (a signal
+/// becomes 128 + its number, as a shell reports it).
+#[must_use]
+pub fn run_with_stdin(args: &[OsString], subcommand: &str, stdin: &[u8]) -> ExitCode {
+    use std::io::Write as _;
+    use std::os::unix::process::ExitStatusExt as _;
+    let plan = match plan(&Locations::from_process(), subcommand) {
+        Ok(plan) => plan,
+        Err(NoTs { message }) => {
+            eprint!("{message}");
+            return ExitCode::from(EXIT_NO_TS);
+        }
+    };
+    if let Some(notice) = version_notice(&plan, navori_core::VERSION) {
+        eprintln!("{notice}");
+    }
+    let child = Command::new(&plan.program)
+        .args(&plan.prefix)
+        .args(args)
+        .env(DELEGATED_VAR, std::process::id().to_string())
+        .stdin(Stdio::piped())
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(error) => {
+            eprintln!(
+                "navori-rust: cannot launch {}: {error}",
+                plan.program.display()
+            );
+            return ExitCode::from(EXIT_NO_TS);
+        }
+    };
+    if let Some(mut pipe) = child.stdin.take() {
+        let bytes = stdin.to_vec();
+        // A child that exits without reading stdin breaks the pipe; its status still decides.
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(&bytes);
+        });
+    }
+    match child.wait() {
+        Ok(status) => {
+            let code = status
+                .code()
+                .or_else(|| status.signal().map(|signal| 128 + signal))
+                .unwrap_or(1);
+            ExitCode::from(u8::try_from(code).unwrap_or(1))
+        }
+        Err(error) => {
+            eprintln!(
+                "navori-rust: cannot wait for {}: {error}",
+                plan.program.display()
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// Delegates `args` to the TS CLI, or exits 69 explaining why not.
 #[must_use]
 pub fn run(args: &[OsString], subcommand: &str) -> ExitCode {

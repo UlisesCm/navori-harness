@@ -9,6 +9,7 @@ pub mod hook;
 pub mod hook_facts;
 pub mod journal;
 pub mod parser;
+pub mod plan_gate;
 pub mod quality_gate;
 pub mod shadow;
 
@@ -51,6 +52,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["gate", "probe"],
         run: gate_probe::run,
+    },
+    NativeCommand {
+        path: &["plan", "gate"],
+        run: plan_gate::run,
     },
 ];
 
