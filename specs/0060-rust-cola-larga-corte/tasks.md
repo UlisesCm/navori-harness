@@ -68,16 +68,24 @@ los 22 hooks.
 
 ### M2 — Slice de referencia de comandos: `spec`
 Entregable: `navori-rust spec` (todos sus subcomandos y flags) es nativo con diferencial cero.
+
+Cerrado (2026-10-29): A2 verde. Oráculo `--only spec` con 91 casos y 0 diferencias: `spec check
+--json` sobre cada spec real del checkout (fixture `@repo-specs`), fixtures con cada regla de
+`check`, errores de lectura, `--cwd`, uso, ayuda y subcomando desconocido de citty. Los casos
+`native` corren el lado Rust con un TS señuelo, así que una delegación aparece como diferencia.
+Delegan al TS, antes de escribir nada: una config que `readConfig` rechaza, un argv que citty podría
+leer distinto, un archivo que no es UTF-8, un extracto de 60 unidades que parte un par sustituto y
+una spec con `_master/index.json` (el mapeo a `parts.json` pasa a T8).
 - **A2** [observable] — `spec` es nativo y su área no tiene pendientes de `spec` · `bun run oracle:rust --only spec && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts -t spec` → exit 0; 0 diferencias
-- [ ] **T5** (R73) — `spec` nativo (check, classify y el resto), con la gramática E/M/A/T y la clasificación de `lib/spec` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"spec check y classify sobre las specs reales y fixtures con errores"
-- [ ] **T6** (R77) — `spec` sin subcomandos ni flags fuera del manifiesto · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"spec no tiene subcomandos ni flags pendientes"
+- [x] **T5** (R73) — `spec` nativo (check, classify y el resto), con la gramática E/M/A/T y la clasificación de `lib/spec` · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"spec check y classify sobre las specs reales y fixtures con errores"
+- [x] **T6** (R77) — `spec` sin subcomandos ni flags fuera del manifiesto · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"spec no tiene subcomandos ni flags pendientes"
 
 ### M3 — Master plan
 Entregable: `navori-rust master` es nativo y `master-plan-context` y `master-accept-confirm` deciden
 en Rust en `shadow`.
 - **A3** [observable] — `master` es nativo y sus dos hooks reproducen el corpus · `bun run oracle:rust --only master && node scripts/js/hook-verdict-replay.mjs --impl rust --only master-plan-context.sh,master-accept-confirm.sh && bun run fuzz:hooks --hook master-accept-confirm.sh --seed 1 --cases 100000` → exit 0; 0 diferencias
 - [ ] **T7** (R71) — corpus de `master-plan-context`, `master-accept-confirm`, `implementer-no-markdown`, `role-guard`, `engram-write-guard`, `comment-draft-confirm` y `pr-publisher-confirm` por clase de veredicto y modo en cada engine registrado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E1 cubren cada clase de veredicto y modo por engine"
-- [ ] **T8** (R73, R74) — `master` nativo (todos sus subcomandos), con sus escrituras de estado por la capa `Fs` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"master status, part, close y el resto"
+- [ ] **T8** (R73, R74) — `master` nativo (todos sus subcomandos), con sus escrituras de estado por la capa `Fs`, y el mapeo de `spec check` a los `parts.json` de la etapa activa (R22 de 0044), que M2 delega al TS · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"master status, part, close y el resto"
 - [ ] **T9** (R70, R72) — `master-plan-context` y `master-accept-confirm` en `shadow`, con `master` en proceso bajo la condición de versión de R53 de 0059 y por el `navori` de `PATH` en otro caso · effect: behavior · test: `crates/navori-hooks/tests/master_hooks.rs`::"veredictos del corpus en shadow"
 
 ### M4 — Handoff y plan
