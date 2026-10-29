@@ -55,15 +55,38 @@ const stub = (name: string, body: string): FixtureFile => ({
   mode: 0o755,
 });
 
-/** A case in a fresh temp cwd whose PATH starts at its own `bin/`. */
-function inTemp(input: object, fixture: FixtureFile[] = [], args?: string[]): HookCase {
+/**
+ * Node's own directory, for hooks that run `node`. The replay swaps an nvm directory for one that
+ * holds only Node, so a global `navori` installed next to it never reaches a case.
+ */
+const NODE_DIR = dirname(process.execPath);
+
+interface CaseOptions {
+  fixture?: FixtureFile[];
+  args?: string[];
+  /** Puts {@link NODE_DIR} on PATH. */
+  node?: boolean;
+  /** Env on top of PATH; `@cwd` inside a value stands for the case's cwd. */
+  env?: Record<string, string>;
+}
+
+/**
+ * A case in a fresh temp cwd whose PATH starts at its own `bin/`. `input` may be built from the
+ * cwd, so a payload can carry paths under it (the capture turns them into `@CWD@`).
+ */
+function inTemp(input: object | ((cwd: string) => object), options: CaseOptions = {}): HookCase {
   const cwd = temp("navori-session-case-");
+  const payload = typeof input === "function" ? input(cwd) : input;
+  const path = [`${cwd}/bin`, ...(options.node === true ? [NODE_DIR] : []), "/usr/bin", "/bin"];
+  const extra = Object.fromEntries(
+    Object.entries(options.env ?? {}).map(([k, v]) => [k, v.replaceAll("@cwd", cwd)]),
+  );
   return {
-    input: JSON.stringify(input),
+    input: JSON.stringify(payload),
     cwd,
-    env: { PATH: `${cwd}/bin:/usr/bin:/bin` },
-    fixture,
-    ...(args === undefined ? {} : { args }),
+    env: { PATH: path.join(":"), ...extra },
+    fixture: options.fixture ?? [],
+    ...(options.args === undefined ? {} : { args: options.args }),
   };
 }
 
@@ -86,7 +109,7 @@ describe("quality-gate-pre-commit: every verdict class per engine", () => {
     const path = install(hook, engine);
     const run = (c: HookCase) => runHookIsolated(path, "bash", c);
     const commit = (fixture: FixtureFile[], permission?: string) =>
-      run(inTemp(bash("git commit -m x", permission), fixture));
+      run(inTemp(bash("git commit -m x", permission), { fixture }));
 
     // Covers: R54
     it(`${engine}: skip, allow, block and the cache hit`, () => {
@@ -122,9 +145,208 @@ describe("quality-gate-pre-commit: every verdict class per engine", () => {
       const pushed = runHookIsolated(
         install(hook, engine),
         "bash",
-        inTemp(bash("git push origin feature"), [red]),
+        inTemp(bash("git push origin feature"), { fixture: [red] }),
       );
       expect(pushed.status).toBe(engine === "pi" ? 2 : 0);
     }
+  });
+});
+
+describe("plan-gate: every verdict class per engine", () => {
+  const hook = "plan-gate.sh";
+  /** A `navori` whose `plan gate` prints the engine it was told and exits `status`. */
+  const navori = (status: number) =>
+    stub(
+      "navori",
+      [
+        'case "$1 $2" in',
+        `  "plan gate") cat >/dev/null; echo "plan gate for \${NAVORI_HOOK_ENGINE:-claude}" >&2; exit ${status} ;;`,
+        '  "--version "*) echo "navori 0.1.0" ;;',
+        "esac",
+      ].join("\n"),
+    );
+  const newerHarness: FixtureFile = {
+    path: "navori.config.json",
+    content: '{ "harnessVersion": "9.0.0" }\n',
+  };
+  const dispatch = (permission = "default") => ({
+    session_id: "corpus-session",
+    hook_event_name: "PreToolUse",
+    permission_mode: permission,
+    tool_name: "Agent",
+    tool_input: { subagent_type: "implementer", prompt: "workplan: corpus" },
+  });
+
+  for (const engine of ["claude", "codex"] as const) {
+    const path = install(hook, engine);
+    const run = (fixture: FixtureFile[], permission?: string) =>
+      runHookIsolated(
+        path,
+        "bash",
+        inTemp(dispatch(permission), { fixture, env: { CLAUDE_PROJECT_DIR: "@cwd" } }),
+      );
+
+    // Covers: R54
+    it(`${engine}: allow, denied, denied with an outdated CLI and a broken subcommand`, () => {
+      const allowed = run([navori(0)]);
+      expect(allowed.status).toBe(0);
+      expect(allowed.stderr).toContain(`plan gate for ${engine}`);
+      const denied = run([navori(2)]);
+      expect(denied.status).toBe(2);
+      expect(denied.stderr).not.toContain("outdated");
+      expect(run([navori(2), newerHarness]).stderr).toContain("the navori CLI is outdated");
+      const broken = run([navori(1)]);
+      if (engine === "codex") {
+        expect(broken.status).toBe(2);
+        expect(broken.stderr).toContain("no working 'plan' subcommand");
+      } else {
+        expect(broken.status).toBe(0);
+        expect(broken.stdout).toContain('"permissionDecision":"ask"');
+      }
+    });
+
+    // Covers: R54
+    it(`${engine}: without navori it asks where the host can, blocks elsewhere`, () => {
+      const missing = run([]);
+      const bypass = run([], "bypassPermissions");
+      expect(bypass.status).toBe(2);
+      expect(bypass.stderr).toContain("navori is not installed");
+      expect(missing.status).toBe(engine === "codex" ? 2 : 0);
+      if (engine === "claude") expect(missing.stdout).toContain('"permissionDecision":"ask"');
+    });
+  }
+});
+
+describe("subagent-stop-handoff: codex SubagentStop verdicts", () => {
+  const path = install("subagent-stop-handoff.sh", "codex");
+  const stop = (agentType: string) => (cwd: string) => ({
+    session_id: "corpus-session",
+    hook_event_name: "SubagentStop",
+    agent_id: "corpus-child",
+    agent_type: agentType,
+    agent_transcript_path: `${cwd}/child.jsonl`,
+    cwd,
+  });
+  const handoff = (name: string, content: string): FixtureFile => ({
+    path: `.navori/state/handoffs/${name}`,
+    content,
+  });
+  const validImpl = JSON.stringify({
+    feature: "corpus",
+    status: "DONE",
+    worktree: ".",
+    branch: "b",
+    commits: [],
+    filesTouched: [],
+    verification: [],
+    markdownRequests: [],
+  });
+  // The stamp of a repeated warning lives under $TMPDIR, named after the cwd: a directory the
+  // case never creates keeps it out, so each case stands alone.
+  const run = (agentType: string, fixture: FixtureFile[]) =>
+    runHookIsolated(
+      path,
+      "bash",
+      inTemp(stop(agentType), {
+        fixture,
+        args: ["codex"],
+        node: true,
+        env: { TMPDIR: "@cwd/no-tmp" },
+      }),
+    );
+
+  // Covers: R54
+  it("clean with no handoffs or valid ones, dirty with an incomplete one", () => {
+    expect(run("implementer", [])).toMatchObject({ status: 0, stdout: "" });
+    expect(run("implementer", [handoff("impl_corpus.json", validImpl)]).stdout).toBe("");
+    const missing = run("implementer", [handoff("impl_corpus.json", '{"feature":"corpus"}')]);
+    expect(missing.status).toBe(0);
+    expect(missing.stdout).toContain('"systemMessage"');
+    expect(missing.stdout).toContain("sin clave");
+    expect(missing.stdout).not.toContain("hookSpecificOutput");
+    const review = run("reviewer", [handoff("review_corpus.md", "# Review\n\nno verdict\n")]);
+    expect(review.stdout).toContain("sin veredicto");
+    const scribe = run("scribe", [handoff("impl_corpus.md", "# Notes\n")]);
+    expect(scribe.stdout).toContain("sin línea 'Status:'");
+  });
+});
+
+describe("model-advisor: every non-deferred mode", () => {
+  const claude = install("model-advisor.sh", "claude");
+  const codex = install("model-advisor.sh", "codex");
+  const state = (model: string, notified: boolean): FixtureFile => ({
+    path: "pad/navori-model-advisor.json",
+    content: JSON.stringify({ model, notified }),
+  });
+  const sentinel = (name: "skip" | "effort-gated"): FixtureFile => ({
+    path: `pad/navori-model-advisor.${name}`,
+    content: "",
+  });
+  const run = (
+    hookPath: string,
+    mode: string,
+    payload: Record<string, unknown>,
+    fixture: FixtureFile[] = [],
+    env: Record<string, string> = {},
+  ) =>
+    runHookIsolated(
+      hookPath,
+      "bash",
+      inTemp(
+        (cwd) => ({ session_id: "corpus-session", scratchpad_dir: `${cwd}/pad`, ...payload }),
+        {
+          fixture,
+          args: [mode],
+          node: true,
+          env,
+        },
+      ),
+    );
+  const silent = { status: 0, stdout: "" };
+
+  // Covers: R54
+  it("claude-session-start and claude-post-model-switch record the model in silence", () => {
+    expect(run(claude, "claude-session-start", { model: "claude-opus-4" })).toMatchObject(silent);
+    expect(run(claude, "claude-session-start", { model: "claude-fable-5" })).toMatchObject(silent);
+    expect(run(claude, "claude-session-start", {})).toMatchObject(silent);
+    expect(
+      run(claude, "claude-session-start", { model: "claude-opus-4", agent_id: "child" }),
+    ).toMatchObject(silent);
+    expect(
+      run(claude, "claude-post-model-switch", { to_model: "claude-sonnet-5" }, [
+        state("claude-opus-4", true),
+      ]),
+    ).toMatchObject(silent);
+  });
+
+  // Covers: R54
+  it("claude-stop recommends once for a high-effort Opus or Fable, and stays silent otherwise", () => {
+    const opus = run(claude, "claude-stop", { effort: { level: "high" } }, [
+      state("claude-opus-4", false),
+    ]);
+    expect(opus.status).toBe(0);
+    expect(opus.stdout).toContain("claude-opus-4/high");
+    const fable = run(claude, "claude-stop", {}, [state("claude-fable-5", false)]);
+    expect(fable.stdout).toContain("`claude-fable-5`");
+    expect(
+      run(claude, "claude-stop", { effort: { level: "low" } }, [state("claude-opus-4", false)]),
+    ).toMatchObject(silent);
+    expect(
+      run(claude, "claude-stop", {}, [state("claude-opus-4", true), sentinel("skip")]),
+    ).toMatchObject(silent);
+    expect(
+      run(claude, "claude-stop", {}, [state("claude-opus-4", false), sentinel("effort-gated")], {
+        CLAUDE_EFFORT: "low",
+      }),
+    ).toMatchObject(silent);
+    expect(run(claude, "claude-stop", {}, [])).toMatchObject(silent);
+  });
+
+  // Covers: R54
+  it("codex-session-start recommends only for the heavy model", () => {
+    const heavy = run(codex, "codex-session-start", { model: "gpt-6-astra" });
+    expect(heavy.status).toBe(0);
+    expect(heavy.stdout).toContain('"systemMessage"');
+    expect(run(codex, "codex-session-start", { model: "gpt-5.6-sol" })).toMatchObject(silent);
   });
 });

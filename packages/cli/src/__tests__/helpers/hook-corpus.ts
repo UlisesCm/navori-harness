@@ -157,9 +157,33 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
   const out: RawCorpusLine =
     cwd !== undefined && !isUnder(cwd, REPO_ROOT) && !tempCwd
       ? { ...line, status: "excluded", reason: "cwd-outside-checkout" }
-      : line;
+      : stateOutsideCwd(c.input, tempCwd ? cwd : undefined)
+        ? { ...line, status: "excluded", reason: "state-outside-cwd" }
+        : line;
   mkdirSync(dir, { recursive: true });
   appendFileSync(join(dir, `raw-${process.pid}.jsonl`), `${JSON.stringify(out)}\n`);
+}
+
+/**
+ * Whether the payload names a state directory (`scratchpad_dir`, read by `model-advisor`) outside
+ * the case's temp cwd. The replay recreates only the cwd and its declared fixture, so state kept
+ * elsewhere outlives one run and changes the next one's verdict.
+ *
+ * @param input the hook payload
+ * @param cwd the case's temp cwd, or undefined when the case does not run in one
+ */
+function stateOutsideCwd(input: string, cwd: string | undefined): boolean {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    return false;
+  }
+  if (typeof payload !== "object" || payload === null) return false;
+  const dir = (payload as Record<string, unknown>).scratchpad_dir;
+  if (typeof dir !== "string" || dir === "") return false;
+  if (cwd === undefined) return true;
+  return ![cwd, safeRealpath(cwd)].some((root) => isUnder(resolve(root, dir), root));
 }
 
 /** Depth of helper-owned spawns, which {@link recordHookCase} already recorded in full. */

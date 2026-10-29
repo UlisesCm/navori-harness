@@ -47,8 +47,15 @@ interface Verdict {
   stdout: string;
   stderr: string;
 }
+/** A committed corpus case: the invocation plus its recorded verdicts. */
+type CorpusCase = Case & {
+  expected: {
+    off: Verdict;
+    active: Verdict & { event: { metadata?: Record<string, unknown> }[] };
+  };
+};
 interface Replay {
-  readCorpus: () => Case[];
+  readCorpus: () => CorpusCase[];
   parseReplayArgs: (args: string[]) => {
     impl: "shell" | "rust";
     modes: string[];
@@ -603,7 +610,93 @@ process.exit(1);`,
   });
 });
 
+/**
+ * Spec 0059 D35: the verdict classes each session hook must have in the committed corpus, per
+ * engine and registered mode, before it enters shadow. A class is the audit verdicts of the active
+ * run (`verdict` or `verdict:reason`, joined by `>`), or, for the advisory hooks whose verdict is
+ * always `skip`, whether stdout carries a notice.
+ */
+const SESSION_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  ...["claude", "codex", "pi"].map((engine) => ({
+    hook: "quality-gate-pre-commit.sh",
+    engine,
+    mode: "",
+    classes: [
+      "skip",
+      "gate-started>allow",
+      "gate-started>block",
+      "block",
+      ...(engine === "codex" ? [] : ["ask"]),
+    ],
+  })),
+  {
+    hook: "plan-gate.sh",
+    engine: "claude",
+    mode: "",
+    classes: [
+      "allow",
+      "block:plan-denied",
+      "ask:subcommand-unavailable",
+      "ask:binary-missing",
+      "block:binary-missing",
+    ],
+  },
+  {
+    hook: "plan-gate.sh",
+    engine: "codex",
+    mode: "",
+    classes: ["allow", "block:plan-denied", "block:subcommand-unavailable", "block:binary-missing"],
+  },
+  { hook: "subagent-stop-handoff.sh", engine: "codex", mode: "codex", classes: ["clean", "dirty"] },
+  ...["claude-session-start", "claude-post-model-switch"].map((mode) => ({
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode,
+    classes: ["silent"],
+  })),
+  {
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode: "claude-stop",
+    classes: ["notice", "silent"],
+  },
+  {
+    hook: "model-advisor.sh",
+    engine: "codex",
+    mode: "codex-session-start",
+    classes: ["notice", "silent"],
+  },
+];
+
 describe("hook verdict corpus", () => {
+  // Covers: R54
+  it("cada hook de sesi\u00f3n cubre cada clase de veredicto y modo por engine", () => {
+    const corpus = replay.readCorpus();
+    const classOf = (c: (typeof corpus)[number]): string => {
+      if (c.hook === "model-advisor.sh")
+        return c.expected.off.stdout.includes('"systemMessage"') ? "notice" : "silent";
+      return c.expected.active.event
+        .map(({ metadata = {} }) => {
+          const reason = metadata.reason;
+          return typeof reason === "string" && reason !== "unspecified" && reason !== ""
+            ? `${String(metadata.verdict)}:${reason}`
+            : String(metadata.verdict);
+        })
+        .join(">");
+    };
+    const missing = SESSION_HOOK_CLASSES.flatMap(({ hook, engine, mode, classes }) => {
+      const seen = new Set(
+        corpus
+          .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+          .map(classOf),
+      );
+      return classes
+        .filter((cls) => !seen.has(cls))
+        .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   // Covers: R13
   it("replays recorded CLI and Node paths without exposing tools to restricted cases", async () => {
     const dir = tmp();
@@ -788,10 +881,25 @@ describe("hook verdict corpus", () => {
     expect(added[2]?.envDelta).toEqual({ CLAUDE_PROJECT_DIR: "@CWD@" });
     expect(added[2]?.input).toBe('{"cwd":"@CWD@","tool_name":"Agent"}');
 
+    // Covers: R54 — a state dir outside the case's temp cwd outlives the run: excluded.
+    const pad = (scratchpad: string) => JSON.stringify({ scratchpad_dir: scratchpad });
+    recordHookCase(hook, "bash", { input: pad(`${namedCwd}/pad`), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")) });
+    expect(
+      rawLines(raw)
+        .slice(before + 4)
+        .map((l) => [l.status, l.reason ?? l.cwdKind]),
+    ).toEqual([
+      ["included", "none"],
+      ["excluded", "state-outside-cwd"],
+      ["excluded", "state-outside-cwd"],
+    ]);
+
     // Without the variable nothing is written.
     delete process.env.NAVORI_HOOK_CORPUS;
     runHookIsolated(hook, "bash", { input: payload });
-    expect(rawLines(raw)).toHaveLength(before + 4);
+    expect(rawLines(raw)).toHaveLength(before + 7);
   });
 
   // Covers: R13
