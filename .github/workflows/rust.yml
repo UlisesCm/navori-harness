@@ -45,6 +45,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: rustup show active-toolchain
       - run: bun run oracle:rust
+      - run: node scripts/js/rust-oracle/plan-tables.mjs --check
 
   manifest:
     runs-on: ubuntu-latest
