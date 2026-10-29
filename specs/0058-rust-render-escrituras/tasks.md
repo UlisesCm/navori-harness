@@ -1,8 +1,10 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
 **Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4.
-El 2026-10-28 el usuario mergeó la primera parte de E3 (#1434), así que quedan **dos PRs** por
-mergear contra `migration/rust`: E1 (activación) y el resto de E3 ·
+El 2026-10-28 el usuario mergeó la primera parte de E3 (#1434). El 2026-10-29 decidió partir el
+resto de E3: la parte 2 (#1438) lleva lo que no toca el manifiesto y se mergea sin esperar a E1;
+la parte 3 lleva las entradas del manifiesto y va después de E1. Quedan **tres PRs** por mergear
+contra `migration/rust`: E3 parte 2, E1 (activación) y E3 parte 3 ·
 **Base:** `migration/rust`. Fase 2 del programa (ver `specs/0057-migracion-rust/requirements.md`
 § "Fases del programa"). El LOC es una estimación, no una medición.
 
@@ -15,10 +17,10 @@ E5 M1–M2.
 |---|---|---|---|
 | 1 | E1 | M1–M2: evidencia de sombra y `guard-destructive` en `active` | A1 y A2 verdes y la aprobación del usuario en el PR (Q3: 500 invocaciones en ≥ 14 días por engine) |
 | 2 | E3, parte 1 (#1434, integrado) | M5 hasta T14 y la primera mitad de T15 | Mergeado por el usuario el 2026-10-28, antes de PR 1 y sin revisión independiente; sin efecto en runtime porque ningún comando usa aún el render Rust |
-| 3 | E3, resto | El cierre de T15, T16 y M6–M9: preview nativo, capa `Fs`, `render --apply`, `adopt`, `sync` y `remove` | A5–A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente que cubra también lo de #1434; después de PR 1, porque M6 toca `ported.json` (Q2) |
+| 3 | E3, parte 2 (#1438) | El cierre de T15 y T16 (M5), M7, T28 (`schema: 2` sin entradas nuevas) y la preparación de M6 sin manifiesto: `NativeCommand` con la invocación, el gate de `render` y los archivos de ignore del comando | A5 y A7 verdes, `bun check` completo y `rust.yml` verde; sin efecto en runtime porque ningún comando del manifiesto usa el render Rust. Revisión inline por instrucción del usuario, declarada en el PR |
+| 4 | E3, parte 3 | El resto de M6 (salida del comando, T18 con `RecordingFs`, T17, T19 y T20), M8 y M9 | A6, A8 y A9 verdes, `bun check` completo, `rust.yml` verde y revisión que cubra lo de #1434 y #1438; después de PR 1, porque M6 toca `ported.json` (Q2) |
 
-Si la ventana de sombra de E1 se alarga, M5 y M7 (sin manifiesto) pueden seguir en la rama de E3;
-partir el resto de E3 en más PRs requiere volver a preguntar al usuario.
+Partir la parte 3 en más PRs requiere volver a preguntar al usuario.
 
 **Precondición de entrada de E1** (cierre de 0057 E3, verificable antes de abrir E1):
 - `crates/ported.json` tiene `subagent-no-background` en `active` y `guard-destructive` en `shadow`
@@ -134,6 +136,15 @@ intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
 - [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
 - [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
+
+Preparación de M6 integrada en la parte 2 (#1438), sin entrada en el manifiesto: `NativeCommand.run`
+recibe el argv y la entrada que lo seleccionó y devuelve `Exit` o `Delegate`; `navori-cli::render`
+parsea en estricto (`cwd`, `dry-run`, `json`; cualquier otra forma delega) y re-delega antes de
+cualquier salida con config ausente o inválida, engines fuera de `when.engines`, workspaces o un
+directorio inexistente; por ahora `run` siempre delega. `render::ignore_files` porta
+`renderGitignore`, `ensurePrettierIgnore` y `scanOrphanedEngineOutputs` con paridad contra el TS.
+Falta en la parte 3: la salida humana y `--json` (procedencia `core: (embedded)`; en `--json`,
+`coreRoot`/`bundled`/`staleCore` necesitan la misma decisión de máscara que T20) y T18.
 - [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
 - [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
 
