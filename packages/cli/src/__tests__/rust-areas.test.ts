@@ -63,6 +63,28 @@ describe("rust-areas (spec 0060 D40/D41)", () => {
   });
 
   // Covers: R77
+  it("spec no tiene subcomandos ni flags pendientes", () => {
+    const spec = commands.filter((entry) => entry.path[0] === "spec");
+    expect(spec.map((entry) => entry.path.join(" "))).toEqual([
+      "spec",
+      "spec check",
+      "spec classify",
+    ]);
+    // A positional is not a flag: `feature` never reaches the manifest.
+    expect(spec.find((entry) => entry.path.join(" ") === "spec check")?.flags).toEqual([
+      "cwd",
+      "json",
+    ]);
+    const missing = areas.areaInventoryCheck(
+      "E1",
+      areas.withoutAreas(manifest, ["E2", "E3"]),
+      spec,
+      [],
+    );
+    expect(missing).toEqual({ commands: [], flags: [], hooks: [] });
+  });
+
+  // Covers: R77
   it("reporta comandos, flags y hooks pendientes de un área", () => {
     const partial: Manifest = {
       schema: 1,

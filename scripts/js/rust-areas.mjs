@@ -92,6 +92,7 @@ async function resolveValue(value) {
 
 /**
  * Every command node under `root` (the citty `main` of `cli.ts`) with its own flags, depth-first.
+ * Positional args are not flags: the manifest selects by option names (D3), never by positionals.
  * @param {unknown} root
  * @returns {Promise<Array<{ path: string[], flags: string[] }>>}
  */
@@ -100,7 +101,11 @@ export async function commandInventory(root) {
   const found = [];
   async function walk(command, path) {
     const args = (await resolveValue(command.args)) ?? {};
-    if (path.length > 0) found.push({ path, flags: Object.keys(args).sort() });
+    const flags = Object.entries(args)
+      .filter(([, def]) => def?.type !== "positional")
+      .map(([name]) => name)
+      .sort();
+    if (path.length > 0) found.push({ path, flags });
     const subCommands = (await resolveValue(command.subCommands)) ?? {};
     for (const name of Object.keys(subCommands).sort()) {
       await walk(await resolveValue(subCommands[name]), [...path, name]);
