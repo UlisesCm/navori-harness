@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { finalizeNativeHooks } from "../../lib/render/native-hook-render.ts";
+import { finalizeNativeHooks, stripSignature } from "../../lib/render/native-hook-render.ts";
 import { join, relative, resolve, sep } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
@@ -1063,6 +1063,9 @@ function createCodexAdapter(
               ? freshRender(hookRequest(hook, ctx.config), ctx.config)
               : null;
           },
+          // A natively wired hook carries navori's signature line above its managed block (its
+          // wrapper sits inside the block, re-hashed): that line is navori's, not the user's text.
+          normalize: (onDisk) => stripSignature(onDisk),
         },
         {
           dir: ".codex/scripts",
