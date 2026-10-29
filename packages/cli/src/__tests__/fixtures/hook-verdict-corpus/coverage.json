@@ -30,8 +30,8 @@
     "excluded": {}
   },
   "general-purpose-confirm.sh": {
-    "observed": 14,
-    "included": 14,
+    "observed": 15,
+    "included": 15,
     "excluded": {}
   },
   "implementer-no-markdown.sh": {
