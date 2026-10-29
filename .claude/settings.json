@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/subagent-stop-handoff.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"; # navori:native-runtime start\nif [ \"${NAVORI_HOOK_IMPL:-}\" != shell ]; then\n  if nv_native=$(command -v navori-rust 2>/dev/null); then\n    nv_out=$(if \"$nv_native\" hook --via-command 'PostToolUse' \"$f\" --shadow; then nv_status=0; else nv_status=$?; fi; printf '.%s' \"$nv_status\")\n    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}\n    case \"$nv_rc\" in\n      0|1|2) printf '%s' \"$nv_out\" >&1 || exit 1; exit \"$nv_rc\" ;;\n      3|126|127) if [ \"${NAVORI_HOOK_IMPL:-}\" = rust ]; then printf '%s\\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi ;;\n      *) printf '%s\\n' 'navori: subagent-stop-handoff could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;\n    esac\n  elif [ \"${NAVORI_HOOK_IMPL:-}\" = rust ]; then printf '%s\\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi\nfi\n# navori:native-runtime end\nbash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/subagent-stop-handoff.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 15,
             "statusMessage": "navori: handoff check"
           }

@@ -1,5 +1,19 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="d5778929" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:3c9b1c7421076eab883f094a6fe51f14c0b8065ce13a80f53f4d7e8b6776bd15 impl=sha256:689a2e9d8f0b6cb3b848d3f3920f08c3656e88624a3df4cc85fe427f70fcac2a
+# navori:managed start id="subagent-stop-handoff-base" hash="a01de31c" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: subagent-stop-handoff could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
 # Fires in the PARENT session the moment a subagent returns. The harness contract

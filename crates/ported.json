@@ -53,6 +53,14 @@
         "session-start-context-base": "sha256:2f576c798c654581cd1106892685bf0759c82288b73cabd479765ac07b6e54ee"
       },
       "impl": "sha256:cae0432803cb8f9488ebeb45dfe91bb099948615880570d5e835a6d03bbb3a9b"
+    },
+    "subagent-stop-handoff": {
+      "mode": "shadow",
+      "gating": false,
+      "blocks": {
+        "subagent-stop-handoff-base": "sha256:781b0c2e463bde4c700f8e99af1e839a8c2e0823ed9087ddd84c4f3a36e0cd01"
+      },
+      "impl": "sha256:689a2e9d8f0b6cb3b848d3f3920f08c3656e88624a3df4cc85fe427f70fcac2a"
     }
   }
 }

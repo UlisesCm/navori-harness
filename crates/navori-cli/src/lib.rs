@@ -15,6 +15,7 @@ pub mod plan_gate_hook;
 pub mod quality_gate;
 pub mod session_start;
 pub mod shadow;
+pub mod subagent_stop;
 pub mod tools;
 
 use std::ffi::OsString;
