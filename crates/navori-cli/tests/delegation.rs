@@ -317,14 +317,21 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     let empty = manifest(r#"{"schema":2,"commands":[]}"#)?;
     assert!(!NATIVE.is_empty());
     for native in NATIVE {
-        let inv = invocation(native.path, &[]);
-        let listed = embedded.commands.iter().any(|c| {
+        let entry = embedded.commands.iter().find(|c| {
             native
                 .path
                 .iter()
                 .copied()
                 .eq(c.path.iter().map(String::as_str))
         });
+        let listed = entry.is_some();
+        // An entry with `requires` is selected only with one of its alternatives.
+        let required: Vec<&str> = entry
+            .and_then(|c| c.requires.as_ref())
+            .and_then(|alternatives| alternatives.first())
+            .map(|flags| flags.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let inv = invocation(native.path, &required);
         // Listed: native. Unlisted (an implementation still in progress): delegated.
         assert_eq!(
             dispatch(&embedded, &inv).is_some(),

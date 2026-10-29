@@ -404,6 +404,48 @@ pub const fn sync_conflict_diff_file_level(lang: Lang) -> &'static str {
     }
 }
 
+/// `remove.notDeclared(id)`.
+#[must_use]
+pub fn remove_not_declared(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => {
+            format!("El plugin '{id}' no est\u{e1} en el config de este repo; nada que quitar.")
+        }
+        Lang::En => format!("Plugin '{id}' is not in this repo's config; nothing to remove."),
+    }
+}
+
+/// `remove.done`.
+#[must_use]
+pub const fn remove_done(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Listo",
+        Lang::En => "Done",
+    }
+}
+
+/// `remove.removed(id)`.
+#[must_use]
+pub fn remove_removed(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{id}' quitado y limpiado."),
+        Lang::En => format!("'{id}' removed and cleaned up."),
+    }
+}
+
+/// `remove.renderCrashed`.
+#[must_use]
+pub const fn remove_render_crashed(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "La limpieza fall\u{f3} durante el render \u{2014} el plugin qued\u{f3} como enabled:false. Corre 'navori render --apply'."
+        }
+        Lang::En => {
+            "Cleanup failed during render \u{2014} the plugin was left as enabled:false. Run 'navori render --apply'."
+        }
+    }
+}
+
 /// `adopt.refused[reason](path)`.
 #[must_use]
 pub fn adopt_refused(lang: Lang, reason: crate::adopt::AdoptRefusal, path: &str) -> String {

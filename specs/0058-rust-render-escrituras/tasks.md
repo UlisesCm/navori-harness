@@ -220,7 +220,19 @@ no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply y f
   ruta por `requires` como conjunto de conjuntos. `loadNativeHooks` y `rust-hook-adapter.mjs`
   exigen el schema 2.
 - [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
-- [ ] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
+- [x] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
+
+T30 cerrada: `remove <plugin> --yes` es nativo (`navori_core::remove`: `readRaw` + `writeConfig`
+de `config::write_config`, con la salida de zod y `preserveForwardCompatEnums`); entrada con
+`requires: [["yes"]]`, así que sin `--yes` se delega. Antes de escribir decide todo: la config
+deshabilitada se lee, cae en el subconjunto y su render se planea en preview; el registro y la
+raíz de backups se comprueban. Fase 1 escribe `{ enabled: false }` (con `nativeHook`), corre el
+render con apply (`run_render`), fase 2 poda la clave sobre el archivo ya resellado. Se delegan
+`engram` y la falta de config. La operación `remove` entra en la matriz anti-rollback (16
+celdas más, 64 en total). Los casos admiten `setup` (comandos TS previos en ambos lados), así
+que `remove-plugin` es solo config y el `render --apply` previo genera el árbol. Pruebas:
+casos de `remove-plugin` y en cada fixture aplicable, paridad de `writeConfig` en
+`config_parity.rs` y el parseo en `navori-cli/tests/remove.rs`.
 
 T29 en curso: `sync` es nativo sin prompts (`navori_core::sync::run_sync`, entrada con
 `requires` = una de `apply`, `yes`, `dry-run`, `json`, `accept-new` o `keep-mine`): plan, diffs

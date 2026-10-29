@@ -315,10 +315,11 @@ describe("rust oracle", () => {
         const applicable =
           !workspaces && (config.engines ?? ["claude"]).every((e) => engines.includes(e));
         if (!applicable) continue;
-        // Cases inside the native subset: the command, then only its declared flags.
+        // Cases inside the native subset: the command, then positionals and its declared flags.
         const declared = (args: string[]): boolean =>
           args.every(
             (arg, i) =>
+              !arg.startsWith("-") ||
               (arg.startsWith("--") && (command.flags ?? []).includes(arg.slice(2))) ||
               args[i - 1] === "--cwd",
           );
@@ -354,19 +355,27 @@ describe("rust oracle", () => {
     const cells = oracle.antiRollbackCases("0.12.3");
     const levels = oracle.ANTI_ROLLBACK_LEVELS;
     expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
-    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings", "remove"]);
     const ids = new Set(cells.map((c) => c.id));
     for (const op of oracle.ANTI_ROLLBACK_OPS)
       for (const floor of levels)
         for (const marker of levels)
           expect(ids.has(`anti-rollback:${op}:floor-${floor}:marker-${marker}`)).toBe(true);
     expect(cells).toHaveLength(oracle.ANTI_ROLLBACK_OPS.length * levels.length ** 2);
-    // every cell runs in the oracle, natively and masked like any render
+    // every cell runs in the oracle: a render masked like any render, or a remove of tgrep,
+    // which the cell enables in the config
     const loaded = new Set(oracle.loadCases().map((c) => c.id));
     for (const c of cells) {
       expect(loaded.has(c.id), c.id).toBe(true);
-      expect(c.args).toEqual(["render", "--apply"]);
-      expect(c.mask).toEqual(["provenance"]);
+      if (c.id.startsWith("anti-rollback:remove:")) {
+        expect(c.args).toEqual(["remove", "tgrep", "--yes"]);
+        const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
+        expect(config.plugins.tgrep).toEqual({ enabled: true });
+        expect(c.files?.["CLAUDE.md"]).toContain('id="tgrep-search-v2"');
+      } else {
+        expect(c.args).toEqual(["render", "--apply"]);
+        expect(c.mask).toEqual(["provenance"]);
+      }
     }
     // the floor lands in the config, the stamp on the block, and the block hash matches its body
     const cell = (id: string): OracleCase => {

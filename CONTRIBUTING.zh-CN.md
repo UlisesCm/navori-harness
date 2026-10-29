@@ -100,6 +100,9 @@
   列出该仓库，apply 也会委托。其来源行显示 `core: (embedded)`，原生命令在 spec 0060 之前不显示更新提示。
 - **`adopt`** 以原生方式运行，支持 `--apply` 与 `--cwd`（一个位置参数路径、有效配置或无配置、可用的
   备份根目录，且无颜色）。
+- **`sync`** 仅在不会提示时以原生方式运行：带有 `--apply`、`--yes`、`--dry-run`、`--json`、
+  `--accept-new` 或 `--keep-mine` 之一（条目的 `requires`）。`--accept-new-files`、`--interactive` 与
+  `--workspace` 会委托。**`remove <plugin>`** 仅在带 `--yes` 时以原生方式运行。
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
   无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`

@@ -10,6 +10,12 @@
       "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine"],
       "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"]],
       "when": { "engines": ["claude"] }
+    },
+    {
+      "path": ["remove"],
+      "flags": ["cwd", "yes"],
+      "requires": [["yes"]],
+      "when": { "engines": ["claude"] }
     }
   ],
   "hooks": {

@@ -248,7 +248,7 @@ pub fn registry_needs_refresh(home: &Path, cwd: &Path, name: Option<&str>) -> bo
 }
 
 /// `config.name`.
-fn config_name(config: &Config) -> Option<String> {
+pub(crate) fn config_name(config: &Config) -> Option<String> {
     match &config.data {
         JsValue::Object(root) => match root.get("name") {
             Some(JsValue::String(name)) => name.to_rust(),
@@ -259,7 +259,7 @@ fn config_name(config: &Config) -> Option<String> {
 }
 
 /// `HOME` as `safeHomedir()` accepts it: set and absolute.
-fn home() -> Option<PathBuf> {
+pub(crate) fn home() -> Option<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
     home.is_absolute().then_some(home)
 }

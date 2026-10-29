@@ -77,6 +77,51 @@ pub fn read(bytes: &[u8]) -> Result<Config, Delegate> {
     Ok(Config { data, warnings })
 }
 
+/// `schemaUrl("navori.config.v1.json")`, the `$schema` `writeConfig` stamps.
+pub const SCHEMA_URL: &str =
+    "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json";
+
+/// `writeConfig(path, input)`'s text: `NavoriConfigSchema.parse({ $schema, ...input })` with the
+/// forward-compatible enums of `input` restored (`preserveForwardCompatEnums`), as
+/// `JSON.stringify(_, null, 2) + "\n"`.
+///
+/// # Errors
+/// [`Delegate::Schema`] where `parse` throws.
+pub fn write_config(input: &JsObject) -> Result<String, Delegate> {
+    let mut with_schema = JsObject::new();
+    with_schema.insert("$schema", JsValue::string(SCHEMA_URL));
+    for (key, value) in input.ordered() {
+        with_schema.insert(key.clone(), value.clone());
+    }
+    let JsValue::Object(mut out) =
+        schema::navori_config(&JsValue::Object(with_schema)).map_err(|_| Delegate::Schema)?
+    else {
+        return Err(Delegate::Schema);
+    };
+    if let Some(JsValue::Array(engines)) = input.get("engines") {
+        let mut strings: Vec<JsValue> = Vec::new();
+        for engine in engines {
+            if matches!(engine, JsValue::String(_)) && !strings.contains(engine) {
+                strings.push(engine.clone());
+            }
+        }
+        if !strings.is_empty() {
+            out.insert("engines", JsValue::Array(strings));
+        }
+    }
+    for key in ["commits", "language"] {
+        if let Some(raw @ JsValue::String(_)) = input.get(key)
+            && out.get(key) != Some(raw)
+        {
+            out.insert(key, raw.clone());
+        }
+    }
+    JsValue::Object(out)
+        .stringify(Some(2))
+        .map(|text| format!("{text}\n"))
+        .ok_or(Delegate::Schema)
+}
+
 /// What `recordHarnessVersion` does with `navori.config.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HarnessRecord {

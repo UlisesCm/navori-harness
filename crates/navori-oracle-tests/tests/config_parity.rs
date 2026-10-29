@@ -1,12 +1,14 @@
 //! `navori_core::config::read` against the real `readConfig` (spec 0058 T8): generated configs
 //! must be accepted or rejected alike, produce the same `JSON.stringify(data, null, 2)` and the
-//! same stderr warnings.
+//! same stderr warnings. `config::write_config` against `writeConfig` (spec 0058 T30) over the
+//! same documents, `$schema` dropped as `remove`'s `readRaw` does.
 
 mod support;
 
 use std::fmt::Write as _;
 
 use navori_core::config;
+use navori_core::js_json::{self, JsValue};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use serde_json::json;
@@ -37,6 +39,17 @@ static NODE: Shared = Shared::new(
        if (error instanceof cfg.ConfigError) return { valid: false };\n\
        throw error;\n\
      } finally { process.stderr.write = original; }",
+);
+
+/// `writeConfig(file, raw)` over `JSON.parse(text)` without `$schema`, the file it wrote.
+static WRITE: Shared = Shared::new(
+    prelude,
+    "let raw;\n\
+     try { raw = JSON.parse(request.text); } catch { return { skip: true }; }\n\
+     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { skip: true };\n\
+     delete raw.$schema;\n\
+     try { cfg.writeConfig(file, raw); } catch (error) { return { threw: true }; }\n\
+     return { text: fs.readFileSync(file, 'utf8') };",
 );
 
 /// A JSON document with explicit key order (duplicates allowed), so the generator controls the
@@ -680,6 +693,25 @@ fn check(text: &str) -> Result<(), TestCaseError> {
         );
     }
     Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1500))]
+
+    // Covers: R14
+    #[test]
+    fn write_matches_write_config(text in config_text()) {
+        let reply = WRITE.ask(&json!({ "text": text })).map_err(TestCaseError::fail)?;
+        if reply["skip"] == json!(true) {
+            return Ok(());
+        }
+        let Some(JsValue::Object(mut raw)) = js_json::parse(&text) else {
+            return Ok(());
+        };
+        raw.remove("$schema");
+        let rust = config::write_config(&raw).ok();
+        prop_assert_eq!(reply["text"].as_str(), rust.as_deref(), "{}", text);
+    }
 }
 
 proptest! {

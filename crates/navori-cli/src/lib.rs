@@ -9,6 +9,7 @@ pub mod hook;
 pub mod hook_facts;
 pub mod journal;
 pub mod parser;
+pub mod remove;
 pub mod render;
 pub mod shadow;
 pub mod sync;
@@ -78,6 +79,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["sync"],
         run: sync::run,
+    },
+    NativeCommand {
+        path: &["remove"],
+        run: remove::run,
     },
 ];
 

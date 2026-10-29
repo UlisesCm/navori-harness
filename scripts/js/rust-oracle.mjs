@@ -60,7 +60,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string> }} OracleCase  `files` overlay the fixture copy
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string>, setup?: string[][] }} OracleCase  `files` overlay the fixture copy; `setup` runs with the TS CLI on both sides before `args`
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -444,6 +444,10 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
   writeFileSync(join(work, "gitconfig"), "");
   const env = hermeticEnv(work, tsCli);
   gitInit(repo, env);
+  for (const step of testCase.setup ?? []) {
+    const prep = spawnSync(process.execPath, [tsCli, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
+    if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
+  }
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
@@ -503,17 +507,20 @@ function managedBlock(style, id, body, version) {
 /** The anti-rollback levels of D26: absent, lower, equal to the checkout's CLI, higher. */
 export const ANTI_ROLLBACK_LEVELS = ["absent", "lower", "equal", "higher"];
 
-/** The operations of the matrix that have a native command (`remove --yes` joins with M9). */
-export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings"];
+/** The operations of the matrix (D26). */
+export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
 
 /**
  * The anti-rollback matrix (spec 0058 D26, T27): config floor (`harnessVersion`) × the stamp
- * on navori's own content × operation, each cell a `render --apply` over `fresh-init` with one
- * file overlaid whose content differs from what this CLI renders:
+ * on navori's own content × operation, each cell over `fresh-init` with one file overlaid whose
+ * content differs from what this CLI renders:
  *
- * - `inject`: a `CLAUDE.md` block with an older body;
- * - `hook`: a hook script's base block with an older body;
- * - `settings`: a managed `settings.json` with an older body under `$navori.version`.
+ * - `inject`: a `CLAUDE.md` block with an older body (`render --apply`);
+ * - `hook`: a hook script's base block with an older body (`render --apply`);
+ * - `settings`: a managed `settings.json` with an older body under `$navori.version`
+ *   (`render --apply`);
+ * - `remove`: the stamped `CLAUDE.md` block of an enabled plugin (`remove tgrep --yes`), where
+ *   the guarded removal ignores the floor (D21).
  *
  * @param {string} cliVersion the checkout's TS CLI version (the stamp Rust also writes, D20)
  * @returns {OracleCase[]}
@@ -528,6 +535,7 @@ export function antiRollbackCases(cliVersion) {
     for (const floor of ANTI_ROLLBACK_LEVELS) {
       for (const marker of ANTI_ROLLBACK_LEVELS) {
         const config = { ...base };
+        if (op === "remove") config.plugins = { ...base.plugins, tgrep: { enabled: true } };
         if (level(floor) === null) delete config.harnessVersion;
         else config.harnessVersion = level(floor);
         const stamp = level(marker);
@@ -538,6 +546,8 @@ export function antiRollbackCases(cliVersion) {
         } else if (op === "hook") {
           files[".claude/hooks/implementer-no-markdown.sh"] =
             `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
+        } else if (op === "remove") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
         } else {
           const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
           files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
@@ -545,8 +555,9 @@ export function antiRollbackCases(cliVersion) {
         cases.push({
           id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
           fixture: "fresh-init",
-          args: ["render", "--apply"],
-          mask: ["provenance"],
+          ...(op === "remove"
+            ? { args: ["remove", "tgrep", "--yes"] }
+            : { args: ["render", "--apply"], mask: ["provenance"] }),
           files,
         });
       }
