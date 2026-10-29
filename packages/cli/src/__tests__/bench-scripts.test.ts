@@ -192,7 +192,7 @@ function nativeBenchFixture(event = "SessionStart"): {
   writeFileSync(join(root, "packages/cli/src/engines/pi/hook-bindings.ts"), "");
   writeFileSync(join(hooks, "probe.sh"), "exit 0\n");
   const manifest = join(root, "crates/ported.json");
-  writeFileSync(manifest, JSON.stringify({ schema: 1, hooks: { probe: { mode: "active" } } }));
+  writeFileSync(manifest, JSON.stringify({ schema: 2, hooks: { probe: { mode: "active" } } }));
   const binary = join(root, "native fixture");
   writeFileSync(
     binary,
@@ -406,23 +406,23 @@ describe("bench scripts", () => {
         const env: NodeJS.ProcessEnv = {};
         if (mode === "missing") env.NAVORI_RUST_BIN = join(fixture.root, "missing");
         if (mode === "empty")
-          writeFileSync(fixture.manifest, JSON.stringify({ schema: 1, hooks: {} }));
+          writeFileSync(fixture.manifest, JSON.stringify({ schema: 2, hooks: {} }));
         if (mode === "unsupported-mode")
           writeFileSync(
             fixture.manifest,
-            JSON.stringify({ schema: 1, hooks: { probe: { mode: "unknown" } } }),
+            JSON.stringify({ schema: 2, hooks: { probe: { mode: "unknown" } } }),
           );
         if (mode === "unregistered")
           writeFileSync(
             fixture.manifest,
-            JSON.stringify({ schema: 1, hooks: { other: { mode: "active" } } }),
+            JSON.stringify({ schema: 2, hooks: { other: { mode: "active" } } }),
           );
         if (mode === "defer") env.BENCH_NATIVE_EXIT = "3";
         if (mode === "forced-defer") env.BENCH_NATIVE_DEFER = "1";
         if (mode === "shadow-defer" || mode === "shadow-forced-defer") {
           writeFileSync(
             fixture.manifest,
-            JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+            JSON.stringify({ schema: 2, hooks: { probe: { mode: "shadow" } } }),
           );
           if (mode === "shadow-defer") env.BENCH_NATIVE_EXIT = "3";
           else env.BENCH_NATIVE_DEFER = "1";
@@ -445,7 +445,7 @@ describe("bench scripts", () => {
     try {
       writeFileSync(
         fixture.manifest,
-        JSON.stringify({ schema: 1, hooks: { probe: { mode: "shadow" } } }),
+        JSON.stringify({ schema: 2, hooks: { probe: { mode: "shadow" } } }),
       );
       const run = fixture.run(undefined, { NAVORI_HOOK_IMPL: "shell" });
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);

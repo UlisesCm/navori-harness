@@ -314,7 +314,7 @@ fn invocation(path: &[&str], flags: &[&str]) -> Invocation {
 #[test]
 fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     let embedded = Manifest::embedded()?;
-    let empty = manifest(r#"{"schema":1,"commands":[]}"#)?;
+    let empty = manifest(r#"{"schema":2,"commands":[]}"#)?;
     assert!(!NATIVE.is_empty());
     for native in NATIVE {
         let inv = invocation(native.path, &[]);
@@ -328,7 +328,7 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
             .map(|c| format!(r#"{{"path":{:?}}}"#, c.path))
             .collect();
         let without = manifest(&format!(
-            r#"{{"schema":1,"commands":[{}]}}"#,
+            r#"{{"schema":2,"commands":[{}]}}"#,
             others.join(",")
         ))?;
         assert!(dispatch(&without, &inv).is_none(), "{:?}", native.path);

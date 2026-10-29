@@ -444,8 +444,20 @@ describe("native hook rendering", (): void => {
     const path = join(f.cwd, "ported.json");
     writeFileSync(
       path,
-      JSON.stringify({ schema: 1, hooks: { example: { ...descriptor(), impl: "sha256:short" } } }),
+      JSON.stringify({ schema: 2, hooks: { example: { ...descriptor(), impl: "sha256:short" } } }),
     );
+    expect(loadNativeHooks(path)).toEqual({});
+  });
+
+  // Covers: R48
+  it("el loader lee el ported.json real con schema 2 y rechaza el schema 1", (): void => {
+    const real = loadNativeHooks();
+    expect(Object.keys(real)).toEqual(
+      expect.arrayContaining(["guard-destructive", "subagent-no-background"]),
+    );
+    const f = fixture("claude");
+    const path = join(f.cwd, "ported.json");
+    writeFileSync(path, JSON.stringify({ schema: 1, hooks: { example: descriptor() } }));
     expect(loadNativeHooks(path)).toEqual({});
   });
 

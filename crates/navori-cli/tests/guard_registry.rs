@@ -32,7 +32,7 @@ fn implementation() -> Result<&'static str, Box<dyn Error>> {
 fn manifest(mode: &str) -> Result<Manifest, Box<dyn Error>> {
     Ok(Manifest::parse(
         &serde_json::json!({
-            "schema":1, "commands":[], "hooks":{"guard-destructive":{
+            "schema":2, "commands":[], "hooks":{"guard-destructive":{
                 "mode":mode, "gating":true,
                 "blocks":{"guard-destructive-base":HASH, "tgrep-search-lane":HASH},
                 "deps":{ROUTING:HASH}, "impl":implementation()?
