@@ -7,18 +7,19 @@
 //! master plan (its mapping is `master`'s, spec 0060 M3), or a file that is not UTF-8.
 
 use std::ffi::OsString;
-use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
 use navori_core::config;
-use navori_core::js_json::{JsObject, JsValue};
+use navori_core::js_json::JsValue;
 use navori_core::spec::check::{self, SpecCheck};
 use navori_core::spec::classify::{self, Classification, DEFAULT_THRESHOLDS, Thresholds};
 use navori_core::spec::tasks::{self, ParsedTasks};
 use navori_core::spec::{is_spec_name, requirement_ids};
 
-use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color, render_usage};
+use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color};
+use crate::js_path::{js_relative, js_resolve};
+use crate::native_io::{Output, json_line, member, number, object, read_config, specs_dir, string};
 use crate::{NativeCall, Outcome};
 
 /// Version of the `--json` contract (`FORMAT_VERSION`).
@@ -81,41 +82,6 @@ const PROTOTYPE_KEYS: &[&str] = &[
     "__lookupGetter__",
     "__lookupSetter__",
 ];
-
-/// What the process prints, buffered so delegation can still happen after any computation.
-#[derive(Debug, Default)]
-struct Output {
-    stdout: String,
-    stderr: String,
-    code: u8,
-}
-
-impl Output {
-    fn emit(self) -> ExitCode {
-        // A closed stream is not an error of the command, as in Node without an `error` handler
-        // on a pipe the reader already left.
-        let _ = std::io::stdout().lock().write_all(self.stdout.as_bytes());
-        let _ = std::io::stderr().lock().write_all(self.stderr.as_bytes());
-        ExitCode::from(self.code)
-    }
-
-    /// `showUsage` (stdout, plus the blank line `console.log` adds) and, for a `CLIError`, its
-    /// message on stderr.
-    fn usage(cmd: &CommandDef, parent: Parent<'_>, error: Option<String>) -> Self {
-        let paint = Paint {
-            color: !citty_no_color(),
-        };
-        let mut out = Self {
-            stdout: format!("{}\n\n", render_usage(cmd, parent, paint)),
-            ..Self::default()
-        };
-        if let Some(message) = error {
-            out.stderr = format!("{message}\n");
-            out.code = 1;
-        }
-        out
-    }
-}
 
 const ROOT: Parent<'static> = Parent {
     name: "navori",
@@ -254,38 +220,6 @@ fn parse_leaf<'a>(tokens: &[&'a str]) -> Option<LeafOptions<'a>> {
     Some(options)
 }
 
-/// Node's `path.resolve` (POSIX) over UTF-8 segments: right to left until an absolute one, empty
-/// segments skipped, then normalized. The first segment is always absolute here.
-fn js_resolve(segments: &[&str]) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    let start = segments
-        .iter()
-        .rposition(|s| s.starts_with('/'))
-        .unwrap_or(0);
-    for segment in &segments[start..] {
-        for part in segment.split('/') {
-            match part {
-                "" | "." => {}
-                ".." => {
-                    parts.pop();
-                }
-                other => parts.push(other),
-            }
-        }
-    }
-    format!("/{}", parts.join("/"))
-}
-
-/// Node's `path.relative` between two resolved POSIX paths.
-fn js_relative(from: &str, to: &str) -> String {
-    let from: Vec<&str> = from.split('/').filter(|p| !p.is_empty()).collect();
-    let to: Vec<&str> = to.split('/').filter(|p| !p.is_empty()).collect();
-    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-    let mut parts = vec![".."; from.len() - common];
-    parts.extend(&to[common..]);
-    parts.join("/")
-}
-
 /// A Node `fs` error message for `readFileSync`, or `None` for one this port does not map.
 fn node_read_error(error: &std::io::Error, path: &str) -> Option<String> {
     let (code, description, syscall) = match error.raw_os_error()? {
@@ -296,33 +230,6 @@ fn node_read_error(error: &std::io::Error, path: &str) -> Option<String> {
         _ => return None,
     };
     Some(format!("{code}: {description}, {syscall} '{path}'"))
-}
-
-/// `readConfig` when `navori.config.json` exists: `Some(None)` when it does not, `None` when the
-/// TS must handle it (unreadable, invalid, or outside what [`config::read`] models).
-fn read_config(cwd: &str) -> Option<Option<config::Config>> {
-    let path = format!("{cwd}/navori.config.json");
-    if !Path::new(&path).exists() {
-        return Some(None);
-    }
-    let bytes = std::fs::read(&path).ok()?;
-    config::read(&bytes).ok().map(Some)
-}
-
-fn member<'a>(value: Option<&'a JsValue>, key: &str) -> Option<&'a JsValue> {
-    match value {
-        Some(JsValue::Object(object)) => object.get(key),
-        _ => None,
-    }
-}
-
-/// `config.sdd?.specsDir ?? "specs"`; `None` when it is not a plain string.
-fn specs_dir(config: Option<&config::Config>) -> Option<String> {
-    match member(member(config.map(|c| &c.data), "sdd"), "specsDir") {
-        None | Some(JsValue::Undefined | JsValue::Null) => Some("specs".to_owned()),
-        Some(JsValue::String(text)) => text.to_rust(),
-        Some(_) => None,
-    }
 }
 
 /// `resolveDeliveryThresholds(config)`, or the defaults without a config.
@@ -360,32 +267,6 @@ fn print_failure(out: &mut Output, failure: &Failure) {
         "ERROR: {}\nWHY:   {}\nFIX:   {}\n",
         failure.what, failure.why, failure.fix
     ));
-}
-
-fn string(text: &str) -> JsValue {
-    JsValue::string(text)
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "counts and line numbers are far below 2^53, as JS numbers"
-)]
-fn number(n: usize) -> JsValue {
-    JsValue::Number(n as f64)
-}
-
-fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
-    let mut out = JsObject::new();
-    for (key, value) in entries {
-        out.insert(key, value);
-    }
-    JsValue::Object(out)
-}
-
-fn json_line(out: &mut Output, value: &JsValue) {
-    out.stdout
-        .push_str(&value.stringify(None).unwrap_or_default());
-    out.stdout.push('\n');
 }
 
 /// `fail`: JSON on stdout in `--json` mode, the triple on stderr, exit 1.
@@ -762,20 +643,6 @@ fn check_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resolve_and_relative_follow_node_posix() {
-        assert_eq!(js_resolve(&["/a/b", "../c/./d/"]), "/a/c/d");
-        assert_eq!(js_resolve(&["/a", "/x", "y"]), "/x/y");
-        assert_eq!(js_resolve(&["/a", ""]), "/a");
-        assert_eq!(js_resolve(&["/", ".."]), "/");
-        assert_eq!(
-            js_relative("/a/b", "/a/b/specs/x/tasks.md"),
-            "specs/x/tasks.md"
-        );
-        assert_eq!(js_relative("/a/b", "/a/c/tasks.md"), "../c/tasks.md");
-        assert_eq!(js_relative("/a", "/a"), "");
-    }
 
     #[test]
     fn leaf_args_delegate_every_uncertain_shape() {
