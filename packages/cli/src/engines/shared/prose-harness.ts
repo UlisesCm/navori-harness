@@ -241,7 +241,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
         const handle = createBackup(cwd, [spec.destRelPath]);
         if (handle.files.length > 0) {
           backupPath = handle.path;
-          purgeOldBackups();
+          purgeOldBackups({ keep: handle.path });
         }
       }
       try {
