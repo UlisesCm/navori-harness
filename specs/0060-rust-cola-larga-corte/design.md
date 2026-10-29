@@ -50,10 +50,12 @@ La asignación sale de lo que cada hook ejecuta. `audit-mode-trigger` y `audit-m
 **Slices de referencia (Q25).** Cada milestone de E1–E3 es un slice con un entregable observable
 («al cerrar Mx, esto corre en Rust»). Los dos primeros fijan el patrón que repiten los demás:
 
-- **M1, referencia de hooks:** `comment-draft-confirm` y `pr-publisher-confirm`. Son hooks con
-  compuerta, registrados en varios engines, que no invocan `navori`: ejercitan corpus, wiring en
-  `shadow`, fuzz y evento de auditoría sin depender de 0059. M1 deja también el inventario por área
-  de D41.
+- **M1, referencia de hooks:** `general-purpose-confirm`. Es un hook con compuerta (`ask` en
+  Claude, `deny` en Codex), registrado en dos engines, que no invoca `navori` ni tiene efectos:
+  ejercita corpus, wiring en `shadow`, fuzz y evento de auditoría sin depender de 0059. M1 deja
+  también el inventario por área de D41. Las confirmaciones de publicación no sirven de referencia:
+  la rama Codex de `pr-publisher-confirm` lanza `navori codex approval request`, y
+  `comment-draft-confirm` arrastra el render del borrador (`draft-body`); van en M5.
 - **M2, referencia de comandos:** `spec`, de solo lectura y determinista: ejercita la entrada al
   manifiesto, el oráculo con diferencial cero y el test de inventario de un comando completo.
 
