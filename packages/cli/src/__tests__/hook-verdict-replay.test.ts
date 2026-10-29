@@ -112,7 +112,7 @@ interface Replay {
 
 type NativeResult =
   | { available: true; status: number; stdout: Buffer; stderr: Buffer }
-  | { available: false; reason: string };
+  | { available: false; reason: string; modeDeferred?: true };
 interface RustAdapter {
   runRustHook: (options: {
     binary: string;
@@ -436,6 +436,35 @@ process.exit(1);`,
       available: true,
       stdout: Buffer.from([0xff, 0, 10]),
     });
+  });
+
+  // Covers: R51
+  it("tells a mode deferred by design apart from any other deferral", () => {
+    const dir = tmp();
+    const script = join(dir, ".codex", "hooks", "fixture.sh");
+    const rows: Array<[string, boolean]> = [
+      ["navori-rust: hook deferred: hook mode is not ported", true],
+      ["navori-rust: hook deferred: hook is ineligible: unsupported locale", false],
+      ["navori-rust: hook deferred: hook mode is not ported, eventually", true],
+      ["hook mode is not ported", false],
+    ];
+    for (const [stderr, byMode] of rows) {
+      const result = rustAdapter.runRustHook({
+        binary: nativeFixture(
+          dir,
+          `process.stderr.write(${JSON.stringify(`${stderr}\n`)}); process.exit(1);`,
+        ),
+        script,
+        input: "",
+        args: ["codex", "capture-start"],
+      });
+      if (stderr.startsWith("navori-rust: hook deferred: ")) {
+        expect(result).toMatchObject({ available: false });
+        expect(!result.available && result.modeDeferred === true).toBe(byMode);
+      } else {
+        expect(result).toMatchObject({ available: true, status: 1 });
+      }
+    }
   });
 
   // Covers: R11, R12

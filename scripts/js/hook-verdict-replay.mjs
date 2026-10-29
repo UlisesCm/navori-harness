@@ -364,6 +364,7 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
       });
       const outputs = impl === "rust" ? batchCases.map((c) => {
         const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
+        if (result.modeDeferred) return { deferred: true };
         if (!result.available) throw new Error(`native unavailable: ${first.hook}: ${result.reason}`);
         // The corpus stores text. Reject malformed UTF-8 instead of hiding byte differences
         // through replacement characters; the adapter itself retains the original bytes.
@@ -372,7 +373,17 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
       }) : runHookBatch(hookPath, first.shell, batchCases);
       indexes.forEach((i, n) => {
         const out = outputs[n];
-        const verdict = { status: out.status, stdout: normalize(out.stdout, i), stderr: normalize(out.stderr, i) };
+        if (out.deferred) {
+          results[i] = { deferred: true };
+          return;
+        }
+        // The native lane runs the signed asset outside the scratch; Bash names `$0` in its
+        // diagnostics, so that copy reads as the installed one the shell lane runs.
+        const signedRoot = impl === "rust" && hookPath.endsWith(`/${ENGINE_DIRS[first.engine]}/${first.hook}`)
+          ? hookPath.slice(0, -`/${ENGINE_DIRS[first.engine]}/${first.hook}`.length)
+          : undefined;
+        const asInstalled = (text) => (signedRoot === undefined ? text : text.replaceAll(signedRoot, join(scratch.root, "installed")));
+        const verdict = { status: out.status, stdout: normalize(asInstalled(out.stdout), i), stderr: normalize(asInstalled(out.stderr), i) };
         results[i] = mode === "active" ? { ...verdict, event: readEvents(spools[i]) } : verdict;
       });
     }
@@ -481,7 +492,7 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * in for a native verdict.
  *
  * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
- * @returns {Promise<{ ok: boolean, cases: number, failure?: string }>}
+ * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, failure?: string }>}
  */
 export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell" } = {}) {
   const cases = (corpus ?? readCorpus())
@@ -492,6 +503,7 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     return { ok: false, cases: cases.length, failure: "invalid implementation or audit mode" };
   }
   if (cases.length === 0) return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
+  let deferred = 0;
   /** @type {string[]} */
   const failures = [];
   let resolved;
@@ -513,6 +525,11 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     for (const mode of modes) {
       const actual = runMode(cases, mode, { ...resolved, scratch, impl });
       for (let i = 0; i < cases.length; i += 1) {
+        // A mode the binary defers by design (D31) runs the shell in production: not compared.
+        if (actual[i]?.deferred) {
+          if (mode === modes[0]) deferred += 1;
+          continue;
+        }
         const cross = cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
         const diff = firstDifference(
           cross ? withShellDiagnostics(cases[i].expected[mode]) : cases[i].expected[mode],
@@ -529,7 +546,7 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
       }
     }
     if (failures.length > 0) return { ok: false, cases: cases.length, failure: failures.join("\n") };
-    return { ok: true, cases: cases.length };
+    return deferred > 0 ? { ok: true, cases: cases.length - deferred, deferred } : { ok: true, cases: cases.length };
   } catch (error) {
     return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "replay execution failed" };
   } finally {
@@ -664,7 +681,8 @@ export async function main(argv) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;
   }
-  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")})\n`);
+  const deferredNote = result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "";
+  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
   return 0;
 }
 
