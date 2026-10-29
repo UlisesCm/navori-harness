@@ -1,6 +1,6 @@
 # Migración a Rust, fase 3: hooks de sesión y engines restantes — Tasks
 
-**Estado:** aceptada (Q14–Q18 resueltas en `design.md`); E1 espera a #1432 · **Base:** `migration/rust`. Fase 3 del programa (ver
+**Estado:** aceptada (Q14–Q19 resueltas en `design.md`); E1 espera a #1432; E3 (activación) pasa a la fase 4 (0060) por Q19 · **Base:** `migration/rust`. Fase 3 del programa (ver
 `specs/0057-migracion-rust/requirements.md` § "Fases del programa"): tres entregas, **cada una con su
 propio PR contra `migration/rust`** y ninguna contra `dev` (D28). El LOC es una estimación, no una
 medición.
@@ -14,8 +14,7 @@ por el asset derivado de D29 (Q14).
   `shadow` y existen `crates/navori-hooks/src/hooks/guard_destructive/{landing,ratchet}.rs`.
 - **E2:** 0058 E3 integrado: `ported.json` tiene `render`, `sync`, `remove` y `adopt` con
   `when.engines = ["claude"]`, y existe el fixture `codex-trusted`.
-- **E3:** E1 integrada; 0058 E1 integrada (`rust-manifest-check.mjs` valida `activate`, y existe
-  `scripts/js/hook-shadow-report.mjs` con conteo por engine); la ventana de sombra de D35 cumplida.
+- **E3:** movida a la fase 4 (0060) por Q19; sin precondición en esta fase.
 
 Reglas de ejecución:
 - Workplan por entrega: `0059-rust-sesion-engines-e<n>`, con fases = milestones; `tasks.md` es el
@@ -102,12 +101,17 @@ Estimated LOC: 15000
 - [ ] **T32** (R19) — test que enumera las dimensiones de config de las suites de aceptación de Codex y Pi y falla si alguna no tiene fixture del oráculo (D39) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada dimensión de las suites de aceptación tiene fixture"
 - [ ] **T33** (R67) — regeneración del asset en la guía de sincronización de CONTRIBUTING (en, es, zh-CN). La enmienda de la fila de la fase 3 y la nota en D11 de 0057 ya entraron con la spec (Q14) · effect: docs · test: `CONTRIBUTING.md`::"Regenerar el asset de la extensión Pi"
 
-## E3 — Activación de los hooks de sesión
+## E3 — Activación de los hooks de sesión (movida a 0060)
 Estimated LOC: 1200
+
+Decisión del usuario (Q19, 2026-10-28): la ventana de sombra no bloquea el cierre de fases. E3
+completa (A9, T34–T36, R60 y R61) pasa a la fase 4 (0060), que la resuelve en un solo PR junto con
+la activación de `subagent-no-background` (T27 de 0057) y de `guard-destructive` (E1 de 0058). El
+texto queda abajo como insumo para 0060; sus tareas no cuentan para el cierre de esta spec.
 
 ### M9 — Evidencia y activación
 - **Consumes:** `node scripts/js/hook-shadow-report.mjs <hook>` → lee el ledger de sombra de sesiones reales por engine (0058 T3)
 - **A9** [observable] — cada hook activado cumple R60 en cada engine registrado · `node scripts/js/hook-verdict-replay.mjs --impl rust --only quality-gate-pre-commit.sh,plan-gate.sh,session-start-context.sh,subagent-stop-handoff.sh,model-advisor.sh && for h in quality-gate-pre-commit plan-gate; do bun run fuzz:hooks --hook "$h.sh" --seed 1 --cases 100000 || exit 1; done && for h in session-start-context subagent-stop-handoff model-advisor; do bun run fuzz:hooks --hook "$h.sh" --seed 1 --cases 20000 || exit 1; done && node scripts/js/hook-shadow-report.mjs --class-thresholds` → exit 0; 0 divergencias; umbral de D35 cumplido por cada hook activado
-- [ ] **T34** (R60) — `hook-shadow-report.mjs --class-thresholds`: umbral por clase de evento y engine según D35, sin crear un segundo reporte · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"un hook por sesión con 29 invocaciones en codex deja el reporte en rojo"
-- [ ] **T35** (R60, R61) — `ported.json` pasa a `active` los hooks que cumplen, con una línea `activate` por hook, el resumen de A9 en el PR y la aprobación del usuario; los que no cumplen siguen en `shadow` y se anotan en la fase 4 · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar varios hooks en un PR exige una línea activate por hook"
-- [ ] **T36** (R50) — matriz fail-closed sobre `plan-gate` y `quality-gate-pre-commit` en `active`, invocados por el comando registrado de cada engine, y re-render del wiring con el fragmento activo · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"plan-gate y quality-gate activos nunca permiten ante SIGSEGV, 101 o stdout cerrado"
+- **T34** (R60, → 0060) — `hook-shadow-report.mjs --class-thresholds`: umbral por clase de evento y engine según D35, sin crear un segundo reporte · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"un hook por sesión con 29 invocaciones en codex deja el reporte en rojo"
+- **T35** (R60, R61, → 0060) — `ported.json` pasa a `active` los hooks que cumplen, con una línea `activate` por hook, el resumen de A9 en el PR y la aprobación del usuario; los que no cumplen siguen en `shadow` y se anotan en la fase 4 · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar varios hooks en un PR exige una línea activate por hook"
+- **T36** (R50, → 0060) — matriz fail-closed sobre `plan-gate` y `quality-gate-pre-commit` en `active`, invocados por el comando registrado de cada engine, y re-render del wiring con el fragmento activo · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"plan-gate y quality-gate activos nunca permiten ante SIGSEGV, 101 o stdout cerrado"

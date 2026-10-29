@@ -575,6 +575,16 @@ cada llamada.
   - **En CI:** semilla fija y N = 2 000 por hook con compuerta (500 por hook sin compuerta).
   - **Antes de activar:** N = 100 000 en local, con el reporte adjunto al PR de activación.
   - Una divergencia vuelve al corpus como caso fijo.
+  - **Costo (enmienda del 2026-10-28).** El oráculo es el shell (~350 ms por caso bajo carga contra
+    ~25 ms de Rust), y 100 000 casos en serie tardaban más de 4 h. `fuzz:hooks` reparte los casos
+    en `--jobs` workers (por omisión, la mitad de los núcleos, máximo 8), cada uno con su scratch y
+    a prioridad baja (`taskpolicy -c utility` en macOS, nice 10 en otros). Compara una sola vez los
+    payloads que solo difieren en `session_id`: con auditoría `off` ninguna regla lo lee. Rust corre
+    siempre en vivo; el veredicto del shell puede venir de un caché local (fuera del repo) con clave
+    en los bytes exactos del hook y sus scripts hermanos, el arnés, las versiones de bash/zsh, jq y
+    git, las rutas de las herramientas y la plataforma. Cerca del 1% de los aciertos, elegido de
+    forma determinista, se vuelve a correr en vivo, y una diferencia falla como caché obsoleto.
+    `--cache off` recupera el diferencial vivo completo.
 - **Modo sombra (`mode: "shadow"`).**
   1. El binario lee stdin y calcula su veredicto **sin efectos**: la capa `Fs` va en modo registro
      y la auditoría no se escribe.
@@ -998,7 +1008,8 @@ de D9.
 
 ### E3 — `guard-destructive` (→ `migration/rust`)
 
-- **M1 —** Activar `subagent-no-background` (criterios de D9).
+- **M1 —** Activar `subagent-no-background` (criterios de D9). Movido a la fase 4 (0060) por
+  decisión del usuario (2026-10-28), junto con la activación de `guard-destructive`.
 - **M2 —** `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en
   `shadow`, más fuzz con la gramática completa de reglas.
 
