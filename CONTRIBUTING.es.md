@@ -240,7 +240,7 @@ siguen siendo solo TypeScript.
 - **`adopt`** es nativo con `--apply` y `--cwd` (una ruta posicional, config válida o ninguna,
   raíz de backups usable y sin color).
 - **`sync`** es nativo solo cuando no puede preguntar: con uno de `--apply`, `--yes`, `--dry-run`,
-  `--json`, `--accept-new` o `--keep-mine` (el `requires` de la entrada). `--accept-new-files`,
+  `--json`, `--accept-new`, `--keep-mine` o `--accept-new-files` (el `requires` de la entrada).
   `--interactive` y `--workspace` se delegan. **`remove <plugin>`** es nativo solo con `--yes`.
 - **Hooks nativos:** un hook de `ported.json` corre nativo solo donde `navori-rust` está en `PATH`;
   si no, corre el shell renderizado. `NAVORI_HOOK_IMPL=shell` fuerza el shell y

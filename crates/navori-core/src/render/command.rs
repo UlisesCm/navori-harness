@@ -52,6 +52,20 @@ pub enum RenderError {
     Commit(CommitError),
     /// Recording `harnessVersion` failed to write.
     Record(FsError),
+    /// The TS throws an `Error` with this message (a prepared apply went stale).
+    Thrown(String),
+}
+
+impl RenderError {
+    /// The message the TS prints for it; empty for [`RenderError::Delegate`].
+    #[must_use]
+    pub fn message(self) -> String {
+        match self {
+            Self::Delegate => String::new(),
+            Self::Commit(CommitError::Backup(e)) | Self::Record(e) => e.message,
+            Self::Commit(CommitError::Write { message, .. }) | Self::Thrown(message) => message,
+        }
+    }
 }
 
 /// What a real (`--apply`) render writes through.

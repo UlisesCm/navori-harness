@@ -680,11 +680,18 @@ static SYNC: Shared = Shared::new(
      process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
      process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
      process.exit = (code) => { throw new Error('exit ' + code); };\n\
-     const args = { cwd: request.root, 'dry-run': true, json: request.json === true, _: [] };\n\
+     const args = { cwd: request.root, json: request.json === true, _: [] };\n\
+     if (request.apply === true) args.apply = true; else args['dry-run'] = true;\n\
+     if (request.files === true) args['accept-new-files'] = true;\n\
      if (request.bulk) args[request.bulk] = true;\n\
+     const env = { home: process.env.HOME, backups: process.env.NAVORI_BACKUP_ROOT };\n\
+     if (request.backups) { process.env.HOME = request.home; process.env.NAVORI_BACKUP_ROOT = request.backups; }\n\
      try { await s.syncCommand.run({ args, rawArgs: [], cmd: s.syncCommand }); }\n\
      catch (e) { return { threw: String(e && e.message || e), partial: out.join('') }; }\n\
-     finally { process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit; }\n\
+     finally {\n\
+       process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit;\n\
+       if (request.backups) { process.env.HOME = env.home; if (env.backups === undefined) delete process.env.NAVORI_BACKUP_ROOT; else process.env.NAVORI_BACKUP_ROOT = env.backups; }\n\
+     }\n\
      return { out: out.join(''), err: err.join('') };",
 );
 
@@ -870,6 +877,156 @@ type ApplyOutcome = (
     BTreeMap<String, (bool, Vec<u8>)>,
     BTreeMap<String, (bool, Vec<u8>)>,
 );
+
+/// `sync --apply [--accept-new-files] [bulk] [--json]` on a fresh copy of the repo `setup` builds,
+/// TS then Rust, as [`compare_apply`] does for `render`. `Ok(None)` when Rust delegates.
+fn compare_sync_apply(
+    root: &Path,
+    config: &str,
+    json: bool,
+    bulk: Option<&str>,
+    files: bool,
+    setup: &dyn Fn(),
+) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
+    let backups = BASE.join("sync-backups");
+    let home = BASE.join("sync-home");
+    let reset = || {
+        let _ = std::fs::remove_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&home);
+        setup();
+    };
+    reset();
+    let ts = SYNC.ask(&json!({
+        "root": root.to_string_lossy(),
+        "json": json,
+        "apply": true,
+        "files": files,
+        "bulk": bulk,
+        "home": home.to_string_lossy(),
+        "backups": backups.to_string_lossy(),
+    }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return Err(format!("ts failed: {ts}"));
+    };
+    let ts_side = (
+        mask_backup(out),
+        mask_backup(err),
+        tree(root),
+        tree(&backups),
+    );
+    reset();
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    let flags = SyncFlags {
+        apply: true,
+        json,
+        accept_new: bulk == Some("accept-new"),
+        keep_mine: bulk == Some("keep-mine"),
+        accept_new_files: files,
+        ..SyncFlags::default()
+    };
+    let mut fs = RealFs::default();
+    let mut store = BackupStore::new(Ok(backups.clone()), std::process::id());
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let run = run_sync(
+        &DiskView(root),
+        &read,
+        root,
+        flags,
+        Clack { unicode: true },
+        &mut apply,
+    );
+    let (stdout, stderr) = match run {
+        Ok(SyncRun::Done { stdout, stderr, .. }) => (stdout, stderr),
+        Ok(SyncRun::Delegate) | Err(navori_core::render::command::RenderError::Delegate) => {
+            return Ok(None);
+        }
+        Err(error) => return Err(format!("rust sync failed: {error:?}")),
+    };
+    let warnings: String = read.warnings.iter().map(|w| format!("{w}\n")).collect();
+    let rust_side = (
+        mask_backup(&stdout),
+        mask_backup(&format!("{warnings}{stderr}")),
+        tree(root),
+        tree(&backups),
+    );
+    Ok(Some((ts_side, rust_side)))
+}
+
+/// `--accept-new-files` over a hook a plugin extends (`guard-destructive.sh` and tgrep's search
+/// lane): the accepted file is the forced base recomposed with the extension, as in the TS.
+// Covers: R14, R36
+#[test]
+fn accept_new_files_recomposes_hook_extensions() -> Result<(), String> {
+    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}}}"#;
+    let root = BASE.join("accept-extension");
+    let setup = || {
+        build_repo(
+            &root,
+            &Recipe {
+                baseline: Some(CONFIG.to_owned()),
+                restamp: None,
+                edits: Vec::new(),
+            },
+        );
+        write(&root, "navori.config.json", CONFIG);
+        let hook = root.join(".claude/hooks/guard-destructive.sh");
+        if let Ok(text) = std::fs::read_to_string(&hook)
+            && let Some(at) = text.find("navori:managed start id=\"guard-destructive-base\"")
+            && let Some(eol) = text[at..].find('\n')
+        {
+            let mut edited = text.clone();
+            edited.insert_str(at + eol + 1, "# Hand edit.\n");
+            // tgrep's lane on disk is an older, intact version: only recomposing the accepted
+            // base with the extension brings it up to date.
+            let open = "# navori:managed start id=\"tgrep-search-lane\"";
+            let close = "# navori:managed end id=\"tgrep-search-lane\"";
+            if let (Some(start), Some(end)) = (edited.find(open), edited.find(close)) {
+                let body = "# Older lane.";
+                let marker = format!(
+                    "{open} hash=\"{}\" version=\"0.1.0\" source=\"@navori/plugin-tgrep\"\n{body}\n",
+                    navori_core::integrity::marker_hash(body)
+                );
+                edited.replace_range(start..end, &marker);
+            }
+            let _ = std::fs::write(&hook, edited);
+        }
+    };
+    for json in [false, true] {
+        let (ts, rust) =
+            compare_sync_apply(&root, CONFIG, json, None, true, &setup)?.ok_or("rust declined")?;
+        let accepted = if json {
+            ts.0.contains("\"label\": \"root:sync\"")
+        } else {
+            ts.0.contains("--accept-new-files: ")
+        };
+        if !accepted {
+            return Err(format!("no file was accepted:\n{}", ts.0));
+        }
+        if let Some(why) = apply_difference(&ts, &rust) {
+            return Err(why);
+        }
+    }
+    let hook = std::fs::read_to_string(root.join(".claude/hooks/guard-destructive.sh"))
+        .map_err(|e| e.to_string())?;
+    if hook.contains("# Hand edit.")
+        || hook.contains("# Older lane.")
+        || !hook.contains("id=\"tgrep-search-lane\"")
+    {
+        return Err(format!(
+            "accepted hook lost its extension or kept the edit:\n{hook}"
+        ));
+    }
+    Ok(())
+}
 
 /// `render --apply` on a fresh copy of the repo `setup` builds at `root`, TS then Rust, with the
 /// same backup root and a scratch home. `Ok(None)` when Rust delegates.
@@ -1194,6 +1351,41 @@ proptest! {
                 Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
                 Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
             }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(25))]
+
+    /// `sync --apply`: with each bulk mode and `--accept-new-files`, the same report, the same
+    /// tree (accepted files recomposed with their hook extensions) and the same backups.
+    // Covers: R14, R36
+    #[test]
+    fn sync_apply_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        json in prop::bool::weighted(0.3),
+        bulk in prop::sample::select(vec![None, Some("accept-new"), Some("keep-mine")]),
+        files in prop::bool::ANY,
+    ) {
+        prop_assume!(!config.contains("codex"));
+        // `--keep-mine` with `--accept-new-files` is the TS's contradiction error.
+        prop_assume!(!(files && bulk == Some("keep-mine")));
+        let root = BASE.join("sync-apply");
+        let recipe = Recipe { baseline: Some(config.clone()), ..recipe };
+        let setup = || {
+            build_repo(&root, &recipe);
+            write(&root, "navori.config.json", &config);
+        };
+        match compare_sync_apply(&root, &config, json, bulk, files, &setup) {
+            Ok(Some((ts, rust))) => {
+                if let Some(why) = apply_difference(&ts, &rust) {
+                    prop_assert!(false, "{why}\n{config}\n{recipe:?}");
+                }
+            }
+            Ok(None) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}"),
         }
     }
 }

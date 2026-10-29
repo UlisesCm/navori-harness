@@ -32,7 +32,7 @@ fn only_a_sync_that_cannot_prompt_is_native() -> TestResult {
     ] {
         assert!(selected(&["sync", flag]).is_some(), "{flag}");
     }
-    for flag in ["--interactive", "--accept-new-files", "--workspace"] {
+    for flag in ["--interactive", "--workspace"] {
         assert!(selected(&["sync", "--apply", flag]).is_none(), "{flag}");
     }
     let entry = selected(&["sync", "--apply"]).ok_or("entry")?;
@@ -43,6 +43,7 @@ fn only_a_sync_that_cannot_prompt_is_native() -> TestResult {
     assert!(args.flags.yes && args.flags.keep_mine && !args.flags.apply);
     for args in [
         &["sync", "--accept-new", "--keep-mine"][..],
+        &["sync", "--accept-new-files", "--keep-mine"],
         &["sync", "--apply=1"],
         &["sync", "--apply", "--apply"],
         &["sync", "-y"],

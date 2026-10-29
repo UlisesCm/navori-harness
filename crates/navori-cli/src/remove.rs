@@ -13,7 +13,6 @@ use std::process::ExitCode;
 
 use lexopt::Arg;
 use navori_core::backup::{BackupStore, backup_root, local_now};
-use navori_core::commit::CommitError;
 use navori_core::config::{self, Config, HarnessRecord};
 use navori_core::fs::{RealFs, write_file_atomic};
 use navori_core::i18n;
@@ -21,7 +20,7 @@ use navori_core::manifest::Command;
 use navori_core::remove::{declared, disable, prune};
 use navori_core::render::claude_md::has_monorepo_workspaces;
 use navori_core::render::collect::DiskView;
-use navori_core::render::command::{Apply, RenderError, RenderOptions, plan_render, run_render};
+use navori_core::render::command::{Apply, RenderOptions, plan_render, run_render};
 use navori_core::render::report::Clack;
 
 use crate::render::{
@@ -207,12 +206,7 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
             }
         }
         Err(error) => {
-            let message = match error {
-                RenderError::Commit(CommitError::Backup(e)) | RenderError::Record(e) => e.message,
-                RenderError::Commit(CommitError::Write { message, .. }) => message,
-                RenderError::Delegate => String::new(),
-            };
-            out.push_str(&clack.error(&message));
+            out.push_str(&clack.error(&error.message()));
             out.push_str(&clack.outro(i18n::remove_render_crashed(lang)));
             let _ = std::io::stderr().write_all(stderr.as_bytes());
             let _ = std::io::stdout().write_all(out.as_bytes());

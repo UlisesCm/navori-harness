@@ -107,7 +107,7 @@ stay TypeScript-only.
 - **`adopt`** is native with `--apply` and `--cwd` (a positional path, a valid config or none,
   a usable backup root, no color).
 - **`sync`** is native only when it cannot prompt: with one of `--apply`, `--yes`, `--dry-run`,
-  `--json`, `--accept-new` or `--keep-mine` (the entry's `requires`). `--accept-new-files`,
+  `--json`, `--accept-new`, `--keep-mine` or `--accept-new-files` (the entry's `requires`).
   `--interactive` and `--workspace` delegate. **`remove <plugin>`** is native only with `--yes`.
 - **Native hooks:** a hook in `ported.json` runs natively only where `navori-rust` is in `PATH`;
   otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and

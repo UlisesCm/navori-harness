@@ -13,7 +13,6 @@ use std::process::ExitCode;
 
 use lexopt::Arg;
 use navori_core::backup::{BackupStore, backup_root, local_now};
-use navori_core::commit::CommitError;
 use navori_core::config::{self, Config};
 use navori_core::fs::RealFs;
 use navori_core::manifest::Command;
@@ -67,6 +66,7 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Syn
             "json" => &mut flags.json,
             "accept-new" => &mut flags.accept_new,
             "keep-mine" => &mut flags.keep_mine,
+            "accept-new-files" => &mut flags.accept_new_files,
             _ => return None,
         };
         if !declared(name) || *slot {
@@ -75,7 +75,8 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Syn
         parser.optional_value().is_none().then_some(())?;
         *slot = true;
     }
-    if flags.accept_new && flags.keep_mine {
+    // The TS rejects both pairs with its own message; that run is the TS's.
+    if flags.keep_mine && (flags.accept_new || flags.accept_new_files) {
         return None;
     }
     let cwd = match cwd {
@@ -153,11 +154,7 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
             Outcome::Exit(ExitCode::from(code))
         }
         Err(error) => {
-            let message = match error {
-                RenderError::Commit(CommitError::Backup(e)) | RenderError::Record(e) => e.message,
-                RenderError::Commit(CommitError::Write { message, .. }) => message,
-                RenderError::Delegate => String::new(),
-            };
+            let message = error.message();
             let _ = std::io::stderr().write_all(format!("{warnings}{message}\n").as_bytes());
             Outcome::Exit(ExitCode::FAILURE)
         }

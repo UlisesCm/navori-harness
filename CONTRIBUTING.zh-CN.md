@@ -101,7 +101,7 @@
 - **`adopt`** 以原生方式运行，支持 `--apply` 与 `--cwd`（一个位置参数路径、有效配置或无配置、可用的
   备份根目录，且无颜色）。
 - **`sync`** 仅在不会提示时以原生方式运行：带有 `--apply`、`--yes`、`--dry-run`、`--json`、
-  `--accept-new` 或 `--keep-mine` 之一（条目的 `requires`）。`--accept-new-files`、`--interactive` 与
+  `--accept-new`、`--keep-mine` 或 `--accept-new-files` 之一（条目的 `requires`）。`--interactive` 与
   `--workspace` 会委托。**`remove <plugin>`** 仅在带 `--yes` 时以原生方式运行。
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，

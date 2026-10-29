@@ -183,6 +183,7 @@ fn skip_kept(
         status: Some(result.status),
         resolution: None,
         markerless_resolution: None,
+        chmod_exec: false,
     });
     true
 }

@@ -358,6 +358,45 @@ pub fn sync_file_conflicts_kept(lang: Lang, count: usize) -> String {
     }
 }
 
+/// `sync.acceptNewFilesPreview(count)`.
+#[must_use]
+pub fn sync_accept_new_files_preview(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "--accept-new-files sobrescribir\u{ed}a {count} archivo(s) completo(s) con tu edici\u{f3}n. No escrib\u{ed} nada: vuelve a correrlo con --apply (o --yes) para aplicarlo."
+        ),
+        Lang::En => format!(
+            "--accept-new-files would overwrite {count} whole file(s) carrying your edit. Nothing was written: re-run it with --apply (or --yes) to apply it."
+        ),
+    }
+}
+
+/// `sync.acceptNewFilesApplied(count)`.
+#[must_use]
+pub fn sync_accept_new_files_applied(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "--accept-new-files: acept\u{e9} la versi\u{f3}n renderizada en {count} archivo(s) completo(s)"
+        ),
+        Lang::En => {
+            format!("--accept-new-files: accepted the rendered version in {count} whole file(s)")
+        }
+    }
+}
+
+/// `sync.fileChangedSinceDiff(path)`.
+#[must_use]
+pub fn sync_file_changed_since_diff(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{path} cambi\u{f3} en disco desde que se mostr\u{f3} el diff \u{2014} lo dej\u{e9} intacto. Vuelve a correr sync."
+        ),
+        Lang::En => format!(
+            "{path} changed on disk since the diff was shown \u{2014} left untouched. Run sync again."
+        ),
+    }
+}
+
 /// `sync.wroteFiles(n)`.
 #[must_use]
 pub fn sync_wrote_files(lang: Lang, n: usize) -> String {

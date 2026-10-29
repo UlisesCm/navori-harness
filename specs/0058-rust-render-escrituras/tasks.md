@@ -219,7 +219,7 @@ no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply y f
   (alternativas no vacías, sin repetir, contenidas en `flags`) y distinguen las entradas de una
   ruta por `requires` como conjunto de conjuntos. `loadNativeHooks` y `rust-hook-adapter.mjs`
   exigen el schema 2.
-- [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
+- [x] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
 - [x] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
 
 T31 cerrada: un fixture puede traer `oracle.json` (nunca se copia al repo) con backups previos en
@@ -242,12 +242,15 @@ que `remove-plugin` es solo config y el `render --apply` previo genera el árbol
 casos de `remove-plugin` y en cada fixture aplicable, paridad de `writeConfig` en
 `config_parity.rs` y el parseo en `navori-cli/tests/remove.rs`.
 
-T29 en curso: `sync` es nativo sin prompts (`navori_core::sync::run_sync`, entrada con
-`requires` = una de `apply`, `yes`, `dry-run`, `json`, `accept-new` o `keep-mine`): plan, diffs
-de conflicto, `--yes` como gate de CI, `--accept-new` por `forceIds`, `--keep-mine`, `--json` y el
-apply con el mismo commit que `render` (`command::commit_claude`). Se delegan `--accept-new-files`
-(falta portar la aceptación de archivos completos), `--interactive`, `--workspace` y la
-contradicción `--accept-new --keep-mine`. Pruebas: fixture `sync-conflicts` con cada modo,
-casos en cada fixture aplicable, proptest `sync_preview_matches_the_ts_command` y el parseo en
+T29 cerrada: `sync` es nativo sin prompts (`navori_core::sync::run_sync`, entrada con `requires`
+= una de `apply`, `yes`, `dry-run`, `json`, `accept-new`, `keep-mine` o `accept-new-files`): plan,
+diffs de conflicto, `--yes` como gate de CI, `--accept-new` por `forceIds`, `--keep-mine`,
+`--accept-new-files` (el render forzado de cada archivo que conserva su marcador, recompuesto con
+las extensiones de hooks que lo apuntan, escrito con su propio backup `root:sync` antes del commit
+del motor), `--json` y el apply con el mismo commit que `render` (`command::commit_claude`). Se
+delegan `--interactive`, `--workspace` y las contradicciones con `--keep-mine`. Pruebas: fixture
+`sync-conflicts` con cada modo, casos en cada fixture aplicable, proptests
+`sync_preview_matches_the_ts_command` y `sync_apply_matches_the_ts_command`,
+`accept_new_files_recomposes_hook_extensions` (con prueba de mutación) y el parseo en
 `navori-cli/tests/sync.rs`.
 - [x] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"

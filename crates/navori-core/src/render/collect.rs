@@ -112,6 +112,8 @@ pub struct SkippedFile {
     pub resolution: Option<String>,
     /// `markerlessResolution.content`: the whole-file replace only `sync --interactive` offers.
     pub markerless_resolution: Option<String>,
+    /// `resolution.chmodExec`: the destination is written executable.
+    pub chmod_exec: bool,
 }
 
 /// What one managed file contributes to the plan.
@@ -161,6 +163,7 @@ pub fn collect_managed(
                 status: Some(rendered.status),
                 resolution,
                 markerless_resolution: None,
+                chmod_exec,
             });
         }
         InjectStatus::DowngradeSkipped => {
@@ -173,6 +176,7 @@ pub fn collect_managed(
                 status: Some(rendered.status),
                 resolution: None,
                 markerless_resolution: None,
+                chmod_exec: false,
             });
         }
         status => {

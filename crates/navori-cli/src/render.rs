@@ -289,14 +289,10 @@ fn apply_render(
             };
             Ok((plan, stderr))
         }
-        Err(RenderError::Commit(navori_core::commit::CommitError::Backup(e)))
-        | Err(RenderError::Record(e)) => Err(e.message),
-        Err(RenderError::Commit(navori_core::commit::CommitError::Write { message, .. })) => {
-            Err(message)
-        }
         Err(RenderError::Delegate) => {
             Err("render: a step declined after the preview accepted it".to_owned())
         }
+        Err(error) => Err(error.message()),
     }
 }
 

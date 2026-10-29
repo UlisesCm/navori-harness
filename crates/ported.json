@@ -7,8 +7,8 @@
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
     {
       "path": ["sync"],
-      "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine"],
-      "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"]],
+      "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],
+      "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"], ["accept-new-files"]],
       "when": { "engines": ["claude"] }
     },
     {
