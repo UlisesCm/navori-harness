@@ -31,8 +31,8 @@ import { fileURLToPath } from "node:url";
  * whole work dir, copies the fixture again to the SAME path and runs `navori-rust`. Path-derived
  * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
  * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
- * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT` and `NAVORI_AUDITS_ROOT`
- * (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
+ * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
+ * `HOME` (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
  * matching only the exact format the TS CLI emits.
  */
 
@@ -59,7 +59,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ navori: string[] } | { write: string, content: string } | { git: string[] }} SetupStep
+ * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home" } | { git: string[] }} SetupStep
  * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], setup?: SetupStep[] }} OracleCase
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
@@ -388,9 +388,10 @@ function gitInit(repo, env) {
 
 /**
  * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
- * from), `write` lays a file, `git` runs git. Any failure aborts the case. In `write` content,
- * `@NOW_ISO@` becomes the current `toISOString()`: the setup runs once and both sides copy its
- * output, so a time-bound file (a dispatch marker) is identical and fresh for both.
+ * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
+ * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`
+ * and `@REPO@` the repo's path: the setup runs once and both sides copy its output, so a
+ * time-bound file (a dispatch marker) is identical and fresh for both.
  *
  * @param {string} repo
  * @param {Record<string, string>} env
@@ -404,9 +405,13 @@ function applySetup(repo, env, ts, steps) {
       if (run.status !== 0)
         throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
     } else if ("write" in step) {
-      const path = join(repo, step.write);
+      const base = step.in === "home" ? env.HOME : repo;
+      const path = join(base, step.write);
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, step.content.replaceAll("@NOW_ISO@", new Date().toISOString()));
+      writeFileSync(
+        path,
+        step.content.replaceAll("@NOW_ISO@", new Date().toISOString()).replaceAll("@REPO@", repo),
+      );
     } else {
       git(repo, env, step.git);
     }
@@ -489,6 +494,8 @@ function runOnce(work, runner, testCase, opts) {
       repo: snapshotTree(repo, skipGitNoise),
       backups: snapshotTree(join(work, "backups")),
       audits: snapshotTree(join(work, "audits")),
+      // `doctor` runs the `codex` CLI, which leaves randomly named scratch under `~/.codex/tmp/`.
+      home: snapshotTree(join(work, "home"), (rel) => rel === ".codex/tmp"),
     },
   };
 }

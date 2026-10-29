@@ -4,7 +4,8 @@
     { "path": ["--version"] },
     { "path": ["--help"] },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
-    { "path": ["plan", "gate"] }
+    { "path": ["plan", "gate"] },
+    { "path": ["dominio", "inject"] }
   ],
   "hooks": {
     "guard-destructive": {

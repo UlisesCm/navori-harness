@@ -2,6 +2,7 @@
 
 pub mod commands;
 pub mod delegate;
+pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
 pub mod help;
@@ -57,6 +58,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["plan", "gate"],
         run: plan_gate::run,
+    },
+    NativeCommand {
+        path: &["dominio", "inject"],
+        run: dominio_inject::run,
     },
 ];
 

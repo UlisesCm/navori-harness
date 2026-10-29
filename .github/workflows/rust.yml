@@ -46,6 +46,7 @@ jobs:
       - run: rustup show active-toolchain
       - run: bun run oracle:rust
       - run: node scripts/js/rust-oracle/plan-tables.mjs --check
+      - run: node scripts/js/rust-oracle/tools-tables.mjs --check
 
   manifest:
     runs-on: ubuntu-latest

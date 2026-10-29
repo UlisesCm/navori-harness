@@ -10,6 +10,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const STAMP_VERSION: &str = env!("NAVORI_TS_CLI_VERSION");
 
 pub mod audit;
+pub mod collate;
 pub mod config;
 pub mod content_identity;
 pub mod diagnose;
@@ -27,6 +28,7 @@ pub mod render;
 pub mod semver;
 pub mod spec;
 pub mod state_root;
+pub mod workspace;
 mod zod;
 
 /// Embedded managed assets as `(repo-relative path, bytes)`, sorted by path.
