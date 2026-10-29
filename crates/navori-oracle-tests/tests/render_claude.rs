@@ -888,8 +888,8 @@ fn compare_sync_apply(
     files: bool,
     setup: &dyn Fn(),
 ) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
-    let backups = BASE.join("sync-backups");
-    let home = BASE.join("sync-home");
+    let backups = root.with_extension("backups");
+    let home = root.with_extension("home");
     let reset = || {
         let _ = std::fs::remove_dir_all(&backups);
         let _ = std::fs::create_dir_all(&backups);
@@ -1037,8 +1037,8 @@ fn compare_apply(
     force: bool,
     setup: &dyn Fn(),
 ) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
-    let backups = BASE.join("apply-backups");
-    let home = BASE.join("apply-home");
+    let backups = root.with_extension("backups");
+    let home = root.with_extension("home");
     let reset = || {
         let _ = std::fs::remove_dir_all(&backups);
         let _ = std::fs::create_dir_all(&backups);
