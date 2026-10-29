@@ -50,6 +50,23 @@ pub fn squash(text: &str) -> String {
     trim(&collapse_spaces(text)).to_owned()
 }
 
+/// A JS `/i` literal (no `u` flag) as a `regex` pattern: each ASCII letter becomes `[xX]` and
+/// everything else is escaped. The `regex` crate's own `(?i)` folds with Unicode rules (`s` also
+/// matches `\u{17f}`), which a JS regex without `u` never does.
+#[must_use]
+pub fn ci(literal: &str) -> String {
+    literal
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphabetic() {
+                format!("[{}{}]", c.to_ascii_lowercase(), c.to_ascii_uppercase())
+            } else {
+                regex::escape(&c.to_string())
+            }
+        })
+        .collect()
+}
+
 /// Length of the run of ASCII digits at the start of `text`.
 #[must_use]
 pub fn digits_len(text: &str) -> usize {

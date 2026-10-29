@@ -152,7 +152,8 @@ fn task_counts(spec: Option<&str>) -> Result<(usize, usize), Delegate> {
     Ok(checkbox_counts(&text))
 }
 
-fn read_json(path: &Path) -> Result<JsValue, Delegate> {
+/// `JSON.parse(readFileSync(path, "utf8"))`, or [`Delegate`] where Node would throw.
+pub fn read_json(path: &Path) -> Result<JsValue, Delegate> {
     let bytes = fs::read(path).map_err(|_| Delegate)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| Delegate)?;
     js_json::parse(text).ok_or(Delegate)

@@ -53,6 +53,7 @@ pub enum Evidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Criterion {
     pub id: String,
+    pub description: String,
     pub method: &'static str,
     pub evidence: Evidence,
 }
@@ -62,6 +63,9 @@ pub struct Criterion {
 pub struct Part {
     pub id: String,
     pub title: String,
+    pub objective: String,
+    pub scope: Vec<String>,
+    pub out_of_scope: Vec<String>,
     pub depends_on: Vec<String>,
     pub acceptance: Vec<Criterion>,
     pub state: &'static str,
@@ -278,7 +282,7 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
         return Err(Invalid);
     }
     let block = object(o.get(own).ok_or(Invalid)?)?;
-    let mut texts = vec![description];
+    let mut texts = vec![description.clone()];
     match method {
         "test" => {
             texts.push(non_empty(block.get("file"))?);
@@ -304,6 +308,7 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
     Ok((
         Criterion {
             id,
+            description,
             method,
             evidence,
         },
@@ -362,6 +367,9 @@ fn part(value: &JsValue) -> Result<Part, Invalid> {
     Ok(Part {
         id,
         title,
+        objective,
+        scope,
+        out_of_scope,
         depends_on,
         acceptance,
         state,

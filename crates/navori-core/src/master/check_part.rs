@@ -15,23 +15,10 @@ use regex::Regex;
 use super::state::Part;
 use super::status::Delegate;
 use crate::integrity::is_js_whitespace;
+use crate::spec::text::ci;
 
 /// JS `\s` as a class body.
 const WS: &str = r"\t\n\x0B\x0C\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
-
-/// A JS `/i` literal (no `u` flag): each ASCII letter as `[xX]`, everything else escaped.
-fn ci(literal: &str) -> String {
-    literal
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphabetic() {
-                format!("[{}{}]", c.to_ascii_lowercase(), c.to_ascii_uppercase())
-            } else {
-                regex::escape(&c.to_string())
-            }
-        })
-        .collect()
-}
 
 /// The patterns of `check-part.ts`, compiled once.
 struct Patterns {
