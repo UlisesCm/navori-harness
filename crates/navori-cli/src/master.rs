@@ -10,12 +10,13 @@
 use std::path::Path;
 
 use navori_core::js_json::JsValue;
+use navori_core::master::check_part::PartConfig;
 use navori_core::master::index::{self, MasterIndex};
 use navori_core::master::status;
 
 use crate::help::{ArgDef, ArgKind, CommandDef, Parent};
 use crate::js_path::js_resolve;
-use crate::native_io::{self, Output, json_line, object, read_config};
+use crate::native_io::{self, Output, json_line, member, object, read_config};
 use crate::{NativeCall, Outcome};
 
 const STATUS: CommandDef = CommandDef {
@@ -133,7 +134,26 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
         .as_ref()
         .and_then(|i| i.active().map(|stage| (i, stage)))
     {
-        let legacy = status::legacy(&cwd, &specs_dir, Path::new(&master_dir), index, stage).ok()?;
+        let part_config = PartConfig {
+            english: matches!(member(Some(&config.data), "language"), Some(JsValue::String(l)) if l.is("en")),
+            master_plan: truthy(member(member(Some(&config.data), "harness"), "masterPlan")),
+        };
+        let legacy = status::legacy(
+            &cwd,
+            &specs_dir,
+            Path::new(&master_dir),
+            index,
+            stage,
+            part_config,
+        )
+        .ok()?;
+        // Each `checkPart` read the config again: its warnings printed once per read.
+        for _ in 0..legacy.config_reads {
+            for warning in &config.warnings {
+                out.stderr.push_str(warning);
+                out.stderr.push('\n');
+            }
+        }
         if options.json {
             json_line(&mut out, &legacy.to_json());
             return Some(out);
@@ -156,6 +176,17 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
     }
     json_line(&mut out, &empty_status(index.as_ref()));
     Some(out)
+}
+
+/// JS truthiness of a config value.
+fn truthy(value: Option<&JsValue>) -> bool {
+    match value {
+        None | Some(JsValue::Undefined | JsValue::Null) => false,
+        Some(JsValue::Bool(b)) => *b,
+        Some(JsValue::Number(n)) => *n != 0.0 && !n.is_nan(),
+        Some(JsValue::String(s)) => !s.units().is_empty(),
+        Some(JsValue::Array(_) | JsValue::Object(_)) => true,
+    }
 }
 
 /// `readMasterStatus`'s `empty`: no active stage, with the last closed one when there is any.
