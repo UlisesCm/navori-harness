@@ -4,6 +4,12 @@
     { "path": ["--version"] },
     { "path": ["--help"] },
     {
+      "path": ["master", "check"],
+      "flags": ["cwd", "fit", "h", "help", "json", "part"],
+      "requires": [["part"], ["fit"], ["h"], ["help"]]
+    },
+    { "path": ["master", "template"], "flags": ["cwd", "h", "help", "part"] },
+    {
       "path": ["master", "status"],
       "flags": ["cwd", "h", "help", "json", "line"],
       "requires": [["json"], ["line"], ["h"], ["help"]]

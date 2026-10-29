@@ -42,7 +42,7 @@ const STATUS: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
-const MASTER_PARENT: Parent<'static> = Parent {
+pub(crate) const MASTER_PARENT: Parent<'static> = Parent {
     name: "master",
     version: None,
 };
@@ -134,10 +134,7 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
         .as_ref()
         .and_then(|i| i.active().map(|stage| (i, stage)))
     {
-        let part_config = PartConfig {
-            english: matches!(member(Some(&config.data), "language"), Some(JsValue::String(l)) if l.is("en")),
-            master_plan: truthy(member(member(Some(&config.data), "harness"), "masterPlan")),
-        };
+        let part_config = part_config(&config);
         let legacy = status::legacy(
             &cwd,
             &specs_dir,
@@ -176,6 +173,14 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
     }
     json_line(&mut out, &empty_status(index.as_ref()));
     Some(out)
+}
+
+/// What `checkPart` reads of the config: the language and `harness.masterPlan`.
+pub(crate) fn part_config(config: &navori_core::config::Config) -> PartConfig {
+    PartConfig {
+        english: matches!(member(Some(&config.data), "language"), Some(JsValue::String(l)) if l.is("en")),
+        master_plan: truthy(member(member(Some(&config.data), "harness"), "masterPlan")),
+    }
 }
 
 /// JS truthiness of a config value.
