@@ -5,7 +5,9 @@
     { "path": ["--help"] },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
     { "path": ["plan", "gate"] },
-    { "path": ["dominio", "inject"] }
+    { "path": ["dominio", "inject"] },
+    { "path": ["tools", "notice"], "flags": ["ack"] },
+    { "path": ["tools", "session-context"], "flags": ["notice-reserve"] }
   ],
   "hooks": {
     "guard-destructive": {

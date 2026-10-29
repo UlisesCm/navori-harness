@@ -14,6 +14,7 @@ pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod quality_gate;
 pub mod shadow;
+pub mod tools;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -62,6 +63,14 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["dominio", "inject"],
         run: dominio_inject::run,
+    },
+    NativeCommand {
+        path: &["tools", "notice"],
+        run: tools::notice,
+    },
+    NativeCommand {
+        path: &["tools", "session-context"],
+        run: tools::session_context_command,
     },
 ];
 

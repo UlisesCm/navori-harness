@@ -628,25 +628,6 @@ fn read_dispatch(
     deny(format!("{lead}{fix}."))
 }
 
-fn uuid_v4() -> Option<String> {
-    let mut bytes = [0u8; 16];
-    fs::File::open("/dev/urandom")
-        .ok()?
-        .read_exact(&mut bytes)
-        .ok()?;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    Some(format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    ))
-}
-
 /// `claimDispatch` without an escalation burn: `Ok(None)` when the claim spent this exact
 /// marker. A failed rename other than `ENOENT` quotes a Node error message: delegated, since
 /// nothing moved.
@@ -655,7 +636,7 @@ fn claim_dispatch(file: &Path, raw: &str, ctx: &Context<'_>) -> R<Option<String>
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let uuid = uuid_v4().unwrap_or_else(|| format!("{:x}", ctx.now_ms as u64));
+    let uuid = crate::atomic::random_uuid().unwrap_or_else(|_| format!("{:x}", ctx.now_ms as u64));
     let claim = file.with_file_name(format!(
         ".{base}.claim-{}-{}-{uuid}",
         ctx.pid,

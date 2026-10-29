@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -59,7 +60,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home" } | { git: string[] }} SetupStep
+ * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] }} SetupStep
  * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], setup?: SetupStep[] }} OracleCase
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
@@ -84,8 +85,9 @@ export const RULES = [
   {
     name: "EPOCHMS",
     token: "@EPOCHMS@",
-    // Date.now(), only as the value of `tsMs` / `observedAt`
-    apply: (t) => t.replace(/("(?:tsMs|observedAt)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
+    // Date.now(), only as the value of `tsMs` / `observedAt`, and of `at` in the per-machine
+    // version caches (`~/.navori/tool-versions/*.json`)
+    apply: (t) => t.replace(/("(?:tsMs|observedAt|at)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
   },
   {
     name: "UUID",
@@ -389,8 +391,8 @@ function gitInit(repo, env) {
 /**
  * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
  * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
- * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`
- * and `@REPO@` the repo's path: the setup runs once and both sides copy its output, so a
+ * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
  * time-bound file (a dispatch marker) is identical and fresh for both.
  *
  * @param {string} repo
@@ -410,8 +412,12 @@ function applySetup(repo, env, ts, steps) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(
         path,
-        step.content.replaceAll("@NOW_ISO@", new Date().toISOString()).replaceAll("@REPO@", repo),
+        step.content
+          .replaceAll("@NOW_ISO@", new Date().toISOString())
+          .replaceAll("@NOW_MS@", String(Date.now()))
+          .replaceAll("@REPO@", repo),
       );
+      if (step.mode !== undefined) chmodSync(path, step.mode);
     } else {
       git(repo, env, step.git);
     }
@@ -476,7 +482,15 @@ function runOnce(work, runner, testCase, opts) {
   }
   const repo = join(work, "repo");
   // A case's `env` (e.g. `NAVORI_HOOK_ENGINE`) applies to the measured run only.
-  const env = { ...hermeticEnv(work, opts.tsCli), ...testCase.env };
+  // `@REPO@` in a value is the repo's path (a `PATH` entry for the case's own tools) and
+  // `@NODE_DIR@` the directory of this `node`, which a delegating `navori-rust` needs on `PATH`.
+  const caseEnv = Object.fromEntries(
+    Object.entries(testCase.env ?? {}).map(([key, value]) => [
+      key,
+      value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
+    ]),
+  );
+  const env = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
