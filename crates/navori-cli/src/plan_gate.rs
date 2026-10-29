@@ -10,9 +10,7 @@ use std::io::Read as _;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use navori_core::plan::gate::{
-    Context, Outcome, audit_identity_in_env, audit_log_present, evaluate,
-};
+use navori_core::plan::gate::{Context, audit_identity_in_env, audit_log_present, evaluate};
 
 use crate::delegate;
 
@@ -43,17 +41,9 @@ pub fn run(args: &[OsString]) -> Option<ExitCode> {
         pid: std::process::id(),
     };
     let codex = std::env::var_os("NAVORI_HOOK_ENGINE").is_some_and(|v| v == "codex");
-    let decision = evaluate(&stdin, codex, &ctx);
-    let code = match decision.outcome {
-        Outcome::Delegate(_) => return Some(delegate::run_with_stdin(args, "plan", &stdin)),
-        Outcome::Allow => 0,
-        Outcome::Deny(_) => 2,
+    let Some((code, stderr)) = evaluate(&stdin, codex, &ctx).report() else {
+        return Some(delegate::run_with_stdin(args, "plan", &stdin));
     };
-    for line in &decision.warnings {
-        eprintln!("{line}");
-    }
-    if let Outcome::Deny(reason) = decision.outcome {
-        eprintln!("[navori] BLOCKED by plan-gate: {reason}");
-    }
+    eprint!("{stderr}");
     Some(ExitCode::from(code))
 }

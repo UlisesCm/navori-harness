@@ -55,6 +55,31 @@ pub struct Decision {
     pub warnings: Vec<String>,
 }
 
+impl Decision {
+    /// What `navori plan gate` prints for this decision: its exit code (0 allow, 2 deny) and
+    /// stderr (the warnings, then the denial line). `None` for [`Outcome::Delegate`], which the
+    /// TS answers.
+    #[must_use]
+    pub fn report(&self) -> Option<(u8, String)> {
+        let code = match self.outcome {
+            Outcome::Allow => 0,
+            Outcome::Deny(_) => 2,
+            Outcome::Delegate(_) => return None,
+        };
+        let mut stderr = String::new();
+        for line in &self.warnings {
+            stderr.push_str(line);
+            stderr.push('\n');
+        }
+        if let Outcome::Deny(reason) = &self.outcome {
+            stderr.push_str("[navori] BLOCKED by plan-gate: ");
+            stderr.push_str(reason);
+            stderr.push('\n');
+        }
+        Some((code, stderr))
+    }
+}
+
 /// The process facts the TS reads from `process`.
 pub struct Context<'a> {
     pub process_cwd: &'a Path,
