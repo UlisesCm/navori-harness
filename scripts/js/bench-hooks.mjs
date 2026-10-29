@@ -42,6 +42,8 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *
  * Rust mode times the binary directly (wall median/p95, never the shell CPU budget).
  * NAVORI_RUST_BIN selects the binary; NAVORI_RUST_HOOKS_DIR supplies renderer-prepared scripts.
+ * Without it the binary runs the signed source assets, as the verdict replay does.
+ * Shell rows carry `wallMsP95` too, over the same payloads, so both p95 can be compared (R55).
  * Unavailable/deferred native execution always fails, including with --report-only.
  * Rust currently supports only --audit absent (default); root/active require CLI-writer fixtures.
  *
@@ -768,6 +770,8 @@ export function parseBenchArgs(argv) {
  */
 export function argumentFreeInvocation(command, directory, hook) {
   if (command === `bash "${directory}/${hook}"`) return true;
+  // Codex resolves the hook from the repo top level.
+  if (command === `bash "$(git rev-parse --show-toplevel)/${directory}/${hook}"`) return true;
   const prefix = `f="$CLAUDE_PROJECT_DIR/${directory}/${hook}"; `;
   if (!command.startsWith(prefix)) return false;
   const uses = command.split('"$f"').length - 1;
@@ -798,22 +802,44 @@ export function timeRustOnce(options) {
   return { wallMs, exitCode: result.status };
 }
 
+/** Scratch directory with the signed source assets the verdict replay runs (spec 0057 T28).
+ * Loaded lazily: the signer imports the renderer's TypeScript, which the shell bench never needs.
+ * @returns {Promise<string>}
+ */
+async function signedAssets() {
+  const { writeSignedAssets } = await import("./rust-replay-assets.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "navori-bench-assets-"));
+  try {
+    return writeSignedAssets(dir);
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 /** Native reporting deliberately keeps R17 wall p95 separate from the shell CPU budget.
  * Prepared scripts and the executable are pinned before entering the scratch cwd.
  * @param {ReturnType<typeof parseBenchArgs>} options
- * @returns {number}
+ * @returns {Promise<number>}
  */
-function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
+async function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
   if (audit !== "absent") {
     throw new Error(
       `native audit ${audit} unsupported: CLI-writer fixtures and log validation are pending`,
     );
   }
-  const native = prepareRustReplay({
-    manifestPath: join(REPO_ROOT, "crates", "ported.json"),
-    binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
-    scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR,
-  });
+  const signed = process.env.NAVORI_RUST_HOOKS_DIR === undefined ? await signedAssets() : undefined;
+  let native;
+  try {
+    native = prepareRustReplay({
+      manifestPath: join(REPO_ROOT, "crates", "ported.json"),
+      binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
+      scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR ?? signed,
+    });
+  } catch (error) {
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
+    throw error;
+  }
   const registrations = readRegistrations();
   const sandbox = createSandbox();
   const loadBefore = loadavg();
@@ -863,6 +889,7 @@ function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
     }
   } finally {
     sandbox.cleanup();
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
   }
   if (measurements.length === 0)
     throw new Error("native unavailable: no registered hooks selected");
@@ -909,9 +936,9 @@ function benchRust({ scenarios, runs, reportOnly, audit = "absent" }) {
 
 /** Run one benchmark implementation; native unavailability is never report-only success.
  * @param {string[]} argv
- * @returns {number}
+ * @returns {Promise<number>}
  */
-export function main(argv) {
+export async function main(argv) {
   const summarizeAt = argv.indexOf("--summarize");
   if (summarizeAt !== -1) return summarize(argv.slice(summarizeAt + 1));
   let options;
@@ -926,7 +953,7 @@ export function main(argv) {
   const { reportOnly, runs, scenarios } = options;
   if (options.impl === "rust") {
     try {
-      return benchRust(options);
+      return await benchRust(options);
     } catch (error) {
       process.stderr.write(
         `bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -976,6 +1003,7 @@ export function main(argv) {
               hook,
               audit,
               wallMsMedian: median(timed.map((t) => t.wallMs)),
+              wallMsP95: p95(timed.map((t) => t.wallMs)),
               cpuMsMedian: median(timed.map((t) => t.cpuMs)),
               runsMs: timed.map((t) => t.wallMs),
               execs: counted.execs,
@@ -1051,5 +1079,5 @@ export function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exit(main(process.argv.slice(2)));
+  process.exit(await main(process.argv.slice(2)));
 }

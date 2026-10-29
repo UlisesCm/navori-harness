@@ -214,7 +214,7 @@ function nativeBenchFixture(event = "SessionStart"): {
       'import { main, SCENARIOS } from "./scripts/js/bench-hooks.mjs";',
       "SCENARIOS.SessionStart.events = [process.env.BENCH_EVENT];",
       "process.env.BENCH_EXPECT_PARENT = String(process.pid);",
-      "process.exitCode = main(process.argv.slice(2));",
+      "process.exitCode = await main(process.argv.slice(2));",
       "",
     ].join("\n"),
   );
@@ -479,13 +479,150 @@ describe("bench scripts", () => {
     expect(accept(prefix + guard, dir, hook)).toBe(true);
     expect(accept(`${prefix}${wrapper}\n${guard}`, dir, hook)).toBe(true);
     expect(accept(prefix + wrapper.replace(" --shadow", ""), dir, hook)).toBe(true);
+    expect(accept(`bash "$(git rev-parse --show-toplevel)/${dir}/${hook}"`, dir, hook)).toBe(true);
     for (const command of [
+      `bash "$(git rev-parse --show-toplevel)/${dir}/${hook}" codex`,
+      `bash "$(pwd)/${dir}/${hook}"`,
       prefix + guard.replace('exec bash "$f";', 'exec bash "$f" claude-stop;'),
       `${prefix}${wrapper}\n${guard} "$f" extra`,
       `f="$CLAUDE_PROJECT_DIR/${dir}/other.sh"; ${guard}`,
       `bash "${dir}/${hook}" arg`,
     ]) {
       expect(accept(command, dir, hook), command).toBe(false);
+    }
+  });
+
+  // Covers: R55
+  it("quality-gate fuera de commit mide p95 rust y shell con los mismos payloads", () => {
+    const fixture = nativeBenchFixture("PreToolUse");
+    const hook = "quality-gate-pre-commit.sh";
+    try {
+      const { root } = fixture;
+      copyFileSync(
+        fileURLToPath(scriptUrl("bench-payloads/bash.json")),
+        join(root, "scripts/js/bench-payloads/bash.json"),
+      );
+      writeFileSync(
+        join(root, ".claude/settings.json"),
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: "Bash",
+                hooks: [
+                  {
+                    command: `f="$CLAUDE_PROJECT_DIR/.claude/hooks/${hook}"; bash -n "$f" 2>/dev/null && exec bash "$f"; printf ask`,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      writeFileSync(
+        join(root, ".codex/config.toml"),
+        [
+          "[[hooks.PreToolUse]]",
+          'matcher = "^Bash$"',
+          "[[hooks.PreToolUse.hooks]]",
+          `command = "bash \\"$(git rev-parse --show-toplevel)/.codex/hooks/${hook}\\""`,
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(root, "packages/cli/src/engines/pi/hook-bindings.ts"),
+        `{ script: "quality-gate-pre-commit", on: "tool_call", tools: ["bash"], scope: "all" },\n`,
+      );
+      // The shell copy logs the payload it reads; the native fixture logs its own.
+      for (const dir of [".claude/hooks", ".codex/hooks", ".pi/navori/hooks"]) {
+        mkdirSync(join(root, dir), { recursive: true });
+        writeFileSync(
+          join(root, dir, hook),
+          `printf '%s\\n' "$(cat | tr -d '\\n')" >> "$BENCH_SHELL_LOG"\nexit 0\n`,
+        );
+      }
+      writeFileSync(
+        fixture.manifest,
+        JSON.stringify({ schema: 1, hooks: { "quality-gate-pre-commit": { mode: "shadow" } } }),
+      );
+      const run = (impl: "rust" | "shell") =>
+        spawnSync(
+          process.execPath,
+          [
+            join(root, "driver.mjs"),
+            "--impl",
+            impl,
+            "--scenario",
+            "Bash",
+            "--runs",
+            "2",
+            "--report-only",
+          ],
+          {
+            cwd: root,
+            env: {
+              ...process.env,
+              NAVORI_RUST_BIN: fixture.binary,
+              NAVORI_RUST_HOOKS_DIR: root,
+              BENCH_NATIVE_LOG: join(root, "native.jsonl"),
+              BENCH_NATIVE_EXIT: "0",
+              BENCH_SHELL_LOG: join(root, "shell.jsonl"),
+              BENCH_EVENT: "SessionStart",
+            },
+            encoding: "utf8",
+          },
+        );
+      type Row = { engine: string; hook: string; wallMsP95: number; runsMs: number[] };
+      const rows = (name: string): Row[] =>
+        (
+          JSON.parse(readFileSync(join(root, ".navori/state/bench", name), "utf8")) as {
+            measurements: Row[];
+          }
+        ).measurements;
+      // Payloads differ only in the sandbox project path, which each run creates afresh.
+      const shape = (input: string): unknown => {
+        const payload = JSON.parse(input) as Record<string, unknown>;
+        return { ...payload, cwd: "<cwd>", transcript_path: "<transcript>" };
+      };
+
+      const rust = run("rust");
+      expect(rust.status, `${rust.stdout}\n${rust.stderr}`).toBe(0);
+      const shell = run("shell");
+      expect(shell.status, `${shell.stdout}\n${shell.stderr}`).toBe(0);
+
+      const native = readFileSync(join(root, "native.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { argv: string[]; input: string });
+      expect(native).toHaveLength(6);
+      const scripts = native.map((call) => call.argv[3]);
+      for (const dir of [".claude/hooks", ".codex/hooks", ".pi/navori/hooks"]) {
+        expect(scripts.filter((script) => script === join(root, dir, hook))).toHaveLength(2);
+      }
+      const shellInputs = readFileSync(join(root, "shell.jsonl"), "utf8").trim().split("\n");
+      // Three audit scenarios per engine, each timed twice and counted once.
+      expect(shellInputs).toHaveLength(27);
+      const expected = shape(native[0]!.input);
+      expect(expected).toMatchObject({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "git status --short" },
+      });
+      for (const input of [...native.map((call) => call.input), ...shellInputs]) {
+        expect(shape(input)).toEqual(expected);
+      }
+
+      const rustRows = rows("hooks-rust-latest.json");
+      const shellRows = rows("hooks-latest.json");
+      for (const engine of ["claude", "codex", "pi"]) {
+        for (const report of [rustRows, shellRows]) {
+          const measured = report.filter((row) => row.engine === engine && row.hook === hook);
+          expect(measured.length, engine).toBeGreaterThan(0);
+          for (const row of measured) expect(row.wallMsP95).toBe(hooksModule.p95(row.runsMs));
+        }
+      }
+    } finally {
+      fixture.cleanup();
     }
   });
 
