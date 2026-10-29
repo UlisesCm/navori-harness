@@ -544,9 +544,10 @@ fn dedupe(values: Vec<JsValue>) -> Vec<JsValue> {
     out
 }
 
-/// `applyNativeClaudeSettings(cwd, pending, eligible, decision, floor, force)` with `force`
-/// off: rewrites only the generated hook commands to their native form for `eligible` hooks
-/// (or back to the shell form), drops duplicates that leaves, and restamps a managed file.
+/// `applyNativeClaudeSettings(cwd, pending, eligible, decision, floor, force)`: rewrites only
+/// the generated hook commands to their native form for `eligible` hooks (or back to the shell
+/// form), drops duplicates that leaves, and restamps a managed file (`force` skips the
+/// anti-rollback check).
 ///
 /// # Errors
 /// [`NativeHooksDelegate`] when `settings.json` exists but cannot be read.
@@ -556,6 +557,7 @@ pub fn apply_native_claude_settings(
     eligible: &BTreeMap<String, Hook>,
     skipped: bool,
     floor: Option<&str>,
+    force: bool,
 ) -> Result<(), NativeHooksDelegate> {
     use crate::render::settings_file::{StampedPlan, plan_stamped_json, pretty};
     if skipped || !native_path_contained(view, SETTINGS) {
@@ -666,7 +668,7 @@ pub fn apply_native_claude_settings(
     };
     let mut output = pretty(&JsValue::Object(settings));
     if managed && let Some(current) = existing.as_deref() {
-        match plan_stamped_json(current, &output, floor, false) {
+        match plan_stamped_json(current, &output, floor, force) {
             StampedPlan::Downgrade(_) => return Ok(()),
             StampedPlan::Noop => current.clone_into(&mut output),
             StampedPlan::Write(content) => output = content,

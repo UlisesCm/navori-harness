@@ -6,7 +6,8 @@
 //! `progress/`, preset hooks and plugin scripts, with sub-blocks edited in place or appended.
 //! Skips follow the TS too: steps 1–2.5, steps 5–7, the spine, then the sub-blocks.
 //!
-//! `force` is outside the native subset (T17), so every step plans without it.
+//! `options.force` (`render --force`) reaches the steps that honor it in the TS: `settings.json`,
+//! `.mcp.json` and the native settings wiring.
 //!
 //! The native hook wiring runs last, as in `finalize`: ported hooks are wrapped and signed, and
 //! `settings.json` registers them natively.
@@ -19,7 +20,7 @@ use std::path::Path;
 use crate::config::effective_config;
 use crate::i18n;
 use crate::js_json::JsValue;
-use crate::render::block_plan::{AssetStatus, PlanOptions, UpdateAvailable};
+use crate::render::block_plan::{AssetStatus, PlanEntry, PlanOptions, UpdateAvailable};
 use crate::render::claude_files::collect_claude_files;
 use crate::render::claude_md::plan_claude_md;
 use crate::render::claude_settings::build_claude_settings;
@@ -56,6 +57,9 @@ pub struct ClaudeEnginePlan {
     pub warnings: Vec<String>,
     /// `(relPath, overwrittenKeys)` of markerless destinations adopted by name.
     pub collisions: Vec<(String, Vec<String>)>,
+    /// Index in `warnings` of the first `collisionWarnings` line (one per collision), which the
+    /// commit rewrites with the backup path.
+    pub collision_warnings_at: usize,
     /// Blocks whose version on disk is older (`CLAUDE.md` plan, then sub-blocks).
     pub updates_available: Vec<UpdateAvailable>,
     /// Blocks written by a newer navori.
@@ -66,6 +70,9 @@ pub struct ClaudeEnginePlan {
     pub inspected: usize,
     /// `claudeMdEntries`: `(asset id, status)` of every `CLAUDE.md` block, in plan order.
     pub claude_md_entries: Vec<(String, AssetStatus)>,
+    /// The same entries as the plan built them: asset (with its condition) and rendered body,
+    /// which `sync` reports for a conflicting block.
+    pub claude_md_plan: Vec<PlanEntry>,
     /// `languageFallbacks`.
     pub language_fallbacks: Vec<String>,
 }
@@ -143,6 +150,7 @@ fn place(
                 status,
                 resolution: None,
                 markerless_resolution: None,
+                chmod_exec: false,
             });
             true
         }
@@ -237,7 +245,7 @@ pub fn plan_claude_engine(
         view,
         &settings,
         harness_version.as_deref(),
-        false,
+        options.force,
         lang,
     ))?;
 
@@ -247,7 +255,7 @@ pub fn plan_claude_engine(
         &enabled,
         &disabled,
         harness_version.as_deref(),
-        false,
+        options.force,
         lang,
     ))?;
 
@@ -309,6 +317,7 @@ pub fn plan_claude_engine(
         &eligible,
         settings_skipped,
         harness_version.as_deref(),
+        options.force,
     ))?;
 
     let mut removals: Vec<PendingRemoval> = step1
@@ -355,6 +364,7 @@ pub fn plan_claude_engine(
     warnings.extend(sub_blocks.retired_warnings);
     warnings.extend(retirements.warnings);
     // `collisionWarnings` at commit, without a backup in a preview.
+    let collision_warnings_at = warnings.len();
     warnings.extend(
         harness
             .collisions
@@ -397,6 +407,7 @@ pub fn plan_claude_engine(
         skipped,
         warnings,
         collisions: harness.collisions,
+        collision_warnings_at,
         updates_available,
         downgrades,
         owned_paths,
@@ -407,6 +418,7 @@ pub fn plan_claude_engine(
             .iter()
             .map(|e| (e.asset.id().to_owned(), e.status))
             .collect(),
+        claude_md_plan: step1.plan.entries.clone(),
         language_fallbacks: step1.plan.language_fallbacks,
     })
 }

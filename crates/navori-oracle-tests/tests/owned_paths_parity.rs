@@ -13,7 +13,7 @@ use navori_core::js_json::JsValue;
 use navori_core::markers::{InjectOptions, MarkerMeta, inject_managed_section};
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude_md::plan_claude_md;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::harness_files::filter_inventory;
 use navori_core::render::harness_plan::{preset_hooks, resolve_harness_plan};
 use navori_core::render::owned_paths::{ClaudeOwnedInput, claude_owned_paths};
@@ -44,47 +44,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-owned-paths-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn symlink(&self, rel: &str) -> Option<bool> {
-        match std::fs::symlink_metadata(self.0.join(rel)) {
-            Ok(meta) => Some(meta.file_type().is_symlink()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -260,7 +219,7 @@ fn string_at(config: &JsValue, key: &str) -> Option<String> {
 fn rust_owned(root: &Path, text: &str) -> Option<String> {
     let read = config::read(text.as_bytes()).ok()?;
     let config = config::effective_config(&read.data);
-    let view = Disk(root);
+    let view = DiskView(root);
     let step1 = plan_claude_md(&view, &read.data, root, &PlanOptions::default()).ok()?;
     let preset = match string_at(&config, "preset").as_deref() {
         None | Some("" | "custom") => None,

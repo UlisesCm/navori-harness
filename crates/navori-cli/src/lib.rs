@@ -1,5 +1,6 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
+pub mod adopt;
 pub mod commands;
 pub mod delegate;
 pub mod facts_cache;
@@ -8,8 +9,10 @@ pub mod hook;
 pub mod hook_facts;
 pub mod journal;
 pub mod parser;
+pub mod remove;
 pub mod render;
 pub mod shadow;
+pub mod sync;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -68,6 +71,18 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
+    },
+    NativeCommand {
+        path: &["adopt"],
+        run: adopt::run,
+    },
+    NativeCommand {
+        path: &["sync"],
+        run: sync::run,
+    },
+    NativeCommand {
+        path: &["remove"],
+        run: remove::run,
     },
 ];
 

@@ -15,17 +15,21 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
+use navori_core::backup::{BackupStore, local_now};
 use navori_core::config;
+use navori_core::config::HarnessRecord;
+use navori_core::fs::{RealFs, RecordingFs};
 use navori_core::js_json::{self, JsValue};
 use navori_core::manifest::{Hook, HookMode};
 use navori_core::render::block_plan::PlanOptions;
 use navori_core::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use navori_core::render::claude_settings::claude_hook_command;
-use navori_core::render::collect::RepoView;
-use navori_core::render::context::Lang;
-use navori_core::render::report::{
-    Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
+use navori_core::render::collect::DiskView;
+use navori_core::render::command::{
+    Apply, RenderOptions, human_report, plan_render, render_json, run_render,
 };
+use navori_core::render::report::Clack;
+use navori_core::sync::{SyncFlags, SyncRun, run_sync};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use regex::Regex;
@@ -63,47 +67,6 @@ static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-render-claude-{}", std::process::id()))
 });
 
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn symlink(&self, rel: &str) -> Option<bool> {
-        match std::fs::symlink_metadata(self.0.join(rel)) {
-            Ok(meta) => Some(meta.file_type().is_symlink()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
-
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
     if let Some(parent) = path.parent() {
@@ -128,7 +91,7 @@ fn plan_with(
         native_hooks,
         ..PlanOptions::default()
     };
-    plan_claude_engine(&Disk(root), &read.data, root, &options).ok()
+    plan_claude_engine(&DiskView(root), &read.data, root, &options).ok()
 }
 
 // --- golden -------------------------------------------------------------------------------
@@ -320,6 +283,73 @@ fn config() -> BoxedStrategy<String> {
         )
     })
     .boxed()
+}
+
+/// What the command reconciles beside the Claude engine: the root `.gitignore` mode and what
+/// the user already has, prettier, the user's `.prettierignore` and a disabled engine's outputs.
+#[derive(Debug, Clone)]
+struct Extras {
+    gitignore_mode: Option<&'static str>,
+    user_gitignore: u8,
+    prettier: bool,
+    user_prettierignore: bool,
+    orphans: bool,
+}
+
+fn extras() -> BoxedStrategy<Extras> {
+    (
+        prop::sample::select(vec![None, Some("off"), Some("local"), Some("full")]),
+        0u8..3,
+        prop::bool::ANY,
+        prop::bool::ANY,
+        prop::bool::ANY,
+    )
+        .prop_map(
+            |(gitignore_mode, user_gitignore, prettier, user_prettierignore, orphans)| Extras {
+                gitignore_mode,
+                user_gitignore,
+                prettier,
+                user_prettierignore,
+                orphans,
+            },
+        )
+        .boxed()
+}
+
+impl Extras {
+    /// Writes the extras into `root` and returns `config` with the `.gitignore` mode.
+    fn apply(&self, root: &Path, config: &str) -> String {
+        match self.user_gitignore {
+            0 => {}
+            1 => write(root, ".gitignore", "node_modules/\n.env\n"),
+            // A harness block edited by hand, under a hash that no longer matches.
+            _ => write(
+                root,
+                ".gitignore",
+                &format!(
+                    "# mine\n# navori:managed start id=\"gitignore-harness\" hash=\"00000000\" version=\"{STAMP_VERSION}\" source=\"@navori/core\"\nedited/\n# navori:managed end id=\"gitignore-harness\"\n"
+                ),
+            ),
+        }
+        if self.prettier {
+            write(
+                root,
+                "package.json",
+                r#"{"scripts":{"format":"prettier --write ."}}"#,
+            );
+        }
+        if self.user_prettierignore {
+            write(root, ".prettierignore", ".claude/\nCLAUDE.md\n");
+        }
+        if self.orphans {
+            write(root, "AGENTS.md", "# mine\n");
+            write(root, ".cursor/rules/mine.mdc", "mine\n");
+        }
+        match self.gitignore_mode {
+            Some(mode) => config.replacen('{', &format!(r#"{{"gitignoreHarness":"{mode}","#), 1),
+            None => config.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -632,6 +662,96 @@ fn engine_result_warnings_match_run_render() -> Result<(), String> {
     Ok(())
 }
 
+fn sync_prelude() -> String {
+    format!(
+        "process.env.NO_COLOR = '1';\nprocess.env.TERM = 'xterm-256color';\nconst s = await import({:?});",
+        cli_module("commands/sync.ts")
+    )
+}
+
+/// `navori sync --dry-run --cwd <root> [--json] [bulk]`, its stdout and stderr captured.
+static SYNC: Shared = Shared::new(
+    sync_prelude,
+    "const out = [];\n\
+     const err = [];\n\
+     const write = process.stdout.write;\n\
+     const ewrite = process.stderr.write;\n\
+     const exit = process.exit;\n\
+     process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
+     process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
+     process.exit = (code) => { throw new Error('exit ' + code); };\n\
+     const args = { cwd: request.root, json: request.json === true, _: [] };\n\
+     if (request.apply === true) args.apply = true; else args['dry-run'] = true;\n\
+     if (request.files === true) args['accept-new-files'] = true;\n\
+     if (request.bulk) args[request.bulk] = true;\n\
+     const env = { home: process.env.HOME, backups: process.env.NAVORI_BACKUP_ROOT };\n\
+     if (request.backups) { process.env.HOME = request.home; process.env.NAVORI_BACKUP_ROOT = request.backups; }\n\
+     try { await s.syncCommand.run({ args, rawArgs: [], cmd: s.syncCommand }); }\n\
+     catch (e) { return { threw: String(e && e.message || e), partial: out.join('') }; }\n\
+     finally {\n\
+       process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit;\n\
+       if (request.backups) { process.env.HOME = env.home; if (env.backups === undefined) delete process.env.NAVORI_BACKUP_ROOT; else process.env.NAVORI_BACKUP_ROOT = env.backups; }\n\
+     }\n\
+     return { out: out.join(''), err: err.join('') };",
+);
+
+/// `sync --dry-run` (and `--json`) agree with the TS byte for byte; `Ok(false)` when Rust
+/// delegates.
+fn compare_sync(root: &Path, config: &str, json: bool, bulk: Option<&str>) -> Result<bool, String> {
+    let ts = SYNC.ask(&json!({ "root": root.to_string_lossy(), "json": json, "bulk": bulk }))?;
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    let flags = SyncFlags {
+        dry_run: true,
+        json,
+        accept_new: bulk == Some("accept-new"),
+        keep_mine: bulk == Some("keep-mine"),
+        ..SyncFlags::default()
+    };
+    let mut fs = RecordingFs::default();
+    let mut store = BackupStore::new(Err("no backups in a dry run".to_owned()), 0);
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let rust = run_sync(
+        &DiskView(root),
+        &read,
+        root,
+        flags,
+        Clack { unicode: true },
+        &mut apply,
+    );
+    if !fs.ops.is_empty() {
+        return Err(format!("a dry run wrote: {:?}", fs.ops));
+    }
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return match rust {
+            Err(_) | Ok(SyncRun::Delegate) => Ok(true),
+            Ok(_) => Err(format!("ts failed: {ts}")),
+        };
+    };
+    let Ok(SyncRun::Done { stdout, stderr, .. }) = rust else {
+        return Ok(false);
+    };
+    let warnings: String = read.warnings.iter().map(|w| format!("{w}\n")).collect();
+    if out != stdout {
+        return Err(format!(
+            "stdout (json: {json}, {bulk:?}):\n--- ts ---\n{out}\n--- rust ---\n{stdout}"
+        ));
+    }
+    if err != format!("{warnings}{stderr}") {
+        return Err(format!(
+            "stderr:\n--- ts ---\n{err}\n--- rust ---\n{warnings}{stderr}"
+        ));
+    }
+    Ok(true)
+}
+
 fn report_prelude() -> String {
     format!(
         "process.env.NO_COLOR = '1';\nprocess.env.TERM = 'xterm-256color';\nconst r = await import({:?});",
@@ -639,64 +759,427 @@ fn report_prelude() -> String {
     )
 }
 
-/// `navori render --cwd <root>` (preview), its stdout captured.
+/// `navori render --cwd <root> [--json]` (preview), its stdout and stderr captured.
 static REPORT: Shared = Shared::new(
     report_prelude,
-    "const chunks = [];\n\
+    "const out = [];\n\
+     const err = [];\n\
      const write = process.stdout.write;\n\
+     const ewrite = process.stderr.write;\n\
      const exit = process.exit;\n\
-     process.stdout.write = (chunk) => { chunks.push(String(chunk)); return true; };\n\
+     process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };\n\
+     process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };\n\
      process.exit = (code) => { throw new Error('exit ' + code); };\n\
-     try { await r.renderCommand.run({ args: { cwd: request.root, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
-     catch (err) { return { threw: String(err && err.message || err) }; }\n\
-     finally { process.stdout.write = write; process.exit = exit; }\n\
-     return { out: chunks.join('') };",
+     const env = { home: process.env.HOME, backups: process.env.NAVORI_BACKUP_ROOT };\n\
+     if (request.backups) { process.env.HOME = request.home; process.env.NAVORI_BACKUP_ROOT = request.backups; }\n\
+     try { await r.renderCommand.run({ args: { cwd: request.root, json: request.json === true, apply: request.apply === true, force: request.force === true, _: [] }, rawArgs: [], cmd: r.renderCommand }); }\n\
+     catch (e) { return { threw: String(e && e.message || e), partial: out.join(''), errors: err.join('') }; }\n\
+     finally {\n\
+       process.stdout.write = write; process.stderr.write = ewrite; process.exit = exit;\n\
+       if (request.backups) { process.env.HOME = env.home; if (env.backups === undefined) delete process.env.NAVORI_BACKUP_ROOT; else process.env.NAVORI_BACKUP_ROOT = env.backups; }\n\
+     }\n\
+     return { out: out.join(''), err: err.join('') };",
 );
 
-/// The sections Rust prints for the Claude part of a preview, in order.
-fn report_sections(root: &Path, config: &str, plan: &ClaudeEnginePlan) -> Vec<String> {
-    let clack = Clack { unicode: true };
-    let language = config::read(config.as_bytes()).ok().and_then(|read| {
-        match navori_core::config::effective_config(&read.data) {
-            JsValue::Object(object) => match object.get("language") {
-                Some(JsValue::String(s)) => s.to_rust(),
-                _ => None,
-            },
-            _ => None,
-        }
-    });
-    let lang = Lang::resolve(language.as_deref());
-    let file = format!("{}/CLAUDE.md", root.display());
-    let mut sections = vec![
-        clack.intro("navori render"),
-        claude_md_section(clack, &file, plan, true, lang),
-    ];
-    sections.extend(engine_files_section(clack, plan));
-    sections.extend(lang_fallback_section(clack, plan, lang));
-    sections.extend(downgrade_section(clack, plan, lang));
-    sections
+/// The TS side's provenance, which names the `core-assets` it read, as Rust prints it (Q11).
+static PROVENANCE: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
+    [
+        (
+            r"(?m)^(\S+  )core: .+ \((?:dev sources|fuentes de dev|build copy|copia del build)\)$",
+            "${1}core: (embedded)",
+        ),
+        (
+            r#""coreRoot": "[^"]*",\n  "bundled": (?:true|false),"#,
+            "\"coreRoot\": \"(embedded)\",\n  \"bundled\": true,",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(pattern, replacement)| Some((Regex::new(pattern).ok()?, replacement)))
+    .collect()
+});
+
+fn mask_provenance(text: &str) -> String {
+    PROVENANCE
+        .iter()
+        .fold(text.to_owned(), |text, (pattern, replacement)| {
+            pattern.replace(&text, *replacement).into_owned()
+        })
 }
 
-/// Every Rust section appears verbatim and in order in the TS output, the intro first.
-fn sections_in_order(out: &str, sections: &[String]) -> Result<(), String> {
-    if !sections
-        .first()
-        .is_some_and(|intro| out.starts_with(intro.as_str()))
-    {
-        return Err(format!("intro differs:\n{out}"));
+/// The native command's stdout and stderr on `root`; `None` when it delegates.
+fn rust_command(root: &Path, config: &str, json: bool, force: bool) -> Option<(String, String)> {
+    let read = config::read(config.as_bytes()).ok()?;
+    let options = RenderOptions {
+        force,
+        ..RenderOptions::default()
+    };
+    let plan = plan_render(&DiskView(root), &read, root, &options).ok()?;
+    let cwd = root.to_str()?;
+    let stdout = if json {
+        format!("{}\n", render_json(cwd, &plan).stringify(Some(2))?)
+    } else {
+        human_report(Clack { unicode: true }, cwd, &plan)
+    };
+    let stderr: String = std::iter::repeat_n(&read.warnings, 2)
+        .flatten()
+        .map(|w| format!("{w}\n"))
+        .collect();
+    Some((stdout, stderr))
+}
+
+/// Every file under `root`: relative path \u{2192} (executable, bytes).
+fn tree(root: &Path) -> BTreeMap<String, (bool, Vec<u8>)> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if meta.is_dir() {
+                stack.push(path);
+            } else if let Ok(rel) = path.strip_prefix(root) {
+                out.insert(
+                    mask_backup(&rel.to_string_lossy()),
+                    (
+                        meta.permissions().mode() & 0o111 != 0,
+                        std::fs::read(&path).unwrap_or_default(),
+                    ),
+                );
+            }
+        }
     }
-    let mut at = 0;
-    for section in sections {
-        match out[at..].find(section.as_str()) {
-            Some(found) => at += found + section.len(),
-            None => {
-                return Err(format!(
-                    "missing or out of order:\n{section}\n--- ts ---\n{out}"
+    out
+}
+
+/// A backup directory name: `<label>-<local timestamp>-p<pid>-<seq>`.
+static BACKUP_NAME: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"[^/\s]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-p\d+-\d+").ok()
+});
+
+fn mask_backup(text: &str) -> String {
+    BACKUP_NAME.as_ref().map_or_else(
+        || text.to_owned(),
+        |re| re.replace_all(text, "@BACKUP@").into_owned(),
+    )
+}
+
+/// What one side of an apply left: stdout and stderr (backup names masked), the repo tree and
+/// the backup tree.
+type ApplyOutcome = (
+    String,
+    String,
+    BTreeMap<String, (bool, Vec<u8>)>,
+    BTreeMap<String, (bool, Vec<u8>)>,
+);
+
+/// `sync --apply [--accept-new-files] [bulk] [--json]` on a fresh copy of the repo `setup` builds,
+/// TS then Rust, as [`compare_apply`] does for `render`. `Ok(None)` when Rust delegates.
+fn compare_sync_apply(
+    root: &Path,
+    config: &str,
+    json: bool,
+    bulk: Option<&str>,
+    files: bool,
+    setup: &dyn Fn(),
+) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
+    let backups = root.with_extension("backups");
+    let home = root.with_extension("home");
+    let reset = || {
+        let _ = std::fs::remove_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&home);
+        setup();
+    };
+    reset();
+    let ts = SYNC.ask(&json!({
+        "root": root.to_string_lossy(),
+        "json": json,
+        "apply": true,
+        "files": files,
+        "bulk": bulk,
+        "home": home.to_string_lossy(),
+        "backups": backups.to_string_lossy(),
+    }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return Err(format!("ts failed: {ts}"));
+    };
+    let ts_side = (
+        mask_backup(out),
+        mask_backup(err),
+        tree(root),
+        tree(&backups),
+    );
+    reset();
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    let flags = SyncFlags {
+        apply: true,
+        json,
+        accept_new: bulk == Some("accept-new"),
+        keep_mine: bulk == Some("keep-mine"),
+        accept_new_files: files,
+        ..SyncFlags::default()
+    };
+    let mut fs = RealFs::default();
+    let mut store = BackupStore::new(Ok(backups.clone()), std::process::id());
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let run = run_sync(
+        &DiskView(root),
+        &read,
+        root,
+        flags,
+        Clack { unicode: true },
+        &mut apply,
+    );
+    let (stdout, stderr) = match run {
+        Ok(SyncRun::Done { stdout, stderr, .. }) => (stdout, stderr),
+        Ok(SyncRun::Delegate) | Err(navori_core::render::command::RenderError::Delegate) => {
+            return Ok(None);
+        }
+        Err(error) => return Err(format!("rust sync failed: {error:?}")),
+    };
+    let warnings: String = read.warnings.iter().map(|w| format!("{w}\n")).collect();
+    let rust_side = (
+        mask_backup(&stdout),
+        mask_backup(&format!("{warnings}{stderr}")),
+        tree(root),
+        tree(&backups),
+    );
+    Ok(Some((ts_side, rust_side)))
+}
+
+/// `--accept-new-files` over a hook a plugin extends (`guard-destructive.sh` and tgrep's search
+/// lane): the accepted file is the forced base recomposed with the extension, as in the TS.
+// Covers: R14, R36
+#[test]
+fn accept_new_files_recomposes_hook_extensions() -> Result<(), String> {
+    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}}}"#;
+    let root = BASE.join("accept-extension");
+    let setup = || {
+        build_repo(
+            &root,
+            &Recipe {
+                baseline: Some(CONFIG.to_owned()),
+                restamp: None,
+                edits: Vec::new(),
+            },
+        );
+        write(&root, "navori.config.json", CONFIG);
+        let hook = root.join(".claude/hooks/guard-destructive.sh");
+        if let Ok(text) = std::fs::read_to_string(&hook)
+            && let Some(at) = text.find("navori:managed start id=\"guard-destructive-base\"")
+            && let Some(eol) = text[at..].find('\n')
+        {
+            let mut edited = text.clone();
+            edited.insert_str(at + eol + 1, "# Hand edit.\n");
+            // tgrep's lane on disk is an older, intact version: only recomposing the accepted
+            // base with the extension brings it up to date.
+            let open = "# navori:managed start id=\"tgrep-search-lane\"";
+            let close = "# navori:managed end id=\"tgrep-search-lane\"";
+            if let (Some(start), Some(end)) = (edited.find(open), edited.find(close)) {
+                let body = "# Older lane.";
+                let marker = format!(
+                    "{open} hash=\"{}\" version=\"0.1.0\" source=\"@navori/plugin-tgrep\"\n{body}\n",
+                    navori_core::integrity::marker_hash(body)
+                );
+                edited.replace_range(start..end, &marker);
+            }
+            let _ = std::fs::write(&hook, edited);
+        }
+    };
+    for json in [false, true] {
+        let (ts, rust) =
+            compare_sync_apply(&root, CONFIG, json, None, true, &setup)?.ok_or("rust declined")?;
+        let accepted = if json {
+            ts.0.contains("\"label\": \"root:sync\"")
+        } else {
+            ts.0.contains("--accept-new-files: ")
+        };
+        if !accepted {
+            return Err(format!("no file was accepted:\n{}", ts.0));
+        }
+        if let Some(why) = apply_difference(&ts, &rust) {
+            return Err(why);
+        }
+    }
+    let hook = std::fs::read_to_string(root.join(".claude/hooks/guard-destructive.sh"))
+        .map_err(|e| e.to_string())?;
+    if hook.contains("# Hand edit.")
+        || hook.contains("# Older lane.")
+        || !hook.contains("id=\"tgrep-search-lane\"")
+    {
+        return Err(format!(
+            "accepted hook lost its extension or kept the edit:\n{hook}"
+        ));
+    }
+    Ok(())
+}
+
+/// `render --apply` on a fresh copy of the repo `setup` builds at `root`, TS then Rust, with the
+/// same backup root and a scratch home. `Ok(None)` when Rust delegates.
+fn compare_apply(
+    root: &Path,
+    config: &str,
+    json: bool,
+    force: bool,
+    setup: &dyn Fn(),
+) -> Result<Option<(ApplyOutcome, ApplyOutcome)>, String> {
+    let backups = root.with_extension("backups");
+    let home = root.with_extension("home");
+    let reset = || {
+        let _ = std::fs::remove_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&backups);
+        let _ = std::fs::create_dir_all(&home);
+        setup();
+    };
+    let mask = mask_backup;
+    reset();
+    let ts = REPORT.ask(&json!({
+        "root": root.to_string_lossy(),
+        "json": json,
+        "apply": true,
+        "force": force,
+        "home": home.to_string_lossy(),
+        "backups": backups.to_string_lossy(),
+    }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        return Err(format!("ts failed: {ts}"));
+    };
+    let ts_side = (
+        mask(&mask_provenance(out)),
+        mask(err),
+        tree(root),
+        tree(&backups),
+    );
+    reset();
+    let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    let options = RenderOptions {
+        force,
+        ..RenderOptions::default()
+    };
+    if plan_render(&DiskView(root), &read, root, &options).is_err() {
+        return Ok(None);
+    }
+    let mut fs = RealFs::default();
+    let mut store = BackupStore::new(Ok(backups.clone()), std::process::id());
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let plan = run_render(&DiskView(root), &read, root, &options, Some(&mut apply))
+        .map_err(|e| format!("rust apply failed: {e:?}"))?;
+    let cwd = root.to_str().ok_or("path")?;
+    let stdout = if json {
+        format!(
+            "{}\n",
+            render_json(cwd, &plan).stringify(Some(2)).ok_or("json")?
+        )
+    } else {
+        human_report(Clack { unicode: true }, cwd, &plan)
+    };
+    let mut stderr: String = std::iter::repeat_n(&read.warnings, 2)
+        .flatten()
+        .map(|w| format!("{w}\n"))
+        .collect();
+    if let Some(outcome @ (HarnessRecord::NonCanonical | HarnessRecord::Unreadable)) =
+        plan.applied.as_ref().and_then(|a| a.harness.as_ref())
+    {
+        stderr.push_str(&format!(
+            "{}\n",
+            navori_core::i18n::harness_version_not_recorded(outcome.as_str())
+        ));
+    }
+    let rust_side = (mask(&stdout), mask(&stderr), tree(root), tree(&backups));
+    Ok(Some((ts_side, rust_side)))
+}
+
+/// The first difference between two apply outcomes, if any.
+fn apply_difference(ts: &ApplyOutcome, rust: &ApplyOutcome) -> Option<String> {
+    if ts.0 != rust.0 {
+        return Some(format!(
+            "stdout:\n--- ts ---\n{}\n--- rust ---\n{}",
+            ts.0, rust.0
+        ));
+    }
+    if ts.1 != rust.1 {
+        return Some(format!(
+            "stderr:\n--- ts ---\n{}\n--- rust ---\n{}",
+            ts.1, rust.1
+        ));
+    }
+    for (label, a, b) in [("repo", &ts.2, &rust.2), ("backups", &ts.3, &rust.3)] {
+        let keys: std::collections::BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+        for key in keys {
+            if a.get(key) != b.get(key) {
+                let show = |v: Option<&(bool, Vec<u8>)>| {
+                    v.map_or("(absent)".to_owned(), |(x, bytes)| {
+                        format!("exec={x}\n{}", String::from_utf8_lossy(bytes))
+                    })
+                };
+                return Some(format!(
+                    "{label} {key}:\n--- ts ---\n{}\n--- rust ---\n{}",
+                    show(a.get(key)),
+                    show(b.get(key))
                 ));
             }
         }
     }
-    Ok(())
+    None
+}
+
+/// The TS command and the native one print the same bytes, provenance aside; `Ok(false)` when
+/// Rust delegates.
+fn compare_command(root: &Path, config: &str, json: bool, force: bool) -> Result<bool, String> {
+    let ts =
+        REPORT.ask(&json!({ "root": root.to_string_lossy(), "json": json, "force": force }))?;
+    let (Some(out), Some(err)) = (
+        ts.get("out").and_then(Value::as_str),
+        ts.get("err").and_then(Value::as_str),
+    ) else {
+        // Both refusing is agreement; the TS failing alone is not.
+        return match rust_command(root, config, json, force) {
+            None => Ok(true),
+            Some(_) => Err(format!("ts failed: {ts}")),
+        };
+    };
+    let Some((stdout, stderr)) = rust_command(root, config, json, force) else {
+        return Ok(false);
+    };
+    let out = mask_provenance(out);
+    if out != stdout {
+        let at = out
+            .bytes()
+            .zip(stdout.bytes())
+            .position(|(a, b)| a != b)
+            .unwrap_or(out.len().min(stdout.len()));
+        return Err(format!(
+            "stdout (json: {json}) differs at byte {at}\n--- ts ---\n{out}\n--- rust ---\n{stdout}"
+        ));
+    }
+    if err != stderr {
+        return Err(format!(
+            "stderr:\n--- ts ---\n{err}\n--- rust ---\n{stderr}"
+        ));
+    }
+    Ok(true)
 }
 
 /// The wiring in both modes (D23: `guard-destructive` and `subagent-no-background` also in
@@ -806,22 +1289,16 @@ fn render_report_matches_after_restamps() -> Result<(), String> {
                 "CLAUDE.md",
                 &rewrite_first_block(&text, "Older body."),
             );
-            let ts = REPORT.ask(&json!({ "root": root.to_string_lossy() }))?;
-            let out = ts
-                .get("out")
-                .and_then(Value::as_str)
-                .ok_or_else(|| format!("ts failed: {ts}"))?;
-            let rust = plan(&root, &config, None).ok_or("rust declined")?;
-            let sections = report_sections(&root, &config, &rust);
+            let (rust, _) = rust_command(&root, &config, false, false).ok_or("rust declined")?;
             if version == "999.0.0"
-                && !sections
-                    .iter()
-                    .any(|s| s.contains("(up to 999.0.0)") || s.contains("(hasta 999.0.0)"))
+                && !(rust.contains("(up to 999.0.0)") || rust.contains("(hasta 999.0.0)"))
             {
                 return Err(format!("{language}: no downgrade warning planned"));
             }
-            sections_in_order(out, &sections)
-                .map_err(|why| format!("{language} {version}: {why}"))?;
+            for json in [false, true] {
+                compare_command(&root, &config, json, false)
+                    .map_err(|why| format!("{language} {version}: {why}"))?;
+            }
         }
     }
     Ok(())
@@ -859,25 +1336,124 @@ proptest! {
         config in config(),
         recipe in recipe(),
         same_config in prop::bool::weighted(0.4),
+        extras in extras(),
+        force in prop::bool::weighted(0.3),
     ) {
         prop_assume!(!config.contains("codex"));
         let root = BASE.join("report");
         let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
         build_repo(&root, &recipe);
+        let config = extras.apply(&root, &config);
         write(&root, "navori.config.json", &config);
-        let ts = REPORT
-            .ask(&json!({ "root": root.to_string_lossy() }))
-            .map_err(TestCaseError::fail)?;
-        match (ts.get("out").and_then(Value::as_str), plan(&root, &config, None)) {
-            (Some(out), Some(rust)) => {
-                let sections = report_sections(&root, &config, &rust);
-                if let Err(why) = sections_in_order(out, &sections) {
+        for json in [false, true] {
+            match compare_command(&root, &config, json, force) {
+                Ok(true) => {}
+                Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+                Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}\n{extras:?}"),
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(25))]
+
+    /// `sync --apply`: with each bulk mode and `--accept-new-files`, the same report, the same
+    /// tree (accepted files recomposed with their hook extensions) and the same backups.
+    // Covers: R14, R36
+    #[test]
+    fn sync_apply_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        json in prop::bool::weighted(0.3),
+        bulk in prop::sample::select(vec![None, Some("accept-new"), Some("keep-mine")]),
+        files in prop::bool::ANY,
+    ) {
+        prop_assume!(!config.contains("codex"));
+        // `--keep-mine` with `--accept-new-files` is the TS's contradiction error.
+        prop_assume!(!(files && bulk == Some("keep-mine")));
+        let root = BASE.join("sync-apply");
+        let recipe = Recipe { baseline: Some(config.clone()), ..recipe };
+        let setup = || {
+            build_repo(&root, &recipe);
+            write(&root, "navori.config.json", &config);
+        };
+        match compare_sync_apply(&root, &config, json, bulk, files, &setup) {
+            Ok(Some((ts, rust))) => {
+                if let Some(why) = apply_difference(&ts, &rust) {
                     prop_assert!(false, "{why}\n{config}\n{recipe:?}");
                 }
             }
-            (None, None) => {}
-            (_, None) => prop_assert!(unparseable_json(&root), "rust declined, ts: {ts}"),
-            (None, Some(_)) => prop_assert!(false, "ts failed: {ts}"),
+            Ok(None) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}"),
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(30))]
+
+    /// `sync --dry-run`, human and `--json`, with each bulk flag: the same plan report, the same
+    /// conflict diffs and the same payload, and no write.
+    // Covers: R14, R36
+    #[test]
+    fn sync_preview_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.6),
+        json in prop::bool::ANY,
+        bulk in prop::sample::select(vec![None, Some("accept-new"), Some("keep-mine")]),
+    ) {
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("sync");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        build_repo(&root, &recipe);
+        write(&root, "navori.config.json", &config);
+        match compare_sync(&root, &config, json, bulk) {
+            Ok(true) => {}
+            Ok(false) => prop_assert!(unparseable_json(&root), "rust declined\n{config}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{config}\n{recipe:?}"),
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(25))]
+
+    /// `render --apply`: the same report, the same tree written, the same backups and the same
+    /// `harnessVersion` bookkeeping (a pretty-printed config is canonical, a compact one is not).
+    // Covers: R14, R47
+    #[test]
+    fn render_apply_matches_the_ts_command(
+        config in config(),
+        recipe in recipe(),
+        same_config in prop::bool::weighted(0.4),
+        extras in extras(),
+        canonical in prop::bool::ANY,
+        json in prop::bool::weighted(0.3),
+        force in prop::bool::weighted(0.3),
+    ) {
+        prop_assume!(!config.contains("codex"));
+        let root = BASE.join("apply");
+        let recipe = if same_config { Recipe { baseline: Some(config.clone()), ..recipe } } else { recipe };
+        let mut text = extras.apply(&root, &config);
+        if canonical {
+            let value: Value = serde_json::from_str(&text).map_err(|e| TestCaseError::fail(e.to_string()))?;
+            text = format!("{}\n", serde_json::to_string_pretty(&value).map_err(|e| TestCaseError::fail(e.to_string()))?);
+        }
+        let setup = || {
+            build_repo(&root, &recipe);
+            extras.apply(&root, &config);
+            write(&root, "navori.config.json", &text);
+        };
+        match compare_apply(&root, &text, json, force, &setup) {
+            Ok(Some((ts, rust))) => {
+                if let Some(why) = apply_difference(&ts, &rust) {
+                    prop_assert!(false, "{why}\n{text}\n{recipe:?}\n{extras:?}");
+                }
+            }
+            Ok(None) => prop_assert!(unparseable_json(&root), "rust declined\n{text}\n{recipe:?}"),
+            Err(why) => prop_assert!(false, "{why}\n{text}\n{recipe:?}\n{extras:?}"),
         }
     }
 }

@@ -3,8 +3,8 @@
 //! fallback and the downgrade warning).
 //!
 //! Without a TTY, or with `NO_COLOR`, picocolors and `util.styleText` emit no escapes, so every
-//! line here is plain text; colored output is out of the native subset. The pipeline pieces the
-//! command owns (core provenance, `.gitignore`, `.prettierignore`, the outro) come with M6.
+//! line here is plain text; colored output is out of the native subset. The pieces the command
+//! owns (core provenance, `.gitignore`, `.prettierignore`, the outro) live in `render::command`.
 
 use crate::i18n;
 use crate::render::claude::ClaudeEnginePlan;

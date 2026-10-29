@@ -203,6 +203,8 @@ pub struct PlanOptions {
     pub ambient_floor: Option<String>,
     /// `loadNativeHooks()` override; `None` reads the embedded `crates/ported.json`.
     pub native_hooks: Option<BTreeMap<String, crate::manifest::Hook>>,
+    /// `render --force`: the engine's JSON files overwrite what the user left.
+    pub force: bool,
 }
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
