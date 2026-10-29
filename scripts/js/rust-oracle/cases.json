@@ -49,6 +49,17 @@
     { "id": "spec:check-surrogate-cut-delegates", "fixture": "spec-repo", "args": ["spec", "check", "surrogate-cut"] },
     { "id": "spec-master:classify", "fixture": "spec-master", "args": ["spec", "classify", "plain"], "native": true },
     { "id": "spec-master:check-delegates", "fixture": "spec-master", "args": ["spec", "check", "plain"] },
-    { "id": "spec-bad-config:check-delegates", "fixture": "spec-bad-config", "args": ["spec", "check", "plain", "--json"] }
+    { "id": "spec-bad-config:check-delegates", "fixture": "spec-bad-config", "args": ["spec", "check", "plain", "--json"] },
+    { "id": "master-status:no-index-json", "fixture": "fresh-init", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:no-index-line", "fixture": "fresh-init", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:closed-json", "fixture": "master-closed", "args": ["master", "status", "--json"], "native": true },
+    { "id": "master-status:closed-line", "fixture": "master-closed", "args": ["master", "status", "--line"], "native": true },
+    { "id": "master-status:closed-cwd-json", "fixture": "master-closed", "args": ["master", "status", "--cwd=.", "--json"], "native": true },
+    { "id": "master-status:json-and-line", "fixture": "master-closed", "args": ["master", "status", "--json", "--line"], "native": true },
+    { "id": "master-status:help", "fixture": "master-closed", "args": ["master", "status", "--help"], "native": true },
+    { "id": "master-status:active-delegates", "fixture": "master-active", "args": ["master", "status", "--line"] },
+    { "id": "master-status:invalid-index-delegates", "fixture": "spec-master", "args": ["master", "status", "--json"] },
+    { "id": "master-status:no-config-delegates", "fixture": "empty", "args": ["master", "status", "--json"] },
+    { "id": "master-status:write-delegates", "fixture": "master-closed", "args": ["master", "status"] }
   ]
 }
