@@ -7,7 +7,6 @@
 //! version, else that `navori`.
 
 use std::fs;
-use std::path::Path;
 
 use navori_hooks::hooks::plan_gate::call::{self, Navori};
 use navori_hooks::hooks::plan_gate::{self, Context, Rendered, Step, after_call, stale_hint};
@@ -101,20 +100,14 @@ pub fn prepare<'a>(
             };
             let answer = call::run(&navori, &request)?;
             after_call(pending, answer.status, &answer.output, || {
-                let Ok(bytes) = read_config(&config) else {
-                    return Ok(None);
-                };
+                // `[ -r "$pg_cfg" ]`: an unreadable config gives no hint.
+                let bytes = fs::read(&config).ok();
                 stale_hint(
-                    Some(&bytes),
+                    bytes.as_deref(),
                     || call::cli_version(&navori, answer.lane),
                     context.profile.locale,
                 )
             })
         },
     ))
-}
-
-/// `[ -r "$pg_cfg" ]` and its bytes.
-fn read_config(path: &str) -> std::io::Result<Vec<u8>> {
-    fs::read(Path::new(path))
 }

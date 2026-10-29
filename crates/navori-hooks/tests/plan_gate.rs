@@ -88,27 +88,12 @@ fn config(plan_tiers: bool, harness: &str) -> String {
 
 const WORKPLAN: &str = r#"{"feature": "wp-ok", "level": 1, "classification": {"score": 0, "level": 0, "signals": []}, "objective": "o", "acceptance": [{"id": "A1", "description": "d", "command": "bun x", "expected": "exit 0"}], "files": [{"path": "src/a.ts", "new": false}], "progress": {"A1": "pendiente"}}"#;
 
-fn now_iso() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let (days, rest) = (secs / 86_400, secs % 86_400);
-    // Civil date from days since the epoch (Howard Hinnant's algorithm).
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.000Z",
-        rest / 3600,
-        rest % 3600 / 60,
-        rest % 60
-    )
+/// The current UTC time in the ISO shape a dispatch marker's `createdAt` carries.
+fn now_iso() -> Result<String, Box<dyn Error>> {
+    let out = std::process::Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%S.000Z"])
+        .output()?;
+    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
 }
 
 struct Case {
@@ -173,7 +158,7 @@ fn run_case(case: &Case, version: &str) -> Result<(Evaluation, Lane, bool), Box<
             &marker,
             format!(
                 r#"{{"feature": "n0", "opening": "nivel-0: src/a.ts n0 | verify: `bun x` → exit 0", "createdAt": "{}", "sessionId": "s1"}}"#,
-                now_iso()
+                now_iso()?
             ),
         )?;
     }
@@ -361,7 +346,17 @@ fn sin_veredicto_pregunta_en_claude_y_bloquea_en_codex_o_sin_prompt() -> TestRes
         )
     };
     // (codex copy, permission mode, navori on PATH, exit of plan gate) → verdict, audit, ask.
-    let cases: [(bool, &str, bool, i32, Verdict, &str, &str, bool); 12] = [
+    type Row = (
+        bool,
+        &'static str,
+        bool,
+        i32,
+        Verdict,
+        &'static str,
+        &'static str,
+        bool,
+    );
+    let cases: [Row; 12] = [
         (
             false,
             "default",
