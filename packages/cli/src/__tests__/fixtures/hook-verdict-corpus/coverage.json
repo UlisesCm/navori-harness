@@ -20,8 +20,8 @@
     "excluded": {}
   },
   "comment-draft-confirm.sh": {
-    "observed": 87,
-    "included": 87,
+    "observed": 88,
+    "included": 88,
     "excluded": {}
   },
   "engram-write-guard.sh": {
@@ -66,8 +66,8 @@
     "excluded": {}
   },
   "pr-publisher-confirm.sh": {
-    "observed": 33,
-    "included": 33,
+    "observed": 34,
+    "included": 34,
     "excluded": {}
   },
   "quality-gate-pre-commit.sh": {

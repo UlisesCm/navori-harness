@@ -533,6 +533,13 @@ describe.runIf(runsBash)("comment-draft-confirm.sh — R13 instalado bajo .codex
     expect(r.code).toBe(0);
     expect(verdictOf(r).decision).toBe("deny");
   });
+
+  // Covers: R10
+  it("gh pr review --approve sin cuerpo no dispara nada bajo .codex/hooks", () => {
+    const r = runHookAt(codexHookPath, "bash", bash("gh pr review 5 --approve"));
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
 });
 
 describe("comment-draft-confirm — wiring (spec 0026 E1)", () => {

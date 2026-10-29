@@ -909,26 +909,71 @@ function verdictClass(c: ClassedCase): string {
     .join(">");
 }
 
-/** Classes each phase-4 hook must have in the corpus, per engine and mode, before shadow (R71). */
+/**
+ * Classes each phase-4 hook must have in the corpus, per engine and mode, before shadow (R71).
+ * Pi runs these scripts too; its rows arrive with its native wiring (spec 0059 T29).
+ */
 const PHASE4_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
   { hook: "general-purpose-confirm.sh", engine: "claude", mode: "", classes: ["skip", "ask"] },
   { hook: "general-purpose-confirm.sh", engine: "codex", mode: "", classes: ["skip", "deny"] },
 ];
 
+/**
+ * E1 hooks that never run `navori` (spec 0060 T7). `master-plan-context` and the `navori codex
+ * approval request` arm of `pr-publisher-confirm` need a replayable `navori` first (M3, M5).
+ */
+const E1_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  ...["claude", "codex"].flatMap((engine) => [
+    {
+      hook: "master-accept-confirm.sh",
+      engine,
+      mode: "",
+      classes: ["skip", engine === "codex" ? "deny" : "ask"],
+    },
+    { hook: "implementer-no-markdown.sh", engine, mode: "", classes: ["skip", "allow", "block"] },
+    {
+      hook: "comment-draft-confirm.sh",
+      engine,
+      mode: "",
+      classes: ["skip", engine === "codex" ? "deny" : "ask"],
+    },
+  ]),
+  {
+    hook: "pr-publisher-confirm.sh",
+    engine: "claude",
+    mode: "",
+    classes: ["skip", "allow", "ask"],
+  },
+  { hook: "pr-publisher-confirm.sh", engine: "codex", mode: "", classes: ["skip", "deny"] },
+  { hook: "role-guard.sh", engine: "codex", mode: "", classes: ["skip", "allow", "block"] },
+  { hook: "engram-write-guard.sh", engine: "codex", mode: "", classes: ["skip", "allow", "block"] },
+];
+
+/** `hook engine mode: class` for every class of `table` the committed corpus lacks. */
+function missingClasses(
+  table: { hook: string; engine: string; mode: string; classes: string[] }[],
+): string[] {
+  const corpus = replay.readCorpus() as ClassedCase[];
+  return table.flatMap(({ hook, engine, mode, classes }) => {
+    const seen = new Set(
+      corpus
+        .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+        .map((c) => verdictClass(c)),
+    );
+    return classes
+      .filter((cls) => !seen.has(cls))
+      .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+  });
+}
+
 describe("hook verdict corpus — phase 4 classes", () => {
   // Covers: R71
   it("general-purpose-confirm cubre cada clase de veredicto por engine", () => {
-    const corpus = replay.readCorpus() as ClassedCase[];
-    const missing = PHASE4_HOOK_CLASSES.flatMap(({ hook, engine, mode, classes }) => {
-      const seen = new Set(
-        corpus
-          .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
-          .map((c) => verdictClass(c)),
-      );
-      return classes
-        .filter((cls) => !seen.has(cls))
-        .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
-    });
-    expect(missing).toEqual([]);
+    expect(missingClasses(PHASE4_HOOK_CLASSES)).toEqual([]);
+  });
+
+  // Covers: R71
+  it("los hooks de E1 cubren cada clase de veredicto y modo por engine", () => {
+    expect(missingClasses(E1_HOOK_CLASSES)).toEqual([]);
   });
 });
