@@ -945,6 +945,38 @@ describe("renderCodexEngine", () => {
     expect(existsSync(join(cwd, ".codex"))).toBe(false);
   });
 
+  // Covers: R50
+  it("prunes a native-wrapped hook the config stops installing, and keeps one the user edited", () => {
+    // (hook, config that stops installing it, edit before the reduced render, survives)
+    const cases: Array<[string, Partial<NavoriConfigInput>, (text: string) => string, boolean]> = [
+      ["quality-gate-pre-commit", { qualityGate: undefined }, (t) => t, false],
+      ["plan-gate", { harness: { planTiers: false } }, (t) => t, false],
+      ["plan-gate", { harness: { planTiers: false } }, (t) => `${t}echo mine\n`, true],
+      [
+        "plan-gate",
+        { harness: { planTiers: false } },
+        (t) => t.replace("# navori:native-hook v=1", "# navori:native-hook v=2"),
+        true,
+      ],
+    ];
+    const failures: string[] = [];
+    for (const [hook, reduced, edit, survives] of cases) {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ harness: { planTiers: true } }));
+      const path = join(cwd, `.codex/hooks/${hook}.sh`);
+      const wrapped = existsSync(path) ? readFileSync(path, "utf-8") : "";
+      if (!wrapped.startsWith("# navori:native-hook v=1 file=sha256:")) {
+        failures.push(`${hook}: not native-wrapped before the reduced render`);
+        continue;
+      }
+      writeFileSync(path, edit(wrapped));
+      renderCodexEngine(cwd, config(reduced));
+      if (existsSync(path) !== survives)
+        failures.push(`${hook} (${JSON.stringify(reduced)}): exists=${existsSync(path)}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("reconciles disabled managed agents, skills, and hooks without deleting user or newer files", () => {
     const cwd = tempRepo();
     renderCodexEngine(

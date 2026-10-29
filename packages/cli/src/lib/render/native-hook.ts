@@ -21,6 +21,17 @@ export type NativeHook = z.infer<typeof hookSchema>;
 export type NativeHooks = Readonly<Record<string, NativeHook>>;
 export const NATIVE_HOOK_BIN = "navori-rust";
 export const INTEGRITY_PREFIX = "# navori:native-hook v=1 file=sha256:";
+
+/**
+ * Drop the leading native signature. It is a standalone comment navori owns, outside every
+ * managed block and never part of a marker's hash; any other first line is left as is.
+ */
+export function stripNativeSignature(content: string): string {
+  return content.replace(
+    /^# navori:native-hook v=1 file=sha256:[a-f0-9]{64} impl=sha256:[a-f0-9]{64}\n/,
+    "",
+  );
+}
 const ZERO = "0".repeat(64);
 const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
