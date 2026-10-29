@@ -545,12 +545,14 @@ fn shell_spool_write(spool: &Path, host: &str, metadata: &str) -> TestResult {
     Ok(())
 }
 
-fn spool_name(name: &str) -> bool {
+/// A spool file name of `count` numeric parts: the native writer uses `<stamp>-<pid>-<rand>.json`,
+/// the shell `<stamp>-<pid>-<seq>-<rand>.json` (#1439).
+fn spool_name(name: &str, count: usize) -> bool {
     let Some(stem) = name.strip_suffix(".json") else {
         return false;
     };
     let parts: Vec<&str> = stem.split('-').collect();
-    parts.len() == 3
+    parts.len() == count
         && parts
             .iter()
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
@@ -592,8 +594,8 @@ fn spool_lane_writes_the_shell_event_privately_and_never_starts_the_cli() -> Tes
     assert_eq!(native[0].1, 0o600);
     assert_eq!(native[0].1, shell[0].1);
     assert_eq!(native[0].2, shell[0].2);
-    assert!(spool_name(&native[0].0), "{}", native[0].0);
-    assert!(spool_name(&shell[0].0), "{}", shell[0].0);
+    assert!(spool_name(&native[0].0, 3), "{}", native[0].0);
+    assert!(spool_name(&shell[0].0, 4), "{}", shell[0].0);
     Ok(())
 }
 
