@@ -1,25 +1,22 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Tasks
 
-**Estado:** aceptada y replanificada el 2026-10-27 (Q13): E2 integrada; E3 absorbe a la antigua E4.
-Replanificada el 2026-10-28 (Q14): E1 pasa a la fase 4 (0060). El 2026-10-28 el usuario mergeó la
-primera parte de E3 (#1434) y el 2026-10-29 decidió partir el resto: la parte 2 (#1438) lleva lo
-que no toca las entradas del manifiesto; la parte 3, el resto. Quedan **dos PRs** contra
-`migration/rust`: E3 parte 2 y E3 parte 3 ·
+**Estado:** cerrada el 2026-10-30 (§ "Cierre"). E2 integrada en #1410; E3, que absorbió a la
+antigua E4 (Q13), integrada en #1434, #1438 y #1446, con las correcciones de la revisión
+independiente en #1449. E1 pasó a la fase 4 (0060) por Q14 y sus tareas no cuentan para este
+cierre ·
 **Base:** `migration/rust`. Fase 2 del programa (ver `specs/0057-migracion-rust/requirements.md`
 § "Fases del programa"). El LOC es una estimación, no una medición.
 
 Correspondencia con `design.md` § "Plan de entregas": E1 = E5 M3 de 0057; E2 = E4 M1; E3 = E4 M2 y
 E5 M1–M2.
 
-**PRs que faltan**
+**PRs**
 
 | PR | Entrega | Contenido | Se mergea cuando |
 |---|---|---|---|
 | 1 | E3, parte 1 (#1434, integrado) | M5 hasta T14 y la primera mitad de T15 | Mergeado por el usuario el 2026-10-28 sin revisión independiente; sin efecto en runtime porque ningún comando usa aún el render Rust |
-| 2 | E3, parte 2 (#1438) | El cierre de T15 y T16 (M5), M7, T28 (`schema: 2` sin entradas nuevas) y la preparación de M6 sin manifiesto: `NativeCommand` con la invocación, el gate de `render` y los archivos de ignore del comando | A5 y A7 verdes, `bun check` completo y `rust.yml` verde; sin efecto en runtime porque ningún comando del manifiesto usa el render Rust. Revisión inline por instrucción del usuario, declarada en el PR |
-| 3 | E3, parte 3 | El resto de M6 (salida del comando, T18 con `RecordingFs`, T17, T19 y T20), M8 y M9 | A6, A8 y A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente que cubra también #1434 y #1438 |
-
-Partir la parte 3 en más PRs requiere volver a preguntar al usuario.
+| 2 | E3, parte 2 (#1438, integrado) | El cierre de T15 y T16 (M5), M7, T28 (`schema: 2` sin entradas nuevas) y la preparación de M6 sin manifiesto: `NativeCommand` con la invocación, el gate de `render` y los archivos de ignore del comando | A5 y A7 verdes, `bun check` completo y `rust.yml` verde; sin efecto en runtime porque ningún comando del manifiesto usa el render Rust. Revisión inline por instrucción del usuario, declarada en el PR |
+| 3 | E3, parte 3 (#1446, integrado) | El resto de M6 (salida del comando, T18 con `RecordingFs`, T17, T19 y T20), M8 y M9 | A6, A8 y A9 verdes, `bun check` completo, `rust.yml` verde y revisión independiente que cubra también #1434 y #1438 |
 
 **Precondición de entrada** (cierre de 0057, verificable antes de cerrar E3):
 - `crates/ported.json` tiene `subagent-no-background` y `guard-destructive` en `shadow`, este con
@@ -128,8 +125,8 @@ core, los `.gitignore`, `.prettierignore` y el outro son del comando y llegan co
 `active` se verifica con el verificador de integridad del binario (el `ported.json` real está en
 `shadow`, así que el TS no lo puede renderizar en `active` por `prepareClaudeEngine`).
 
-Pendiente ajeno a 0058: `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de forma
-intermitente (3/5 aislado) por un presupuesto de 1 ms.
+Pendiente ajeno a 0058, trasladado a 0060 al cerrar: `navori-cli/tests/facts_cache.rs` (0057,
+`bccfedd0`) falla de forma intermitente (3/5 aislado) por un presupuesto de 1 ms.
 - **A5** [observable] — el plan Claude reproduce el golden y el wiring · `cargo test -p navori-oracle-tests --test render_claude --locked` → exit 0
 - [x] **T14** (R41) — `navori-core` (`render::claude`): resolución de assets, plugins y presets, interpolación, frontmatter, includes de hooks y `.gitignore` anidados (`.codex` incluido en solo-Claude) como plan puro de `PendingWrite`/`PendingRemoval` (D23) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"el árbol Claude coincide con el snap claude de golden-render-tree"
 - [x] **T15** (R42, R37) — `settings.json` (`build-settings`, coexist, `$navori.version` con anti-rollback) y wiring nativo con conformidad D8, en `shadow` y `active` (el caso `active` sobre un manifiesto de prueba: Q14) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_claude.rs`::"wiring nativo igual a wiring.snap en shadow y active"
@@ -277,3 +274,21 @@ la hizo un `auditor` en una sesión nueva de Claude Code
   nunca una segunda corrida del TS, y reordenar rompería la paridad con `runRenderCore`.
 - **M3** (`adopt --apply` no atómico y siguiendo symlinks fuera del repo): igual que el TS, con el
   contenido en backup. Endurecerlo es un cambio de comportamiento que entraría por `dev`.
+
+### Cierre (2026-10-30)
+
+Evidencia sobre `migration/rust` en `af48267b6`, en una sesión sin subagentes (el `implementer`
+terminó dos veces sin salida; la ruta inline queda declarada en el PR):
+- A5 (`cargo test -p navori-oracle-tests --test render_claude --locked`): 12 pruebas, exit 0.
+- A6 (`bun run oracle:rust --only render`): 43 casos, 0 diferencias.
+- A7 (`cargo test -p navori-core --features fault-injection --test fs --locked`): 11 pruebas,
+  exit 0.
+- A8 (`bun run oracle:rust --only apply` y `--only anti-rollback`): 33 y 64 casos, 0
+  diferencias.
+- A9 (`bun run oracle:rust`): 339 casos, 0 diferencias; `rust-oracle.test.ts` y
+  `rust-manifest-check.test.ts`: 14 pruebas en verde.
+- **Trazabilidad:** R14 y R32–R49 tienen al menos una prueba con `// Covers: R<n>`; R27–R31 los
+  redeclara 0060.
+- **CI:** #1446, #1449 y #1452 en verde, oráculo incluido.
+- **Precondición de entrada:** `guard-destructive` y `subagent-no-background` en `shadow` en
+  `crates/ported.json`, con `blocks` y `deps`.
