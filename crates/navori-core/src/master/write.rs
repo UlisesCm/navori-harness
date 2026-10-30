@@ -16,7 +16,7 @@ use super::checks::{
 };
 use super::index::{MASTER_DIR_NAME, MasterIndex};
 use super::render::{master_parts_region, render_master_parts, render_status_md};
-use super::state::{self, Part};
+use super::state::{self, MasterState, Part};
 use super::status::{self, Delegate, LegacyStatus, read_json};
 use crate::fs::{RealFs, write_file_atomic};
 use crate::js_json::{JsObject, JsValue, number_to_js};
@@ -345,9 +345,45 @@ pub fn advance(
         Some(JsValue::Array(history)) => history.push(JsValue::Object(entry)),
         _ => return Err(Delegate),
     }
+    let persisted = persist(cwd, specs_dir, master_dir, config, index, built, &updated)?;
+    if let Some(detail) = persisted.derived_error {
+        return Ok(Advance::Setup {
+            message: format!(
+                "{dir}: fase durable '{target}'; falló la escritura derivada: {detail}. Repare con 'navori master status'; no repita 'navori master advance'."
+            ),
+            config_reads: persisted.config_reads,
+        });
+    }
+    Ok(Advance::Advanced {
+        from: built.state.phase,
+        to: target,
+        config_reads: persisted.config_reads,
+    })
+}
+
+/// What [`persist`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Persisted {
+    /// How many times the TS read the config again (its warnings print each time).
+    config_reads: usize,
+    /// The derived files failed to write after the phase was durable.
+    derived_error: Option<String>,
+}
+
+/// `writeFileAtomic(state.json, updated)` followed by `writeMasterStatus(cwd)`. The derived files
+/// are computed from the state the TS reads back after its write, and every guard is checked
+/// before the first byte is written.
+fn persist(
+    cwd: &str,
+    specs_dir: &str,
+    master_dir: &str,
+    config: PartConfig,
+    index: &MasterIndex,
+    built: &StageCtx,
+    updated: &JsValue,
+) -> Result<Persisted, Delegate> {
     let text = format!("{}\n", updated.stringify(Some(2)).ok_or(Delegate)?);
-    // The derived files are computed from the state the TS will read back after its write.
-    let new_state = state::master_state(&updated).map_err(|_| Delegate)?;
+    let new_state = state::master_state(updated).map_err(|_| Delegate)?;
     let status = status::legacy_with_state(
         cwd,
         specs_dir,
@@ -368,19 +404,135 @@ pub fn advance(
     // The state file is atomic: if this fails nothing changed and the TS can take over.
     write_all(&[(js_join(&built.stage_path, "state.json"), text)]).map_err(|_| Delegate)?;
     // `writeMasterStatus` reads the config again, once for the status and once for itself.
-    let config_reads = 2 + status.config_reads;
-    if let Err(detail) = write_all(&files) {
-        return Ok(Advance::Setup {
-            message: format!(
-                "{dir}: fase durable '{target}'; falló la escritura derivada: {detail}. Repare con 'navori master status'; no repita 'navori master advance'."
-            ),
-            config_reads,
-        });
+    Ok(Persisted {
+        config_reads: 2 + status.config_reads,
+        derived_error: write_all(&files).err(),
+    })
+}
+
+/// The result of `master mode` and `master ux`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Set {
+    /// The failure the command reports with `reportError`, after `config_reads` more reads.
+    Failed {
+        message: String,
+        config_reads: usize,
+    },
+    /// The value was recorded.
+    Done { config_reads: usize },
+}
+
+fn failed(message: String) -> Result<Set, Delegate> {
+    Ok(Set::Failed {
+        message,
+        config_reads: 0,
+    })
+}
+
+/// `Object.assign`-style: `{ ...state, key: value }` over the normalized state.
+fn with_field(state: &MasterState, key: &str, value: &str) -> Result<JsValue, Delegate> {
+    let mut updated = state.normalized.clone();
+    let JsValue::Object(object) = &mut updated else {
+        return Err(Delegate);
+    };
+    object.insert(key, JsValue::string(value));
+    Ok(updated)
+}
+
+/// `master mode <value>` (`setMasterMode`), once `value` is known to be one of the modes.
+///
+/// # Errors
+/// [`Delegate`] before any write wherever the TS would behave differently or throw.
+pub fn set_mode(
+    master_dir: &str,
+    index: Option<&MasterIndex>,
+    value: &str,
+) -> Result<Set, Delegate> {
+    let Some(active) = index.and_then(MasterIndex::active) else {
+        return failed("no active stage: run 'navori master init <slug>' first".to_owned());
+    };
+    let dir = &active.dir;
+    if active.deliveries {
+        return failed(format!("{dir}: mode is not available for deliveries yet"));
     }
-    Ok(Advance::Advanced {
-        from: built.state.phase,
-        to: target,
-        config_reads,
+    if active.number >= 2.0 {
+        return failed(
+            "mode is automatic ('en-curso') from stage 2 onward; it cannot be changed".to_owned(),
+        );
+    }
+    let state_path = js_join(&js_join(master_dir, dir), "state.json");
+    if !Path::new(&state_path).exists() {
+        return failed(format!("state.json not found for stage {dir}"));
+    }
+    let state = state::master_state(&read_json(Path::new(&state_path))?).map_err(|_| Delegate)?;
+    if state.phase != "context" {
+        return failed(format!(
+            "mode can only be set in phase 'context' (current phase: '{}')",
+            state.phase
+        ));
+    }
+    let text = format!(
+        "{}\n",
+        with_field(&state, "mode", value)?
+            .stringify(Some(2))
+            .ok_or(Delegate)?
+    );
+    write_all(&[(state_path, text)]).map_err(|_| Delegate)?;
+    Ok(Set::Done { config_reads: 0 })
+}
+
+/// `master ux <value>` (`setMasterUx`), once `value` is known to be one of the choices.
+///
+/// # Errors
+/// [`Delegate`] before any write wherever the TS would behave differently or throw.
+pub fn set_ux(
+    cwd: &str,
+    specs_dir: &str,
+    master_dir: &str,
+    config: PartConfig,
+    index: Option<&MasterIndex>,
+    value: &str,
+) -> Result<Set, Delegate> {
+    let (Some(index), Some(active)) = (index, index.and_then(MasterIndex::active)) else {
+        return failed("no active stage: run 'navori master init <slug>' first".to_owned());
+    };
+    let dir = &active.dir;
+    if active.deliveries {
+        return failed(format!("{dir}: ux is not available for deliveries yet"));
+    }
+    let stage_path = js_join(master_dir, dir);
+    let state_path = js_join(&stage_path, "state.json");
+    if !Path::new(&state_path).exists() {
+        return failed(format!("state.json not found for stage {dir}"));
+    }
+    let state = state::master_state(&read_json(Path::new(&state_path))?).map_err(|_| Delegate)?;
+    if let Some(outcome) = state.outcome {
+        return failed(format!(
+            "{dir}: cierre iniciado ({outcome}); reanude con 'navori master close'"
+        ));
+    }
+    if state.phase != "ux" {
+        return failed(format!(
+            "ux can only be set in phase 'ux' (current phase: '{}')",
+            state.phase
+        ));
+    }
+    let updated = with_field(&state, "ux", value)?;
+    let built = StageCtx {
+        stage: active.clone(),
+        stage_path,
+        state,
+    };
+    let persisted = persist(cwd, specs_dir, master_dir, config, index, &built, &updated)?;
+    // A derived-file failure is reported as the bare error the write threw.
+    Ok(match persisted.derived_error {
+        Some(message) => Set::Failed {
+            message,
+            config_reads: persisted.config_reads,
+        },
+        None => Set::Done {
+            config_reads: persisted.config_reads,
+        },
     })
 }
 
