@@ -549,7 +549,7 @@ describe("bench scripts", () => {
       }
       writeFileSync(
         fixture.manifest,
-        JSON.stringify({ schema: 1, hooks: { "quality-gate-pre-commit": { mode: "shadow" } } }),
+        JSON.stringify({ schema: 2, hooks: { "quality-gate-pre-commit": { mode: "shadow" } } }),
       );
       const run = (impl: "rust" | "shell") =>
         spawnSync(
