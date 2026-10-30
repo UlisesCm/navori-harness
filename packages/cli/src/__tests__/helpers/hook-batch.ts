@@ -1,10 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative } from "node:path";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import type { HookShell } from "../../lib/__tests__/helpers/shells.ts";
-import { recordHookCase } from "./hook-corpus.ts";
+import { helperSpawn, recordHookCase } from "./hook-corpus.ts";
 
 /**
  * Batched hook runner (spec 0054 D4). One shell process runs N cases, each in
@@ -27,6 +35,45 @@ export interface HookCase {
   env?: Record<string, string>;
   /** Working directory of the case; defaults to the caller's cwd. */
   cwd?: string;
+  /** Hook arguments (`$1`, `$2`, ...): the mode a registration passes, e.g. `claude-stop`. */
+  args?: readonly string[];
+  /**
+   * State the case needs, written under `cwd` before the hook runs (tool stubs, state files).
+   * Declared instead of prepared by hand so the corpus replay recreates it (spec 0059 T5).
+   */
+  fixture?: readonly FixtureFile[];
+}
+
+/** One file of a {@link HookCase} fixture. */
+export interface FixtureFile {
+  /** Path relative to the case's `cwd`, without `..`. */
+  path: string;
+  content: string;
+  /** Permission bits; `0o755` for a tool stub. Defaults to `0o644`. */
+  mode?: number;
+}
+
+/**
+ * Writes a case's fixture under its `cwd`. The cwd must be a temp dir: a fixture never lands in
+ * the checkout. Throws on an absolute or escaping path.
+ */
+export function writeFixture(c: HookCase): void {
+  if (c.fixture === undefined || c.fixture.length === 0) return;
+  if (c.cwd === undefined) throw new Error("hook fixture: the case has no cwd");
+  const cwd = realpathSync(c.cwd);
+  if (relative(realpathSync(tmpdir()), cwd).startsWith("..")) {
+    throw new Error(`hook fixture: cwd ${c.cwd} is not under the temp dir`);
+  }
+  for (const file of c.fixture) {
+    const rel = normalize(file.path);
+    if (isAbsolute(rel) || rel === ".." || rel.startsWith("../") || rel === ".") {
+      throw new Error(`hook fixture: ${file.path} must stay under the case cwd`);
+    }
+    const target = join(cwd, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, file.content);
+    chmodSync(target, file.mode ?? 0o644);
+  }
 }
 
 /** Observable outcome of one case, identical in shape for batch and isolated runs. */
@@ -51,7 +98,9 @@ const DRIVER = [
   "      (",
   '        if [ -f "$d/$n.cwd" ]; then cd "$(< "$d/$n.cwd")" || exit 97; fi',
   '        if [ -f "$d/$n.env" ]; then . "$d/$n.env"; fi',
-  '        . "$0"',
+  // `$n.args` is a quoted `set -- ...`; sourced without arguments, it sets this case's `$@`.
+  '        if [ -f "$d/$n.args" ]; then . "$d/$n.args"; fi',
+  '        . "$0" "$@"',
   '      ) < "$d/$n.in" > "$d/$n.out" 2> "$d/$n.err"',
   '      printf \'@@case %s %s\\n\' "$n" "$?"',
   "      n=$((n+k))",
@@ -69,12 +118,15 @@ const LANES = Math.max(1, Math.min(4, availableParallelism() - 1));
 /** Real spawn of one case: the reference behavior a batch must reproduce. */
 export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase): HookCaseResult {
   recordHookCase(hookPath, shell, c);
-  const r = spawnSync(shell, [hookPath], {
-    input: c.input,
-    cwd: c.cwd,
-    env: { ...process.env, ...c.env },
-    encoding: "utf-8",
-  });
+  writeFixture(c);
+  const r = helperSpawn(() =>
+    spawnSync(shell, [hookPath, ...(c.args ?? [])], {
+      input: c.input,
+      cwd: c.cwd,
+      env: { ...process.env, ...c.env },
+      encoding: "utf-8",
+    }),
+  );
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
@@ -96,12 +148,27 @@ export function runHookBatch(
 ): HookCaseResult[] {
   if (cases.length === 0) return [];
   for (const c of cases) recordHookCase(hookPath, shell, c);
+  // Lanes run in parallel: two cases may share a cwd only with the same fixture.
+  const fixtures = new Map<string, string>();
+  for (const c of cases) {
+    if (c.fixture === undefined || c.fixture.length === 0) continue;
+    const declared = JSON.stringify(c.fixture);
+    const seen = fixtures.get(c.cwd ?? "");
+    if (seen !== undefined && seen !== declared) {
+      throw new Error(`hook batch: cases in ${c.cwd} declare different fixtures`);
+    }
+    if (seen === undefined) writeFixture(c);
+    fixtures.set(c.cwd ?? "", declared);
+  }
   const dir = mkdtempSync(join(tmpdir(), "navori-hook-batch-"));
   try {
     cases.forEach((c, i) => {
       const n = i + 1;
       writeFileSync(join(dir, `${n}.in`), c.input);
       if (c.cwd !== undefined) writeFileSync(join(dir, `${n}.cwd`), c.cwd);
+      if (c.args !== undefined && c.args.length > 0) {
+        writeFileSync(join(dir, `${n}.args`), `set -- ${c.args.map(shellSingleQuote).join(" ")}\n`);
+      }
       const env = Object.entries(c.env ?? {});
       if (env.length > 0) {
         writeFileSync(
@@ -156,7 +223,7 @@ export interface HookBatch {
 }
 
 const keyOf = (shell: HookShell, c: HookCase): string =>
-  JSON.stringify([shell, c.input, c.env ?? null, c.cwd ?? null]);
+  JSON.stringify([shell, c.input, c.env ?? null, c.cwd ?? null, c.args ?? [], c.fixture ?? []]);
 
 /** Creates a {@link HookBatch} bound to one hook path. */
 export function createHookBatch(hookPath: string): HookBatch {

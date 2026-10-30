@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -10,6 +12,8 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  truncateSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,8 +35,8 @@ import { fileURLToPath } from "node:url";
  * whole work dir, copies the fixture again to the SAME path and runs `navori-rust`. Path-derived
  * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
  * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
- * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT` and `NAVORI_AUDITS_ROOT`
- * (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
+ * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
+ * `HOME` (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
  * matching only the exact format the TS CLI emits.
  */
 
@@ -59,7 +63,8 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], native?: boolean }} OracleCase
+ * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
@@ -84,8 +89,9 @@ export const RULES = [
   {
     name: "EPOCHMS",
     token: "@EPOCHMS@",
-    // Date.now(), only as the value of `tsMs` / `observedAt`
-    apply: (t) => t.replace(/("(?:tsMs|observedAt)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
+    // Date.now(), only as the value of `tsMs` / `observedAt`, and of `at` in the per-machine
+    // version caches (`~/.navori/tool-versions/*.json`)
+    apply: (t) => t.replace(/("(?:tsMs|observedAt|at)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
   },
   {
     name: "UUID",
@@ -129,6 +135,10 @@ export const RULES = [
  *
  * - `notice`: the one-line delegation warning (D3) `navori-rust` prints before `exec`.
  * - `version`: the Rust version in the stdout of a command that runs natively.
+ * - `provenance` (spec 0058 D23, Q11): the TS names the `core-assets` root it read; Rust reads
+ *   embedded assets and prints `(embedded)`. Only the TS side's literal line `core: <root> (build
+ *   copy)` (or its Spanish form) and the `--json` value `"coreRoot": "<root>"` are rewritten,
+ *   with `<root>` the `assets/core` next to `tsCli`; a dev-sources or stale-core line stays visible.
  *
  * @param {string} text
  * @param {"ts" | "rust"} side
@@ -137,9 +147,12 @@ export const RULES = [
  */
 export function maskSide(text, side, ctx, where) {
   if (side !== "rust") {
+    let out = text;
+    if (where.mask.includes("provenance") && where.stream === "stdout")
+      out = replaceProvenance(out, ctx.tsCli);
     return where.mask.includes("version") && where.stream === "stdout"
-      ? replaceVersion(text, ctx.tsVersion)
-      : text;
+      ? replaceVersion(out, ctx.tsVersion)
+      : out;
   }
   let out = text;
   if (where.stream === "stderr") {
@@ -149,6 +162,19 @@ export function maskSide(text, side, ctx, where) {
   if (where.mask.includes("version") && where.stream === "stdout")
     out = replaceVersion(out, ctx.rustVersion);
   return out;
+}
+
+/** What Rust prints in place of the TS core root. */
+export const EMBEDDED_CORE = "(embedded)";
+
+function replaceProvenance(text, tsCli) {
+  const root = join(dirname(tsCli), "assets", "core");
+  let out = text;
+  for (const label of ["(build copy)", "(copia del build)"])
+    out = out.split(`core: ${root} ${label}\n`).join(`core: ${EMBEDDED_CORE}\n`);
+  return out
+    .split(`"coreRoot": ${JSON.stringify(root)},\n`)
+    .join(`"coreRoot": ${JSON.stringify(EMBEDDED_CORE)},\n`);
 }
 
 function replaceVersion(text, version) {
@@ -206,12 +232,68 @@ export function snapshotTree(root, skip = () => false) {
         out.set(rel, { type, mode, bytes: Buffer.alloc(0) });
         walk(full);
       } else {
-        out.set(rel, { type, mode, bytes: readFileSync(full) });
+        // A fixture's sparse file (D26) is compared by size: reading gigabytes of zeros proves
+        // nothing navori wrote.
+        const bytes =
+          stat.size > LARGE_FILE_BYTES ? Buffer.from(`@LARGE@ ${stat.size}`) : readFileSync(full);
+        out.set(rel, { type, mode, bytes });
       }
     }
   };
   walk(root);
   return out;
+}
+
+/** Files above this size are compared by size only (they come from fixture `sparse` entries). */
+export const LARGE_FILE_BYTES = 64 * 1024 * 1024;
+
+/** The fixture manifest: read by the oracle, never copied into the repo. */
+export const FIXTURE_MANIFEST = "oracle.json";
+
+/**
+ * `-40d`, `-5d`, `-2h`, `-30m` relative to `now`, in milliseconds since the epoch.
+ *
+ * @param {string} relative
+ * @param {number} now
+ * @returns {number}
+ */
+export function relativeTime(relative, now) {
+  const m = /^-(\d+)([dhm])$/.exec(relative);
+  if (!m) throw new Error(`bad relative mtime: ${relative}`);
+  const unit = { d: 86_400_000, h: 3_600_000, m: 60_000 }[m[2] ?? "d"] ?? 0;
+  return now - Number(m[1]) * unit;
+}
+
+/**
+ * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
+ * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
+ * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
+ * Called on every copy, so the TS and the Rust run see the same ages.
+ *
+ * @param {string} fixtureDir
+ * @param {string} work
+ * @param {number} now
+ */
+export function applyFixtureManifest(fixtureDir, work, now) {
+  const path = join(fixtureDir, FIXTURE_MANIFEST);
+  if (!existsSync(path)) return;
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }> }} */
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const backup of manifest.backups ?? []) {
+    const dir = join(work, "backups", backup.name);
+    mkdirSync(dir, { recursive: true });
+    for (const [rel, text] of Object.entries(backup.files ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    for (const [rel, size] of Object.entries(backup.sparse ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), "");
+      truncateSync(join(dir, rel), size);
+    }
+    const at = new Date(relativeTime(backup.mtime, now));
+    utimesSync(dir, at, at);
+  }
 }
 
 /** `.git/` minus `index`, `logs/` and `objects/` (D5). */
@@ -360,8 +442,8 @@ export function hermeticEnv(work, tsCli) {
   };
 }
 
-/** Deterministic `git init` + one commit of the fixture (D5). */
-function gitInit(repo, env) {
+/** Runs git in `repo` with a fixed identity and dates; throws on failure. */
+function git(repo, env, args) {
   const identity = {
     ...env,
     GIT_AUTHOR_NAME: "oracle",
@@ -371,13 +453,57 @@ function gitInit(repo, env) {
     GIT_COMMITTER_EMAIL: "oracle@example.invalid",
     GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
   };
+  const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
+  if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+}
+
+/** Deterministic `git init` + one commit of the fixture (D5). */
+function gitInit(repo, env) {
   for (const args of [
     ["init", "-q", "-b", "main"],
     ["add", "-A"],
     ["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
   ]) {
-    const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
-    if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+    git(repo, env, args);
+  }
+}
+
+/**
+ * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
+ * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
+ * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
+ * time-bound file (a dispatch marker) is identical and fresh for both.
+ *
+ * @param {string} repo
+ * @param {Record<string, string>} env
+ * @param {Runner} ts
+ * @param {SetupStep[]} steps
+ */
+function applySetup(repo, env, ts, steps) {
+  for (const step of steps) {
+    if (Array.isArray(step)) {
+      const prep = spawnSync(ts.cmd, [...ts.args, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
+      if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
+    } else if ("navori" in step) {
+      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env, input: "" });
+      if (run.status !== 0)
+        throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("write" in step) {
+      const base = step.in === "home" ? env.HOME : repo;
+      const path = join(base, step.write);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        step.content
+          .replaceAll("@NOW_ISO@", new Date().toISOString())
+          .replaceAll("@NOW_MS@", String(Date.now()))
+          .replaceAll("@REPO@", repo),
+      );
+      if (step.mode !== undefined) chmodSync(path, step.mode);
+    } else {
+      git(repo, env, step.git);
+    }
   }
 }
 
@@ -392,6 +518,7 @@ function gitInit(repo, env) {
 export function copyFixture(from, to) {
   mkdirSync(to, { recursive: true });
   for (const entry of readdirSync(from, { withFileTypes: true })) {
+    if (entry.name === FIXTURE_MANIFEST) continue;
     const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
     const target = join(to, name);
     if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
@@ -427,29 +554,62 @@ export function repoSpecCases() {
 }
 
 /**
- * Wipes `work`, lays out a fresh copy of the fixture and the state roots, and runs `runner`.
+ * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
  *
  * @param {string} work
- * @param {Runner} runner
  * @param {OracleCase} testCase
- * @param {string} tsCli
- * @param {string} fixturesDir
- * @returns {Outcome}
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string }} opts
  */
-function runOnce(work, runner, testCase, tsCli, fixturesDir) {
+function layout(work, testCase, opts) {
   rmSync(work, { recursive: true, force: true });
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
   if (testCase.fixture === REPO_SPECS_FIXTURE) copyRepoSpecs(repo);
-  else copyFixture(join(fixturesDir, testCase.fixture), repo);
+  else copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
+  for (const [rel, text] of Object.entries(testCase.files ?? {})) {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  }
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
+  applyFixtureManifest(join(opts.fixturesDir, testCase.fixture), work, Date.now());
   // No detached auto-maintenance after the fixture commit: it would keep writing under `.git/`
   // while the next run wipes the work dir, and its packs are not output of either CLI.
   writeFileSync(join(work, "gitconfig"), "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n");
-  const env = hermeticEnv(work, tsCli);
+  const env = hermeticEnv(work, opts.tsCli);
   gitInit(repo, env);
+  applySetup(repo, env, opts.ts, testCase.setup ?? []);
+}
+
+/**
+ * Lays out `work` (from `template` when given: a setup's output is laid out once, so files it
+ * names after the clock are the same for both runners) and runs `runner`.
+ *
+ * @param {string} work
+ * @param {Runner} runner
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string }} opts
+ * @returns {Outcome}
+ */
+function runOnce(work, runner, testCase, opts) {
+  if (opts.template) {
+    rmSync(work, { recursive: true, force: true });
+    cpSync(opts.template, work, { recursive: true, verbatimSymlinks: true });
+  } else {
+    layout(work, testCase, opts);
+  }
+  const repo = join(work, "repo");
+  // A case's `env` (e.g. `NAVORI_HOOK_ENGINE`) applies to the measured run only.
+  // `@REPO@` in a value is the repo's path (a `PATH` entry for the case's own tools) and
+  // `@NODE_DIR@` the directory of this `node`, which a delegating `navori-rust` needs on `PATH`.
+  const caseEnv = Object.fromEntries(
+    Object.entries(testCase.env ?? {}).map(([key, value]) => [
+      key,
+      value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
+    ]),
+  );
+  const env = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
@@ -467,6 +627,8 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
       repo: snapshotTree(repo, skipGitNoise),
       backups: snapshotTree(join(work, "backups")),
       audits: snapshotTree(join(work, "audits")),
+      // `doctor` runs the `codex` CLI, which leaves randomly named scratch under `~/.codex/tmp/`.
+      home: snapshotTree(join(work, "home"), (rel) => rel === ".codex/tmp"),
     },
   };
 }
@@ -479,11 +641,18 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCase(testCase, opts) {
-  const fixturesDir = opts.fixturesDir ?? FIXTURES_DIR;
+  const layoutOpts = { ts: opts.ts, tsCli: opts.tsCli, fixturesDir: opts.fixturesDir ?? FIXTURES_DIR };
   const work = join(opts.base, "w");
-  const ts = runOnce(work, opts.ts, testCase, opts.tsCli, fixturesDir);
-  const rustCli = testCase.native ? decoyCli(opts.base) : opts.tsCli;
-  const rust = runOnce(work, opts.rust, testCase, rustCli, fixturesDir);
+  if (testCase.setup) {
+    layoutOpts.template = join(opts.base, "template");
+    layout(work, testCase, layoutOpts);
+    rmSync(layoutOpts.template, { recursive: true, force: true });
+    cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
+  }
+  const ts = runOnce(work, opts.ts, testCase, layoutOpts);
+  const rustOpts = testCase.native ? { ...layoutOpts, tsCli: decoyCli(opts.base) } : layoutOpts;
+  const rust = runOnce(work, opts.rust, testCase, rustOpts);
+  if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
   rmSync(work, { recursive: true, force: true });
   return {
@@ -491,6 +660,82 @@ export function runCase(testCase, opts) {
     exit: ts.status,
     differences: compareOutcomes(ts, rust, ctx, testCase.mask ?? []),
   };
+}
+
+/** `computeManagedHash(body)` (`marker.ts`): sha1 of the body with CRLF/CR folded and the end trimmed. */
+function managedHash(body) {
+  const normalized = body.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  return createHash("sha1").update(normalized, "utf-8").digest("hex").slice(0, 8);
+}
+
+/** A managed block whose hash matches its body (so it reads as navori's, never hand-edited). */
+function managedBlock(style, id, body, version) {
+  const attrs = `id="${id}" hash="${managedHash(body)}"${version ? ` version="${version}"` : ""} source="@navori/core"`;
+  return style === "shell"
+    ? `# navori:managed start ${attrs}\n${body}\n# navori:managed end id="${id}"\n`
+    : `<!-- navori:managed ${attrs} -->\n${body}\n<!-- /navori:managed id="${id}" -->\n`;
+}
+
+/** The anti-rollback levels of D26: absent, lower, equal to the checkout's CLI, higher. */
+export const ANTI_ROLLBACK_LEVELS = ["absent", "lower", "equal", "higher"];
+
+/** The operations of the matrix (D26). */
+export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
+
+/**
+ * The anti-rollback matrix (spec 0058 D26, T27): config floor (`harnessVersion`) × the stamp
+ * on navori's own content × operation, each cell over `fresh-init` with one file overlaid whose
+ * content differs from what this CLI renders:
+ *
+ * - `inject`: a `CLAUDE.md` block with an older body (`render --apply`);
+ * - `hook`: a hook script's base block with an older body (`render --apply`);
+ * - `settings`: a managed `settings.json` with an older body under `$navori.version`
+ *   (`render --apply`);
+ * - `remove`: the stamped `CLAUDE.md` block of an enabled plugin (`remove tgrep --yes`), where
+ *   the guarded removal ignores the floor (D21).
+ *
+ * @param {string} cliVersion the checkout's TS CLI version (the stamp Rust also writes, D20)
+ * @returns {OracleCase[]}
+ */
+export function antiRollbackCases(cliVersion) {
+  const level = (name) =>
+    ({ absent: null, lower: "0.1.0", equal: cliVersion, higher: "999.0.0" })[name];
+  const base = JSON.parse(readFileSync(join(FIXTURES_DIR, "fresh-init", "navori.config.json"), "utf8"));
+  /** @type {OracleCase[]} */
+  const cases = [];
+  for (const op of ANTI_ROLLBACK_OPS) {
+    for (const floor of ANTI_ROLLBACK_LEVELS) {
+      for (const marker of ANTI_ROLLBACK_LEVELS) {
+        const config = { ...base };
+        if (op === "remove") config.plugins = { ...base.plugins, tgrep: { enabled: true } };
+        if (level(floor) === null) delete config.harnessVersion;
+        else config.harnessVersion = level(floor);
+        const stamp = level(marker);
+        /** @type {Record<string, string>} */
+        const files = { "navori.config.json": `${JSON.stringify(config, null, 2)}\n` };
+        if (op === "inject") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "idioma-rol", "Older body.", stamp)}`;
+        } else if (op === "hook") {
+          files[".claude/hooks/implementer-no-markdown.sh"] =
+            `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
+        } else if (op === "remove") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
+        } else {
+          const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
+          files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
+        }
+        cases.push({
+          id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
+          fixture: "fresh-init",
+          ...(op === "remove"
+            ? { args: ["remove", "tgrep", "--yes"] }
+            : { args: ["render", "--apply"], mask: ["provenance"] }),
+          files,
+        });
+      }
+    }
+  }
+  return cases;
 }
 
 /**
@@ -551,7 +796,8 @@ export function loadCases(paths = {}) {
     args: c.args,
     ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
   }));
-  return [...casesFile.cases, ...surface, ...repoSpecCases()];
+  const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
+  return [...casesFile.cases, ...surface, ...repoSpecCases(), ...antiRollbackCases(cliVersion)];
 }
 
 /** `version` of the workspace package in the root `Cargo.toml`. */

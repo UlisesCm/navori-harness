@@ -10,6 +10,9 @@ const HISTORY = "crates/ported-history.jsonl";
 const sha256 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const json = (path) => JSON.parse(readFileSync(path, "utf8"));
 
+/** Core hooks whose managed block id is not `<hook>-base` (`engines/shared/harness-plan.ts`). */
+const MANAGED_IDS = { "quality-gate-pre-commit": "qg-pre-commit-base" };
+
 /** Command ids are space-joined paths, hook ids are the manifest keys (D1). */
 function ids(manifest) {
   return [
@@ -156,8 +159,10 @@ export function assetSources(root) {
   };
   const core = join(root, "packages/core/core-assets");
   for (const name of readdirSync(join(core, "hooks"))) {
-    if (name.endsWith(".sh"))
-      register(blocks, `${name.slice(0, -3)}-base`, join(core, "hooks", name));
+    if (name.endsWith(".sh")) {
+      const id = name.slice(0, -3);
+      register(blocks, MANAGED_IDS[id] ?? `${id}-base`, join(core, "hooks", name));
+    }
   }
   if (existsSync(join(core, "scripts"))) {
     for (const path of files(join(core, "scripts"))) register(deps, relative(core, path), path);

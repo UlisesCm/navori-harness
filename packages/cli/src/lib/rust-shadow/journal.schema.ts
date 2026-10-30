@@ -35,6 +35,8 @@ export const identitySchema = z.strictObject({
 });
 /** Closed comparison summaries never contain raw stdout/stderr or payload. */
 export const comparisonSchema = z.strictObject({
+  /** Spec 0059 D40: the native lane stopped at a branch with effects; nothing was compared. */
+  nativeUnobserved: z.literal(true).optional(),
   nativeFailed: z.boolean(),
   shellFailed: z.boolean(),
   codeDiffers: z.boolean(),
@@ -44,11 +46,12 @@ export const comparisonSchema = z.strictObject({
 export type Comparison = z.infer<typeof comparisonSchema>;
 export type Identity = z.infer<typeof identitySchema>;
 
-/** A controlled native/shell failure is itself a divergence. */
+/** A controlled native/shell failure is itself a divergence; an unobserved native lane is not. */
 export function diverged(comparison: Comparison): boolean {
+  if (comparison.shellFailed) return true;
+  if (comparison.nativeUnobserved === true) return false;
   return (
     comparison.nativeFailed ||
-    comparison.shellFailed ||
     comparison.codeDiffers ||
     comparison.stdoutDiffers ||
     comparison.stderrDiffers

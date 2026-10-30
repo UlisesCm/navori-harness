@@ -1,0 +1,5477 @@
+{
+  "classifyPath": [
+    {
+      "path": "src/a.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "./src/a.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "src\\win\\b.rs",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "src//x/../y.py",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "src/",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": ".",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "",
+      "kind": "outside-repo",
+      "kindNoSkills": "outside-repo",
+      "kindRooted": "outside-repo"
+    },
+    {
+      "path": "  src/padded.go  ",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "/abs/x.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "outside-repo"
+    },
+    {
+      "path": "C:/abs/x.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "../up.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "..",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "a/../../b.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": ".claude/progress/x.md",
+      "kind": "ephemeral",
+      "kindNoSkills": "ephemeral",
+      "kindRooted": "ephemeral"
+    },
+    {
+      "path": ".claude/worktrees/w/x.ts",
+      "kind": "ephemeral",
+      "kindNoSkills": "ephemeral",
+      "kindRooted": "ephemeral"
+    },
+    {
+      "path": "scratchpad/x.ts",
+      "kind": "ephemeral",
+      "kindNoSkills": "ephemeral",
+      "kindRooted": "ephemeral"
+    },
+    {
+      "path": "pkg/node_modules/x.js",
+      "kind": "dependency",
+      "kindNoSkills": "dependency",
+      "kindRooted": "dependency"
+    },
+    {
+      "path": "packages/cli/dist/index.js",
+      "kind": "dependency",
+      "kindNoSkills": "dependency",
+      "kindRooted": "dependency"
+    },
+    {
+      "path": ".claude/agents/x.md",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": ".claude/skills/local/SKILL.md",
+      "kind": "source",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": ".claude/skills/other/SKILL.md",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": "CLAUDE.md",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": "sub/AGENTS.md",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": ".mcp.json",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": "x/__golden__/a.ts",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": "x/y.snap",
+      "kind": "generated",
+      "kindNoSkills": "generated",
+      "kindRooted": "generated"
+    },
+    {
+      "path": "Cargo.lock",
+      "kind": "lockfile",
+      "kindNoSkills": "lockfile",
+      "kindRooted": "lockfile"
+    },
+    {
+      "path": "bun.lockb",
+      "kind": "lockfile",
+      "kindNoSkills": "lockfile",
+      "kindRooted": "lockfile"
+    },
+    {
+      "path": "a/fixtures/f.ts",
+      "kind": "fixture",
+      "kindNoSkills": "fixture",
+      "kindRooted": "fixture"
+    },
+    {
+      "path": "src/a.test.ts",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "src/a.spec.mjs",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "src/__tests__/a.ts",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "crates/x/tests/t.rs",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "test_a.py",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "pkg/a_test.go",
+      "kind": "test",
+      "kindNoSkills": "test",
+      "kindRooted": "test"
+    },
+    {
+      "path": "package.json",
+      "kind": "config",
+      "kindNoSkills": "config",
+      "kindRooted": "config"
+    },
+    {
+      "path": "tsconfig.base.json",
+      "kind": "config",
+      "kindNoSkills": "config",
+      "kindRooted": "config"
+    },
+    {
+      "path": ".gitignore",
+      "kind": "config",
+      "kindNoSkills": "config",
+      "kindRooted": "config"
+    },
+    {
+      "path": "navori.config.json",
+      "kind": "config",
+      "kindNoSkills": "config",
+      "kindRooted": "config"
+    },
+    {
+      "path": "docs/a.ts",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "specs/x/tasks.md",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "README.es.md",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "progress/current.md",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "packages/core/core-assets/agents/implementer.md",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "packages/plugins/x/skills/y.md",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "packages/core/core-assets/hooks/x.sh",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "notes.txt",
+      "kind": "docs",
+      "kindNoSkills": "docs",
+      "kindRooted": "docs"
+    },
+    {
+      "path": "a.ipynb",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "deep/a/b/c/d.sql",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "line\nbreak.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    },
+    {
+      "path": "ñ/ü.ts",
+      "kind": "source",
+      "kindNoSkills": "source",
+      "kindRooted": "source"
+    }
+  ],
+  "normalizeRepoPath": [
+    {
+      "input": "src/a.ts",
+      "path": "src/a.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "./src/a.ts",
+      "path": "src/a.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src\\win\\b.rs",
+      "path": "src/win/b.rs",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src//x/../y.py",
+      "path": "src/y.py",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src/",
+      "path": "src",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".",
+      "path": "",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "",
+      "path": "",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "  src/padded.go  ",
+      "path": "src/padded.go",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "/abs/x.ts",
+      "path": "/abs/x.ts",
+      "absolute": true,
+      "escapes": false
+    },
+    {
+      "input": "C:/abs/x.ts",
+      "path": "C:/abs/x.ts",
+      "absolute": true,
+      "escapes": false
+    },
+    {
+      "input": "../up.ts",
+      "path": "../up.ts",
+      "absolute": false,
+      "escapes": true
+    },
+    {
+      "input": "..",
+      "path": "..",
+      "absolute": false,
+      "escapes": true
+    },
+    {
+      "input": "a/../../b.ts",
+      "path": "../b.ts",
+      "absolute": false,
+      "escapes": true
+    },
+    {
+      "input": ".claude/progress/x.md",
+      "path": ".claude/progress/x.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".claude/worktrees/w/x.ts",
+      "path": ".claude/worktrees/w/x.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "scratchpad/x.ts",
+      "path": "scratchpad/x.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "pkg/node_modules/x.js",
+      "path": "pkg/node_modules/x.js",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "packages/cli/dist/index.js",
+      "path": "packages/cli/dist/index.js",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".claude/agents/x.md",
+      "path": ".claude/agents/x.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".claude/skills/local/SKILL.md",
+      "path": ".claude/skills/local/SKILL.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".claude/skills/other/SKILL.md",
+      "path": ".claude/skills/other/SKILL.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "sub/AGENTS.md",
+      "path": "sub/AGENTS.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".mcp.json",
+      "path": ".mcp.json",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "x/__golden__/a.ts",
+      "path": "x/__golden__/a.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "x/y.snap",
+      "path": "x/y.snap",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "Cargo.lock",
+      "path": "Cargo.lock",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "bun.lockb",
+      "path": "bun.lockb",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "a/fixtures/f.ts",
+      "path": "a/fixtures/f.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src/a.test.ts",
+      "path": "src/a.test.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src/a.spec.mjs",
+      "path": "src/a.spec.mjs",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "src/__tests__/a.ts",
+      "path": "src/__tests__/a.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "crates/x/tests/t.rs",
+      "path": "crates/x/tests/t.rs",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "test_a.py",
+      "path": "test_a.py",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "pkg/a_test.go",
+      "path": "pkg/a_test.go",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "package.json",
+      "path": "package.json",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "tsconfig.base.json",
+      "path": "tsconfig.base.json",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": ".gitignore",
+      "path": ".gitignore",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "navori.config.json",
+      "path": "navori.config.json",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "docs/a.ts",
+      "path": "docs/a.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "specs/x/tasks.md",
+      "path": "specs/x/tasks.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "README.es.md",
+      "path": "README.es.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "progress/current.md",
+      "path": "progress/current.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "packages/core/core-assets/agents/implementer.md",
+      "path": "packages/core/core-assets/agents/implementer.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "packages/plugins/x/skills/y.md",
+      "path": "packages/plugins/x/skills/y.md",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "packages/core/core-assets/hooks/x.sh",
+      "path": "packages/core/core-assets/hooks/x.sh",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "notes.txt",
+      "path": "notes.txt",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "a.ipynb",
+      "path": "a.ipynb",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "deep/a/b/c/d.sql",
+      "path": "deep/a/b/c/d.sql",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "line\nbreak.ts",
+      "path": "line\nbreak.ts",
+      "absolute": false,
+      "escapes": false
+    },
+    {
+      "input": "ñ/ü.ts",
+      "path": "ñ/ü.ts",
+      "absolute": false,
+      "escapes": false
+    }
+  ],
+  "matchesCriticalPaths": [
+    {
+      "globs": [],
+      "hits": []
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "hits": [
+        "src/a.ts",
+        "./src/a.ts",
+        "src\\win\\b.rs",
+        "src//x/../y.py",
+        "src/",
+        "  src/padded.go  ",
+        "src/a.test.ts",
+        "src/a.spec.mjs",
+        "src/__tests__/a.ts"
+      ]
+    },
+    {
+      "globs": [
+        "**/secrets/*.ts"
+      ],
+      "hits": []
+    },
+    {
+      "globs": [
+        "src/*.ts"
+      ],
+      "hits": [
+        "src/a.ts",
+        "./src/a.ts",
+        "src/a.test.ts"
+      ]
+    },
+    {
+      "globs": [
+        "*"
+      ],
+      "hits": [
+        "src/",
+        ".",
+        "",
+        "..",
+        "CLAUDE.md",
+        ".mcp.json",
+        "Cargo.lock",
+        "bun.lockb",
+        "test_a.py",
+        "package.json",
+        "tsconfig.base.json",
+        ".gitignore",
+        "navori.config.json",
+        "README.es.md",
+        "notes.txt",
+        "a.ipynb",
+        "line\nbreak.ts"
+      ]
+    },
+    {
+      "globs": [
+        "**"
+      ],
+      "hits": [
+        "src/a.ts",
+        "./src/a.ts",
+        "src\\win\\b.rs",
+        "src//x/../y.py",
+        "src/",
+        ".",
+        "",
+        "  src/padded.go  ",
+        "/abs/x.ts",
+        "C:/abs/x.ts",
+        "../up.ts",
+        "..",
+        "a/../../b.ts",
+        ".claude/progress/x.md",
+        ".claude/worktrees/w/x.ts",
+        "scratchpad/x.ts",
+        "pkg/node_modules/x.js",
+        "packages/cli/dist/index.js",
+        ".claude/agents/x.md",
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md",
+        "CLAUDE.md",
+        "sub/AGENTS.md",
+        ".mcp.json",
+        "x/__golden__/a.ts",
+        "x/y.snap",
+        "Cargo.lock",
+        "bun.lockb",
+        "a/fixtures/f.ts",
+        "src/a.test.ts",
+        "src/a.spec.mjs",
+        "src/__tests__/a.ts",
+        "crates/x/tests/t.rs",
+        "test_a.py",
+        "pkg/a_test.go",
+        "package.json",
+        "tsconfig.base.json",
+        ".gitignore",
+        "navori.config.json",
+        "docs/a.ts",
+        "specs/x/tasks.md",
+        "README.es.md",
+        "progress/current.md",
+        "packages/core/core-assets/agents/implementer.md",
+        "packages/plugins/x/skills/y.md",
+        "packages/core/core-assets/hooks/x.sh",
+        "notes.txt",
+        "a.ipynb",
+        "deep/a/b/c/d.sql",
+        "line\nbreak.ts",
+        "ñ/ü.ts"
+      ]
+    },
+    {
+      "globs": [
+        "a*b*c/x"
+      ],
+      "hits": []
+    },
+    {
+      "globs": [
+        "src/p*y.py",
+        "crates/**/t.rs"
+      ],
+      "hits": [
+        "crates/x/tests/t.rs"
+      ]
+    },
+    {
+      "globs": [
+        "ab*b"
+      ],
+      "hits": []
+    },
+    {
+      "globs": [
+        "**/d.sql"
+      ],
+      "hits": [
+        "deep/a/b/c/d.sql"
+      ]
+    }
+  ],
+  "nonImplementerRoles": [
+    "scout",
+    "architect",
+    "auditor",
+    "reviewer",
+    "scribe",
+    "publisher",
+    "explorer"
+  ],
+  "parseTasks": [
+    {
+      "name": "edge-0",
+      "text": "",
+      "format": "legacy",
+      "deliveries": [],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 0
+    },
+    {
+      "name": "edge-1",
+      "text": "- [ ] one\n- [x] two\n- [ ] ~~T3~~ gone",
+      "format": "legacy",
+      "deliveries": [],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-2",
+      "text": "## E1 — A\n### M1 — B\n- [ ] **T1** (R1) — x\n- **A1** — y `cmd` → exit 0",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 1
+    },
+    {
+      "name": "edge-3",
+      "text": "## E1 — A\n- [ ] **T1** orphan\n- **A1** orphan criterion\n### M1\n- [ ] no id\n- [ ] ~~T2~~",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 1,
+      "malformed": 1,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-4",
+      "text": "## E1 (foundation)\nEstimated LOC: 1,200\n- [ ] **T9** after loc\n### M2 — x\n#### deeper\n- [ ] **T1** still in M2",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M2"
+          ]
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-5",
+      "text": "## E1\n### M1\n```\n## E2\n- [ ] no id in fence\n```\n- [ ] **T1** ok\n~~~~\n- [ ] x\n~~~\n- [ ] still fenced\n~~~~\n- [ ] after",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 1,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-6",
+      "text": "## E1\r\n### M1\r\n- [ ] **T1** crlf\r\n  - [ ] nested no id\r\n- [ ] top no id",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 1,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-7",
+      "text": "## E1\n### M1\n- [ ] **T1** x\n  continuation\n- [ ] **T2** y\n## Not a delivery\n- [ ] **T3** orphan after section",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 3
+    },
+    {
+      "name": "edge-8",
+      "text": "## E12x title\n## E3: ok\n### M1: m\n### M2x not milestone\n- [ ] **T1** orphan?",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E3",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 1
+    },
+    {
+      "name": "edge-9",
+      "text": "## E1 —\n### M1 #\n- [ ] **T1** a\n1. [ ] numbered\n* [ ] star\n- **Consumes:** a → b\n- [ ]  **T2** double space",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 1,
+      "legacyTaskCount": 2
+    },
+    {
+      "name": "edge-10",
+      "text": "# Title\n## E1\n### M1\n- [X] **T1** upper x\n- [ ] **T2**(R1)\n### Other\n- [ ] **T3** orphan",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 3
+    },
+    {
+      "name": "edge-11",
+      "text": "## E1\n ### M1\n- [ ] **T1**",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": []
+        }
+      ],
+      "orphanTasks": 1,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 1
+    },
+    {
+      "name": "edge-12",
+      "text": "## E1\n  estimated loc: ~42\n- **Estimated LOC:** 7\n### M1\n- [ ] **T1**",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 1
+    },
+    {
+      "name": "0059-rust-sesion-engines",
+      "text": "# Migración a Rust, fase 3: hooks de sesión y engines restantes — Tasks\n\n**Estado:** aceptada (Q14–Q18 resueltas en `design.md`); E1 espera a #1432 · **Base:** `migration/rust`. Fase 3 del programa (ver\n`specs/0057-migracion-rust/requirements.md` § \"Fases del programa\"): tres entregas, **cada una con su\npropio PR contra `migration/rust`** y ninguna contra `dev` (D28). El LOC es una estimación, no una\nmedición.\n\nCorrespondencia con el \"Plan de entregas\" de 0057: E1 equivale a E6 M1–M2 (sin `plan resume` ni\n`audit`), E2 a E7 M1–M3 más la ampliación de los comandos de 0058, y E3 a E6 M3. E-Pi se sustituye\npor el asset derivado de D29 (Q14).\n\n**Precondiciones de entrada** (verificables antes de abrir cada entrega):\n- **E1:** #1432 integrado en `migration/rust`: `crates/ported.json` tiene `guard-destructive` en\n  `shadow` y existen `crates/navori-hooks/src/hooks/guard_destructive/{landing,ratchet}.rs`.\n- **E2:** 0058 E3 integrado: `ported.json` tiene `render`, `sync`, `remove` y `adopt` con\n  `when.engines = [\"claude\"]`, y existe el fixture `codex-trusted`.\n- **E3:** E1 integrada; 0058 E1 integrada (`rust-manifest-check.mjs` valida `activate`, y existe\n  `scripts/js/hook-shadow-report.mjs` con conteo por engine); la ventana de sombra de D35 cumplida.\n\nReglas de ejecución:\n- Workplan por entrega: `0059-rust-sesion-engines-e<n>`, con fases = milestones; `tasks.md` es el\n  tracking canónico.\n- E1 y E2 pueden correr en paralelo con 0058 E3 y entre sí: sus archivos son disjuntos salvo\n  `crates/ported.json` y `ported-history.jsonl`, que se resuelven al integrar.\n- Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los\n  archivos nuevos se crean en el milestone que los nombra.\n- Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --workspace --all-targets\n  --locked -- -D warnings && cargo test --workspace --locked`, además de `bun run check:fast` y sus\n  `A<n>`. El cierre de cada entrega corre `bun check` completo, `rust.yml` en verde y un reviewer\n  fresco.\n- Sin subagentes por instrucción del usuario (Q18): cada PR queda con revisión independiente\n  pendiente antes del merge. Antes de abrir cada entrega, la rama se actualiza con\n  `origin/migration/rust`, que a su vez sincroniza `dev` (D10 de 0057).\n- Hooks, render, markers y escrituras son área crítica: un commit por mecanismo. Ningún hook pasa a\n  `active` sin la evidencia de R60 y la aprobación del usuario en el PR de E3.\n\n## E1 — Hooks de sesión en sombra\nEstimated LOC: 13000\n\n### M1 — Base compartida\n- **A1** [observable] — mover los parciales no cambia `guard-destructive`, los modos diferidos no leen stdin y el corpus cubre cada clase y modo · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive.sh && bun run fuzz:hooks --hook guard-destructive.sh --seed 1 --cases 2000 && cargo test -p navori-cli --test hooks --test facts_cache --locked && cd packages/cli && bun run vitest run src/__tests__/hook-verdict-replay.test.ts` → exit 0; 0 divergencias\n- [x] **T1** (R50) — `navori_hooks::shell`: `extract_cmd`, `hook_input`, `landing` y `ratchet` salen de `hooks/guard_destructive` sin cambio de comportamiento, en un commit propio que actualiza el `impl` de `guard-destructive` con su línea en `ported-history.jsonl` (D32) · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::\"veredictos sin cambio tras mover los parciales a shell\"\n  - Hecho: `shell::{hook_input, landing, ratchet, repo}` (`extract_cmd` ya vivía en `shell::payload`). Todo `src/` fuera de `hooks/` entra en el hash D8, así que cambia el `impl` de `guard-destructive` **y** de `subagent-no-background`; ambos se recalculan con sus wrappers renderizados. **Enmienda:** sin línea en `ported-history.jsonl`, porque su contrato (0057, § Contracts) solo registra `port`, `unport` y `activate`, y un `impl` nuevo sin cambio de modo no es ninguno de los tres (mismo criterio que `fb382ecc`). Replay Rust 886/886 y 232/232 y fuzz 2000/2000 antes y después.\n- [x] **T2** (R51, R50) — `NativeHook.phase` como función del modo con la tabla del `case \"$mode\"` de cada script; preflight que difiere con exit 3 antes de leer stdin para `model-advisor codex-pretool-profile`, `subagent-stop-handoff codex capture-start` y cualquier modo desconocido (D31) · effect: behavior · test: `crates/navori-cli/tests/hooks.rs`::\"un modo diferido sale 3 con stdin intacto\"\n  - Hecho: `NativeHook.phase: fn(&[OsString]) -> Option<&'static str>`; `None` difiere en el preflight, tras el manifiesto y antes de stdin. Las tablas viven en `hooks::{model_advisor, subagent_stop_handoff}::phase`; `guard-destructive` y `subagent-no-background` no leen modo y conservan `PreToolUse` fijo. **Enmienda:** el test vive en `tests/hooks.rs` (el archivo existente; A1 se corrige igual), y `phase` recibe los argumentos en vez de la `Invocation`: la tabla del script solo lee `$1`/`$2`.\n- [x] **T3** (R53) — hecho del host `navori_cli` (versión que imprime el `navori` de `PATH`) en `hook_facts.rs`, guardado en `facts_cache` por inodo, tamaño y fechas (D30) · effect: behavior · test: `crates/navori-cli/tests/facts_cache.rs`::\"la versión del navori de PATH se sondea una vez por binario\"\n  - Hecho: `hook_facts::navori_cli` → `NavoriCli { path, version }` con `in_process()` contra `navori_core::STAMP_VERSION`; la caché guarda una entrada por ruta canónica con el sello dentro (`load_cli`/`store_cli`), y una entrada relativa de `PATH` se resuelve desde el `cwd` del hook y nunca se cachea. Lo consumen los hooks de M2 y M3.\n- [x] **T4** (R52) — ejecutor de subproceso para el `navori` de `PATH` con los mismos argumentos, stdin, entorno y plazo que la rama shell equivalente, y con la interpretación de su salida que hace el script (D30) · effect: behavior · test: `crates/navori-hooks/tests/delegated_subcommand.rs`::\"el subproceso recibe argv, stdin y entorno del shell\"\n  - Hecho: `shell::subcommand::{run, child_env, substitution}`. Entrada `Null` o `Bytes`; salida `Separate`, `Merged` (`2>&1`, en orden de escritura) o `Discard`; plazo opcional (`$(…)` espera sin límite). `child_env` aplica lo que Bash añade al hijo, medido contra Bash: `PWD` lógico, `OLDPWD` tras un `cd`, `SHLVL`+1 y `_` = ruta resuelta. La interpretación propia de cada rama (`gate foreign`, `plan gate`…) llega con su hook; aquí queda la de `$(…)` y el `$?` con 128+señal. **Residuales:** al vencer el plazo se mata con `SIGKILL` (Node usa `SIGTERM`) y no se espera la salida, porque un nieto podría retener la tubería; solo lo usa `plan resume` (T14), que lo revisa. El fake `navori` del test es el propio binario de tests: un script de shell alteraría `PWD`, `SHLVL` y `_` antes de volcarlos.\n  - Ajuste a T3: `NavoriCli.path` guarda la ruta que resuelve `PATH`, sin canonicalizar, que es la que el shell ejecuta y exporta en `_` (npm instala `navori` como symlink); la canónica solo es clave de caché.\n- [x] **T5** (R54) — corpus: casos Claude de `plan-gate`, Codex `SubagentStop` de `subagent-stop-handoff`, Codex y Pi de `quality-gate-pre-commit` (commit, push, cache verde, gate rojo) y captura nueva de `model-advisor` en sus cuatro modos no diferidos; `coverage.json` regenerado (D35) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::\"cada hook de sesión cubre cada clase de veredicto y modo por engine\"\n\n### M2 — `quality-gate-pre-commit` y `gate probe`\n- **Consumes:** `bun run oracle:rust --only gate` → ejecuta `navori-rust gate probe` nativo contra el TS sobre los fixtures\n- **A2** [observable] — el hook y `gate probe` coinciden con el shell y el TS, y la ruta sin commit cumple R55 · `node scripts/js/hook-verdict-replay.mjs --impl rust --only quality-gate-pre-commit.sh && bun run fuzz:hooks --hook quality-gate-pre-commit.sh --seed 1 --cases 2000 && bun run oracle:rust --only gate && node scripts/js/bench-hooks.mjs --impl rust --scenario Bash --hook quality-gate-pre-commit.sh` → exit 0; 0 diferencias; p95 ≤ 5 ms en la ruta sin commit\n  - **Enmienda (usuario):** A2 mide con `--hook quality-gate-pre-commit.sh`, el alcance de R55. El p95 de `guard-destructive` (7–18 ms en Bash, igual en la base `126de120`) es deuda de R17 de 0057 M11, cuya A11 no lo medía; va en ticket aparte.\n- [x] **T6** (R56) — `navori-core::gate::cache` (`probeGreen` con el mismo hash de contenido y `withFileLock`) y comando nativo `gate probe` con `--clean`, con su entrada en `ported.json` (D33) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::\"gate-probe limpio, sucio y sin cache\"\n  - Hecho: `navori_core::{content_identity, state_root, posix, process}` y `gate::cache::probe_green`; comando `gate probe` con flags `index`, `clean` y `cwd`. Oráculo: fixture `gate` y 17 casos `gate-probe:*` (hit y miss en `working`, `--index` y `--clean`, `full` que cubre `fast` por script, record ilegible, aviso de config, flag no portado); 69/69 sin diferencias. **Enmiendas:** `probeGreen` no toma el lock (lee sin él; `withFileLock` solo envuelve `recordGreen`, que no se porta). `NativeCommand.run` recibe el argv y devuelve `Option<ExitCode>`: `None` delega antes de cualquier salida, y así lo hacen un argv que citty podría leer distinto (`--no-clean`, `--clean=x`, posicional extra, `--cwd` repetido o vacío), una config que `config::read` no reproduce y un `results.json` o `package.json` que `js_json::parse` no lee. La toolchain (`bun`/`node --version`) solo se sondea si hay un registro candidato. El caso de oráculo admite `setup` (pasos `navori` con el TS, `write`, `git`) aplicado una vez y copiado a ambos lados, porque el log del gate lleva la hora en el nombre. **Pendiente:** la línea `port` de `gate probe` en `ported-history.jsonl` pide el número de PR; va al abrirlo.\n- [x] **T7** (R50, R52) — `hooks::quality_gate` con `shell::{gate_trigger, audit_signal}` nuevos, rama Pi de `git push`, trinquete de `progress/`, `gate foreign` y el quality gate por subproceso, el estado \"no observado\" de la sombra y la user-section de plantilla (D40), y entrada `shadow` en `ported.json` · effect: behavior · test: `crates/navori-hooks/tests/quality_gate.rs`::\"veredictos del corpus en claude, codex y pi\"\n  - Hecho: decisión pura en `hooks::quality_gate_pre_commit` (el directorio lleva el id del hook, que fija el hash D8) que se detiene en `Step::Gate` o `Step::Foreign`; `shell::{gate_trigger, gate_ask}` y `landing::foreign_root`. Efectos en `navori-cli/src/quality_gate.rs`: gate por `bash -c 'set -uo pipefail; eval \"$1\"'` con `$0` del script, `gate foreign` por subproceso y `gate probe --clean` en proceso si el `navori` de PATH es esta versión. `Evaluator` recibe un `Recorder` (sombra o no, y `gate-started` en el momento); en sombra la rama con efectos responde `runner::unobserved()` y `Comparison.native_unobserved` no cuenta como divergencia (journal TS: `nativeUnobserved`, `report.unobserved`). Replay rust 44/44 y fuzz 2000/2000; guard y subagent-no-background 1118/1118 con sus `impl` nuevos. **Residuales para E3:** los traps de señal (`gate-killed`) no se portan; el `eval` no ve las variables no exportadas del script. El Claude de este repo sigue en shell: su user-section es de una plantilla vieja y el renderer no lo envuelve.\n- [x] **T8** (R55) — caso de `bench-hooks` para una llamada Bash que no es commit ni push, con `--impl rust` y `--impl shell` sobre los mismos payloads · effect: tests · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::\"quality-gate fuera de commit mide p95 rust y shell con los mismos payloads\"\n  - Hecho: el bench Rust no corría sobre este checkout. Sin `NAVORI_RUST_HOOKS_DIR` ahora firma los assets fuente como el replay (`main` pasa a async por la carga perezosa del firmador), acepta la forma de Codex `bash \"$(git rev-parse --show-toplevel)/<dir>/<hook>\"` y las filas shell llevan `wallMsP95`. Medido con el release instalado (carga 4–6, no comparable): `quality-gate-pre-commit` p95 2.7–5.6 ms. **Hallazgo para A2:** `guard-destructive` da p95 7–18 ms en el escenario Bash, también con el binario de la base `126de120` (7.9 ms), así que A2 literal sale 1 por un hook ajeno a M2.\n- [x] **T9** (R50) — matriz fail-closed sobre `quality-gate-pre-commit` en `shadow` por el comando registrado de cada engine · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::\"quality-gate-pre-commit nunca permite ante SIGSEGV, 101 o stdout cerrado\"\n  - Hecho: el asset real se renderiza y envuelve con `finalizeNativeHooks` y el descriptor de `ported.json` en los tres engines, y se ejecuta el comando que registra cada uno (`claudeHookCommand`, `codexHookCommand` y `bash <script>` como el bridge Pi) con un `git commit` en stdin. SIGSEGV y 101 dan `ask` en Claude y exit 2 sin stdout en Codex y Pi; stdout cerrado da exit 2 en los tres. Un nativo que difiere (exit 3) haría pasar el gate del shell, y el test falla.\n\n### M3 — `plan-gate` y `plan gate`\n- **Consumes:** `bun run oracle:rust --only plan-gate` → ejecuta `navori-rust plan gate` nativo con los payloads del corpus como stdin\n- **A3** [observable] — `plan gate` nativo deja el mismo veredicto y estado, y el hook coincide con el shell · `bun run oracle:rust --only plan-gate && node scripts/js/hook-verdict-replay.mjs --impl rust --only plan-gate.sh && bun run fuzz:hooks --hook plan-gate.sh --seed 1 --cases 2000 && cargo test -p navori-cli --test plan_gate --locked` → exit 0; 0 diferencias\n- [ ] **T10** (R56, R57) — `navori-core::plan::{gate, classify, check, expected, schema}`, `spec::{tasks, locate}` y `roster`; comando nativo `plan gate` con la reclamación del marcador por rename y su borrado, vigencia y `sessionId` (D33) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::\"plan-gate: cada caso del corpus como subcomando con su estado en .navori/state\"\n  - Avance: `navori_core::{diagnose::source_classify, plan::{classify, expected}, spec::{tasks, locate}, js_re}` portados y verificados contra la tabla del TS `crates/navori-core/tests/fixtures/plan_tables.json` (`scripts/js/rust-oracle/plan-tables.mjs`, con `--check` en `rust.yml`): 51 rutas, 10 globs, 21 `expected`, 132 combinaciones de `classify`, 16 `tasks.md` y 36 `locateSpecDir`. `matches:` con forma válida queda `NeedsJs`: Rust no compila una `RegExp` de JS y el gate delega. De `parseTasks` solo se porta la estructura que lee el gate. Faltan `plan::{schema, check}`, `escalation`, `roster` y el comando.\n- [ ] **T11** (R58) — re-delegación de `plan gate` antes de leer stdin cuando hay identidad de auditoría en el entorno y un `session-*.log` regular en la raíz de auditoría del repo (D33) · effect: behavior · test: `crates/navori-cli/tests/plan_gate.rs`::\"con log de audit-mode re-delega antes de leer stdin\"\n- [ ] **T12** (R50, R53) — `hooks::plan_gate`: `plan gate` en proceso con versión igual, subproceso con versión distinta, ramas \"not installed\" y \"outdated\" del script; entrada `shadow` · effect: behavior · test: `crates/navori-hooks/tests/plan_gate.rs`::\"con otra versión de navori usa el subproceso y da el mismo veredicto\"\n\n### M4 — Hooks de inicio, cierre y modelo\n- **Consumes:** `bun run oracle:rust --only tools` → ejecuta `tools session-context`, `tools notice` y `dominio inject` nativos contra el TS\n- **A4** [observable] — los cinco hooks en `shadow` coinciden con el shell y los subcomandos con el TS · `bun run oracle:rust --only tools && node scripts/js/hook-verdict-replay.mjs --impl rust --only session-start-context.sh,subagent-stop-handoff.sh,model-advisor.sh && for h in session-start-context subagent-stop-handoff model-advisor; do bun run fuzz:hooks --hook \"$h.sh\" --seed 1 --cases 500 || exit 1; done && cargo test -p navori-hooks --test golden_wiring --locked` → exit 0; 0 diferencias\n- [ ] **T13** (R56, R59) — `navori-core::tools::{session_context, notice}` y `workspace::dominio`; comandos nativos `tools session-context`, `tools notice` y `dominio inject`; el worker de versiones lo lanza el `navori` de `PATH` con el mismo flag y token (D34) · effect: behavior · test: `crates/navori-cli/tests/tools.rs`::\"el worker de versiones lo lanza el navori de PATH con flag y token y Rust no abre sockets\"\n- [ ] **T14** (R50) — `hooks::session_start`: memo de `--version`, contrato `#navori-session-context v1`, rama `plan resume` de Codex por subproceso, bloques acotados y JSON sin `node` con `js_json` · effect: behavior · test: `crates/navori-hooks/tests/session_start.rs`::\"veredictos del corpus en claude y codex\"\n- [ ] **T15** (R50, R51) — `hooks::subagent_stop`: comprobación de handoffs, aviso de handoff parcial y de compactación, `audit --capture-child` por subproceso; `capture-start` difiere · effect: behavior · test: `crates/navori-hooks/tests/subagent_stop.rs`::\"veredictos del corpus en claude y codex\"\n- [ ] **T16** (R50, R51) — `hooks::model_advisor`: modos `claude-session-start`, `claude-post-model-switch`, `claude-stop` y `codex-session-start` con estado en el scratchpad; `codex-pretool-profile` difiere · effect: behavior · test: `crates/navori-hooks/tests/model_advisor.rs`::\"veredictos del corpus por modo\"\n- [ ] **T17** (R50) — entradas `shadow` de `session-start-context`, `subagent-stop-handoff` y `model-advisor` en `ported.json`, `navori render --apply` del TS en este repo y wiring revisado a mano · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::\"hooks de sesión en shadow\"\n\n## E2 — Render multi-engine\nEstimated LOC: 15000\n\n### M5 — Engines de prosa y orquestación\n- **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo con engines de prosa y multi-engine contra el TS\n- **A5** [observable] — prosa y multi-engine con diferencial cero · `cargo test -p navori-oracle-tests --test render_engines --locked && bun run oracle:rust --only render` → exit 0; 0 diferencias\n- [ ] **T18** (R62, R64) — `render::prose`: `prose-harness` y los adaptadores `agents-md`, `cursor` y `copilot`, con bloques de plugins para Pi (D36) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::\"agents-md, cursor y copilot coinciden con sus snaps de golden-render-tree\"\n- [ ] **T19** (R64, R65) — `render::engines`: inventario único, preparación y `finalize` de todos los engines antes de escribir, prosa en `commit`, dueño de `AGENTS.md` y advertencia de redundancia (D36) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::\"multi-engine con un recurso Pi ajeno no escribe nada\"\n- [ ] **T20** (R62, R64) — fixtures `prose-engines` y `multi-engine` (contenido de usuario en `AGENTS.md`) con casos de preview y `--apply` en `es` y `en` · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::\"los fixtures multi-engine cubren AGENTS.md compartido\"\n\n### M6 — Codex\n- **A6** [observable] — el árbol Codex y el hash de trust coinciden con el TS · `cargo test -p navori-oracle-tests --test render_engines --test codex_trust --locked && bun run oracle:rust --only codex` → exit 0; 0 diferencias\n- [ ] **T21** (R62) — `render::codex`: `.codex/config.toml` y `.codex/rules/navori.rules` como texto con markers `#`, hooks, scripts, agentes, skills en `.agents/skills`, `openai.yaml`, orquestador y huérfanos (D37) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::\"el árbol Codex coincide con el snap codex de golden-render-tree\"\n- [ ] **T22** (R66) — `canonicalJson`, `codexHookHash` y `readCodexTrustState` con `toml` solo de lectura; pista de trust; ninguna operación de escritura sobre `~/.codex` (D37) · effect: behavior · test: `crates/navori-oracle-tests/tests/codex_trust.rs`::\"codexHookHash coincide con Node y ~/.codex queda intacto\"\n- [ ] **T23** (R69) — wiring nativo en los scripts de `.codex/hooks/` para hooks en `shadow` y `active` · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::\"codex shadow y active\"\n- [ ] **T24** (R62) — `lib/codex/model-catalog` en la parte que usa el render (`codexMap` contra el catálogo local) · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::\"los modelos de agentes Codex y Pi coinciden con el catálogo\"\n- [ ] **T25** (R66) — fixture `codex-untrusted` con la pista de trust en `es` y `en` · effect: tests · test: `scripts/js/rust-oracle/cases.json`::\"codex-untrusted emite la misma pista de trust\"\n\n### M7 — Pi\n- **A7** [observable] — el asset está fresco y el árbol Pi coincide con el TS · `node scripts/js/gen-pi-extension-asset.mjs --check && cargo test -p navori-oracle-tests --test render_engines --locked && bun run oracle:rust --only pi` → exit 0; 0 diferencias\n- [ ] **T26** (R67) — `scripts/js/gen-pi-extension-asset.mjs` con modo `--check`, asset `crates/navori-core/assets/pi/extension.ts.in` con el único marcador `{{json:mcpPluginIds}}`, y el check en el job `oracle` de `rust.yml` (D29) · effect: behavior · test: `packages/cli/src/__tests__/gen-pi-extension-asset.test.ts`::\"una línea cambiada en la extensión pone el check en rojo\"\n- [ ] **T27** (R67) — `render::pi` emite la extensión desde el asset con `js_json` y la línea `navori:managed-file` con sha256 · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::\"la extensión coincide con el TS con 0, 1 y 2 plugins MCP\"\n- [ ] **T28** (R68) — `ownsPiManifest`, `ownsPiAgent` y `ownsPiSource` (parseo por `node` hijo con 1 MiB y 5 s), esquema más nuevo y todo-o-nada de `.pi/navori/**`; fixture `pi-foreign` (D38) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::\"pi-foreign rechaza con el mismo mensaje y sin escrituras\"\n- [ ] **T29** (R62, R69) — manifiesto v2, `.pi/agents/*.md`, copias de hooks y scripts con wiring nativo, y snap `pi` en `golden-render-tree` (solo en `migration/rust`); fixtures `pi-controls` y `pi-mcp` · effect: behavior · test: `crates/navori-oracle-tests/tests/render_engines.rs`::\"el árbol Pi coincide con el snap pi de golden-render-tree\"\n\n### M8 — Comandos multi-engine y R19\n- **Consumes:** `bun run oracle:rust` → corrida completa sobre todos los comandos del manifiesto y fixtures\n- **A8** [observable] — todos los comandos portados con diferencial cero en todos los engines, y la extensión Rust carga en Pi · `bun run oracle:rust && bun run oracle:rust --only anti-rollback && cd packages/cli && bun run vitest run src/__tests__/rust-oracle.test.ts src/engines/pi/__tests__/rust-tree.test.ts` → exit 0; 0 diferencias\n- [ ] **T30** (R62, R63) — `when.engines` de `render`, `sync`, `remove` y `adopt` ampliado al conjunto de R62; casos de los cuatro comandos en los fixtures nuevos y la matriz anti-rollback sobre los markers de `.codex/config.toml` y `AGENTS.md` (D36) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::\"render, sync, remove y adopt nativos en multi-engine\"\n- [ ] **T31** (R19) — suite `engines/pi/__tests__/rust-tree.test.ts`, solo en `migration/rust`: renderiza el fixture `pi` con `navori-rust render --apply` y carga la extensión con el cargador real de Pi; lectura de `.codex/config.toml` con el parser de las suites de trust (D39) · effect: tests · test: `packages/cli/src/engines/pi/__tests__/rust-tree.test.ts`::\"la extensión que renderiza navori-rust carga en Pi\"\n- [ ] **T32** (R19) — test que enumera las dimensiones de config de las suites de aceptación de Codex y Pi y falla si alguna no tiene fixture del oráculo (D39) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::\"cada dimensión de las suites de aceptación tiene fixture\"\n- [ ] **T33** (R67) — regeneración del asset en la guía de sincronización de CONTRIBUTING (en, es, zh-CN). La enmienda de la fila de la fase 3 y la nota en D11 de 0057 ya entraron con la spec (Q14) · effect: docs · test: `CONTRIBUTING.md`::\"Regenerar el asset de la extensión Pi\"\n\n## E3 — Activación de los hooks de sesión\nEstimated LOC: 1200\n\n### M9 — Evidencia y activación\n- **Consumes:** `node scripts/js/hook-shadow-report.mjs <hook>` → lee el ledger de sombra de sesiones reales por engine (0058 T3)\n- **A9** [observable] — cada hook activado cumple R60 en cada engine registrado · `node scripts/js/hook-verdict-replay.mjs --impl rust --only quality-gate-pre-commit.sh,plan-gate.sh,session-start-context.sh,subagent-stop-handoff.sh,model-advisor.sh && for h in quality-gate-pre-commit plan-gate; do bun run fuzz:hooks --hook \"$h.sh\" --seed 1 --cases 100000 || exit 1; done && for h in session-start-context subagent-stop-handoff model-advisor; do bun run fuzz:hooks --hook \"$h.sh\" --seed 1 --cases 20000 || exit 1; done && node scripts/js/hook-shadow-report.mjs --class-thresholds` → exit 0; 0 divergencias; umbral de D35 cumplido por cada hook activado\n- [ ] **T34** (R60) — `hook-shadow-report.mjs --class-thresholds`: umbral por clase de evento y engine según D35, sin crear un segundo reporte · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::\"un hook por sesión con 29 invocaciones en codex deja el reporte en rojo\"\n- [ ] **T35** (R60, R61) — `ported.json` pasa a `active` los hooks que cumplen, con una línea `activate` por hook, el resumen de A9 en el PR y la aprobación del usuario; los que no cumplen siguen en `shadow` y se anotan en la fase 4 · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::\"activar varios hooks en un PR exige una línea activate por hook\"\n- [ ] **T36** (R50) — matriz fail-closed sobre `plan-gate` y `quality-gate-pre-commit` en `active`, invocados por el comando registrado de cada engine, y re-render del wiring con el fragmento activo · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::\"plan-gate y quality-gate activos nunca permiten ante SIGSEGV, 101 o stdout cerrado\"\n",
+      "format": "deliveries",
+      "deliveries": [
+        {
+          "id": "E1",
+          "milestones": [
+            "M1",
+            "M2",
+            "M3",
+            "M4"
+          ]
+        },
+        {
+          "id": "E2",
+          "milestones": [
+            "M5",
+            "M6",
+            "M7",
+            "M8"
+          ]
+        },
+        {
+          "id": "E3",
+          "milestones": [
+            "M9"
+          ]
+        }
+      ],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 36
+    },
+    {
+      "name": "0027-scribe-agent",
+      "text": "# Scribe Agent — Tasks\n\n- [x] **T1** (R1, R2, R3) — Add `scribe` to the canonical roster, config/schema/catalogs, Claude/Codex rendering, and configure architect/orchestrator profiles. · test: roster/config/render cases with `// Covers: R1, R2, R3`\n- [ ] ~~T2~~ **WITHDRAWN, not started** (was R4, R5, R6) — Implement the typed handoff payload schema, scribe renderer, feature/artifact validation, and blocked behavior. See \"Amendment — T2/T3/T4 withdrawn\" in `design.md`.\n- [ ] ~~T3~~ **WITHDRAWN, not started** (was R4, R5, R8, R9) — Migrate agent contracts so producers emit payloads, scribe writes supported handoffs, and orchestrator retains root session state. See \"Amendment — T2/T3/T4 withdrawn\" in `design.md`.\n- [ ] ~~T4~~ **WITHDRAWN, not started** (was R7, R9) — Enforce final-review and receipt behavior for scribe-drafted versioned documentation, including drift/delta review. See \"Amendment — T2/T3/T4 withdrawn\" in `design.md`.\n\n## Amendment (2026-09-21)\nT2, T3, and T4 are withdrawn: subagent cold-start cost (~25k tokens, `cache_creation` pricing, no `cache_read` reuse) dominates the ~2k tokens of Markdown a scribe hop would serialize, and the chain would also force an orchestrator turn that doesn't exist today (no agent holds the `Agent` tool). Full evidence and cost accounting in `design.md`. T1 stays delivered as-is; `scribe` remains in the roster, unused pending a producer/consumer contract.\n",
+      "format": "legacy",
+      "deliveries": [],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 1
+    },
+    {
+      "name": "0012-solutioning",
+      "text": "# Spec 0012 — Capa de Solutioning · Tasks\n\n**Estado:** ✅ **board cerrado 2026-08-18** — los 5 batches ejecutados y mergeados en `main`\n(`0c01763`, PR #339). Evidencia por batch: skill `solution-design` + `WORKFLOW_SKILLS`\n(batches 1-2), `lib/__tests__/solutioning-wiring.test.ts` (batch 3), `evals.md` con los\ncuatro escenarios en PASS (batches 0 y 4), entrada en `progress/history.md` (batch 5).\n\n**Board de la spec.** No duplicar en `TaskCreate` (regla del bloque `sdd`).\nRequirements: [`requirements.md`](./requirements.md) · Diseño: [`design.md`](./design.md)\n· Mecánica y comandos exactos: [`plan.md`](./plan.md).\n\nEstado: `[ ]` pendiente · `[~]` en curso · `[x]` hecho.\n\n---\n\n## Batch 0 — Baseline RED (antes de escribir la skill)\n\n> Método superpowers `writing-skills`: *\"no skill without a failing test first\"*.\n> El baseline documenta las racionalizaciones concretas que la skill debe contrarrestar.\n\n- [x] **T0.1** Baseline Escenario A — procesar BTBS-162 sin la capa, sobre\n  bonum-webapp; registrar el plan que produce.\n  → `.claude/progress/eval_baseline_A.md`\n  **Cubre:** evidencia para R5, R6, R8.\n- [x] **T0.2** Extraer del baseline las racionalizaciones observadas (¿heredó la\n  propuesta del ticket? ¿buscó el patrón existente? ¿evaluó alternativas?) y\n  anotarlas en `evals.md` como criterio GREEN a superar.\n  **Cubre:** R5, R6, R8.\n\n## Batch 1 — Skill `solution-design`\n\n- [x] **T1.1** Crear `packages/core/core-assets/skills/solution-design.md` con el\n  cuerpo definido en `design.md` (plantilla del artefacto, encargo del challenge,\n  semántica del veredicto, 3 vías de ambigüedad, jerarquía de soluciones, anti-loop).\n  **Cubre:** R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R18.\n- [x] **T1.2** Registrar `\"solution-design\"` en `WORKFLOW_SKILLS`\n  (`packages/cli/src/engines/shared/harness-assets.ts:44`) y bumpear\n  `features.coreSkills` 10 → 11 en `packages/cli/package.json`.\n  **Cubre:** R1 (la skill existe y se indexa).\n  **Evidencia:** `pnpm vitest run src/__tests__/catalog.test.ts src/lib/__tests__/skill-caps.test.ts src/lib/__tests__/core-lean.test.ts` verde.\n\n## Batch 2 — Routing y flujos\n\n- [x] **T2.1** Insertar el sub-bloque R2-architectural en\n  `packages/core/core-assets/managed/orquestacion.md` con el wording de `design.md`.\n  **Cubre:** R1, R2, R3, R17, R21.\n  **Evidencia:** `wc -w` del delta ≤ 120 palabras.\n- [x] **T2.2** Reescribir la fase 4 de\n  `packages/core/core-assets/skills/ticket-intake.md`: se activa con\n  `proceed-differently` o señal R2; artefacto + challenge; gate = veredicto.\n  **Cubre:** R4, R12.\n- [x] **T2.3** Fortalecer `packages/core/core-assets/skills/spec-bootstrap.md`:\n  dimensiones condicionales en el template de `design.md` + prohibición de\n  placeholders en `tasks.md` + referencia a `solution-design`.\n  **Cubre:** R9, R19, R20.\n\n## Batch 3 — Tests y verificación\n\n- [x] **T3.1** Test de invariantes de contenido de la skill (tokens cortos, nunca\n  párrafos): contiene `READY`, `CONCERNS`, `BLOCKED`, `NOT in scope`,\n  `already exists`, y las 9 señales.\n  **Cubre:** R2, R7, R12, R14, R15.\n  **// Covers: R2, R7, R12, R14, R15**\n- [x] **T3.2** Test de presupuesto: el delta del bloque `orquestacion` ≤120 palabras.\n  **Cubre:** R21. **// Covers: R21**\n- [x] **T3.3** Gate completo: `pnpm format:check` (raíz) + `pnpm test` + `pnpm lint`.\n  Actualizar los conteos que rompan (catalog; e2e si aplica).\n- [x] **T3.4** Render de prueba en repo temporal: la skill se materializa, el índice\n  la lista con su trigger, el bloque trae las señales.\n  **Cubre:** R1.\n- [x] **T3.5** Dogfood: `render --apply` sobre navori-harness, commit\n  `chore(self-host)` separado.\n\n## Batch 4 — Evals GREEN (con la capa)\n\n- [x] **T4.1** Escenario A (GREEN): re-correr BTBS-162 con la capa. PASS si el\n  veredicto está argumentado contra la alternativa existente (gane React Query o\n  gane extender la capa actual); FAIL si hereda la propuesta sin evaluarla.\n  **Cubre:** R5, R6, R8.\n- [x] **T4.2** Escenario D: \"cambia el texto del botón Save por Guardar\" → cero\n  artefacto de solutioning. **Cubre:** R3. **FAIL si genera artefacto.**\n- [x] **T4.3** Escenario E: diseño válido con un concern menor → veredicto\n  `CONCERNS` y la implementación arranca. **Cubre:** R13, R15.\n- [x] **T4.4** Escenario F: dos interpretaciones con arquitecturas incompatibles →\n  `BLOCKED` con los cuatro campos. **Cubre:** R14, R17.\n- [x] **T4.5** Registrar los cuatro resultados en `evals.md` (escenario · esperado ·\n  observado · PASS/FAIL · ajuste derivado). **GATE H2:** Ulises revisa.\n\n## Batch 5 — Cierre\n\n- [x] **T5.1** PR → `main` vía `commit-pr-pilot`.\n- [x] **T5.2** `mem_save` de las decisiones nuevas, entrada en `progress/history.md`,\n  `progress/current.md` a idle.\n\n---\n\n## Cobertura `R<n>` → tarea\n\n| R | Tareas |\n|---|---|\n| R1 | T1.2, T2.1, T3.4 |\n| R2 | T2.1, T3.1 |\n| R3 | T2.1, T4.2 |\n| R4 | T2.2 |\n| R5, R6 | T1.1, T0.2, T4.1 |\n| R7 | T1.1, T3.1 |\n| R8 | T1.1, T4.1 |\n| R9 | T1.1, T2.3 |\n| R10 | T1.1 |\n| R11, R16 | T1.1 |\n| R12 | T1.1, T2.2, T3.1 |\n| R13 | T1.1, T4.3 |\n| R14 | T1.1, T3.1, T4.4 |\n| R15 | T1.1, T3.1, T4.3 |\n| R17 | T2.1, T4.4 |\n| R18 | T1.1 |\n| R19, R20 | T2.3 |\n| R21 | T2.1, T3.2 |\n\nSin requirements huérfanos: los 21 tienen ≥1 tarea.\n",
+      "format": "legacy",
+      "deliveries": [],
+      "orphanTasks": 0,
+      "orphanCriteria": 0,
+      "malformed": 0,
+      "legacyTaskCount": 19
+    }
+  ],
+  "locateSpecDir": [
+    {
+      "specsDir": "specs",
+      "spec": "0059-x",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/0059-x"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "a.b_c-d",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/a.b_c-d"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "..",
+      "result": {
+        "ok": false,
+        "why": "\"..\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "a..b",
+      "result": {
+        "ok": false,
+        "why": "\"a..b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "a/b",
+      "result": {
+        "ok": false,
+        "why": "\"a/b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "-x",
+      "result": {
+        "ok": false,
+        "why": "\"-x\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": ".hidden",
+      "result": {
+        "ok": false,
+        "why": "\".hidden\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "",
+      "result": {
+        "ok": false,
+        "why": "\"\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs",
+      "spec": "ñ",
+      "result": {
+        "ok": false,
+        "why": "\"ñ\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "0059-x",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/0059-x"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "a.b_c-d",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/a.b_c-d"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "..",
+      "result": {
+        "ok": false,
+        "why": "\"..\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "a..b",
+      "result": {
+        "ok": false,
+        "why": "\"a..b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "a/b",
+      "result": {
+        "ok": false,
+        "why": "\"a/b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "-x",
+      "result": {
+        "ok": false,
+        "why": "\"-x\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": ".hidden",
+      "result": {
+        "ok": false,
+        "why": "\".hidden\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "",
+      "result": {
+        "ok": false,
+        "why": "\"\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "./docs/../specs",
+      "spec": "ñ",
+      "result": {
+        "ok": false,
+        "why": "\"ñ\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "0059-x",
+      "result": {
+        "ok": true,
+        "dir": "/abs/specs/0059-x"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "a.b_c-d",
+      "result": {
+        "ok": true,
+        "dir": "/abs/specs/a.b_c-d"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "..",
+      "result": {
+        "ok": false,
+        "why": "\"..\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "a..b",
+      "result": {
+        "ok": false,
+        "why": "\"a..b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "a/b",
+      "result": {
+        "ok": false,
+        "why": "\"a/b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "-x",
+      "result": {
+        "ok": false,
+        "why": "\"-x\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": ".hidden",
+      "result": {
+        "ok": false,
+        "why": "\".hidden\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "",
+      "result": {
+        "ok": false,
+        "why": "\"\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "/abs/specs",
+      "spec": "ñ",
+      "result": {
+        "ok": false,
+        "why": "\"ñ\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "0059-x",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/0059-x"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "a.b_c-d",
+      "result": {
+        "ok": true,
+        "dir": "/repo/specs/a.b_c-d"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "..",
+      "result": {
+        "ok": false,
+        "why": "\"..\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "a..b",
+      "result": {
+        "ok": false,
+        "why": "\"a..b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "a/b",
+      "result": {
+        "ok": false,
+        "why": "\"a/b\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "-x",
+      "result": {
+        "ok": false,
+        "why": "\"-x\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": ".hidden",
+      "result": {
+        "ok": false,
+        "why": "\".hidden\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "",
+      "result": {
+        "ok": false,
+        "why": "\"\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    },
+    {
+      "specsDir": "specs/",
+      "spec": "ñ",
+      "result": {
+        "ok": false,
+        "why": "\"ñ\" is not a spec directory name (one path segment of letters, digits, \".\", \"_\" or \"-\")"
+      }
+    }
+  ],
+  "parseExpected": [
+    {
+      "text": "exit 0",
+      "result": {
+        "kind": "exit",
+        "code": 0
+      }
+    },
+    {
+      "text": "exit 255",
+      "result": {
+        "kind": "exit",
+        "code": 255
+      }
+    },
+    {
+      "text": "exit 256",
+      "result": {
+        "kind": "invalid",
+        "reason": "exit code must be an integer from 0 to 255 without leading zeros"
+      }
+    },
+    {
+      "text": "exit 007",
+      "result": {
+        "kind": "invalid",
+        "reason": "exit code must be an integer from 0 to 255 without leading zeros"
+      }
+    },
+    {
+      "text": "exit -1",
+      "result": {
+        "kind": "invalid",
+        "reason": "exit code must be an integer from 0 to 255 without leading zeros"
+      }
+    },
+    {
+      "text": "exit +3",
+      "result": {
+        "kind": "invalid",
+        "reason": "exit code must be an integer from 0 to 255 without leading zeros"
+      }
+    },
+    {
+      "text": "exit 1 ",
+      "result": {
+        "kind": "free"
+      }
+    },
+    {
+      "text": "exit ١",
+      "result": {
+        "kind": "free"
+      }
+    },
+    {
+      "text": "contains: ok",
+      "result": {
+        "kind": "contains",
+        "text": "ok"
+      }
+    },
+    {
+      "text": "contains: two\nlines",
+      "result": {
+        "kind": "invalid",
+        "reason": "contains: requires one nonempty literal line"
+      }
+    },
+    {
+      "text": "contains:",
+      "result": {
+        "kind": "invalid",
+        "reason": "contains: requires one nonempty literal line"
+      }
+    },
+    {
+      "text": "contains:x",
+      "result": {
+        "kind": "invalid",
+        "reason": "contains: requires one nonempty literal line"
+      }
+    },
+    {
+      "text": "matches: /a+/",
+      "result": {
+        "kind": "matches",
+        "source": "a+",
+        "flags": ""
+      }
+    },
+    {
+      "text": "matches: /a/gi",
+      "result": {
+        "kind": "invalid",
+        "reason": "matches: requires a valid /pattern/ with only i, m, s and u flags"
+      }
+    },
+    {
+      "text": "matches: /a/ii",
+      "result": {
+        "kind": "invalid",
+        "reason": "matches: requires a valid /pattern/ with only i, m, s and u flags"
+      }
+    },
+    {
+      "text": "matches: /a/imsu",
+      "result": {
+        "kind": "matches",
+        "source": "a",
+        "flags": "imsu"
+      }
+    },
+    {
+      "text": "matches: /(/",
+      "result": {
+        "kind": "invalid",
+        "reason": "matches: requires a valid /pattern/ with only i, m, s and u flags"
+      }
+    },
+    {
+      "text": "matches: //",
+      "result": {
+        "kind": "invalid",
+        "reason": "matches: requires a valid /pattern/ with only i, m, s and u flags"
+      }
+    },
+    {
+      "text": "matches:",
+      "result": {
+        "kind": "invalid",
+        "reason": "matches: requires a valid /pattern/ with only i, m, s and u flags"
+      }
+    },
+    {
+      "text": "pasa todo",
+      "result": {
+        "kind": "free"
+      }
+    },
+    {
+      "text": "",
+      "result": {
+        "kind": "free"
+      }
+    }
+  ],
+  "classify": [
+    {
+      "files": [],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/a.test.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.test.ts",
+        "src/b.test.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:2(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 2
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 7,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 7,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 4,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 4,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 4,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 4,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/a.ts",
+        "src/b.ts",
+        "lib/c.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:3(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 7,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 7,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 7,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "a/x.ts",
+        "b/x.ts",
+        "c/x.ts",
+        "d/x.ts",
+        "e/x.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 7,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:5(+3)",
+          "root-dirs:5(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 5
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 9,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 9,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "pkg0/m/f0.rs",
+        "pkg1/m/f1.rs",
+        "pkg2/m/f2.rs",
+        "pkg3/m/f3.rs",
+        "pkg4/m/f4.rs",
+        "pkg5/m/f5.rs",
+        "pkg6/m/f6.rs",
+        "pkg7/m/f7.rs",
+        "pkg8/m/f8.rs"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 8,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:9(+4)",
+          "root-dirs:9(+2)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 9
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 4,
+        "level": 1,
+        "signals": [
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 1,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "docs/a.md",
+        "README.md"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 0
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:matched(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "critical-area:matched(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:matched(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "critical-area:matched(+3)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "critical-area:matched(+3)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "src/payments/pay.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "critical-area:matched(+3)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 0,
+        "signals": [],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 0,
+        "signals": [
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 0,
+        "signals": [
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 0,
+        "level": 2,
+        "signals": [
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        ".claude/skills/local/SKILL.md",
+        ".claude/skills/other/SKILL.md"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 2,
+        "level": 2,
+        "signals": [
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 1
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {},
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "criticalArea": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 6,
+        "level": 1,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "critical-area:declared(+3)"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": true,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "sharedContract": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "floor:shared-contract"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": false,
+        "sharedContract": true,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 3,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "floor:money-credentials-pii",
+          "floor:multi-repo"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": true,
+        "multiRepo": true,
+        "newExternalDependency": false,
+        "sharedContract": false,
+        "dataSchemaMigration": false,
+        "criticalArea": false,
+        "bugWithoutRootCause": false
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    },
+    {
+      "files": [
+        "./src/a.ts",
+        "src/a.ts",
+        "",
+        "/abs.ts"
+      ],
+      "flags": {
+        "newExternalDependency": true,
+        "dataSchemaMigration": true,
+        "bugWithoutRootCause": true
+      },
+      "criticalPaths": [
+        "src/payments/**"
+      ],
+      "result": {
+        "score": 5,
+        "level": 2,
+        "signals": [
+          "non-trivial-files:3(+2)",
+          "root-dirs:2(+1)",
+          "bug-without-root-cause(+2)",
+          "floor:new-external-dependency",
+          "floor:data-schema-migration"
+        ],
+        "nonTrivialCeiling": 3
+      },
+      "declared": {
+        "moneyCredentialsPii": false,
+        "multiRepo": false,
+        "newExternalDependency": true,
+        "sharedContract": false,
+        "dataSchemaMigration": true,
+        "criticalArea": false,
+        "bugWithoutRootCause": true
+      }
+    }
+  ]
+}

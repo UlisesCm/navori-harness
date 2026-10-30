@@ -1,5 +1,19 @@
-# navori:managed start id="model-advisor-base" hash="44960d67" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:217d71c9373769194d1cec8743c693ace362db4eecd598944eb6fb8732112bbf impl=sha256:8ecea9c25d379f01a0ea89d229fdff6cf931d3a3f5adaccfce94657b1e1557d8
+# navori:managed start id="model-advisor-base" hash="2cd22ce7" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # Startup/lifecycle modes advise the main session; `/model` remains the user's
 # explicit switch path. The fixed Codex PreToolUse mode rewrites future child

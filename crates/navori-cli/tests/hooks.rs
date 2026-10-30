@@ -122,7 +122,7 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
         id: "example",
         implementation: HASH,
         handler: Handler::Pure(evaluate),
-        phase: "PreToolUse",
+        phase: |_| Some("PreToolUse"),
         tool: None,
     }]
 }
@@ -882,7 +882,7 @@ fn compiled_hash_mismatch_and_non_engine_script_paths_defer() -> TestResult {
         id: "example",
         implementation: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         handler: Handler::Pure(record),
-        phase: "PreToolUse",
+        phase: |_| Some("PreToolUse"),
         tool: None,
     }];
     assert_eq!(
@@ -1054,7 +1054,7 @@ fn same_pid_hook_recursion_exits_70_while_a_real_child_still_defers() -> TestRes
 
 mod prepared_handlers {
     use super::*;
-    use navori_cli::hook::{Evaluator, Snapshot};
+    use navori_cli::hook::{Evaluator, Recorder, Snapshot};
 
     fn ineligible<'a>(_: &'a Invocation, _: Snapshot<'a>) -> Result<Evaluator<'a>, String> {
         Err("fixture host is not accredited".to_owned())
@@ -1075,7 +1075,7 @@ mod prepared_handlers {
                 .source
                 .starts_with(b"# navori:native-hook v=1 file=sha256:"),
         );
-        Ok(Box::new(move |payload: &[u8]| {
+        Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
             let mut stdout = seen.clone().into_bytes();
             stdout.extend_from_slice(payload);
             Ok(Evaluation {
@@ -1094,7 +1094,7 @@ mod prepared_handlers {
             id: "example",
             implementation: HASH,
             handler: Handler::Prepared(prepare),
-            phase: "PreToolUse",
+            phase: |_| Some("PreToolUse"),
             tool: None,
         }]
     }
@@ -1408,6 +1408,7 @@ mod journal_bridge {
     use std::cell::RefCell;
 
     const MATCH: Comparison = Comparison {
+        native_unobserved: false,
         native_failed: false,
         shell_failed: false,
         code_differs: false,
@@ -1487,6 +1488,16 @@ mod journal_bridge {
             ..MATCH
         };
         assert!(completion("{}", diverged, b"{}").ends_with(r#""payloadBase64":"e30="}"#));
+        // Covers: R50 (D40): an unobserved lane names its flag and carries no payload.
+        let unobserved = Comparison {
+            native_unobserved: true,
+            ..MATCH
+        };
+        assert!(!unobserved.diverged());
+        assert_eq!(
+            completion("{}", unobserved, b"secret"),
+            r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false,"nativeUnobserved":true}}"#
+        );
         assert_eq!(
             project_root(Engine::Pi, Path::new("/repo/.pi/navori")),
             Some(Path::new("/repo"))
@@ -1621,4 +1632,101 @@ mod journal_bridge {
         );
         Ok(())
     }
+}
+
+/// A hook's phase table with the argument lists it ports and the ones it defers.
+type ModeTable = (
+    fn(&[OsString]) -> Option<&'static str>,
+    &'static [&'static [&'static str]],
+    &'static [&'static [&'static str]],
+);
+
+// Covers: R51, R50
+#[test]
+fn un_modo_diferido_sale_3_con_stdin_intacto() -> TestResult {
+    use navori_hooks::hooks::{model_advisor, subagent_stop_handoff};
+    let scratch = Scratch::new()?;
+    let manifest = manifest(false, &[])?;
+    let tables: [ModeTable; 2] = [
+        (
+            model_advisor::phase,
+            &[
+                &["claude-session-start"],
+                &["claude-post-model-switch"],
+                &["claude-stop"],
+                &["codex-session-start"],
+            ],
+            &[
+                &["codex-pretool-profile"],
+                &[],
+                &["unknown-mode"],
+                &["claude-stop", "extra"],
+            ],
+        ),
+        (
+            subagent_stop_handoff::phase,
+            &[&[], &["codex"]],
+            &[
+                &["codex", "capture-start"],
+                &["claude"],
+                &["codex", "other"],
+            ],
+        ),
+    ];
+    for (dir, (phase, ported, deferred)) in [".claude", ".codex"].into_iter().zip(tables) {
+        let script = scratch.script(dir, &[])?;
+        let registry = [NativeHook {
+            id: "example",
+            implementation: HASH,
+            handler: Handler::Pure(record),
+            phase,
+            tool: None,
+        }];
+        let call = |modes: &[&str]| {
+            let mut args = argv(&script);
+            args.extend(modes.iter().map(OsString::from));
+            args
+        };
+        for modes in deferred {
+            for (mode, expected) in [(Mode::Auto, 3), (Mode::Rust, 1)] {
+                let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+                let code = run_with(
+                    &call(modes),
+                    &manifest,
+                    &registry,
+                    mode,
+                    &mut NeverRead,
+                    &mut stdout,
+                    &mut stderr,
+                );
+                assert_eq!(code, expected, "{dir} {modes:?} under {mode:?}");
+                assert!(stdout.is_empty());
+                let expected_stderr: &[u8] = if mode == Mode::Rust {
+                    b"navori-rust: hook deferred: hook mode is not ported\n"
+                } else {
+                    b""
+                };
+                assert_eq!(stderr, expected_stderr);
+            }
+        }
+        for modes in ported {
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let code = run_with(
+                &call(modes),
+                &manifest,
+                &registry,
+                Mode::Auto,
+                &mut &b"{}"[..],
+                &mut stdout,
+                &mut stderr,
+            );
+            // `record` answers Block: reaching it is exit 2, a deferral would be 3.
+            assert_eq!(code, 2, "{dir} {modes:?} reaches the handler");
+            assert!(
+                stdout.starts_with(b"{}|"),
+                "{dir} {modes:?} reads the payload"
+            );
+        }
+    }
+    Ok(())
 }

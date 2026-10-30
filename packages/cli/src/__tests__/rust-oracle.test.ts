@@ -3,14 +3,16 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { computeManagedHash } from "../lib/render/marker.ts";
 
 /**
  * Spec 0057 R8-R10 / D5 - the differential oracle (`scripts/js/rust-oracle.mjs`). The real
@@ -33,6 +35,7 @@ interface OracleCase {
   args: string[];
   mask?: string[];
   native?: boolean;
+  files?: Record<string, string>;
 }
 interface Rule {
   name: string;
@@ -40,6 +43,7 @@ interface Rule {
 }
 interface Oracle {
   RULES: Rule[];
+  EMBEDDED_CORE: string;
   FIXTURES_DIR: string;
   REPO_SPECS_FIXTURE: string;
   selectsNative: (
@@ -55,6 +59,13 @@ interface Oracle {
     where: { stream: "stdout" | "stderr" | "file"; mask: string[] },
   ) => string;
   loadCases: () => OracleCase[];
+  copyFixture: (from: string, to: string) => void;
+  applyFixtureManifest: (fixtureDir: string, work: string, now: number) => void;
+  relativeTime: (relative: string, now: number) => number;
+  FIXTURE_MANIFEST: string;
+  antiRollbackCases: (cliVersion: string) => OracleCase[];
+  ANTI_ROLLBACK_LEVELS: string[];
+  ANTI_ROLLBACK_OPS: string[];
   runCase: (
     testCase: OracleCase,
     opts: { ts: Runner; rust: Runner; tsCli: string; base: string },
@@ -251,6 +262,193 @@ describe("rust oracle", () => {
       "0.13.0-rust.1\n",
     );
     expect(oracle.maskSide("v0.13.0-rust.10\n", "rust", ctx, stdout)).toBe("v0.13.0-rust.10\n");
+  });
+
+  // Covers: R41
+  it("la máscara de procedencia solo toca su línea literal", () => {
+    const ctx = { tsVersion: "0.12.2", rustVersion: "0.13.0-rust.1", tsCli: "/w/dist/index.js" };
+    const stdout = { stream: "stdout" as const, mask: ["provenance"] };
+    const embedded = `│  core: ${oracle.EMBEDDED_CORE}\n`;
+    const mask = (
+      text: string,
+      side: "ts" | "rust" = "ts",
+      where: { stream: "stdout" | "stderr" | "file"; mask: string[] } = stdout,
+    ): string => oracle.maskSide(text, side, ctx, where);
+    // the bundled TS line, in both languages, becomes the Rust one
+    expect(mask("│  core: /w/dist/assets/core (build copy)\n│  next\n")).toBe(
+      `${embedded}│  next\n`,
+    );
+    expect(mask("│  core: /w/dist/assets/core (copia del build)\n")).toBe(embedded);
+    expect(mask(`  "coreRoot": "/w/dist/assets/core",\n  "bundled": true,\n`)).toBe(
+      `  "coreRoot": "(embedded)",\n  "bundled": true,\n`,
+    );
+    // mutations: another root, the dev sources, a stale core, another key or another
+    // place in the line stay visible
+    for (const visible of [
+      "│  core: /x/dist/assets/core (build copy)\n",
+      "│  core: /w/dist/assets/core (dev sources)\n",
+      "│  core: /w/dist/assets/core (build copy) stale\n",
+      `  "pluginRoot": "/w/dist/assets/core",\n`,
+      `  "coreRoot": "/w/dist/assets/core/x",\n`,
+    ]) {
+      expect(mask(visible), visible).toBe(visible);
+    }
+    // only the TS side, only stdout, only the cases that ask for it
+    const line = "│  core: /w/dist/assets/core (build copy)\n";
+    expect(mask(line, "rust")).toBe(line);
+    expect(mask(line, "ts", { stream: "stderr", mask: ["provenance"] })).toBe(line);
+    expect(mask(line, "ts", { stream: "stdout", mask: [] })).toBe(line);
+  });
+
+  // Covers: R41, R49
+  it("cada comando portado tiene caso en cada fixture aplicable", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(here, "..", "..", "..", "..", "crates", "ported.json"), "utf8"),
+    ) as {
+      commands: Array<{ path: string[]; flags?: string[]; when?: { engines?: string[] } }>;
+    };
+    const cases = oracle.loadCases();
+    const fixtures = readdirSync(oracle.FIXTURES_DIR);
+    const ported = manifest.commands.filter((c) => c.when?.engines);
+    expect(ported.map((c) => c.path.join(" "))).toContain("render");
+    for (const command of ported) {
+      const engines = command.when?.engines ?? [];
+      const languages = new Set<string>();
+      for (const fixture of fixtures) {
+        const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
+        if (!existsSync(configPath)) continue;
+        // The fixtures of the `spec` and `master` commands (spec 0060) exist to exercise those
+        // commands: they carry a config because every command reads one, not to cover `render`.
+        if (/^(spec|master|chk)-/.test(fixture)) continue;
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          engines?: string[];
+          language?: string;
+          monorepo?: { enabled?: boolean; workspaces?: unknown[] };
+        };
+        const workspaces =
+          config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+        const applicable =
+          !workspaces && (config.engines ?? ["claude"]).every((e) => engines.includes(e));
+        if (!applicable) continue;
+        // Cases inside the native subset: the command, then positionals and its declared flags.
+        const declared = (args: string[]): boolean =>
+          args.every(
+            (arg, i) =>
+              !arg.startsWith("-") ||
+              (arg.startsWith("--") && (command.flags ?? []).includes(arg.slice(2))) ||
+              args[i - 1] === "--cwd",
+          );
+        const mine = cases.filter(
+          (c) =>
+            c.fixture === fixture &&
+            command.path.every((part, i) => c.args[i] === part) &&
+            declared(c.args.slice(command.path.length)),
+        );
+        const label = `${command.path.join(" ")} on ${fixture}`;
+        expect(
+          mine.some((c) => !c.args.includes("--json")),
+          label,
+        ).toBe(true);
+        if (command.flags?.includes("json")) {
+          expect(
+            mine.some((c) => c.args.includes("--json")),
+            `${label} --json`,
+          ).toBe(true);
+        }
+        // `render` names the core it read; that line is masked on the TS side.
+        if (command.path.join(" ") === "render") {
+          for (const c of mine) expect(c.mask, c.id).toContain("provenance");
+        }
+        languages.add(config.language ?? "es");
+      }
+      expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);
+    }
+  });
+
+  // Covers: R45, R49
+  it("los fixtures de escritura se copian con sus mtimes relativos", () => {
+    for (const name of ["aged-backups", "foreign-blocks", "sync-conflicts", "codex-trusted"]) {
+      expect(existsSync(join(oracle.FIXTURES_DIR, name)), name).toBe(true);
+      expect(
+        oracle.loadCases().some((c) => c.fixture === name),
+        `${name} has cases`,
+      ).toBe(true);
+    }
+    const now = Date.UTC(2026, 9, 29, 12, 0, 0);
+    expect(oracle.relativeTime("-40d", now)).toBe(now - 40 * 86_400_000);
+    expect(oracle.relativeTime("-2h", now)).toBe(now - 2 * 3_600_000);
+    expect(oracle.relativeTime("-30m", now)).toBe(now - 30 * 60_000);
+    for (const bad of ["40d", "-40", "-1w", "+1d"]) {
+      expect(() => oracle.relativeTime(bad, now), bad).toThrow();
+    }
+    // A fixture with a manifest: the backups land in the backup root with their ages and
+    // sparse sizes, and the manifest itself never reaches the repo.
+    const fixture = tmp();
+    writeFileSync(join(fixture, "file.txt"), "x");
+    writeFileSync(
+      join(fixture, oracle.FIXTURE_MANIFEST),
+      JSON.stringify({
+        backups: [
+          { name: "old", mtime: "-40d", files: { "a/b.txt": "old" } },
+          { name: "big", mtime: "-2d", sparse: { "big.bin": 3 * 1024 * 1024 * 1024 } },
+        ],
+      }),
+    );
+    const work = tmp();
+    oracle.copyFixture(fixture, join(work, "repo"));
+    expect(existsSync(join(work, "repo", oracle.FIXTURE_MANIFEST))).toBe(false);
+    expect(readFileSync(join(work, "repo", "file.txt"), "utf8")).toBe("x");
+    oracle.applyFixtureManifest(fixture, work, now);
+    expect(readFileSync(join(work, "backups", "old", "a", "b.txt"), "utf8")).toBe("old");
+    expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
+    expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
+    expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
+  });
+
+  // Covers: R37, R49
+  it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
+    const cells = oracle.antiRollbackCases("0.12.3");
+    const levels = oracle.ANTI_ROLLBACK_LEVELS;
+    expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings", "remove"]);
+    const ids = new Set(cells.map((c) => c.id));
+    for (const op of oracle.ANTI_ROLLBACK_OPS)
+      for (const floor of levels)
+        for (const marker of levels)
+          expect(ids.has(`anti-rollback:${op}:floor-${floor}:marker-${marker}`)).toBe(true);
+    expect(cells).toHaveLength(oracle.ANTI_ROLLBACK_OPS.length * levels.length ** 2);
+    // every cell runs in the oracle: a render masked like any render, or a remove of tgrep,
+    // which the cell enables in the config
+    const loaded = new Set(oracle.loadCases().map((c) => c.id));
+    for (const c of cells) {
+      expect(loaded.has(c.id), c.id).toBe(true);
+      if (c.id.startsWith("anti-rollback:remove:")) {
+        expect(c.args).toEqual(["remove", "tgrep", "--yes"]);
+        const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
+        expect(config.plugins.tgrep).toEqual({ enabled: true });
+        expect(c.files?.["CLAUDE.md"]).toContain('id="tgrep-search-v2"');
+      } else {
+        expect(c.args).toEqual(["render", "--apply"]);
+        expect(c.mask).toEqual(["provenance"]);
+      }
+    }
+    // the floor lands in the config, the stamp on the block, and the block hash matches its body
+    const cell = (id: string): OracleCase => {
+      const found = cells.find((c) => c.id === id);
+      if (!found) throw new Error(id);
+      return found;
+    };
+    const higher = cell("anti-rollback:inject:floor-higher:marker-lower").files ?? {};
+    expect(JSON.parse(higher["navori.config.json"] ?? "{}").harnessVersion).toBe("999.0.0");
+    expect(higher["CLAUDE.md"]).toContain('version="0.1.0"');
+    const absent = cell("anti-rollback:inject:floor-absent:marker-absent").files ?? {};
+    expect(JSON.parse(absent["navori.config.json"] ?? "{}")).not.toHaveProperty("harnessVersion");
+    expect(absent["CLAUDE.md"]).not.toContain("version=");
+    expect(absent["CLAUDE.md"]).toContain(`hash="${computeManagedHash("Older body.")}"`);
+    const hook = cell("anti-rollback:hook:floor-equal:marker-equal").files ?? {};
+    expect(hook[".claude/hooks/implementer-no-markdown.sh"]).toContain(
+      `hash="${computeManagedHash("#!/usr/bin/env bash\nexit 0")}" version="0.12.3"`,
+    );
   });
 
   // Covers: R9

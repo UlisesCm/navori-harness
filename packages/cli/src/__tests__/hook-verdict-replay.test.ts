@@ -19,7 +19,12 @@ import { createHash } from "node:crypto";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { runHookBatch, runHookIsolated } from "./helpers/hook-batch.ts";
-import { normalizeCorpusText, recordHookCase, type RawCorpusLine } from "./helpers/hook-corpus.ts";
+import {
+  normalizeCorpusText,
+  recordHookCase,
+  recordSpawnedHook,
+  type RawCorpusLine,
+} from "./helpers/hook-corpus.ts";
 
 /**
  * Spec 0055 R13 — corpus capture (inside the hook helpers) and replay tool. Fixed fixtures and a
@@ -34,14 +39,23 @@ interface Case {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  args?: string[];
+  fixture?: { path: string; content: string; mode?: number }[];
 }
 interface Verdict {
   status: number;
   stdout: string;
   stderr: string;
 }
+/** A committed corpus case: the invocation plus its recorded verdicts. */
+type CorpusCase = Case & {
+  expected: {
+    off: Verdict;
+    active: Verdict & { event: { metadata?: Record<string, unknown> }[] };
+  };
+};
 interface Replay {
-  readCorpus: () => Case[];
+  readCorpus: () => CorpusCase[];
   parseReplayArgs: (args: string[]) => {
     impl: "shell" | "rust";
     modes: string[];
@@ -81,18 +95,24 @@ interface Replay {
   runMode: (
     cases: Case[],
     mode: "off" | "active",
-    deps: {
-      resolveHook: (hook: string, engine: string) => string;
-      binary: string;
-      impl: "rust";
-      scratch: { cleanup: () => void };
-    },
+    deps:
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          binary: string;
+          impl: "rust";
+          scratch: { cleanup: () => void };
+        }
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          runHookBatch: typeof runHookBatch;
+          scratch: { cleanup: () => void };
+        },
   ) => (Verdict & { event?: unknown[] })[];
 }
 
 type NativeResult =
   | { available: true; status: number; stdout: Buffer; stderr: Buffer }
-  | { available: false; reason: string };
+  | { available: false; reason: string; modeDeferred?: true };
 interface RustAdapter {
   runRustHook: (options: {
     binary: string;
@@ -100,6 +120,7 @@ interface RustAdapter {
     input: string;
     cwd?: string;
     env?: NodeJS.ProcessEnv;
+    args?: string[];
     timeoutMs?: number;
   }) => NativeResult;
   prepareRustReplay: (options: { manifestPath: string; binary: string; scriptsRoot?: string }) => {
@@ -417,6 +438,35 @@ process.exit(1);`,
     });
   });
 
+  // Covers: R51
+  it("tells a mode deferred by design apart from any other deferral", () => {
+    const dir = tmp();
+    const script = join(dir, ".codex", "hooks", "fixture.sh");
+    const rows: Array<[string, boolean]> = [
+      ["navori-rust: hook deferred: hook mode is not ported", true],
+      ["navori-rust: hook deferred: hook is ineligible: unsupported locale", false],
+      ["navori-rust: hook deferred: hook mode is not ported, eventually", true],
+      ["hook mode is not ported", false],
+    ];
+    for (const [stderr, byMode] of rows) {
+      const result = rustAdapter.runRustHook({
+        binary: nativeFixture(
+          dir,
+          `process.stderr.write(${JSON.stringify(`${stderr}\n`)}); process.exit(1);`,
+        ),
+        script,
+        input: "",
+        args: ["codex", "capture-start"],
+      });
+      if (stderr.startsWith("navori-rust: hook deferred: ")) {
+        expect(result).toMatchObject({ available: false });
+        expect(!result.available && result.modeDeferred === true).toBe(byMode);
+      } else {
+        expect(result).toMatchObject({ available: true, status: 1 });
+      }
+    }
+  });
+
   // Covers: R11, R12
   it("treats defer, forced missing implementation and process failures as unavailable", () => {
     const dir = tmp();
@@ -589,7 +639,93 @@ process.exit(1);`,
   });
 });
 
+/**
+ * Spec 0059 D35: the verdict classes each session hook must have in the committed corpus, per
+ * engine and registered mode, before it enters shadow. A class is the audit verdicts of the active
+ * run (`verdict` or `verdict:reason`, joined by `>`), or, for the advisory hooks whose verdict is
+ * always `skip`, whether stdout carries a notice.
+ */
+const SESSION_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  ...["claude", "codex", "pi"].map((engine) => ({
+    hook: "quality-gate-pre-commit.sh",
+    engine,
+    mode: "",
+    classes: [
+      "skip",
+      "gate-started>allow",
+      "gate-started>block",
+      "block",
+      ...(engine === "codex" ? [] : ["ask"]),
+    ],
+  })),
+  {
+    hook: "plan-gate.sh",
+    engine: "claude",
+    mode: "",
+    classes: [
+      "allow",
+      "block:plan-denied",
+      "ask:subcommand-unavailable",
+      "ask:binary-missing",
+      "block:binary-missing",
+    ],
+  },
+  {
+    hook: "plan-gate.sh",
+    engine: "codex",
+    mode: "",
+    classes: ["allow", "block:plan-denied", "block:subcommand-unavailable", "block:binary-missing"],
+  },
+  { hook: "subagent-stop-handoff.sh", engine: "codex", mode: "codex", classes: ["clean", "dirty"] },
+  ...["claude-session-start", "claude-post-model-switch"].map((mode) => ({
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode,
+    classes: ["silent"],
+  })),
+  {
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode: "claude-stop",
+    classes: ["notice", "silent"],
+  },
+  {
+    hook: "model-advisor.sh",
+    engine: "codex",
+    mode: "codex-session-start",
+    classes: ["notice", "silent"],
+  },
+];
+
 describe("hook verdict corpus", () => {
+  // Covers: R54
+  it("cada hook de sesi\u00f3n cubre cada clase de veredicto y modo por engine", () => {
+    const corpus = replay.readCorpus();
+    const classOf = (c: (typeof corpus)[number]): string => {
+      if (c.hook === "model-advisor.sh")
+        return c.expected.off.stdout.includes('"systemMessage"') ? "notice" : "silent";
+      return c.expected.active.event
+        .map(({ metadata = {} }) => {
+          const reason = metadata.reason;
+          return typeof reason === "string" && reason !== "unspecified" && reason !== ""
+            ? `${String(metadata.verdict)}:${reason}`
+            : String(metadata.verdict);
+        })
+        .join(">");
+    };
+    const missing = SESSION_HOOK_CLASSES.flatMap(({ hook, engine, mode, classes }) => {
+      const seen = new Set(
+        corpus
+          .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+          .map(classOf),
+      );
+      return classes
+        .filter((cls) => !seen.has(cls))
+        .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   // Covers: R13
   it("replays recorded CLI and Node paths without exposing tools to restricted cases", async () => {
     const dir = tmp();
@@ -774,10 +910,25 @@ describe("hook verdict corpus", () => {
     expect(added[2]?.envDelta).toEqual({ CLAUDE_PROJECT_DIR: "@CWD@" });
     expect(added[2]?.input).toBe('{"cwd":"@CWD@","tool_name":"Agent"}');
 
+    // Covers: R54 — a state dir outside the case's temp cwd outlives the run: excluded.
+    const pad = (scratchpad: string) => JSON.stringify({ scratchpad_dir: scratchpad });
+    recordHookCase(hook, "bash", { input: pad(`${namedCwd}/pad`), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")) });
+    expect(
+      rawLines(raw)
+        .slice(before + 4)
+        .map((l) => [l.status, l.reason ?? l.cwdKind]),
+    ).toEqual([
+      ["included", "none"],
+      ["excluded", "state-outside-cwd"],
+      ["excluded", "state-outside-cwd"],
+    ]);
+
     // Without the variable nothing is written.
     delete process.env.NAVORI_HOOK_CORPUS;
     runHookIsolated(hook, "bash", { input: payload });
-    expect(rawLines(raw)).toHaveLength(before + 4);
+    expect(rawLines(raw)).toHaveLength(before + 7);
   });
 
   // Covers: R13
@@ -846,6 +997,120 @@ describe("hook verdict corpus", () => {
         { status: 0, stdout: "a", stderr: "" },
       ),
     ).toBeNull();
+  });
+
+  // Covers: R54
+  it("los argumentos del hook viajan de la captura al replay shell y nativo", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const hook = installCoreHook(dir, "general-purpose-confirm.sh");
+    const payload = JSON.stringify({ tool_name: "Agent" });
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    // A direct spawn with a mode is recorded with it; without one the line has no `args` key, so
+    // every corpus recorded before modes keeps its exact bytes.
+    recordSpawnedHook("bash", [[hook, "claude-stop"], { input: payload }]);
+    recordSpawnedHook("bash", [[hook], { input: payload }]);
+    recordSpawnedHook("bash", [[hook, 3], { input: payload }]);
+    runHookBatch(hook, "bash", [{ input: payload, args: ["codex", "capture-start"] }]);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const lines = rawLines(raw);
+    expect(lines.map((l) => l.args)).toEqual([
+      ["claude-stop"],
+      undefined,
+      ["codex", "capture-start"],
+    ]);
+    expect(Object.keys(lines[1] ?? {})).not.toContain("args");
+
+    // Arguments make distinct cases; an argument-less key is the one recorded before T5.
+    const { cases } = replay.mergeRaw(lines);
+    expect(cases).toHaveLength(3);
+    const plain = base("x");
+    expect(replay.caseKey(plain)).toBe(
+      JSON.stringify([plain.hook, plain.engine, plain.shell, plain.cwdKind, "x", []]),
+    );
+    expect(replay.caseKey({ ...plain, args: [] })).toBe(replay.caseKey(plain));
+
+    // The batch and the isolated spawn hand the hook the same `$@` (quoting kept).
+    const echo = join(dir, "fixture", "echo.sh");
+    mkdirp(dirname(echo));
+    writeFileSync(echo, `printf '[%s]' "$@"\n`);
+    const args = ["codex", "two words", "it's"];
+    const [batched, none] = runHookBatch(echo, "bash", [{ input: "", args }, { input: "" }]);
+    expect(batched?.stdout).toBe("[codex][two words][it's]");
+    expect(none?.stdout).toBe("[]");
+    expect(runHookIsolated(echo, "bash", { input: "", args }).stdout).toBe(batched?.stdout);
+
+    // The native transport passes them after the script, as the rendered prologue passes `"$@"`.
+    const binary = nativeFixture(
+      dir,
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)));",
+    );
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    const native = rustAdapter.runRustHook({ binary, script, input: "", args: ["claude-stop"] });
+    if (!native.available) throw new Error(native.reason);
+    expect(JSON.parse(native.stdout.toString("utf8")) as unknown).toEqual([
+      "hook",
+      "--via-script",
+      script,
+      "claude-stop",
+    ]);
+  });
+
+  // Covers: R54
+  it("el estado declarado del caso se recrea en el replay", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const cwd = mkdtempSync(join(tmpdir(), "navori-fixture-cwd-"));
+    dirs.push(cwd);
+    // A hook that reads declared state and runs a declared tool stub from the case's PATH.
+    const hook = join(dir, ".claude", "hooks", "fixture.sh");
+    mkdirp(dirname(hook));
+    writeFileSync(hook, 'cat state/flag\nprintf "|"\nnavori --version\n');
+    const fixture = [
+      { path: "state/flag", content: `at ${cwd}\n` },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ];
+    const c = { input: "{}", cwd, env: { PATH: `${cwd}/bin:/usr/bin:/bin` }, fixture };
+    const expected = `at ${cwd}\n|stub-9.9.9\n`;
+    expect(runHookBatch(hook, "bash", [c])[0]?.stdout).toBe(expected);
+    expect(runHookIsolated(hook, "bash", c).stdout).toBe(expected);
+
+    // Recorded with the cwd as a token, then replayed in a fresh empty cwd that never saw it.
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    const core = installCoreHook(dir, "general-purpose-confirm.sh");
+    recordHookCase(core, "bash", c);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const [line] = rawLines(raw);
+    expect(line?.fixture).toEqual([
+      { path: "state/flag", content: "at @CWD@\n" },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ]);
+    expect(line?.envDelta).toEqual({ PATH: "@CWD@/bin:/usr/bin:/bin" });
+    const [merged] = replay.mergeRaw(line === undefined ? [] : [line]).cases;
+    if (merged === undefined) throw new Error("no case");
+    expect(replay.caseKey(merged)).not.toBe(replay.caseKey({ ...merged, fixture: undefined }));
+    const scratch = replay.createScratch();
+    try {
+      const [out] = replay.runMode([merged], "off", {
+        resolveHook: () => hook,
+        runHookBatch,
+        scratch,
+      });
+      expect(out?.stdout).toBe("at @CASE@/none\n|stub-9.9.9\n");
+    } finally {
+      scratch.cleanup();
+    }
+
+    // A fixture never lands outside a temp cwd, nor escapes it, nor races another lane.
+    expect(() => runHookIsolated(hook, "bash", { ...c, cwd: process.cwd() })).toThrow(
+      /not under the temp dir/,
+    );
+    expect(() =>
+      runHookIsolated(hook, "bash", { ...c, fixture: [{ path: "../x", content: "" }] }),
+    ).toThrow(/stay under the case cwd/);
+    expect(() =>
+      runHookBatch(hook, "bash", [c, { ...c, fixture: [{ path: "other", content: "" }] }]),
+    ).toThrow(/different fixtures/);
   });
 
   // Covers: R13

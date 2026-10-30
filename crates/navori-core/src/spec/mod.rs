@@ -3,6 +3,7 @@
 
 pub mod check;
 pub mod classify;
+pub mod locate;
 pub mod tasks;
 pub mod text;
 

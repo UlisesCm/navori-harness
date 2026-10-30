@@ -318,16 +318,16 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     let empty = manifest(r#"{"schema":2,"commands":[]}"#)?;
     assert!(!NATIVE.is_empty());
     for native in NATIVE {
-        let own = embedded.commands.iter().find(|c| {
+        let entry = embedded.commands.iter().find(|c| {
             native
                 .path
                 .iter()
                 .copied()
                 .eq(c.path.iter().map(String::as_str))
         });
-        let listed = own.is_some();
-        // An entry with `requires` selects only invocations carrying one of its flag sets.
-        let required: Vec<&str> = own
+        let listed = entry.is_some();
+        // An entry with `requires` is selected only with one of its alternatives.
+        let required: Vec<&str> = entry
             .and_then(|c| c.requires.as_ref())
             .and_then(|alternatives| alternatives.first())
             .map(|flags| flags.iter().map(String::as_str).collect())
@@ -384,7 +384,7 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
     }
     // A listed command with a flag outside its list is delegated.
     assert!(dispatch(&embedded, &invocation(&["--version"], &["json"])).is_none());
-    assert!(dispatch(&embedded, &invocation(&["render"], &[])).is_none());
+    assert!(dispatch(&embedded, &invocation(&["render"], &["prune"])).is_none());
     Ok(())
 }
 

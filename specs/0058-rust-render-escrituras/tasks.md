@@ -138,8 +138,8 @@ intermitente (3/5 aislado) por un presupuesto de 1 ms.
 ### M6 — Comando `render` en preview (sin esperar a E1: Q14)
 - **Consumes:** `bun run oracle:rust --only render` → ejecuta `navori-rust render` nativo (plan de M5) contra el TS sobre los fixtures
 - **A6** [observable] — `render` en preview es nativo con diferencial cero y re-delega fuera del subconjunto · `bun run oracle:rust --only render` → exit 0, 0 diferencias
-- [ ] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
-- [ ] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
+- [x] **T17** (R39) — entrada `render` en `ported.json` con `when.engines = ["claude"]` y las flags `cwd`, `dry-run` y `json` (Q8); `NativeCommand.run` recibe la invocación; re-delegación antes de cualquier salida con config ausente o inválida (T9), monorepo, otro engine, `--all`, `--prune`, `--workspace` o `--verbose` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render re-delega con monorepo, codex y pi sin salida previa"
+- [x] **T18** (R40) — `navori-core` (`fs::RecordingFs`): sin `--apply` no hay operaciones reales en el repo, en `~/.navori` ni en `NAVORI_BACKUP_ROOT` · effect: behavior · test: `crates/navori-cli/tests/render.rs`::"render sin --apply no ejecuta operaciones reales"
 
 Preparación de M6 integrada en la parte 2 (#1438), sin entrada en el manifiesto: `NativeCommand.run`
 recibe el argv y la entrada que lo seleccionó y devuelve `Exit` o `Delegate`; `navori-cli::render`
@@ -147,10 +147,18 @@ parsea en estricto (`cwd`, `dry-run`, `json`; cualquier otra forma delega) y re-
 cualquier salida con config ausente o inválida, engines fuera de `when.engines`, workspaces o un
 directorio inexistente; por ahora `run` siempre delega. `render::ignore_files` porta
 `renderGitignore`, `ensurePrettierIgnore` y `scanOrphanedEngineOutputs` con paridad contra el TS.
-Falta en la parte 3: la salida humana y `--json` (procedencia `core: (embedded)`; en `--json`,
-`coreRoot`/`bundled`/`staleCore` necesitan la misma decisión de máscara que T20) y T18.
-- [ ] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
-- [ ] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
+M6 cerrado en la parte 3 (A6 verde: 18 casos de `render`, 0 diferencias). `render::command`
+ensambla el plan de `runRenderCore` (Claude, `.gitignore` raíz y anidados, `.prettierignore`,
+huérfanos), el reporte humano y el `--json` (`coreRoot: "(embedded)"`, `bundled: true`,
+`staleCore: null`); `collect::DiskView` es la vista de producción. Los avisos de `readConfig` salen
+dos veces a stderr, como las dos lecturas del TS. El reporte humano solo es nativo sin color (stdout
+no TTY, sin `FORCE_COLOR` y `CI` solo con `NO_COLOR`); una terminal delega. La máscara `provenance`
+del oráculo reescribe solo el lado TS. T18 se verifica corriendo el binario sin TS disponible y
+comparando los árboles del repo, el home y `NAVORI_BACKUP_ROOT` antes y después: el preview no
+pasa por la capa `Fs`, así que `RecordingFs` llega con el commit de M8. Fixture nuevo `claude-en`
+(inglés, `.gitignore` en modo `full`, prettier, huérfano `AGENTS.md`, clave desconocida).
+- [x] **T19** (R41, R49) — casos del oráculo de `render` y `render --json` en cada fixture aplicable y en ambos idiomas, más el test que falla si a un comando portado le falta un fixture · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada comando portado tiene caso en cada fixture aplicable"
+- [x] **T20** (R41) — máscara literal de lado para la línea de procedencia del core, `core: (embedded)` en Rust (Q11), y aviso de actualización omitido en nativo y documentado en CONTRIBUTING de la rama (Q6), con su prueba de mutación · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"la máscara de procedencia solo toca su línea literal"
 
 ### M7 — Capa `Fs`, backup y poda
 - **A7** [observable] — los tests de D15 pasan sobre registro y disco real · `cargo test -p navori-core --features fault-injection --test fs --locked` → exit 0
@@ -169,9 +177,38 @@ solo lo ve Codex (Claude borra best-effort).
 ### M8 — `render --apply` y `adopt`
 - **Consumes:** `bun run oracle:rust --only apply` → ejecuta `render --apply` y `adopt --apply` nativos (capa `Fs` de M7) contra el TS
 - **A8** [observable] — escrituras nativas con diferencial cero, matriz incluida · `bun run oracle:rust --only apply && bun run oracle:rust --only anti-rollback` → exit 0, 0 diferencias
-- [ ] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
-- [ ] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
-- [ ] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
+- [x] **T25** (R14, R47) — `render` con `apply` y `force`: commit con `RealFs`, `harnessVersion` solo tras escritura real y `refreshRepoName` en `~/.navori/registry.json` (D27) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"render-apply en self-hosted, user-content y drifted-block"
+- [x] **T26** (R14) — `adopt` con `path`, `apply` y `cwd`; preview por defecto y backup antes de tomar el archivo · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"adopt-apply toma un archivo hecho a mano con backup"
+- [x] **T27** (R37, R49) — generador de la matriz anti-rollback en el oráculo: floor × marker × CLI × {inject, remove, hook, `settings.json`} (D26) · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"anti-rollback:*"
+
+T27 cerrada: `antiRollbackCases` en `rust-oracle.mjs` genera 48 celdas, floor (`harnessVersion`)
+× sello {ausente, menor, igual, mayor} × {inject en `CLAUDE.md`, bloque base de un hook,
+`$navori.version` de `settings.json`}, cada una un `render --apply` sobre `fresh-init` con un
+archivo superpuesto de hash válido; los casos admiten `files`. La operación `remove` entra con
+`remove --yes` en M9 (T30), en la misma matriz. `rust-oracle.test.ts` comprueba cada celda.
+
+T26 cerrada: `adopt` es nativo con `apply` y `cwd` (`navori_core::adopt`: `planAdoption` con las
+rutas de `path.resolve`/`path.relative` de Node y `listMarkers`; el apply hace el backup y luego
+`writeFileSync`, no atómico como el TS, y registra `harnessVersion`). Delega sin ruta posicional,
+con config inválida, con color o sin raíz de backups. Pruebas: fixture `adopt` (preview, apply,
+ya adoptado y cada rechazo), `adopt_parity.rs` contra `planAdoption` y el parseo en
+`navori-cli/tests/adopt.rs`.
+
+T25 cerrada: `render --apply` y `--force` son nativos (flags `apply` y `force` en `ported.json`);
+`force` llega a `settings.json`, `.mcp.json`, el wiring nativo de settings y los ignore files,
+que son los pasos que lo honran en el TS.
+`render::command::run_render` hace un `commitWrites` por paso (motor Claude con `CLAUDE.md` al
+final y remociones best-effort; cada ignore file con el suyo) antes de que el siguiente lea el
+disco, reescribe los avisos de colisión con la ruta del backup, registra `harnessVersion`
+(`config::record_harness_version`, forma canónica) solo con escrituras reales y avisa del cruce
+del presupuesto de `CLAUDE.md` (`render::doc_budget`, tablas comparadas con el TS). El apply se
+planea antes en preview, así que una re-delegación nunca llega después de escribir.
+`refreshRepoName` no se porta: cuando reescribiría el registro (el TS lo ordena con
+`localeCompare`) o `HOME` no sirve, el apply se delega antes de cualquier efecto. Un error de
+escritura imprime el mensaje de `RenderWriteError` y sale con 1; el formato de citty/consola del TS
+no se reproduce (solo alcanzable con fallos de E/S). Pruebas: casos de apply y force en `fresh-init`,
+`drifted-block` y `claude-en`; proptest `render_apply_matches_the_ts_command` (stdout, stderr,
+árbol del repo y de backups); paridad de `measureDocBudget` y `recordHarnessVersion`.
 
 ### M9 — `sync` y `remove` no interactivos
 - **Consumes:** `bun run oracle:rust` → corrida completa del oráculo sobre todos los comandos del manifiesto y los fixtures de escritura
@@ -182,6 +219,38 @@ solo lo ve Codex (Claude borra best-effort).
   (alternativas no vacías, sin repetir, contenidas en `flags`) y distinguen las entradas de una
   ruta por `requires` como conjunto de conjuntos. `loadNativeHooks` y `rust-hook-adapter.mjs`
   exigen el schema 2.
-- [ ] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
-- [ ] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
-- [ ] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"
+- [x] **T29** (R14, R36) — `sync` con `apply`/`yes`, `accept-new`, `keep-mine`, `accept-new-files`, `dry-run`, `json` y `cwd`; ramas de borrado `removed`, `modified`, `foreign` y `newer` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"sync-conflicts con cada modo bulk"
+- [x] **T30** (R14, R48) — `remove --plugin <id> --yes`: `writeConfig` con preservación de enums y render posterior; sin `--yes` se delega · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"remove-yes limpia bloques del plugin y sin --yes delega"
+
+T31 cerrada: un fixture puede traer `oracle.json` (nunca se copia al repo) con backups previos en
+la raíz de backups: archivos, archivos dispersos (`truncate`, sin ocupar disco) y `mtime`
+relativo (`-40d`, `-2h`, `-30m`) aplicado en cada copia, así TS y Rust ven la misma edad. El
+snapshot compara por tamaño los archivos de más de 64 MiB. Fixtures nuevos: `aged-backups`
+(poda por 30 días y por 2 GiB tras un `render --apply` o `sync --apply` que respalda),
+`foreign-blocks` (sin versión, hash editado, versión mayor y bloque ajeno) y `codex-trusted`
+(todo se re-delega); `sync-conflicts` llegó con T29.
+
+T30 cerrada: `remove <plugin> --yes` es nativo (`navori_core::remove`: `readRaw` + `writeConfig`
+de `config::write_config`, con la salida de zod y `preserveForwardCompatEnums`); entrada con
+`requires: [["yes"]]`, así que sin `--yes` se delega. Antes de escribir decide todo: la config
+deshabilitada se lee, cae en el subconjunto y su render se planea en preview; el registro y la
+raíz de backups se comprueban. Fase 1 escribe `{ enabled: false }` (con `nativeHook`), corre el
+render con apply (`run_render`), fase 2 poda la clave sobre el archivo ya resellado. Se delegan
+`engram` y la falta de config. La operación `remove` entra en la matriz anti-rollback (16
+celdas más, 64 en total). Los casos admiten `setup` (comandos TS previos en ambos lados), así
+que `remove-plugin` es solo config y el `render --apply` previo genera el árbol. Pruebas:
+casos de `remove-plugin` y en cada fixture aplicable, paridad de `writeConfig` en
+`config_parity.rs` y el parseo en `navori-cli/tests/remove.rs`.
+
+T29 cerrada: `sync` es nativo sin prompts (`navori_core::sync::run_sync`, entrada con `requires`
+= una de `apply`, `yes`, `dry-run`, `json`, `accept-new`, `keep-mine` o `accept-new-files`): plan,
+diffs de conflicto, `--yes` como gate de CI, `--accept-new` por `forceIds`, `--keep-mine`,
+`--accept-new-files` (el render forzado de cada archivo que conserva su marcador, recompuesto con
+las extensiones de hooks que lo apuntan, escrito con su propio backup `root:sync` antes del commit
+del motor), `--json` y el apply con el mismo commit que `render` (`command::commit_claude`). Se
+delegan `--interactive`, `--workspace` y las contradicciones con `--keep-mine`. Pruebas: fixture
+`sync-conflicts` con cada modo, casos en cada fixture aplicable, proptests
+`sync_preview_matches_the_ts_command` y `sync_apply_matches_the_ts_command`,
+`accept_new_files_recomposes_hook_extensions` (con prueba de mutación) y el parseo en
+`navori-cli/tests/sync.rs`.
+- [x] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"

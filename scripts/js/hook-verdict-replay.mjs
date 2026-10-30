@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 
@@ -54,14 +54,21 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo" }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], fixture?: Array<{ path: string, content: string, mode?: number }> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
  * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
 export function caseKey(c) {
-  return JSON.stringify([c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()]);
+  const key = [c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()];
+  // Hook arguments (spec 0059 T5) join the key only when present: argument-less keys, and so the
+  // order of every corpus recorded before them, stay as they were.
+  const hasArgs = c.args !== undefined && c.args.length > 0;
+  const hasFixture = c.fixture !== undefined && c.fixture.length > 0;
+  if (hasArgs || hasFixture) key.push(c.args ?? []);
+  if (hasFixture) key.push(c.fixture);
+  return JSON.stringify(key);
 }
 
 /**
@@ -85,8 +92,12 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind } = line;
-      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind });
+      const { hook, engine, shell, input, envDelta, cwdKind, args, fixture } = line;
+      included.set(caseKey(line), {
+        hook, engine, shell, input, envDelta, cwdKind,
+        ...(args !== undefined && args.length > 0 ? { args } : {}),
+        ...(fixture !== undefined && fixture.length > 0 ? { fixture } : {}),
+      });
     } else {
       const reason = line.reason ?? "unknown";
       slot.excluded[reason] = (slot.excluded[reason] ?? 0) + 1;
@@ -332,6 +343,14 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         else mkdirSync(join(caseRoot, "none"), { recursive: true });
         paths[i] = { project, root: caseRoot };
         const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
+        // Declared state (spec 0059 T5): recreated under the case's own cwd before it runs.
+        for (const file of c.fixture ?? []) {
+          if (isAbsolute(file.path) || normalizePath(file.path).split("/").includes("..")) throw new Error(`fixture escapes the case: ${file.path}`);
+          const target = join(cwd, file.path);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, hostPaths(file.content, project, cwd));
+          chmodSync(target, file.mode ?? 0o644);
+        }
         const auditsRoot = join(scratch.audits, String(i));
         const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));
         const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);
@@ -340,10 +359,12 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
           spools[i] = armAudit(auditsRoot, input, cwd);
         }
         env.NAVORI_AUDITS_ROOT = mode === "active" ? auditsRoot : join(scratch.root, "no-audits");
-        return { input, env, cwd };
+        const args = (c.args ?? []).map((arg) => hostPaths(arg, project, cwd));
+        return { input, env, cwd, args };
       });
       const outputs = impl === "rust" ? batchCases.map((c) => {
         const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
+        if (result.modeDeferred) return { deferred: true };
         if (!result.available) throw new Error(`native unavailable: ${first.hook}: ${result.reason}`);
         // The corpus stores text. Reject malformed UTF-8 instead of hiding byte differences
         // through replacement characters; the adapter itself retains the original bytes.
@@ -352,7 +373,17 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
       }) : runHookBatch(hookPath, first.shell, batchCases);
       indexes.forEach((i, n) => {
         const out = outputs[n];
-        const verdict = { status: out.status, stdout: normalize(out.stdout, i), stderr: normalize(out.stderr, i) };
+        if (out.deferred) {
+          results[i] = { deferred: true };
+          return;
+        }
+        // The native lane runs the signed asset outside the scratch; Bash names `$0` in its
+        // diagnostics, so that copy reads as the installed one the shell lane runs.
+        const signedRoot = impl === "rust" && hookPath.endsWith(`/${ENGINE_DIRS[first.engine]}/${first.hook}`)
+          ? hookPath.slice(0, -`/${ENGINE_DIRS[first.engine]}/${first.hook}`.length)
+          : undefined;
+        const asInstalled = (text) => (signedRoot === undefined ? text : text.replaceAll(signedRoot, join(scratch.root, "installed")));
+        const verdict = { status: out.status, stdout: normalize(asInstalled(out.stdout), i), stderr: normalize(asInstalled(out.stderr), i) };
         results[i] = mode === "active" ? { ...verdict, event: readEvents(spools[i]) } : verdict;
       });
     }
@@ -461,7 +492,7 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * in for a native verdict.
  *
  * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
- * @returns {Promise<{ ok: boolean, cases: number, failure?: string }>}
+ * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, failure?: string }>}
  */
 export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell" } = {}) {
   const cases = (corpus ?? readCorpus())
@@ -472,6 +503,7 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     return { ok: false, cases: cases.length, failure: "invalid implementation or audit mode" };
   }
   if (cases.length === 0) return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
+  let deferred = 0;
   /** @type {string[]} */
   const failures = [];
   let resolved;
@@ -493,6 +525,11 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     for (const mode of modes) {
       const actual = runMode(cases, mode, { ...resolved, scratch, impl });
       for (let i = 0; i < cases.length; i += 1) {
+        // A mode the binary defers by design (D31) runs the shell in production: not compared.
+        if (actual[i]?.deferred) {
+          if (mode === modes[0]) deferred += 1;
+          continue;
+        }
         const cross = cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
         const diff = firstDifference(
           cross ? withShellDiagnostics(cases[i].expected[mode]) : cases[i].expected[mode],
@@ -509,7 +546,7 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
       }
     }
     if (failures.length > 0) return { ok: false, cases: cases.length, failure: failures.join("\n") };
-    return { ok: true, cases: cases.length };
+    return deferred > 0 ? { ok: true, cases: cases.length - deferred, deferred } : { ok: true, cases: cases.length };
   } catch (error) {
     return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "replay execution failed" };
   } finally {
@@ -644,7 +681,8 @@ export async function main(argv) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;
   }
-  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")})\n`);
+  const deferredNote = result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "";
+  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
   return 0;
 }
 

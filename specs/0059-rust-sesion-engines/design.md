@@ -1,6 +1,6 @@
 # Migración a Rust, fase 3: hooks de sesión y engines restantes — Design
 
-**Estado:** aceptado; Q14–Q19 resueltas por el usuario (§ "Decisiones del usuario") · **Fecha:**
+**Estado:** aceptado; Q14–Q20 resueltas por el usuario (§ "Decisiones del usuario") · **Fecha:**
 2026-10-27 · **Base verificada:** `origin/migration/rust` = `702be44f` (merge de #1433). Las
 afirmaciones sobre `crates/` también se contrastaron con `origin/feat/0058-rust-e3-delivery`
 (#1434, borrador) y con #1432. Las referencias citan archivo y símbolo, no línea.
@@ -367,6 +367,28 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
   Codex que ya usan las suites de trust.
 - Un test enumera las dimensiones de la lista y falla si alguna no tiene fixture.
 
+### D40 — Sombra solo en las ramas sin efectos (R50, R54)
+
+- **Problema.** En `shadow` el nativo corre antes que el shell y no debe tener efectos (D9 de
+  0057). `quality-gate-pre-commit` tiene ramas con efectos: el `eval` de `qualityGate.fast`, `navori
+  gate foreign` y el aviso `gate-started`. Correrlas en el nativo cobra el gate dos veces por commit,
+  y el verde que deja en cache hace que el shell responda "skipped": una divergencia falsa en cada
+  commit.
+- **Regla.** En sombra, un hook nativo decide hasta la primera rama con efectos. Al llegar a ella
+  devuelve "no observado": `Comparison` gana ese estado, no cuenta como divergencia ni como
+  invocación hacia el umbral de D35, y el journal lo registra aparte. Fuera de sombra (`active` y
+  `NAVORI_HOOK_IMPL=rust`) el nativo sí ejecuta esas ramas.
+- **Qué se observa en vivo.** Todo lo que no es commit (la ruta de R55), el payload vacío, el
+  commit a otro repo sin config o sin `navori`, el trinquete de `progress/`, `nativeHooks`, el
+  acierto de `gate probe` y el runner ausente (`ask` o bloqueo).
+- **Qué no.** La corrida del gate propio y la de `gate foreign`: las prueban el replay del corpus y
+  el fuzz con `--impl rust`, que corren aislados.
+- **User-section.** El nativo no ejecuta la user-section del script. Si el script trae en ella algo
+  más que comentarios y líneas en blanco, la preparación falla y el hook difiere antes de stdin
+  (el renderer, además, solo envuelve en nativo una copia idéntica al render fresco).
+- **Alternativas descartadas.** Correr el gate también en el nativo (doble costo y divergencia
+  falsa por cache). Diferir todo commit antes de stdin: saber si es commit exige leer el payload.
+
 ## Contracts
 
 - **`crates/ported.json`:**
@@ -398,6 +420,7 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
 | F36 | El worker de versiones se lanza dos veces o con otro token | Test con `navori` falso que registra su argv (D34); el estado de claim se compara en el oráculo |
 | F37 | Un render multi-engine escribe Claude y luego falla Codex o Pi | `finalize` de todos antes de escribir (D36); fixture con un recurso Pi ajeno (R65) |
 | F38 | Un serializador TOML reordena o reformatea `.codex/config.toml` | Emisión como texto (D37); `toml` solo para leer |
+| F39 | La sombra corre el gate en el nativo y en el shell | Las ramas con efectos devuelven "no observado" en sombra (D40) |
 
 ## Migration
 
@@ -502,6 +525,7 @@ Tres entregas contra `migration/rust` y ninguna contra `dev`:
 | Q17 | Tres PRs (E1, E2, E3) contra `migration/rust`, con la rama actualizada entre cada uno |
 | Q18 | Toda la fase sin subagentes; sin challenge del `auditor`; revisión independiente en cada PR |
 | Q19 | (2026-10-28) La ventana de sombra no bloquea el cierre de fases: E3 (activación, R60 y R61) pasa a 0060 junto con T27 de 0057 y E1 de 0058; quedan dos PRs, E1 y E2. Enmienda Q17 |
+| Q20 | (2026-10-28) Sombra solo en las ramas sin efectos y user-section de plantilla (D40) |
 
 ## Preguntas (resueltas)
 

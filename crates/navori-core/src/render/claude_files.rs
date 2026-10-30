@@ -268,6 +268,7 @@ fn script_file(
                 status: Some(InjectStatus::UserModifiedSkipped),
                 resolution: None,
                 markerless_resolution: resolution,
+                chmod_exec: false,
             });
             return Ok(());
         }

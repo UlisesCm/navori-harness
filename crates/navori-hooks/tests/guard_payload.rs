@@ -8,13 +8,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use navori_hooks::hooks::guard_destructive::Rendered;
 use navori_hooks::hooks::guard_destructive::entry::{self, Context};
-use navori_hooks::hooks::guard_destructive::repo::System;
-use navori_hooks::hooks::guard_destructive::{Host, Rendered};
 use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::payload::{Extractor, Profile};
+use navori_hooks::shell::repo::System;
 
 type TestResult = Result<(), Box<dyn Error>>;
 

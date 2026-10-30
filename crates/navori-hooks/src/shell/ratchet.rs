@@ -13,7 +13,7 @@ const PATHS: [&str; 3] = [
 ///
 /// # Errors
 /// A ceiling of digits that the shell's `[ -gt ]` cannot compare.
-pub(super) fn lane(root: &str, cap: &str, repo: &dyn Repo) -> Result<Option<String>, String> {
+pub(crate) fn lane(root: &str, cap: &str, repo: &dyn Repo) -> Result<Option<String>, String> {
     // A placeholder or anything but digits turns the lane off.
     if cap.is_empty() || !cap.bytes().all(|b| b.is_ascii_digit()) {
         return Ok(None);

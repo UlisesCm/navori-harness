@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::Host;
+use super::Locale;
+use super::hook_input::Host;
 use super::repo::Repo;
-use crate::shell::Locale;
 
 static ASSIGNMENT: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new("^[A-Za-z_][A-Za-z0-9_]*="));
@@ -42,7 +42,7 @@ fn tag_char(c: char) -> bool {
 
 /// `navori_strip_heredoc_bodies`: drop the bodies (and terminators) of `cat` heredocs whose
 /// output is data. Any doubt keeps the text whole.
-pub(super) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
+pub(crate) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
     if !input.contains("<<") {
         return input.to_owned();
     }
@@ -135,7 +135,7 @@ pub(super) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
 
 /// `navori_count_triggers` with `TRIGGER_STRIP_HEREDOC_BODIES=1`: segments starting with a gated
 /// op once wrappers and `VAR=value` prefixes are peeled.
-pub(super) fn count_triggers(
+pub(crate) fn count_triggers(
     input: &str,
     trigger: &Regex,
     locale: Locale,
@@ -298,7 +298,7 @@ enum Kind {
 }
 
 /// The hook's view of the host for one evaluation; the home repository is resolved once.
-pub(super) struct Facts<'a> {
+pub(crate) struct Facts<'a> {
     host: &'a Host,
     repo: &'a dyn Repo,
     locale: Locale,
@@ -307,7 +307,7 @@ pub(super) struct Facts<'a> {
 }
 
 impl<'a> Facts<'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         host: &'a Host,
         repo: &'a dyn Repo,
         locale: Locale,
@@ -426,11 +426,29 @@ impl<'a> Facts<'a> {
     }
 
     /// `navori_commit_landing` reduced to the one answer the guard reads: `foreign`.
-    pub(super) fn foreign(&self, cmd: &str) -> Result<bool, String> {
+    pub(crate) fn foreign(&self, cmd: &str) -> Result<bool, String> {
+        Ok(self.foreign_root(cmd)?.is_some())
+    }
+
+    /// `navori_commit_landing`: `Some(navori_landing_root)` when every gated op provably lands
+    /// in one other repository (`navori_landing=foreign`), `None` for any other answer.
+    ///
+    /// # Errors
+    /// A trigger pattern that does not compile.
+    pub(crate) fn foreign_root(&self, cmd: &str) -> Result<Option<String>, String> {
+        Ok(match self.landing(cmd)? {
+            Some(Kind::Foreign(root)) => Some(root),
+            _ => None,
+        })
+    }
+
+    /// The folded landing of every gated op, `None` when unproven.
+    fn landing(&self, cmd: &str) -> Result<Option<Kind>, String> {
+        const UNPROVEN: Result<Option<Kind>, String> = Ok(None);
         let locale = self.locale;
         let hits = count_triggers(cmd, self.trigger, locale)?;
         if hits < 1 {
-            return Ok(false);
+            return UNPROVEN;
         }
         let stripped = strip_heredoc_bodies(cmd, locale).replace("\\\n", " ");
         let mut rest = trim_end(&stripped, locale);
@@ -454,7 +472,7 @@ impl<'a> Facts<'a> {
                 && self.trigger.is_match(first);
             if gated {
                 let Some(target) = op_target(first, locale) else {
-                    return Ok(false);
+                    return UNPROVEN;
                 };
                 ops.push(target);
                 let mut tail = format!("{}\n", &seg[first.len()..]);
@@ -462,62 +480,62 @@ impl<'a> Facts<'a> {
                     tail = format!("{}\n{tail}", &first[at + 1..]);
                 }
                 if mentions_shellish(&tail) {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 continue;
             }
             if seg.contains('\n') {
-                return Ok(false);
+                return UNPROVEN;
             }
             let seg = trim_end(seg, locale);
             if ops.is_empty() {
                 if starts_word(seg, "cd", locale) {
                     if cd_seen {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                     cd_seen = true;
                     let Some((token, after)) = take_token(&seg[2..], locale) else {
-                        return Ok(false);
+                        return UNPROVEN;
                     };
                     if after.chars().any(|c| !locale.whitespace(c)) || token.starts_with('-') {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                     token.clone_into(&mut cd_dir);
                 } else if starts_word(seg, "git", locale) {
                     if seg.contains([';', '|', '&', '<', '>', '(', ')', '$', '`']) {
-                        return Ok(false);
+                        return UNPROVEN;
                     }
                 } else {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 continue;
             }
             if seg.contains([';', '|', '&', '<', '>', '(', ')', '$', '`', '\\', '\t']) {
-                return Ok(false);
+                return UNPROVEN;
             }
             if let Some(after) = seg.strip_prefix("git ") {
                 if ["--exec", "--receive-pack", "--upload-pack", "--config-env"]
                     .iter()
                     .any(|flag| seg.contains(flag))
                 {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
                 let sub = after.split(' ').next().unwrap_or(after);
                 if !matches!(
                     sub,
                     "status" | "diff" | "log" | "show" | "rev-parse" | "push"
                 ) {
-                    return Ok(false);
+                    return UNPROVEN;
                 }
             } else if !matches!(
                 first_word(seg, locale),
                 "echo" | "printf" | "true" | ":" | "ls" | "pwd"
             ) {
-                return Ok(false);
+                return UNPROVEN;
             }
         }
         if ops.is_empty() || ops.len() != hits {
-            return Ok(false);
+            return UNPROVEN;
         }
         let mut folded: Option<Kind> = None;
         let mut last: Option<(&str, Option<Kind>)> = None;
@@ -536,14 +554,14 @@ impl<'a> Facts<'a> {
                 (Some(Kind::Foreign(top)), Some(Kind::Foreign(seen))) if top == seen => {
                     Some(Kind::Foreign(top))
                 }
-                _ => return Ok(false),
+                _ => return UNPROVEN,
             };
         }
-        Ok(matches!(folded, Some(Kind::Foreign(_))))
+        Ok(folded)
     }
 
     /// `navori_worktree`: the root of the tree the commit acts on, `""` when none resolves.
-    pub(super) fn worktree(&self, cmd: &str) -> String {
+    pub(crate) fn worktree(&self, cmd: &str) -> String {
         let base = self.base().to_owned();
         let mut named = cmd_dir(cmd, self.locale).unwrap_or_default();
         if !named.is_empty() && !named.starts_with('/') {

@@ -203,6 +203,25 @@ if(finished!==40)throw new Error('finished '+finished);`;
     });
   });
 
+  // Covers: R50
+  it("counts an unobserved native lane as neither a match nor a divergence", () => {
+    const unobserved = { ...MATCH, nativeUnobserved: true as const };
+    const started = begin(root, IDENTITY);
+    if (!started.ok) throw new Error(started.reason);
+    expect(complete(root, started.receipt, unobserved, Buffer.from("x"))).toEqual({ ok: true });
+    expect(readFileSync(file(), "utf8")).not.toContain("payloadBase64");
+    expect(report(root, EXPECTED)).toMatchObject({
+      available: true,
+      ready: false,
+      engines: [{ complete: 1, matched: 0, divergences: 0, unobserved: 1, spanMs: 0 }],
+    });
+    const failed = begin(root, IDENTITY);
+    if (!failed.ok) throw new Error(failed.reason);
+    const shell = { ...unobserved, shellFailed: true };
+    expect(complete(root, failed.receipt, shell, Buffer.from("x"))).toEqual({ ok: true });
+    expect(report(root, EXPECTED)).toMatchObject({ engines: [{ divergences: 1, unobserved: 1 }] });
+  });
+
   // Covers: R11, R12
   it("stores exact binary base64 only on divergences, including either runtime failure", () => {
     const payload = Buffer.from([0, 255, 10, 13, 128]);

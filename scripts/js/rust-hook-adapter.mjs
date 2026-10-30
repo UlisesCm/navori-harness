@@ -35,19 +35,20 @@ function executable(binary) {
  * Execute an already prepared script through the binary. Rust owns definitive integrity and
  * compiled-registry validation; an ordinary exit 1 is still a valid advisory/error verdict.
  *
- * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, timeoutMs?: number }} options
+ * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, args?: string[], timeoutMs?: number }} options
  * @returns {NativeResult}
  */
-export function runRustHook({ binary, script, input, event, cwd, env = {}, timeoutMs = 10_000 }) {
+export function runRustHook({ binary, script, input, event, cwd, env = {}, args = [], timeoutMs = 10_000 }) {
   let pinned;
   try {
     pinned = executable(binary);
   } catch (error) {
     return { available: false, reason: error instanceof Error ? error.message : "native binary unavailable" };
   }
+  // Hook arguments (the registration's mode) follow the script, as the rendered prologue passes `"$@"`.
   const argv = event === undefined
-    ? ["hook", "--via-script", resolve(script)]
-    : ["hook", "--via-command", event, resolve(script)];
+    ? ["hook", "--via-script", resolve(script), ...args]
+    : ["hook", "--via-command", event, resolve(script), ...args];
   const output = spawnSync(pinned, argv, {
     input,
     cwd,
@@ -61,6 +62,11 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, timeo
   }
   if (output.signal !== null || output.status === null) {
     return { available: false, reason: `native process ended without a verdict (${output.signal ?? "no status"})` };
+  }
+  // Spec 0059 D31: a mode the binary does not port defers before stdin by design; production
+  // runs the shell for it, so it is not a native verdict and not a failure either.
+  if (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: hook mode is not ported")) {
+    return { available: false, modeDeferred: true, reason: "hook mode is not ported (D31)" };
   }
   if (output.status === 3 || (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: "))) {
     return { available: false, reason: "native runtime deferred; no native verdict was evaluated" };

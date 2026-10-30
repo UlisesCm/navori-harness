@@ -1,4 +1,4 @@
-//! `navori render` in preview (spec 0058 E3 M6, D23).
+//! `navori render` in preview and with `--apply` (spec 0058 E3 M6 and M8, D23, D27).
 //!
 //! Native only inside the subset the manifest entry declares (R39): its `flags`, its
 //! `when.engines`, a root without enabled monorepo workspaces and a config `readConfig` accepts.
@@ -8,15 +8,30 @@
 //! The argv is parsed strictly: an option form whose meaning in citty is not obvious (a short or
 //! `--no-` flag, a boolean with a value, a repeated option, a value that looks like an option, a
 //! positional) delegates instead of guessing.
+//!
+//! An apply is planned in preview first, so a step that delegates does so before any write. It
+//! also delegates when `refreshRepoName` would rewrite `~/.navori/registry.json` (the TS sorts it
+//! with `localeCompare`) or when `HOME` is not usable, both before any output or effect.
 
 use std::ffi::OsString;
+use std::io::{IsTerminal, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::ExitCode;
 
 use lexopt::Arg;
-use navori_core::config::{self, Config};
-use navori_core::js_json::JsValue;
+use navori_core::backup::{BackupStore, backup_root, local_now};
+use navori_core::config::{self, Config, HarnessRecord};
+use navori_core::fs::RealFs;
+use navori_core::i18n;
+use navori_core::js_json::{self, JsValue};
 use navori_core::manifest::Command;
 use navori_core::render::claude_md::has_monorepo_workspaces;
+use navori_core::render::collect::DiskView;
+use navori_core::render::command::{
+    Apply, RenderError, RenderOptions, RenderPlan, human_report, plan_render, render_json,
+    run_render,
+};
+use navori_core::render::report::Clack;
 
 use crate::{NativeCall, Outcome};
 
@@ -25,10 +40,22 @@ use crate::{NativeCall, Outcome};
 pub struct RenderArgs {
     /// `resolve(args.cwd ?? process.cwd())`.
     pub cwd: PathBuf,
-    /// `--dry-run`: preview, which is also the default.
+    /// `--dry-run`: preview, which is also the default and wins over `--apply`.
     pub dry_run: bool,
     /// `--json`.
     pub json: bool,
+    /// `--apply`.
+    pub apply: bool,
+    /// `--force`.
+    pub force: bool,
+}
+
+impl RenderArgs {
+    /// `!args.apply || Boolean(args["dry-run"])`.
+    #[must_use]
+    pub const fn preview(&self) -> bool {
+        !self.apply || self.dry_run
+    }
 }
 
 /// A `render` invocation the native subset admits.
@@ -41,7 +68,7 @@ pub struct Admitted {
 }
 
 /// `path.resolve(base, value)`: lexical, without touching the disk.
-fn resolve(base: &Path, value: &Path) -> PathBuf {
+pub(crate) fn resolve(base: &Path, value: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in base.join(value).components() {
         match component {
@@ -68,6 +95,8 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
     let mut cwd: Option<OsString> = None;
     let mut dry_run = false;
     let mut json = false;
+    let mut apply = false;
+    let mut force = false;
     while let Some(arg) = parser.next().ok()? {
         let Arg::Long(name) = arg else {
             return None;
@@ -89,6 +118,14 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
                 parser.optional_value().is_none().then_some(())?;
                 json = true;
             }
+            "apply" if declared("apply") && !apply => {
+                parser.optional_value().is_none().then_some(())?;
+                apply = true;
+            }
+            "force" if declared("force") && !force => {
+                parser.optional_value().is_none().then_some(())?;
+                force = true;
+            }
             _ => return None,
         }
     }
@@ -96,11 +133,17 @@ pub fn parse_args(args: &[OsString], entry: &Command, base: &Path) -> Option<Ren
         Some(value) => resolve(base, Path::new(&value)),
         None => base.to_path_buf(),
     };
-    Some(RenderArgs { cwd, dry_run, json })
+    Some(RenderArgs {
+        cwd,
+        dry_run,
+        json,
+        apply,
+        force,
+    })
 }
 
 /// `config.engines ?? ["claude"]`, its strings.
-fn engines(config: &JsValue) -> Vec<String> {
+pub(crate) fn configured_engines(config: &JsValue) -> Vec<String> {
     let JsValue::Object(root) = config else {
         return vec!["claude".to_owned()];
     };
@@ -126,7 +169,7 @@ pub fn admit(args: RenderArgs, entry: &Command) -> Option<Admitted> {
     let bytes = std::fs::read(args.cwd.join("navori.config.json")).ok()?;
     let config = config::read(&bytes).ok()?;
     if let Some(allowed) = entry.when.as_ref().and_then(|w| w.engines.as_ref()) {
-        let configured = engines(&config.data);
+        let configured = configured_engines(&config.data);
         if configured.is_empty() || !configured.iter().all(|e| allowed.contains(e)) {
             return None;
         }
@@ -143,9 +186,186 @@ pub fn gate(call: &NativeCall<'_>, base: &Path) -> Option<Admitted> {
     admit(parse_args(call.args, call.entry, base)?, call.entry)
 }
 
-/// The native `render`. The preview body is not ported yet, so every invocation is handed to the
-/// TS; no manifest entry selects `render` either.
+/// Whether the TS human report would print without any escape: picocolors (`isColorSupported`)
+/// and `util.styleText` (clack) both off. Only a non-TTY stdout without `FORCE_COLOR` and without
+/// a non-empty `CI` (unless `NO_COLOR` is non-empty) qualifies; a terminal always delegates, so
+/// the colored report stays the TS's.
 #[must_use]
-pub fn run(_: &NativeCall<'_>) -> Outcome {
-    Outcome::Delegate
+pub fn colorless(var: impl Fn(&str) -> Option<OsString>, stdout_tty: bool) -> bool {
+    let set = |name: &str| var(name).is_some_and(|value| !value.is_empty());
+    var("FORCE_COLOR").is_none() && !stdout_tty && (set("NO_COLOR") || !set("CI"))
+}
+
+/// `readRegistry()`'s entries as `(path, name)`: empty when the file is absent, unreadable, not
+/// JSON or not of `RegistrySchema`'s shape (`{ repos?: { path: non-empty string, name?: string
+/// }[] }`, extra keys allowed).
+fn registry_entries(text: Option<&str>) -> Vec<(String, Option<String>)> {
+    let Some(JsValue::Object(root)) = text.and_then(js_json::parse) else {
+        return Vec::new();
+    };
+    let repos = match root.get("repos") {
+        None | Some(JsValue::Undefined) => return Vec::new(),
+        Some(JsValue::Array(repos)) => repos,
+        Some(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for repo in repos {
+        let JsValue::Object(entry) = repo else {
+            return Vec::new();
+        };
+        let Some(JsValue::String(path)) = entry.get("path") else {
+            return Vec::new();
+        };
+        let name = match entry.get("name") {
+            None | Some(JsValue::Undefined) => None,
+            Some(JsValue::String(name)) => match name.to_rust() {
+                Some(name) => Some(name),
+                None => return Vec::new(),
+            },
+            Some(_) => return Vec::new(),
+        };
+        match path.to_rust() {
+            Some(path) if !path.is_empty() => out.push((path, name)),
+            _ => return Vec::new(),
+        }
+    }
+    out
+}
+
+/// Whether `refreshRepoName(cwd, name)` would rewrite the registry under `home`: the first entry
+/// for the repo's canonical path carries another name.
+#[must_use]
+pub fn registry_needs_refresh(home: &Path, cwd: &Path, name: Option<&str>) -> bool {
+    let text = std::fs::read_to_string(home.join(".navori/registry.json")).ok();
+    let canonical = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let Some(canonical) = canonical.to_str() else {
+        return true;
+    };
+    registry_entries(text.as_deref())
+        .into_iter()
+        .find(|(path, _)| path == canonical)
+        .is_some_and(|(_, current)| current.as_deref() != name)
+}
+
+/// `config.name`.
+pub(crate) fn config_name(config: &Config) -> Option<String> {
+    match &config.data {
+        JsValue::Object(root) => match root.get("name") {
+            Some(JsValue::String(name)) => name.to_rust(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `HOME` as `safeHomedir()` accepts it: set and absolute.
+pub(crate) fn home() -> Option<PathBuf> {
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    home.is_absolute().then_some(home)
+}
+
+/// What an apply printed besides the report: the error that stopped it, or the stderr of
+/// `recordHarnessVersionIfWritten`.
+fn apply_render(
+    cwd: &Path,
+    config: &Config,
+    options: &RenderOptions,
+) -> Result<(RenderPlan, String), String> {
+    let mut fs = RealFs::default();
+    let mut backups = BackupStore::new(backup_root(), std::process::id());
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut backups,
+        now: &now,
+    };
+    match run_render(&DiskView(cwd), config, cwd, options, Some(&mut apply)) {
+        Ok(plan) => {
+            let stderr = match plan.applied.as_ref().and_then(|a| a.harness.as_ref()) {
+                Some(outcome @ (HarnessRecord::NonCanonical | HarnessRecord::Unreadable)) => {
+                    format!("{}\n", i18n::harness_version_not_recorded(outcome.as_str()))
+                }
+                _ => String::new(),
+            };
+            Ok((plan, stderr))
+        }
+        Err(RenderError::Delegate) => {
+            Err("render: a step declined after the preview accepted it".to_owned())
+        }
+        Err(error) => Err(error.message()),
+    }
+}
+
+/// The native `render`: the plan of `runRenderCore` (committed with `--apply`), the config
+/// warnings `readConfig` writes on each of its two reads, then the report. Any step that
+/// delegates does so before the first byte of output or the first write.
+#[must_use]
+pub fn run(call: &NativeCall<'_>) -> Outcome {
+    let Ok(base) = std::env::current_dir() else {
+        return Outcome::Delegate;
+    };
+    let Some(admitted) = gate(call, &base) else {
+        return Outcome::Delegate;
+    };
+    let json = admitted.args.json;
+    if !json
+        && !colorless(
+            |name| std::env::var_os(name),
+            std::io::stdout().is_terminal(),
+        )
+    {
+        return Outcome::Delegate;
+    }
+    let preview_only = admitted.args.preview();
+    let cwd = admitted.args.cwd;
+    let Some(cwd_text) = cwd.to_str() else {
+        return Outcome::Delegate;
+    };
+    let options = RenderOptions {
+        force: admitted.args.force,
+        ..RenderOptions::default()
+    };
+    let Ok(preview) = plan_render(&DiskView(&cwd), &admitted.config, &cwd, &options) else {
+        return Outcome::Delegate;
+    };
+    let mut stderr = String::new();
+    for _ in 0..2 {
+        for warning in &admitted.config.warnings {
+            stderr.push_str(warning);
+            stderr.push('\n');
+        }
+    }
+    let plan = if preview_only {
+        preview
+    } else {
+        let Some(home) = home() else {
+            return Outcome::Delegate;
+        };
+        if registry_needs_refresh(&home, &cwd, config_name(&admitted.config).as_deref()) {
+            return Outcome::Delegate;
+        }
+        let _ = std::io::stderr().write_all(stderr.as_bytes());
+        stderr.clear();
+        match apply_render(&cwd, &admitted.config, &options) {
+            Ok((plan, record)) => {
+                stderr = record;
+                plan
+            }
+            Err(message) => {
+                let _ = writeln!(std::io::stderr(), "{message}");
+                return Outcome::Exit(ExitCode::FAILURE);
+            }
+        }
+    };
+    let stdout = if json {
+        let Some(text) = render_json(cwd_text, &plan).stringify(Some(2)) else {
+            return Outcome::Delegate;
+        };
+        format!("{text}\n")
+    } else {
+        human_report(Clack::from_env(), cwd_text, &plan)
+    };
+    let _ = std::io::stderr().write_all(stderr.as_bytes());
+    let _ = std::io::stdout().write_all(stdout.as_bytes());
+    Outcome::Exit(ExitCode::SUCCESS)
 }
