@@ -1,5 +1,19 @@
-# navori:managed start id="master-accept-confirm-base" hash="5276c340" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:0254840027e842e3738692f8b028e315724db4e0e57dc6cb92fff00d86fbbffc impl=sha256:3d39370797ffacb35fb14f1806d96fbaf2f3055c7eb3bc735939b85f222fa814
+# navori:managed start id="master-accept-confirm-base" hash="b5215c0a" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: master-accept-confirm native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: master-accept-confirm could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: master-accept-confirm native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Bash): a manual acceptance (`navori master part … --approved-by`)
 # or a `navori master close` must be confirmed by the person whose approval it

@@ -133,17 +133,18 @@ pub(crate) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
     if inbody { input.to_owned() } else { out }
 }
 
-/// `navori_count_triggers` with `TRIGGER_STRIP_HEREDOC_BODIES=1`: segments starting with a gated
-/// op once wrappers and `VAR=value` prefixes are peeled.
+/// `navori_count_triggers`: segments starting with a gated op once wrappers and `VAR=value`
+/// prefixes are peeled; `strip` is `TRIGGER_STRIP_HEREDOC_BODIES=1`.
 pub(crate) fn count_triggers(
     input: &str,
     trigger: &Regex,
+    strip: bool,
     locale: Locale,
 ) -> Result<usize, String> {
     let assignment = ASSIGNMENT
         .as_ref()
         .map_err(|e| format!("trigger pattern: {e}"))?;
-    let input = if input.contains("<<") {
+    let input = if strip && input.contains("<<") {
         strip_heredoc_bodies(input, locale)
     } else {
         input.to_owned()
@@ -446,7 +447,7 @@ impl<'a> Facts<'a> {
     fn landing(&self, cmd: &str) -> Result<Option<Kind>, String> {
         const UNPROVEN: Result<Option<Kind>, String> = Ok(None);
         let locale = self.locale;
-        let hits = count_triggers(cmd, self.trigger, locale)?;
+        let hits = count_triggers(cmd, self.trigger, true, locale)?;
         if hits < 1 {
             return UNPROVEN;
         }

@@ -76,10 +76,32 @@ pub fn has_trigger_token(input: &str, trigger: Trigger) -> bool {
 /// # Errors
 /// A trigger pattern that does not compile.
 pub fn is_scan_trigger(input: &str, trigger: Trigger, locale: Locale) -> Result<bool, String> {
-    if !has_trigger_token(input, trigger) {
+    scan(
+        input,
+        trigger.tokens(),
+        trigger.regex(locale)?,
+        true,
+        locale,
+    )
+}
+
+/// `is_scan_trigger` for a hook that declares its own `$TRIGGER_TOKENS` and `$TRIGGER_RE`:
+/// false when no token appears, else whether some segment matches `regex`.
+/// `strip_heredoc_bodies` is `TRIGGER_STRIP_HEREDOC_BODIES=1`.
+///
+/// # Errors
+/// Never for a compiled `regex`; kept for the shared segment scan's signature.
+pub fn scan(
+    input: &str,
+    tokens: &[&str],
+    regex: &Regex,
+    strip_heredoc_bodies: bool,
+    locale: Locale,
+) -> Result<bool, String> {
+    if !tokens.iter().any(|token| input.contains(token)) {
         return Ok(false);
     }
-    Ok(count_triggers(input, trigger.regex(locale)?, locale)? > 0)
+    Ok(count_triggers(input, regex, strip_heredoc_bodies, locale)? > 0)
 }
 
 #[cfg(test)]
