@@ -122,7 +122,8 @@ fn registry(evaluate: fn(&[u8], &Invocation) -> Result<Evaluation, Failure>) -> 
         id: "example",
         implementation: HASH,
         handler: Handler::Pure(evaluate),
-        phase: "PreToolUse",
+        phase: navori_cli::hook::pre_tool_use,
+        defers: navori_cli::hook::never,
         tool: None,
     }]
 }
@@ -882,7 +883,8 @@ fn compiled_hash_mismatch_and_non_engine_script_paths_defer() -> TestResult {
         id: "example",
         implementation: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         handler: Handler::Pure(record),
-        phase: "PreToolUse",
+        phase: navori_cli::hook::pre_tool_use,
+        defers: navori_cli::hook::never,
         tool: None,
     }];
     assert_eq!(
@@ -1094,7 +1096,8 @@ mod prepared_handlers {
             id: "example",
             implementation: HASH,
             handler: Handler::Prepared(prepare),
-            phase: "PreToolUse",
+            phase: navori_cli::hook::pre_tool_use,
+            defers: navori_cli::hook::never,
             tool: None,
         }]
     }

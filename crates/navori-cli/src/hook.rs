@@ -48,10 +48,74 @@ pub struct NativeHook {
     pub implementation: &'static str,
     /// Buffered evaluation. It never receives stdout/stderr writers.
     pub handler: Handler,
-    /// Audit phase the shell hook declares (`navori_audit_phase`).
-    pub phase: &'static str,
+    /// Audit phase the shell hook declares (`navori_audit_phase`), as a function of the mode the
+    /// call carries: the table of the script's `case "$mode"` (0059 D31).
+    pub phase: fn(&Invocation) -> &'static str,
+    /// Preflight: a call this hook leaves to its shell. It defers with exit 3 after integrity and
+    /// before any stdin or host probe, so the shell decides with the payload intact (0059 D31).
+    pub defers: fn(&Invocation) -> bool,
     /// Tool the shell hook declares (`navori_audit_tool`), if any.
     pub tool: Option<&'static str>,
+}
+
+/// The audit phase of a hook whose script declares one fixed `PreToolUse`.
+#[must_use]
+pub fn pre_tool_use(_: &Invocation) -> &'static str {
+    "PreToolUse"
+}
+
+/// A hook with no call to leave to its shell.
+#[must_use]
+pub fn never(_: &Invocation) -> bool {
+    false
+}
+
+/// The mode tables of the hooks whose scripts branch on `$1`/`$2` (0059 D31): the audit phase and
+/// the calls that stay with the shell. A mode no table lists is never guessed: it defers.
+pub mod modes {
+    use super::Invocation;
+
+    /// `$1`: the first hook argument; `None` when it is not UTF-8, so no table can list it.
+    fn first(invocation: &Invocation) -> Option<&str> {
+        match invocation.args.first() {
+            None => Some(""),
+            Some(arg) => arg.to_str(),
+        }
+    }
+
+    /// `model-advisor.sh`'s `case "$mode"`.
+    #[must_use]
+    pub fn model_advisor_phase(invocation: &Invocation) -> &'static str {
+        match first(invocation) {
+            Some("claude-session-start" | "codex-session-start") => "SessionStart",
+            Some("claude-post-model-switch") => "PostModelSwitch",
+            Some("claude-stop") => "Stop",
+            Some("codex-pretool-profile") => "PreToolUse",
+            _ => "unknown",
+        }
+    }
+
+    /// `codex-pretool-profile` runs `navori codex profile hook` (phase 4), and an unknown mode is
+    /// never guessed.
+    #[must_use]
+    pub fn model_advisor_defers(invocation: &Invocation) -> bool {
+        matches!(model_advisor_phase(invocation), "unknown" | "PreToolUse")
+    }
+
+    /// `subagent-stop-handoff.sh` always declares `PostToolUse`.
+    #[must_use]
+    pub fn subagent_stop_phase(_: &Invocation) -> &'static str {
+        "PostToolUse"
+    }
+
+    /// Claude registers it with no argument and Codex with `codex`; `codex capture-start` (spec
+    /// 0042) registers the start of a child capture and stays with the shell, as does any other
+    /// shape.
+    #[must_use]
+    pub fn subagent_stop_defers(invocation: &Invocation) -> bool {
+        let args: Vec<Option<&str>> = invocation.args.iter().map(|a| a.to_str()).collect();
+        !matches!(args.as_slice(), [] | [Some("codex")])
+    }
 }
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
@@ -63,7 +127,8 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("subagent-no-background")
                 .unwrap_or_default(),
             handler: Handler::Prepared(hook_facts::prepare_subagent_no_background),
-            phase: "PreToolUse",
+            phase: pre_tool_use,
+            defers: never,
             tool: None,
         },
         NativeHook {
@@ -71,7 +136,8 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 2]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("guard-destructive")
                 .unwrap_or_default(),
             handler: Handler::Prepared(hook_facts::prepare_guard_destructive),
-            phase: "PreToolUse",
+            phase: pre_tool_use,
+            defers: never,
             tool: Some("Bash"),
         },
     ]
@@ -298,6 +364,10 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
     if !integrity::verify(&source, &dependency_slices, handler.implementation) {
         return defer(mode, "hook integrity mismatch", stderr);
     }
+    // A call this hook leaves to its shell: after integrity, before stdin or any host probe.
+    if (handler.defers)(&invocation) {
+        return defer(mode, "hook mode is left to the shell", stderr);
+    }
     let context = Context {
         engine: invocation.engine,
         hook: &invocation.id,
@@ -419,7 +489,7 @@ fn audited(
     payload: &[u8],
     evaluate: impl FnOnce(&[u8]) -> Result<Evaluation, Failure>,
 ) -> Result<Evaluation, Failure> {
-    let phase = handler.phase;
+    let phase = (handler.phase)(invocation);
     let root = audit_root();
     let parsed = HookPayload::parse(payload);
     let snapshot = root
