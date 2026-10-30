@@ -30,6 +30,8 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *                                                         compares the event Rust drops in the session spool
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
  *                                                            `NAVORI_HOOK_CORPUS=<dir> vitest run`
+ *   ... --generate <dir> --hook a.sh --append              widen the committed corpus with the captured cases it lacks
+ *                                                            (spec 0059 R54), keeping every committed case
  *
  * A case is `{ hook, engine, shell, input, envDelta, cwdKind, expected: { off, active } }`. The hook
  * is a core asset name, re-expanded from `packages/core/core-assets/hooks` and installed under the
@@ -54,14 +56,18 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo" }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[] }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
- * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
+ * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, append: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
 export function caseKey(c) {
-  return JSON.stringify([c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()]);
+  const key = [c.hook, c.engine, c.shell, c.cwdKind, c.input, Object.entries(c.envDelta).sort()];
+  // The hook's arguments (its mode, `$1`) are part of the identity only when it got some, so the
+  // cases captured before they were recorded keep their keys.
+  if (c.args !== undefined && c.args.length > 0) key.push(c.args);
+  return JSON.stringify(key);
 }
 
 /**
@@ -85,8 +91,16 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind } = line;
-      included.set(caseKey(line), { hook, engine, shell, input, envDelta, cwdKind });
+      const { hook, engine, shell, input, envDelta, cwdKind, args } = line;
+      included.set(caseKey(line), {
+        hook,
+        engine,
+        shell,
+        input,
+        envDelta,
+        cwdKind,
+        ...(args !== undefined && args.length > 0 ? { args } : {}),
+      });
     } else {
       const reason = line.reason ?? "unknown";
       slot.excluded[reason] = (slot.excluded[reason] ?? 0) + 1;
@@ -340,7 +354,7 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
           spools[i] = armAudit(auditsRoot, input, cwd);
         }
         env.NAVORI_AUDITS_ROOT = mode === "active" ? auditsRoot : join(scratch.root, "no-audits");
-        return { input, env, cwd };
+        return { input, env, cwd, args: c.args ?? [] };
       });
       const outputs = impl === "rust" ? batchCases.map((c) => {
         const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
@@ -401,11 +415,16 @@ function readRaw(dir) {
  * @param {string} [outDir]
  * @param {string[]} [only] hook file names
  * @param {boolean} [stable] run each mode twice and drop unstable cases
+ * @param {boolean} [append] keep the committed cases and add only the captured ones they lack; the
+ *   coverage entry of a hook then counts its committed cases plus the new ones. For widening a
+ *   corpus (spec 0059 R54) from a focused capture, without re-running the whole suite.
  */
-export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable = false) {
+export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable = false, append = false) {
   const merged = mergeRaw(readRaw(rawDir));
   const wanted = (hook) => only === undefined || only.includes(hook);
-  const cases = merged.cases.filter((c) => wanted(c.hook));
+  const committed = append && existsSync(outDir) ? readCorpus(outDir) : [];
+  const have = new Set(committed.map((c) => caseKey(c)));
+  const cases = merged.cases.filter((c) => wanted(c.hook) && !have.has(caseKey(c)));
   if (cases.length === 0) throw new Error("selection contains no corpus cases");
   const observed = merged.observed;
   const deps = await loadDeps();
@@ -426,13 +445,23 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
     });
     const generated = [...byHook.values()].flat().length;
     if (generated === 0) throw new Error("generation produced no stable corpus cases");
+    if (append && !existsSync(outDir)) throw new Error("--append needs a committed corpus");
     mkdirSync(outDir, { recursive: true });
     const coveragePath = join(outDir, "coverage.json");
     const coverage = existsSync(coveragePath) ? JSON.parse(readFileSync(coveragePath, "utf8")) : {};
     const hooks = new Set([...readdirSync(HOOKS_SOURCE).filter((n) => n.endsWith(".sh")), ...Object.keys(observed)]);
     for (const hook of [...hooks].sort().filter(wanted)) {
-      const kept = byHook.get(hook) ?? [];
-      const entry = observed[hook] ?? { observed: 0, included: 0, excluded: {} };
+      const added = byHook.get(hook) ?? [];
+      if (append && added.length === 0) continue;
+      const kept = append ? [...committed.filter((c) => c.hook === hook), ...added] : added;
+      const entry = append
+        ? {
+            ...(coverage[hook] ?? { observed: 0, included: 0, excluded: {} }),
+            observed: (coverage[hook]?.observed ?? 0) + added.length,
+            included: (coverage[hook]?.included ?? 0) + added.length,
+          }
+        : (observed[hook] ?? { observed: 0, included: 0, excluded: {} });
+      if (append) delete entry.note;
       // A hook with no case says why: the reasons its invocations were excluded, or that no test runs it.
       if (kept.length === 0) entry.note = Object.keys(entry.excluded).join(", ") || "never invoked by a test";
       coverage[hook] = entry;
@@ -573,7 +602,7 @@ function printCoverage() {
  */
 export function parseReplayArgs(argv) {
   /** @type {ReplayArgs} */
-  const options = { impl: "shell", modes: MODES, all: false, stable: false, coverage: false };
+  const options = { impl: "shell", modes: MODES, all: false, stable: false, coverage: false, append: false };
   /** @type {Set<string>} */
   const seen = new Set();
   for (let i = 0; i < argv.length; i += 1) {
@@ -581,8 +610,9 @@ export function parseReplayArgs(argv) {
     const key = flag === "--only" ? "--hook" : flag;
     if (seen.has(key)) throw new Error(`duplicate option ${flag}`);
     seen.add(key);
-    if (["--all", "--check-stable", "--coverage"].includes(flag)) {
-      options[flag === "--all" ? "all" : flag === "--coverage" ? "coverage" : "stable"] = true;
+    if (["--all", "--check-stable", "--coverage", "--append"].includes(flag)) {
+      const field = { "--all": "all", "--check-stable": "stable", "--coverage": "coverage", "--append": "append" }[flag];
+      options[field] = true;
       continue;
     }
     if (!["--impl", "--audit", "--only", "--hook", "--shell", "--generate"].includes(flag)) {
@@ -615,6 +645,7 @@ export function parseReplayArgs(argv) {
     }
   }
   if (options.stable && options.generate === undefined) throw new Error("--check-stable requires --generate");
+  if (options.append && options.generate === undefined) throw new Error("--append requires --generate");
   if (options.generate !== undefined && (options.coverage || seen.has("--impl") || seen.has("--audit") || options.shell !== undefined || options.all)) {
     throw new Error("--generate cannot be combined with replay or coverage options");
   }
@@ -631,7 +662,7 @@ export function parseReplayArgs(argv) {
 export async function main(argv) {
   const options = parseReplayArgs(argv);
   if (options.generate !== undefined) {
-    const result = await generateCorpus(resolve(options.generate), CORPUS_DIR, options.only, options.stable);
+    const result = await generateCorpus(resolve(options.generate), CORPUS_DIR, options.only, options.stable, options.append);
     process.stdout.write(`hook-verdict-replay: wrote ${result.cases} cases (${result.candidates} candidates)\n`);
     return 0;
   }

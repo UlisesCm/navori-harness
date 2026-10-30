@@ -32,6 +32,8 @@ export interface RawCorpusLine {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  /** The hook's own arguments (its mode, `$1`); absent when it got none. */
+  args?: string[];
   /** `included` lines become cases; the others only feed the coverage denominator. */
   status: "included" | "excluded";
   reason?: string;
@@ -138,6 +140,7 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     input: tokenize(c.input),
     envDelta,
     cwdKind: tempCwd ? "none" : "repo",
+    ...(c.args !== undefined && c.args.length > 0 ? { args: [...c.args] } : {}),
     status: "included",
   };
   const out: RawCorpusLine =

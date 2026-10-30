@@ -62,6 +62,40 @@ describe("hook-batch", () => {
     }
   });
 
+  // Covers: R51, R54
+  it("los argumentos del hook llegan como $1, $2 y $# igual que en un spawn aislado", () => {
+    // The mode of a hook (`model-advisor.sh claude-stop`) is its first argument.
+    const argsHook = writeHook(
+      "args.sh",
+      'printf "%s|" "$#" "${1-unset}" "${2-unset}"; printf "\\n"',
+    );
+    const cases: HookCase[] = [
+      { input: "" },
+      { input: "", args: [] },
+      { input: "", args: ["claude-stop"] },
+      { input: "", args: ["codex", "capture-start"] },
+      { input: "", args: ["it's", 'quo"ted $x', "two words", ""] },
+    ];
+    for (const shell of BATCH_SHELLS) {
+      const batch = runHookBatch(argsHook, shell, cases);
+      expect(batch).toEqual(cases.map((c) => runHookIsolated(argsHook, shell, c)));
+      expect(batch.map((r) => r.stdout)).toEqual([
+        "0|unset|unset|\n",
+        "0|unset|unset|\n",
+        "1|claude-stop|unset|\n",
+        "2|codex|capture-start|\n",
+        "4|it's|quo\"ted $x|\n",
+      ]);
+      // The same input with another mode is another case, never served from the first one's cache.
+      const memo = createHookBatch(argsHook);
+      memo.prime([shell], cases);
+      expect(memo.run(shell, cases[2] as HookCase).stdout).toBe("1|claude-stop|unset|\n");
+      expect(memo.run(shell, { input: "", args: ["claude-stop", "x"] }).stdout).toBe(
+        "2|claude-stop|x|\n",
+      );
+    }
+  });
+
   // Covers: R16, R18
   it("cwd conserva espacios y newlines internos y elimina newlines finales como el driver original", () => {
     const cwdHook = writeHook("cwd.sh", "pwd -P");

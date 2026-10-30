@@ -34,6 +34,7 @@ interface Case {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  args?: string[];
 }
 interface Verdict {
   status: number;
@@ -846,6 +847,28 @@ describe("hook verdict corpus", () => {
         { status: 0, stdout: "a", stderr: "" },
       ),
     ).toBeNull();
+  });
+
+  // Covers: R54
+  it("los argumentos del hook son parte de la identidad del caso solo cuando los hay", () => {
+    const plain = base("x");
+    // A case with no arguments keeps the key it had before they were recorded.
+    expect(replay.caseKey({ ...plain, args: [] })).toBe(replay.caseKey(plain));
+    expect(replay.caseKey({ ...plain, args: ["claude-stop"] })).not.toBe(replay.caseKey(plain));
+    expect(replay.caseKey({ ...plain, args: ["claude-stop"] })).not.toBe(
+      replay.caseKey({ ...plain, args: ["claude-session-start"] }),
+    );
+    // The same payload under two modes is two cases, and `args` survives the merge.
+    const { cases } = replay.mergeRaw([
+      { ...base("1"), hook: "m.sh", status: "included" },
+      { ...base("1"), hook: "m.sh", status: "included", args: ["claude-stop"] },
+      { ...base("1"), hook: "m.sh", status: "included", args: ["claude-stop"] },
+    ] as never);
+    const modes = cases.map((c) => JSON.stringify((c as { args?: string[] }).args ?? null));
+    expect(modes.sort()).toEqual(['["claude-stop"]', "null"]);
+    const parsed = replay.parseReplayArgs(["--generate", "/tmp/raw", "--hook", "m", "--append"]);
+    expect(parsed).toMatchObject({ generate: "/tmp/raw", append: true, only: ["m.sh"] });
+    expect(() => replay.parseReplayArgs(["--append"])).toThrow("--append requires --generate");
   });
 
   // Covers: R13

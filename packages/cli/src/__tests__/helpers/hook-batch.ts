@@ -27,6 +27,8 @@ export interface HookCase {
   env?: Record<string, string>;
   /** Working directory of the case; defaults to the caller's cwd. */
   cwd?: string;
+  /** The hook's own arguments (its mode, `$1`), as its registered command passes them. */
+  args?: readonly string[];
 }
 
 /** Observable outcome of one case, identical in shape for batch and isolated runs. */
@@ -51,6 +53,7 @@ const DRIVER = [
   "      (",
   '        if [ -f "$d/$n.cwd" ]; then cd "$(< "$d/$n.cwd")" || exit 97; fi',
   '        if [ -f "$d/$n.env" ]; then . "$d/$n.env"; fi',
+  '        if [ -f "$d/$n.args" ]; then . "$d/$n.args"; fi',
   '        . "$0"',
   '      ) < "$d/$n.in" > "$d/$n.out" 2> "$d/$n.err"',
   '      printf \'@@case %s %s\\n\' "$n" "$?"',
@@ -69,7 +72,7 @@ const LANES = Math.max(1, Math.min(4, availableParallelism() - 1));
 /** Real spawn of one case: the reference behavior a batch must reproduce. */
 export function runHookIsolated(hookPath: string, shell: HookShell, c: HookCase): HookCaseResult {
   recordHookCase(hookPath, shell, c);
-  const r = spawnSync(shell, [hookPath], {
+  const r = spawnSync(shell, [hookPath, ...(c.args ?? [])], {
     input: c.input,
     cwd: c.cwd,
     env: { ...process.env, ...c.env },
@@ -102,6 +105,12 @@ export function runHookBatch(
       const n = i + 1;
       writeFileSync(join(dir, `${n}.in`), c.input);
       if (c.cwd !== undefined) writeFileSync(join(dir, `${n}.cwd`), c.cwd);
+      if (c.args !== undefined && c.args.length > 0) {
+        writeFileSync(
+          join(dir, `${n}.args`),
+          `set -- ${c.args.map((arg) => shellSingleQuote(arg)).join(" ")}\n`,
+        );
+      }
       const env = Object.entries(c.env ?? {});
       if (env.length > 0) {
         writeFileSync(
@@ -156,7 +165,7 @@ export interface HookBatch {
 }
 
 const keyOf = (shell: HookShell, c: HookCase): string =>
-  JSON.stringify([shell, c.input, c.env ?? null, c.cwd ?? null]);
+  JSON.stringify([shell, c.input, c.env ?? null, c.cwd ?? null, c.args ?? null]);
 
 /** Creates a {@link HookBatch} bound to one hook path. */
 export function createHookBatch(hookPath: string): HookBatch {
