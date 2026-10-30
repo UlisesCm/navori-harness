@@ -6,6 +6,7 @@ pub mod delegate;
 pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
+pub mod handoff;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;
@@ -156,6 +157,22 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["spec"],
         run: spec::run_group,
+    },
+    NativeCommand {
+        path: &["handoff", "check"],
+        run: handoff::run_check,
+    },
+    NativeCommand {
+        path: &["handoff", "render"],
+        run: handoff::run_render,
+    },
+    NativeCommand {
+        path: &["handoff", "log-review"],
+        run: handoff::run_log_review,
+    },
+    NativeCommand {
+        path: &["handoff"],
+        run: handoff::run_group,
     },
     NativeCommand {
         path: &["adopt"],
