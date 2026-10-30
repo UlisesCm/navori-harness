@@ -1,31 +1,38 @@
 {
   "backups": [
     {
-      "name": "x-old",
+      "name": "x-2026-01-01T00-00-00-000-p1-0",
       "mtime": "-40d",
       "files": {
         "CLAUDE.md": "old\n"
       }
     },
     {
-      "name": "x-big-older",
+      "name": "x-2026-01-01T00-00-00-000-p1-1",
       "mtime": "-10d",
       "sparse": {
         "big.bin": 1342177280
       }
     },
     {
-      "name": "x-recent",
+      "name": "x-2026-01-01T00-00-00-000-p1-2",
       "mtime": "-5d",
       "files": {
         "CLAUDE.md": "recent\n"
       }
     },
     {
-      "name": "x-big-newer",
+      "name": "x-2026-01-01T00-00-00-000-p1-3",
       "mtime": "-2d",
       "sparse": {
         "big.bin": 1342177280
+      }
+    },
+    {
+      "name": "my-project",
+      "mtime": "-40d",
+      "files": {
+        "README.md": "not a backup\n"
       }
     }
   ]
