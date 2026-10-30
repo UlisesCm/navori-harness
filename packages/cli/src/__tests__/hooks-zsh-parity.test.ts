@@ -21,6 +21,7 @@ interface CorpusCase {
   engine: string;
   shell: string;
   input: string;
+  expected: { off: { stderr: string } };
 }
 interface Replay {
   readCorpus: () => CorpusCase[];
@@ -45,18 +46,39 @@ const hasZsh = spawnSync("zsh", ["-c", "exit 0"]).status === 0;
  * its hard block when navori is missing (zsh asks, exit 0; bash blocks, exit 2). The hook rule
  * (resolve-worktree.sh: "NEVER read `$0` inside a `navori_*` function") is already written; the
  * hook still has to follow it. Delete the entry when it does: the second test fails to say so.
+ *
+ * The same `$0` read is what every Codex case that reaches `plan_gate_no_verdict` in an asking
+ * permission mode shows (navori missing, or a `plan` subcommand that fails): they are matched by
+ * what bash printed, not by one input.
+ *
+ * `quality-gate-pre-commit.sh` is a corpus artifact, not a hook bug: the corpus runs the UNRENDERED
+ * asset, so the gate command is the word `{{shq:qualityGate.fast}}`. Bash runs it as a command name
+ * (a fixture defines one); zsh reads `{{…}}` as a brace expansion and fails to parse it. A rendered
+ * gate has no braces, so this never happens in a repo.
  */
 const KNOWN_DIVERGENCES = [
   {
     hook: "plan-gate.sh",
-    engine: "codex",
+    engine: "codex" as string | undefined,
     reason: "`$0` read inside plan_gate_no_verdict: zsh sees the function name, codex_copy stays 0",
-    matches: (c: CorpusCase): boolean => c.input.includes("workplan: x"),
+    matches: (c: CorpusCase): boolean =>
+      c.input.includes("workplan: x") ||
+      (/"permission_mode":"(default|acceptEdits|auto)"/.test(c.input) &&
+        /navori is not installed|no working 'plan' subcommand/.test(c.expected.off.stderr)),
+  },
+  {
+    hook: "quality-gate-pre-commit.sh",
+    engine: undefined as string | undefined,
+    reason: "the unrendered gate `{{shq:qualityGate.fast}}` is a brace expansion to zsh's eval",
+    matches: (c: CorpusCase): boolean =>
+      c.expected.off.stderr.includes("running quality-gate fast: {{shq:qualityGate.fast}}"),
   },
 ];
 
 const isKnown = (c: CorpusCase): boolean =>
-  KNOWN_DIVERGENCES.some((k) => k.hook === c.hook && k.engine === c.engine && k.matches(c));
+  KNOWN_DIVERGENCES.some(
+    (k) => k.hook === c.hook && (k.engine === undefined || k.engine === c.engine) && k.matches(c),
+  );
 
 describe.runIf(hasZsh)("hooks under zsh", () => {
   const capturedUnderBash = replay.readCorpus().filter((c) => c.shell === "bash");
