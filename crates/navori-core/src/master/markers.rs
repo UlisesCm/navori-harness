@@ -1,6 +1,6 @@
 //! `lib/master/markers.ts`: the prose literals `check` parses out of architect-written Markdown and
-//! the labels `STATUS.md` and the `navori:master-parts` region are rendered with, by language.
-//! `CLOSURE.md`'s labels are not here: nothing native renders it yet.
+//! the labels `STATUS.md`, the `navori:master-parts` region and `CLOSURE.md` are rendered with,
+//! by language.
 
 /// `MasterMarkers.status`.
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +31,24 @@ pub struct PartsLabels {
     pub state: &'static str,
 }
 
+/// `MasterMarkers.closure`: the labels of `CLOSURE.md`.
+#[derive(Debug, Clone, Copy)]
+pub struct ClosureLabels {
+    pub title: &'static str,
+    pub outcome: &'static str,
+    pub opened: &'static str,
+    pub closed: &'static str,
+    pub reason: &'static str,
+    pub phase: &'static str,
+    pub parts: &'static str,
+    pub criteria: &'static str,
+    pub decisions: &'static str,
+    pub part_columns: [&'static str; 5],
+    pub criterion_columns: [&'static str; 4],
+    pub unverified: &'static str,
+    pub approved_by_user: &'static str,
+}
+
 /// `MasterMarkers`.
 #[derive(Debug, Clone, Copy)]
 pub struct Markers {
@@ -54,6 +72,7 @@ pub struct Markers {
     pub codebase_headers: [&'static str; 4],
     pub status: StatusLabels,
     pub parts: PartsLabels,
+    pub closure: ClosureLabels,
 }
 
 const ES: Markers = Markers {
@@ -98,6 +117,21 @@ const ES: Markers = Markers {
         seed_requirements: "Requisitos semilla",
         state: "Estado",
     },
+    closure: ClosureLabels {
+        title: "Cierre",
+        outcome: "Resultado",
+        opened: "Apertura",
+        closed: "Cierre",
+        reason: "Raz\u{f3}n",
+        phase: "Fase",
+        parts: "Partes",
+        criteria: "Criterios",
+        decisions: "Decisiones",
+        part_columns: ["ID", "Estado", "Spec", "Issue", "Raz\u{f3}n"],
+        criterion_columns: ["ID", "M\u{e9}todo", "Evidencia", "Fecha"],
+        unverified: "no verificado",
+        approved_by_user: "aprobado por el usuario",
+    },
 };
 
 const EN: Markers = Markers {
@@ -141,6 +175,21 @@ const EN: Markers = Markers {
         depends_on: "Dependencies",
         seed_requirements: "Seed requirements",
         state: "State",
+    },
+    closure: ClosureLabels {
+        title: "Closure",
+        outcome: "Outcome",
+        opened: "Opened",
+        closed: "Closed",
+        reason: "Reason",
+        phase: "Phase",
+        parts: "Parts",
+        criteria: "Criteria",
+        decisions: "Decisions",
+        part_columns: ["ID", "State", "Spec", "Issue", "Reason"],
+        criterion_columns: ["ID", "Method", "Evidence", "Date"],
+        unverified: "not verified",
+        approved_by_user: "approved by the user",
     },
 };
 

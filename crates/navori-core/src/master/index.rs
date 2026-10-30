@@ -83,6 +83,35 @@ impl MasterIndex {
             .rev()
             .find(|s| s.state == StageState::Closed)
     }
+
+    /// The object `MasterIndexSchema.parse` returns, in its key order: what `save` writes back.
+    #[must_use]
+    pub fn to_json(&self) -> JsValue {
+        let optional =
+            |value: &Option<String>| value.as_deref().map_or(JsValue::Null, JsValue::string);
+        let stages = self
+            .stages
+            .iter()
+            .map(|stage| {
+                let mut entry = JsObject::new();
+                entry.insert("number", JsValue::Number(stage.number));
+                entry.insert("slug", JsValue::string(&stage.slug));
+                entry.insert("dir", JsValue::string(&stage.dir));
+                entry.insert("state", JsValue::string(stage.state.as_str()));
+                entry.insert("openedAt", JsValue::string(&stage.opened_at));
+                entry.insert("closedAt", optional(&stage.closed_at));
+                entry.insert("spec", optional(&stage.spec));
+                if stage.deliveries {
+                    entry.insert("workflow", JsValue::string("deliveries"));
+                }
+                JsValue::Object(entry)
+            })
+            .collect();
+        let mut index = JsObject::new();
+        index.insert("version", JsValue::Number(self.version));
+        index.insert("stages", JsValue::Array(stages));
+        JsValue::Object(index)
+    }
 }
 
 /// `Number.MAX_SAFE_INTEGER`.

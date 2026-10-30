@@ -871,7 +871,7 @@ pub fn run_master_check(
 }
 
 /// `sha256Normalized(content)`.
-fn sha256_normalized(content: &str) -> String {
+pub(crate) fn sha256_normalized(content: &str) -> String {
     Sha256::digest(normalize_eol(content).as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))

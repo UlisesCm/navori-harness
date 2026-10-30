@@ -159,7 +159,7 @@ const AUDIT_VARS: [&str; 5] = [
 ];
 
 /// Whether `appendCliEvent` could find an audit session to write to.
-fn audit_may_write() -> bool {
+pub(crate) fn audit_may_write() -> bool {
     AUDIT_VARS
         .iter()
         .any(|name| std::env::var_os(name).is_some())

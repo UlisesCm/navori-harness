@@ -66,6 +66,8 @@ pub struct Criterion {
     /// or the manual check.
     pub detail: String,
     pub evidence: Evidence,
+    /// `evidence.date`.
+    pub evidence_date: Option<String>,
 }
 
 /// A part the schema accepts: what status reads.
@@ -342,6 +344,7 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
     let id = text(o.get("id"))?;
     numbered_id(&id, 'A').ok_or(Invalid)?;
     let description = non_empty(o.get("description"))?;
+    let mut evidence_date = None;
     let evidence = match o.get("evidence") {
         None | Some(JsValue::Undefined | JsValue::Null) => Evidence::None,
         Some(e) => {
@@ -351,14 +354,14 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
                     non_empty(e.get("command"))?;
                     non_empty(e.get("result"))?;
                     non_empty(e.get("commit"))?;
-                    date(e.get("date"))?;
+                    evidence_date = Some(date(e.get("date"))?);
                     Evidence::Run
                 }
                 "approval" => {
                     if text(e.get("approvedBy"))? != "user" {
                         return Err(Invalid);
                     }
-                    date(e.get("date"))?;
+                    evidence_date = Some(date(e.get("date"))?);
                     Evidence::Approval
                 }
                 _ => return Err(Invalid),
@@ -411,6 +414,7 @@ fn criterion(value: &JsValue) -> Result<(Criterion, Vec<String>), Invalid> {
             method,
             detail,
             evidence,
+            evidence_date,
         },
         texts,
     ))

@@ -12,6 +12,7 @@ pub mod hook_facts;
 pub mod journal;
 pub(crate) mod js_path;
 pub mod master;
+pub mod master_close;
 pub mod master_read;
 pub mod master_write;
 pub mod model_advisor;
@@ -123,6 +124,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["master", "ux"],
         run: master_write::run_ux,
+    },
+    NativeCommand {
+        path: &["master", "close"],
+        run: master_close::run_close,
     },
     NativeCommand {
         path: &["master", "part"],

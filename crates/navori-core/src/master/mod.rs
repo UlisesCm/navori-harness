@@ -3,6 +3,7 @@
 
 pub mod check_part;
 pub mod checks;
+pub mod close;
 pub mod fit;
 pub mod index;
 pub mod markers;
