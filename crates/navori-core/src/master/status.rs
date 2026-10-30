@@ -323,6 +323,27 @@ pub fn legacy(
     let stage_path = master_dir.join(&stage.dir);
     let state =
         state::master_state(&read_json(&stage_path.join("state.json"))?).map_err(|_| Delegate)?;
+    legacy_with_state(cwd, specs_dir, master_dir, index, stage, config, state)
+}
+
+/// [`legacy`] over a `state.json` already in memory: what `readMasterStatus` returns once the
+/// file holds `state`. `advance` computes the derived files from it before it writes anything.
+///
+/// # Errors
+/// [`Delegate`] as [`legacy`].
+pub fn legacy_with_state(
+    cwd: &str,
+    specs_dir: &str,
+    master_dir: &Path,
+    index: &MasterIndex,
+    stage: &StageEntry,
+    config: PartConfig,
+    state: MasterState,
+) -> Result<LegacyStatus, Delegate> {
+    if stage.deliveries {
+        return Err(Delegate);
+    }
+    let stage_path = master_dir.join(&stage.dir);
     let parts_path = stage_path.join("parts.json");
     let parts: Vec<Part> = if parts_path.exists() {
         state::parts(&read_json(&parts_path)?).map_err(|_| Delegate)?

@@ -34,13 +34,18 @@ pub const PART_STATES: [&str; 5] = ["pendiente", "parcial", "hecho", "descartada
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 /// A legacy `state.json` the schema accepts: the fields `readMasterStatus` reads.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MasterState {
     pub phase: &'static str,
     pub mode: Option<&'static str>,
     pub ux: Option<&'static str>,
+    /// `outcome`: set once `master close` has started.
+    pub outcome: Option<&'static str>,
     /// The phases of `history`, in order.
     pub history: Vec<&'static str>,
+    /// `MasterStateSchema.parse(raw)` as zod returns it: schema key order, defaults filled in,
+    /// unknown keys stripped. `advance` serializes this object after it moves the phase.
+    pub normalized: JsValue,
 }
 
 /// `evidence` of a criterion.
@@ -189,27 +194,38 @@ pub fn master_state(raw: &JsValue) -> Result<MasterState, Invalid> {
         integer(v, 0.0)
     })?;
     nullable(signal.get("framework"), false, text)?;
-    array_or_empty(signal.get("libraries"), string_item)?;
+    let libraries = array_or_empty(signal.get("libraries"), |v| {
+        string_item(v)?;
+        Ok(v.clone())
+    })?;
     one_of(signal.get("suggested"), &MASTER_MODES)?;
     let outcome = nullable(o.get("outcome"), true, |v| one_of(v, &OUTCOMES))?;
-    if !absent(o.get("closedAt")) {
+    let closed_at = if absent(o.get("closedAt")) {
+        None
+    } else {
         date(o.get("closedAt"))?;
-    }
+        o.get("closedAt").cloned()
+    };
     let abandonment = if absent(o.get("abandonment")) {
-        false
+        None
     } else {
         let a = object(o.get("abandonment").ok_or(Invalid)?)?;
         non_empty(a.get("reason"))?;
         one_of(a.get("phase"), &MASTER_PHASES)?;
-        true
+        Some(fields(a, &["reason", "phase"]))
     };
     let conversion = if absent(o.get("conversion")) {
-        false
+        None
     } else {
         let c = object(o.get("conversion").ok_or(Invalid)?)?;
         non_empty(c.get("spec"))?;
         non_empty(c.get("reason"))?;
-        true
+        Some(fields(c, &["spec", "reason"]))
+    };
+    let history_values = match o.get("history") {
+        None | Some(JsValue::Undefined) => Vec::new(),
+        Some(JsValue::Array(items)) => items.clone(),
+        _ => return Err(Invalid),
     };
     let history = array_or_empty(o.get("history"), |entry| {
         let e = object(entry)?;
@@ -224,15 +240,81 @@ pub fn master_state(raw: &JsValue) -> Result<MasterState, Invalid> {
     };
     let converted = outcome == Some("convertida");
     let abandoned = outcome == Some("abandonada");
-    if converted != conversion || abandoned != abandonment {
+    if converted != conversion.is_some() || abandoned != abandonment.is_some() {
         return Err(Invalid);
+    }
+    // The schema's key order; `history` entries and the nested objects keep only their own keys.
+    let mut normalized = JsObject::new();
+    normalized.insert("version", JsValue::Number(1.0));
+    normalized.insert("phase", JsValue::string(phase));
+    normalized.insert("mode", mode.map_or(JsValue::Null, JsValue::string));
+    normalized.insert(
+        "signal",
+        JsValue::Object(fields_with(
+            signal,
+            &[
+                "commits",
+                "firstCommit",
+                "filesChangedSinceFirst",
+                "framework",
+            ],
+            libraries,
+        )),
+    );
+    normalized.insert("outcome", outcome.map_or(JsValue::Null, JsValue::string));
+    if let Some(value) = closed_at {
+        normalized.insert("closedAt", value);
+    }
+    if let Some(value) = abandonment {
+        normalized.insert("abandonment", JsValue::Object(value));
+    }
+    if let Some(value) = conversion {
+        normalized.insert("conversion", JsValue::Object(value));
+    }
+    normalized.insert(
+        "history",
+        JsValue::Array(
+            history_values
+                .iter()
+                .map(|entry| match entry {
+                    JsValue::Object(e) => JsValue::Object(fields(e, &["phase", "at"])),
+                    other => other.clone(),
+                })
+                .collect(),
+        ),
+    );
+    if let Some(ux) = ux {
+        normalized.insert("ux", JsValue::string(ux));
     }
     Ok(MasterState {
         phase,
         mode,
         ux,
+        outcome,
         history,
+        normalized: JsValue::Object(normalized),
     })
+}
+
+/// A copy of `source` with only `keys`, in that order.
+fn fields(source: &JsObject, keys: &[&str]) -> JsObject {
+    let mut out = JsObject::new();
+    for key in keys {
+        if let Some(value) = source.get(key) {
+            out.insert(*key, value.clone());
+        }
+    }
+    out
+}
+
+/// `signal`: `keys`, then `libraries` (defaulted to `[]`), then `suggested`.
+fn fields_with(source: &JsObject, keys: &[&str], libraries: Vec<JsValue>) -> JsObject {
+    let mut out = fields(source, keys);
+    out.insert("libraries", JsValue::Array(libraries));
+    if let Some(value) = source.get("suggested") {
+        out.insert("suggested", value.clone());
+    }
+    out
 }
 
 /// `/^<prefix>\d+$/`, with the number it carries (`Number(id.slice(1))`).
@@ -468,14 +550,15 @@ mod tests {
         let ok = state(&format!(
             r#"{{"version":1,"phase":"executing","mode":"en-curso",{SIGNAL},"ux":"md","history":[{{"phase":"context","at":"2026-01-01"}},{{"phase":"transcribed","at":"2026-01-02"}}]}}"#
         ));
+        let ok = ok.map(|s| (s.phase, s.mode, s.ux, s.history));
         assert_eq!(
             ok,
-            Ok(MasterState {
-                phase: "executing",
-                mode: Some("en-curso"),
-                ux: Some("md"),
-                history: vec!["context", "transcribed"],
-            })
+            Ok((
+                "executing",
+                Some("en-curso"),
+                Some("md"),
+                vec!["context", "transcribed"]
+            ))
         );
         for bad in [
             format!(r#"{{"version":2,"phase":"context","mode":null,{SIGNAL}}}"#),
@@ -487,6 +570,20 @@ mod tests {
         ] {
             assert_eq!(state(&bad), Err(Invalid), "{bad}");
         }
+    }
+
+    #[test]
+    fn state_normalizes_like_zod_parse() {
+        // Schema key order, defaults filled in, unknown keys stripped at every level.
+        let raw = r#"{"extra":1,"history":[{"at":"2026-01-01","phase":"context","zz":1}],"ux":"md","mode":"en-curso","phase":"executing","version":1,"signal":{"suggested":"template","framework":null,"commits":5,"firstCommit":"2026-01-01","filesChangedSinceFirst":null,"q":1}}"#;
+        let normalized = state(raw).map(|s| s.normalized.stringify(None));
+        assert_eq!(
+            normalized,
+            Ok(Some(
+                r#"{"version":1,"phase":"executing","mode":"en-curso","signal":{"commits":5,"firstCommit":"2026-01-01","filesChangedSinceFirst":null,"framework":null,"libraries":[],"suggested":"template"},"outcome":null,"history":[{"phase":"context","at":"2026-01-01"}],"ux":"md"}"#
+                    .to_owned()
+            ))
+        );
     }
 
     const A1: &str =

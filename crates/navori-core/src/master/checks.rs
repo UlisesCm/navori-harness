@@ -718,7 +718,13 @@ fn check_master_document(ctx: &CheckContext<'_>) -> Result<Vec<String>, Delegate
 }
 
 /// `checksForTransition(ctx, target)`.
-fn checks_for_transition(ctx: &CheckContext<'_>, target: &str) -> Result<Vec<String>, Delegate> {
+///
+/// # Errors
+/// [`Delegate`] for everything listed in the module docs.
+pub fn checks_for_transition(
+    ctx: &CheckContext<'_>,
+    target: &str,
+) -> Result<Vec<String>, Delegate> {
     match target {
         "transcribed" => check_transcribed(ctx),
         "mapped" => check_mapped(ctx),
@@ -742,7 +748,8 @@ fn checks_for_transition(ctx: &CheckContext<'_>, target: &str) -> Result<Vec<Str
 }
 
 /// `nextPhase(phase)`.
-fn next_phase(phase: &str) -> Option<&'static str> {
+#[must_use]
+pub fn next_phase(phase: &str) -> Option<&'static str> {
     let at = MASTER_PHASES.iter().position(|p| *p == phase)?;
     MASTER_PHASES
         .get(at + 1)
@@ -1047,7 +1054,9 @@ mod tests {
             phase: "executing",
             mode: None,
             ux,
+            outcome: None,
             history: history.to_vec(),
+            normalized: crate::js_json::JsValue::Null,
         };
         let chain = ["context", "transcribed", "mapped"];
         assert!(check_history_chain(&state(&chain, None), "d").is_empty());
