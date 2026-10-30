@@ -50,8 +50,12 @@ fn plain(value: &OsString) -> Option<&str> {
 }
 
 /// `tools notice [--ack <pairs>]`, or `None` for the TS.
-#[must_use]
-pub fn notice(args: &[OsString]) -> Option<ExitCode> {
+pub fn notice(call: &crate::NativeCall<'_>) -> crate::Outcome {
+    crate::outcome(notice_args(call.args))
+}
+
+/// The argv-level implementation of [`notice`].
+fn notice_args(args: &[OsString]) -> Option<ExitCode> {
     let ack = match args {
         [_, _] => None,
         [_, _, flag, value] if flag == "--ack" => Some(plain(value)?),
@@ -66,8 +70,12 @@ pub fn notice(args: &[OsString]) -> Option<ExitCode> {
 }
 
 /// `tools session-context [--notice-reserve <bytes>]`, or `None` for the TS.
-#[must_use]
-pub fn session_context_command(args: &[OsString]) -> Option<ExitCode> {
+pub fn session_context_command(call: &crate::NativeCall<'_>) -> crate::Outcome {
+    crate::outcome(session_context_command_args(call.args))
+}
+
+/// The argv-level implementation of [`session_context_command`].
+fn session_context_command_args(args: &[OsString]) -> Option<ExitCode> {
     let reserve = match args {
         [_, _] => None,
         [_, _, flag, value] if flag == "--notice-reserve" => Some(notice_reserve(plain(value)?)),

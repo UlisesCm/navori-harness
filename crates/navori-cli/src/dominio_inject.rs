@@ -12,8 +12,12 @@ use navori_core::workspace::dominio::inject_text;
 use navori_core::workspace::registry::Stop;
 
 /// Runs `dominio inject`, or `None` to hand it to the TS untouched.
-#[must_use]
-pub fn run(args: &[OsString]) -> Option<ExitCode> {
+pub fn run(call: &crate::NativeCall<'_>) -> crate::Outcome {
+    crate::outcome(run_args(call.args))
+}
+
+/// The argv-level implementation of [`run`].
+fn run_args(args: &[OsString]) -> Option<ExitCode> {
     if args.len() != 2 {
         return None;
     }

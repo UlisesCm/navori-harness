@@ -77,6 +77,129 @@ pub fn read(bytes: &[u8]) -> Result<Config, Delegate> {
     Ok(Config { data, warnings })
 }
 
+/// `schemaUrl("navori.config.v1.json")`, the `$schema` `writeConfig` stamps.
+pub const SCHEMA_URL: &str =
+    "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json";
+
+/// `writeConfig(path, input)`'s text: `NavoriConfigSchema.parse({ $schema, ...input })` with the
+/// forward-compatible enums of `input` restored (`preserveForwardCompatEnums`), as
+/// `JSON.stringify(_, null, 2) + "\n"`.
+///
+/// # Errors
+/// [`Delegate::Schema`] where `parse` throws.
+pub fn write_config(input: &JsObject) -> Result<String, Delegate> {
+    let mut with_schema = JsObject::new();
+    with_schema.insert("$schema", JsValue::string(SCHEMA_URL));
+    for (key, value) in input.ordered() {
+        with_schema.insert(key.clone(), value.clone());
+    }
+    let JsValue::Object(mut out) =
+        schema::navori_config(&JsValue::Object(with_schema)).map_err(|_| Delegate::Schema)?
+    else {
+        return Err(Delegate::Schema);
+    };
+    if let Some(JsValue::Array(engines)) = input.get("engines") {
+        let mut strings: Vec<JsValue> = Vec::new();
+        for engine in engines {
+            if matches!(engine, JsValue::String(_)) && !strings.contains(engine) {
+                strings.push(engine.clone());
+            }
+        }
+        if !strings.is_empty() {
+            out.insert("engines", JsValue::Array(strings));
+        }
+    }
+    for key in ["commits", "language"] {
+        if let Some(raw @ JsValue::String(_)) = input.get(key)
+            && out.get(key) != Some(raw)
+        {
+            out.insert(key, raw.clone());
+        }
+    }
+    JsValue::Object(out)
+        .stringify(Some(2))
+        .map(|text| format!("{text}\n"))
+        .ok_or(Delegate::Schema)
+}
+
+/// What `recordHarnessVersion` does with `navori.config.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HarnessRecord {
+    /// Equal or newer already recorded, or a CLI version that does not parse.
+    Unchanged,
+    /// The new text to write atomically.
+    Recorded(String),
+    /// Not `JSON.stringify(raw, null, 2) + "\n"`: left byte-identical.
+    NonCanonical,
+    /// Not a JSON object.
+    Unreadable,
+}
+
+impl HarnessRecord {
+    /// The `RecordHarnessVersionResult` string.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Unchanged => "unchanged",
+            Self::Recorded(_) => "recorded",
+            Self::NonCanonical => "non-canonical",
+            Self::Unreadable => "unreadable",
+        }
+    }
+}
+
+/// `recordHarnessVersion(configPath, cliVersion)` over the file's text: the version lands after
+/// `version` (or `name`, or last) when absent, replaces an older one in place, and is never
+/// lowered.
+#[must_use]
+pub fn record_harness_version(text: &str, cli_version: &str) -> HarnessRecord {
+    if crate::semver::parse(cli_version).is_none() {
+        return HarnessRecord::Unchanged;
+    }
+    let Some(JsValue::Object(record)) = js_json::parse(text) else {
+        return HarnessRecord::Unreadable;
+    };
+    let canonical = JsValue::Object(record.clone()).stringify(Some(2));
+    if canonical.is_none_or(|c| format!("{c}\n") != text) {
+        return HarnessRecord::NonCanonical;
+    }
+    if let Some(JsValue::String(current)) = record.get("harnessVersion") {
+        let current = current.to_rust();
+        if matches!(
+            crate::semver::compare(Some(cli_version), current.as_deref()),
+            Some(std::cmp::Ordering::Equal | std::cmp::Ordering::Less)
+        ) {
+            return HarnessRecord::Unchanged;
+        }
+    }
+    let mut next = JsObject::new();
+    if record.has("harnessVersion") {
+        next = record;
+        next.insert("harnessVersion", JsValue::string(cli_version));
+    } else {
+        let anchor = if record.has("version") {
+            "version"
+        } else {
+            "name"
+        };
+        let mut placed = false;
+        for (key, value) in record.ordered() {
+            next.insert(key.clone(), value.clone());
+            if key.is(anchor) {
+                next.insert("harnessVersion", JsValue::string(cli_version));
+                placed = true;
+            }
+        }
+        if !placed {
+            next.insert("harnessVersion", JsValue::string(cli_version));
+        }
+    }
+    match JsValue::Object(next).stringify(Some(2)) {
+        Some(out) => HarnessRecord::Recorded(format!("{out}\n")),
+        None => HarnessRecord::Unreadable,
+    }
+}
+
 /// `{ ...value }`: own enumerable properties in JS order (`null`/`undefined` spread nothing).
 fn spread(value: Option<&JsValue>) -> JsObject {
     let mut out = JsObject::new();

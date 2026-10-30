@@ -2,6 +2,8 @@
 //! `planManagedFile` (`engines/claude/index.ts`), with `attachResolution` (spec 0058 T14): one
 //! asset rendered onto its destination becomes a write, a skip or nothing.
 
+use std::path::Path;
+
 use crate::i18n;
 use crate::markers::InjectStatus;
 use crate::render::context::Lang;
@@ -21,6 +23,52 @@ pub trait RepoView {
     fn lexists(&self, rel: &str) -> bool;
     /// `readdirSync` entry names; `None` when it throws.
     fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
+    /// `lstatSync(p).isSymbolicLink()`: `Some(false)` when absent (`ENOENT`), `None` when the
+    /// `lstat` fails any other way.
+    fn symlink(&self, rel: &str) -> Option<bool>;
+}
+
+/// [`RepoView`] over the repo on disk, rooted at its directory.
+#[derive(Debug, Clone, Copy)]
+pub struct DiskView<'a>(pub &'a Path);
+
+impl RepoView for DiskView<'_> {
+    fn read(&self, rel: &str) -> Option<String> {
+        std::fs::read_to_string(self.0.join(rel)).ok()
+    }
+
+    fn read_regular(&self, rel: &str) -> Option<String> {
+        let path = self.0.join(rel);
+        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+            return None;
+        }
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn exists(&self, rel: &str) -> bool {
+        self.0.join(rel).exists()
+    }
+
+    fn lexists(&self, rel: &str) -> bool {
+        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
+    }
+
+    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
+        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
+        Some(
+            entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect(),
+        )
+    }
+
+    fn symlink(&self, rel: &str) -> Option<bool> {
+        match std::fs::symlink_metadata(self.0.join(rel)) {
+            Ok(meta) => Some(meta.file_type().is_symlink()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    }
 }
 
 /// The path exists but `readFileSync` throws on it (a directory, say).
@@ -64,6 +112,8 @@ pub struct SkippedFile {
     pub resolution: Option<String>,
     /// `markerlessResolution.content`: the whole-file replace only `sync --interactive` offers.
     pub markerless_resolution: Option<String>,
+    /// `resolution.chmodExec`: the destination is written executable.
+    pub chmod_exec: bool,
 }
 
 /// What one managed file contributes to the plan.
@@ -113,6 +163,7 @@ pub fn collect_managed(
                 status: Some(rendered.status),
                 resolution,
                 markerless_resolution: None,
+                chmod_exec,
             });
         }
         InjectStatus::DowngradeSkipped => {
@@ -125,6 +176,7 @@ pub fn collect_managed(
                 status: Some(rendered.status),
                 resolution: None,
                 markerless_resolution: None,
+                chmod_exec: false,
             });
         }
         status => {

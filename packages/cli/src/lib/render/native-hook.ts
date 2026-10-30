@@ -14,7 +14,7 @@ const hookSchema = z.object({
   impl: hash,
 });
 const manifestSchema = z.object({
-  schema: z.literal(1),
+  schema: z.literal(2),
   hooks: z.record(z.string().regex(/^[a-z0-9_-]+$/), hookSchema),
 });
 export type NativeHook = z.infer<typeof hookSchema>;

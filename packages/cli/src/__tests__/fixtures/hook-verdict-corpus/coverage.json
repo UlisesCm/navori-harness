@@ -1,7 +1,7 @@
 {
   "guard-destructive.sh": {
-    "observed": 886,
-    "included": 886,
+    "observed": 1202,
+    "included": 1202,
     "excluded": {}
   },
   "audit-mode-close.sh": {

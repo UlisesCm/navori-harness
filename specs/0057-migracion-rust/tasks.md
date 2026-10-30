@@ -1,6 +1,7 @@
 # Migración de navori a Rust — Tasks
 
-**Estado:** E1 cerrada; E2 en progreso · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
+**Estado:** E1, E2 y E3 cerradas; la activación de `subagent-no-background` (M10: A10 y T27)
+pasa a la fase 4 (0060) por decisión del usuario (2026-10-28) · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
 "Fases del programa"): tres entregas, cada una un PR contra `migration/rust`. El LOC es una
 estimación, no una medición.
 
@@ -168,9 +169,23 @@ reproduce los 232 casos con auditoría `off` y `active`.
 ## E3 — `guard-destructive`
 Estimated LOC: 2500
 
-### M10 — Activar `subagent-no-background`
-- **A10** [observable] — criterios de D9 cumplidos · `node scripts/js/hook-shadow-report.mjs subagent-no-background` → ≥ 500 invocaciones por engine en ≥ 14 días y 0 divergencias
-- [ ] **T27** (R11) — `ported.json` pasa el hook a `active`, con el resumen de sombra adjunto al PR y aprobación del usuario · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"modo active responde Rust"
+### M10 — Activar `subagent-no-background` (movido a 0060)
+
+Decisión del usuario (2026-10-28): la ventana de sombra de 14 días no bloquea el cierre de esta
+spec. A10 y T27 pasan a la fase 4 (0060), junto con la activación de `guard-destructive` (E1 de
+0058), y se resuelven en un solo PR de activación con la sombra acumulada desde ahora. Hasta
+entonces el hook sigue en `shadow` y decide el shell (R13). R11 queda cubierto en esta fase por
+T26 y T28.
+
+Estado de la sombra (2026-10-28): el ledger local tiene una sola observación. El fragmento
+renderizado resuelve `navori-rust` con `command -v`; sin el binario en el `PATH` que hereda el
+host, la invocación toma la ruta del shell y no registra nada, y un binario anterior a PR 4a de
+T28 no coincide con el `impl` vigente. La ventana de 14 días corre desde que el binario fresco
+está en el `PATH` de los tres engines. El script del comando de A10 no existe todavía: lo entrega
+0058 T3 (D18) sobre el ledger de `navori tools rust-shadow`, sin un segundo reporte.
+
+- **A10** [observable] (→ 0060) — criterios de D9 cumplidos · `node scripts/js/hook-shadow-report.mjs subagent-no-background` → ≥ 500 invocaciones por engine en ≥ 14 días y 0 divergencias
+- **T27** (R11, → 0060) — `ported.json` pasa el hook a `active`, con el resumen de sombra adjunto al PR y aprobación del usuario · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"modo active responde Rust"
 
 ### M11 — `guard-destructive` en sombra
 
@@ -250,8 +265,18 @@ payload; contra las copias renderizadas dispara todas salvo el bloqueo de búsqu
 de Claude bajo bash y zsh.
 A11 verde: el replay reproduce los 886 casos con auditoría `off` y `active`, y el fuzz (semilla 1,
 contra las copias renderizadas) da 100 000 casos idénticos en Claude y 20 000 en Codex y en Pi.
-Pendientes para cerrar T28: regenerar el corpus con los casos de Codex y el gate completo.
+Cierre de T28: el corpus se regenera con la matriz bash+zsh (`NAVORI_TEST_ALL_SHELLS=1`) e
+incorpora los casos de Codex: de 886 a 1202 casos (Claude 933, Codex 140, Pi 129), sin cambiar el
+veredicto de ningún caso conservado. Los casos nuevos de Codex sacaron una divergencia previa del
+shell bajo zsh: `payload=${payload-$(cat)}` partía en palabras la sustitución y colapsaba los
+espacios repetidos del comando. Se corrige en `dev` (#1436, `payload=${payload-"$(cat)"}`) y llega
+por la sincronización #1437, que actualiza el contrato literal de captura de `prepare.rs` y los
+hashes de `ported.json`. Replay `--impl rust`: 1202 casos idénticos con auditoría `off` y `active`;
+la paridad zsh reproduce el corpus completo. Fuzz de cierre (semilla 1, contra las copias
+renderizadas, sobre la sincronización #1437): 100 000 casos idénticos en Claude y 20 000 en Codex y
+en Pi. Desde ese cierre `fuzz:hooks` corre en paralelo y a prioridad baja, deduplica por
+`session_id` y puede cachear el oráculo shell (enmienda de D9 en `design.md`).
 
 - **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
-- [ ] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
+- [x] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
 

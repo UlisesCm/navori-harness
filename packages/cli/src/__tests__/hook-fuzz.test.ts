@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -34,6 +35,8 @@ interface Result {
   ok: boolean;
   seed: number;
   completed: number;
+  compared: number;
+  cached: number;
   index?: number;
   payload?: string;
   difference?: { field: string; expected: unknown; actual: unknown };
@@ -42,7 +45,23 @@ interface Result {
 interface Fuzzer {
   parseFuzzArgs: (args: string[]) => Options;
   generatePayloads: (seed: number, count: number, hook?: string) => string[];
-  fuzzHooks: (options: Partial<Options>, fixtures?: Fixtures) => Promise<Result>;
+  fuzzHooks: (
+    options: Partial<Options>,
+    fixtures?: Fixtures,
+    progress?: {
+      everyMs?: number;
+      now?: () => number;
+      report?: (compared: number, total: number, elapsedMs: number) => void;
+    },
+    run?: { shard?: { index: number; count: number }; cacheDir?: string; verifyEvery?: number },
+  ) => Promise<Result>;
+  fuzzParallel: (
+    options: Options,
+    run: { jobs: number; cache: "on" | "off"; priority: "low" | "normal" },
+    extra?: { fixtures?: Fixtures },
+  ) => Promise<Result & { jobs?: number }>;
+  progressLine: (completed: number, total: number, elapsedMs: number) => string;
+  uniqueCases: (payloads: string[]) => Array<{ index: number; weight: number }>;
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -72,7 +91,7 @@ function fixtures(nativeSource: string, shellSource = "cat\n"): Fixtures {
   const manifestPath = join(dir, "ported.json");
   writeFileSync(
     manifestPath,
-    JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+    JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
   );
   return { binary, manifestPath, shellScript, scriptsRoot: dir };
 }
@@ -89,7 +108,13 @@ describe("deterministic live hook fuzzing", () => {
       fuzzer.parseFuzzArgs(["--seed", "0", "--cases", "2", "--hook", "fixture", "--engine", "pi"]),
     ).toMatchObject({ seed: 0, cases: 2, hook: "fixture.sh", engine: "pi", audit: "off" });
     expect(fuzzer.parseFuzzArgs(["--cases", "100000"])).toMatchObject({ cases: 100000 });
-    expect(fuzzer.parseFuzzArgs([])).toMatchObject({ cases: 1000 });
+    expect(fuzzer.parseFuzzArgs([])).toMatchObject({
+      cases: 1000,
+      run: { cache: "on", priority: "low" },
+    });
+    expect(fuzzer.parseFuzzArgs(["--jobs", "4", "--cache", "off", "--shard", "1/4"])).toMatchObject(
+      { run: { jobs: 4, cache: "off", shard: { index: 1, count: 4 } } },
+    );
     for (const args of [
       ["--cases", "0"],
       ["--cases", "100001"],
@@ -106,6 +131,13 @@ describe("deterministic live hook fuzzing", () => {
       ["--shell", "sh"],
       ["--cases"],
       ["--unknown"],
+      ["--jobs", "0"],
+      ["--jobs", "65"],
+      ["--cache", "maybe"],
+      ["--priority", "high"],
+      ["--shard", "2/2"],
+      ["--shard", "1"],
+      ["--fixtures", "{}"],
     ])
       expect(() => fuzzer.parseFuzzArgs(args)).toThrow();
   });
@@ -178,7 +210,25 @@ describe("deterministic live hook fuzzing", () => {
   // Covers: R11
   it("compares live shell stdout with direct process output for the same generated payload", async () => {
     const result = await fuzzer.fuzzHooks(options, fixtures(echo));
-    expect(result).toEqual({ ok: true, seed: 7, completed: 3 });
+    expect(result).toEqual({ ok: true, seed: 7, completed: 3, compared: 3, cached: 0 });
+  });
+
+  // Covers: R11
+  it("reports periodic progress without changing the result, and never after the last case", async () => {
+    let clock = 0;
+    const lines: string[] = [];
+    const result = await fuzzer.fuzzHooks(options, fixtures(echo), {
+      everyMs: 60_000,
+      now: () => (clock += 60_000),
+      report: (compared, total, elapsedMs) =>
+        lines.push(fuzzer.progressLine(compared, total, elapsedMs)),
+    });
+    expect(result).toEqual({ ok: true, seed: 7, completed: 3, compared: 3, cached: 0 });
+    expect(lines).toEqual([
+      "hook-fuzz: 1/3 (33%) in 1m, ~2m left",
+      "hook-fuzz: 2/3 (66%) in 2m, ~1m left",
+    ]);
+    expect(fuzzer.progressLine(0, 100000, 0)).toBe("hook-fuzz: 0/100000 (0%) in 0m, ~? left");
   });
 
   // Covers: R11
@@ -213,7 +263,7 @@ process.stdout.write(JSON.stringify(value));`;
     const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
     const transport = fixtures(body, `exec ${quote(process.execPath)} -e ${quote(body)}\n`);
     const result = await fuzzer.fuzzHooks({ ...options, cases: 2 }, transport);
-    expect(result).toEqual({ ok: true, seed: 7, completed: 2 });
+    expect(result).toEqual({ ok: true, seed: 7, completed: 2, compared: 2, cached: 0 });
     expect(existsSync(join(transport.scriptsRoot, "state"))).toBe(false);
     expect(
       readFileSync(join(transport.scriptsRoot, ".claude", "hooks", "fixture.sh"), "utf8"),
@@ -246,7 +296,7 @@ process.stdout.write(JSON.stringify(value));`;
     expect(active).toMatchObject({ ok: false, completed: 0 });
     expect(active.failure).toContain("audit active requires CLI-writer fixtures");
     for (const hooks of [{}, { fixture: { mode: "unknown" } }]) {
-      writeFileSync(transport.manifestPath, JSON.stringify({ schema: 1, hooks }));
+      writeFileSync(transport.manifestPath, JSON.stringify({ schema: 2, hooks }));
       expect(await fuzzer.fuzzHooks({ ...options, cases: 100000 }, transport)).toMatchObject({
         ok: false,
         completed: 0,
@@ -254,7 +304,7 @@ process.stdout.write(JSON.stringify(value));`;
     }
     writeFileSync(
       transport.manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "active" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
     );
     expect(
       await fuzzer.fuzzHooks(
@@ -291,9 +341,15 @@ if (process.env.NAVORI_HOOK_IMPL !== 'rust' || args.length !== 3 || args[0] !== 
 ${echo}`);
     writeFileSync(
       transport.manifestPath,
-      JSON.stringify({ schema: 1, hooks: { fixture: { mode: "shadow" } } }),
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "shadow" } } }),
     );
-    expect(await fuzzer.fuzzHooks(options, transport)).toEqual({ ok: true, seed: 7, completed: 3 });
+    expect(await fuzzer.fuzzHooks(options, transport)).toEqual({
+      ok: true,
+      seed: 7,
+      completed: 3,
+      compared: 3,
+      cached: 0,
+    });
     for (const source of [
       "process.exit(3);",
       "process.stderr.write('navori-rust: hook deferred: shadow execution is unavailable\\n'); process.exit(1);",
@@ -303,5 +359,111 @@ ${echo}`);
       expect(result).toMatchObject({ ok: false, completed: 0, index: 1 });
       expect(result.failure).toContain("native unavailable");
     }
+  });
+  // Covers: R11
+  it("compares payloads that differ only in session_id once and still counts every generated case", () => {
+    const base = { hook_event_name: "PreToolUse", tool_input: { command: "ls" } };
+    const payloads = [
+      JSON.stringify({ session_id: "a", ...base }),
+      JSON.stringify({ session_id: "b", ...base }),
+      "{",
+      JSON.stringify({ session_id: "c", ...base, cwd: "x" }),
+      "{",
+    ];
+    expect(fuzzer.uniqueCases(payloads)).toEqual([
+      { index: 0, weight: 2 },
+      { index: 2, weight: 2 },
+      { index: 3, weight: 1 },
+    ]);
+  });
+
+  // Covers: R11
+  it("splits unique cases across shards without overlap or loss", async () => {
+    const transport = fixtures(echo);
+    const whole = await fuzzer.fuzzHooks({ ...options, cases: 6 }, transport);
+    const parts: Result[] = [];
+    for (const index of [0, 1])
+      parts.push(
+        await fuzzer.fuzzHooks(
+          { ...options, cases: 6 },
+          transport,
+          {},
+          { shard: { index, count: 2 } },
+        ),
+      );
+    expect(whole).toMatchObject({ ok: true, completed: 6 });
+    expect(parts.map((part) => part.ok)).toEqual([true, true]);
+    const sum = (field: "completed" | "compared"): number =>
+      parts.reduce((total, part) => total + part[field], 0);
+    expect(sum("completed")).toBe(6);
+    expect(sum("compared")).toBe(whole.compared);
+    expect(Math.min(...parts.map((part) => part.compared))).toBeGreaterThan(0);
+  });
+
+  // Covers: R11
+  it("serves the shell verdict from the cache, keeps Rust live and fails on a stale cache", async () => {
+    const dir = temp();
+    const counter = join(dir, "shell-runs");
+    const cacheDir = join(dir, "cache");
+    const transport = fixtures(echo, `printf x >> '${counter}'\ncat\n`);
+    const shellRuns = (): number =>
+      existsSync(counter) ? readFileSync(counter, "utf8").length : 0;
+    const first = await fuzzer.fuzzHooks(options, transport, {}, { cacheDir });
+    expect(first).toEqual({ ok: true, seed: 7, completed: 3, compared: 3, cached: 0 });
+    expect(shellRuns()).toBe(3);
+    const second = await fuzzer.fuzzHooks(
+      options,
+      transport,
+      {},
+      { cacheDir, verifyEvery: 2 ** 32 },
+    );
+    expect(second).toEqual({ ok: true, seed: 7, completed: 3, compared: 3, cached: 3 });
+    expect(shellRuns()).toBe(3);
+    const fingerprint = readdirSync(cacheDir)[0] ?? "";
+    expect(fingerprint).not.toBe("");
+    for (const name of readdirSync(join(cacheDir, fingerprint))) {
+      const file = join(cacheDir, fingerprint, name);
+      const lines = readFileSync(file, "utf8").trim().split("\n");
+      const tampered = lines.map((line) => {
+        const entry = JSON.parse(line) as { k: string; v: { stdout: string } };
+        return JSON.stringify({ ...entry, v: { ...entry.v, stdout: "tampered" } });
+      });
+      writeFileSync(file, `${tampered.join("\n")}\n`);
+    }
+    const stale = await fuzzer.fuzzHooks(options, transport, {}, { cacheDir, verifyEvery: 1 });
+    expect(stale).toMatchObject({ ok: false, index: 1 });
+    expect(stale.failure).toContain("stale shell cache");
+  });
+
+  // Covers: R11
+  it("runs shard workers in parallel with the totals of one process and stops on a divergence", async () => {
+    const { run: _run, ...plain } = fuzzer.parseFuzzArgs([
+      "--seed",
+      "7",
+      "--cases",
+      "6",
+      "--hook",
+      "fixture",
+      "--timeout-ms",
+      "1000",
+    ]) as Options & { run: unknown };
+    const transport = fixtures(echo);
+    const single = await fuzzer.fuzzHooks(plain, transport);
+    const parallel = await fuzzer.fuzzParallel(
+      plain,
+      { jobs: 2, cache: "off", priority: "low" },
+      { fixtures: transport },
+    );
+    expect(parallel).toMatchObject({ ok: true, completed: 6, compared: single.compared, jobs: 2 });
+    const diverging = fixtures(
+      "process.stdout.write('native:' + require('node:fs').readFileSync(0, 'utf8'));",
+    );
+    const failed = await fuzzer.fuzzParallel(
+      plain,
+      { jobs: 2, cache: "off", priority: "normal" },
+      { fixtures: diverging },
+    );
+    expect(failed).toMatchObject({ ok: false, difference: { field: "stdout" } });
+    expect(failed.payload).toBe(fuzzer.generatePayloads(7, 6)[(failed.index ?? 0) - 1]);
   });
 });

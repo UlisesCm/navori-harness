@@ -15,8 +15,12 @@ use navori_core::plan::gate::{Context, audit_identity_in_env, audit_log_present,
 use crate::delegate;
 
 /// Runs `plan gate`, or `None` to hand an unexpected argv to the TS untouched.
-#[must_use]
-pub fn run(args: &[OsString]) -> Option<ExitCode> {
+pub fn run(call: &crate::NativeCall<'_>) -> crate::Outcome {
+    crate::outcome(run_args(call.args))
+}
+
+/// The argv-level implementation of [`run`].
+fn run_args(args: &[OsString]) -> Option<ExitCode> {
     if args.len() != 2 {
         return None;
     }

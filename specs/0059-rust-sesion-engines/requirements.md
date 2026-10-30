@@ -24,8 +24,8 @@ vive solo en `migration/rust` (D29 de `design.md`). La fase queda sin ningún PR
   los hooks de esta fase reutilizan su extracción de payload, la resolución del worktree de destino
   y el trinquete de `progress/`.
 - E2 empieza cuando 0058 E3 (render Claude con escrituras, #1434) esté en `migration/rust`.
-- E3 empieza cuando E1 esté integrada, la ventana de sombra se haya cumplido y 0058 E1 haya dejado
-  las transiciones del manifiesto y el reporte de sombra por engine (R27, R28).
+- E3 (activación) pasa a la fase 4 (0060) por decisión del usuario (Q19 de `design.md`,
+  2026-10-28), con R60 y R61, que 0060 redeclara.
 
 **Numeración.** Los `R<n>` siguen la numeración del programa: los nuevos empiezan en R50. R19 es un
 requisito del programa que 0057 no llegó a declarar (su texto no está en git, como pasó con R14 en
@@ -79,12 +79,12 @@ Los cinco hooks de esta fase son `quality-gate-pre-commit`, `plan-gate`, `sessio
 
 ### Activación de los hooks de sesión
 
-- **R60** — El PR que active hooks de sesión SHALL adjuntar, por cada hook que activa: replay a cero,
+- R60 (→ 0060) — El PR que active hooks de sesión SHALL adjuntar, por cada hook que activa: replay a cero,
   fuzz local a cero (100 000 entradas si tiene compuerta, 20 000 si es advisory) y un resumen de
   sombra con cero divergencias que cumpla, en cada engine donde el hook está registrado, el umbral de
   invocaciones que fija `design.md` para su clase de evento. Además SHALL tener la aprobación
   explícita del usuario en el PR.
-- **R61** — IF un hook de sesión no cumple su umbral al abrir el PR de activación THEN SHALL quedarse
+- R61 (→ 0060) — IF un hook de sesión no cumple su umbral al abrir el PR de activación THEN SHALL quedarse
   en `shadow` sin bloquear la activación de los demás, y su activación SHALL pasar a la fase 4.
 
 ### Engines restantes

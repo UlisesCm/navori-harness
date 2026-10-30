@@ -30,7 +30,10 @@ jobs:
       - run: rustup show active-toolchain
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p navori-core --all-targets --features fault-injection --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # A7 (spec 0058): the `Fs` tests need the fault-injection layer, off in every other build.
+      - run: cargo test -p navori-core --features fault-injection --test fs --locked
 
   oracle:
     runs-on: ubuntu-latest

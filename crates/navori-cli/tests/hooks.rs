@@ -83,7 +83,7 @@ fn manifest(gating: bool, deps: &[&str]) -> Result<Manifest, Box<dyn Error>> {
         .map(|path| ((*path).to_owned(), HASH))
         .collect::<std::collections::BTreeMap<_, _>>();
     Ok(Manifest::parse(&serde_json::json!({
-        "schema":1, "commands":[], "hooks":{"example":{
+        "schema":2, "commands":[], "hooks":{"example":{
             "mode":"active", "gating":gating, "blocks":{"example-base":HASH}, "deps":deps, "impl":HASH
         }}
     }).to_string())?)
@@ -631,7 +631,7 @@ fn manifest_registration_integrity_and_modes_precede_stdin() -> TestResult {
     let script = scratch.script(".claude", &[])?;
     let args = argv(&script);
     let registered = manifest(true, &[])?;
-    let empty = Manifest::parse(r#"{"schema":1,"commands":[],"hooks":{}}"#)?;
+    let empty = Manifest::parse(r#"{"schema":2,"commands":[],"hooks":{}}"#)?;
     let compiled = registry(record);
     for (manifest, registry, mode, expected) in [
         (&empty, compiled.as_slice(), Mode::Auto, 3),
@@ -1198,7 +1198,7 @@ mod prepared_handlers {
             .ok_or("compiled hash")?;
         Ok(Manifest::parse(
             &serde_json::json!({
-                "schema":1, "commands":[], "hooks":{"subagent-no-background":{
+                "schema":2, "commands":[], "hooks":{"subagent-no-background":{
                     "mode":mode, "gating":true,
                     "blocks":{"subagent-no-background-base":HASH}, "impl":implementation
                 }}

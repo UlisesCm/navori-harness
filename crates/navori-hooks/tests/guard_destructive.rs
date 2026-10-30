@@ -19,17 +19,23 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// No corpus case reaches rule 7 with a discard it would measure, and the corpus asset leaves
-/// rule 1b off; a case that reads state must be replayed against real repositories instead.
+/// The corpus asset leaves rule 1b off and every case runs outside a git repository: the only
+/// state a case may read is the empty `none` dir (Codex and Pi landing, rule 7 discards). Any
+/// other read must be replayed against real repositories instead.
 struct NoState;
 
 impl Repo for NoState {
+    /// The empty dir a `none` case runs in exists (`runMode` creates it); the Codex and Pi
+    /// landing reads it as the payload's cwd. Any other directory is outside the model.
     fn is_dir(&self, dir: &str) -> bool {
-        panic!("corpus case asks whether {dir} exists");
+        assert!(dir == NONE, "corpus case asks whether {dir} exists");
+        true
     }
 
+    /// That dir is not a git work tree, so a discard there holds nothing (as `System::holds`).
     fn holds(&self, dir: &str, loss: Loss) -> bool {
-        panic!("corpus case asks whether {dir} holds {loss:?}");
+        assert!(dir == NONE, "corpus case asks whether {dir} holds {loss:?}");
+        false
     }
 
     /// Every case runs outside a git repository (the progress lane, the other reader, is off).

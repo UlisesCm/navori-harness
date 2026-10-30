@@ -14,7 +14,7 @@ use navori_core::config;
 use navori_core::js_json::JsValue;
 use navori_core::markers::{InjectOptions, MarkerMeta, inject_managed_section};
 use navori_core::render::claude_files::collect_claude_files;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::harness_files::{collect_harness_files, filter_inventory};
 use navori_core::render::harness_plan::resolve_harness_plan;
@@ -75,39 +75,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-retirements-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -349,7 +316,7 @@ fn sub_blocks_delegate(root: &Path, text: &str) -> bool {
     ) else {
         return true;
     };
-    let view = Disk(root);
+    let view = DiskView(root);
     let ctx = SubBlockCtx {
         view: &view,
         config: &config,
@@ -405,7 +372,7 @@ fn rust_plan(root: &Path, text: &str, settings_skipped: bool) -> Option<Value> {
         disabled: &disabled.loaded,
         skipped_settings: settings.as_deref(),
     };
-    let out = plan_retirements(&Disk(root), &input).ok()?;
+    let out = plan_retirements(&DiskView(root), &input).ok()?;
     Some(json!({
         "removals": out.removals.iter().map(|r| json!([r.rel_path, r.recursive])).collect::<Vec<_>>(),
         "warnings": out.script_warnings.iter().chain(&out.warnings).collect::<Vec<_>>(),
@@ -451,7 +418,7 @@ proptest! {
         let ts = NODE
             .ask(&json!({ "op": "authorship", "root": root.to_string_lossy(), "rel": rel, "marker": marker, "verify": verify }))
             .map_err(TestCaseError::fail)?;
-        let rust = navori_authorship(&Disk(&root), rel, marker, verify).as_str();
+        let rust = navori_authorship(&DiskView(&root), rel, marker, verify).as_str();
         prop_assert_eq!(ts, json!(rust), "{:?}", shape);
     }
 }

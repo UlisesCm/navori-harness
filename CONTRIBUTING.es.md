@@ -231,6 +231,17 @@ siguen siendo solo TypeScript.
   `navori-rust --version` reporta la prerelease interna `0.13.0-rust.<n>`.
 - **Delegación:** un subcomando que no está en `crates/ported.json` va al CLI TS (`NAVORI_TS_CLI`,
   luego `packages/cli/dist` de este checkout, luego `navori` en `PATH`). Corre antes `bun run build`.
+- **Comandos nativos:** `render` corre nativo en una raíz solo Claude sin workspaces, con
+  `--cwd`, `--dry-run`, `--json`, `--apply` y `--force`, y solo sin color (stdout que no es TTY, sin
+  `FORCE_COLOR` y `CI` solo con `NO_COLOR`); lo demás se delega antes de imprimir. Un apply
+  también se delega cuando `~/.navori/registry.json` lista el repo con otro nombre. Su línea de
+  procedencia dice `core: (embedded)` y los comandos nativos omiten el aviso de actualización
+  hasta la spec 0060.
+- **`adopt`** es nativo con `--apply` y `--cwd` (una ruta posicional, config válida o ninguna,
+  raíz de backups usable y sin color).
+- **`sync`** es nativo solo cuando no puede preguntar: con uno de `--apply`, `--yes`, `--dry-run`,
+  `--json`, `--accept-new`, `--keep-mine` o `--accept-new-files` (el `requires` de la entrada).
+  `--interactive` y `--workspace` se delegan. **`remove <plugin>`** es nativo solo con `--yes`.
 - **Hooks nativos:** un hook de `ported.json` corre nativo solo donde `navori-rust` está en `PATH`;
   si no, corre el shell renderizado. `NAVORI_HOOK_IMPL=shell` fuerza el shell y
   `NAVORI_HOOK_IMPL=rust` fuerza la evaluación nativa, que falla en vez de diferir. Las

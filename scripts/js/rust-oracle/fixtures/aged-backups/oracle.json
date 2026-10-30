@@ -1,0 +1,32 @@
+{
+  "backups": [
+    {
+      "name": "x-old",
+      "mtime": "-40d",
+      "files": {
+        "CLAUDE.md": "old\n"
+      }
+    },
+    {
+      "name": "x-big-older",
+      "mtime": "-10d",
+      "sparse": {
+        "big.bin": 1342177280
+      }
+    },
+    {
+      "name": "x-recent",
+      "mtime": "-5d",
+      "files": {
+        "CLAUDE.md": "recent\n"
+      }
+    },
+    {
+      "name": "x-big-newer",
+      "mtime": "-2d",
+      "sparse": {
+        "big.bin": 1342177280
+      }
+    }
+  ]
+}

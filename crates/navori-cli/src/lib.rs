@@ -1,5 +1,6 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
+pub mod adopt;
 pub mod commands;
 pub mod delegate;
 pub mod dominio_inject;
@@ -14,35 +15,61 @@ pub mod parser;
 pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod quality_gate;
+pub mod remove;
+pub mod render;
 pub mod session_start;
 pub mod shadow;
 pub mod subagent_stop;
+pub mod sync;
 pub mod tools;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use navori_core::manifest::Manifest;
+use navori_core::manifest::{Command, Manifest};
 
 use parser::Invocation;
+
+/// What a native command receives: the argv and the manifest entry that selected it.
+pub struct NativeCall<'a> {
+    /// The arguments, without the program name.
+    pub args: &'a [OsString],
+    /// The selecting entry, whose `flags` and `when` bound what runs natively (D3).
+    pub entry: &'a Command,
+}
+
+/// How a native command ended.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Outcome {
+    /// It ran; the process exits with this code.
+    Exit(ExitCode),
+    /// The invocation is outside the native subset: the TS runs it. Returned only before any
+    /// output or effect (R39).
+    Delegate,
+}
+
+/// An argv-level result: `None` hands the invocation to the TS before any output (D3).
+fn outcome(code: Option<ExitCode>) -> Outcome {
+    code.map_or(Outcome::Delegate, Outcome::Exit)
+}
 
 /// A natively implemented command. Listing one here is not enough to run it: the manifest must
 /// also select it (R7).
 pub struct NativeCommand {
     /// Command path, equal to the manifest entry's `path`.
     pub path: &'static [&'static str],
-    /// The implementation, given the whole argv; `None` hands it to the TS before any output (D3).
-    pub run: fn(&[OsString]) -> Option<ExitCode>,
+    /// The implementation.
+    pub run: fn(&NativeCall<'_>) -> Outcome,
 }
 
-fn print_version(_: &[OsString]) -> Option<ExitCode> {
+fn print_version(_: &NativeCall<'_>) -> Outcome {
     println!("{}", navori_core::VERSION);
-    Some(ExitCode::SUCCESS)
+    Outcome::Exit(ExitCode::SUCCESS)
 }
 
-fn print_root_help(_: &[OsString]) -> Option<ExitCode> {
+fn print_root_help(_: &NativeCall<'_>) -> Outcome {
     print!("{}", help::root_help(navori_core::VERSION));
-    Some(ExitCode::SUCCESS)
+    Outcome::Exit(ExitCode::SUCCESS)
 }
 
 /// Every native implementation in this build.
@@ -75,19 +102,40 @@ pub const NATIVE: &[NativeCommand] = &[
         path: &["tools", "session-context"],
         run: tools::session_context_command,
     },
+    NativeCommand {
+        path: &["render"],
+        run: render::run,
+    },
+    NativeCommand {
+        path: &["adopt"],
+        run: adopt::run,
+    },
+    NativeCommand {
+        path: &["sync"],
+        run: sync::run,
+    },
+    NativeCommand {
+        path: &["remove"],
+        run: remove::run,
+    },
 ];
 
-/// The native command that runs `invocation`, or `None` to delegate (R5, R7).
+/// The native command that runs `invocation` and the entry that selected it, or `None` to
+/// delegate (R5, R7).
 #[must_use]
-pub fn dispatch(manifest: &Manifest, invocation: &Invocation) -> Option<&'static NativeCommand> {
+pub fn dispatch<'m>(
+    manifest: &'m Manifest,
+    invocation: &Invocation,
+) -> Option<(&'static NativeCommand, &'m Command)> {
     let entry = manifest.select(&invocation.path, &invocation.flags)?;
-    NATIVE.iter().find(|native| {
+    let native = NATIVE.iter().find(|native| {
         native
             .path
             .iter()
             .copied()
             .eq(entry.path.iter().map(String::as_str))
-    })
+    })?;
+    Some((native, entry))
 }
 
 /// Entry point shared by the binary and the tests.
@@ -117,7 +165,9 @@ pub fn run(args: &[OsString]) -> ExitCode {
         }
     };
     let invocation = parser::parse(args);
-    if let Some(code) = dispatch(&manifest, &invocation).and_then(|native| (native.run)(args)) {
+    if let Some((native, entry)) = dispatch(&manifest, &invocation)
+        && let Outcome::Exit(code) = (native.run)(&NativeCall { args, entry })
+    {
         return code;
     }
     let subcommand = args

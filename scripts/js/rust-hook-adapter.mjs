@@ -89,7 +89,7 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, args 
 export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
   /** @type {unknown} */
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (!record(manifest) || manifest.schema !== 1 || !record(manifest.hooks)) {
+  if (!record(manifest) || manifest.schema !== 2 || !record(manifest.hooks)) {
     throw new Error("native unavailable: invalid hook registry");
   }
   const hooks = manifest.hooks;

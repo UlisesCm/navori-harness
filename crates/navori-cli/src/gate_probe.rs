@@ -122,8 +122,12 @@ pub(crate) fn probe(
 }
 
 /// Runs `args` (`gate probe …`), or `None` to hand them to the TS.
-#[must_use]
-pub fn run(args: &[OsString]) -> Option<ExitCode> {
+pub fn run(call: &crate::NativeCall<'_>) -> crate::Outcome {
+    crate::outcome(run_args(call.args))
+}
+
+/// The argv-level implementation of [`run`].
+fn run_args(args: &[OsString]) -> Option<ExitCode> {
     let options = parse(args.get(2..)?)?;
     let process_cwd = std::env::current_dir().ok()?;
     let env = cache::probe_env(std::env::vars_os());

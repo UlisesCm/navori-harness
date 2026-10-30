@@ -201,7 +201,9 @@ fn veredictos_del_corpus_en_claude_y_codex() {
                 "impl_d.json no parsea como JSON",
                 "\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":",
             ],
-            log: &["write /t/navori-handoff-repo-anon .navori/state/handoffs/impl_a.json sin clave"],
+            log: &[
+                "write /t/navori-handoff-repo-anon .navori/state/handoffs/impl_a.json sin clave",
+            ],
             stderr: "",
         },
         Case {

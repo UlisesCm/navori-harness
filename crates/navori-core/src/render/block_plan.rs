@@ -5,7 +5,7 @@
 //! throws, or reports a message Rust does not reproduce, returns [`PlanDelegate`].
 
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::STAMP_VERSION;
@@ -201,6 +201,10 @@ pub struct PlanOptions {
     pub engine: Option<String>,
     /// `setMarkerFloorVersion`.
     pub ambient_floor: Option<String>,
+    /// `loadNativeHooks()` override; `None` reads the embedded `crates/ported.json`.
+    pub native_hooks: Option<BTreeMap<String, crate::manifest::Hook>>,
+    /// `render --force`: the engine's JSON files overwrite what the user left.
+    pub force: bool,
 }
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {

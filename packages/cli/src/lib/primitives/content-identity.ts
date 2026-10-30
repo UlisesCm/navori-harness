@@ -71,8 +71,11 @@ const NULL_SHA = /^0+$/;
 const UNSAFE_PATH = /[\r\n\uFFFD]/;
 
 class Abort extends Error {
-  constructor(readonly reason: ContentIdentityFailure) {
+  readonly reason: ContentIdentityFailure;
+
+  constructor(reason: ContentIdentityFailure) {
     super(reason);
+    this.reason = reason;
   }
 }
 

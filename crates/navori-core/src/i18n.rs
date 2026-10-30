@@ -160,6 +160,19 @@ pub const fn gitignore_header(lang: Lang) -> &'static str {
     }
 }
 
+/// `render.prettierIgnoreHeader`.
+#[must_use]
+pub const fn prettier_ignore_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "# .prettierignore gestionado por navori. El bloque de abajo evita que el formateador\n# reescriba los archivos del harness e invalide el hash de sus bloques managed.\n# Edita fuera del bloque con libertad.\n"
+        }
+        Lang::En => {
+            "# .prettierignore managed by navori. The block below keeps the formatter from\n# rewriting the harness files and invalidating their managed blocks' hashes.\n# Edit freely outside the block.\n"
+        }
+    }
+}
+
 /// `engine.settingsNotObject`.
 #[must_use]
 pub const fn settings_not_object(lang: Lang) -> &'static str {
@@ -170,6 +183,589 @@ pub const fn settings_not_object(lang: Lang) -> &'static str {
         Lang::En => {
             "settings.json is not a JSON object \u{2014} can't merge. Run 'navori render --force --apply' to regenerate."
         }
+    }
+}
+
+/// `render.wouldWrite`.
+#[must_use]
+pub const fn render_would_write(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} preview (se escribir\u{ed}a)",
+        Lang::En => "\u{2192} preview (would write)",
+    }
+}
+
+/// `render.noChangePreview`.
+#[must_use]
+pub const fn render_no_change_preview(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "\u{2192} sin cambios",
+        Lang::En => "\u{2192} no changes",
+    }
+}
+
+/// `render.written`.
+pub const RENDER_WRITTEN: &str = "\u{2192} written";
+
+/// `render.noChanges`.
+pub const RENDER_NO_CHANGES: &str = "\u{2192} no changes";
+
+/// `render.engineFilesTitle`.
+pub const RENDER_ENGINE_FILES_TITLE: &str = "Engine files:";
+
+/// `render.previewWord`, the same in both languages.
+pub const RENDER_PREVIEW_WORD: &str = "Preview";
+
+/// `render.doneWord`, the same in both languages.
+pub const RENDER_DONE_WORD: &str = "Done";
+
+/// `common.backupLabel`, the same in both languages.
+pub const BACKUP_LABEL: &str = "Backup:";
+
+/// `render.docBudgetCrossed(file, managed, ceiling)`.
+#[must_use]
+pub fn render_doc_budget_crossed(lang: Lang, file: &str, managed: usize, ceiling: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Este render cruz\u{f3} el presupuesto de arranque: '{file}' queda con {managed} palabras de bloques con techo contra un techo derivado de {ceiling}. Corre 'navori doctor' para ver qu\u{e9} bloque lo cruz\u{f3} y con qu\u{e9} palanca se recorta."
+        ),
+        Lang::En => format!(
+            "This render crossed the startup budget: '{file}' now carries {managed} words of budgeted blocks against a derived ceiling of {ceiling}. Run 'navori doctor' to see which block crossed it and which lever trims it."
+        ),
+    }
+}
+
+/// The stderr line of `recordHarnessVersionIfWritten` when the config is left untouched.
+#[must_use]
+pub fn harness_version_not_recorded(outcome: &str) -> String {
+    format!(
+        "navori: harnessVersion not recorded in navori.config.json ({outcome}); the file is left untouched."
+    )
+}
+
+/// `sync.planTitle(label)`, the same in both languages.
+#[must_use]
+pub fn sync_plan_title(label: &str) -> String {
+    format!("Plan [{label}]:")
+}
+
+/// `sync.updatesAvailableTitle`, the same in both languages.
+pub const SYNC_UPDATES_AVAILABLE_TITLE: &str = "Updates available:";
+
+/// `sync.writtenToken(n)` and `sync.conflictKeptToken(n)`, the same in both languages.
+#[must_use]
+pub fn sync_tokens(written: usize, kept: usize) -> (String, String) {
+    (
+        format!("{written} written"),
+        format!("{kept} conflict kept"),
+    )
+}
+
+/// `sync.upToDate`.
+#[must_use]
+pub const fn sync_up_to_date(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Al d\u{ed}a \u{2014} sin cambios",
+        Lang::En => "Up to date \u{2014} no changes",
+    }
+}
+
+/// `sync.dryRunComplete(summary)`.
+#[must_use]
+pub fn sync_dry_run_complete(lang: Lang, summary: &str) -> String {
+    let tail = if summary.is_empty() {
+        String::new()
+    } else {
+        format!(" \u{2014} {summary}")
+    };
+    match lang {
+        Lang::Es => format!("Dry-run completo{tail}"),
+        Lang::En => format!("Dry-run complete{tail}"),
+    }
+}
+
+/// `sync.conflictsWithYes(count, lines)`.
+#[must_use]
+pub fn sync_conflicts_with_yes(lang: Lang, count: usize, lines: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Se detectaron {count} conflict(s) con --yes. Resu\u{e9}lvelos a mano o corre 'sync --apply' sin --yes para el flujo interactivo.\n{lines}"
+        ),
+        Lang::En => format!(
+            "{count} conflict(s) detected with --yes. Resolve them by hand or run 'sync --apply' without --yes for the interactive flow.\n{lines}"
+        ),
+    }
+}
+
+/// `sync.bulkPreview(mode, count)`.
+#[must_use]
+pub fn sync_bulk_preview(lang: Lang, mode: &str, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{mode} resolver\u{ed}a {count} conflicto(s) de bloques en CLAUDE.md. No escrib\u{ed} nada: vuelve a correrlo con --apply (o --yes) para aplicarlo."
+        ),
+        Lang::En => format!(
+            "{mode} would resolve {count} CLAUDE.md block conflict(s). Nothing was written: re-run it with --apply (or --yes) to apply it."
+        ),
+    }
+}
+
+/// `sync.bulkApplied(mode, count)`.
+#[must_use]
+pub fn sync_bulk_applied(lang: Lang, mode: &str, count: usize) -> String {
+    match lang {
+        Lang::Es => format!("{mode}: resolv\u{ed} {count} conflicto(s) de bloques en CLAUDE.md"),
+        Lang::En => format!("{mode}: resolved {count} CLAUDE.md block conflict(s)"),
+    }
+}
+
+/// `sync.fileConflictsRemain(count)`.
+#[must_use]
+pub fn sync_file_conflicts_remain(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} conflicto(s) en archivos completos se mantienen \u{2014} sync no los resuelve; aj\u{fa}stalos a mano o mueve el archivo aparte y corre 'navori render --apply' (lo regenera con el marcador)."
+        ),
+        Lang::En => format!(
+            "{count} whole-file conflict(s) remain \u{2014} sync does not resolve them; edit by hand or move the file aside and run 'navori render --apply' (it regenerates the file with the marker)."
+        ),
+    }
+}
+
+/// `sync.markerlessFilesInteractiveOnly(count)`.
+#[must_use]
+pub fn sync_markerless_files_interactive_only(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) sin marcador de navori quedan intactos: solo 'navori sync --interactive' puede reemplazarlos, ning\u{fa}n flag masivo los toca."
+        ),
+        Lang::En => format!(
+            "{count} file(s) without a navori marker stay untouched: only 'navori sync --interactive' can replace them, no bulk flag touches them."
+        ),
+    }
+}
+
+/// `sync.fileConflictsKept(count)`.
+#[must_use]
+pub fn sync_file_conflicts_kept(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) con tu edici\u{f3}n se mantienen. Corre 'navori sync --interactive' para resolverlos."
+        ),
+        Lang::En => format!(
+            "{count} file(s) with your edit stay as they are. Run 'navori sync --interactive' to resolve them."
+        ),
+    }
+}
+
+/// `sync.acceptNewFilesPreview(count)`.
+#[must_use]
+pub fn sync_accept_new_files_preview(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "--accept-new-files sobrescribir\u{ed}a {count} archivo(s) completo(s) con tu edici\u{f3}n. No escrib\u{ed} nada: vuelve a correrlo con --apply (o --yes) para aplicarlo."
+        ),
+        Lang::En => format!(
+            "--accept-new-files would overwrite {count} whole file(s) carrying your edit. Nothing was written: re-run it with --apply (or --yes) to apply it."
+        ),
+    }
+}
+
+/// `sync.acceptNewFilesApplied(count)`.
+#[must_use]
+pub fn sync_accept_new_files_applied(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "--accept-new-files: acept\u{e9} la versi\u{f3}n renderizada en {count} archivo(s) completo(s)"
+        ),
+        Lang::En => {
+            format!("--accept-new-files: accepted the rendered version in {count} whole file(s)")
+        }
+    }
+}
+
+/// `sync.fileChangedSinceDiff(path)`.
+#[must_use]
+pub fn sync_file_changed_since_diff(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{path} cambi\u{f3} en disco desde que se mostr\u{f3} el diff \u{2014} lo dej\u{e9} intacto. Vuelve a correr sync."
+        ),
+        Lang::En => format!(
+            "{path} changed on disk since the diff was shown \u{2014} left untouched. Run sync again."
+        ),
+    }
+}
+
+/// `sync.wroteFiles(n)`.
+#[must_use]
+pub fn sync_wrote_files(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::Es => format!("Escrib\u{ed} {n} archivo(s)"),
+        Lang::En => format!("Wrote {n} file(s)"),
+    }
+}
+
+/// `sync.conflictDiffSummary(changed, shown)`.
+#[must_use]
+pub fn sync_conflict_diff_summary(lang: Lang, changed: usize, shown: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{changed} l\u{ed}nea(s) de diff (mostrando {shown}; - tu versi\u{f3}n, + la renderizada)"
+        ),
+        Lang::En => format!("{changed} diff line(s) (showing {shown}; - yours, + rendered)"),
+    }
+}
+
+/// `sync.conflictDiffTruncated(hidden)`.
+#[must_use]
+pub fn sync_conflict_diff_truncated(lang: Lang, hidden: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "\u{2026} +{hidden} l\u{ed}nea(s) de diff sin mostrar \u{2014} 'navori sync --interactive' trae el diff completo"
+        ),
+        Lang::En => format!(
+            "\u{2026} +{hidden} diff line(s) not shown \u{2014} 'navori sync --interactive' has the full diff"
+        ),
+    }
+}
+
+/// `sync.conflictDiffFileLevel`.
+#[must_use]
+pub const fn sync_conflict_diff_file_level(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "(conflicto de archivo completo: el preview no trae diff \u{2014} resu\u{e9}lvelo a mano o mueve el archivo aparte y corre 'navori render --apply')"
+        }
+        Lang::En => {
+            "(whole-file conflict: the preview carries no diff \u{2014} resolve it by hand or move the file aside and run 'navori render --apply')"
+        }
+    }
+}
+
+/// `remove.notDeclared(id)`.
+#[must_use]
+pub fn remove_not_declared(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => {
+            format!("El plugin '{id}' no est\u{e1} en el config de este repo; nada que quitar.")
+        }
+        Lang::En => format!("Plugin '{id}' is not in this repo's config; nothing to remove."),
+    }
+}
+
+/// `remove.done`.
+#[must_use]
+pub const fn remove_done(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Listo",
+        Lang::En => "Done",
+    }
+}
+
+/// `remove.removed(id)`.
+#[must_use]
+pub fn remove_removed(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{id}' quitado y limpiado."),
+        Lang::En => format!("'{id}' removed and cleaned up."),
+    }
+}
+
+/// `remove.renderCrashed`.
+#[must_use]
+pub const fn remove_render_crashed(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "La limpieza fall\u{f3} durante el render \u{2014} el plugin qued\u{f3} como enabled:false. Corre 'navori render --apply'."
+        }
+        Lang::En => {
+            "Cleanup failed during render \u{2014} the plugin was left as enabled:false. Run 'navori render --apply'."
+        }
+    }
+}
+
+/// `adopt.refused[reason](path)`.
+#[must_use]
+pub fn adopt_refused(lang: Lang, reason: crate::adopt::AdoptRefusal, path: &str) -> String {
+    use crate::adopt::AdoptRefusal as R;
+    match (lang, reason) {
+        (Lang::Es, R::OutsideRepo) => format!(
+            "'{path}' est\u{e1} fuera del repo. navori solo escribe dentro del repositorio: lo de afuera se resuelve a mano, o se asume."
+        ),
+        (Lang::En, R::OutsideRepo) => format!(
+            "'{path}' is outside the repo. navori only writes inside the repository: what lives out there you resolve yourself, or live with."
+        ),
+        (Lang::Es, R::Missing) => format!("'{path}' no existe."),
+        (Lang::En, R::Missing) => format!("'{path}' does not exist."),
+        (Lang::Es, R::NotAFile) => format!("'{path}' no es un archivo."),
+        (Lang::En, R::NotAFile) => format!("'{path}' is not a file."),
+        (Lang::Es, R::NotAdoptablePath) => format!(
+            "'{path}' no es un asset del harness. Adoptar solo aplica a archivos .md bajo .claude/ \u{2014} escribir un marcador en cualquier otro archivo es un riesgo sin beneficio."
+        ),
+        (Lang::En, R::NotAdoptablePath) => format!(
+            "'{path}' is not a harness asset. Adoption only applies to .md files under .claude/ \u{2014} writing a marker into any other file is risk with no upside."
+        ),
+        (Lang::Es, R::AlreadyManaged) => format!(
+            "'{path}' ya lleva un bloque managed, as\u{ed} que no es un archivo hecho a mano. Si el bloque es de otra herramienta, resu\u{e9}lvelo t\u{fa} antes."
+        ),
+        (Lang::En, R::AlreadyManaged) => format!(
+            "'{path}' already carries a managed block, so it is not a hand-made file. If the block belongs to another tool, resolve that first."
+        ),
+    }
+}
+
+/// `adopt.alreadyAdopted(path)`.
+#[must_use]
+pub fn adopt_already_adopted(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{path}' ya estaba adoptado \u{2014} sin cambios."),
+        Lang::En => format!("'{path}' was already adopted \u{2014} no changes."),
+    }
+}
+
+/// `adopt.preview(path, id)`.
+#[must_use]
+pub fn adopt_preview(lang: Lang, path: &str, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "envolver\u{ed}a '{path}' en un bloque managed id=\"{id}\", dejando su contenido intacto"
+        ),
+        Lang::En => format!(
+            "would wrap '{path}' in a managed block id=\"{id}\", leaving its content untouched"
+        ),
+    }
+}
+
+/// `adopt.previewHint`.
+#[must_use]
+pub const fn adopt_preview_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Preview: no se escribi\u{f3} nada. Vuelve a correrlo con --apply.",
+        Lang::En => "Preview: nothing was written. Run it again with --apply.",
+    }
+}
+
+/// `adopt.adopted(path, id)`.
+#[must_use]
+pub fn adopt_adopted(lang: Lang, path: &str, id: &str) -> String {
+    match lang {
+        Lang::Es => format!("'{path}' adoptado (bloque managed id=\"{id}\")."),
+        Lang::En => format!("'{path}' adopted (managed block id=\"{id}\")."),
+    }
+}
+
+/// `adopt.backupAt(path)`.
+#[must_use]
+pub fn adopt_backup_at(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!("Backup en {path}"),
+        Lang::En => format!("Backup at {path}"),
+    }
+}
+
+/// `render.gitignoreTitle`.
+#[must_use]
+pub const fn render_gitignore_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => ".gitignore del harness:",
+        Lang::En => "Harness .gitignore:",
+    }
+}
+
+/// `render.prettierIgnoreTitle`.
+#[must_use]
+pub const fn render_prettier_ignore_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => ".prettierignore del harness:",
+        Lang::En => "Harness .prettierignore:",
+    }
+}
+
+/// `prettierIgnoreAlreadyCovered`.
+#[must_use]
+pub const fn prettier_ignore_already_covered(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "Prettier detectado: tu .prettierignore ya cubre los archivos del harness \u{2014} no toqu\u{e9} nada."
+        }
+        Lang::En => {
+            "Prettier detected: your .prettierignore already covers the harness files \u{2014} left untouched."
+        }
+    }
+}
+
+/// `render.orphanedEngineOutputs(count, list)`.
+#[must_use]
+pub fn render_orphaned_engine_outputs(lang: Lang, count: usize, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Outputs hu\u{e9}rfanos de engines desactivados ({count}) \u{2014} quedaron de un engine que ya no est\u{e1} en config.engines; render no los toca. Corre 'navori render --prune --apply' para borrarlos:\n{list}"
+        ),
+        Lang::En => format!(
+            "Orphaned outputs from disabled engines ({count}) \u{2014} left over from an engine no longer in config.engines; render never touches them. Run 'navori render --prune --apply' to delete them:\n{list}"
+        ),
+    }
+}
+
+/// `render.previewHint`.
+#[must_use]
+pub const fn render_preview_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "corre 'navori render --apply' para escribir",
+        Lang::En => "run 'navori render --apply' to write",
+    }
+}
+
+/// `render.upToDate`.
+#[must_use]
+pub const fn render_up_to_date(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Al d\u{ed}a",
+        Lang::En => "Up to date",
+    }
+}
+
+/// `render.upToDateHint`.
+#[must_use]
+pub const fn render_up_to_date_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "nada que aplicar",
+        Lang::En => "nothing to apply",
+    }
+}
+
+/// `render.skippedWord`.
+#[must_use]
+pub const fn render_skipped_word(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Con omisiones",
+        Lang::En => "Files skipped",
+    }
+}
+
+/// `render.skippedOutro(count)`.
+#[must_use]
+pub fn render_skipped_outro(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::Es => format!(
+            "{count} archivo(s) que render se neg\u{f3} a sobrescribir \u{2014} el espejo NO est\u{e1} al d\u{ed}a; aj\u{fa}stalos a mano o mu\u{e9}velos aparte y corre 'navori render --apply'"
+        ),
+        Lang::En => format!(
+            "{count} file(s) render refused to overwrite \u{2014} the mirror is NOT up to date; adjust them by hand or move them aside and run 'navori render --apply'"
+        ),
+    }
+}
+
+/// `render.langFallback(list)`.
+#[must_use]
+pub fn render_lang_fallback(lang: Lang, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Fallback a espa\u{f1}ol para: {list} (versi\u{f3}n en ingl\u{e9}s a\u{fa}n no disponible)"
+        ),
+        Lang::En => {
+            format!("Language fallback to Spanish for: {list} (English version not available yet)")
+        }
+    }
+}
+
+/// `render.downgradeWarning({ count, newest, ids })`.
+#[must_use]
+pub fn render_downgrade_warning(lang: Lang, count: usize, newest: &str, ids: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Tu CLI est\u{e1} detr\u{e1}s del repo: {count} bloque(s) los escribi\u{f3} una navori m\u{e1}s nueva (hasta {newest}). Los preserv\u{e9} sin tocar para no degradarlos. Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  {ids}"
+        ),
+        Lang::En => format!(
+            "Your CLI is behind the repo: {count} block(s) were written by a newer navori (up to {newest}). They were preserved untouched to avoid downgrading them. Update your CLI to manage them again: npm i -g navori@latest\n  {ids}"
+        ),
+    }
+}
+
+/// `engine.qualityGateHookSkipped`.
+#[must_use]
+pub const fn quality_gate_hook_skipped(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "quality-gate hook omitido: config.qualityGate.fast no est\u{e1} definido",
+        Lang::En => "quality-gate hook skipped: config.qualityGate.fast is not set",
+    }
+}
+
+/// `engine.libraryRemovedFromRegistry`.
+#[must_use]
+pub fn library_removed_from_registry(lang: Lang, id: &str, successors: &[&str]) -> String {
+    let now = successors.join(", ");
+    match (lang, successors.is_empty()) {
+        (Lang::Es, false) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro (ahora: {now}) y su skill se elimina de disco. Corre 'navori refresh' para re-detectar las sucesoras."
+        ),
+        (Lang::Es, true) => format!(
+            "project.libraries/extraLibraries: '{id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori refresh' para limpiar la selecci\u{f3}n."
+        ),
+        (Lang::En, false) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry (now: {now}) and its skill is removed from disk. Run 'navori refresh' to re-detect the successors."
+        ),
+        (Lang::En, true) => format!(
+            "project.libraries/extraLibraries: '{id}' was retired from the registry and its skill is removed from disk. Run 'navori refresh' to clean the selection."
+        ),
+    }
+}
+
+/// `engine.libraryUnknownInRegistry`.
+#[must_use]
+pub fn library_unknown_in_registry(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "project.libraries/extraLibraries: '{id}' no existe en el registro de esta versi\u{f3}n del CLI; se omite. Corre 'navori refresh' para re-detectar librer\u{ed}as."
+        ),
+        Lang::En => format!(
+            "project.libraries/extraLibraries: '{id}' is unknown to this CLI version's registry; skipped. Run 'navori refresh' to re-detect libraries."
+        ),
+    }
+}
+
+/// `engine.markerlessCollision(path, keys, backup)`.
+#[must_use]
+pub fn markerless_collision(
+    lang: Lang,
+    path: &str,
+    keys: &[String],
+    backup: Option<&str>,
+) -> String {
+    let list = keys.join(", ");
+    match lang {
+        Lang::Es => format!(
+            "{path} ya exist\u{ed}a sin marcador de navori: navori lo adopta por nombre. {}Tu cuerpo y las keys ajenas se conservan.{}",
+            if keys.is_empty() {
+                "No sobrescribe keys de frontmatter existentes. ".to_owned()
+            } else {
+                format!("Sobrescribe las keys de frontmatter: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Respaldo del original: {b}")),
+        ),
+        Lang::En => format!(
+            "{path} already existed without a navori marker: navori adopts it by name. {}Your body and unrelated keys are preserved.{}",
+            if keys.is_empty() {
+                "It overwrites no existing frontmatter keys. ".to_owned()
+            } else {
+                format!("It overwrites the frontmatter keys: {list}. ")
+            },
+            backup.map_or_else(String::new, |b| format!(" Original backed up at: {b}")),
+        ),
+    }
+}
+
+/// `engine.localSkillMissing`.
+#[must_use]
+pub fn local_skill_missing(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Skill project-local '{id}' declarada en project.localSkills, pero ausente de .claude/skills/{id}/SKILL.md."
+        ),
+        Lang::En => format!(
+            "Project-local skill '{id}' declared in project.localSkills, but absent from .claude/skills/{id}/SKILL.md."
+        ),
     }
 }
 
@@ -197,6 +793,28 @@ pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {
         Lang::En => format!(
             "block written by a newer navori ({version}); left untouched. Update your CLI: npm i -g navori@latest"
         ),
+    }
+}
+
+/// `engine.renderFailedWriting(label, path, detail)`.
+#[must_use]
+pub fn render_failed_writing(lang: Lang, label: Option<&str>, path: &str, detail: &str) -> String {
+    match (lang, label) {
+        (Lang::Es, Some(label)) => {
+            format!("El render {label} fall\u{f3} escribiendo {path}: {detail}")
+        }
+        (Lang::Es, None) => format!("El render fall\u{f3} escribiendo {path}: {detail}"),
+        (Lang::En, Some(label)) => format!("The {label} render failed writing {path}: {detail}"),
+        (Lang::En, None) => format!("The render failed writing {path}: {detail}"),
+    }
+}
+
+/// `engine.backupAvailableAt(path)`.
+#[must_use]
+pub fn backup_available_at(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(" Backup pre-escritura disponible en: {path}"),
+        Lang::En => format!(" Backup available (pre-write) at: {path}"),
     }
 }
 

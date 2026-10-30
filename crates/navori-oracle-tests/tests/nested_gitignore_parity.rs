@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use navori_core::STAMP_VERSION;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::nested_gitignore::{
     EPHEMERAL_HARNESS_PATHS, NESTED_GITIGNORE_DIRS, plan_nested_gitignore,
@@ -53,39 +53,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-nested-gitignore-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -209,7 +176,7 @@ proptest! {
             .iter()
             .map(|dir| {
                 let engines = (*dir != ".navori").then_some(engines.as_slice());
-                match plan_nested_gitignore(&Disk(&root), dir, engines, force, Lang::resolve(Some(lang)), floor) {
+                match plan_nested_gitignore(&DiskView(&root), dir, engines, force, Lang::resolve(Some(lang)), floor) {
                     Err(_) => json!("threw"),
                     Ok(None) => Value::Null,
                     Ok(Some(plan)) => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_DELIVERIES } from "../../config/schema.ts";
+import { NavoriConfigSchema, resolveDeliveryThresholds } from "../../config/schema.ts";
 import { checkSpec } from "../check.ts";
 import { classifySpec } from "../classify.ts";
 import { parseRequirementIds } from "../requirements.ts";
@@ -22,6 +22,13 @@ const SPECS = resolve(
 
 const features = readdirSync(SPECS).filter((name) => existsSync(join(SPECS, name, "tasks.md")));
 
+// The repo's own thresholds, as `navori spec check` applies them to these specs.
+const thresholds = resolveDeliveryThresholds(
+  NavoriConfigSchema.parse(
+    JSON.parse(readFileSync(join(SPECS, "..", "navori.config.json"), "utf8")) as unknown,
+  ),
+);
+
 // Covers: R14
 describe("todas las specs reales", () => {
   it("finds the repo's specs", () => {
@@ -35,10 +42,10 @@ describe("todas las specs reales", () => {
       ? parseRequirementIds(readFileSync(requirementsFile, "utf8"))
       : undefined;
     const parsed = parseTasks(text);
-    const result = checkSpec(parsed, DEFAULT_DELIVERIES, requirements);
+    const result = checkSpec(parsed, thresholds, requirements);
     expect(result.findings.filter((f) => f.severity === "error")).toEqual([]);
     expect(result.ok).toBe(true);
-    expect(classifySpec(parsed, DEFAULT_DELIVERIES).error).toBeNull();
+    expect(classifySpec(parsed, thresholds).error).toBeNull();
     if (parsed.format === "legacy") {
       const generic = text
         .split(/\r?\n/)

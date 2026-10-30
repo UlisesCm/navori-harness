@@ -15,7 +15,8 @@ use navori_core::markers::{
     locate_managed_blocks,
 };
 use navori_core::render::block_plan::{PlanAsset, PlanOptions, UpdateAvailable};
-use navori_core::render::claude_md::{RepoView, plan_claude_md};
+use navori_core::render::claude_md::plan_claude_md;
+use navori_core::render::collect::DiskView;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use serde_json::{Value, json};
@@ -64,40 +65,6 @@ static NODE: Shared = Shared::new(
 
 static BASE: LazyLock<PathBuf> =
     LazyLock::new(|| std::env::temp_dir().join(format!("navori-claude-md-{}", std::process::id())));
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        let meta = std::fs::symlink_metadata(&path).ok()?;
-        if !meta.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn pick(options: &[&'static str]) -> BoxedStrategy<String> {
     prop::sample::select(options.to_vec())
@@ -275,7 +242,7 @@ fn build_repo(root: &Path, recipe: &Recipe) {
         .as_deref()
         .and_then(|text| config::read(text.as_bytes()).ok())
         .and_then(|config| {
-            plan_claude_md(&Disk(root), &config.data, root, &PlanOptions::default()).ok()
+            plan_claude_md(&DiskView(root), &config.data, root, &PlanOptions::default()).ok()
         })
         .map(|plan| {
             plan.pending
@@ -435,7 +402,7 @@ proptest! {
             ambient_floor: floor.map(str::to_owned),
             ..PlanOptions::default()
         };
-        let Ok(rust) = plan_claude_md(&Disk(&root), &parsed, &root, &options) else {
+        let Ok(rust) = plan_claude_md(&DiskView(&root), &parsed, &root, &options) else {
             prop_assert!(
                 ts.get("threw").is_some() || config.contains(r#""enabled":true,"workspaces""#),
                 "rust delegated, ts: {} for {}", ts, config

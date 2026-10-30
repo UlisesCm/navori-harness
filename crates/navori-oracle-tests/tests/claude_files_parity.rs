@@ -13,7 +13,7 @@ use navori_core::STAMP_VERSION;
 use navori_core::config;
 use navori_core::js_json::JsValue;
 use navori_core::render::claude_files::collect_claude_files;
-use navori_core::render::collect::RepoView;
+use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::plugin_scripts::{
     LEGACY_FINGERPRINTS, ScriptEngine, legacy_script_content, masked_sha256,
@@ -74,39 +74,6 @@ static NODE: Shared = Shared::new(
 static BASE: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join(format!("navori-claude-files-{}", std::process::id()))
 });
-
-struct Disk<'a>(&'a Path);
-
-impl RepoView for Disk<'_> {
-    fn read(&self, rel: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(rel)).ok()
-    }
-
-    fn read_regular(&self, rel: &str) -> Option<String> {
-        let path = self.0.join(rel);
-        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
-    }
-
-    fn exists(&self, rel: &str) -> bool {
-        self.0.join(rel).exists()
-    }
-
-    fn lexists(&self, rel: &str) -> bool {
-        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
-    }
-
-    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
-        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
-        Some(
-            entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
-                .collect(),
-        )
-    }
-}
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -281,7 +248,7 @@ fn rust_files(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
     };
     let language = string_at(&config, "language");
     let files = collect_claude_files(
-        &Disk(root),
+        &DiskView(root),
         &config,
         Lang::resolve(language.as_deref()),
         preset.as_ref(),
