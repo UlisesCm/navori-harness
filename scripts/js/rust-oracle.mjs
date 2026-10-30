@@ -576,7 +576,7 @@ export function masterCloseRenderCases(manifestPath = MANIFEST_PATH) {
   const cases = [];
   for (const fixture of readdirSync(FIXTURES_DIR).sort()) {
     const configPath = join(FIXTURES_DIR, fixture, "navori.config.json");
-    if (/^(spec|master|chk)-/.test(fixture) || !existsSync(configPath)) continue;
+    if (/^(spec|master|chk|handoff)-/.test(fixture) || !existsSync(configPath)) continue;
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     const workspaces = config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
     if (workspaces || !(config.engines ?? ["claude"]).every((e) => engines.includes(e))) continue;
