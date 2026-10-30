@@ -265,7 +265,13 @@ la hizo un `auditor` en una sesión nueva de Claude Code
   en `dev` (#1447) y portados en `purge_old_backups` con `keep` e `is_backup_dir_name`.
 - **`sync --json`** re-delegaba si la serialización fallaba después de un `--apply`: ahora es un
   error con exit 1.
-- **M1** (salida ante un fallo de escritura distinta del TS, sin casos en el oráculo): siguiente PR.
+- **M1** (salida ante un fallo de escritura distinta del TS, sin casos en el oráculo): corregido. `sync`
+  reproduce la salida del TS cuando fallan los archivos aceptados (`p.cancel` en humano,
+  `{ok:false, reason:"write-failed", …}` en `--json`) y conserva el reporte cuando falla el commit
+  del motor; `render` imprime su intro antes del error. El TS termina esos casos en una excepción
+  sin capturar cuyo stack trace nombra sus archivos de `dist/`: los casos `write-failure:*` del
+  oráculo (un directorio en solo lectura con el campo `readonly`) comparan exit, stdout y árboles
+  y, solo ahí, enmascaran stderr (`mask: ["stderr"]`).
 - **M2** (`run_render` planea los ignore files después del commit de Claude, así que una carrera
   puede terminar en "a step declined" con archivos ya escritos): se acepta. El resultado es exit 1,
   nunca una segunda corrida del TS, y reordenar rompería la paridad con `runRenderCore`.

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -62,7 +63,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string>, setup?: string[][] }} OracleCase  `files` overlay the fixture copy; `setup` runs with the TS CLI on both sides before `args`
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string>, setup?: string[][], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs with the TS CLI on both sides before `args`
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -395,7 +396,10 @@ export function compareOutcomes(ts, rust, ctx, mask = []) {
       detail: `ts ${ts.status ?? ts.signal} vs rust ${rust.status ?? rust.signal}`,
     });
   }
-  for (const stream of /** @type {const} */ (["stdout", "stderr"])) {
+  // `stderr` in the mask: the TS ends in an uncaught exception whose stack trace names its own
+  // `dist/` files; exit code, stdout and every tree are still compared.
+  const streams = mask.includes("stderr") ? ["stdout"] : ["stdout", "stderr"];
+  for (const stream of /** @type {Array<"stdout" | "stderr">} */ (streams)) {
     const side = (outcome, which) =>
       mapBuffer(outcome[stream], (t) => normalizeText(maskSide(t, which, ctx, { stream, mask })));
     diffs.push(...compareBytes(stream, side(ts, "ts"), side(rust, "rust")));
@@ -508,6 +512,9 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
     const prep = spawnSync(process.execPath, [tsCli, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
     if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
   }
+  // A write-failure case: these directories are read-only during the run, then restored so the
+  // snapshot and the cleanup can walk them.
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
@@ -515,6 +522,7 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
     maxBuffer: 256 * 1024 * 1024,
     timeout: RUN_TIMEOUT_MS,
   });
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o755);
   if (run.error) throw new Error(`cannot run ${runner.cmd}: ${run.error.message}`);
   return {
     status: run.status,

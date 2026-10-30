@@ -284,6 +284,9 @@ struct Applied {
     files_applied: Vec<String>,
     files_dropped: Vec<String>,
     files_backup: Option<String>,
+    /// `applyFileResolutions`' `error`: the accepted files failed to write, so the run stops
+    /// before the engine commit, as the TS does.
+    files_error: Option<String>,
     stderr: String,
 }
 
@@ -395,8 +398,20 @@ fn apply_pass(
             lang,
             now: apply.now,
         };
-        let committed = commit_writes(apply.fs, apply.backups, &mut pending, &[], &input)
-            .map_err(RenderError::Commit)?;
+        let committed = match commit_writes(apply.fs, apply.backups, &mut pending, &[], &input) {
+            Ok(committed) => committed,
+            Err(error) => {
+                return Ok(Applied {
+                    written: 0,
+                    backup: None,
+                    files_applied: Vec::new(),
+                    files_dropped,
+                    files_backup: None,
+                    files_error: Some(RenderError::Commit(error).message()),
+                    stderr: String::new(),
+                });
+            }
+        };
         files_backup = committed.backup_path.map(|p| p.display().to_string());
         real_writes += committed.real_writes;
     }
@@ -426,6 +441,7 @@ fn apply_pass(
         files_applied,
         files_dropped,
         files_backup,
+        files_error: None,
         stderr,
     })
 }
@@ -640,6 +656,24 @@ pub fn run_sync(
         if auto_apply && !blocked_yes {
             let accepted: &[&SyncConflict] = if accept_files { &resolvable_files } else { &[] };
             let applied = apply_pass(apply, view, config, repo_root, force_ids, accepted)?;
+            if let Some(detail) = applied.files_error {
+                // `{ command, ok: false, reason: "write-failed", detail, backups }`, compact.
+                let value = object(vec![
+                    ("command", JsValue::string("sync")),
+                    ("ok", JsValue::Bool(false)),
+                    ("reason", JsValue::string("write-failed")),
+                    ("detail", JsValue::string(&detail)),
+                    ("backups", JsValue::Array(Vec::new())),
+                ]);
+                let text = value.stringify(None).ok_or_else(|| {
+                    RenderError::Thrown("sync: cannot serialize the --json result".to_owned())
+                })?;
+                return Ok(SyncRun::Done {
+                    stdout: format!("{text}\n"),
+                    stderr: String::new(),
+                    code: 1,
+                });
+            }
             backups.extend(applied.files_backup.map(|p| ("root:sync", p)));
             backups.extend(applied.backup.map(|p| ("root:claude", p)));
             written_total = applied.files_applied.len() + applied.written;
@@ -766,9 +800,20 @@ pub fn run_sync(
     if kept_resolvable > 0 {
         out.push_str(&clack.warn(&i18n::sync_file_conflicts_kept(lang, kept_resolvable)));
     }
-    let applied = apply_pass(apply, view, config, repo_root, force_ids, &accepted)?;
+    let applied = match apply_pass(apply, view, config, repo_root, force_ids, &accepted) {
+        Ok(applied) => applied,
+        // Before any write: still the TS's run.
+        Err(RenderError::Delegate) => return Ok(SyncRun::Delegate),
+        // The engine commit threw: the TS has printed everything up to here and the error
+        // escapes as an uncaught exception.
+        Err(error) => return done(out, format!("{}\n", error.message()), 1),
+    };
     for path in &applied.files_dropped {
         out.push_str(&clack.warn(&i18n::sync_file_changed_since_diff(lang, path)));
+    }
+    if let Some(error) = &applied.files_error {
+        out.push_str(&clack.cancel(error));
+        return done(out, String::new(), 1);
     }
     if let Some(backup) = &applied.files_backup {
         out.push_str(&clack.message(&format!("{} [root:sync] {backup}", i18n::BACKUP_LABEL)));
