@@ -19,6 +19,7 @@ import {
   nativeRunnerShell,
   sha256,
   signNativeScript,
+  stripNativeSignature,
   type NativeEngine,
   type NativeHook,
   type NativeHooks,
@@ -39,14 +40,6 @@ interface NativeRenderInput {
   manifest?: NativeHooks;
   /** Final `extraVars` of each asset placement, by destination relative to `cwd`. */
   renderVars?: ReadonlyMap<string, Readonly<Record<string, string>>>;
-}
-
-/** A native signature is a standalone owned comment, never part of a managed marker's hash. */
-function stripSignature(content: string): string {
-  return content.replace(
-    /^# navori:native-hook v=1 file=sha256:[a-f0-9]{64} impl=sha256:[a-f0-9]{64}\n/,
-    "",
-  );
 }
 
 /**
@@ -183,7 +176,8 @@ export function finalizeNativeHooks(input: NativeRenderInput): ReadonlyMap<strin
     if (candidate === null) continue;
     const descriptor = Object.hasOwn(hooks, hook.id) ? hooks[hook.id] : undefined;
     // The normal renderer has already regenerated owned blocks. Remove only our own old header.
-    if (planned && candidate.startsWith(INTEGRITY_PREFIX)) candidate = stripSignature(candidate);
+    if (planned && candidate.startsWith(INTEGRITY_PREFIX))
+      candidate = stripNativeSignature(candidate);
     if (!descriptor) {
       if (planned) planned.content = candidate;
       continue;
@@ -195,7 +189,7 @@ export function finalizeNativeHooks(input: NativeRenderInput): ReadonlyMap<strin
       invocation: '--via-script "$0"',
       args: '"$@"',
     });
-    const unsigned = stripSignature(candidate);
+    const unsigned = stripNativeSignature(candidate);
     let withoutWrapper = unsigned.replace(wrapper + "\n", "");
     if (withoutWrapper !== unsigned) {
       const attrs = readMarkerAttrs(unsigned, hook.managedId, "shell");

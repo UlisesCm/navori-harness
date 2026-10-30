@@ -1,0 +1,10 @@
+{"date":"2026-10-29","op":"port","id":"gate probe","reason":"gate probe nativo con la misma caché de contenido que el TS (0059 T6)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"plan gate","reason":"plan gate nativo; delega al TS lo que no reproduce (0059 T10, T11)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"dominio inject","reason":"dominio inject nativo; delega layout legacy y orden de títulos no modelado (0059 T13)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"tools notice","reason":"tools notice nativo; el worker de red lo lanza el navori de PATH (0059 T13, R59)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"tools session-context","reason":"tools session-context nativo; el worker de red lo lanza el navori de PATH (0059 T13, R59)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"quality-gate-pre-commit","reason":"hook en sombra; la corrida del gate y gate foreign responden no observado (0059 T7, D40)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"plan-gate","reason":"hook en sombra; plan gate en proceso con la misma versión, por subproceso con otra (0059 T12)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"session-start-context","reason":"hook en sombra; tools session-context responde no observado (0059 T14, D40)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"subagent-stop-handoff","reason":"hook en sombra; capture-start difiere por modo (0059 T15, D31)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"model-advisor","reason":"hook en sombra; codex-pretool-profile difiere por modo (0059 T16, D31)","pr":1452}

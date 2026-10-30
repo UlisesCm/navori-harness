@@ -7,13 +7,15 @@ use regex::Regex;
 
 use super::copy_dest::{self, Inputs};
 use super::discard;
-use super::landing::Facts;
-use super::repo::Repo;
-use super::{Host, Outcome, Rendered, length};
-use super::{pi, ratchet};
+use super::pi;
+use super::{Outcome, Rendered, length};
 use crate::runner::Engine;
 use crate::shell::Locale;
+use crate::shell::hook_input::Host;
 use crate::shell::inert::{self, CMD_MAX, Rules};
+use crate::shell::landing::Facts;
+use crate::shell::ratchet;
+use crate::shell::repo::Repo;
 
 const FAST_MAX: usize = 4096;
 const SPLIT_ROUTE: &str = "split it into smaller commands the guard can inspect.";

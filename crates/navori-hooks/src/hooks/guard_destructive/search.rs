@@ -6,9 +6,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::Host;
-use super::repo::Repo;
 use crate::shell::Locale;
+use crate::shell::hook_input::Host;
+use crate::shell::repo::Repo;
 
 const CMD_MAX: usize = 20_000;
 

@@ -35,8 +35,8 @@ import { fileURLToPath } from "node:url";
  * whole work dir, copies the fixture again to the SAME path and runs `navori-rust`. Path-derived
  * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
  * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
- * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT` and `NAVORI_AUDITS_ROOT`
- * (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
+ * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
+ * `HOME` (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
  * matching only the exact format the TS CLI emits.
  */
 
@@ -63,7 +63,8 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, mask?: string[], files?: Record<string, string>, setup?: string[][], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs with the TS CLI on both sides before `args`
+ * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], files?: Record<string, string>, setup?: SetupStep[], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -87,8 +88,9 @@ export const RULES = [
   {
     name: "EPOCHMS",
     token: "@EPOCHMS@",
-    // Date.now(), only as the value of `tsMs` / `observedAt`
-    apply: (t) => t.replace(/("(?:tsMs|observedAt)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
+    // Date.now(), only as the value of `tsMs` / `observedAt`, and of `at` in the per-machine
+    // version caches (`~/.navori/tool-versions/*.json`)
+    apply: (t) => t.replace(/("(?:tsMs|observedAt|at)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
   },
   {
     name: "UUID",
@@ -442,8 +444,8 @@ export function hermeticEnv(work, tsCli) {
   };
 }
 
-/** Deterministic `git init` + one commit of the fixture (D5). */
-function gitInit(repo, env) {
+/** Runs git in `repo` with a fixed identity and dates; throws on failure. */
+function git(repo, env, args) {
   const identity = {
     ...env,
     GIT_AUTHOR_NAME: "oracle",
@@ -453,13 +455,57 @@ function gitInit(repo, env) {
     GIT_COMMITTER_EMAIL: "oracle@example.invalid",
     GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
   };
+  const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
+  if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+}
+
+/** Deterministic `git init` + one commit of the fixture (D5). */
+function gitInit(repo, env) {
   for (const args of [
     ["init", "-q", "-b", "main"],
     ["add", "-A"],
     ["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
   ]) {
-    const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
-    if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+    git(repo, env, args);
+  }
+}
+
+/**
+ * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
+ * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
+ * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
+ * time-bound file (a dispatch marker) is identical and fresh for both.
+ *
+ * @param {string} repo
+ * @param {Record<string, string>} env
+ * @param {Runner} ts
+ * @param {SetupStep[]} steps
+ */
+function applySetup(repo, env, ts, steps) {
+  for (const step of steps) {
+    if (Array.isArray(step)) {
+      const prep = spawnSync(ts.cmd, [...ts.args, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
+      if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
+    } else if ("navori" in step) {
+      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env, input: "" });
+      if (run.status !== 0)
+        throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("write" in step) {
+      const base = step.in === "home" ? env.HOME : repo;
+      const path = join(base, step.write);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        step.content
+          .replaceAll("@NOW_ISO@", new Date().toISOString())
+          .replaceAll("@NOW_MS@", String(Date.now()))
+          .replaceAll("@REPO@", repo),
+      );
+      if (step.mode !== undefined) chmodSync(path, step.mode);
+    } else {
+      git(repo, env, step.git);
+    }
   }
 }
 
@@ -483,20 +529,17 @@ export function copyFixture(from, to) {
 }
 
 /**
- * Wipes `work`, lays out a fresh copy of the fixture and the state roots, and runs `runner`.
+ * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
  *
  * @param {string} work
- * @param {Runner} runner
  * @param {OracleCase} testCase
- * @param {string} tsCli
- * @param {string} fixturesDir
- * @returns {Outcome}
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string }} opts
  */
-function runOnce(work, runner, testCase, tsCli, fixturesDir) {
+function layout(work, testCase, opts) {
   rmSync(work, { recursive: true, force: true });
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
-  copyFixture(join(fixturesDir, testCase.fixture), repo);
+  copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
   for (const [rel, text] of Object.entries(testCase.files ?? {})) {
     mkdirSync(dirname(join(repo, rel)), { recursive: true });
     writeFileSync(join(repo, rel), text);
@@ -504,14 +547,41 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
   for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
-  applyFixtureManifest(join(fixturesDir, testCase.fixture), work, Date.now());
+  applyFixtureManifest(join(opts.fixturesDir, testCase.fixture), work, Date.now());
   writeFileSync(join(work, "gitconfig"), "");
-  const env = hermeticEnv(work, tsCli);
+  const env = hermeticEnv(work, opts.tsCli);
   gitInit(repo, env);
-  for (const step of testCase.setup ?? []) {
-    const prep = spawnSync(process.execPath, [tsCli, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
-    if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
+  applySetup(repo, env, opts.ts, testCase.setup ?? []);
+}
+
+/**
+ * Lays out `work` (from `template` when given: a setup's output is laid out once, so files it
+ * names after the clock are the same for both runners) and runs `runner`.
+ *
+ * @param {string} work
+ * @param {Runner} runner
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string }} opts
+ * @returns {Outcome}
+ */
+function runOnce(work, runner, testCase, opts) {
+  if (opts.template) {
+    rmSync(work, { recursive: true, force: true });
+    cpSync(opts.template, work, { recursive: true, verbatimSymlinks: true });
+  } else {
+    layout(work, testCase, opts);
   }
+  const repo = join(work, "repo");
+  // A case's `env` (e.g. `NAVORI_HOOK_ENGINE`) applies to the measured run only.
+  // `@REPO@` in a value is the repo's path (a `PATH` entry for the case's own tools) and
+  // `@NODE_DIR@` the directory of this `node`, which a delegating `navori-rust` needs on `PATH`.
+  const caseEnv = Object.fromEntries(
+    Object.entries(testCase.env ?? {}).map(([key, value]) => [
+      key,
+      value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
+    ]),
+  );
+  const env = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
   // A write-failure case: these directories are read-only during the run, then restored so the
   // snapshot and the cleanup can walk them.
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
@@ -533,6 +603,8 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
       repo: snapshotTree(repo, skipGitNoise),
       backups: snapshotTree(join(work, "backups")),
       audits: snapshotTree(join(work, "audits")),
+      // `doctor` runs the `codex` CLI, which leaves randomly named scratch under `~/.codex/tmp/`.
+      home: snapshotTree(join(work, "home"), (rel) => rel === ".codex/tmp"),
     },
   };
 }
@@ -545,10 +617,17 @@ function runOnce(work, runner, testCase, tsCli, fixturesDir) {
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCase(testCase, opts) {
-  const fixturesDir = opts.fixturesDir ?? FIXTURES_DIR;
+  const layoutOpts = { ts: opts.ts, tsCli: opts.tsCli, fixturesDir: opts.fixturesDir ?? FIXTURES_DIR };
   const work = join(opts.base, "w");
-  const ts = runOnce(work, opts.ts, testCase, opts.tsCli, fixturesDir);
-  const rust = runOnce(work, opts.rust, testCase, opts.tsCli, fixturesDir);
+  if (testCase.setup) {
+    layoutOpts.template = join(opts.base, "template");
+    layout(work, testCase, layoutOpts);
+    rmSync(layoutOpts.template, { recursive: true, force: true });
+    cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
+  }
+  const ts = runOnce(work, opts.ts, testCase, layoutOpts);
+  const rust = runOnce(work, opts.rust, testCase, layoutOpts);
+  if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
   rmSync(work, { recursive: true, force: true });
   return {

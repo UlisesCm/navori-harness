@@ -370,3 +370,30 @@ fn consumers_publish_buffered_shadow_results_with_the_existing_closed_writer_pol
     }
     Ok(())
 }
+
+// Covers: R50 (spec 0059 D40)
+#[test]
+fn an_unobserved_native_lane_is_not_a_divergence_and_the_shell_still_answers() -> TestResult {
+    let fixture = Fixture::new("printf shell; exit 2\n")?;
+    let observed = run(
+        context(Engine::Codex, true),
+        b"{}",
+        fixture.invocation(&[]),
+        |_| Err(runner::unobserved()),
+    );
+    assert_eq!(
+        (observed.shell.code(), observed.shell.stdout()),
+        (2, b"shell".as_slice())
+    );
+    let comparison = observed.comparison;
+    assert!(comparison.native_unobserved);
+    assert!(!comparison.native_failed && !comparison.code_differs && !comparison.diverged());
+    let failed = run(
+        context(Engine::Codex, true),
+        b"{}",
+        fixture.invocation(&[]),
+        |_| Err(Failure("native bug".to_owned())),
+    );
+    assert!(!failed.comparison.native_unobserved && failed.comparison.diverged());
+    Ok(())
+}

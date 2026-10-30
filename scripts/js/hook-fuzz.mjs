@@ -186,6 +186,20 @@ function guardPayload(next, seed, index) {
 export function generatePayloads(seed, count, hook = "subagent-no-background.sh") {
   optionsOf({ seed, cases: count });
   const next = lcg(seed);
+  if (hook === "model-advisor.sh") {
+    // Spec 0059 T16: the fields its node block reads, under the mode `argsFor` assigns.
+    const pick = (list) => list[(next() >>> 16) % list.length];
+    const models = ["claude-opus-4", "claude-fable-5", "gpt-6-astra", "claude-sonnet-4", "OPUS-x", ""];
+    const levels = ["high", "medium", "xhigh", "max", 5, null];
+    const malformed = ["", "{", "[]", "{}", '"text"', "5"];
+    return Array.from({ length: count }, (_, index) => {
+      if (index % 11 === 0) return pick(malformed);
+      const payload = { model: pick(models), to_model: pick(models), scratchpad_dir: next() & 1 ? "@CWD@/scratch" : "" };
+      if (next() & 1) payload.effort = { level: pick(levels) };
+      if ((next() & 7) === 0) payload.agent_id = "child";
+      return JSON.stringify(payload);
+    });
+  }
   if (hook === "guard-destructive.sh") {
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
@@ -205,6 +219,17 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
   });
 }
 
+/** The ported modes a mode-taking hook rotates through (spec 0059 D31: any other mode defers).
+ * @param {string} hook
+ * @param {number} index
+ * @returns {string[]}
+ */
+export function argsFor(hook, index) {
+  if (hook !== "model-advisor.sh") return [];
+  const modes = ["claude-session-start", "claude-post-model-switch", "claude-stop", "codex-session-start"];
+  return [modes[index % modes.length]];
+}
+
 /** Real bounded shell invocation for one generated payload; failures never become verdicts.
  * @param {string} script
  * @param {string} shell
@@ -213,7 +238,7 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
  * @returns {{ status: number, stdout: string, stderr: string }}
  */
 function runShell(script, shell, call, timeoutMs) {
-  const result = spawnSync(shell, [script], { input: call.input, cwd: call.cwd, env: { ...process.env, ...call.env, NAVORI_HOOK_IMPL: "shell" }, shell: false, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 });
+  const result = spawnSync(shell, [script, ...(call.args ?? [])], { input: call.input, cwd: call.cwd, env: { ...process.env, ...call.env, NAVORI_HOOK_IMPL: "shell" }, shell: false, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 });
   if (result.error !== undefined || result.signal !== null || result.status === null) {
     throw new Error(`shell unavailable: ${result.error?.code ?? result.signal ?? "missing status"}`);
   }
@@ -397,8 +422,10 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
     // deferral is still reported as case 1 with its reproducible payload.
     payload = generatePayloads(options.seed, 1, options.hook)[0];
     // Claude always exports the project directory; Codex and Pi derive it from the payload.
-    const envDelta = { NAVORI_HOOK_IMPL: "shell", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
-    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo" };
+    // Hermetic: with the version notice on, a session hook would launch the detached version worker
+    // (network, then writes into the scratch HOME while the next restore deletes it).
+    const envDelta = { NAVORI_HOOK_IMPL: "shell", NAVORI_NO_UPDATE_NOTIFIER: "1", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
+    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, 0) };
     for (let attempt = 1; ; attempt += 1) {
       try {
         runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs });
@@ -426,11 +453,12 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
     for (const { index: at, weight } of mine) {
       index = at;
       payload = payloads[at];
-      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo" };
+      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, at) };
       restore();
       // Native first: a compiled-registry/integrity deferral aborts before a shell batch/later cases.
       const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs })[0];
-      const key = createHash("sha256").update(caseKey(payload)).digest("hex");
+      // The mode is part of the case: the same payload under another mode is another verdict.
+      const key = createHash("sha256").update(`${JSON.stringify(c.args)}\0${caseKey(payload)}`).digest("hex");
       let expected = cache?.get(key);
       if (expected === undefined) {
         expected = runShellCase(c);

@@ -3,16 +3,25 @@
 pub mod adopt;
 pub mod commands;
 pub mod delegate;
+pub mod dominio_inject;
 pub mod facts_cache;
+pub mod gate_probe;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;
 pub mod journal;
+pub mod model_advisor;
 pub mod parser;
+pub mod plan_gate;
+pub mod plan_gate_hook;
+pub mod quality_gate;
 pub mod remove;
 pub mod render;
+pub mod session_start;
 pub mod shadow;
+pub mod subagent_stop;
 pub mod sync;
+pub mod tools;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -37,6 +46,11 @@ pub enum Outcome {
     /// The invocation is outside the native subset: the TS runs it. Returned only before any
     /// output or effect (R39).
     Delegate,
+}
+
+/// An argv-level result: `None` hands the invocation to the TS before any output (D3).
+fn outcome(code: Option<ExitCode>) -> Outcome {
+    code.map_or(Outcome::Delegate, Outcome::Exit)
 }
 
 /// A natively implemented command. Listing one here is not enough to run it: the manifest must
@@ -67,6 +81,26 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["--help"],
         run: print_root_help,
+    },
+    NativeCommand {
+        path: &["gate", "probe"],
+        run: gate_probe::run,
+    },
+    NativeCommand {
+        path: &["plan", "gate"],
+        run: plan_gate::run,
+    },
+    NativeCommand {
+        path: &["dominio", "inject"],
+        run: dominio_inject::run,
+    },
+    NativeCommand {
+        path: &["tools", "notice"],
+        run: tools::notice,
+    },
+    NativeCommand {
+        path: &["tools", "session-context"],
+        run: tools::session_context_command,
     },
     NativeCommand {
         path: &["render"],

@@ -4,6 +4,7 @@ import { readCliVersion } from "./bundled-assets.ts";
 import { parseFrontmatterFields, splitFrontmatter } from "./frontmatter.ts";
 import { readNavoriOwnership } from "../primitives/json-ownership.ts";
 import { isDowngrade } from "../primitives/semver.ts";
+import { stripNativeSignature } from "./native-hook.ts";
 import {
   computeManagedHash,
   extractManagedContent,
@@ -181,9 +182,13 @@ function outsideTheBlocks(content: string): { fields: string; text: string } {
  * the frontmatter, shebang and empty user-section scaffold it writes compare
  * equal and everything else — including a heading or comment the user added —
  * does not. Block bodies are not compared here: the hash check does that.
+ *
+ * A native hook copy (spec 0057 D8) opens with navori's integrity signature, a line outside
+ * every block that a fresh render never has: it is navori's, not the user's, so it is dropped
+ * before comparing. Its wrapper lives inside the block, where the hash check covers it.
  */
 function hasUserWrittenText(content: string, expected: string): boolean {
-  const actual = outsideTheBlocks(content);
+  const actual = outsideTheBlocks(stripNativeSignature(content));
   const wanted = outsideTheBlocks(expected);
   return actual.fields !== wanted.fields || actual.text !== wanted.text;
 }

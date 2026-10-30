@@ -18,12 +18,13 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
 };
 
+use navori_hooks::hooks::guard_destructive::Rendered;
 use navori_hooks::hooks::guard_destructive::entry::{self, Context};
-use navori_hooks::hooks::guard_destructive::repo::System;
-use navori_hooks::hooks::guard_destructive::{Host, Rendered};
+use navori_hooks::shell::hook_input::Host;
+use navori_hooks::shell::repo::System;
 
 use crate::facts_cache::{self, FactsCache};
-use crate::hook::{Evaluator, Invocation, Snapshot};
+use crate::hook::{Evaluator, Invocation, Recorder, Snapshot};
 use crate::journal;
 
 /// Registry adapter: collect host facts before stdin and keep the evaluation pure.
@@ -48,7 +49,7 @@ pub fn prepare_subagent_no_background<'a>(
         .map(FactsCache::in_project);
     let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
         .map_err(|e| e.to_string())?;
-    Ok(Box::new(move |payload: &[u8]| {
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
         subagent_no_background::evaluate_prepared(&prepared, payload)
     }))
 }
@@ -114,15 +115,108 @@ pub fn prepare_guard_destructive<'a>(
             ..Host::default()
         },
     };
-    Ok(Box::new(move |payload: &[u8]| {
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
         entry::evaluate(payload, &context, &System)
     }))
+}
+
+/// Wall time allowed for `navori --version` (a cold TS CLI start is ~120 ms).
+const NAVORI_CLI_PROBE: Duration = Duration::from_secs(5);
+
+/// Host fact `navori_cli` (spec 0059 D30, R53): the `navori` that `PATH` resolves and the
+/// version it prints. A ported subcommand runs in process only when that version is the TS CLI
+/// this binary was built from; otherwise the hook runs that `navori`, as the shell does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavoriCli {
+    /// `command -v navori` (a relative `PATH` entry joined to the hook's working directory),
+    /// not canonicalized: the path the shell runs and exports as `_`. `None` when `PATH`
+    /// resolves no `navori`.
+    pub path: Option<PathBuf>,
+    /// First line of `navori --version` on a zero exit, trimmed; `None` when it printed none.
+    pub version: Option<String>,
+}
+
+impl NavoriCli {
+    /// Whether a ported subcommand may run in process instead of through this `navori`.
+    #[must_use]
+    pub fn in_process(&self) -> bool {
+        self.version.as_deref() == Some(navori_core::STAMP_VERSION)
+    }
+}
+
+/// Collect [`NavoriCli`] before stdin. The probe runs once per binary: its answer is cached
+/// by the canonical path with the binary's stamp (device, inode, size and both timestamps),
+/// so replacing or touching the binary probes again. Without an absolute `PATH` nothing is
+/// cached.
+///
+/// # Errors
+/// A probe that cannot be spawned, outlives its deadline or overflows its output bound: the
+/// caller defers the call to the shell.
+pub fn navori_cli(
+    env: &[(OsString, OsString)],
+    cwd: &Path,
+    cache: Option<&FactsCache>,
+) -> Result<NavoriCli, Ineligible> {
+    let Some(path) = prepare::env_value(env, "PATH") else {
+        return Ok(NavoriCli {
+            path: None,
+            version: None,
+        });
+    };
+    // `command -v navori`: relative entries resolve from the hook's working directory.
+    let found = std::env::split_paths(path).find_map(|directory| {
+        let directory = if directory.is_absolute() {
+            directory
+        } else {
+            cwd.join(directory)
+        };
+        facts_cache::lookup(directory.as_os_str(), "navori")
+    });
+    let Some(found) = found else {
+        return Ok(NavoriCli {
+            path: None,
+            version: None,
+        });
+    };
+    // The cache is keyed by the binary behind any symlink; the probe runs the resolved path.
+    let binary = found.canonicalize().map_err(io_failure)?;
+    let absolute = std::env::split_paths(path).all(|entry| entry.is_absolute());
+    let cache = cache
+        .filter(|_| absolute)
+        .and_then(|cache| Some((cache, facts_cache::stamp(&binary)?, facts_cache::now_ms()?)));
+    if let Some((cache, stamp, now)) = &cache
+        && let Some(version) = cache.load_cli(&binary, stamp, *now)
+    {
+        return Ok(NavoriCli {
+            path: Some(found),
+            version,
+        });
+    }
+    let output = probe(
+        &found,
+        &["--version".into()],
+        cwd,
+        env,
+        Instant::now() + NAVORI_CLI_PROBE,
+    )?;
+    let version = (output.code == Some(0))
+        .then(|| String::from_utf8(output.stdout).ok())
+        .flatten()
+        .and_then(|text| text.lines().next().map(|line| line.trim().to_owned()))
+        .filter(|line| !line.is_empty());
+    if let Some((cache, stamp, now)) = &cache {
+        cache.store_cli(&binary, stamp, version.as_deref(), *now);
+    }
+    Ok(NavoriCli {
+        path: Some(found),
+        version,
+    })
 }
 
 /// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
 /// the physical directory. A `PWD` bash would canonicalize first (`.`, `..` or `//`
 /// components) is not modeled and defers.
-fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
+pub(crate) fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
     use std::os::unix::fs::MetadataExt;
     let physical = || {
         cwd.to_str()

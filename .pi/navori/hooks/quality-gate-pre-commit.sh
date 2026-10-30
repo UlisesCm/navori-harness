@@ -1,5 +1,19 @@
-# navori:managed start id="qg-pre-commit-base" hash="566fff1f" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:47a562b1afaf20ba271a8be862600e17511d7c9235635df4b8122210584579a5 impl=sha256:ef99f5f6c9da3b13f053fdb59142ecec1b927e837525caae5abe6c8df3ef1eb3
+# navori:managed start id="qg-pre-commit-base" hash="2f9da491" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: quality-gate-pre-commit native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: quality-gate-pre-commit could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: quality-gate-pre-commit native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # Pre-commit / pre-push quality gate hook.
 # Reads the tool input (from Claude Code's PreToolUse Bash matcher) and runs

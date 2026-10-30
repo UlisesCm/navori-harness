@@ -16,7 +16,12 @@
       "flags": ["cwd", "yes"],
       "requires": [["yes"]],
       "when": { "engines": ["claude"] }
-    }
+    },
+    { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
+    { "path": ["plan", "gate"] },
+    { "path": ["dominio", "inject"] },
+    { "path": ["tools", "notice"], "flags": ["ack"] },
+    { "path": ["tools", "session-context"], "flags": ["notice-reserve"] }
   ],
   "hooks": {
     "guard-destructive": {
@@ -29,7 +34,7 @@
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
       },
-      "impl": "sha256:493867da4620c968e6cf4f0adf8e0b5761f5ce6c8ef7e6f816427c363d97f8bf"
+      "impl": "sha256:1e23446aa65c0933aa32c2b419c54ddd98b00bdae66802663cd5a28541e2b686"
     },
     "subagent-no-background": {
       "mode": "shadow",
@@ -37,7 +42,47 @@
       "blocks": {
         "subagent-no-background-base": "sha256:ecdca022cba414f887c19433fc8d6ca34672e6e3f70b30bd3500ac9ebb0a7f0e"
       },
-      "impl": "sha256:eefab0264e966929704ce5725699080411a60d6fdbb959c867585cbff9a4a16a"
+      "impl": "sha256:568fac4caca4b60c895cc87bf302f3319e2c17518b5e8d17087a866122de9666"
+    },
+    "quality-gate-pre-commit": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "qg-pre-commit-base": "sha256:d3c7042757072656ceba4b9000acb37e492a3a48098d22a735bc0bf09c21b631"
+      },
+      "impl": "sha256:ef99f5f6c9da3b13f053fdb59142ecec1b927e837525caae5abe6c8df3ef1eb3"
+    },
+    "plan-gate": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "plan-gate-base": "sha256:91c2a84f8ea30a96660917681b3a2f39e84d3cec8bebace16f7c2eea1948b3c6"
+      },
+      "impl": "sha256:00a0c02d31ce150c2a7d077aa181346e92d99f8a71dd6f68aba58de0bfe3e559"
+    },
+    "session-start-context": {
+      "mode": "shadow",
+      "gating": false,
+      "blocks": {
+        "session-start-context-base": "sha256:2f576c798c654581cd1106892685bf0759c82288b73cabd479765ac07b6e54ee"
+      },
+      "impl": "sha256:cae0432803cb8f9488ebeb45dfe91bb099948615880570d5e835a6d03bbb3a9b"
+    },
+    "subagent-stop-handoff": {
+      "mode": "shadow",
+      "gating": false,
+      "blocks": {
+        "subagent-stop-handoff-base": "sha256:781b0c2e463bde4c700f8e99af1e839a8c2e0823ed9087ddd84c4f3a36e0cd01"
+      },
+      "impl": "sha256:689a2e9d8f0b6cb3b848d3f3920f08c3656e88624a3df4cc85fe427f70fcac2a"
+    },
+    "model-advisor": {
+      "mode": "shadow",
+      "gating": false,
+      "blocks": {
+        "model-advisor-base": "sha256:fe4659fc08bb41f86e3ce83e89e4c259b3d9696c668385416f0c8c5aa9851ece"
+      },
+      "impl": "sha256:8ecea9c25d379f01a0ea89d229fdff6cf931d3a3f5adaccfce94657b1e1557d8"
     }
   }
 }

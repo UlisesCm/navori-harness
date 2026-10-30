@@ -1,5 +1,6 @@
-//! Repository and host facts the stateful rules read: rule 7 (discards), rule 1b (the progress
-//! ratchet with its landing and worktree resolution) and the tgrep search lane. The rules stay
+//! Repository and host facts the stateful shell code reads: `hook-input`'s project directory,
+//! the `resolve-worktree` and `progress-ratchet` partials, and guard-destructive's rule 7
+//! (discards) and tgrep search lane. The rules stay
 //! pure; every fact arrives through [`Repo`], and [`System`] is the one adapter that runs
 //! `git` or `tgrep`.
 

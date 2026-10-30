@@ -132,8 +132,15 @@ pub fn receipt(stdout: &[u8]) -> Option<String> {
 /// `complete` stdin document; the payload travels only for a divergence.
 #[must_use]
 pub fn completion(receipt: &str, comparison: Comparison, payload: &[u8]) -> String {
+    // Only an unobserved call names the flag, so a journal writer that predates it keeps
+    // accepting every other completion.
+    let unobserved = if comparison.native_unobserved {
+        r#","nativeUnobserved":true"#
+    } else {
+        ""
+    };
     let flags = format!(
-        r#"{{"nativeFailed":{},"shellFailed":{},"codeDiffers":{},"stdoutDiffers":{},"stderrDiffers":{}}}"#,
+        r#"{{"nativeFailed":{},"shellFailed":{},"codeDiffers":{},"stdoutDiffers":{},"stderrDiffers":{}{unobserved}}}"#,
         comparison.native_failed,
         comparison.shell_failed,
         comparison.code_differs,
