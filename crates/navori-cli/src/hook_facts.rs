@@ -13,6 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use navori_hooks::hooks::general_purpose_confirm;
 use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{
     self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
@@ -51,6 +52,33 @@ pub fn prepare_subagent_no_background<'a>(
         .map_err(|e| e.to_string())?;
     Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
         subagent_no_background::evaluate_prepared(&prepared, payload)
+    }))
+}
+
+/// Registry adapter for general-purpose-confirm: the same accredited extraction profile as
+/// subagent-no-background, over the hook's own engines.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_general_purpose_confirm<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        engines: general_purpose_confirm::ENGINES,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.requested,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
+        general_purpose_confirm::evaluate_prepared(&prepared, payload)
     }))
 }
 

@@ -64,7 +64,9 @@ const RUN_TIMEOUT_MS = 120_000;
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], files?: Record<string, string>, setup?: SetupStep[], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
+ *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
+ *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -528,6 +530,68 @@ export function copyFixture(from, to) {
   }
 }
 
+/** Fixture name of the checkout's own `specs/` and `navori.config.json` (spec 0060 T5). */
+export const REPO_SPECS_FIXTURE = "@repo-specs";
+
+/** @param {string} to */
+function copyRepoSpecs(to) {
+  mkdirSync(to, { recursive: true });
+  cpSync(join(REPO_ROOT, "specs"), join(to, "specs"), { recursive: true, verbatimSymlinks: true });
+  cpSync(join(REPO_ROOT, "navori.config.json"), join(to, "navori.config.json"));
+}
+
+/**
+ * `spec check --json` over every spec of the checkout: the real specs, not only the fixtures. The
+ * JSON carries the parse, the classification and every finding.
+ *
+ * @returns {OracleCase[]}
+ */
+export function repoSpecCases() {
+  return readdirSync(join(REPO_ROOT, "specs"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
+    .map((entry) => ({
+      id: `repo-specs:${entry.name}`,
+      fixture: REPO_SPECS_FIXTURE,
+      args: ["spec", "check", entry.name, "--json"],
+      native: true,
+    }));
+}
+
+/**
+ * `master close` with no active stage and `harness.masterPlan: true` over every fixture the
+ * manifest's `master close` entry applies to: the reconciliation turns the flag off and renders,
+ * so each render fixture also proves the render that closes a master plan. The fixtures of the
+ * `spec` and `master` commands are left out, as in the oracle test, and so is a monorepo with
+ * workspaces, which `master close` delegates.
+ *
+ * @param {string} [manifestPath]
+ * @returns {OracleCase[]}
+ */
+export function masterCloseRenderCases(manifestPath = MANIFEST_PATH) {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const close = manifest.commands.find((c) => c.path.join(" ") === "master close");
+  const engines = close?.when?.engines;
+  if (!engines) return [];
+  /** @type {OracleCase[]} */
+  const cases = [];
+  for (const fixture of readdirSync(FIXTURES_DIR).sort()) {
+    const configPath = join(FIXTURES_DIR, fixture, "navori.config.json");
+    if (/^(spec|master|chk)-/.test(fixture) || !existsSync(configPath)) continue;
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const workspaces = config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+    if (workspaces || !(config.engines ?? ["claude"]).every((e) => engines.includes(e))) continue;
+    const reconciling = { ...config, harness: { ...config.harness, masterPlan: true } };
+    cases.push({
+      id: `master-close:reconcile-render:${fixture}`,
+      fixture,
+      args: ["master", "close"],
+      files: { "navori.config.json": `${JSON.stringify(reconciling, null, 2)}\n` },
+      native: true,
+    });
+  }
+  return cases;
+}
+
 /**
  * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
  *
@@ -539,7 +603,8 @@ function layout(work, testCase, opts) {
   rmSync(work, { recursive: true, force: true });
   const repo = join(work, "repo");
   mkdirSync(work, { recursive: true });
-  copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
+  if (testCase.fixture === REPO_SPECS_FIXTURE) copyRepoSpecs(repo);
+  else copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
   for (const [rel, text] of Object.entries(testCase.files ?? {})) {
     mkdirSync(dirname(join(repo, rel)), { recursive: true });
     writeFileSync(join(repo, rel), text);
@@ -548,7 +613,9 @@ function layout(work, testCase, opts) {
     mkdirSync(join(work, dir), { recursive: true });
   }
   applyFixtureManifest(join(opts.fixturesDir, testCase.fixture), work, Date.now());
-  writeFileSync(join(work, "gitconfig"), "");
+  // No detached auto-maintenance after the fixture commit: it would keep writing under `.git/`
+  // while the next run wipes the work dir, and its packs are not output of either CLI.
+  writeFileSync(join(work, "gitconfig"), "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n");
   const env = hermeticEnv(work, opts.tsCli);
   gitInit(repo, env);
   applySetup(repo, env, opts.ts, testCase.setup ?? []);
@@ -626,7 +693,8 @@ export function runCase(testCase, opts) {
     cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
   }
   const ts = runOnce(work, opts.ts, testCase, layoutOpts);
-  const rust = runOnce(work, opts.rust, testCase, layoutOpts);
+  const rustOpts = testCase.native ? { ...layoutOpts, tsCli: decoyCli(opts.base) } : layoutOpts;
+  const rust = runOnce(work, opts.rust, testCase, rustOpts);
   if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
   rmSync(work, { recursive: true, force: true });
@@ -714,8 +782,49 @@ export function antiRollbackCases(cliVersion) {
 }
 
 /**
+ * A TS CLI that only reports it was reached: a `native` case that delegates prints this instead of
+ * the TS output (and a delegation notice naming this path), so the difference is never silent.
+ *
+ * @param {string} base
+ * @returns {string}
+ */
+function decoyCli(base) {
+  const path = join(base, "decoy", "dist", "index.js");
+  if (!existsSync(path)) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'process.stderr.write("rust-oracle: delegated to the TS\\n");\nprocess.exitCode = 97;\n');
+  }
+  return path;
+}
+
+/**
+ * Whether the manifest selects `args` for native execution, as `parser.rs` and
+ * `Manifest::select` read them: the leading positionals as the path and the option names, without
+ * dashes, value or `no-` prefix, as the flags.
+ *
+ * @param {{ commands: Array<{ path: string[], flags?: string[] }> }} manifest
+ * @param {string[]} args
+ */
+export function selectsNative(manifest, args) {
+  if (args.length === 1 && ["--version", "--help", "-h"].includes(args[0])) {
+    return manifest.commands.some((c) => c.path.join(" ") === (args[0] === "-h" ? "--help" : args[0]));
+  }
+  const first = args.findIndex((a) => a.startsWith("-"));
+  const path = first === -1 ? args : args.slice(0, first);
+  const flags = args
+    .filter((a) => a.startsWith("-") && a !== "--")
+    .flatMap((a) =>
+      a.startsWith("--") ? [a.slice(2).split("=")[0].replace(/^no-/, "")] : [...a.slice(1)],
+    );
+  return manifest.commands.some(
+    (c) =>
+      c.path.every((token, i) => path[i] === token) && flags.every((f) => (c.flags ?? []).includes(f)),
+  );
+}
+
+/**
  * Cases to run: the hand-written ones plus one per entry of the CLI surface golden. A surface case
- * whose args are a native command of the manifest masks the Rust version (see {@link maskSide}).
+ * the manifest selects natively masks the Rust version (see {@link maskSide}).
  *
  * @param {{ casesPath?: string, goldenPath?: string, manifestPath?: string }} [paths]
  * @returns {OracleCase[]}
@@ -724,15 +833,20 @@ export function loadCases(paths = {}) {
   const casesFile = JSON.parse(readFileSync(paths.casesPath ?? CASES_PATH, "utf8"));
   const golden = JSON.parse(readFileSync(paths.goldenPath ?? SURFACE_GOLDEN, "utf8"));
   const manifest = JSON.parse(readFileSync(paths.manifestPath ?? MANIFEST_PATH, "utf8"));
-  const native = new Set(manifest.commands.map((c) => c.path.join(" ")));
   const surface = golden.cases.map((c) => ({
     id: `surface:${c.args.join("_")}`,
     fixture: casesFile.surfaceFixture,
     args: c.args,
-    ...(native.has(c.args.join(" ")) ? { mask: ["version"] } : {}),
+    ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
   }));
   const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
-  return [...casesFile.cases, ...surface, ...antiRollbackCases(cliVersion)];
+  return [
+    ...casesFile.cases,
+    ...surface,
+    ...repoSpecCases(),
+    ...masterCloseRenderCases(paths.manifestPath),
+    ...antiRollbackCases(cliVersion),
+  ];
 }
 
 /** `version` of the workspace package in the root `Cargo.toml`. */

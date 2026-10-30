@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parser \"rápido\"\tcon tab y un título muy largo que pasa de sesenta caracteres de verdad",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ],
+      "spec": "specs/p1",
+      "issue": 12
+    },
+    {
+      "id": "P2",
+      "title": "Parte P2",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ],
+      "dependsOn": [
+        "P1"
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Parte P3",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ],
+      "state": "descartada",
+      "reason": "ya no aplica"
+    },
+    {
+      "id": "P4",
+      "title": "Parte P4",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ],
+      "spec": "specs/missing"
+    },
+    {
+      "id": "P5",
+      "title": "Parte P5",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": null
+        }
+      ],
+      "state": "hecho"
+    },
+    {
+      "id": "P6",
+      "title": "Parte P6",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ],
+      "spec": "specs/p6"
+    }
+  ]
+}

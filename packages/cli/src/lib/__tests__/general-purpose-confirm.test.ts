@@ -133,6 +133,16 @@ describe.runIf(runsBash)("general-purpose-confirm.sh — Codex copy (spec 0041 R
     expect(r.code).toBe(0);
     expect(r.stdout.trim()).toBe("");
   });
+
+  // Covers: R10
+  it("stays silent when general-purpose appears outside agent_type", () => {
+    const r = runCodex({
+      tool_name: "spawn_agent",
+      tool_input: { agent_type: "scout", message: "no uses general-purpose" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
 });
 
 const MINIMAL_CONFIG = {

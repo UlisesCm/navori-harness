@@ -34,6 +34,7 @@ interface OracleCase {
   fixture: string;
   args: string[];
   mask?: string[];
+  native?: boolean;
   files?: Record<string, string>;
   readonly?: string[];
 }
@@ -45,6 +46,11 @@ interface Oracle {
   RULES: Rule[];
   EMBEDDED_CORE: string;
   FIXTURES_DIR: string;
+  REPO_SPECS_FIXTURE: string;
+  selectsNative: (
+    manifest: { commands: Array<{ path: string[]; flags?: string[] }> },
+    args: string[],
+  ) => boolean;
   CASES_PATH: string;
   normalizeText: (text: string) => string;
   maskSide: (
@@ -59,6 +65,7 @@ interface Oracle {
   relativeTime: (relative: string, now: number) => number;
   FIXTURE_MANIFEST: string;
   antiRollbackCases: (cliVersion: string) => OracleCase[];
+  masterCloseRenderCases: () => OracleCase[];
   ANTI_ROLLBACK_LEVELS: string[];
   ANTI_ROLLBACK_OPS: string[];
   runCase: (
@@ -68,6 +75,7 @@ interface Oracle {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, "..", "..", "..", "..");
 const oracle = (await import(
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "rust-oracle.mjs")).href
 )) as Oracle;
@@ -335,6 +343,9 @@ describe("rust oracle", () => {
       for (const fixture of fixtures) {
         const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
         if (!existsSync(configPath)) continue;
+        // The fixtures of the `spec` and `master` commands (spec 0060) exist to exercise those
+        // commands: they carry a config because every command reads one, not to cover `render`.
+        if (/^(spec|master|chk)-/.test(fixture)) continue;
         const config = JSON.parse(readFileSync(configPath, "utf8")) as {
           engines?: string[];
           language?: string;
@@ -420,6 +431,25 @@ describe("rust oracle", () => {
     expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
   });
 
+  // Covers: R73, R74
+  it("master close reconcilia y renderiza en cada fixture de render aplicable", () => {
+    const cases = oracle.masterCloseRenderCases();
+    const fixtures = cases.map((c) => c.fixture);
+    for (const name of ["fresh-init", "claude-en", "drifted-block", "tools"])
+      expect(fixtures, name).toContain(name);
+    // other engines, a monorepo with workspaces and the command fixtures stay out
+    for (const name of ["codex-trusted", "pi", "monorepo", "master-closed", "spec-repo"])
+      expect(fixtures, name).not.toContain(name);
+    const loaded = new Set(oracle.loadCases().map((c) => c.id));
+    for (const c of cases) {
+      expect(loaded.has(c.id), c.id).toBe(true);
+      expect(c.args).toEqual(["master", "close"]);
+      expect(c.native).toBe(true);
+      const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
+      expect(config.harness.masterPlan, c.id).toBe(true);
+    }
+  });
+
   // Covers: R37, R49
   it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
     const cells = oracle.antiRollbackCases("0.12.3");
@@ -472,6 +502,7 @@ describe("rust oracle", () => {
     const user = cases.find((c) => c.id === "user-content-outside-markers");
     expect(user, "case user-content-outside-markers").toBeDefined();
     for (const c of cases) {
+      if (c.fixture === oracle.REPO_SPECS_FIXTURE) continue;
       expect(existsSync(join(oracle.FIXTURES_DIR, c.fixture)), `fixture of ${c.id}`).toBe(true);
     }
     // the fixture really has hand-written content outside the markers
@@ -491,5 +522,41 @@ describe("rust oracle", () => {
     // natively ported commands mask the Rust version; delegated ones mask nothing
     expect(surface.find((c) => c.id === "surface:--version")?.mask).toEqual(["version"]);
     expect(surface.find((c) => c.id === "surface:init_--help")?.mask).toBeUndefined();
+    expect(surface.find((c) => c.id === "surface:spec_--help")?.mask).toEqual(["version"]);
+  });
+
+  // Covers: R73
+  it("spec check y classify sobre las specs reales y fixtures con errores", () => {
+    const cases = oracle.loadCases();
+    const real = cases.filter((c) => c.fixture === oracle.REPO_SPECS_FIXTURE);
+    const specs = readdirSync(join(root, "specs"), { withFileTypes: true }).filter(
+      (e) => e.isDirectory() && !e.name.startsWith("_"),
+    );
+    expect(real.map((c) => c.args[2]).sort()).toEqual(specs.map((e) => e.name).sort());
+    expect(real.every((c) => c.native === true && c.args[1] === "check")).toBe(true);
+    const fixtures = cases.filter((c) => c.id.startsWith("spec:"));
+    for (const sub of ["check", "classify"]) {
+      expect(fixtures.some((c) => c.args[1] === sub && c.args.includes("--json") && c.native)).toBe(
+        true,
+      );
+      expect(
+        fixtures.some((c) => c.args[1] === sub && !c.args.includes("--json") && c.native),
+      ).toBe(true);
+    }
+    expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
+    // A spec of a master plan is `master`'s (M3): that case must stay delegated.
+    expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
+  });
+
+  // Covers: R7
+  it("selectsNative lee argv como el parser y el manifiesto", () => {
+    const manifest = {
+      commands: [{ path: ["--help"] }, { path: ["spec", "check"], flags: ["json", "help"] }],
+    };
+    expect(oracle.selectsNative(manifest, ["-h"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "x", "--json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--no-json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--cwd=x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["spec", "classify"])).toBe(false);
   });
 });

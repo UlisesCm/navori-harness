@@ -21,7 +21,44 @@
     { "path": ["plan", "gate"] },
     { "path": ["dominio", "inject"] },
     { "path": ["tools", "notice"], "flags": ["ack"] },
-    { "path": ["tools", "session-context"], "flags": ["notice-reserve"] }
+    { "path": ["tools", "session-context"], "flags": ["notice-reserve"] },
+    { "path": ["master", "mode"], "flags": ["cwd", "h", "help", "stage"] },
+    { "path": ["master", "ux"], "flags": ["cwd", "h", "help", "stage"] },
+    {
+      "path": ["master", "close"],
+      "flags": ["abandon", "convert", "cwd", "h", "help", "reason", "stage"],
+      "when": { "engines": ["claude"] }
+    },
+    {
+      "path": ["master", "part"],
+      "flags": [
+        "accept",
+        "approved-by",
+        "command",
+        "cwd",
+        "h",
+        "help",
+        "issue",
+        "reason",
+        "result",
+        "spec",
+        "stage",
+        "state"
+      ]
+    },
+    { "path": ["master", "advance"], "flags": ["cwd", "h", "help", "stage"] },
+    {
+      "path": ["master", "check"],
+      "flags": ["cwd", "fit", "h", "help", "json", "part", "stage"]
+    },
+    { "path": ["master", "template"], "flags": ["cwd", "h", "help", "part"] },
+    {
+      "path": ["master", "status"],
+      "flags": ["cwd", "h", "help", "json", "line"]
+    },
+    { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec"], "flags": ["h", "help"] }
   ],
   "hooks": {
     "guard-destructive": {
@@ -83,6 +120,14 @@
         "model-advisor-base": "sha256:fe4659fc08bb41f86e3ce83e89e4c259b3d9696c668385416f0c8c5aa9851ece"
       },
       "impl": "sha256:8ecea9c25d379f01a0ea89d229fdff6cf931d3a3f5adaccfce94657b1e1557d8"
+    },
+    "general-purpose-confirm": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "general-purpose-confirm-base": "sha256:d4bb6163f26cd30623bd959fcf474145f6ff0acf19a68edbfdca991941891231"
+      },
+      "impl": "sha256:90c74ca3167639d8728da2204c905b1916780f4963b7898b5ed50e55fdb64d90"
     }
   }
 }

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parte P1",
+      "objective": "Objetivo de P1",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Parte P2",
+      "objective": "Objetivo de P2",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        }
+      ],
+      "dependsOn": [
+        "P1"
+      ],
+      "scope": [
+        "a",
+        "b"
+      ]
+    }
+  ]
+}

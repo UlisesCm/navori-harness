@@ -1,0 +1,22 @@
+# Estado de etapa 01-uno
+
+Fase: ux
+UX: none
+Parte activa: ninguna
+Cerrable: sí
+
+| Parte | Estado | Tareas | Spec | Issue |
+|---|---|---|---|---|
+| P1 | hecho | 1/1 | specs/p1 | — |
+
+## Evidencia
+
+- P1.A1 (manual): verificado
+
+## Discrepancias
+
+- P1: declarado pendiente, efectivo hecho
+
+## Bloqueos
+
+Ninguno

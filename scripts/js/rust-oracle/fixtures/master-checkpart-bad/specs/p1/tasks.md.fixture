@@ -1,0 +1,35 @@
+- [x] **T1** titulo
+  - **Archivos:** x
+  - **Interfaces:** Foo, Falta; Otra
+  - **Patrón:** `../fuera.ts`
+  - **Librerías:** zod, @s/p@1.2, ok@1.0.0
+  - **Done:** solo texto
+
+- [x] **T2** titulo
+  - **Archivos:** `a.ts`
+  - **Interfaces:** Foo, Bar
+  - **Patrón:** `pattern.ts`
+  - **Lectura:** design.md
+  - **Librerías:** zod@4.6.7, @s/p@1.2.3-beta.1
+  - **Done:** `bun t` esperado; test cases: `test` y P1.A1
+  - **Fuera de alcance:** nada
+
+- [x] **T3** titulo
+  - **Archivos:** `a.ts`
+  - **Interfaces:** Foo, Bar
+  - **Patrón:** `pattern.ts`
+  - **Lectura:** design.md
+  - **Librerías:** zod@4.6.7, @s/p@1.2.3-beta.1
+  - **Done:** comando `x` exit 0; it('lee archivo') para P2.A1
+  - **Fuera de alcance:** nada
+
+- [x] **T4** titulo
+  - **Archivos:** `a.ts`
+  - **Interfaces:** Foo, Bar
+  - **Patrón:** `pattern.ts`
+  - **Lectura:** design.md
+  - **Librerías:** None
+  - **Done:** comando `x` green; casos de test: lee, escribe; P1.A2
+  - **Fuera de alcance:** nada
+
+- [x] sin id de tarea

@@ -266,7 +266,7 @@ pub(crate) fn home() -> Option<PathBuf> {
 
 /// What an apply printed besides the report: the error that stopped it, or the stderr of
 /// `recordHarnessVersionIfWritten`.
-fn apply_render(
+pub(crate) fn apply_render(
     cwd: &Path,
     config: &Config,
     options: &RenderOptions,

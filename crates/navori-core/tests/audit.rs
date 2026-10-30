@@ -464,8 +464,9 @@ fn real_ts_writer_remains_authoritative_for_identity_modes_and_wire_ids() -> Tes
     .ok_or("context")?;
     let module = repo()?.join("packages/cli/src/lib/audit/cli-event.ts");
     let module_json = serde_json::to_string(&module.to_string_lossy())?;
-    // Node 24 needs transform mode for the real writer's TypeScript parameter properties.
-    let bridge = temp.write("writer.mjs", format!(r#"#!/usr/bin/env -S node --experimental-transform-types
+    // The writer loads under Node's default type stripping (Node >= 23.6); Node 26 dropped
+    // `--experimental-transform-types`.
+    let bridge = temp.write("writer.mjs", format!(r#"#!/usr/bin/env node
 import {{ recordAuditMetadata }} from {module_json};
 const args = process.argv.slice(2);
 const field = name => args[args.indexOf(name) + 1];

@@ -1,0 +1,139 @@
+# Master
+
+## Metadatos
+
+Proyecto, etapa, fecha, modo, archivos de `context/md/` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §1
+
+## Resumen ejecutivo
+
+Qué se construye y por qué.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §2
+
+## Alcance (MoSCoW)
+
+Must / Should / Could / Won't consolidados.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §3
+
+## Actores y permisos
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §4
+
+## Reglas de negocio
+
+`RN-<n>` consolidadas.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §5
+
+## Requisitos funcionales
+
+`RF-<n>` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §6
+
+## Requisitos no funcionales
+
+`RNF-<n>` consolidados.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §7
+
+## Dominio y datos
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §8
+
+## Arquitectura
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §9
+
+## Stack y librerías
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §10
+
+## Contratos
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §11
+
+## Seguridad
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §12
+
+## Infraestructura y operación
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §13
+
+## Entrega en partes
+
+<!-- navori:master-parts hash="3d3e2c69" -->
+### P1 — Parte P1
+
+Objetivo: Objetivo de P1
+Alcance: —
+Fuera de alcance: —
+Dependencias: —
+Requisitos semilla: —
+Estado: pendiente
+- P1.A1 (test): criterio A1 — t.test.ts#c
+- P1.A2 (manual): criterio A2 — revisar
+
+### P2 — Parte P2
+
+Objetivo: Objetivo de P2
+Alcance: a; b
+Fuera de alcance: —
+Dependencias: P1
+Requisitos semilla: —
+Estado: pendiente
+- P2.A1 (test): criterio A1 — t.test.ts#c
+- P2.A2 (manual): criterio A2 — revisar
+<!-- /navori:master-parts -->
+
+Región `navori:master-parts` (la genera `navori master status`, spec 0034 T8): cada `P<n>` con objetivo, alcance, fuera de alcance, dependencias, requisitos semilla, criterios `P<n>.A<m>` y, en `en-curso`, su estado.
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §14
+
+## Testing
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §15
+
+## Riesgos
+
+Origen: <plan(es) o D<n>>
+
+Origen: plan1 §16
+
+## Preguntas abiertas
+
+Ninguna

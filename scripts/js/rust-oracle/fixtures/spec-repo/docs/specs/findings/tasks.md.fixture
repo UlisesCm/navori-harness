@@ -1,0 +1,31 @@
+# Findings
+
+## E1 — Late (foundation)
+
+### M1 — Empty
+
+### M2 — Dup
+- **A1** no command → x
+- **A1** `cmd` but no arrow
+- [ ] **T1** (R1, R7) — no effect
+- [ ] **T1** (R2) — again · effect: banana
+- [ ] T5 ñandú 😀 without a bold id and a long description that goes past sixty units
+- [ ] ~~T6~~ retired
+
+## E2 — Docs only
+Estimated LOC: 10
+### M3 — Docs
+- **A3** — `doc` → ok
+- [ ] **T7** (R1) — docs · effect: docs
+- [ ] **T8** (R2) — tests · effect: tests
+
+## E3 — Foundation second (foundation)
+### M4 — x
+- **A4** `y` → z
+
+## Notes
+- [ ] **T9** (R1) — outside · effect: behavior
+- **A9** orphan `c` → d
+~~~
+## E9 — fenced
+~~~

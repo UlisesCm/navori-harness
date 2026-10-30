@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parte P1",
+      "objective": "o",
+      "spec": "specs/p1",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        },
+        {
+          "id": "A2",
+          "description": "criterio A2",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Parte P2",
+      "objective": "o",
+      "spec": "specs/p2",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "manual",
+          "manual": {
+            "check": "revisar",
+            "how": "a mano"
+          },
+          "evidence": {
+            "kind": "approval",
+            "approvedBy": "user",
+            "date": "2026-02-02"
+          }
+        }
+      ]
+    }
+  ]
+}

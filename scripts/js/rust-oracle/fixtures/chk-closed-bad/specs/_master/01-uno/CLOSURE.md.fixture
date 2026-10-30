@@ -1,0 +1,12 @@
+# Cierre
+
+## Integridad
+
+| Archivo | Hash |
+|---|---|
+| MASTER.md | 0000000000000000000000000000000000000000000000000000000000000000 |
+| DECISIONS.md | 9f59f57f1e76212d732daf40828225368050ce7a81099678ae2e97cffae8fcb4 |
+| falta.md | abc |
+| DECISIONS.md | otro |
+|  | x |
+| MASTER.md |  |

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "phase": "context",
+  "mode": "en-curso",
+  "signal": {
+    "commits": null,
+    "firstCommit": null,
+    "filesChangedSinceFirst": null,
+    "framework": null,
+    "suggested": "en-curso"
+  },
+  "history": [
+    {
+      "phase": "context",
+      "at": "2026-01-01"
+    }
+  ],
+  "outcome": "entregada"
+}

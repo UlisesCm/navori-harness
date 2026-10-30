@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "phase": "executing",
+  "mode": "en-curso",
+  "signal": {
+    "commits": null,
+    "firstCommit": null,
+    "filesChangedSinceFirst": null,
+    "framework": null,
+    "suggested": "en-curso"
+  }
+}

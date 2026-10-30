@@ -17,7 +17,8 @@ de referencia (Q25): fijan el patrón de hooks y de comandos que repiten los dem
 
 | PR | Entrega | Entregable | Se mergea cuando |
 |---|---|---|---|
-| 1 | E1 | Orquestación y gobierno de agentes en Rust: `spec`, `master`, `handoff`, `plan`, `dominio` nativos y sus 8 hooks en `shadow` | A1–A5 verdes, 0059 E1 integrada, `bun check` completo, `cargo test`, `rust.yml` verde y revisión independiente |
+| 1a | E1 (M1, M2 y M3 parcial) | `general-purpose-confirm` en `shadow`, `spec` nativo y `master` nativo en etapas legacy (`status`, `check`, `template`, `advance`, `mode`, `ux`, `part` y `close`) | A1 y A2 verdes, `bun run oracle:rust --only master` sin diferencias, 0059 E1 integrada, `bun check` completo, `cargo test`, `rust.yml` verde y revisión independiente |
+| 1b | E1 (resto de M3, M4 y M5) | Orquestación y gobierno de agentes en Rust: `master` completo, `handoff`, `plan`, `dominio` nativos y los 7 hooks restantes en `shadow` | A3–A5 verdes y lo mismo que PR 1a |
 | 2 | E2 | Auditoría, gate y telemetría en Rust: `audit`, `gate`, `receipt`, `bench`, `tools` nativos y sus 5 hooks en `shadow` | A6–A8 verdes y lo mismo que PR 1 |
 | 3 | E3 | Instalación y salud del repo en Rust: `doctor`, `init`, `add`, `configure`, `update`, `workspace`, `codex` y el resto, con sus 2 hooks en `shadow` | A9–A12 verdes y lo mismo que PR 1 |
 | 4 | E4 | Los 22 hooks deciden en Rust (`active`) | A13–A14 verdes, resumen de sombra adjunto y aprobación del usuario en el PR |
@@ -27,6 +28,9 @@ de referencia (Q25): fijan el patrón de hooks y de comandos que repiten los dem
 **Precondiciones de entrada:**
 - **E1:** M1 y M2 empiezan ya. M3–M5 usan la base de hooks de 0059 E1 (T3 y T4 de 0059: versión del
   `navori` de `PATH` y ejecutor de subcomandos); el PR de E1 se integra después de 0059 E1.
+  E1 se parte en dos PRs (decisión del usuario, 2026-10-30): 1a lleva M1, M2 y la parte de M3 que
+  ya es nativa; 1b cierra M3 (`init`, `delivery-*`, mapeo de `spec check` a `parts.json`, T7 y
+  T9), M4 y M5. A3 se verifica en 1b.
 - **E2:** E1 integrada.
 - **E3:** E2, 0058 E3 y 0059 E2 integradas (`render`, `sync`, `remove` y `adopt` nativos para todos
   los engines).
@@ -59,24 +63,38 @@ Estimated LOC: 16000
 ### M1 — Slice de referencia de hooks: `general-purpose-confirm`
 Entregable: `general-purpose-confirm` decide en Rust en `shadow` en Claude y Codex, y existe el
 inventario por área.
+
+Cerrado (2026-10-28): A1 verde. Replay `--impl rust` de 15 casos idénticos con auditoría `off` y
+`active` (el corpus suma la clase `skip` de Codex); fuzz semilla 1 contra las copias renderizadas,
+100 000 casos en Claude y 20 000 en Codex, idénticos; `rust-areas` asigna los 29 comandos raíz y
+los 22 hooks.
 - **A1** [observable] — el hook reproduce el corpus y el fuzz, y todo subcomando y hook tiene área · `node scripts/js/hook-verdict-replay.mjs --impl rust --only general-purpose-confirm.sh && bun run fuzz:hooks --hook general-purpose-confirm.sh --engine claude --seed 1 --cases 100000 && bun run fuzz:hooks --hook general-purpose-confirm.sh --engine codex --seed 1 --cases 20000 && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts` → exit 0; 0 divergencias
-- [ ] **T1** (R77, R78) — `scripts/js/rust-areas.mjs` con `inventory()` (subcomandos y flags de `cli.ts` desde `dist/`, hooks de `core-assets` y plugins), `areaOf()` con la tabla de D40 y `areaInventoryCheck(area, manifest)`, que también corre con las otras áreas de la fase retiradas del manifiesto (D41, F39) · effect: behavior · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"todo subcomando, flag y hook tiene un área"
-- [ ] **T2** (R71) — corpus de `general-purpose-confirm` con al menos un caso por clase de veredicto (`skip`, `ask`, `deny`) en Claude y Codex; `coverage.json` regenerado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"general-purpose-confirm cubre cada clase de veredicto por engine"
-- [ ] **T3** (R70) — `navori-hooks` (`hooks/general_purpose_confirm`): la vía rápida por subcadena, `subagent_type` con respaldo en `agent_type`, la rama por engine y el evento de auditoría igual que el shell; entrada `mode: "shadow"` en `ported.json` con sus `blocks` · effect: behavior · test: `crates/navori-hooks/tests/general_purpose_confirm.rs`::"veredictos del corpus en shadow"
-- [ ] **T4** (R70) — gramática de fuzz de `general-purpose-confirm` en `hook-fuzz.mjs`: `subagent_type` y `agent_type` con `general-purpose`, otros roles, valores no texto y la subcadena fuera de esos campos · effect: tests · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"la gramática de general-purpose-confirm cubre cada campo y sus formas inertes"
+- [x] **T1** (R77, R78) — `scripts/js/rust-areas.mjs` con `inventory()` (subcomandos y flags de `cli.ts` desde `dist/`, hooks de `core-assets` y plugins), `areaOf()` con la tabla de D40 y `areaInventoryCheck(area, manifest)`, que también corre con las otras áreas de la fase retiradas del manifiesto (D41, F39) · effect: behavior · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"todo subcomando, flag y hook tiene un área"
+- [x] **T2** (R71) — corpus de `general-purpose-confirm` con al menos un caso por clase de veredicto (`skip`, `ask`, `deny`) en Claude y Codex; `coverage.json` regenerado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"general-purpose-confirm cubre cada clase de veredicto por engine"
+- [x] **T3** (R70) — `navori-hooks` (`hooks/general_purpose_confirm`): la vía rápida por subcadena, `subagent_type` con respaldo en `agent_type`, la rama por engine y el evento de auditoría igual que el shell; entrada `mode: "shadow"` en `ported.json` con sus `blocks` · effect: behavior · test: `crates/navori-hooks/tests/general_purpose_confirm.rs`::"veredictos del corpus en shadow"
+- [x] **T4** (R70) — gramática de fuzz de `general-purpose-confirm` en `hook-fuzz.mjs`: `subagent_type` y `agent_type` con `general-purpose`, otros roles, valores no texto y la subcadena fuera de esos campos · effect: tests · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"la gramática de general-purpose-confirm cubre cada campo y sus formas inertes"
 
 ### M2 — Slice de referencia de comandos: `spec`
 Entregable: `navori-rust spec` (todos sus subcomandos y flags) es nativo con diferencial cero.
+
+Cerrado (2026-10-29): A2 verde. Oráculo `--only spec` con 91 casos y 0 diferencias: `spec check
+--json` sobre cada spec real del checkout (fixture `@repo-specs`), fixtures con cada regla de
+`check`, errores de lectura, `--cwd`, uso, ayuda y subcomando desconocido de citty. Los casos
+`native` corren el lado Rust con un TS señuelo, así que una delegación aparece como diferencia.
+Delegan al TS, antes de escribir nada: una config que `readConfig` rechaza, un argv que citty podría
+leer distinto, un archivo que no es UTF-8, un extracto de 60 unidades que parte un par sustituto y
+una spec con `_master/index.json` (el mapeo a `parts.json` pasa a T8).
 - **A2** [observable] — `spec` es nativo y su área no tiene pendientes de `spec` · `bun run oracle:rust --only spec && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts -t spec` → exit 0; 0 diferencias
-- [ ] **T5** (R73) — `spec` nativo (check, classify y el resto), con la gramática E/M/A/T y la clasificación de `lib/spec` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"spec check y classify sobre las specs reales y fixtures con errores"
-- [ ] **T6** (R77) — `spec` sin subcomandos ni flags fuera del manifiesto · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"spec no tiene subcomandos ni flags pendientes"
+- [x] **T5** (R73) — `spec` nativo (check, classify y el resto), con la gramática E/M/A/T y la clasificación de `lib/spec` · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"spec check y classify sobre las specs reales y fixtures con errores"
+- [x] **T6** (R77) — `spec` sin subcomandos ni flags fuera del manifiesto · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"spec no tiene subcomandos ni flags pendientes"
 
 ### M3 — Master plan
 Entregable: `navori-rust master` es nativo y `master-plan-context` y `master-accept-confirm` deciden
 en Rust en `shadow`.
 - **A3** [observable] — `master` es nativo y sus dos hooks reproducen el corpus · `bun run oracle:rust --only master && node scripts/js/hook-verdict-replay.mjs --impl rust --only master-plan-context.sh,master-accept-confirm.sh && bun run fuzz:hooks --hook master-accept-confirm.sh --seed 1 --cases 100000` → exit 0; 0 diferencias
 - [ ] **T7** (R71) — corpus de `master-plan-context`, `master-accept-confirm`, `implementer-no-markdown`, `role-guard`, `engram-write-guard`, `comment-draft-confirm` y `pr-publisher-confirm` por clase de veredicto y modo en cada engine registrado · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E1 cubren cada clase de veredicto y modo por engine"
-- [ ] **T8** (R73, R74) — `master` nativo (todos sus subcomandos), con sus escrituras de estado por la capa `Fs` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"master status, part, close y el resto"
+- [ ] **T8** (R73, R74) — `master` nativo (todos sus subcomandos), con sus escrituras de estado por la capa `Fs`, y el mapeo de `spec check` a los `parts.json` de la etapa activa (R22 de 0044), que M2 delega al TS · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"master status, part, close y el resto"
+  - Avance (2026-10-29): nativos: `master status` (`--json`, `--line` y sin flags, que regenera `STATUS.md`, la región de `MASTER.md` e `INDEX.md` por la capa `Fs`), `master check` completo (etapa activa en cada fase, `--stage`, `--part`, `--fit`), `master template`, `master advance`, `master mode` y `master ux`. Todo se valida antes del primer byte y delega si el TS se comportaría distinto; `advance` también delega mientras haya una sesión de auditoría en el entorno, porque su evento (`appendCliEvent`) depende del escritor de T18. Delegan además: evidencia `run` (su antigüedad sale de `git`, por el transporte de D42), el contenido de `UX.md`/`ux.json`, etapas `deliveries` en `status`/`check --stage`, e índice, estado o config inválidos. `master part` en etapa legacy (estado, razón, spec, issue y `--accept` manual) reescribe `parts.json` normalizado como zod y los derivados, calculados en memoria antes de la primera escritura; delega el `--accept` de `test`/`comando` al llegar a `git` (D42), el evento de auditoría de `--accept` (T18) y cualquier `parts.json` o `state.json` ausente o inválido. `master close` (2026-10-30) es nativo en etapa legacy o sin etapa activa, con `finishRender` (config con `harness.masterPlan` apagado y render) planeado antes de la primera escritura; delega fuera de los engines donde el render es nativo, con workspaces de monorepo, con una sesión de auditoría en el entorno, evidencia `run` y etapas `deliveries`. Oráculo `--only master`: 330 casos, 0 diferencias (incluye la reconciliación de `master close` sobre cada fixture de render aplicable). Faltan `init`, `delivery-*` y el mapeo de `spec check` a `parts.json` (PR 1b).
 - [ ] **T9** (R70, R72) — `master-plan-context` y `master-accept-confirm` en `shadow`, con `master` en proceso bajo la condición de versión de R53 de 0059 y por el `navori` de `PATH` en otro caso · effect: behavior · test: `crates/navori-hooks/tests/master_hooks.rs`::"veredictos del corpus en shadow"
 
 ### M4 — Handoff y plan

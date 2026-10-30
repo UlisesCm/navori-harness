@@ -10,7 +10,13 @@ pub mod help;
 pub mod hook;
 pub mod hook_facts;
 pub mod journal;
+pub(crate) mod js_path;
+pub mod master;
+pub mod master_close;
+pub mod master_read;
+pub mod master_write;
 pub mod model_advisor;
+pub(crate) mod native_io;
 pub mod parser;
 pub mod plan_gate;
 pub mod plan_gate_hook;
@@ -19,6 +25,7 @@ pub mod remove;
 pub mod render;
 pub mod session_start;
 pub mod shadow;
+pub mod spec;
 pub mod subagent_stop;
 pub mod sync;
 pub mod tools;
@@ -105,6 +112,50 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
+    },
+    NativeCommand {
+        path: &["master", "status"],
+        run: master::run_status,
+    },
+    NativeCommand {
+        path: &["master", "mode"],
+        run: master_write::run_mode,
+    },
+    NativeCommand {
+        path: &["master", "ux"],
+        run: master_write::run_ux,
+    },
+    NativeCommand {
+        path: &["master", "close"],
+        run: master_close::run_close,
+    },
+    NativeCommand {
+        path: &["master", "part"],
+        run: master_write::run_part,
+    },
+    NativeCommand {
+        path: &["master", "advance"],
+        run: master_write::run_advance,
+    },
+    NativeCommand {
+        path: &["master", "check"],
+        run: master_read::run_check,
+    },
+    NativeCommand {
+        path: &["master", "template"],
+        run: master_read::run_template,
+    },
+    NativeCommand {
+        path: &["spec", "classify"],
+        run: spec::run_classify,
+    },
+    NativeCommand {
+        path: &["spec", "check"],
+        run: spec::run_check,
+    },
+    NativeCommand {
+        path: &["spec"],
+        run: spec::run_group,
     },
     NativeCommand {
         path: &["adopt"],

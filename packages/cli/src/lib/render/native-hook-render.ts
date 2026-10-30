@@ -43,6 +43,17 @@ interface NativeRenderInput {
 }
 
 /**
+ * A native signature is a standalone owned comment, never part of a managed marker's hash. Only the
+ * exact header navori writes, on the first line, is removed; anything else stays as written.
+ */
+export function stripSignature(content: string): string {
+  return content.replace(
+    /^# navori:native-hook v=1 file=sha256:[a-f0-9]{64} impl=sha256:[a-f0-9]{64}\n/,
+    "",
+  );
+}
+
+/**
  * Each dependency is a plugin script: `deps` pins its source asset, and the deployed copy (the
  * planned write, else the file on disk) must be that asset's fresh render under its own marker.
  * The returned bytes are the deployed ones, the bytes the binary re-hashes.

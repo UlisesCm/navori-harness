@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "P1",
+      "title": "Parte P1",
+      "objective": "o",
+      "acceptance": [
+        {
+          "id": "A1",
+          "description": "criterio A1",
+          "method": "test",
+          "test": {
+            "file": "t.test.ts",
+            "case": "c"
+          },
+          "evidence": null
+        }
+      ]
+    }
+  ]
+}

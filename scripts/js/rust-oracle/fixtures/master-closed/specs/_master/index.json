@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "stages": [
+    {
+      "number": 1,
+      "slug": "uno",
+      "dir": "01-uno",
+      "state": "cerrada",
+      "openedAt": "2026-01-01",
+      "closedAt": "2026-02-01"
+    },
+    {
+      "number": 2,
+      "slug": "dos",
+      "dir": "02-dos",
+      "state": "cerrada",
+      "openedAt": "2026-01-02",
+      "closedAt": "2026-03-01"
+    },
+    {
+      "number": 3,
+      "slug": "tres",
+      "dir": "03-tres",
+      "state": "abandonada",
+      "openedAt": "2026-01-03",
+      "closedAt": "2026-04-01"
+    }
+  ]
+}

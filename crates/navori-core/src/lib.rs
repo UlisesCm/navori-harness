@@ -26,6 +26,7 @@ pub mod js_json;
 pub mod js_re;
 pub mod manifest;
 pub mod markers;
+pub mod master;
 pub mod plan;
 pub mod posix;
 pub mod process;

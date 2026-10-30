@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -11,7 +12,7 @@ use std::process::{Command, Output, Stdio};
 
 use navori_cli::delegate::{self, Locations, NoTs, VersionSource};
 use navori_cli::parser::Invocation;
-use navori_cli::{NATIVE, dispatch};
+use navori_cli::{NATIVE, NativeCall, Outcome, dispatch};
 use navori_core::manifest::Manifest;
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
@@ -350,7 +351,24 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
             r#"{{"schema":2,"commands":[{}]}}"#,
             others.join(",")
         ))?;
-        assert!(dispatch(&without, &inv).is_none(), "{:?}", native.path);
+        // An ancestor entry may still select it by prefix (`spec` for `spec check`): the
+        // ancestor's implementation must then hand it to the TS before any output.
+        if let Some((ancestor, entry)) = dispatch(&without, &inv) {
+            assert!(
+                ancestor.path.len() < native.path.len() && native.path.starts_with(ancestor.path),
+                "{:?} selected by {:?}",
+                native.path,
+                ancestor.path
+            );
+            let argv: Vec<OsString> = native.path.iter().map(OsString::from).collect();
+            let call = NativeCall { args: &argv, entry };
+            assert_eq!(
+                (ancestor.run)(&call),
+                Outcome::Delegate,
+                "{:?}",
+                native.path
+            );
+        }
     }
     // Every manifest entry has an implementation, otherwise it would silently delegate.
     for entry in &embedded.commands {

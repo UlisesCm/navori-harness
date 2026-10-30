@@ -1,0 +1,24 @@
+# Digest
+
+## Capacidades
+- Una
+- Dos
+- Tres
+
+## Actores
+- Admin
+- Usuario
+
+## Integraciones externas
+- Stripe
+
+## Entidades de datos
+- User
+- Order
+
+## Superficies
+- web
+
+## Hallazgos
+- [DECISIÓN] elegir db
+- nota normal

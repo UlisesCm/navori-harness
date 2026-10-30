@@ -1,0 +1,41 @@
+# Digest
+
+## Capacidades
+- item 0
+* item 1
+- item 2
+* item 3
+- item 4
+* item 5
+- item 6
+   - indentado
+ - con nbsp inicial
+-sin espacio
+- 
+
+## Actores
+- item 0
+* item 1
+- item 2
+* item 3
+
+## Entidades de datos
+- item 0
+* item 1
+- item 2
+* item 3
+- item 4
+* item 5
+
+## Superficies
+- item 0
+* item 1
+
+## Hallazgos
+- [DECISIÓN] a
+* algo [decisión] b
+-   [Decision] c
+- [DECISIÓN] d
+- sin etiqueta
+## Capacidades
+- duplicada gana
