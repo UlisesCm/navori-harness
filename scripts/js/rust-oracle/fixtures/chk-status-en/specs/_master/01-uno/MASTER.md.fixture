@@ -1,0 +1,123 @@
+# Master
+
+## Metadata
+
+Project, stage, date, mode, consolidated `context/md/` files.
+
+Source: <plan(s) or D<n> this section comes from>
+
+Source: plan1 §1
+
+## Executive summary
+
+What is being built and why.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §2
+
+## Current state vs. objective
+
+Only in `en-curso` mode.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §3
+
+## Scope (MoSCoW)
+
+Consolidated Must / Should / Could / Won't.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §4
+
+## Actors and permissions
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §5
+
+## Business rules
+
+Consolidated `RN-<n>`.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §6
+
+## Functional requirements
+
+Consolidated `RF-<n>`.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §7
+
+## Non-functional requirements
+
+Consolidated `RNF-<n>`.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §8
+
+## Domain and data
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §9
+
+## Architecture
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §10
+
+## Stack and libraries
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §11
+
+## Contracts
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §12
+
+## Security
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §13
+
+## Infrastructure and operations
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §14
+
+## Delivery in parts
+
+`navori:master-parts` region (rendered by `navori master status`, spec 0034 T8): each `P<n>` with objective, scope, out of scope, dependencies, seed requirements, `P<n>.A<m>` criteria and, in `en-curso`, its status.
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §15
+
+## Testing
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §16
+
+## Risks
+
+Source: <plan(s) or D<n>>
+
+Source: plan1 §17
+
+## Open questions
+
+None
