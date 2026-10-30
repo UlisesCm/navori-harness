@@ -170,20 +170,54 @@ pub fn plan_status_writes(
         assert_writable(cwd, &index_path)?;
         return Ok(vec![(index_path, index_md)]);
     };
-    let stage_path = js_join(master_dir, &status.stage.dir);
-    let parts_path = js_join(&stage_path, "parts.json");
+    let parts_path = js_join(&js_join(master_dir, &status.stage.dir), "parts.json");
     let parts: Vec<Part> = if Path::new(&parts_path).exists() {
         state::parts(&read_json(Path::new(&parts_path))?).map_err(|_| Delegate)?
     } else {
         Vec::new()
     };
+    plan_stage_writes(
+        cwd, master_dir, english, index_path, index_md, status, &parts,
+    )
+}
+
+/// [`plan_status_writes`] for an active legacy stage whose `parts.json` holds `parts`.
+///
+/// # Errors
+/// [`Delegate`] as [`plan_status_writes`].
+pub fn plan_status_writes_with_parts(
+    cwd: &str,
+    specs_dir: &str,
+    master_dir: &str,
+    english: bool,
+    index: &MasterIndex,
+    status: &LegacyStatus,
+    parts: &[Part],
+) -> Result<Vec<Planned>, Delegate> {
+    let index_path = js_join(master_dir, "INDEX.md");
+    let index_md = render_index_md(index, specs_dir);
+    plan_stage_writes(
+        cwd, master_dir, english, index_path, index_md, status, parts,
+    )
+}
+
+fn plan_stage_writes(
+    cwd: &str,
+    master_dir: &str,
+    english: bool,
+    index_path: String,
+    index_md: String,
+    status: &LegacyStatus,
+    parts: &[Part],
+) -> Result<Vec<Planned>, Delegate> {
+    let stage_path = js_join(master_dir, &status.stage.dir);
     let master_path = js_join(&stage_path, "MASTER.md");
     let replacement = if Path::new(&master_path).exists() {
         let content = String::from_utf8(fs::read(&master_path).map_err(|_| Delegate)?)
             .map_err(|_| Delegate)?;
         master_replacement(
             &content,
-            &render_master_parts(&parts, status.state.mode, english),
+            &render_master_parts(parts, status.state.mode, english),
         )?
     } else {
         None
@@ -203,7 +237,7 @@ pub fn plan_status_writes(
 }
 
 /// The writes failed after the phase was durable (or for the derived files alone): the TS message.
-fn write_all(files: &[Planned]) -> Result<(), String> {
+pub(crate) fn write_all(files: &[Planned]) -> Result<(), String> {
     let mut fs = RealFs::default();
     for (path, content) in files {
         write_file_atomic(&mut fs, Path::new(path), content).map_err(|e| e.message)?;
@@ -289,7 +323,7 @@ pub enum Advance {
 }
 
 /// `today()`: `new Date().toISOString().slice(0, 10)`.
-fn utc_today() -> String {
+pub(crate) fn utc_today() -> String {
     jiff::Timestamp::now().strftime("%Y-%m-%d").to_string()
 }
 

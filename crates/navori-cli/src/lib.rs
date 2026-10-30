@@ -125,6 +125,10 @@ pub const NATIVE: &[NativeCommand] = &[
         run: master_write::run_ux,
     },
     NativeCommand {
+        path: &["master", "part"],
+        run: master_write::run_part,
+    },
+    NativeCommand {
         path: &["master", "advance"],
         run: master_write::run_advance,
     },

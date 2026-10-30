@@ -340,16 +340,41 @@ pub fn legacy_with_state(
     config: PartConfig,
     state: MasterState,
 ) -> Result<LegacyStatus, Delegate> {
-    if stage.deliveries {
-        return Err(Delegate);
-    }
-    let stage_path = master_dir.join(&stage.dir);
-    let parts_path = stage_path.join("parts.json");
+    let parts_path = master_dir.join(&stage.dir).join("parts.json");
     let parts: Vec<Part> = if parts_path.exists() {
         state::parts(&read_json(&parts_path)?).map_err(|_| Delegate)?
     } else {
         Vec::new()
     };
+    legacy_with(
+        cwd, specs_dir, master_dir, index, stage, config, state, parts,
+    )
+}
+
+/// [`legacy_with_state`] over a `parts.json` already in memory too: what `readMasterStatus`
+/// returns once the stage holds `state` and `parts`. `master part` computes the derived files
+/// from it before it writes anything.
+///
+/// # Errors
+/// [`Delegate`] as [`legacy`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "`readMasterStatus`'s inputs, with the stage's two files already in memory"
+)]
+pub fn legacy_with(
+    cwd: &str,
+    specs_dir: &str,
+    master_dir: &Path,
+    index: &MasterIndex,
+    stage: &StageEntry,
+    config: PartConfig,
+    state: MasterState,
+    parts: Vec<Part>,
+) -> Result<LegacyStatus, Delegate> {
+    if stage.deliveries {
+        return Err(Delegate);
+    }
+    let stage_path = master_dir.join(&stage.dir);
     if parts
         .iter()
         .flat_map(|p| &p.acceptance)

@@ -6,6 +6,7 @@ pub mod checks;
 pub mod fit;
 pub mod index;
 pub mod markers;
+pub mod part;
 pub mod render;
 pub mod state;
 pub mod status;

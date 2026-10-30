@@ -24,6 +24,23 @@
     { "path": ["tools", "session-context"], "flags": ["notice-reserve"] },
     { "path": ["master", "mode"], "flags": ["cwd", "h", "help", "stage"] },
     { "path": ["master", "ux"], "flags": ["cwd", "h", "help", "stage"] },
+    {
+      "path": ["master", "part"],
+      "flags": [
+        "accept",
+        "approved-by",
+        "command",
+        "cwd",
+        "h",
+        "help",
+        "issue",
+        "reason",
+        "result",
+        "spec",
+        "stage",
+        "state"
+      ]
+    },
     { "path": ["master", "advance"], "flags": ["cwd", "h", "help", "stage"] },
     {
       "path": ["master", "check"],

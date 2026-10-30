@@ -530,6 +530,95 @@ pub fn parts(raw: &JsValue) -> Result<Vec<Part>, Invalid> {
     Ok(parts)
 }
 
+/// `raw[key]`, or `default` where zod fills one in.
+fn or_default(source: &JsObject, key: &str, default: JsValue) -> JsValue {
+    match source.get(key) {
+        None | Some(JsValue::Undefined) => default,
+        Some(value) => value.clone(),
+    }
+}
+
+fn normalized_criterion(value: &JsValue) -> Result<JsValue, Invalid> {
+    let o = object(value)?;
+    let mut out = fields(o, &["id", "description"]);
+    let evidence = match o.get("evidence") {
+        None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Null,
+        Some(e) => {
+            let e = object(e)?;
+            let keys: &[&str] = if text(e.get("kind"))? == "run" {
+                &["kind", "command", "result", "commit", "date"]
+            } else {
+                &["kind", "approvedBy", "date"]
+            };
+            JsValue::Object(fields(e, keys))
+        }
+    };
+    out.insert("evidence", evidence);
+    let method = text(o.get("method"))?;
+    out.insert("method", JsValue::string(&method));
+    let (key, keys): (&str, &[&str]) = match method.as_str() {
+        "test" => ("test", &["file", "case"]),
+        "comando" => ("command", &["run", "expected"]),
+        _ => ("manual", &["check", "how"]),
+    };
+    let block = object(o.get(key).ok_or(Invalid)?)?;
+    out.insert(key, JsValue::Object(fields(block, keys)));
+    Ok(JsValue::Object(out))
+}
+
+fn normalized_part(value: &JsValue) -> Result<JsValue, Invalid> {
+    let o = object(value)?;
+    let mut out = fields(o, &["id", "title", "objective"]);
+    for key in ["scope", "outOfScope", "dependsOn", "seedRequirements"] {
+        out.insert(key, or_default(o, key, JsValue::Array(Vec::new())));
+    }
+    let Some(JsValue::Array(acceptance)) = o.get("acceptance") else {
+        return Err(Invalid);
+    };
+    out.insert(
+        "acceptance",
+        JsValue::Array(
+            acceptance
+                .iter()
+                .map(normalized_criterion)
+                .collect::<Result<_, _>>()?,
+        ),
+    );
+    out.insert(
+        "inheritedFrom",
+        or_default(o, "inheritedFrom", JsValue::Null),
+    );
+    out.insert(
+        "state",
+        or_default(o, "state", JsValue::string("pendiente")),
+    );
+    for key in ["reason", "spec", "issue"] {
+        out.insert(key, or_default(o, key, JsValue::Null));
+    }
+    Ok(JsValue::Object(out))
+}
+
+/// `PartsSchema.parse(raw)` as zod returns it: schema key order, defaults filled in, unknown
+/// keys stripped at every level. `master part` mutates this object and writes it back.
+///
+/// # Errors
+/// [`Invalid`] wherever zod would throw.
+pub fn parts_normalized(raw: &JsValue) -> Result<JsValue, Invalid> {
+    parts(raw)?;
+    let o = object(raw)?;
+    let mut doc = JsObject::new();
+    doc.insert("version", JsValue::Number(1.0));
+    let parts = match o.get("parts") {
+        Some(JsValue::Array(items)) => items
+            .iter()
+            .map(normalized_part)
+            .collect::<Result<_, _>>()?,
+        _ => Vec::new(),
+    };
+    doc.insert("parts", JsValue::Array(parts));
+    Ok(JsValue::Object(doc))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,6 +677,22 @@ mod tests {
 
     const A1: &str =
         r#"{"id":"A1","description":"d","method":"test","test":{"file":"f","case":"c"}}"#;
+
+    #[test]
+    fn parts_normalize_like_zod_parse() {
+        let raw = r#"{"z":1,"parts":[{"state":"hecho","acceptance":[{"manual":{"how":"h","check":"c","q":1},"method":"manual","evidence":{"date":"2026-01-01","approvedBy":"user","kind":"approval"},"description":"d","id":"A1","x":1}],"objective":"o","title":"t","id":"P1","issue":3,"extra":true}],"version":1}"#;
+        let normalized = js_json::parse(raw)
+            .ok_or(Invalid)
+            .and_then(|v| parts_normalized(&v))
+            .map(|v| v.stringify(None));
+        assert_eq!(
+            normalized,
+            Ok(Some(
+                r#"{"version":1,"parts":[{"id":"P1","title":"t","objective":"o","scope":[],"outOfScope":[],"dependsOn":[],"seedRequirements":[],"acceptance":[{"id":"A1","description":"d","evidence":{"kind":"approval","approvedBy":"user","date":"2026-01-01"},"method":"manual","manual":{"check":"c","how":"h"}}],"inheritedFrom":null,"state":"hecho","reason":null,"spec":null,"issue":3}]}"#
+                    .to_owned()
+            ))
+        );
+    }
 
     #[test]
     fn parts_follow_the_schema_and_its_refinements() {
