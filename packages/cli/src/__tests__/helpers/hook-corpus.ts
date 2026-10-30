@@ -1,6 +1,13 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import type { HookCase } from "./hook-batch.ts";
@@ -34,6 +41,11 @@ export interface RawCorpusLine {
   cwdKind: "none" | "repo";
   /** The hook's own arguments (its mode, `$1`); absent when it got none. */
   args?: string[];
+  /**
+   * Text files the case's temp working directory held when the hook ran (path relative to it,
+   * content normalized), for the state a hook reads from it (spec 0059 R54); absent when empty.
+   */
+  files?: Record<string, string>;
   /** `included` lines become cases; the others only feed the coverage denominator. */
   status: "included" | "excluded";
   reason?: string;
@@ -76,6 +88,54 @@ export function normalizeCorpusText(text: string): string {
     out = out.replaceAll(root, TMP_TOKEN);
   }
   return out;
+}
+
+/** Bounds of a working-directory snapshot: state files, never a tree. */
+const SNAPSHOT_MAX_FILES = 40;
+const SNAPSHOT_MAX_FILE_BYTES = 16 * 1024;
+const SNAPSHOT_MAX_BYTES = 128 * 1024;
+const SNAPSHOT_MAX_DEPTH = 4;
+const SNAPSHOT_SKIP = new Set([".git", "node_modules"]);
+
+/**
+ * The text files under a case's temp working directory, as `{ relative path: content }`. Symlinks,
+ * binary or oversized files and the `.git`/`node_modules` trees are left out, and a directory that
+ * exceeds the bounds yields nothing at all: a partial setup would replay a different state.
+ */
+export function snapshotWorkdir(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  let total = 0;
+  let count = 0;
+  let complete = true;
+  const walk = (dir: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.isSymbolicLink() || SNAPSHOT_SKIP.has(entry.name)) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (depth >= SNAPSHOT_MAX_DEPTH) complete = false;
+        else walk(path, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const bytes = readFileSync(path);
+      if (bytes.length > SNAPSHOT_MAX_FILE_BYTES || bytes.includes(0)) {
+        complete = false;
+        continue;
+      }
+      total += bytes.length;
+      count += 1;
+      if (count > SNAPSHOT_MAX_FILES || total > SNAPSHOT_MAX_BYTES) complete = false;
+      else files[relative(root, path).split(sep).join("/")] = bytes.toString("utf8");
+    }
+  };
+  walk(root, 0);
+  return complete ? files : {};
 }
 
 const isUnder = (path: string, root: string): boolean => {
@@ -128,6 +188,12 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     return normalizeCorpusText(out);
   };
   // The audit root of a test points at state the replay cannot recreate: the replay mode owns it.
+  const snapshot =
+    tempCwd && cwd !== undefined && existsSync(cwd)
+      ? Object.fromEntries(
+          Object.entries(snapshotWorkdir(cwd)).map(([name, text]) => [name, tokenize(text)]),
+        )
+      : null;
   const envDelta = Object.fromEntries(
     Object.entries(c.env ?? {})
       .filter(([k]) => k !== "NAVORI_AUDITS_ROOT")
@@ -141,6 +207,7 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     envDelta,
     cwdKind: tempCwd ? "none" : "repo",
     ...(c.args !== undefined && c.args.length > 0 ? { args: [...c.args] } : {}),
+    ...(snapshot !== null && Object.keys(snapshot).length > 0 ? { files: snapshot } : {}),
     status: "included",
   };
   const out: RawCorpusLine =

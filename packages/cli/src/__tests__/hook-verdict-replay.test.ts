@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -19,7 +20,12 @@ import { createHash } from "node:crypto";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { runHookBatch, runHookIsolated } from "./helpers/hook-batch.ts";
-import { normalizeCorpusText, recordHookCase, type RawCorpusLine } from "./helpers/hook-corpus.ts";
+import {
+  normalizeCorpusText,
+  recordHookCase,
+  snapshotWorkdir,
+  type RawCorpusLine,
+} from "./helpers/hook-corpus.ts";
 
 /**
  * Spec 0055 R13 — corpus capture (inside the hook helpers) and replay tool. Fixed fixtures and a
@@ -35,6 +41,7 @@ interface Case {
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
   args?: string[];
+  files?: Record<string, string>;
 }
 interface Verdict {
   status: number;
@@ -639,6 +646,95 @@ describe("hook verdict corpus", () => {
       },
     });
     expect(result).toEqual({ ok: true, cases: rows.length });
+  });
+
+  // Covers: R54
+  it("los archivos de estado del directorio del caso se capturan, se acotan y se reproducen", async () => {
+    const root = tmp();
+    const write = (name: string, text: string | Buffer): void => {
+      mkdirp(dirname(join(root, name)));
+      writeFileSync(join(root, name), text);
+    };
+    write("state.json", '{"model":"x"}');
+    write("nested/deep/a.txt", "A");
+    write(".git/config", "ignored");
+    write("node_modules/p/index.js", "ignored");
+    write("image.bin", Buffer.from([1, 0, 2]));
+    symlinkSync(join(root, "state.json"), join(root, "link"));
+    // Binary files and symlinks are left out, and `.git` and `node_modules` are not walked, but
+    // a binary file means the snapshot is not the whole state, so there is none at all.
+    expect(snapshotWorkdir(root)).toEqual({});
+    rmSync(join(root, "image.bin"));
+    expect(snapshotWorkdir(root)).toEqual({
+      "nested/deep/a.txt": "A",
+      "state.json": '{"model":"x"}',
+    });
+    // Too many files, an oversized one or too deep a tree: never a partial state.
+    write("big.txt", "x".repeat(17 * 1024));
+    expect(snapshotWorkdir(root)).toEqual({});
+    rmSync(join(root, "big.txt"));
+    write("a/b/c/d/e/f.txt", "too deep");
+    expect(snapshotWorkdir(root)).toEqual({});
+    rmSync(join(root, "a"), { recursive: true });
+    for (let i = 0; i < 41; i += 1) write(`many/${i}.txt`, "x");
+    expect(snapshotWorkdir(root)).toEqual({});
+    rmSync(join(root, "many"), { recursive: true });
+
+    // The capture records it, with the case's own directory tokenized.
+    const raw = join(tmp(), "raw");
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    const hook = installCoreHook(tmp(), "general-purpose-confirm.sh");
+    write("scratch/note.txt", `lives in ${root}`);
+    recordHookCase(hook, "bash", { input: "{}", cwd: root });
+    const [line] = rawLines(raw);
+    expect(line?.files?.["scratch/note.txt"]).toBe("lives in @CWD@");
+    expect(line?.files?.["state.json"]).toBe('{"model":"x"}');
+    // No files, no key: an empty directory keeps the line it always had.
+    const empty = tmp();
+    recordHookCase(hook, "bash", { input: "{}", cwd: empty });
+    expect(rawLines(raw).at(-1)).not.toHaveProperty("files");
+
+    // They are part of the identity, and the replay writes them before the hook runs.
+    const plain = base("x");
+    expect(replay.caseKey({ ...plain, files: {} })).toBe(replay.caseKey(plain));
+    expect(replay.caseKey({ ...plain, files: { a: "1" } })).not.toBe(replay.caseKey(plain));
+    expect(replay.caseKey({ ...plain, files: { a: "1" } })).not.toBe(
+      replay.caseKey({ ...plain, files: { a: "2" } }),
+    );
+    const hookDir = tmp();
+    const reader = join(hookDir, "reader.sh");
+    writeFileSync(
+      reader,
+      'cat state/model.txt 2>/dev/null || printf "no state"; printf " in %s" "$(basename "$PWD")"',
+    );
+    const deps = { runHookBatch, resolveHook: () => reader };
+    const withState = {
+      ...base(""),
+      cwdKind: "none" as const,
+      files: { "state/model.txt": "opus @CWD@" },
+    };
+    const without = { ...base(""), cwdKind: "none" as const };
+    const done = await replay.replayCorpus({
+      corpus: [
+        {
+          ...withState,
+          expected: { off: { status: 0, stdout: "opus @CASE@/none in none", stderr: "" } },
+        },
+        { ...without, expected: { off: { status: 0, stdout: "no state in none", stderr: "" } } },
+      ],
+      modes: ["off"],
+      deps,
+    });
+    expect(done).toEqual({ ok: true, cases: 2 });
+    // A name that leaves the case's directory is refused, never written.
+    const escaping = {
+      ...without,
+      files: { "../evil": "x" },
+      expected: { off: { status: 0, stdout: "", stderr: "" } },
+    };
+    const refused = await replay.replayCorpus({ corpus: [escaping], modes: ["off"], deps });
+    expect(refused).toMatchObject({ ok: false });
+    expect(JSON.stringify(refused)).toContain("escapes its case");
   });
 
   // Covers: R13

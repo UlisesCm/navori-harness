@@ -56,7 +56,7 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[] }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], files?: Record<string, string> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
  * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, append: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
@@ -67,6 +67,8 @@ export function caseKey(c) {
   // The hook's arguments (its mode, `$1`) are part of the identity only when it got some, so the
   // cases captured before they were recorded keep their keys.
   if (c.args !== undefined && c.args.length > 0) key.push(c.args);
+  // Likewise the state files of a case's working directory (spec 0059 R54).
+  if (c.files !== undefined && Object.keys(c.files).length > 0) key.push(Object.entries(c.files).sort());
   return JSON.stringify(key);
 }
 
@@ -91,7 +93,7 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind, args } = line;
+      const { hook, engine, shell, input, envDelta, cwdKind, args, files } = line;
       included.set(caseKey(line), {
         hook,
         engine,
@@ -100,6 +102,7 @@ export function mergeRaw(lines) {
         envDelta,
         cwdKind,
         ...(args !== undefined && args.length > 0 ? { args } : {}),
+        ...(files !== undefined && Object.keys(files).length > 0 ? { files } : {}),
       });
     } else {
       const reason = line.reason ?? "unknown";
@@ -346,6 +349,12 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         else mkdirSync(join(caseRoot, "none"), { recursive: true });
         paths[i] = { project, root: caseRoot };
         const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
+        // The state files the hook found in its temp working directory when it was captured.
+        for (const [name, text] of Object.entries(c.files ?? {})) {
+          if (name.startsWith("/") || name.split("/").includes("..")) throw new Error(`corpus file escapes its case: ${name}`);
+          mkdirSync(dirname(join(cwd, name)), { recursive: true });
+          writeFileSync(join(cwd, name), hostPaths(text, project, cwd));
+        }
         const auditsRoot = join(scratch.audits, String(i));
         const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));
         const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);
