@@ -36,6 +36,7 @@ interface OracleCase {
   mask?: string[];
   native?: boolean;
   files?: Record<string, string>;
+  readonly?: string[];
 }
 interface Rule {
   name: string;
@@ -133,6 +134,30 @@ describe("rust oracle", () => {
     expect(
       run(`printf 'out\\n'; printf 'abc' > result.txt; chmod 600 result.txt`).differences,
     ).toMatchObject([{ kind: "tree:repo", detail: expect.stringContaining("mode") }]);
+  });
+
+  // Covers: R8
+  it("un caso de fallo de escritura corre con el directorio en solo lectura y puede no comparar stderr", () => {
+    const dir = tmp();
+    const base = tmp();
+    // Each side tries to write into a read-only `ro/`; the TS-like stub names its own path on
+    // stderr, as an uncaught exception's stack trace would.
+    const body = (who: string) =>
+      `mkdir -p ro; touch ro/keep; echo ${who} >&2; printf 'x' > ro/new 2>/dev/null || exit 1`;
+    const run = (mask: string[]) =>
+      oracle.runCase(
+        { id: "ro", fixture: "empty", args: [], readonly: ["."], mask },
+        {
+          ts: stub(dir, "ts.sh", body("/ts/dist/render.js:17")),
+          rust: stub(dir, "rust.sh", body("rust message")),
+          tsCli: "/unused/index.js",
+          base,
+        },
+      );
+    const masked = run(["stderr"]);
+    expect(masked.exit).toBe(1);
+    expect(masked.differences).toEqual([]);
+    expect(run([]).differences).toMatchObject([{ kind: "stderr" }]);
   });
 
   // Covers: R8

@@ -107,16 +107,23 @@ pub fn commit_writes(
                 .create(fs, cwd, &targets, &exclude, input.now)
                 .map_err(CommitError::Backup)?;
             if !handle.files.is_empty() {
-                backup_path = Some(handle.path);
                 if let Ok(root) = backups.root.clone() {
                     #[allow(
                         clippy::cast_precision_loss,
                         reason = "`Date.now()` is a JS number of milliseconds"
                     )]
                     let now_ms = input.now.timestamp().as_millisecond() as f64;
-                    purge_old_backups(fs, &root, now_ms, RETENTION_DAYS, MAX_TOTAL_BYTES)
-                        .map_err(CommitError::Backup)?;
+                    purge_old_backups(
+                        fs,
+                        &root,
+                        now_ms,
+                        RETENTION_DAYS,
+                        MAX_TOTAL_BYTES,
+                        Some(&handle.path),
+                    )
+                    .map_err(CommitError::Backup)?;
                 }
+                backup_path = Some(handle.path);
             }
         }
         if let Some(write_last) = input.write_last {

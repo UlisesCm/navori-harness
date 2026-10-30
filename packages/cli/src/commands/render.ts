@@ -201,7 +201,7 @@ function reconcileTrimmedWorkspace(
     const handle = createBackup(wsCwd, plan.remove, {
       exclude: [...EPHEMERAL_HARNESS_PATHS],
     });
-    if (handle.files.length > 0) purgeOldBackups();
+    if (handle.files.length > 0) purgeOldBackups({ keep: handle.path });
     // Never recursive: the plan enumerated FILES, so a directory only goes away
     // through `removeEmptyDirs` — that is, when nothing of the user's is left.
     for (const rel of plan.remove) rmSync(resolve(wsCwd, rel), { force: true });
@@ -1109,7 +1109,7 @@ function runRenderCore(
       });
       if (handle.files.length > 0) {
         prunedBackupPath = handle.path;
-        purgeOldBackups();
+        purgeOldBackups({ keep: handle.path });
       }
       // Never recursive: the plan enumerated FILES, so a directory can only go
       // away through `removeEmptyDirs` — i.e. when nothing of the user's is left.

@@ -2289,6 +2289,35 @@ export function buildDesiredMcpServers(
   return desired;
 }
 
+/** The keys `buildDesiredMcpServers` emits for a server: navori's to set and to drop. */
+const NAVORI_MCP_ENTRY_KEYS: ReadonlySet<string> = new Set([
+  "command",
+  "args",
+  "env",
+  "alwaysLoad",
+]);
+
+/**
+ * The entry a navori plugin's server gets: navori's keys from `desired`, every other key the file
+ * already carried kept in place (#1448). A host adds its own switches inside the entry (pi's
+ * `directTools`); replacing the entry wholesale deleted them on every render and left the mirror
+ * permanently "stale" in that host. Navori keys keep their position, a navori key `desired` no
+ * longer has (an `env` that went away, `alwaysLoad` turned off) is dropped, and new ones go last.
+ */
+function mergeServerEntry(
+  existing: unknown,
+  desired: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!isPlainObject(existing)) return desired;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(existing)) {
+    if (!NAVORI_MCP_ENTRY_KEYS.has(key)) out[key] = value;
+    else if (key in desired) out[key] = desired[key];
+  }
+  for (const [key, value] of Object.entries(desired)) if (!(key in out)) out[key] = value;
+  return out;
+}
+
 export function planMcpRegistration(
   cwd: string,
   enabledPlugins: LoadedPlugin[],
@@ -2335,7 +2364,7 @@ export function planMcpRegistration(
   for (const plugin of disabledPlugins) {
     if (plugin.manifest.mcpServer) delete servers[plugin.manifest.id];
   }
-  for (const [id, entry] of desired) servers[id] = entry;
+  for (const [id, entry] of desired) servers[id] = mergeServerEntry(servers[id], entry);
 
   // No file yet and nothing to register → don't create an empty `.mcp.json`.
   if (existing === null && Object.keys(servers).length === 0) return { kind: "noop" };

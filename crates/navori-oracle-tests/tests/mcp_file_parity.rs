@@ -111,7 +111,22 @@ fn server_key() -> BoxedStrategy<String> {
 fn existing() -> BoxedStrategy<Option<String>> {
     let servers = prop_oneof![
         6 => prop::collection::vec(
-            (server_key(), pick(&[r#"{"command":"old"}"#, r#"{"command":"srv","args":[]}"#])),
+            (
+                server_key(),
+                // Navori's keys (set, stale or absent), a host's own switches (#1448), in
+                // different orders, and entries that are not objects.
+                pick(&[
+                    r#"{"command":"old"}"#,
+                    r#"{"command":"srv","args":[]}"#,
+                    r#"{"command":"srv","directTools":true}"#,
+                    r#"{"directTools":true,"args":["old"],"command":"old","env":{"Z":"1"}}"#,
+                    r#"{"alwaysLoad":true,"host":{"a":1},"command":"srv"}"#,
+                    r#"{"2":1,"command":"srv","1":2,"directTools":false}"#,
+                    r#""broken""#,
+                    r#"null"#,
+                    r#"[1]"#,
+                ]),
+            ),
             0..4,
         )
         .prop_map(|entries| {

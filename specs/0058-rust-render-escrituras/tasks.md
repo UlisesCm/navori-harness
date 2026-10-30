@@ -254,3 +254,26 @@ delegan `--interactive`, `--workspace` y las contradicciones con `--keep-mine`. 
 `accept_new_files_recomposes_hook_extensions` (con prueba de mutación) y el parseo en
 `navori-cli/tests/sync.rs`.
 - [x] **T31** (R49, R45) — fixtures `aged-backups`, `foreign-blocks`, `sync-conflicts` y `codex-trusted`; el formato de fixture admite `mtime` relativo aplicado en cada copia (D26) · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"los fixtures de escritura se copian con sus mtimes relativos"
+
+### Revisión independiente post-merge (2026-10-29)
+
+E3 se integró en tres PRs (#1434, #1438, #1446) sin revisión de subagente. La revisión independiente
+la hizo un `auditor` en una sesión nueva de Claude Code
+(`.navori/state/handoffs/audit_deep_0058-e3-writes.md`): sin bloqueantes, dos altos y tres medios.
+
+- **A1 y A2** (poda: el backup recién tomado y los directorios ajenos), comunes al TS: corregidos
+  en `dev` (#1447) y portados en `purge_old_backups` con `keep` e `is_backup_dir_name`.
+- **`sync --json`** re-delegaba si la serialización fallaba después de un `--apply`: ahora es un
+  error con exit 1.
+- **M1** (salida ante un fallo de escritura distinta del TS, sin casos en el oráculo): corregido. `sync`
+  reproduce la salida del TS cuando fallan los archivos aceptados (`p.cancel` en humano,
+  `{ok:false, reason:"write-failed", …}` en `--json`) y conserva el reporte cuando falla el commit
+  del motor; `render` imprime su intro antes del error. El TS termina esos casos en una excepción
+  sin capturar cuyo stack trace nombra sus archivos de `dist/`: los casos `write-failure:*` del
+  oráculo (un directorio en solo lectura con el campo `readonly`) comparan exit, stdout y árboles
+  y, solo ahí, enmascaran stderr (`mask: ["stderr"]`).
+- **M2** (`run_render` planea los ignore files después del commit de Claude, así que una carrera
+  puede terminar en "a step declined" con archivos ya escritos): se acepta. El resultado es exit 1,
+  nunca una segunda corrida del TS, y reordenar rompería la paridad con `runRenderCore`.
+- **M3** (`adopt --apply` no atómico y siguiendo symlinks fuera del repo): igual que el TS, con el
+  contenido en backup. Endurecerlo es un cambio de comportamiento que entraría por `dev`.

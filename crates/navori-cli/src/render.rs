@@ -352,6 +352,12 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
                 plan
             }
             Err(message) => {
+                // The TS printed its intro before failing; the error itself escapes citty as an
+                // uncaught exception with a stack trace, which Rust does not reproduce.
+                if !json {
+                    let _ = std::io::stdout()
+                        .write_all(Clack::from_env().intro("navori render").as_bytes());
+                }
                 let _ = writeln!(std::io::stderr(), "{message}");
                 return Outcome::Exit(ExitCode::FAILURE);
             }
