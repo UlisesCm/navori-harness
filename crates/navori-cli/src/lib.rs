@@ -80,6 +80,14 @@ pub const NATIVE: &[NativeCommand] = &[
         run: master::run_status,
     },
     NativeCommand {
+        path: &["master", "mode"],
+        run: master_write::run_mode,
+    },
+    NativeCommand {
+        path: &["master", "ux"],
+        run: master_write::run_ux,
+    },
+    NativeCommand {
         path: &["master", "advance"],
         run: master_write::run_advance,
     },

@@ -1,5 +1,5 @@
-//! `navori master advance` and `navori master status` without flags, native (spec 0060 T8): the
-//! first commands of `master` that write.
+//! `navori master advance`, `status` without flags, `mode` and `ux`, native (spec 0060 T8): the
+//! commands of `master` that write the phase, the mode or the UX decision.
 //!
 //! Both go through `navori_core::master::write`, which checks everything before its first write
 //! and answers [`Outcome::Delegate`] when the TS would behave differently. `advance` also emits
@@ -10,7 +10,7 @@
 use std::ffi::OsString;
 
 use navori_core::master::checks::build_stage_ctx;
-use navori_core::master::write::{self, Advance};
+use navori_core::master::write::{self, Advance, Set};
 
 use crate::help::{ArgDef, ArgKind, CommandDef};
 use crate::master::{MASTER_PARENT, part_config};
@@ -35,6 +35,55 @@ const ADVANCE: CommandDef = CommandDef {
     ],
     sub_commands: &[],
 };
+
+const MODE: CommandDef = CommandDef {
+    name: "mode",
+    description: "Register the first stage's mode: template | en-curso | desde-cero (R16)",
+    args: &[
+        ArgDef {
+            name: "value",
+            kind: ArgKind::Positional,
+            description: "template | en-curso | desde-cero",
+        },
+        ArgDef {
+            name: "stage",
+            kind: ArgKind::String,
+            description: "Closed stages are read-only",
+        },
+        ArgDef {
+            name: "cwd",
+            kind: ArgKind::String,
+            description: "Repo root",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const UX: CommandDef = CommandDef {
+    name: "ux",
+    description: "Record the UX contract decision in phase ux: none | md | md-json",
+    args: &[
+        ArgDef {
+            name: "value",
+            kind: ArgKind::Positional,
+            description: "none | md | md-json",
+        },
+        ArgDef {
+            name: "stage",
+            kind: ArgKind::String,
+            description: "Closed stages are read-only",
+        },
+        ArgDef {
+            name: "cwd",
+            kind: ArgKind::String,
+            description: "Repo root",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const MODES: [&str; 3] = ["template", "en-curso", "desde-cero"];
+const UX_CHOICES: [&str; 3] = ["none", "md", "md-json"];
 
 /// The environment variables `contextFromEnv` and `auditTarget` read (`lib/audit/cli-event.ts`).
 const AUDIT_VARS: [&str; 5] = [
@@ -165,4 +214,85 @@ pub(crate) fn status_plain(cwd: String) -> Option<Output> {
             Some(out)
         }
     }
+}
+
+/// `master mode <value>`.
+#[must_use]
+pub fn run_mode(call: &NativeCall<'_>) -> Outcome {
+    setter(call.args, "mode", &MODE).map_or(Outcome::Delegate, |out| Outcome::Exit(out.emit()))
+}
+
+/// `master ux <value>`.
+#[must_use]
+pub fn run_ux(call: &NativeCall<'_>) -> Outcome {
+    setter(call.args, "ux", &UX).map_or(Outcome::Delegate, |out| Outcome::Exit(out.emit()))
+}
+
+/// `master mode` and `master ux`: a positional value, `--stage` (read-only) and `--cwd`.
+fn setter(args: &[OsString], name: &str, command: &CommandDef) -> Option<Output> {
+    let argv = argv(args)?;
+    let ["master", _, rest @ ..] = argv.as_slice() else {
+        return None;
+    };
+    if rest.contains(&"--") {
+        return None;
+    }
+    if rest.iter().any(|a| *a == "--help" || *a == "-h") {
+        return Some(Output::usage(command, MASTER_PARENT, None));
+    }
+    let parsed = parse_options(rest, &[], &["stage", "cwd"])?;
+    if parsed.positionals.len() > 1 {
+        return None;
+    }
+    let Some(value) = parsed.positionals.first().copied() else {
+        let error = "Missing required positional argument: VALUE".to_owned();
+        return Some(Output::usage(command, MASTER_PARENT, Some(error)));
+    };
+    if let Some(stage) = parsed.value("stage").filter(|s| !s.is_empty()) {
+        return Some(fail(&format!(
+            "--stage {stage} es de solo lectura; use 'navori master check --stage {stage}'"
+        )));
+    }
+    let (choices, label) = if name == "mode" {
+        (&MODES, "mode")
+    } else {
+        (&UX_CHOICES, "ux choice")
+    };
+    if !choices.contains(&value) {
+        let expected = choices
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Some(fail(&format!(
+            "invalid {label} \"{value}\": expected {expected}"
+        )));
+    }
+    let cwd = cwd_of(&parsed)?;
+    let mut out = Output::default();
+    let repo = Repo::open(&mut out, cwd)?;
+    let config = part_config(&repo.config);
+    let result = if name == "mode" {
+        write::set_mode(&repo.master_dir, repo.index.as_ref(), value)
+    } else {
+        write::set_ux(
+            &repo.cwd,
+            &repo.specs_dir,
+            &repo.master_dir,
+            config,
+            repo.index.as_ref(),
+            value,
+        )
+    }
+    .ok()?;
+    let reads = match &result {
+        Set::Failed { config_reads, .. } | Set::Done { config_reads } => *config_reads,
+    };
+    for _ in 0..reads {
+        push_warnings(&mut out, &repo.config.warnings);
+    }
+    if let Set::Failed { message, .. } = result {
+        return Some(setup_failure(out, &message));
+    }
+    Some(out)
 }

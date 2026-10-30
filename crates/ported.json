@@ -3,6 +3,8 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
+    { "path": ["master", "mode"], "flags": ["cwd", "h", "help", "stage"] },
+    { "path": ["master", "ux"], "flags": ["cwd", "h", "help", "stage"] },
     { "path": ["master", "advance"], "flags": ["cwd", "h", "help", "stage"] },
     {
       "path": ["master", "check"],
