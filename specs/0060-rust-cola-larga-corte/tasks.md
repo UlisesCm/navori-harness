@@ -34,6 +34,10 @@ de referencia (Q25): fijan el patrón de hooks y de comandos que repiten los dem
   R82 aprobada.
 - **E5:** E4 integrada. **E6:** E5 integrada y aprobación explícita del usuario.
 
+**Pendiente heredado de 0058:** `navori-cli/tests/facts_cache.rs` (0057, `bccfedd0`) falla de
+forma intermitente (3/5 aislado) por un presupuesto de 1 ms. Se corrige antes del gate de corte
+(M17).
+
 Reglas de ejecución:
 - Workplan por entrega: `0060-rust-cola-larga-corte-e<n>`, con fases = milestones; `tasks.md` es el
   tracking canónico.

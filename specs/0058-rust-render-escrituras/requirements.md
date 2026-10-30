@@ -1,7 +1,7 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Requirements
 
-**Estado:** borrador · **Fecha:** 2026-10-23 · **Base:** `migration/rust` en `73fa052f`. Cada
-entrega abre su propio PR contra `migration/rust`; nada de esta fase llega a `dev` ni a npm.
+**Estado:** cerrada el 2026-10-30; R27–R31 pasaron a 0060 (Q14) · **Fecha:** 2026-10-23 ·
+**Base:** `migration/rust` en `73fa052f`. Cada entrega abre su propio PR contra `migration/rust`; nada de esta fase llega a `dev` ni a npm.
 
 ## Contexto
 

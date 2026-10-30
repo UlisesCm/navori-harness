@@ -1,7 +1,7 @@
 # Migración a Rust, fase 2: config, markers, render y escrituras — Design
 
 **Estado:** aceptado; decisiones Q2–Q14 resueltas por el usuario (§ "Decisiones del usuario"); Q14
-(2026-10-28) mueve E1 a la fase 4 (0060) ·
+(2026-10-28) mueve E1 a la fase 4 (0060); spec cerrada el 2026-10-30 ·
 **Fecha:** 2026-10-23 · **Base verificada:**
 `origin/migration/rust` = `73fa052f` (merge de #1393). Toda afirmación "ya existe" o "falta" se
 leyó en ese commit; las referencias `archivo:línea` apuntan a él. Cada entrega abre su propio PR
