@@ -3,6 +3,7 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
+    { "path": ["master", "advance"], "flags": ["cwd", "h", "help", "stage"] },
     {
       "path": ["master", "check"],
       "flags": ["cwd", "fit", "h", "help", "json", "part", "stage"]
@@ -10,8 +11,7 @@
     { "path": ["master", "template"], "flags": ["cwd", "h", "help", "part"] },
     {
       "path": ["master", "status"],
-      "flags": ["cwd", "h", "help", "json", "line"],
-      "requires": [["json"], ["line"], ["h"], ["help"]]
+      "flags": ["cwd", "h", "help", "json", "line"]
     },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },

@@ -10,6 +10,7 @@ pub mod journal;
 pub(crate) mod js_path;
 pub mod master;
 pub mod master_read;
+pub mod master_write;
 pub(crate) mod native_io;
 pub mod parser;
 pub mod render;
@@ -77,6 +78,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["master", "status"],
         run: master::run_status,
+    },
+    NativeCommand {
+        path: &["master", "advance"],
+        run: master_write::run_advance,
     },
     NativeCommand {
         path: &["master", "check"],

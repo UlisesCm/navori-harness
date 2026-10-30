@@ -1,9 +1,8 @@
 //! `navori master status --json|--line [--cwd <dir>]`, native without an active stage and with an
 //! active legacy one (spec 0060 T8, layers 1 and 2; `master::status` lists what still delegates).
 //!
-//! Read-only, like those two forms in the TS (`commands/master.ts`): `master status` without them
-//! regenerates `STATUS.md` and `INDEX.md`, and the manifest entry's `requires` keeps it on the TS.
-//! Everything is computed before the first byte of output; whatever is not reproduced yet
+//! Read-only, like those two forms in the TS (`commands/master.ts`); `master status` without them
+//! regenerates `STATUS.md` and `INDEX.md` and lives in `master_write`. Everything is computed before the first byte of output; whatever is not reproduced yet
 //! returns [`Outcome::Delegate`]: an argv citty might read differently, a missing or invalid
 //! config, an index `readMasterIndex` would reject, and an active stage (the next layers).
 
@@ -114,12 +113,12 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
             ..Output::default()
         });
     }
-    if !options.json && !options.line {
-        // `writeMasterStatus`: regenerates the derived files.
-        return None;
-    }
     let cwd = std::env::current_dir().ok()?;
     let cwd = js_resolve(&[cwd.to_str()?, options.cwd.unwrap_or_default()]);
+    if !options.json && !options.line {
+        // `writeMasterStatus`: regenerates the derived files.
+        return crate::master_write::status_plain(cwd);
+    }
     // `readMasterStatus` reads the config unconditionally: without one the TS throws.
     let config = read_config(&cwd)??;
     let mut out = Output::default();

@@ -84,18 +84,18 @@ const TEMPLATE: CommandDef = CommandDef {
 
 /// The tokens of a leaf command as citty would read them.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Parsed<'a> {
-    positionals: Vec<&'a str>,
+pub(crate) struct Parsed<'a> {
+    pub(crate) positionals: Vec<&'a str>,
     bools: Vec<&'a str>,
     strings: Vec<(&'a str, &'a str)>,
 }
 
 impl<'a> Parsed<'a> {
-    fn flag(&self, name: &str) -> bool {
+    pub(crate) fn flag(&self, name: &str) -> bool {
         self.bools.contains(&name)
     }
 
-    fn value(&self, name: &str) -> Option<&'a str> {
+    pub(crate) fn value(&self, name: &str) -> Option<&'a str> {
         self.strings
             .iter()
             .find(|(n, _)| *n == name)
@@ -106,7 +106,7 @@ impl<'a> Parsed<'a> {
 /// `None` for any shape whose citty reading is not certain: unknown or short options, `--no-*`,
 /// `--flag=<v>` on a boolean, a repeated string option, or a value missing or shaped like an
 /// option. `bools` and `strings` are the option names the command declares and this port reads.
-fn parse_options<'a>(
+pub(crate) fn parse_options<'a>(
     tokens: &[&'a str],
     bools: &[&'a str],
     strings: &[&'a str],
@@ -150,11 +150,11 @@ fn parse_options<'a>(
     Some(parsed)
 }
 
-fn argv(args: &[OsString]) -> Option<Vec<&str>> {
+pub(crate) fn argv(args: &[OsString]) -> Option<Vec<&str>> {
     args.iter().map(|a| a.to_str()).collect()
 }
 
-fn fail(message: &str) -> Output {
+pub(crate) fn fail(message: &str) -> Output {
     Output {
         stderr: format!("{message}\n"),
         code: 1,
@@ -162,7 +162,7 @@ fn fail(message: &str) -> Output {
     }
 }
 
-fn cwd_of(parsed: &Parsed<'_>) -> Option<String> {
+pub(crate) fn cwd_of(parsed: &Parsed<'_>) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
     Some(js_resolve(&[
         cwd.to_str()?,
@@ -170,7 +170,7 @@ fn cwd_of(parsed: &Parsed<'_>) -> Option<String> {
     ]))
 }
 
-fn push_warnings(out: &mut Output, warnings: &[String]) {
+pub(crate) fn push_warnings(out: &mut Output, warnings: &[String]) {
     for warning in warnings {
         out.stderr.push_str(warning);
         out.stderr.push('\n');
@@ -178,17 +178,17 @@ fn push_warnings(out: &mut Output, warnings: &[String]) {
 }
 
 /// What the commands read of the config and the registry.
-struct Repo {
-    cwd: String,
-    specs_dir: String,
-    master_dir: String,
-    config: navori_core::config::Config,
-    index: Option<index::MasterIndex>,
+pub(crate) struct Repo {
+    pub(crate) cwd: String,
+    pub(crate) specs_dir: String,
+    pub(crate) master_dir: String,
+    pub(crate) config: navori_core::config::Config,
+    pub(crate) index: Option<index::MasterIndex>,
 }
 
 impl Repo {
     /// `readConfig` (warnings into `out`) and `readMasterIndex`; `None` where the TS throws.
-    fn open(out: &mut Output, cwd: String) -> Option<Self> {
+    pub(crate) fn open(out: &mut Output, cwd: String) -> Option<Self> {
         let config = read_config(&cwd)??;
         push_warnings(out, &config.warnings);
         let specs_dir = native_io::specs_dir(Some(&config))?;
@@ -203,7 +203,7 @@ impl Repo {
         })
     }
 
-    fn active(&self) -> Option<&StageEntry> {
+    pub(crate) fn active(&self) -> Option<&StageEntry> {
         self.index.as_ref().and_then(index::MasterIndex::active)
     }
 
