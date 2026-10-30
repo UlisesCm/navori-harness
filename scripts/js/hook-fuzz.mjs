@@ -246,7 +246,9 @@ export async function fuzzHooks(input, fixtures = {}) {
     // deferral is still reported as case 1 with its reproducible payload.
     payload = generatePayloads(options.seed, 1, options.hook)[0];
     // Claude always exports the project directory; Codex and Pi derive it from the payload.
-    const envDelta = { NAVORI_HOOK_IMPL: "shell", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
+    // Hermetic: with the version notice on, a session hook would launch the detached version worker
+    // (network, then writes into the scratch HOME while the next restore deletes it).
+    const envDelta = { NAVORI_HOOK_IMPL: "shell", NAVORI_NO_UPDATE_NOTIFIER: "1", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
     const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, 0) };
     for (let attempt = 1; ; attempt += 1) {
       try {
