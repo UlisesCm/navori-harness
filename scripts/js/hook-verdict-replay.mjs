@@ -56,7 +56,7 @@ const MODES = ["off", "active"];
 /**
  * @typedef {{ status: number, stdout: string, stderr: string }} Verdict
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
- * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], files?: Record<string, string> }} CaseKey
+ * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], files?: Record<string, string>, git?: true }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
  * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, append: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
@@ -69,6 +69,7 @@ export function caseKey(c) {
   if (c.args !== undefined && c.args.length > 0) key.push(c.args);
   // Likewise the state files of a case's working directory (spec 0059 R54).
   if (c.files !== undefined && Object.keys(c.files).length > 0) key.push(Object.entries(c.files).sort());
+  if (c.git === true) key.push("git");
   return JSON.stringify(key);
 }
 
@@ -93,7 +94,7 @@ export function mergeRaw(lines) {
     slot.observed += 1;
     if (line.status === "included") {
       slot.included += 1;
-      const { hook, engine, shell, input, envDelta, cwdKind, args, files } = line;
+      const { hook, engine, shell, input, envDelta, cwdKind, args, files, git } = line;
       included.set(caseKey(line), {
         hook,
         engine,
@@ -103,6 +104,7 @@ export function mergeRaw(lines) {
         cwdKind,
         ...(args !== undefined && args.length > 0 ? { args } : {}),
         ...(files !== undefined && Object.keys(files).length > 0 ? { files } : {}),
+        ...(git === true ? { git } : {}),
       });
     } else {
       const reason = line.reason ?? "unknown";
@@ -354,6 +356,10 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
           if (name.startsWith("/") || name.split("/").includes("..")) throw new Error(`corpus file escapes its case: ${name}`);
           mkdirSync(dirname(join(cwd, name)), { recursive: true });
           writeFileSync(join(cwd, name), hostPaths(text, project, cwd));
+        }
+        // A case that ran in a Git work tree gets a fresh one (its history is never part of a verdict).
+        if (c.git === true && c.cwdKind === "none") {
+          spawnSync("git", ["init", "-q"], { cwd, env: { PATH: process.env.PATH ?? "", HOME: scratch.home } });
         }
         const auditsRoot = join(scratch.audits, String(i));
         const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));

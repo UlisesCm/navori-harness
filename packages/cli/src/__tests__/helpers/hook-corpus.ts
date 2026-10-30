@@ -46,6 +46,8 @@ export interface RawCorpusLine {
    * content normalized), for the state a hook reads from it (spec 0059 R54); absent when empty.
    */
   files?: Record<string, string>;
+  /** The temp working directory was a Git work tree (`git init`); absent when it was not. */
+  git?: true;
   /** `included` lines become cases; the others only feed the coverage denominator. */
   status: "included" | "excluded";
   reason?: string;
@@ -208,6 +210,9 @@ export function recordHookCase(hookPath: string, shell: string, c: HookCase): vo
     cwdKind: tempCwd ? "none" : "repo",
     ...(c.args !== undefined && c.args.length > 0 ? { args: [...c.args] } : {}),
     ...(snapshot !== null && Object.keys(snapshot).length > 0 ? { files: snapshot } : {}),
+    ...(tempCwd && cwd !== undefined && existsSync(join(cwd, ".git"))
+      ? { git: true as const }
+      : {}),
     status: "included",
   };
   const out: RawCorpusLine =

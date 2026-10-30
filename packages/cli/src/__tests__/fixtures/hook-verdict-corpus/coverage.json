@@ -55,14 +55,13 @@
     "excluded": {}
   },
   "model-advisor.sh": {
-    "observed": 0,
-    "included": 0,
-    "excluded": {},
-    "note": "never invoked by a test"
+    "observed": 23,
+    "included": 23,
+    "excluded": {}
   },
   "plan-gate.sh": {
-    "observed": 15,
-    "included": 15,
+    "observed": 26,
+    "included": 26,
     "excluded": {}
   },
   "pr-publisher-confirm.sh": {
@@ -71,8 +70,8 @@
     "excluded": {}
   },
   "quality-gate-pre-commit.sh": {
-    "observed": 26,
-    "included": 26,
+    "observed": 46,
+    "included": 46,
     "excluded": {}
   },
   "role-guard.sh": {
@@ -101,8 +100,8 @@
     "excluded": {}
   },
   "subagent-stop-handoff.sh": {
-    "observed": 7,
-    "included": 7,
+    "observed": 14,
+    "included": 14,
     "excluded": {}
   },
   "worktree-reclaim.sh": {
