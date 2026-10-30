@@ -1,0 +1,169 @@
+=== .claude session-start-context ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: session-start-context could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== .codex session-start-context ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: session-start-context could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== .claude subagent-stop-handoff ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: subagent-stop-handoff could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== .codex subagent-stop-handoff ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: subagent-stop-handoff could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== .claude model-advisor ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== .codex model-advisor ===
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+
+=== claude-command PostModelSwitch  ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'PostModelSwitch' "$f" --shadow claude-post-model-switch; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f" claude-post-model-switch; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1
+
+=== claude-command PostToolUse Agent|Task ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'PostToolUse' "$f" --shadow; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: subagent-stop-handoff could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-stop-handoff native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f"; echo 'navori: .claude/hooks/subagent-stop-handoff.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1
+
+=== claude-command SessionStart  ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'SessionStart' "$f" --shadow claude-session-start; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f" claude-session-start; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1
+
+=== claude-command SessionStart startup|resume|clear|compact|fork ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'SessionStart' "$f" --shadow; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: session-start-context could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f"; echo 'navori: .claude/hooks/session-start-context.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1
+
+=== claude-command Stop  ===
+f="$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh"; # navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-command 'Stop' "$f" --shadow claude-stop; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: model-advisor could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: model-advisor native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
+bash -n "$f" 2>/dev/null && exec bash "$f" claude-stop; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1
