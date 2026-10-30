@@ -65,6 +65,7 @@ interface Oracle {
   relativeTime: (relative: string, now: number) => number;
   FIXTURE_MANIFEST: string;
   antiRollbackCases: (cliVersion: string) => OracleCase[];
+  masterCloseRenderCases: () => OracleCase[];
   ANTI_ROLLBACK_LEVELS: string[];
   ANTI_ROLLBACK_OPS: string[];
   runCase: (
@@ -428,6 +429,25 @@ describe("rust oracle", () => {
     expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
     expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
     expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
+  });
+
+  // Covers: R73, R74
+  it("master close reconcilia y renderiza en cada fixture de render aplicable", () => {
+    const cases = oracle.masterCloseRenderCases();
+    const fixtures = cases.map((c) => c.fixture);
+    for (const name of ["fresh-init", "claude-en", "drifted-block", "tools"])
+      expect(fixtures, name).toContain(name);
+    // other engines, a monorepo with workspaces and the command fixtures stay out
+    for (const name of ["codex-trusted", "pi", "monorepo", "master-closed", "spec-repo"])
+      expect(fixtures, name).not.toContain(name);
+    const loaded = new Set(oracle.loadCases().map((c) => c.id));
+    for (const c of cases) {
+      expect(loaded.has(c.id), c.id).toBe(true);
+      expect(c.args).toEqual(["master", "close"]);
+      expect(c.native).toBe(true);
+      const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
+      expect(config.harness.masterPlan, c.id).toBe(true);
+    }
   });
 
   // Covers: R37, R49

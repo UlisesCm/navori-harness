@@ -558,6 +558,41 @@ export function repoSpecCases() {
 }
 
 /**
+ * `master close` with no active stage and `harness.masterPlan: true` over every fixture the
+ * manifest's `master close` entry applies to: the reconciliation turns the flag off and renders,
+ * so each render fixture also proves the render that closes a master plan. The fixtures of the
+ * `spec` and `master` commands are left out, as in the oracle test, and so is a monorepo with
+ * workspaces, which `master close` delegates.
+ *
+ * @param {string} [manifestPath]
+ * @returns {OracleCase[]}
+ */
+export function masterCloseRenderCases(manifestPath = MANIFEST_PATH) {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const close = manifest.commands.find((c) => c.path.join(" ") === "master close");
+  const engines = close?.when?.engines;
+  if (!engines) return [];
+  /** @type {OracleCase[]} */
+  const cases = [];
+  for (const fixture of readdirSync(FIXTURES_DIR).sort()) {
+    const configPath = join(FIXTURES_DIR, fixture, "navori.config.json");
+    if (/^(spec|master|chk)-/.test(fixture) || !existsSync(configPath)) continue;
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const workspaces = config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+    if (workspaces || !(config.engines ?? ["claude"]).every((e) => engines.includes(e))) continue;
+    const reconciling = { ...config, harness: { ...config.harness, masterPlan: true } };
+    cases.push({
+      id: `master-close:reconcile-render:${fixture}`,
+      fixture,
+      args: ["master", "close"],
+      files: { "navori.config.json": `${JSON.stringify(reconciling, null, 2)}\n` },
+      native: true,
+    });
+  }
+  return cases;
+}
+
+/**
  * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
  *
  * @param {string} work
@@ -805,7 +840,13 @@ export function loadCases(paths = {}) {
     ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
   }));
   const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
-  return [...casesFile.cases, ...surface, ...repoSpecCases(), ...antiRollbackCases(cliVersion)];
+  return [
+    ...casesFile.cases,
+    ...surface,
+    ...repoSpecCases(),
+    ...masterCloseRenderCases(paths.manifestPath),
+    ...antiRollbackCases(cliVersion),
+  ];
 }
 
 /** `version` of the workspace package in the root `Cargo.toml`. */
