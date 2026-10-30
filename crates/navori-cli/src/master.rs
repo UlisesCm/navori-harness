@@ -119,6 +119,20 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
         // `writeMasterStatus`: regenerates the derived files.
         return crate::master_write::status_plain(cwd);
     }
+    read_status(cwd, options.json)
+}
+
+/// `navori master status --line` run from `cwd` (the process working directory the TS would
+/// see): its exit code and stdout, `None` where the TS has to answer (spec 0060 T9, the
+/// in-process lane of master-plan-context).
+#[must_use]
+pub fn status_line(cwd: &Path) -> Option<(u8, String)> {
+    let out = read_status(js_resolve(&[cwd.to_str()?]), false)?;
+    Some((out.code, out.stdout))
+}
+
+/// `readMasterStatus` with `--json` (`json`) or `--line`.
+fn read_status(cwd: String, json: bool) -> Option<Output> {
     // `readMasterStatus` reads the config unconditionally: without one the TS throws.
     let config = read_config(&cwd)??;
     let mut out = Output::default();
@@ -150,7 +164,7 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
                 out.stderr.push('\n');
             }
         }
-        if options.json {
+        if json {
             json_line(&mut out, &legacy.to_json());
             return Some(out);
         }
@@ -165,7 +179,7 @@ fn status(args: &[std::ffi::OsString]) -> Option<Output> {
         out.stdout.push('\n');
         return Some(out);
     }
-    if options.line {
+    if !json {
         // No active stage: exit 1 with no line, so the hook falls back to INDEX.md.
         out.code = 1;
         return Some(out);

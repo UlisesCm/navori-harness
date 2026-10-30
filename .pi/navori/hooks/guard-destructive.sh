@@ -1,4 +1,4 @@
-# navori:native-hook v=1 file=sha256:011a832f81a1bcd5d512172e6bcea66d97ec479bae01c57b6c3e2fa398512d49 impl=sha256:3b5e36e550c254ca2bc56c495ed57bdb21c2923394fe561f021c2203c00e2ceb
+# navori:native-hook v=1 file=sha256:b80121926163b829091b3e95f37c1cd5e297fdf9a3540e78b29e0e3a4c6c6b28 impl=sha256:4553bf4aabb28f3c3ddfa4e15580bfcce704916fe6e15e8dbf5889627644b19b
 # navori:managed start id="guard-destructive-base" hash="91a3b557" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start

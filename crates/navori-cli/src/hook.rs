@@ -85,7 +85,7 @@ fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 9]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 10]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -118,6 +118,14 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 9]> = LazyLock::new(|| {
             handler: Handler::Prepared(hook_facts::prepare_master_accept_confirm),
             phase: pre_tool_use,
             tool: Some("Bash"),
+        },
+        NativeHook {
+            id: "master-plan-context",
+            implementation: navori_hooks::compiled::implementation_hash("master-plan-context")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::master_plan_context_hook::prepare),
+            phase: navori_hooks::hooks::master_plan_context::phase,
+            tool: None,
         },
         NativeHook {
             id: "quality-gate-pre-commit",

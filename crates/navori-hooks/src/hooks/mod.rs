@@ -4,6 +4,7 @@
 pub mod general_purpose_confirm;
 pub mod guard_destructive;
 pub mod master_accept_confirm;
+pub mod master_plan_context;
 pub mod model_advisor;
 pub mod plan_gate;
 pub mod quality_gate_pre_commit;

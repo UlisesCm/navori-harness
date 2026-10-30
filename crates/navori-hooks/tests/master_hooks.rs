@@ -10,7 +10,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use navori_hooks::hooks::master_accept_confirm::{evaluate, evaluate_with_capture};
-use navori_hooks::runner::{Engine, Verdict};
+use navori_hooks::hooks::master_plan_context::{self as plan_context, Rendered};
+use navori_hooks::runner::{Engine, Failure, Verdict};
 use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::payload::{Extractor, Profile};
@@ -345,6 +346,106 @@ fn master_accept_confirm_matches_the_live_shell_in_every_engine_and_profile() ->
             },
         )?;
     }
+    Ok(())
+}
+
+/// A case's cwd with its declared fixture: `bin/navori` answers `master status --line`.
+struct CaseHost {
+    cwd: PathBuf,
+}
+
+impl plan_context::Host for CaseHost {
+    fn toplevel(&self) -> Result<Option<Vec<u8>>, Failure> {
+        // Every corpus cwd is a fresh, non-git directory.
+        Ok(None)
+    }
+
+    fn on_path(&self, name: &str) -> bool {
+        // The corpus PATH is the case's `bin/` and the system dirs, which hold no `navori`.
+        self.cwd.join("bin").join(name).is_file()
+    }
+
+    fn status_line(&self, project_dir: &str) -> Result<(i32, Vec<u8>), Failure> {
+        let out = Command::new(self.cwd.join("bin/navori"))
+            .args(["master", "status", "--line"])
+            .current_dir(project_dir)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .map_err(|e| Failure(e.to_string()))?;
+        Ok((out.status.code().unwrap_or(128), out.stdout))
+    }
+
+    fn first_line(&self, path: &str) -> Result<Option<Vec<u8>>, Failure> {
+        Ok(fs::read(path).ok().map(|bytes| {
+            let end = bytes
+                .iter()
+                .position(|b| *b == b'\n')
+                .unwrap_or(bytes.len());
+            bytes[..end].to_vec()
+        }))
+    }
+}
+
+// Covers: R70, R72
+#[test]
+fn master_plan_context_reproduces_every_recorded_verdict_and_audit_label() -> TestResult {
+    let rendered = Rendered::from_script(&shell_source("master-plan-context.sh")?)?;
+    let mut seen = 0;
+    for (index, case) in corpus("master-plan-context.sh")?.iter().enumerate() {
+        let temp = Temp::new()?;
+        for file in case["fixture"].as_array().map_or(&[][..], Vec::as_slice) {
+            let path = temp.0.join(file["path"].as_str().ok_or("fixture path")?);
+            fs::create_dir_all(path.parent().ok_or("fixture parent")?)?;
+            fs::write(&path, file["content"].as_str().ok_or("fixture content")?)?;
+            if let Some(mode) = file["mode"].as_u64() {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(u32::try_from(mode)?))?;
+            }
+        }
+        let cwd = temp.0.to_str().ok_or("cwd")?.to_owned();
+        let context = plan_context::Context {
+            engine: engine_of(case)?,
+            rendered: rendered.clone(),
+            pwd: cwd.clone(),
+            project_dir: case["envDelta"]["CLAUDE_PROJECT_DIR"]
+                .as_str()
+                .map(|dir| dir.replace("@CWD@", &cwd)),
+        };
+        let host = CaseHost {
+            cwd: temp.0.clone(),
+        };
+        let actual = plan_context::evaluate(
+            case["input"].as_str().ok_or("input")?.as_bytes(),
+            &context,
+            &host,
+        )?;
+        let off = &case["expected"]["off"];
+        let label = format!("case {}", index + 1);
+        assert_eq!(
+            u64::from(code(actual.verdict)),
+            off["status"].as_u64().ok_or("status")?,
+            "{label}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&actual.stdout),
+            off["stdout"].as_str().ok_or("stdout")?,
+            "{label}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&actual.stderr),
+            off["stderr"].as_str().ok_or("stderr")?,
+            "{label}"
+        );
+        let recorded = case["expected"]["active"]["event"][0]["metadata"]["verdict"].as_str();
+        assert_eq!(
+            actual.audit.as_ref().map(|label| label.verdict),
+            recorded,
+            "{label}"
+        );
+        seen += 1;
+    }
+    assert!(seen >= 19, "corpus shrank to {seen} cases");
     Ok(())
 }
 
