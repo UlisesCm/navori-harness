@@ -9,7 +9,7 @@
 
 use crate::STAMP_VERSION;
 use crate::i18n;
-use crate::js_json::{self, JsObject, JsValue};
+use crate::js_json::{self, JsObject, JsString, JsValue};
 use crate::markers::InjectStatus;
 use crate::render::collect::{RepoView, read_if_exists};
 use crate::render::context::Lang;
@@ -75,6 +75,34 @@ pub fn build_desired_mcp_servers(enabled: &[LoadedPlugin]) -> Vec<(String, JsVal
     desired
 }
 
+/// `NAVORI_MCP_ENTRY_KEYS`: the keys `buildDesiredMcpServers` emits, navori's to set and drop.
+const NAVORI_MCP_ENTRY_KEYS: [&str; 4] = ["command", "args", "env", "alwaysLoad"];
+
+/// `mergeServerEntry(existing, desired)` (#1448): navori's keys from `desired` in the position the
+/// file had them, a navori key `desired` no longer has dropped, every other key kept (a host's own
+/// switches, like pi's `directTools`), new navori keys last. An entry that is not an object is
+/// replaced.
+fn merge_server_entry(existing: Option<&JsValue>, desired: &JsValue) -> JsValue {
+    let (Some(JsValue::Object(existing)), JsValue::Object(wanted)) = (existing, desired) else {
+        return desired.clone();
+    };
+    let is_navori = |key: &JsString| NAVORI_MCP_ENTRY_KEYS.iter().any(|k| key.is(k));
+    let mut out = JsObject::new();
+    for (key, value) in existing.ordered() {
+        if !is_navori(key) {
+            out.insert(key.clone(), value.clone());
+        } else if let Some(fresh) = key.to_rust().and_then(|k| wanted.get(&k)) {
+            out.insert(key.clone(), fresh.clone());
+        }
+    }
+    for (key, value) in wanted.ordered() {
+        if !out.has(&key.to_rust().unwrap_or_default()) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    JsValue::Object(out)
+}
+
 /// `planMcpRegistration(cwd, enabledPlugins, disabledPlugins, config, force)`.
 ///
 /// # Errors
@@ -120,7 +148,8 @@ pub fn plan_mcp_registration(
         }
     }
     for (id, entry) in &desired {
-        servers.insert(id.as_str(), entry.clone());
+        let merged = merge_server_entry(servers.get(id), entry);
+        servers.insert(id.as_str(), merged);
     }
 
     if existing.is_none() && servers.is_empty() {

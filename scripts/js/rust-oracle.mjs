@@ -64,7 +64,7 @@ const RUN_TIMEOUT_MS = 120_000;
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], files?: Record<string, string>, setup?: SetupStep[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], files?: Record<string, string>, setup?: SetupStep[], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -398,7 +398,10 @@ export function compareOutcomes(ts, rust, ctx, mask = []) {
       detail: `ts ${ts.status ?? ts.signal} vs rust ${rust.status ?? rust.signal}`,
     });
   }
-  for (const stream of /** @type {const} */ (["stdout", "stderr"])) {
+  // `stderr` in the mask: the TS ends in an uncaught exception whose stack trace names its own
+  // `dist/` files; exit code, stdout and every tree are still compared.
+  const streams = mask.includes("stderr") ? ["stdout"] : ["stdout", "stderr"];
+  for (const stream of /** @type {Array<"stdout" | "stderr">} */ (streams)) {
     const side = (outcome, which) =>
       mapBuffer(outcome[stream], (t) => normalizeText(maskSide(t, which, ctx, { stream, mask })));
     diffs.push(...compareBytes(stream, side(ts, "ts"), side(rust, "rust")));
@@ -579,6 +582,9 @@ function runOnce(work, runner, testCase, opts) {
     ]),
   );
   const env = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
+  // A write-failure case: these directories are read-only during the run, then restored so the
+  // snapshot and the cleanup can walk them.
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
   const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
     cwd: repo,
     env,
@@ -586,6 +592,7 @@ function runOnce(work, runner, testCase, opts) {
     maxBuffer: 256 * 1024 * 1024,
     timeout: RUN_TIMEOUT_MS,
   });
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o755);
   if (run.error) throw new Error(`cannot run ${runner.cmd}: ${run.error.message}`);
   return {
     status: run.status,

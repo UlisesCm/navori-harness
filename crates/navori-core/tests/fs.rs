@@ -440,26 +440,40 @@ const DAY: u64 = 24 * 60 * 60;
 fn purge_fixture(store: &Path, outside: &Path) -> TestResult {
     let now = std::time::SystemTime::now();
     let dirs: [(&str, u64, usize); 6] = [
-        ("old-a", 40, 10),
-        ("old-b", 31, 10),
-        ("r1", 20, 300),
-        ("r2", 10, 200),
-        ("r3", 5, 60),
-        ("r4", 1, 50),
+        ("old-a-2026-01-01T00-00-00-000-p1-0", 40, 10),
+        ("old-b-2026-01-01T00-00-00-000-p1-1", 31, 10),
+        ("r1-2026-01-01T00-00-00-000-p1-2", 20, 300),
+        ("r2-2026-01-01T00-00-00-000-p1-3", 10, 200),
+        ("r3-2026-01-01T00-00-00-000-p1-4", 5, 60),
+        ("r4-2026-01-01T00-00-00-000-p1-5", 1, 50),
     ];
     for (name, _, bytes) in dirs {
         fs::create_dir_all(store.join(name).join("nested"))?;
         fs::write(store.join(name).join("nested/file"), vec![b'x'; bytes])?;
     }
-    std::os::unix::fs::symlink(outside, store.join("r3/outside"))?;
-    std::os::unix::fs::symlink("r2", store.join("link-to-r2"))?;
+    std::os::unix::fs::symlink(
+        outside,
+        store.join("r3-2026-01-01T00-00-00-000-p1-4/outside"),
+    )?;
+    std::os::unix::fs::symlink(
+        "r2-2026-01-01T00-00-00-000-p1-3",
+        store.join("link-2026-01-01T00-00-00-000-p1-9"),
+    )?;
     fs::write(store.join("stray"), "not a backup\n")?;
+    // Not navori's: a directory the root happens to hold, old enough for the age pass.
+    fs::create_dir_all(store.join("my-project/src"))?;
+    fs::write(store.join("my-project/src/main.rs"), "fn main() {}\n")?;
+    let old = now - std::time::Duration::from_secs(400 * DAY);
+    fs::File::open(store.join("my-project"))?.set_modified(old)?;
     for (name, days, _) in dirs {
         let at = now - std::time::Duration::from_secs(days * DAY);
         fs::File::open(store.join(name))?.set_modified(at)?;
     }
     Ok(())
 }
+
+/// The snapshot the purge must keep: the oldest recent one, first in line for the size pass.
+const KEEP: &str = "r1-2026-01-01T00-00-00-000-p1-2";
 
 fn names(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     let mut out: Vec<String> = fs::read_dir(dir)?
@@ -481,13 +495,14 @@ fn purge_drops_30_day_old_backups_then_oldest_first_down_to_the_cap() -> TestRes
 
     let script = format!(
         "const {{ purgeOldBackups }} = await import({:?});\n\
-         const pruned = purgeOldBackups({{ retentionDays: 30, maxTotalBytes: 400 }});\n\
+         const pruned = purgeOldBackups({{ retentionDays: 30, maxTotalBytes: 400, keep: process.env.KEEP }});\n\
          console.log(JSON.stringify(pruned.map((p) => p.split('/').at(-1))));",
         backup_ts()
     );
     let out = Command::new("node")
         .args(["--input-type=module", "--no-warnings", "-e", &script])
         .env("NAVORI_BACKUP_ROOT", &node)
+        .env("KEEP", node.join(KEEP))
         .output()?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
@@ -507,15 +522,32 @@ fn purge_drops_30_day_old_backups_then_oldest_first_down_to_the_cap() -> TestRes
         now_ms,
         navori_core::backup::RETENTION_DAYS,
         400,
+        Some(&rust.join(KEEP)),
     )
     .map_err(|e| e.message)?;
     let pruned: Vec<String> = pruned
         .iter()
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .collect();
-    // Age first, then r1 (oldest) and the link (r2's mtime, sorted before it by name).
+    // Age first, then oldest-first past the kept snapshot (r1, the oldest recent one); the
+    // foreign directory and the kept snapshot survive both passes.
     assert_eq!(json_list(&pruned), node_pruned);
-    assert_eq!(pruned, ["old-a", "old-b", "r1", "link-to-r2"]);
+    assert_eq!(
+        &pruned[..2],
+        [
+            "old-a-2026-01-01T00-00-00-000-p1-0",
+            "old-b-2026-01-01T00-00-00-000-p1-1"
+        ]
+    );
+    assert!(
+        !pruned.iter().any(|p| p == KEEP || p == "my-project"),
+        "{pruned:?}"
+    );
+    assert!(
+        pruned.len() > 2,
+        "the size pass pruned past the kept snapshot: {pruned:?}"
+    );
+    assert!(rust.join(KEEP).is_dir() && rust.join("my-project/src/main.rs").is_file());
     assert_eq!(names(&rust)?, names(&node)?);
     assert_eq!(
         fs::read(&outside)?.len(),
@@ -529,6 +561,7 @@ fn purge_drops_30_day_old_backups_then_oldest_first_down_to_the_cap() -> TestRes
         now_ms,
         30.0,
         0,
+        None,
     )
     .map_err(|e| e.message)?;
     assert_eq!(missing, Vec::<std::path::PathBuf>::new());

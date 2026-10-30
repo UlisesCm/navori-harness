@@ -273,9 +273,28 @@ fn dir_size_bytes(dir: &Path) -> u64 {
     total
 }
 
-/// `purgeOldBackups({ retentionDays, maxTotalBytes })` at `now_ms` over `root`: first every
-/// backup older than the retention, then oldest-first until the rest fits under the cap. An entry
-/// that vanishes or fails mid-scan is skipped. The pruned directories, in order.
+/// `BACKUP_DIR_NAME`: `<label>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>` and the shorter shapes of
+/// earlier versions (bare timestamp, no milliseconds, no pid, no sequence).
+static BACKUP_DIR_NAME: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(
+    || {
+        regex::Regex::new(
+        r"(?:^|-)[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(?:-[0-9]{3})?(?:-p[0-9]+)?(?:-[0-9]+)?$",
+    )
+    .ok()
+    },
+);
+
+/// `isBackupDirName(name)`: the shape of a directory [`BackupStore::create`] writes.
+#[must_use]
+pub fn is_backup_dir_name(name: &str) -> bool {
+    BACKUP_DIR_NAME.as_ref().is_some_and(|re| re.is_match(name))
+}
+
+/// `purgeOldBackups({ retentionDays, maxTotalBytes, keep })` at `now_ms` over `root`: first every
+/// backup older than the retention, then oldest-first until the rest fits under the cap. Only
+/// directories named like a backup are considered, and `keep` (the snapshot this run just took) is
+/// never removed, though its bytes count. An entry that vanishes or fails mid-scan is skipped. The
+/// pruned directories, in order.
 ///
 /// # Errors
 /// [`FsError`] with Node's message when `root` exists but cannot be listed, where the TS throws.
@@ -285,6 +304,7 @@ pub fn purge_old_backups(
     now_ms: f64,
     retention_days: f64,
     max_total_bytes: u64,
+    keep: Option<&Path>,
 ) -> Result<Vec<PathBuf>, FsError> {
     if !root.exists() {
         return Ok(Vec::new());
@@ -304,6 +324,10 @@ pub fn purge_old_backups(
     let mut pruned = Vec::new();
     let mut survivors: Vec<(PathBuf, f64)> = Vec::new();
     for name in names {
+        // A name that is not UTF-8 never matches the TS pattern either (it would read as U+FFFD).
+        if !name.to_str().is_some_and(is_backup_dir_name) {
+            continue;
+        }
         let full = root.join(name);
         let Ok(meta) = std::fs::metadata(&full) else {
             continue;
@@ -312,7 +336,7 @@ pub fn purge_old_backups(
             continue;
         }
         let mtime = mtime_ms(&meta);
-        if mtime < cutoff {
+        if mtime < cutoff && keep != Some(full.as_path()) {
             if fs.remove(&full, true).is_ok() {
                 pruned.push(full);
             }
@@ -333,6 +357,9 @@ pub fn purge_old_backups(
     for (path, bytes) in sized {
         if total <= max_total_bytes {
             break;
+        }
+        if keep == Some(path.as_path()) {
+            continue;
         }
         if fs.remove(&path, true).is_ok() {
             pruned.push(path);

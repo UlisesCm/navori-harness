@@ -149,13 +149,32 @@ export interface PurgeOptions {
    * remains is at or under this many bytes (default: 2 GiB). Second criterion
    * (#393): age alone lets a busy repo grow without bound. */
   maxTotalBytes?: number;
+  /** The snapshot this run just took: never pruned, by either pass. Its bytes
+   * still count toward the cap, so older backups go first. Without it a single
+   * snapshot over the cap deleted itself and the run reported a backup path
+   * that no longer existed. */
+  keep?: string;
+}
+
+/**
+ * The directory names `createBackup` produces: `<label>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>`,
+ * plus the shorter shapes earlier versions wrote (bare timestamp, no milliseconds, no pid, no
+ * sequence). Anything else in the root is not navori's and the purge never touches it: the root
+ * is configurable (`NAVORI_BACKUP_ROOT`), so it can point at a directory with other contents.
+ */
+const BACKUP_DIR_NAME = /(?:^|-)\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{3})?(?:-p\d+)?(?:-\d+)?$/;
+
+/** Whether `name` has the shape of a backup directory {@link createBackup} writes. */
+export function isBackupDirName(name: string): boolean {
+  return BACKUP_DIR_NAME.test(name);
 }
 
 /**
  * Remove backups older than `retentionDays`, then — if what survives still
  * exceeds `maxTotalBytes` in total — keep deleting from oldest to newest until
  * the total is under the cap (#393). Returns the list of pruned dirs.
- * Silent if BACKUP_ROOT does not exist yet.
+ * Silent if BACKUP_ROOT does not exist yet. Only directories named like a
+ * backup are considered, and `options.keep` is never removed.
  */
 export function purgeOldBackups(options: PurgeOptions = {}): string[] {
   const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
@@ -166,6 +185,7 @@ export function purgeOldBackups(options: PurgeOptions = {}): string[] {
   const pruned: string[] = [];
   const survivors: Array<{ path: string; mtimeMs: number }> = [];
   for (const entry of readdirSync(root)) {
+    if (!isBackupDirName(entry)) continue;
     const full = join(root, entry);
     // A concurrent navori process (the 16-repo rollout overlaps) may create or
     // remove a backup between our readdir and this stat/rm. Never let that race
@@ -173,7 +193,7 @@ export function purgeOldBackups(options: PurgeOptions = {}): string[] {
     try {
       const stat = statSync(full);
       if (!stat.isDirectory()) continue;
-      if (stat.mtimeMs < cutoff) {
+      if (stat.mtimeMs < cutoff && full !== options.keep) {
         rmSync(full, { recursive: true, force: true });
         pruned.push(full);
       } else {
@@ -192,6 +212,7 @@ export function purgeOldBackups(options: PurgeOptions = {}): string[] {
   let total = sized.reduce((sum, s) => sum + s.bytes, 0);
   for (const backup of sized) {
     if (total <= maxTotalBytes) break;
+    if (backup.path === options.keep) continue;
     try {
       rmSync(backup.path, { recursive: true, force: true });
       pruned.push(backup.path);
