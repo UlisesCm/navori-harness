@@ -38,7 +38,14 @@ Estimated LOC: 13000
 
 ### M1 — Base compartida
 - **A1** [observable] — mover los parciales no cambia `guard-destructive`, los modos diferidos no leen stdin y el corpus cubre cada clase y modo · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive.sh && bun run fuzz:hooks --hook guard-destructive.sh --seed 1 --cases 2000 && cargo test -p navori-cli --test hook --test facts_cache --locked && cd packages/cli && bun run vitest run src/__tests__/hook-verdict-replay.test.ts` → exit 0; 0 divergencias
-- [ ] **T1** (R50) — `navori_hooks::shell`: `extract_cmd`, `hook_input`, `landing` y `ratchet` salen de `hooks/guard_destructive` sin cambio de comportamiento, en un commit propio que actualiza el `impl` de `guard-destructive` con su línea en `ported-history.jsonl` (D32) · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"veredictos sin cambio tras mover los parciales a shell"
+- [x] **T1** (R50) — `navori_hooks::shell`: `extract_cmd`, `hook_input`, `landing` y `ratchet` salen de `hooks/guard_destructive` sin cambio de comportamiento, en un commit propio que actualiza el `impl` de `guard-destructive` con su línea en `ported-history.jsonl` (D32) · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"veredictos sin cambio tras mover los parciales a shell"
+T1 cerrada: `landing`, `ratchet`, `repo` (el adaptador `System`) y `host` (`Host` y el directorio del
+proyecto de `hook-input`, `Host::project_dir_for`) viven en `navori_hooks::shell`; `extract-cmd` ya estaba
+ahí (`shell::payload`). `guard_destructive` re-exporta `Host` y `repo`, así que los paths viejos y sus tests
+siguen igual. Como `shell/` entra en el hash `impl` de cada hook portado, cambian los de `guard-destructive`
+y de `subagent-no-background`: `ported.json` los actualiza, con su línea `port` en
+`ported-history.jsonl` y sin cambio de modo. Replay de `guard-destructive` (1202 casos) y fuzz (seed 1,
+2000 casos) en cero divergencias.
 - [ ] **T2** (R51, R50) — `NativeHook.phase` como función del modo con la tabla del `case "$mode"` de cada script; preflight que difiere con exit 3 antes de leer stdin para `model-advisor codex-pretool-profile`, `subagent-stop-handoff codex capture-start` y cualquier modo desconocido (D31) · effect: behavior · test: `crates/navori-cli/tests/hook.rs`::"un modo diferido sale 3 con stdin intacto"
 - [ ] **T3** (R53) — hecho del host `navori_cli` (versión que imprime el `navori` de `PATH`) en `hook_facts.rs`, guardado en `facts_cache` por inodo, tamaño y fechas (D30) · effect: behavior · test: `crates/navori-cli/tests/facts_cache.rs`::"la versión del navori de PATH se sondea una vez por binario"
 - [ ] **T4** (R52) — ejecutor de subproceso para el `navori` de `PATH` con los mismos argumentos, stdin, entorno y plazo que la rama shell equivalente, y con la interpretación de su salida que hace el script (D30) · effect: behavior · test: `crates/navori-hooks/tests/delegated_subcommand.rs`::"el subproceso recibe argv, stdin y entorno del shell"

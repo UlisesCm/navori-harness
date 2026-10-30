@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::Host;
+use super::Locale;
+use super::host::Host;
 use super::repo::Repo;
-use crate::shell::Locale;
 
 static ASSIGNMENT: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new("^[A-Za-z_][A-Za-z0-9_]*="));
@@ -42,7 +42,7 @@ fn tag_char(c: char) -> bool {
 
 /// `navori_strip_heredoc_bodies`: drop the bodies (and terminators) of `cat` heredocs whose
 /// output is data. Any doubt keeps the text whole.
-pub(super) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
+pub(crate) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
     if !input.contains("<<") {
         return input.to_owned();
     }
@@ -135,7 +135,7 @@ pub(super) fn strip_heredoc_bodies(input: &str, locale: Locale) -> String {
 
 /// `navori_count_triggers` with `TRIGGER_STRIP_HEREDOC_BODIES=1`: segments starting with a gated
 /// op once wrappers and `VAR=value` prefixes are peeled.
-pub(super) fn count_triggers(
+pub(crate) fn count_triggers(
     input: &str,
     trigger: &Regex,
     locale: Locale,
@@ -298,7 +298,7 @@ enum Kind {
 }
 
 /// The hook's view of the host for one evaluation; the home repository is resolved once.
-pub(super) struct Facts<'a> {
+pub(crate) struct Facts<'a> {
     host: &'a Host,
     repo: &'a dyn Repo,
     locale: Locale,
@@ -307,7 +307,7 @@ pub(super) struct Facts<'a> {
 }
 
 impl<'a> Facts<'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         host: &'a Host,
         repo: &'a dyn Repo,
         locale: Locale,
@@ -426,7 +426,7 @@ impl<'a> Facts<'a> {
     }
 
     /// `navori_commit_landing` reduced to the one answer the guard reads: `foreign`.
-    pub(super) fn foreign(&self, cmd: &str) -> Result<bool, String> {
+    pub(crate) fn foreign(&self, cmd: &str) -> Result<bool, String> {
         let locale = self.locale;
         let hits = count_triggers(cmd, self.trigger, locale)?;
         if hits < 1 {
@@ -543,7 +543,7 @@ impl<'a> Facts<'a> {
     }
 
     /// `navori_worktree`: the root of the tree the commit acts on, `""` when none resolves.
-    pub(super) fn worktree(&self, cmd: &str) -> String {
+    pub(crate) fn worktree(&self, cmd: &str) -> String {
         let base = self.base().to_owned();
         let mut named = cmd_dir(cmd, self.locale).unwrap_or_default();
         if !named.is_empty() && !named.starts_with('/') {

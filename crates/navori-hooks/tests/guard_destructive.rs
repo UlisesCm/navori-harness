@@ -379,3 +379,93 @@ fn rendered_values_are_read_as_the_shell_assigns_them() {
         None
     );
 }
+
+/// A repository whose only fact is the toplevel of one directory.
+struct Toplevel(&'static str, &'static str);
+
+impl Repo for Toplevel {
+    fn toplevel(&self, dir: &str) -> Option<String> {
+        (dir == self.0).then(|| self.1.to_owned())
+    }
+
+    fn is_dir(&self, _: &str) -> bool {
+        false
+    }
+
+    fn holds(&self, _: &str, _: Loss) -> bool {
+        false
+    }
+
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+// Covers: R50
+/// The partials moved to `navori_hooks::shell` (0059 D32): the old paths name the same items, so
+/// every recorded verdict above runs unchanged through them, and `hook-input`'s project
+/// directory is the one function every ported hook shares.
+#[test]
+fn verdicts_are_unchanged_after_the_partials_move_to_shell() {
+    use navori_hooks::hooks::guard_destructive as old;
+    use navori_hooks::shell::{host, repo};
+
+    // Same types, not copies: a function over one accepts the other.
+    fn same<T>(_: &T, _: &T) {}
+    same::<host::Host>(&old::Host::default(), &host::Host::default());
+    same::<repo::Loss>(&old::repo::Loss::Tracked, &repo::Loss::Tracked);
+    let _: Option<&dyn repo::Repo> = Some(&NoState);
+    let _: Option<&dyn old::repo::Repo> = Some(&NoState);
+
+    // `nv_project_dir`: Claude's environment value (empty when unset); the others' toplevel of
+    // the payload's cwd, else the cwd, else `.`.
+    let host = host::Host {
+        claude_project_dir: Some("/env/project".to_owned()),
+        ..host::Host::default()
+    };
+    let tops = Toplevel("/work/sub", "/work");
+    assert_eq!(
+        host.project_dir_for(Engine::Claude, "/work/sub", &tops),
+        "/env/project"
+    );
+    assert_eq!(
+        host::Host::default().project_dir_for(Engine::Claude, "/work/sub", &tops),
+        ""
+    );
+    for engine in [Engine::Codex, Engine::Pi] {
+        assert_eq!(host.project_dir_for(engine, "/work/sub", &tops), "/work");
+        assert_eq!(
+            host.project_dir_for(engine, "/elsewhere", &tops),
+            "/elsewhere"
+        );
+        assert_eq!(host.project_dir_for(engine, "", &tops), ".");
+    }
+}

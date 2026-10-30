@@ -60,12 +60,7 @@ pub fn evaluate(
         return Err(Failure("command is not valid UTF-8".to_owned()));
     }
     let mut host = context.host.clone();
-    host.project_dir = if context.engine == Engine::Claude {
-        host.claude_project_dir.clone().unwrap_or_default()
-    } else {
-        let dir = if cwd.is_empty() { "." } else { cwd.as_str() };
-        repo.toplevel(dir).unwrap_or_else(|| dir.to_owned())
-    };
+    host.project_dir = host.project_dir_for(context.engine, &cwd, repo);
     host.cwd = cwd;
     let decision = decide(
         &cmd,

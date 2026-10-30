@@ -1,0 +1,2 @@
+{"date":"2026-10-30","op":"port","id":"guard-destructive","reason":"impl actualizado: los parciales extract-cmd, hook-input, resolve-worktree y progress-ratchet pasan a navori_hooks::shell (0059 D32), sin cambio de modo","pr":1452}
+{"date":"2026-10-30","op":"port","id":"subagent-no-background","reason":"impl actualizado por el mismo movimiento a navori_hooks::shell (0059 D32), sin cambio de modo","pr":1452}
