@@ -9,6 +9,7 @@ pub mod help;
 pub mod hook;
 pub mod hook_facts;
 pub mod journal;
+pub mod model_advisor;
 pub mod parser;
 pub mod plan_gate;
 pub mod plan_gate_hook;

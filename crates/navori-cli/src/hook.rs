@@ -16,7 +16,9 @@ use navori_core::manifest::{HookMode, Manifest};
 use navori_hooks::runner::{self, AuditLabel, Context, Engine, Evaluation, Failure, Verdict};
 
 use crate::journal::{self, CliJournal, ShadowJournal};
-use crate::{hook_facts, plan_gate_hook, quality_gate, session_start, shadow, subagent_stop};
+use crate::{
+    hook_facts, model_advisor, plan_gate_hook, quality_gate, session_start, shadow, subagent_stop,
+};
 
 /// Read-only facts captured before stdin for handlers that select a profile from the host.
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +85,7 @@ fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 6]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 7]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -131,6 +133,14 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 6]> = LazyLock::new(|| {
                 .unwrap_or_default(),
             handler: Handler::Prepared(subagent_stop::prepare),
             phase: navori_hooks::hooks::subagent_stop_handoff::phase,
+            tool: None,
+        },
+        NativeHook {
+            id: "model-advisor",
+            implementation: navori_hooks::compiled::implementation_hash("model-advisor")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(model_advisor::prepare),
+            phase: navori_hooks::hooks::model_advisor::phase,
             tool: None,
         },
     ]
