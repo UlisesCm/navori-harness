@@ -65,6 +65,13 @@ impl FactsCache {
     /// Read a fresh, private entry for `key`; any anomaly is a miss.
     #[must_use]
     pub fn load(&self, key: &str, now_ms: u64) -> Option<Cached> {
+        let text = self.read_entry(&format!("{key}.json"))?;
+        decode(&serde_json::from_str(&text).ok()?, key, now_ms)
+    }
+
+    /// The text of the private entry `file`; any anomaly (a symlinked ancestor, a loose mode, a
+    /// swapped or oversized file) is a miss.
+    fn read_entry(&self, file: &str) -> Option<String> {
         if !self.ancestors_are_real() {
             return None;
         }
@@ -72,7 +79,7 @@ impl FactsCache {
         if !private(&fs::symlink_metadata(&directory).ok()?, true) {
             return None;
         }
-        let path = directory.join(format!("{key}.json"));
+        let path = directory.join(file);
         let before = fs::symlink_metadata(&path).ok()?;
         if !before.file_type().is_file() || !private(&before, false) {
             return None;
@@ -87,7 +94,34 @@ impl FactsCache {
         }
         let mut text = String::new();
         file.read_to_string(&mut text).ok()?;
-        decode(&serde_json::from_str(&text).ok()?, key, now_ms)
+        Some(text)
+    }
+
+    /// The version a `navori` binary printed, replayed while that exact binary (the `key` of
+    /// [`navori_cli_key`]) stays unchanged and the entry is fresh (0059 D30).
+    #[must_use]
+    pub fn load_navori_cli(&self, key: &str, now_ms: u64) -> Option<String> {
+        let value: Value = serde_json::from_str(&self.read_entry(&navori_cli_file(key))?).ok()?;
+        if value.get("schema")?.as_u64()? != SCHEMA || value.get("key")?.as_str()? != key {
+            return None;
+        }
+        let created = value.get("createdMs")?.as_u64()?;
+        if created > now_ms || now_ms - created > MAX_AGE_MS {
+            return None;
+        }
+        Some(value.get("version")?.as_str()?.to_owned())
+    }
+
+    /// Persist the version a `navori` binary printed. Best effort, like [`FactsCache::store`].
+    pub fn store_navori_cli(&self, key: &str, version: &str, now_ms: u64) {
+        let body = json!({
+            "schema": SCHEMA,
+            "key": key,
+            "createdMs": now_ms,
+            "version": version,
+        })
+        .to_string();
+        self.write_entry(&navori_cli_file(key), &body);
     }
 
     /// Persist an eligible host's facts. Best effort: failures leave no partial entry.
@@ -98,6 +132,13 @@ impl FactsCache {
         tools: &BTreeMap<String, Option<String>>,
         now_ms: u64,
     ) {
+        let body = encode(key, facts, tools, now_ms).to_string();
+        self.write_entry(&format!("{key}.json"), &body);
+    }
+
+    /// Create the private directory when needed and write `file` with exclusive create + rename.
+    /// Best effort: a failure leaves no partial entry.
+    fn write_entry(&self, file: &str, body: &str) {
         let directory = self.directory();
         if fs::create_dir_all(directory.parent().unwrap_or(&self.root)).is_err()
             || !self.ancestors_are_real()
@@ -110,23 +151,44 @@ impl FactsCache {
         if !fs::symlink_metadata(&directory).is_ok_and(|meta| private(&meta, true)) {
             return;
         }
-        let body = encode(key, facts, tools, now_ms).to_string();
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.subsec_nanos());
-        let temporary = directory.join(format!(".{key}.{}.{nanos}.tmp", std::process::id()));
+        let temporary = directory.join(format!(".{file}.{}.{nanos}.tmp", std::process::id()));
         let written = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(&temporary)
             .and_then(|mut file| file.write_all(body.as_bytes()));
-        if written.is_err()
-            || fs::rename(&temporary, directory.join(format!("{key}.json"))).is_err()
-        {
+        if written.is_err() || fs::rename(&temporary, directory.join(file)).is_err() {
             let _ = fs::remove_file(&temporary);
         }
     }
+}
+
+/// File of the `navori` version entry for `key`; the prefix keeps it apart from the facts entries.
+fn navori_cli_file(key: &str) -> String {
+    format!("navori-cli-{key}.json")
+}
+
+/// Cache key of the `navori` the `PATH` resolves: its canonical path and its [`stamp`] (device,
+/// inode, size and timestamps), so the version probe repeats only when the binary changes. `None`
+/// when the binary cannot be identified.
+#[must_use]
+pub fn navori_cli_key(binary: &Path) -> Option<String> {
+    let canonical = binary.canonicalize().ok()?;
+    let mut hash = Sha256::new();
+    hash.update(b"navori-rust navori-cli v1\0");
+    hash.update(canonical.as_os_str().as_bytes());
+    hash.update(b"\0");
+    hash.update(stamp(&canonical)?.as_bytes());
+    Some(
+        hash.finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
 }
 
 /// Owned by nobody else's write: no group/other write bit, and the expected file type.

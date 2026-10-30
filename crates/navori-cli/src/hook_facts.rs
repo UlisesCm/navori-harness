@@ -275,6 +275,82 @@ pub fn collect_cached<'a>(
     Ok(prepared)
 }
 
+/// The host fact `navori_cli` (0059 D30): the `navori` the `PATH` resolves, as the shell's
+/// `command -v navori` finds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavoriCli {
+    /// No `navori` along `PATH`: the shell's "not installed" branch.
+    Absent,
+    /// The first line `navori --version` printed (`navori --version 2>/dev/null </dev/null | head
+    /// -n 1`); empty when it printed nothing.
+    Version(String),
+}
+
+impl NavoriCli {
+    /// A subcommand runs in process only when the installed CLI is the build's own version; any
+    /// other (or none) is the subprocess or the "not installed" branch (D30, R52).
+    #[must_use]
+    pub fn runs_in_process(&self, own: &str) -> bool {
+        matches!(self, Self::Version(version) if version == own)
+    }
+}
+
+/// Collect `navori_cli` before stdin. The version probe costs a process (~120 ms), so its output
+/// is cached per binary (path, inode, size and timestamps) and repeated only when the binary
+/// changes; resolving the binary costs a few `stat`s and runs every time.
+///
+/// # Errors
+/// An explicit ineligibility (no `PATH`, an expired deadline, a probe that cannot run); the caller
+/// defers the call to the shell.
+pub fn navori_cli(
+    env: &[(OsString, OsString)],
+    cwd: &Path,
+    cache: Option<&FactsCache>,
+) -> Result<NavoriCli, Ineligible> {
+    let path = prepare::env_value(env, "PATH").ok_or_else(|| Ineligible("missing PATH".into()))?;
+    let found = std::env::split_paths(path)
+        .map(|directory| {
+            let directory = if directory.is_absolute() {
+                directory
+            } else {
+                cwd.join(directory)
+            };
+            directory.join("navori")
+        })
+        .find(|candidate| {
+            fs::metadata(candidate)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        });
+    let Some(found) = found else {
+        return Ok(NavoriCli::Absent);
+    };
+    let binary = found.canonicalize().map_err(io_failure)?;
+    let cache = cache.and_then(|cache| {
+        Some((
+            cache,
+            facts_cache::navori_cli_key(&binary)?,
+            facts_cache::now_ms()?,
+        ))
+    });
+    if let Some((cache, key, now)) = &cache
+        && let Some(version) = cache.load_navori_cli(key, *now)
+    {
+        return Ok(NavoriCli::Version(version));
+    }
+    let deadline = Instant::now() + Limits::default().total;
+    let output = probe(&binary, &["--version".into()], cwd, env, deadline)?;
+    let first = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .next()
+        .unwrap_or_default();
+    let version = String::from_utf8_lossy(first).into_owned();
+    if let Some((cache, key, now)) = &cache {
+        cache.store_navori_cli(key, &version, *now);
+    }
+    Ok(NavoriCli::Version(version))
+}
+
 /// Execute a single probe with null stdin, bounded combined output and an absolute deadline.
 /// Killing/reaping covers the direct child only; no promise is made to kill descendants.
 fn probe(
