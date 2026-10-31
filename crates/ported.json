@@ -86,7 +86,11 @@
     },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
-    { "path": ["spec"], "flags": ["h", "help"] }
+    { "path": ["spec"], "flags": ["h", "help"] },
+    { "path": ["handoff", "check"], "flags": ["cwd", "dir", "for", "h", "help", "json", "target"] },
+    { "path": ["handoff", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff", "log-review"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff"], "flags": ["h", "help"] }
   ],
   "hooks": {
     "guard-destructive": {
