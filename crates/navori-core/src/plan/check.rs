@@ -97,46 +97,73 @@ fn record(value: &JsValue) -> V<Vec<(String, &JsValue)>> {
         .collect()
 }
 
-struct Criterion {
-    id: String,
-    command: String,
-    expected: String,
+pub(crate) struct Criterion {
+    pub(crate) id: String,
+    pub(crate) description: String,
+    pub(crate) command: String,
+    pub(crate) expected: String,
 }
 
 fn criterion(value: &JsValue) -> V<Criterion> {
     let o = object(value)?;
     let id = text(o.get("id")?).filter(|id| acceptance_id(id))?;
-    non_empty(o.get("description")?)?;
+    let description = non_empty(o.get("description")?)?;
     Some(Criterion {
         id,
+        description,
         command: non_empty(o.get("command")?)?,
         expected: non_empty(o.get("expected")?)?,
     })
 }
 
-fn progress_status(value: &JsValue) -> V<()> {
+fn progress_status(value: &JsValue) -> V<String> {
     let status = text(value)?;
-    matches!(status.as_str(), "pendiente" | "cumplido" | "bloqueado").then_some(())
+    matches!(status.as_str(), "pendiente" | "cumplido" | "bloqueado").then_some(status)
 }
 
-fn evidence(value: &JsValue) -> V<()> {
+/// One `evidence` entry (`AcceptanceEvidenceSchema`), with what `evidenceCase` reads.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Evidence {
+    Recorded {
+        command: String,
+        head: String,
+        ran_at: String,
+        exit: Option<f64>,
+        expected: Option<String>,
+        outcome: Option<String>,
+    },
+    Unevidenced,
+}
+
+fn evidence(value: &JsValue) -> V<Evidence> {
     let o = object(value)?;
     match text(o.get("kind")?)?.as_str() {
         "recorded" => {
-            for key in ["command", "ranAt", "tree", "worktreeTree"] {
+            for key in ["tree", "worktreeTree"] {
                 non_empty(o.get(key)?)?;
             }
-            text(o.get("head")?)?;
+            let command = non_empty(o.get("command")?)?;
+            let ran_at = non_empty(o.get("ranAt")?)?;
+            let head = text(o.get("head")?)?;
             matches!(o.get("dirty")?, JsValue::Bool(_)).then_some(())?;
-            optional(o, "exit", |v| int_in(v, 0.0, 255.0))?;
-            optional(o, "expected", text)?;
-            optional(o, "outcome", |v| {
+            let exit = optional(o, "exit", |v| int_in(v, 0.0, 255.0))?;
+            let expected = optional(o, "expected", text)?;
+            let outcome = optional(o, "outcome", |v| {
                 let t = text(v)?;
-                matches!(t.as_str(), "pass" | "fail" | "unevaluated").then_some(())
+                matches!(t.as_str(), "pass" | "fail" | "unevaluated").then_some(t)
             })?;
-            Some(())
+            Some(Evidence::Recorded {
+                command,
+                head,
+                ran_at,
+                exit,
+                expected,
+                outcome,
+            })
         }
-        "unevidenced" => (text(o.get("reason")?)? == "engine-without-signal").then_some(()),
+        "unevidenced" => {
+            (text(o.get("reason")?)? == "engine-without-signal").then_some(Evidence::Unevidenced)
+        }
         _ => None,
     }
 }
@@ -146,34 +173,66 @@ fn pair(value: &JsValue, a: &str, b: &str) -> V<(String, String)> {
     Some((non_empty(o.get(a)?)?, non_empty(o.get(b)?)?))
 }
 
-/// The parsed fields the structural rules read.
-struct Plan {
-    feature: String,
-    level: u8,
-    classification_level: u8,
-    signals: Vec<String>,
-    acceptance: Vec<Criterion>,
-    files: Vec<String>,
-    progress: Vec<String>,
-    solution_blocked: bool,
-    has_solution: bool,
-    phases: Option<Vec<(String, Vec<String>)>>,
-    risks: Option<usize>,
+/// A workplan `WorkplanSchema` accepts, as zod returns it (defaults filled in).
+pub(crate) struct Plan {
+    pub(crate) feature: String,
+    pub(crate) level: u8,
+    pub(crate) score: f64,
+    pub(crate) classification_level: u8,
+    pub(crate) signals: Vec<String>,
+    pub(crate) objective: String,
+    pub(crate) request: Option<String>,
+    pub(crate) acceptance: Vec<Criterion>,
+    pub(crate) out_of_scope: Vec<String>,
+    /// `(path, new)`.
+    pub(crate) files: Vec<(String, bool)>,
+    /// `(id, status)` in key order.
+    pub(crate) progress: Vec<(String, String)>,
+    pub(crate) evidence: Vec<(String, Evidence)>,
+    /// `(text, date)`.
+    pub(crate) decisions: Vec<(String, String)>,
+    /// `(path, verdict)`.
+    pub(crate) solution: Option<(String, String)>,
+    pub(crate) phases: Option<Vec<(String, Vec<String>)>>,
+    /// `(risk, rollback)`.
+    pub(crate) risks: Option<Vec<(String, String)>>,
+}
+
+impl Plan {
+    fn file_paths(&self) -> Vec<String> {
+        self.files.iter().map(|(path, _)| path.clone()).collect()
+    }
+
+    pub(crate) fn status(&self, id: &str) -> Option<&str> {
+        self.progress
+            .iter()
+            .rev()
+            .find(|(key, _)| key == id)
+            .map(|(_, status)| status.as_str())
+    }
+
+    pub(crate) fn evidence_of(&self, id: &str) -> Option<&Evidence> {
+        self.evidence
+            .iter()
+            .rev()
+            .find(|(key, _)| key == id)
+            .map(|(_, evidence)| evidence)
+    }
 }
 
 /// `WorkplanSchema.safeParse(raw).success`, with the fields the rules need. `source` (a master
 /// delivery projection) is never judged here.
-fn schema(raw: &JsValue) -> V<Plan> {
+pub(crate) fn schema(raw: &JsValue) -> V<Plan> {
     let o = object(raw)?;
     let feature = non_empty(o.get("feature")?)?;
     let level = level(o.get("level")?)?;
     let classification = object(o.get("classification")?)?;
-    int_in(classification.get("score")?, 0.0, 10.0)?;
+    let score = int_in(classification.get("score")?, 0.0, 10.0)?;
     let classification_level = self::level(classification.get("level")?)?;
     let signals = string_array(classification.get("signals")?)?;
-    non_empty(o.get("objective")?)?;
-    optional(o, "request", |v| match v {
-        JsValue::String(s) if !s.units().is_empty() && s.units().len() <= 20_000 => Some(()),
+    let objective = non_empty(o.get("objective")?)?;
+    let request = optional(o, "request", |v| match v {
+        JsValue::String(s) if !s.units().is_empty() && s.units().len() <= 20_000 => s.to_rust(),
         _ => None,
     })?;
     let acceptance: Vec<Criterion> = array(o.get("acceptance")?)?
@@ -183,14 +242,16 @@ fn schema(raw: &JsValue) -> V<Plan> {
     if acceptance.is_empty() {
         return None;
     }
-    optional(o, "outOfScope", string_array)?;
+    let out_of_scope = optional(o, "outOfScope", string_array)?.unwrap_or_default();
     let files = optional(o, "files", |v| {
         array(v)?
             .iter()
             .map(|f| {
                 let f = object(f)?;
-                matches!(f.get("new")?, JsValue::Bool(_)).then_some(())?;
-                non_empty(f.get("path")?)
+                let JsValue::Bool(new) = f.get("new")? else {
+                    return None;
+                };
+                Some((non_empty(f.get("path")?)?, *new))
             })
             .collect::<V<Vec<_>>>()
     })?
@@ -198,23 +259,29 @@ fn schema(raw: &JsValue) -> V<Plan> {
     let progress = optional(o, "progress", |v| {
         record(v)?
             .into_iter()
-            .map(|(k, v)| progress_status(v).map(|()| k))
+            .map(|(k, v)| progress_status(v).map(|status| (k, status)))
             .collect::<V<Vec<_>>>()
     })?
     .unwrap_or_default();
-    optional(o, "evidence", |v| {
-        record(v)?.into_iter().try_for_each(|(_, v)| evidence(v))
-    })?;
-    optional(o, "decisions", |v| {
+    let evidence = optional(o, "evidence", |v| {
+        record(v)?
+            .into_iter()
+            .map(|(k, v)| evidence(v).map(|e| (k, e)))
+            .collect::<V<Vec<_>>>()
+    })?
+    .unwrap_or_default();
+    let decisions = optional(o, "decisions", |v| {
         array(v)?
             .iter()
-            .try_for_each(|d| pair(d, "text", "date").map(|_| ()))
-    })?;
+            .map(|d| pair(d, "text", "date"))
+            .collect::<V<Vec<_>>>()
+    })?
+    .unwrap_or_default();
     let solution = optional(o, "solution", |v| {
         let s = object(v)?;
-        non_empty(s.get("path")?)?;
+        let path = non_empty(s.get("path")?)?;
         let verdict = text(s.get("verdict")?)?;
-        matches!(verdict.as_str(), "READY" | "CONCERNS" | "BLOCKED").then_some(verdict == "BLOCKED")
+        matches!(verdict.as_str(), "READY" | "CONCERNS" | "BLOCKED").then_some((path, verdict))
     })?;
     let phases = optional(o, "phases", |v| {
         array(v)?
@@ -230,11 +297,10 @@ fn schema(raw: &JsValue) -> V<Plan> {
             .collect::<V<Vec<_>>>()
     })?;
     let risks = optional(o, "risks", |v| {
-        let items = array(v)?;
-        items
+        array(v)?
             .iter()
-            .try_for_each(|r| pair(r, "risk", "rollback").map(|_| ()))?;
-        Some(items.len())
+            .map(|r| pair(r, "risk", "rollback"))
+            .collect::<V<Vec<_>>>()
     })?;
     if o.get("source")
         .is_some_and(|s| !matches!(s, JsValue::Undefined))
@@ -246,11 +312,16 @@ fn schema(raw: &JsValue) -> V<Plan> {
         level,
         classification_level,
         signals,
+        score,
+        objective,
+        request,
         acceptance,
+        out_of_scope,
         files,
         progress,
-        solution_blocked: solution == Some(true),
-        has_solution: solution.is_some(),
+        evidence,
+        decisions,
+        solution,
         phases,
         risks,
     })
@@ -258,7 +329,11 @@ fn schema(raw: &JsValue) -> V<Plan> {
 
 /// `checkStructural` has no finding.
 fn structural(plan: &Plan, feature: &str) -> V<()> {
-    if plan.feature != feature || plan.solution_blocked {
+    let blocked = plan
+        .solution
+        .as_ref()
+        .is_some_and(|(_, verdict)| verdict == "BLOCKED");
+    if plan.feature != feature || blocked {
         return None;
     }
     let mut seen = BTreeSet::new();
@@ -274,7 +349,11 @@ fn structural(plan: &Plan, feature: &str) -> V<()> {
             Expected::Free | Expected::Exit(_) | Expected::Contains(_) => {}
         }
     }
-    if plan.progress.iter().any(|id| !seen.contains(id.as_str())) {
+    if plan
+        .progress
+        .iter()
+        .any(|(id, _)| !seen.contains(id.as_str()))
+    {
         return None;
     }
     let phases = plan.phases.as_deref().unwrap_or_default();
@@ -285,8 +364,8 @@ fn structural(plan: &Plan, feature: &str) -> V<()> {
     {
         return None;
     }
-    if plan.level >= 2 && (!plan.has_solution || phases.is_empty() || plan.risks.unwrap_or(0) == 0)
-    {
+    let risks = plan.risks.as_ref().map_or(0, Vec::len);
+    if plan.level >= 2 && (plan.solution.is_none() || phases.is_empty() || risks == 0) {
         return None;
     }
     Some(())
@@ -295,7 +374,7 @@ fn structural(plan: &Plan, feature: &str) -> V<()> {
 /// `checkLevel` has no finding.
 fn level_ok(plan: &Plan, project: &ProjectContext) -> V<()> {
     let input = ClassifyInput {
-        files: plan.files.clone(),
+        files: plan.file_paths(),
         critical_paths: project.critical_paths.clone().unwrap_or_default(),
         local_skill_ids: project
             .local_skill_ids
