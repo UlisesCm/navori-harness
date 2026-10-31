@@ -1,8 +1,8 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandHookIncludes } from "../../packages/cli/src/lib/render/hook-includes.ts";
 import { signNativeScript } from "../../packages/cli/src/lib/render/native-hook.ts";
+import { corpusAsset } from "./corpus-asset.mjs";
 import { assetSources } from "./rust-manifest-check.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -33,7 +33,7 @@ export function writeSignedAssets(dir, manifestPath = join(REPO_ROOT, "crates", 
         if (source === undefined) throw new Error(`${id}: unknown dependency ${name}`);
         return { name, bytes: readFileSync(source) };
       });
-    const script = expandHookIncludes(readFileSync(join(core, `${id}.sh`), "utf8"));
+    const script = corpusAsset(core, `${id}.sh`);
     const signed = signNativeScript(
       script,
       hook.impl,

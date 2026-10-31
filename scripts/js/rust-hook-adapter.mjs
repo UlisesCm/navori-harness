@@ -68,6 +68,12 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, args 
   if (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: hook mode is not ported")) {
     return { available: false, modeDeferred: true, reason: "hook mode is not ported (D31)" };
   }
+  // Spec 0060 T14: without a required text tool (`cat`, `sed`, `grep`, `tr`) the shell cannot run
+  // either; production runs it for this call. The caller decides whether the recorded verdict is
+  // that failure.
+  if (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: hook is ineligible: required legacy text tool is absent")) {
+    return { available: false, toolDeferred: true, reason: "a required text tool is absent" };
+  }
   if (output.status === 3 || (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: "))) {
     return { available: false, reason: "native runtime deferred; no native verdict was evaluated" };
   }
