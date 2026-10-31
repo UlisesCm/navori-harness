@@ -144,6 +144,14 @@
         "master-plan-context-base": "sha256:003011a2f02857ed272a16a2a1b52ce07c07db6561596e6e1e3199e5d28e593c"
       },
       "impl": "sha256:e4b567a07df071e9dbe03e7a7d04df1d9e1a5528241b823c1ef78d693aa7a9e5"
+    },
+    "implementer-no-markdown": {
+      "mode": "shadow",
+      "gating": true,
+      "blocks": {
+        "implementer-no-markdown-base": "sha256:87e7010c7e626726abfb4c6e5d4de2bd6be1eb40c66c20d9214301622bdefdda"
+      },
+      "impl": "sha256:7b2e9cc4680ed7ca3d01d2476aee0f9072ebf1232d6ff67930edbef84c55a3ac"
     }
   }
 }

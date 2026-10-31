@@ -3,6 +3,7 @@
 
 pub mod general_purpose_confirm;
 pub mod guard_destructive;
+pub mod implementer_no_markdown;
 pub mod master_accept_confirm;
 pub mod master_plan_context;
 pub mod model_advisor;
