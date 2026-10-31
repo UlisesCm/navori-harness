@@ -240,6 +240,50 @@ function masterAcceptPayload(next, seed, index) {
   });
 }
 
+/** Paths an edit tool may name: Markdown and not, doctrine and not, relative, absolute and `..`. */
+const INM_PATHS = [
+  "docs/a.md", "README.MD", "notes.mdx", "src/a.ts", "a.md.bak", ".claude/agents/a.md", "./.claude/skills/x/SKILL.md",
+  "packages/core/core-assets/hooks/h.md", ".codex/orchestrator.md", ".codex/orchestrator.mdx", ".pi/navori/a.md",
+  "../.claude/agents/a.md", ".claude/agents/../x.md", "@CWD@/.claude/agents/a.md", "@CWD@/docs/a.md", "/elsewhere/.claude/agents/a.md", "",
+];
+/** Bash commands across the R4 rules, their near misses and the interpreter forms. */
+const INM_COMMANDS = [
+  "echo x > notes.md", "echo x >> NOTES.MD", "echo x >| a.mdx", "echo x > notes.md.bak", "cat notes.md", "cat a | tee -a b.md", "tee b.mdx < a",
+  "sed -i '' s/a/b/ a.md", "sed --in-place s/a/b/ a.md", "sed s/a/b/ a.md", "perl -pi -e s/a/b/ a.md", "cp a.txt b.md", "mv b.md a.txt", "mv tmp README.md",
+  "git commit -m 'update docs.md'", "ls *.md | wc -l", "bun run test",
+  `node -e 'require("fs").writeFileSync("a.md", "x")'`,
+  `node -e 'const fs = require("node:fs"); fs.writeFileSync("a.json", JSON.stringify({"files": ["a.md"]}) + "\\n");'`,
+  `node -e 'const fs = require("node:fs"); const p = "a.json"; const d = JSON.parse(fs.readFileSync(p, "utf8")); d.files = ["x.md"]; fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\\n");'`,
+  `python3 -c 'open("a.md", "w").write("x")'`,
+  `python3 -c 'import json; open("h.json", "w").write(json.dumps({"filesTouched": ["a.md"]}))'`,
+  "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.json').write_text('[\"a.md\"]')\nEOF",
+  "python3 - <<'EOF'\nfrom pathlib import Path\nPath('notes.md').write_text('x')\nEOF",
+  "ruby -e 'File.write(\"a.md\", 1)'", "bun -e 'Bun.write(\"a.md\", 1)'", "node script.js notes.md",
+  "python3 -c 'print(open(\"a.md\").read())'", "deno run x.ts > out.md", "python3 -c 'import shutil; shutil.copy(\"a\", \"b.md\")'",
+];
+
+/** One implementer-no-markdown payload: the agent, the tool and its path or command.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function implementerNoMarkdownPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const tool = pick(["Write", "Edit", "Write", "NotebookEdit", "Bash", "Bash", "Bash", "apply_patch", "Read", "Agent"]);
+  const path = pick(INM_PATHS);
+  /** @type {Record<string, unknown>} */
+  const input = {};
+  if (tool === "Bash") input.command = pick(INM_COMMANDS);
+  else if (tool === "apply_patch") input.command = `*** Begin Patch\n*** ${pick(["Add File", "Update File", "Delete File"])}: ${path}\n${next() & 1 ? `*** Move to: ${pick(INM_PATHS)}\n` : ""}*** End Patch`;
+  else if (tool === "NotebookEdit") input.notebook_path = path;
+  else input.file_path = path;
+  const payload = { session_id: `fuzz-${seed}-${index}`, hook_event_name: "PreToolUse", tool_name: tool, tool_input: input, cwd: "@CWD@" };
+  const agent = (next() >>> 16) % 8;
+  if (agent < 6) payload.agent_type = agent === 5 ? pick(["scribe", "reviewer", "Implementer", ""]) : "implementer";
+  return JSON.stringify(payload);
+}
+
 /** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
  * guard-destructive gets its own grammar over every rule; the others keep the original one.
  * @param {number} seed
@@ -268,6 +312,12 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
       index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "implementer-no-markdown.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"agent_type":"implementer"', '{"agent_type":"implementer","tool_name":"Write"}'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : implementerNoMarkdownPayload(next, seed, index),
     );
   }
   if (hook === "master-accept-confirm.sh") {
