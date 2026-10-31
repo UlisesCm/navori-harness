@@ -350,3 +350,121 @@ describe("model-advisor: every non-deferred mode", () => {
     expect(run(codex, "codex-session-start", { model: "gpt-5.6-sol" })).toMatchObject(silent);
   });
 });
+
+/**
+ * Spec 0060 T7 (R71): the E1 hooks that run `navori`. A stub on the case's PATH stands in for the
+ * CLI, so the corpus replays each branch the hook takes on what `navori` answers.
+ */
+describe("master-plan-context: every branch per engine", () => {
+  const hook = "master-plan-context.sh";
+  /** The specs dir as the unrendered asset names it. */
+  const SPECS = "{{shq:sdd.specsDir}}";
+  /** A `navori` whose `master status --line` prints `out` and exits `status`. */
+  const navori = (out: string, status = 0) =>
+    stub(
+      "navori",
+      [
+        'case "$1 $2 $3" in',
+        `  "master status --line") printf '%s' '${out}'; exit ${status} ;;`,
+        "esac",
+        "exit 1",
+      ].join("\n"),
+    );
+  const index = (firstLine: string): FixtureFile => ({
+    path: `${SPECS}/_master/INDEX.md`,
+    content: `${firstLine}\n\n| Etapa |\n`,
+  });
+  const start = { session_id: "corpus-session", hook_event_name: "SessionStart" };
+  const pointer = (target: string) => `Plan maestro — consulta ${target}.`;
+  const fallback = pointer(`${SPECS}/_master/INDEX.md`);
+
+  for (const engine of ["claude", "codex"] as const) {
+    const path = install(hook, engine);
+    const run = (fixture: FixtureFile[]) =>
+      runHookIsolated(
+        path,
+        "bash",
+        inTemp(start, { fixture, env: { CLAUDE_PROJECT_DIR: "@cwd" } }),
+      );
+
+    // Covers: R71
+    it(`${engine}: the status line, the STATUS.md pointer and the index pointer`, () => {
+      const line = "Plan maestro — etapa 01-mvp: parte P1.";
+      expect(run([navori(`${line}\n`)])).toMatchObject({ status: 0, stdout: `${line}\n` });
+      const active = index("Etapa activa: specs/_master/01-mvp/STATUS.md");
+      expect(run([navori("", 1), active]).stdout).toContain(
+        pointer("specs/_master/01-mvp/STATUS.md"),
+      );
+      expect(run([]).stdout).toContain(fallback);
+    });
+
+    // Covers: R71
+    it(`${engine}: an unusable status line or pointer falls back to the index`, () => {
+      for (const fixture of [
+        [navori("uno\ndos\n")],
+        [navori("x".repeat(601))],
+        [navori("")],
+        [navori("", 1), index("Etapa activa: /abs/STATUS.md")],
+        [navori("", 1), index("Etapa activa: a b/STATUS.md")],
+        [navori("", 1), index("# Plan maestro")],
+      ]) {
+        const out = run(fixture);
+        expect(out.status).toBe(0);
+        expect(out.stdout).toContain(fallback);
+      }
+    });
+  }
+});
+
+describe("pr-publisher-confirm: the codex approval request arm", () => {
+  const path = install("pr-publisher-confirm.sh", "codex");
+  const deny = (reason: string) =>
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    });
+  /** A `navori` whose `codex approval request` prints `out` and exits `status`. */
+  const navori = (out: string, status = 0) =>
+    stub(
+      "navori",
+      [
+        'case "$1 $2 $3" in',
+        `  "codex approval request") cat >/dev/null; printf '%s\\n' '${out}'; exit ${status} ;;`,
+        "esac",
+        "exit 1",
+      ].join("\n"),
+    );
+  const run = (fixture: FixtureFile[], extra: Record<string, unknown> = {}) =>
+    runHookIsolated(
+      path,
+      "bash",
+      inTemp({ ...bash("gh pr create --title t --body b"), ...extra }, { fixture, node: true }),
+    );
+  const pending = deny("approval pending: corpus");
+
+  // Covers: R71
+  it("forwards a complete deny from navori, in the main thread and in the publisher", () => {
+    expect(run([navori(pending)])).toMatchObject({ status: 0, stdout: `${pending}\n` });
+    expect(run([navori(pending)], { agent_id: "corpus-child" })).toMatchObject({
+      status: 0,
+      stdout: `${pending}\n`,
+    });
+  });
+
+  // Covers: R71
+  it("falls back to the fixed deny on a failed, malformed or incomplete answer", () => {
+    const allow = pending.replace('"deny"', '"allow"');
+    for (const out of [
+      run([navori(pending, 1)]),
+      run([navori("not json")]),
+      run([navori(allow)]),
+      run([navori(`{"extra":1,${pending.slice(1)}`)]),
+    ]) {
+      expect(out.status).toBe(0);
+      expect(out.stdout).toContain("Codex hooks cannot prompt");
+    }
+  });
+});

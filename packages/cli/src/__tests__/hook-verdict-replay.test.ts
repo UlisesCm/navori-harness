@@ -1184,11 +1184,15 @@ const PHASE4_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes
 ];
 
 /**
- * E1 hooks that never run `navori` (spec 0060 T7). `master-plan-context` and the `navori codex
- * approval request` arm of `pr-publisher-confirm` need a replayable `navori` first (M3, M5).
+ * E1 hooks (spec 0060 T7). `master-plan-context` and the `navori codex approval request` arm of
+ * `pr-publisher-confirm` run a `navori` stub from the case's fixture
+ * (`session-hooks-corpus.test.ts`): the arm keeps the `deny` class whether it forwards navori's
+ * deny or falls back to the fixed one, and `master-plan-context` allows on every branch, so its
+ * cases tell the branches apart by output, not by class.
  */
 const E1_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
   ...["claude", "codex"].flatMap((engine) => [
+    { hook: "master-plan-context.sh", engine, mode: "", classes: ["allow"] },
     {
       hook: "master-accept-confirm.sh",
       engine,
