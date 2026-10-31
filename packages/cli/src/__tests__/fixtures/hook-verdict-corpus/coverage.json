@@ -77,8 +77,8 @@
     "excluded": {}
   },
   "role-guard.sh": {
-    "observed": 128,
-    "included": 128,
+    "observed": 142,
+    "included": 142,
     "excluded": {}
   },
   "routing-watch.sh": {

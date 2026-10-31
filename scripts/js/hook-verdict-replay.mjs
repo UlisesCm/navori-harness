@@ -402,12 +402,12 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
 /** Loads the TS helpers and the hook expander (Node strips the types). */
 export async function loadDeps() {
   const batch = await import(pathToFileURL(join(CLI_SRC, "__tests__", "helpers", "hook-batch.ts")).href);
-  const includes = await import(pathToFileURL(join(CLI_SRC, "lib", "render", "hook-includes.ts")).href);
+  const { corpusAsset } = await import("./corpus-asset.mjs");
   const resolveHook = (hook, engine, scratch) => {
     // Outside the project (cases copy it); hooks only read `$0` to tell the engines apart.
     const target = join(scratch.root, "installed", ENGINE_DIRS[engine], hook);
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, includes.expandHookIncludes(readFileSync(join(HOOKS_SOURCE, hook), "utf8")));
+    writeFileSync(target, corpusAsset(HOOKS_SOURCE, hook));
     chmodSync(target, 0o755);
     return target;
   };
