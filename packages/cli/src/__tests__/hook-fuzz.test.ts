@@ -169,6 +169,49 @@ describe("deterministic live hook fuzzing", () => {
   });
 
   // Covers: R70
+  it("implementer-no-markdown grammar covers each tool, rule and analyzer form", () => {
+    const parsed = fuzzer
+      .generatePayloads(1, 3000, "implementer-no-markdown.sh")
+      .map((payload) => {
+        try {
+          return JSON.parse(payload) as {
+            agent_type?: string;
+            tool_name?: string;
+            tool_input?: { command?: string; file_path?: string };
+          } | null;
+        } catch {
+          return null;
+        }
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null && typeof p === "object");
+    const tools = new Set(parsed.map((p) => p.tool_name));
+    for (const tool of ["Write", "Edit", "NotebookEdit", "Bash", "apply_patch", "Read"])
+      expect(tools.has(tool), tool).toBe(true);
+    const commands = parsed.map((p) => p.tool_input?.command ?? "");
+    for (const needle of [
+      "> notes.md",
+      "tee -a",
+      "sed -i",
+      "perl -pi",
+      "mv tmp",
+      "node -e",
+      "python3 -c",
+      "<<'EOF'",
+      "*** Move to:",
+    ])
+      expect(
+        commands.some((c) => c.includes(needle)),
+        needle,
+      ).toBe(true);
+    expect(parsed.some((p) => p.agent_type === undefined)).toBe(true);
+    expect(parsed.some((p) => p.agent_type === "scribe")).toBe(true);
+    expect(parsed.some((p) => p.tool_input?.file_path === "../.claude/agents/a.md")).toBe(true);
+    expect(fuzzer.generatePayloads(1, 50, "implementer-no-markdown.sh")).toEqual(
+      fuzzer.generatePayloads(1, 50, "implementer-no-markdown.sh"),
+    );
+  });
+
+  // Covers: R70
   it("la gramática de master-accept-confirm cubre cada forma, sus corredores y sus envolturas", () => {
     const commands = fuzzer
       .generatePayloads(1, 3000, "master-accept-confirm.sh")
