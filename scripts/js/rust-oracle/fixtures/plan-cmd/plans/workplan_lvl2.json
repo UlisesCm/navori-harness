@@ -1,0 +1,42 @@
+{
+  "feature": "lvl2",
+  "level": 2,
+  "classification": {
+    "score": 8,
+    "level": 2,
+    "signals": [
+      "floor:shared-contract"
+    ]
+  },
+  "objective": "A level 2 plan",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "exit 0"
+    }
+  ],
+  "solution": {
+    "path": "solution_lvl2.md",
+    "verdict": "READY"
+  },
+  "phases": [
+    {
+      "name": "Core",
+      "acceptance": [
+        "A1"
+      ]
+    },
+    {
+      "name": "Empty",
+      "acceptance": []
+    }
+  ],
+  "risks": [
+    {
+      "risk": "drift",
+      "rollback": "revert"
+    }
+  ]
+}

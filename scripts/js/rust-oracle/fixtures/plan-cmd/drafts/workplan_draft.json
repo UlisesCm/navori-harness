@@ -1,0 +1,19 @@
+{
+  "files": [
+    {
+      "path": "src/a.ts"
+    },
+    {
+      "path": "lib/b.ts"
+    },
+    {
+      "path": "src/c.ts"
+    }
+  ],
+  "classification": {
+    "signals": [
+      "floor:multi-repo",
+      "critical-area:declared(+3)"
+    ]
+  }
+}

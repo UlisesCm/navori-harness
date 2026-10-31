@@ -1,0 +1,98 @@
+{
+  "feature": "badschema",
+  "level": 7,
+  "classification": {
+    "score": 0,
+    "level": 0,
+    "signals": []
+  },
+  "objective": "Port the plan command",
+  "request": "first line\nsecond line — ñ",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "exit 0"
+    },
+    {
+      "id": "A2",
+      "description": "criterion 2",
+      "command": "bun run a2",
+      "expected": "contains: 0 differences"
+    },
+    {
+      "id": "A3",
+      "description": "criterion 3",
+      "command": "bun run a3",
+      "expected": "it works"
+    },
+    {
+      "id": "A4",
+      "description": "criterion 4",
+      "command": "bun run a4",
+      "expected": "exit 2"
+    },
+    {
+      "id": "A5",
+      "description": "criterion 5",
+      "command": "bun run a5",
+      "expected": "exit 0"
+    }
+  ],
+  "outOfScope": [
+    "the parallel producers"
+  ],
+  "files": [
+    {
+      "path": "src/a.ts",
+      "new": false
+    },
+    {
+      "path": "src/b.ts",
+      "new": true
+    }
+  ],
+  "progress": {
+    "A2": "cumplido",
+    "A3": "cumplido",
+    "A4": "bloqueado",
+    "A5": "cumplido"
+  },
+  "evidence": {
+    "A2": {
+      "kind": "recorded",
+      "command": "bun run a2",
+      "ranAt": "2026-10-30T10:00:00.000Z",
+      "tree": "t",
+      "head": "0123456789abcdef",
+      "worktreeTree": "w",
+      "dirty": false,
+      "exit": 0,
+      "expected": "contains: 0 differences",
+      "outcome": "pass"
+    },
+    "A3": {
+      "kind": "unevidenced",
+      "reason": "engine-without-signal"
+    },
+    "A5": {
+      "kind": "recorded",
+      "command": "bun run a5",
+      "ranAt": "2026-10-30T11:00:00.000Z",
+      "tree": "t",
+      "head": "fedcba9",
+      "worktreeTree": "w",
+      "dirty": true
+    }
+  },
+  "decisions": [
+    {
+      "text": "keep the TS for update",
+      "date": "2026-10-30"
+    }
+  ],
+  "extraKey": {
+    "kept": true
+  }
+}
