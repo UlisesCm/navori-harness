@@ -18,6 +18,7 @@ pub mod master_write;
 pub mod model_advisor;
 pub(crate) mod native_io;
 pub mod parser;
+pub mod plan;
 pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod quality_gate;
@@ -96,6 +97,22 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["plan", "gate"],
         run: plan_gate::run,
+    },
+    NativeCommand {
+        path: &["plan", "classify"],
+        run: plan::run_classify,
+    },
+    NativeCommand {
+        path: &["plan", "check"],
+        run: plan::run_check,
+    },
+    NativeCommand {
+        path: &["plan", "render"],
+        run: plan::run_render,
+    },
+    NativeCommand {
+        path: &["plan"],
+        run: plan::run_group,
     },
     NativeCommand {
         path: &["dominio", "inject"],
