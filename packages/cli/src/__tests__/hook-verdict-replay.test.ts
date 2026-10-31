@@ -112,7 +112,7 @@ interface Replay {
 
 type NativeResult =
   | { available: true; status: number; stdout: Buffer; stderr: Buffer }
-  | { available: false; reason: string; modeDeferred?: true };
+  | { available: false; reason: string; modeDeferred?: true; toolDeferred?: true };
 interface RustAdapter {
   runRustHook: (options: {
     binary: string;
@@ -465,6 +465,40 @@ process.exit(1);`,
         expect(result).toMatchObject({ available: true, status: 1 });
       }
     }
+  });
+
+  // Covers: R70
+  it("accepts a missing-text-tool deferral only where the recorded shell died on that tool", () => {
+    const dir = tmp();
+    const absent =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: required legacy text tool is absent\\n'); process.exit(1);";
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, absent), script, input: "" }),
+    ).toMatchObject({ available: false, toolDeferred: true });
+    const other =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: unsupported locale\\n'); process.exit(1);";
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, other), script, input: "" }),
+    ).not.toHaveProperty("toolDeferred");
+    const run = (status: number): unknown => {
+      const scratch = replay.createScratch();
+      // The recorded verdict travels with the case, as in the committed corpus.
+      const recorded = { ...base("{}"), expected: { off: { status, stdout: "", stderr: "" } } };
+      try {
+        return replay.runMode([recorded], "off", {
+          resolveHook: () => script,
+          binary: nativeFixture(dir, absent),
+          impl: "rust",
+          scratch,
+        });
+      } finally {
+        scratch.cleanup();
+      }
+    };
+    expect(run(127)).toEqual([{ deferred: true, tool: true }]);
+    // A recorded verdict the shell did reach cannot be skipped by the same deferral.
+    expect(() => run(0)).toThrow(/native unavailable/);
   });
 
   // Covers: R11, R12

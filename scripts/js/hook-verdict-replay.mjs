@@ -362,9 +362,13 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         const args = (c.args ?? []).map((arg) => hostPaths(arg, project, cwd));
         return { input, env, cwd, args };
       });
-      const outputs = impl === "rust" ? batchCases.map((c) => {
+      const outputs = impl === "rust" ? batchCases.map((c, n) => {
         const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
         if (result.modeDeferred) return { deferred: true };
+        // Only where the recorded shell also died on the missing tool (`command not found`).
+        if (result.toolDeferred && cases[indexes[n]].expected?.[mode]?.status === 127) {
+          return { deferred: true, tool: true };
+        }
         if (!result.available) throw new Error(`native unavailable: ${first.hook}: ${result.reason}`);
         // The corpus stores text. Reject malformed UTF-8 instead of hiding byte differences
         // through replacement characters; the adapter itself retains the original bytes.
@@ -374,7 +378,7 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
       indexes.forEach((i, n) => {
         const out = outputs[n];
         if (out.deferred) {
-          results[i] = { deferred: true };
+          results[i] = { deferred: true, tool: out.tool === true };
           return;
         }
         // The native lane runs the signed asset outside the scratch; Bash names `$0` in its
@@ -492,7 +496,7 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * in for a native verdict.
  *
  * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
- * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, failure?: string }>}
+ * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, toolDeferred?: number, failure?: string }>}
  */
 export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell" } = {}) {
   const cases = (corpus ?? readCorpus())
@@ -504,6 +508,7 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
   }
   if (cases.length === 0) return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
   let deferred = 0;
+  let toolDeferred = 0;
   /** @type {string[]} */
   const failures = [];
   let resolved;
@@ -525,9 +530,11 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
     for (const mode of modes) {
       const actual = runMode(cases, mode, { ...resolved, scratch, impl });
       for (let i = 0; i < cases.length; i += 1) {
-        // A mode the binary defers by design (D31) runs the shell in production: not compared.
+        // A mode the binary defers by design (D31), or a call whose shell lacks a required text
+        // tool, runs the shell in production: not compared.
         if (actual[i]?.deferred) {
-          if (mode === modes[0]) deferred += 1;
+          if (mode === modes[0] && actual[i].tool) toolDeferred += 1;
+          else if (mode === modes[0]) deferred += 1;
           continue;
         }
         const cross = cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
@@ -546,7 +553,8 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
       }
     }
     if (failures.length > 0) return { ok: false, cases: cases.length, failure: failures.join("\n") };
-    return deferred > 0 ? { ok: true, cases: cases.length - deferred, deferred } : { ok: true, cases: cases.length };
+    const counts = { ...(deferred > 0 ? { deferred } : {}), ...(toolDeferred > 0 ? { toolDeferred } : {}) };
+    return { ok: true, cases: cases.length - deferred - toolDeferred, ...counts };
   } catch (error) {
     return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "replay execution failed" };
   } finally {
@@ -681,7 +689,9 @@ export async function main(argv) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;
   }
-  const deferredNote = result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "";
+  const deferredNote =
+    (result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "") +
+    (result.toolDeferred ? `, ${result.toolDeferred} deferred for a missing text tool` : "");
   process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
   return 0;
 }
