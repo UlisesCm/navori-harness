@@ -1,5 +1,19 @@
-# navori:managed start id="master-plan-context-base" hash="f356a0fa" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:97264bace048e1e29822787a95352dd413a858aa996c7b8bc4d5dc3f511d0ffc impl=sha256:e4b567a07df071e9dbe03e7a7d04df1d9e1a5528241b823c1ef78d693aa7a9e5
+# navori:managed start id="master-plan-context-base" hash="1131aa08" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: master-plan-context native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: master-plan-context could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: master-plan-context native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.
 set +e

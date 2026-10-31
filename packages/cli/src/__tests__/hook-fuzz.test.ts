@@ -168,6 +168,42 @@ describe("deterministic live hook fuzzing", () => {
     );
   });
 
+  // Covers: R70
+  it("la gramática de master-accept-confirm cubre cada forma, sus corredores y sus envolturas", () => {
+    const commands = fuzzer
+      .generatePayloads(1, 3000, "master-accept-confirm.sh")
+      .map((payload) => {
+        try {
+          return (JSON.parse(payload) as { tool_input?: { command?: unknown } }).tool_input
+            ?.command;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((command): command is string => typeof command === "string");
+    const has = (needle: string): boolean => commands.some((c) => c.includes(needle));
+    for (const needle of [
+      "--approved-by",
+      "master close",
+      "delivery-review",
+      "delivery-slice S1 --refresh",
+      "escalation-reset",
+      "npx -y navori",
+      "pnpm dlx navori",
+      "navori@1.2.3",
+      "cat <<EOF",
+      "sh -c '",
+      "x=$(",
+      "\\\n master",
+      "mas\u00a0ter",
+      "master closer",
+    ])
+      expect(has(needle), needle).toBe(true);
+    expect(fuzzer.generatePayloads(1, 50, "master-accept-confirm.sh")).toEqual(
+      fuzzer.generatePayloads(1, 50, "master-accept-confirm.sh"),
+    );
+  });
+
   // Covers: R11
   it("keeps the original grammar stream so recorded seeds still reproduce", () => {
     const stream = JSON.stringify(fuzzer.generatePayloads(1, 2000));

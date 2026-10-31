@@ -50,8 +50,8 @@
     "excluded": {}
   },
   "master-plan-context.sh": {
-    "observed": 1,
-    "included": 1,
+    "observed": 19,
+    "included": 19,
     "excluded": {}
   },
   "model-advisor.sh": {
@@ -67,8 +67,8 @@
     "excluded": {}
   },
   "pr-publisher-confirm.sh": {
-    "observed": 34,
-    "included": 34,
+    "observed": 40,
+    "included": 40,
     "excluded": {}
   },
   "quality-gate-pre-commit.sh": {
