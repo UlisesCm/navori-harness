@@ -1,0 +1,101 @@
+{
+  "feature": "someone-else",
+  "level": 1,
+  "classification": {
+    "score": 5,
+    "level": 2,
+    "signals": []
+  },
+  "objective": "Every structural finding",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "exit 999"
+    },
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": " ",
+      "expected": " "
+    },
+    {
+      "id": "A2",
+      "description": "criterion 2",
+      "command": "bun run a2",
+      "expected": "contains:"
+    },
+    {
+      "id": "A3",
+      "description": "criterion 3",
+      "command": "bun run a3",
+      "expected": "exit 0"
+    },
+    {
+      "id": "A4",
+      "description": "criterion 4",
+      "command": "bun run a4",
+      "expected": "exit 0"
+    },
+    {
+      "id": "A5",
+      "description": "criterion 5",
+      "command": "bun run a5",
+      "expected": "exit 3"
+    },
+    {
+      "id": "A6",
+      "description": "criterion 6",
+      "command": "bun run a6",
+      "expected": "contains: ok"
+    }
+  ],
+  "progress": {
+    "A9": "pendiente",
+    "A3": "cumplido",
+    "A4": "cumplido",
+    "A5": "cumplido",
+    "A6": "cumplido"
+  },
+  "evidence": {
+    "A4": {
+      "kind": "recorded",
+      "command": "another command",
+      "ranAt": "r",
+      "tree": "t",
+      "head": "",
+      "worktreeTree": "w",
+      "dirty": false
+    },
+    "A5": {
+      "kind": "unevidenced",
+      "reason": "engine-without-signal"
+    },
+    "A6": {
+      "kind": "recorded",
+      "command": "bun run a6",
+      "ranAt": "r",
+      "tree": "t",
+      "head": "h",
+      "worktreeTree": "w",
+      "dirty": false,
+      "exit": 0,
+      "expected": "contains: ok",
+      "outcome": "fail"
+    }
+  },
+  "solution": {
+    "path": "solution.md",
+    "verdict": "BLOCKED"
+  },
+  "phases": [
+    {
+      "name": "P",
+      "acceptance": [
+        "A1",
+        "A7"
+      ]
+    }
+  ]
+}

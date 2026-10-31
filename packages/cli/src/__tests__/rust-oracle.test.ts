@@ -592,6 +592,42 @@ describe("rust oracle", () => {
     expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
   });
 
+  // Covers: R73, R74
+  it("plan classify, check y render nativos con sus delegaciones", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
+    const native = manifest.commands
+      .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
+      .map((c: { path: string[] }) => c.path[1])
+      .sort();
+    expect(native).toEqual(["check", "classify", "gate", "render"]);
+    const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
+    for (const sub of ["classify", "check", "render"]) {
+      for (const json of [true, false]) {
+        expect(
+          cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
+        ).toBe(true);
+      }
+      expect(cases.some((c) => c.args[1] === sub && help(c) && c.native)).toBe(true);
+      expect(cases.some((c) => c.args[1] === sub && c.args.includes("--cwd") && c.native)).toBe(
+        true,
+      );
+    }
+    // What stays in the TS must stay delegated: a native case there would hide a regression.
+    for (const sub of ["update", "escalation-reset", "acknowledge", "resume"]) {
+      const delegated = cases.filter((c) => c.args[1] === sub);
+      expect(delegated.length).toBeGreaterThan(0);
+      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    }
+    expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
+    for (const flag of ["--criticalArea", "--critical-area", "--files", "--dir"]) {
+      expect(cases.some((c) => c.args[1] === "classify" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
+  });
+
   // Covers: R7
   it("selectsNative lee argv como el parser y el manifiesto", () => {
     const manifest = {
