@@ -1,0 +1,11 @@
+{
+  "feature": "ok",
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    { "summary": "kept, keys reordered", "line": 12, "file": "src/a.ts", "score": 80, "severity": "high", "category": "types", "extra": "stripped" },
+    { "category": "naming", "severity": "low", "score": 49, "file": "src/b.ts" },
+    { "category": "security", "severity": "critical", "score": 100, "file": "src/c.ts" },
+    { "category": "edge", "severity": "medium", "score": 50, "file": "src/d.ts", "summary": "exactly the threshold" }
+  ],
+  "evidence": { "anything": [1, 2] }
+}

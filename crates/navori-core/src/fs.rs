@@ -77,6 +77,13 @@ pub enum Op {
         /// The mode.
         mode: u32,
     },
+    /// `appendFileSync(path, bytes)`.
+    Append {
+        /// The file.
+        path: PathBuf,
+        /// The bytes.
+        bytes: Vec<u8>,
+    },
 }
 
 /// The mutations a command may perform. Reads stay on `std::fs`: a preview reads the real repo.
@@ -134,6 +141,13 @@ pub trait Fs {
     /// # Errors
     /// The OS error.
     fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()>;
+
+    /// `appendFileSync(path, bytes)`: `O_APPEND|O_CREAT|O_WRONLY`, a new file with mode `0666`
+    /// subject to umask.
+    ///
+    /// # Errors
+    /// The OS error.
+    fn append(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 }
 
 /// The real filesystem.
@@ -213,6 +227,15 @@ impl Fs for RealFs {
 
     fn chmod(&mut self, path: &Path, mode: u32) -> io::Result<()> {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+    }
+
+    fn append(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        OpenOptions::new()
+            .append(true)
+            .create(true)
+            .mode(0o666)
+            .open(path)?
+            .write_all(bytes)
     }
 }
 
@@ -302,6 +325,14 @@ impl Fs for RecordingFs {
         self.ops.push(Op::Chmod {
             path: path.to_path_buf(),
             mode,
+        });
+        Ok(())
+    }
+
+    fn append(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        self.ops.push(Op::Append {
+            path: path.to_path_buf(),
+            bytes: bytes.to_vec(),
         });
         Ok(())
     }
@@ -577,6 +608,8 @@ pub mod fault {
         Copy,
         /// [`Fs::chmod`].
         Chmod,
+        /// [`Fs::append`].
+        Append,
     }
 
     impl Kind {
@@ -593,6 +626,7 @@ pub mod fault {
                 Op::MkdirAll { .. } => Self::MkdirAll,
                 Op::Copy { .. } => Self::Copy,
                 Op::Chmod { .. } => Self::Chmod,
+                Op::Append { .. } => Self::Append,
             }
         }
     }
@@ -708,6 +742,14 @@ pub mod fault {
                 mode,
             })?;
             self.inner.chmod(path, mode)
+        }
+
+        fn append(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+            self.record(Op::Append {
+                path: path.to_path_buf(),
+                bytes: bytes.to_vec(),
+            })?;
+            self.inner.append(path, bytes)
         }
     }
 }
