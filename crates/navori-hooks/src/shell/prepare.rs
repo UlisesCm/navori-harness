@@ -168,8 +168,49 @@ pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible
     if limits.total.is_zero() || limits.total > Duration::from_millis(500) {
         return Err(Ineligible("unsupported probe budget".into()));
     }
-    let mut names = BTreeSet::new();
+    environment(request.env)?;
+    // `UTF-8` alone is macOS Terminal's default LC_CTYPE. Naming it is not trust: the charmap and
+    // text probes still prove the real behavior (on glibc it is not a locale and fails there).
+    let known = |value: &OsStr| {
+        matches!(
+            value.to_str(),
+            Some(
+                "" | "C" | "POSIX" | "en_US.UTF-8" | "en_US.utf8" | "C.UTF-8" | "C.utf8" | "UTF-8"
+            )
+        )
+    };
     for (key, value) in request.env {
+        if (key == "LANG" || key.as_encoded_bytes().starts_with(b"LC_")) && !known(value) {
+            return Err(Ineligible("unsupported locale".into()));
+        }
+    }
+    let effective = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .filter_map(|key| env_value(request.env, key))
+        .find(|value| !value.is_empty());
+    let utf8 = effective.is_some_and(|value| !matches!(value.to_str(), Some("C" | "POSIX")));
+    let input_line = source_line(request.source, b"payload=${payload-\"$(cat)\"}")?;
+    let fallback_line = source_line(
+        request.source,
+        br#"    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")""#,
+    )?;
+    Ok(Plan {
+        request,
+        utf8,
+        input_line,
+        fallback_line,
+        limits,
+    })
+}
+
+/// Reject an environment that changes how the legacy Bash runs (startup files, options,
+/// `IFS`, `CDPATH`, exported functions, loader overrides) or that has no `PATH`.
+///
+/// # Errors
+/// The first variable that makes the shell's behavior unmodeled.
+pub fn environment(env: &[(OsString, OsString)]) -> Result<(), Ineligible> {
+    let mut names = BTreeSet::new();
+    for (key, value) in env {
         if !names.insert(key) {
             return Err(Ineligible("duplicate environment key".into()));
         }
@@ -207,41 +248,10 @@ pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible
             ));
         }
     }
-    if env_value(request.env, "PATH").is_none() {
+    if env_value(env, "PATH").is_none() {
         return Err(Ineligible("PATH snapshot is missing".into()));
     }
-    // `UTF-8` alone is macOS Terminal's default LC_CTYPE. Naming it is not trust: the charmap and
-    // text probes still prove the real behavior (on glibc it is not a locale and fails there).
-    let known = |value: &OsStr| {
-        matches!(
-            value.to_str(),
-            Some(
-                "" | "C" | "POSIX" | "en_US.UTF-8" | "en_US.utf8" | "C.UTF-8" | "C.utf8" | "UTF-8"
-            )
-        )
-    };
-    for (key, value) in request.env {
-        if (key == "LANG" || key.as_encoded_bytes().starts_with(b"LC_")) && !known(value) {
-            return Err(Ineligible("unsupported locale".into()));
-        }
-    }
-    let effective = ["LC_ALL", "LC_CTYPE", "LANG"]
-        .into_iter()
-        .filter_map(|key| env_value(request.env, key))
-        .find(|value| !value.is_empty());
-    let utf8 = effective.is_some_and(|value| !matches!(value.to_str(), Some("C" | "POSIX")));
-    let input_line = source_line(request.source, b"payload=${payload-\"$(cat)\"}")?;
-    let fallback_line = source_line(
-        request.source,
-        br#"    printf -v "${_pf_spec%%=*}" '%s' "$(payload_field "${_pf_spec#*=}")""#,
-    )?;
-    Ok(Plan {
-        request,
-        utf8,
-        input_line,
-        fallback_line,
-        limits,
-    })
+    Ok(())
 }
 
 /// Find an exact singleton contractual source line; ambiguity is never guessed away.

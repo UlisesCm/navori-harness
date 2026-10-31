@@ -207,6 +207,39 @@ function gpConfirmPayload(next, seed, index) {
   return JSON.stringify(payload);
 }
 
+/** Every form master-accept-confirm gates, its near misses and other commands. */
+const MA_CORES = [
+  "master part P1 --approved-by ana", "master part P1 --approved-by=ana --status done", "master part P1 --status done",
+  "master close", "master close --abandon --reason r", "master closer", "master close;",
+  "master delivery-baseline --approved-by ana", "master delivery-queue --approved-by=ana", "master delivery-queue",
+  "master delivery-review D1", "master delivery-decision D1", "master delivery-publication D1 --ref v1",
+  "master delivery-revoke D1", "master delivery-reviewer D1", "master delivery-criterion C1 --approved-by ana",
+  "master delivery-slice S1 --refresh", "master delivery-slice S1", "plan escalation-reset f --approved-by ana",
+  "plan escalation-reset f", "master status", "master advance",
+];
+/** How the command reaches `navori`: bare, a path, a version pin or a package runner. */
+const MA_RUNNERS = ["navori ", "navori ", "./node_modules/.bin/navori ", "navori@1.2.3 ", "npx navori ", "npx -y navori ", "bunx navori ", "pnpm exec navori ", "pnpm dlx navori ", "xnavori ", "echo navori "];
+const MA_WRAPS = [(c) => c, (c) => c, (c) => `cd x && ${c}`, (c) => `ls; ${c}`, (c) => `echo "${c}"`, (c) => `sh -c '${c}'`, (c) => `x=$(${c})`, (c) => `(${c})`, (c) => `cat <<EOF\n${c}\nEOF`, (c) => `FOO=1 ${c}`, (c) => `${c} | tee log`, (c) => c.replace(" master", "\\\n master"), (c) => c.replace("master", "mas\u00a0ter")];
+
+/** One master-accept-confirm payload: a gated form or a near miss, run through a wrapper.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function masterAcceptPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const command = pick(MA_WRAPS)(`${pick(MA_RUNNERS)}${pick(MA_CORES)}`);
+  const shape = (next() >>> 16) % 12;
+  const toolInput = shape === 0 ? { command: 7 } : shape === 1 ? { command: [command] } : shape === 2 ? {} : { command };
+  return JSON.stringify({
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: shape === 3 ? "Read" : "Bash",
+    tool_input: shape === 4 ? command : toolInput,
+  });
+}
+
 /** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
  * guard-destructive gets its own grammar over every rule; the others keep the original one.
  * @param {number} seed
@@ -235,6 +268,12 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
       index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "master-accept-confirm.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", "navori master close", '{"tool_input":{"command":"navori master close"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : masterAcceptPayload(next, seed, index),
     );
   }
   if (hook === "general-purpose-confirm.sh") {

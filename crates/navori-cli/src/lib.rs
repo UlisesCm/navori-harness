@@ -14,6 +14,7 @@ pub mod journal;
 pub(crate) mod js_path;
 pub mod master;
 pub mod master_close;
+pub mod master_plan_context_hook;
 pub mod master_read;
 pub mod master_write;
 pub mod model_advisor;
