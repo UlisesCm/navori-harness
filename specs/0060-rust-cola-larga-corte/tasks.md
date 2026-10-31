@@ -104,7 +104,8 @@ Entregable: `navori-rust handoff` y `plan` son nativos e `implementer-no-markdow
 - **A4** [observable] — `handoff` y `plan` son nativos y el hook reproduce el corpus · `bun run oracle:rust --only handoff,plan && node scripts/js/hook-verdict-replay.mjs --impl rust --only implementer-no-markdown.sh && bun run fuzz:hooks --hook implementer-no-markdown.sh --seed 1 --cases 100000` → exit 0; 0 diferencias
 - [ ] **T10** (R73, R74) — `handoff` nativo (check, render, prepare-parallel, finalize-parallel y el resto) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"handoff en todos sus subcomandos"
 - [ ] **T11** (R73, R74) — `plan` nativo en lo que 0059 no porta (classify, render, check, update, escalation-reset, resume y el resto) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"plan sin subcomandos pendientes"
-- [ ] **T12** (R70) — `implementer-no-markdown` en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/implementer_no_markdown.rs`::"veredictos del corpus en shadow"
+- [x] **T12** (R70) — `implementer-no-markdown` en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/implementer_no_markdown.rs`::"veredictos del corpus en shadow"
+  - Cerrado (2026-10-30): en `shadow` en Claude, Codex y Pi. Reglas, rutas de doctrina (incluida la de worktrees registrados) y flujo en Rust; los tres analizadores de intérprete son los programas fijos del script, que el host corre con `node -e` y `python3 -I -S -c` (solo leen, así que la sombra evalúa el hook completo). Difiere un comando mayor que el búfer del pipe, texto no UTF-8 y una regla de escritura que decida `[[:alnum:]]` no ASCII. Replay `--impl rust`: 723 casos idénticos con auditoría `off` y `active`; fuzz semilla 1: 100 000 casos idénticos.
 
 ### M5 — Gobierno de agentes y publicación
 Entregable: `role-guard`, `engram-write-guard`, `comment-draft-confirm` y `pr-publisher-confirm`
