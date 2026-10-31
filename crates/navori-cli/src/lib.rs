@@ -9,6 +9,7 @@ pub mod gate_probe;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;
+pub mod implementer_no_markdown_hook;
 pub mod journal;
 pub(crate) mod js_path;
 pub mod master;
