@@ -13,6 +13,12 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 type TestResult = Result<(), Box<dyn Error>>;
+/// Probes that must succeed get the largest budget `prepare::plan` accepts (500 ms, spec 0060
+/// T17): the 250 ms production default expired under load and made these tests flaky. Deadline
+/// expiry itself is covered by the tests that pass a tight `Limits` on purpose.
+const PROBE_LIMITS: Limits = Limits {
+    total: Duration::from_millis(500),
+};
 const SOURCE:&[u8]=b"payload=${payload-\"$(cat)\"}\n    printf -v \"${_pf_spec%%=*}\" '%s' \"$(payload_field \"${_pf_spec#*=}\")\"\n";
 struct Temp(PathBuf);
 impl Temp {
@@ -79,12 +85,12 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
         let prepared = collect(
             request(&env, &script, expanded.as_bytes()),
             &temp.0,
-            Limits::default(),
+            PROBE_LIMITS,
         )?;
         let mut implicit_request = request(&env, &script, expanded.as_bytes());
         implicit_request.engine = Engine::Pi;
         implicit_request.event = None;
-        let implicit = collect(implicit_request, &temp.0, Limits::default())?;
+        let implicit = collect(implicit_request, &temp.0, PROBE_LIMITS)?;
         assert_eq!(
             subagent_no_background::evaluate_prepared(&implicit, b"{}")?,
             subagent_no_background::evaluate_prepared(&prepared, b"{}")?
