@@ -13,6 +13,8 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
 use crate::content_identity::{IDENTITY_EXCLUDES, hex};
+use crate::js_json::JsValue;
+use crate::plan::expected::{Expected, parse_expected};
 use crate::process::{Env, ProcessRunner, Request};
 
 /// `FINGERPRINT_VERSION`: the `fp` an evidence line records for the current exclude set.
@@ -408,4 +410,618 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 #[must_use]
 pub fn process_env() -> Vec<(OsString, OsString)> {
     std::env::vars_os().collect()
+}
+
+/// `DeliveryEvidenceBindingSchema`'s keys, in declaration order.
+const BINDING_KEYS: [&str; 8] = [
+    "policy",
+    "authorityGeneration",
+    "stagePath",
+    "sourceIdentity",
+    "baselineIdentity",
+    "queueIdentity",
+    "qualifiedId",
+    "criterionIdentity",
+];
+
+/// A valid `DeliveryEvidenceBinding`, kept as the parsed values of its eight keys and its
+/// `stagePath`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeliveryBinding {
+    values: Vec<JsValue>,
+    stage_path: String,
+}
+
+impl DeliveryBinding {
+    /// `binding.stagePath`.
+    #[must_use]
+    pub fn stage_path(&self) -> &str {
+        &self.stage_path
+    }
+
+    /// `DeliveryEvidenceBindingSchema.safeParse(value)` (a strict object).
+    #[must_use]
+    pub fn parse(value: &JsValue) -> Option<Self> {
+        let JsValue::Object(object) = value else {
+            return None;
+        };
+        if object
+            .entries()
+            .iter()
+            .any(|(k, _)| !BINDING_KEYS.iter().any(|b| k.is(b)))
+        {
+            return None;
+        }
+        let text = |v: &JsValue| match v {
+            JsValue::String(s) => s.to_rust(),
+            _ => None,
+        };
+        let hex64 = |v: &JsValue| {
+            text(v).is_some_and(|t| {
+                t.len() == 64
+                    && t.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        };
+        let mut values = Vec::with_capacity(BINDING_KEYS.len());
+        for key in BINDING_KEYS {
+            let value = object.get(key)?;
+            let ok = match key {
+                "policy" => matches!(value, JsValue::String(s) if s.is("deliveries-content-v1")),
+                "authorityGeneration" => matches!(value, JsValue::Number(n)
+                    if n.fract() == 0.0 && *n > 0.0 && n.is_finite()),
+                "stagePath" => text(value).is_some_and(|t| valid_stage_path(&t)),
+                "qualifiedId" => text(value).is_some_and(|t| qualified_id(&t)),
+                _ => hex64(value),
+            };
+            if !ok {
+                return None;
+            }
+            values.push(value.clone());
+        }
+        let stage_path = text(object.get("stagePath")?)?;
+        Some(Self { values, stage_path })
+    }
+}
+
+/// `/^P\d+\.A\d+$/`.
+fn qualified_id(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('P') else {
+        return false;
+    };
+    let Some((part, criterion)) = rest.split_once(".A") else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(part) && digits(criterion)
+}
+
+/// One parsed `workplan_<feature>.evidence.jsonl` line (`EvidenceLineSchema`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvidenceLine {
+    /// `ts`.
+    pub ts: String,
+    /// `feature`.
+    pub feature: String,
+    /// `id`.
+    pub id: String,
+    /// `command`.
+    pub command: String,
+    /// `tree`.
+    pub tree: String,
+    /// `cwd`.
+    pub cwd: String,
+    /// `head`.
+    pub head: String,
+    /// `worktreeTree`.
+    pub worktree_tree: String,
+    /// `fp` (only `2` parses).
+    pub fp: Option<u32>,
+    /// `dirty`.
+    pub dirty: bool,
+    /// `exit`, `-1` when present but invalid.
+    pub exit: Option<i64>,
+    /// `expected`, empty when present but invalid.
+    pub expected: Option<String>,
+    /// `outcome`, `unevaluated` when present but invalid.
+    pub outcome: Option<String>,
+    /// `deliveryBinding`.
+    pub delivery_binding: Option<DeliveryBinding>,
+}
+
+/// `EvidenceLineSchema.safeParse(value)`: `Ok(None)` when zod rejects it, `Err(())` when Rust
+/// cannot model a value the TS would read.
+fn parse_line(value: &JsValue) -> Result<Option<EvidenceLine>, ()> {
+    let JsValue::Object(o) = value else {
+        return Ok(None);
+    };
+    let optional = |key: &str| match o.get(key) {
+        None | Some(JsValue::Undefined) => None,
+        Some(v) => Some(v),
+    };
+    let mut required = Vec::new();
+    for key in [
+        "ts",
+        "feature",
+        "id",
+        "command",
+        "tree",
+        "cwd",
+        "head",
+        "worktreeTree",
+    ] {
+        match o.get(key) {
+            Some(JsValue::String(s)) => required.push(s.to_rust().ok_or(())?),
+            _ => return Ok(None),
+        }
+    }
+    let fp = match optional("fp") {
+        None => None,
+        Some(JsValue::Number(n)) if *n == f64::from(FINGERPRINT_VERSION) => {
+            Some(FINGERPRINT_VERSION)
+        }
+        Some(_) => return Ok(None),
+    };
+    let Some(JsValue::Bool(dirty)) = o.get("dirty") else {
+        return Ok(None);
+    };
+    for key in ["sessionId", "agentId"] {
+        if let Some(v) = optional(key)
+            && !matches!(v, JsValue::String(_))
+        {
+            return Ok(None);
+        }
+    }
+    let delivery_binding = match optional("deliveryBinding") {
+        None => None,
+        Some(v) => match DeliveryBinding::parse(v) {
+            Some(binding) => Some(binding),
+            None => return Ok(None),
+        },
+    };
+    let exit = optional("exit").map(|v| match v {
+        JsValue::Number(n) if n.fract() == 0.0 && (0.0..=255.0).contains(n) => {
+            #[allow(clippy::cast_possible_truncation, reason = "an integer in 0..=255")]
+            let code = *n as i64;
+            code
+        }
+        _ => -1,
+    });
+    let expected = match optional("expected") {
+        None => None,
+        Some(JsValue::String(s)) => Some(s.to_rust().ok_or(())?),
+        Some(_) => Some(String::new()),
+    };
+    let outcome = optional("outcome").map(|v| match v {
+        JsValue::String(s) if s.is("pass") || s.is("fail") || s.is("unevaluated") => {
+            s.to_rust().unwrap_or_default()
+        }
+        _ => "unevaluated".to_owned(),
+    });
+    let mut fields = required.into_iter();
+    let mut next = || fields.next().unwrap_or_default();
+    Ok(Some(EvidenceLine {
+        ts: next(),
+        feature: next(),
+        id: next(),
+        command: next(),
+        tree: next(),
+        cwd: next(),
+        head: next(),
+        worktree_tree: next(),
+        fp,
+        dirty: *dirty,
+        exit,
+        expected,
+        outcome,
+        delivery_binding,
+    }))
+}
+
+/// `readEvidenceLog(path)`: the lines zod accepts, in file order. `None` when a line is one
+/// Rust cannot parse or model (the TS may read it).
+#[must_use]
+pub fn read_evidence_log(path: &Path) -> Option<Vec<EvidenceLine>> {
+    let Ok(text) = std::fs::read(path) else {
+        return (!path.exists()).then(Vec::new);
+    };
+    let text = String::from_utf8(text).ok()?;
+    let mut lines = Vec::new();
+    for raw in text.split('\n') {
+        if crate::posix::js_trim(raw).is_empty() {
+            continue;
+        }
+        let value = crate::js_json::parse(raw)?;
+        if let Some(line) = parse_line(&value).ok()? {
+            lines.push(line);
+        }
+    }
+    Some(lines)
+}
+
+/// `expectedEvidenceProblem(expected, line)`; outer `None` when only JS can judge `expected`.
+#[must_use]
+pub fn expected_evidence_problem(expected: &str, line: &EvidenceLine) -> Option<Option<String>> {
+    expected_problem(expected, line)
+        .map(|p| p.map(str::to_owned))
+        .or_else(|| match parse_expected(expected)? {
+            Expected::Invalid(reason) => {
+                Some(Some(format!("invalid structured expected: {reason}")))
+            }
+            _ => None,
+        })
+}
+
+/// `expectedEvidenceProblem` for an `expected` Rust parses as valid; `None` otherwise.
+fn expected_problem(expected: &str, line: &EvidenceLine) -> Option<Option<&'static str>> {
+    let spec = parse_expected(expected)?;
+    let (free, code) = match spec {
+        Expected::Invalid(_) | Expected::NeedsJs => return None,
+        Expected::Free => (true, 0),
+        Expected::Exit(code) => (false, i64::from(code)),
+        Expected::Contains(_) => (false, 0),
+    };
+    let not_recorded = "comparison not recorded for the current expected value";
+    if line.exit.is_none() && line.expected.is_none() && line.outcome.is_none() {
+        return Some((!(free || (matches!(spec, Expected::Exit(0))))).then_some(not_recorded));
+    }
+    let outcome = line.outcome.as_deref();
+    if outcome == Some("unevaluated") {
+        return Some(Some(
+            "output not comparable (too large, truncated, interrupted or invalid comparison)",
+        ));
+    }
+    if outcome == Some("fail") {
+        return Some(Some("expected not met"));
+    }
+    if line.expected.as_deref().is_some_and(|e| e != expected) {
+        return Some(Some(not_recorded));
+    }
+    if free {
+        return Some((line.exit != Some(0)).then_some("successful exit not recorded"));
+    }
+    if line.expected.as_deref() != Some(expected) || outcome != Some("pass") || line.exit.is_none()
+    {
+        return Some(Some(not_recorded));
+    }
+    Some((line.exit != Some(code)).then_some("expected not met"))
+}
+
+/// `{ cwd, head, fingerprint }` the caller already computed for one tree.
+#[derive(Debug, Clone)]
+pub struct Current {
+    /// The tree root.
+    pub cwd: PathBuf,
+    /// Its HEAD.
+    pub head: String,
+    /// Its current fingerprint.
+    pub fingerprint: Fingerprint,
+}
+
+/// `ValidateEvidenceInput`.
+pub struct ValidateInput<'a> {
+    /// The state root of the feature.
+    pub root: &'a crate::state_files::StateRoot,
+    /// The feature.
+    pub feature: &'a str,
+    /// The criterion id.
+    pub id: &'a str,
+    /// The criterion command.
+    pub command: &'a str,
+    /// The criterion expected value.
+    pub expected: &'a str,
+    /// The implementer worktree, also accepted as the run's tree.
+    pub impl_worktree: Option<&'a Path>,
+    /// The producer delivery binding.
+    pub delivery_binding: Option<&'a DeliveryBinding>,
+    /// Facts already computed for one tree.
+    pub current: Option<&'a Current>,
+}
+
+/// `EvidenceVerdict`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EvidenceVerdict {
+    /// The `RecordedEvidence` of the matching run.
+    Ok(JsValue),
+    /// Why the criterion is not verified and how to fix it.
+    Failed {
+        /// `why`.
+        why: String,
+        /// `fix`.
+        fix: String,
+    },
+}
+
+impl EvidenceVerdict {
+    /// The verdict as the TS object.
+    #[must_use]
+    pub fn to_js(&self) -> JsValue {
+        let mut object = crate::js_json::JsObject::new();
+        match self {
+            Self::Ok(evidence) => {
+                object.insert("ok", JsValue::Bool(true));
+                object.insert("evidence", evidence.clone());
+            }
+            Self::Failed { why, fix } => {
+                object.insert("ok", JsValue::Bool(false));
+                object.insert("why", JsValue::string(why));
+                object.insert("fix", JsValue::string(fix));
+            }
+        }
+        JsValue::Object(object)
+    }
+}
+
+/// `cdChainDir(command)`: the joined directories of plain `cd` segments.
+fn cd_chain_dir(command: &str) -> Option<String> {
+    if command.contains([';', '\n', '(', '`']) || command.contains("||") || command.contains("$(") {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for raw in command.split("&&") {
+        let segment = crate::posix::js_trim(raw);
+        let Some(dir) = cd_dir(segment) else {
+            let words: Vec<&str> = segment.split(crate::integrity::is_js_whitespace).collect();
+            if words.iter().any(|w| matches!(*w, "cd" | "pushd" | "popd")) {
+                return None;
+            }
+            continue;
+        };
+        if dir.starts_with('/')
+            || dir
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+        {
+            return None;
+        }
+        parts.push(dir);
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn cd_target_cwd(tree: &Path, command: &str) -> Option<PathBuf> {
+    let target = real(&tree.join(cd_chain_dir(command)?))?;
+    (target.starts_with(tree) && target != tree).then_some(target)
+}
+
+struct Problem {
+    why: String,
+    tree: String,
+    cwd_mismatch: bool,
+}
+
+fn short(head: &str) -> Option<String> {
+    head.is_ascii().then(|| {
+        let s: String = head.chars().take(7).collect();
+        if s.is_empty() { "none".to_owned() } else { s }
+    })
+}
+
+/// `candidateProblem`; outer `None` when Rust cannot judge the line.
+fn candidate_problem(
+    git: &Git<'_>,
+    line: &EvidenceLine,
+    accepted: &[PathBuf],
+    input: &ValidateInput<'_>,
+    memo: &mut Vec<(PathBuf, bool, Fingerprint)>,
+) -> Option<Option<Problem>> {
+    let problem = |why: String, tree: String| {
+        Some(Some(Problem {
+            why,
+            tree,
+            cwd_mismatch: false,
+        }))
+    };
+    let Some(tree) = real(Path::new(&line.tree)) else {
+        return problem(
+            format!("tree {} no longer exists", line.tree),
+            line.tree.clone(),
+        );
+    };
+    let tree_text = tree.to_str()?.to_owned();
+    if !accepted.contains(&tree) {
+        return problem(
+            format!("ran in {}, not this feature's checkout/worktree", line.tree),
+            tree_text,
+        );
+    }
+    let cwd = real(Path::new(&line.cwd));
+    if cwd.as_ref() != Some(&tree) && (cwd.is_none() || cwd != cd_target_cwd(&tree, input.command))
+    {
+        return Some(Some(Problem {
+            why: format!("ran from {}, not the tree root {tree_text}", line.cwd),
+            tree: tree_text,
+            cwd_mismatch: true,
+        }));
+    }
+    let head = match input.current {
+        Some(current) if current.cwd == tree => current.head.clone(),
+        _ => read_head(git, &tree),
+    };
+    let head_moved = format!(
+        "tree changed since the run (HEAD {} \u{2192} {})",
+        short(&line.head)?,
+        short(&head)?
+    );
+    let head_bound = input.delivery_binding.is_none() && !is_pure_evidence_runner(input.command);
+    if head != line.head && head_bound {
+        return problem(head_moved, tree_text);
+    }
+    if line.delivery_binding.as_ref() != input.delivery_binding {
+        return problem(
+            "producer delivery authority or criterion definition changed".to_owned(),
+            tree_text,
+        );
+    }
+    let legacy = line.fp.is_none();
+    let fingerprint =
+        if let Some((_, _, fp)) = memo.iter().find(|(t, l, _)| *t == tree && *l == legacy) {
+            fp.clone()
+        } else {
+            let fp = match input.current {
+                Some(current) if !legacy && current.cwd == tree => current.fingerprint.clone(),
+                _ => fingerprint_tree(
+                    git,
+                    &tree,
+                    FingerprintOptions {
+                        stage_path: input.delivery_binding.map(DeliveryBinding::stage_path),
+                        legacy,
+                    },
+                ),
+            };
+            memo.push((tree.clone(), legacy, fp.clone()));
+            fp
+        };
+    match fingerprint {
+        Fingerprint::Failed(reason) => problem(
+            format!("cannot compute the tree fingerprint: {reason}"),
+            tree_text,
+        ),
+        Fingerprint::Ok(hash) if hash != line.worktree_tree => {
+            let why = if head == line.head {
+                "tree changed since the run (uncommitted changes)".to_owned()
+            } else {
+                head_moved
+            };
+            problem(why, tree_text)
+        }
+        Fingerprint::Ok(_) => Some(None),
+    }
+}
+
+fn index_has_feature(root: &crate::state_files::StateRoot, feature: &str) -> bool {
+    let path = Path::new(&root.cwd).join(".navori/state/handoffs/acceptance-index");
+    std::fs::read(path)
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .is_some_and(|text| {
+            text.split('\n')
+                .any(|l| l.split('\t').nth(1) == Some(feature))
+        })
+}
+
+fn recorded(line: &EvidenceLine) -> JsValue {
+    let mut o = crate::js_json::JsObject::new();
+    o.insert("kind", JsValue::string("recorded"));
+    o.insert("command", JsValue::string(&line.command));
+    o.insert("ranAt", JsValue::string(&line.ts));
+    o.insert("tree", JsValue::string(&line.tree));
+    o.insert("head", JsValue::string(&line.head));
+    o.insert("worktreeTree", JsValue::string(&line.worktree_tree));
+    o.insert("dirty", JsValue::Bool(line.dirty));
+    if let Some(exit) = line.exit {
+        #[allow(clippy::cast_precision_loss, reason = "-1 or 0..=255")]
+        o.insert("exit", JsValue::Number(exit as f64));
+    }
+    if let Some(expected) = &line.expected {
+        o.insert("expected", JsValue::string(expected));
+    }
+    if let Some(outcome) = &line.outcome {
+        o.insert("outcome", JsValue::string(outcome));
+    }
+    JsValue::Object(o)
+}
+
+/// `validateEvidence(input)`: the most recent run of exactly this command that is still
+/// current, or why none is. `None` when Rust cannot judge it the way the TS would (a log line
+/// or an `expected` it does not model, a state artifact the TS refuses).
+#[must_use]
+pub fn validate_evidence(git: &Git<'_>, input: &ValidateInput<'_>) -> Option<EvidenceVerdict> {
+    let (root, feature, id, command) = (input.root, input.feature, input.id, input.command);
+    let log =
+        crate::state_files::artifact_path(root, &format!("workplan_{feature}.evidence.jsonl"))
+            .ok()?;
+    let lines: Vec<EvidenceLine> = read_evidence_log(Path::new(&log))?
+        .into_iter()
+        .filter(|l| l.feature == feature && l.id == id)
+        .collect();
+    let accepted: Vec<PathBuf> = [Some(Path::new(&root.cwd)), input.impl_worktree]
+        .into_iter()
+        .flatten()
+        .filter_map(real)
+        .collect();
+    let tree_root = accepted
+        .first()
+        .and_then(|p| p.to_str().map(str::to_owned))
+        .unwrap_or_else(|| root.cwd.clone());
+    let rerun = |tree: &str| {
+        format!(
+            "from {tree}, run exactly:\n         {command}\n       then: navori plan update {feature} --progress {id}=cumplido"
+        )
+    };
+    let fail = |why: &str, fix: String| {
+        Some(EvidenceVerdict::Failed {
+            why: why.to_owned(),
+            fix,
+        })
+    };
+    if lines.is_empty() {
+        if !index_has_feature(root, feature) {
+            return fail(
+                "no run recorded",
+                format!(
+                    "the acceptance index has no line for {feature}, so no run could be recorded: run `navori plan render {feature}`, then rerun the command.\n       {}",
+                    rerun(&tree_root)
+                ),
+            );
+        }
+        return fail(
+            "no run recorded",
+            format!(
+                "{}\n       (large repos: the hook computes a tree fingerprint after the run and can be killed mid-way, leaving no line; rerun the command, or check the evidence log exists)",
+                rerun(&tree_root)
+            ),
+        );
+    }
+    let same: Vec<&EvidenceLine> = lines
+        .iter()
+        .filter(|l| l.command == command)
+        .rev()
+        .collect();
+    if same.is_empty() {
+        return fail("recorded for a different command", rerun(&tree_root));
+    }
+    let mut first: Option<Problem> = None;
+    let mut memo = Vec::new();
+    for line in same {
+        match candidate_problem(git, line, &accepted, input, &mut memo)? {
+            None => {
+                if let Some(why) = expected_evidence_problem(input.expected, line)? {
+                    return fail(
+                        &why,
+                        format!(
+                            "{}\n       Structured output predicates require an exact host-recorded comparison; command success alone does not verify output. Refresh Claude hooks with navori render --apply; other engines require a supported comparison signal.",
+                            rerun(&line.tree)
+                        ),
+                    );
+                }
+                return Some(EvidenceVerdict::Ok(recorded(line)));
+            }
+            Some(problem) => {
+                first.get_or_insert(problem);
+            }
+        }
+    }
+    let problem = first?;
+    if problem.cwd_mismatch {
+        return fail(
+            &problem.why,
+            format!(
+                "{}. Either `cd {}` first and rerun from there, or change the criterion's `command` to `cd <dir> && \u{2026}` (a simple relative `cd` chain joined by `&&`), re-render (`navori plan render {feature}`) and run it.\n       then: navori plan update {feature} --progress {id}=cumplido",
+                problem.why, problem.tree
+            ),
+        );
+    }
+    let accepted_tree = accepted
+        .iter()
+        .any(|p| p.to_str() == Some(problem.tree.as_str()));
+    let mut fix = rerun(if accepted_tree {
+        &problem.tree
+    } else {
+        &tree_root
+    });
+    if problem.why.starts_with("cannot compute") {
+        fix.push_str(&format!("\n       ({})", problem.why));
+    }
+    fail(&problem.why, fix)
 }
