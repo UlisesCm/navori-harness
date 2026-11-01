@@ -669,6 +669,17 @@ describe("rust oracle", () => {
     }
   });
 
+  // Covers: R73
+  it("spec check mapea las entregas de una etapa en modo deliveries", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("spec-deliveries:"));
+    for (const id of ["mapped", "unmapped", "target-mismatch", "invalid-parts", "no-parts-file"]) {
+      expect(cases.find((c) => c.id === `spec-deliveries:${id}`)?.native, id).toBe(true);
+    }
+    expect(
+      cases.find((c) => c.id === "spec-deliveries:bad-json-parts-delegates")?.native,
+    ).toBeUndefined();
+  });
+
   // Covers: R7
   it("selectsNative lee argv como el parser y el manifiesto", () => {
     const manifest = {
