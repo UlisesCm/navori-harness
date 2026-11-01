@@ -134,6 +134,9 @@ const replay = (await import(
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "hook-verdict-replay.mjs"))
     .href
 )) as Replay;
+const { corpusAsset } = (await import(
+  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "corpus-asset.mjs")).href
+)) as { corpusAsset: (hooksDir: string, name: string) => string };
 const rustAdapter = (await import(
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "rust-hook-adapter.mjs"))
     .href
@@ -220,9 +223,8 @@ describe("native hook replay transport", () => {
     try {
       expect(Object.keys(manifest.hooks)).toContain("guard-destructive");
       for (const [id, hook] of Object.entries(manifest.hooks)) {
-        const asset = expandHookIncludes(
-          readFileSync(join(repo, "packages/core/core-assets/hooks", `${id}.sh`), "utf8"),
-        );
+        // The bytes the corpus recorded: includes expanded and the roster policies rendered.
+        const asset = corpusAsset(join(repo, "packages/core/core-assets/hooks"), `${id}.sh`);
         for (const engine of [".claude", ".codex", ".pi/navori"]) {
           const signed = readFileSync(join(dir, engine, "hooks", `${id}.sh`), "utf8");
           const header = /^# navori:native-hook v=1 file=sha256:([a-f0-9]{64}) impl=(\S+)\n/.exec(
@@ -475,6 +477,11 @@ process.exit(1);`,
     const script = join(dir, ".claude", "hooks", "fixture.sh");
     expect(
       rustAdapter.runRustHook({ binary: nativeFixture(dir, absent), script, input: "" }),
+    ).toMatchObject({ available: false, toolDeferred: true });
+    const noBash =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: legacy Bash is absent\\n'); process.exit(1);";
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, noBash), script, input: "" }),
     ).toMatchObject({ available: false, toolDeferred: true });
     const other =
       "process.stderr.write('navori-rust: hook deferred: hook is ineligible: unsupported locale\\n'); process.exit(1);";
