@@ -56,8 +56,13 @@ fn is_workplan_name(name: &str) -> bool {
         })
 }
 
-/// `linesForDir(dir)` appended to `out`; `None` where the TS's answer is not certain.
-fn lines_for_dir(dir: &str, out: &mut AcceptanceIndex) -> Option<()> {
+/// `linesForDir(dir)` appended to `out`, reading `pending`'s text for its path; `None` where the
+/// TS's answer is not certain.
+fn lines_for_dir(
+    dir: &str,
+    out: &mut AcceptanceIndex,
+    pending: Option<(&str, &str)>,
+) -> Option<()> {
     let Ok(meta) = fs::metadata(dir) else {
         return Some(());
     };
@@ -75,7 +80,11 @@ fn lines_for_dir(dir: &str, out: &mut AcceptanceIndex) -> Option<()> {
     }
     names.sort();
     for name in names.iter().filter(|n| is_workplan_name(n)) {
-        let text = String::from_utf8(fs::read(format!("{dir}/{name}")).ok()?).ok()?;
+        let path = format!("{dir}/{name}");
+        let text = match pending {
+            Some((written, text)) if written == path => text.to_owned(),
+            _ => String::from_utf8(fs::read(&path).ok()?).ok()?,
+        };
         let raw = parse(&text)?;
         let plan = schema(&raw)?;
         for c in &plan.acceptance {
@@ -108,9 +117,10 @@ fn lines_for_dir(dir: &str, out: &mut AcceptanceIndex) -> Option<()> {
     Some(())
 }
 
-/// `writeAcceptanceIndex`'s contents over the absolute `dirs` (deduplicated in order).
+/// `writeAcceptanceIndex`'s contents over the absolute `dirs` (deduplicated in order). `pending`
+/// is a workplan the caller writes first: `(path, text)`, read in place of the file.
 #[must_use]
-pub fn build(dirs: &[String]) -> Option<AcceptanceIndex> {
+pub fn build(dirs: &[String], pending: Option<(&str, &str)>) -> Option<AcceptanceIndex> {
     let mut seen: Vec<&str> = Vec::new();
     let mut out = AcceptanceIndex::default();
     for dir in dirs {
@@ -118,7 +128,7 @@ pub fn build(dirs: &[String]) -> Option<AcceptanceIndex> {
             continue;
         }
         seen.push(dir);
-        lines_for_dir(dir, &mut out)?;
+        lines_for_dir(dir, &mut out, pending)?;
     }
     Some(out)
 }
