@@ -325,6 +325,38 @@ function publishPayload(next, seed, index, commands, agents) {
   return JSON.stringify(payload);
 }
 
+/** role-guard: paths a role may or may not patch, relative, absolute, temp, `..` and review outputs. */
+const RG_PATHS = [
+  "specs/a.md", "specs-evil/a.md", ".navori/state/handoffs/review_f.md", ".navori/state/handoffs/x.json", "src/a.ts",
+  "specs/../src/a.ts", "./specs/b.md", "../outside.md", "/tmp/scratch.txt", "/var/tmp/x", "@CWD@/specs/c.md", "@CWD@",
+  "/etc/navori-fuzz.txt", "/elsewhere/.navori/state/handoffs/review_f.md", "",
+];
+const RG_ROLES = ["scout", "auditor", "reviewer", "publisher", "architect", "implementer", "scribe", "default", "mystery-role", ""];
+
+/** One role-guard payload: a role, a tool and, for apply_patch, one or two paths.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function roleGuardPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const tool = pick(["apply_patch", "apply_patch", "apply_patch", "spawn_agent", "functions.spawn_agent", "Bash", "mcp__engram__mem_save"]);
+  const headers = [`*** ${pick(["Add File", "Update File", "Delete File"])}: ${pick(RG_PATHS)}`];
+  if (next() & 1) headers.push(`*** Move to: ${pick(RG_PATHS)}`);
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: tool,
+    tool_input: { command: `*** Begin Patch\n${headers.join("\n")}\n*** End Patch`, agent_type: "scout" },
+    cwd: "@CWD@",
+  };
+  if ((next() >>> 16) % 6 !== 0) payload.agent_type = pick(RG_ROLES);
+  if (next() & 1) payload.agent_id = "019a0000-0000-4000-8000-000000000000";
+  return JSON.stringify(payload);
+}
+
 /** pr-publisher-confirm: `gh pr create` forms, their near misses and the body forms of the Pi arm. */
 const PRP_COMMANDS = [
   "gh pr create --title t --body-file @FILE@", "gh pr create -t t -F @FILE@", "gh pr create --title t --body b", "gh pr create --fill",
@@ -359,6 +391,12 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
       index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "role-guard.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"agent_type":"scout"', '{"agent_type":"scout","tool_name":"apply_patch"}'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : roleGuardPayload(next, seed, index),
     );
   }
   if (hook === "comment-draft-confirm.sh" || hook === "pr-publisher-confirm.sh") {
