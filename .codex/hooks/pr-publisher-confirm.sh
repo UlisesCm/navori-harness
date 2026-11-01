@@ -1,5 +1,19 @@
-# navori:managed start id="pr-publisher-confirm-base" hash="2e96cc33" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:c5a8c9957649af50e79c12aa309d81f96370c25573589e6e5ad618dae5dcb8ad impl=sha256:67590607af83c78cdabc63cc985ef6c8fb5253e3a75b3146a2712922a1fe0f48
+# navori:managed start id="pr-publisher-confirm-base" hash="84c78d2b" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: pr-publisher-confirm native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: pr-publisher-confirm could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: pr-publisher-confirm native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
 # `publisher` is raised to a user confirmation.

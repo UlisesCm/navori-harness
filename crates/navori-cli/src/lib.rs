@@ -22,6 +22,7 @@ pub(crate) mod native_io;
 pub mod parser;
 pub mod plan_gate;
 pub mod plan_gate_hook;
+pub mod publish_confirm_hook;
 pub mod quality_gate;
 pub mod remove;
 pub mod render;
