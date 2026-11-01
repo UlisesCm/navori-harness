@@ -316,7 +316,10 @@ export function readMasterStatus(cwd: string): MasterStatus {
       blockers.push(`${part.id}: ${effective}`);
     if (effective === "parcial") blockers.push(...missing);
     if (effective === "hecho" && part.spec) {
-      const failures = checkPart(cwd, part.id).filter((f) => !f.startsWith("warning:"));
+      // Closing judges evidence and traceability; completed tasks are not re-prepared.
+      const failures = checkPart(cwd, part.id, { skipCompletedTasks: true }).filter(
+        (f) => !f.startsWith("warning:"),
+      );
       blockers.push(...failures.map((f) => `${part.id}: ${f}`));
     }
     return {

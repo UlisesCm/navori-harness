@@ -6,6 +6,7 @@ import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
 
 const TASK_ENTRY = /^- \[[ xX]\](?: .*)?$/gm;
 const TASK_TITLE = /^- \[[ xX]\] \*\*(T\d+)\*\*/;
+const COMPLETED_TASK = /^- \[[xX]\]/;
 type FieldKey =
   | "files"
   | "interfaces"
@@ -15,6 +16,16 @@ type FieldKey =
   | "done"
   | "outOfScope";
 type Lang = "es" | "en";
+
+/** Validation scope of a part spec. */
+export interface PartCheckOptions {
+  /**
+   * Skip the per-task field rules for tasks already marked `[x]`. Those rules prepare a task for
+   * implementation; once it is done the repository moves on (renamed or deleted pattern files,
+   * newer versions), so re-checking them would block closing a stage on history, not on evidence.
+   */
+  readonly skipCompletedTasks?: boolean;
+}
 
 /** Canonical task field -> label per language; both are accepted when validating. */
 const FIELDS: Record<FieldKey, Record<Lang, string>> = {
@@ -37,7 +48,7 @@ function hasNamedTestCase(done: string): boolean {
 }
 
 /** Validate a linked part spec without modifying the repository. */
-export function checkPart(cwd: string, partId: string): string[] {
+export function checkPart(cwd: string, partId: string, options: PartCheckOptions = {}): string[] {
   if (!/^P[1-9]\d*$/.test(partId)) return [`invalid part id ${partId}`];
   const config = readConfig(join(cwd, "navori.config.json"));
   const language: Lang = config.language === "en" ? "en" : "es";
@@ -58,7 +69,7 @@ export function checkPart(cwd: string, partId: string): string[] {
   const spec = resolve(cwd, part.spec);
   if (spec !== root && !spec.startsWith(`${root}${sep}`))
     return [`part ${partId} spec is outside specsDir`];
-  return checkPartFiles(cwd, spec, part, parsed.data.parts, language);
+  return checkPartFiles(cwd, spec, part, parsed.data.parts, language, options);
 }
 
 /** Pure-content validator for tests and for the linked spec on disk. */
@@ -70,6 +81,7 @@ export function validatePartSpec(
   design: string,
   requirements: string,
   language: Lang = "es",
+  options: PartCheckOptions = {},
 ): string[] {
   const failures: string[] = [];
   const starts = [...tasks.matchAll(TASK_ENTRY)].map((match) => match.index);
@@ -81,6 +93,7 @@ export function validatePartSpec(
       failures.push(`${part.id}: task ${index + 1} needs a **T<n>** heading`);
       continue;
     }
+    if (options.skipCompletedTasks && COMPLETED_TASK.test(block)) continue;
     const values = new Map<FieldKey, string>();
     for (const [key, labels] of Object.entries(FIELDS) as [FieldKey, Record<Lang, string>][]) {
       const markers = [labels.es, labels.en].map((label) => `- **${label}:**`);
@@ -153,6 +166,7 @@ function checkPartFiles(
   part: Part,
   allParts: readonly Part[],
   language: Lang,
+  options: PartCheckOptions,
 ): string[] {
   const paths = ["tasks.md", "design.md", "requirements.md"].map((name) => join(spec, name));
   const missing = paths.filter((path) => !existsSync(path));
@@ -163,5 +177,6 @@ function checkPartFiles(
     allParts,
     ...(paths.map((path) => readFileSync(path, "utf8")) as [string, string, string]),
     language,
+    options,
   );
 }

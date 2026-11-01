@@ -133,4 +133,40 @@ describe("part spec rigor", () => {
     expect(labels).toHaveLength(7);
     for (const label of labels) expect(template).toContain(`- **${label}:**`);
   });
+
+  describe("skipCompletedTasks", () => {
+    // A task done months ago whose pattern file was later deleted and whose prose no longer
+    // matches the field grammar (issue #1470).
+    const stale = task
+      .replace("- [ ] **T1**", "- [x] **T1**")
+      .replace("**Patrón:** package.json", "**Patrón:** deleted/cd.yml (job release)")
+      .replace("**Librerías:** lib@1.2.0", "**Librerías:** ninguna nueva.");
+    const open = task.replace("**T1**", "**T2**").replace("lib@1.2.0", "lib@latest");
+
+    it("still reports stale fields of a completed task by default", () => {
+      expect(validate(stale)).toEqual(
+        expect.arrayContaining([
+          "T1: pattern file does not exist: deleted/cd.yml (job release)",
+          "T1: library needs exact version: ninguna nueva.",
+        ]),
+      );
+    });
+
+    it("skips completed tasks and keeps checking open tasks and traceability", () => {
+      const failures = validatePartSpec(
+        cwd,
+        parts[0]!,
+        parts,
+        `${stale}${open}`,
+        "interface Foo {}",
+        "- **R1** — Do this.\n",
+        "es",
+        { skipCompletedTasks: true },
+      );
+      expect(failures).toEqual([
+        "T2: library needs exact version: lib@latest",
+        "criterion P1.A1 is not cited by any R<n>",
+      ]);
+    });
+  });
 });

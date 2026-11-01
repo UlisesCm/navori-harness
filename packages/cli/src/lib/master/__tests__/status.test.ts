@@ -272,6 +272,25 @@ describe("master status", () => {
     },
   );
 
+  it("does not block closing on stale fields of completed tasks (issue #1470)", (): void => {
+    const baseline = commitHead();
+    executablePart(baseline, "test", true);
+    const tasks = join(cwd, "specs/demo/tasks.md");
+    writeFileSync(
+      tasks,
+      readFileSync(tasks, "utf8")
+        .replace(
+          "**Patr\u00f3n:** navori.config.json",
+          "**Patr\u00f3n:** deleted/cd.yml (job release)",
+        )
+        .replace("**Librer\u00edas:** ninguna", "**Librer\u00edas:** ninguna nueva."),
+    );
+    const status = readMasterStatus(cwd);
+    expect(status.parts[0]?.effective).toBe("hecho");
+    expect(status.blockers).toEqual([]);
+    expect(status.closable).toBe(true);
+  });
+
   // Covers: R13
   it.each(["descartada", "diferida"] as const)(
     "exempts orphan executable evidence for a %s part",
