@@ -302,7 +302,10 @@ fn init(id: &str, cwd: &str) -> Option<Output> {
         )
         .is_ok();
     if !written {
-        clack.out.stderr.push_str("navori-rust: cannot scaffold the preset\n");
+        clack
+            .out
+            .stderr
+            .push_str("navori-rust: cannot scaffold the preset\n");
         clack.out.code = 1;
         return Some(clack.out);
     }
@@ -324,11 +327,17 @@ fn init(id: &str, cwd: &str) -> Option<Output> {
                 clack.out.stderr.push_str(&format!("{warning}\n"));
             }
             if write_file_atomic(&mut fs, Path::new(&config_path), &text).is_err() {
-                clack.out.stderr.push_str("navori-rust: cannot write navori.config.json\n");
+                clack
+                    .out
+                    .stderr
+                    .push_str("navori-rust: cannot write navori.config.json\n");
                 clack.out.code = 1;
                 return Some(clack.out);
             }
-            clack.log(Symbol::Success, &format!("navori.config.json → preset: {id}"));
+            clack.log(
+                Symbol::Success,
+                &format!("navori.config.json → preset: {id}"),
+            );
             clack.outro(if es {
                 "Listo. Edita la plantilla y corre navori render --apply para materializarla."
             } else {

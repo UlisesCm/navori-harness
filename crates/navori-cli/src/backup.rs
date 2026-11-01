@@ -301,7 +301,9 @@ pub(crate) fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
 }
 
 pub(crate) fn now_ms() -> Option<f64> {
-    let since = std::time::SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    let since = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?;
     #[expect(clippy::cast_precision_loss, reason = "Date.now() is a double too")]
     Some(since.as_millis() as f64)
 }
@@ -393,7 +395,9 @@ fn human_age(mtime: f64, now: f64) -> String {
 fn list(root: &Path, options: &Leaf<'_>) -> Option<Output> {
     let backups = list_backups(root)?;
     let limit = int_flag(options.get("limit"), Some(20))?.unwrap_or(20);
-    let shown = usize::try_from(limit).unwrap_or(usize::MAX).min(backups.len());
+    let shown = usize::try_from(limit)
+        .unwrap_or(usize::MAX)
+        .min(backups.len());
     let truncated = &backups[..shown];
     let mut clack = Clack::default();
     if options.flag("json") {
@@ -413,7 +417,10 @@ fn list(root: &Path, options: &Leaf<'_>) -> Option<Output> {
             .collect();
         let mut doc = JsObject::new();
         doc.insert("backups", JsValue::Array(entries));
-        #[expect(clippy::cast_precision_loss, reason = "a backup count is far below 2^53")]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a backup count is far below 2^53"
+        )]
         doc.insert("totalAvailable", JsValue::Number(backups.len() as f64));
         clack.out.stdout = format!("{}\n", JsValue::Object(doc).stringify(Some(2))?);
         return Some(clack.out);
@@ -489,11 +496,8 @@ fn restore(root: &Path, options: &Leaf<'_>) -> Option<Output> {
         return None;
     }
     let process_cwd = std::env::current_dir().ok()?;
-    let cwd: PathBuf = navori_core::posix::resolve(
-        process_cwd.to_str()?,
-        options.get("cwd").unwrap_or(""),
-    )
-    .into();
+    let cwd: PathBuf =
+        navori_core::posix::resolve(process_cwd.to_str()?, options.get("cwd").unwrap_or("")).into();
     let backup_dir = root.join(ts);
     let shown_dir = backup_dir.to_str()?.to_owned();
     let mut clack = Clack::default();
@@ -551,7 +555,10 @@ fn restore(root: &Path, options: &Leaf<'_>) -> Option<Output> {
 fn prune(root: &Path, options: &Leaf<'_>) -> Option<Output> {
     let days = int_flag(options.get("days"), None)?;
     let max_mb = int_flag(options.get("max-mb"), None)?;
-    #[expect(clippy::cast_precision_loss, reason = "flag values far below 2^53 days")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "flag values far below 2^53 days"
+    )]
     let retention = days.map_or(30.0, |d| d as f64);
     let max_bytes = max_mb.map_or(Some(2048 * 1024 * 1024), |mb| mb.checked_mul(1024 * 1024))?;
     let mut clack = Clack::default();

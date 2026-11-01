@@ -11,9 +11,7 @@ use std::process::ExitCode;
 use navori_core::fs::{Fs, RealFs};
 use navori_core::js_json::{JsObject, JsValue};
 
-use crate::backup::{
-    Leaf, PROTOTYPE_KEYS, collect_files, int_flag, iso, mtime_ms, parse_leaf,
-};
+use crate::backup::{Leaf, PROTOTYPE_KEYS, collect_files, int_flag, iso, mtime_ms, parse_leaf};
 use crate::clack::{Clack, Symbol, plain_output};
 use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color};
 use crate::native_io::Output;
@@ -273,7 +271,10 @@ fn list(root: &Path, options: &Leaf<'_>) -> Option<Output> {
             .collect();
         let mut doc = JsObject::new();
         doc.insert("migrations", JsValue::Array(entries));
-        #[expect(clippy::cast_precision_loss, reason = "a migration count is far below 2^53")]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a migration count is far below 2^53"
+        )]
         doc.insert("totalAvailable", JsValue::Number(migrations.len() as f64));
         clack.out.stdout = format!("{}\n", JsValue::Object(doc).stringify(Some(2))?);
         return Some(clack.out);
@@ -320,13 +321,15 @@ fn restore(root: &Path, options: &Leaf<'_>) -> Option<Output> {
     }
     let (ts, repo) = (options.positionals[0], options.positionals[1]);
     // Names that walk out of the store are left to the TS's own (lack of) checks.
-    if [ts, repo].iter().any(|p| p.contains('/') || p.starts_with('.')) {
+    if [ts, repo]
+        .iter()
+        .any(|p| p.contains('/') || p.starts_with('.'))
+    {
         return None;
     }
     let process_cwd = std::env::current_dir().ok()?;
     let cwd: PathBuf =
-        navori_core::posix::resolve(process_cwd.to_str()?, options.get("cwd").unwrap_or(""))
-            .into();
+        navori_core::posix::resolve(process_cwd.to_str()?, options.get("cwd").unwrap_or("")).into();
     let dir = root.join(ts).join(repo);
     let shown = dir.to_str()?.to_owned();
     let mut clack = Clack::default();

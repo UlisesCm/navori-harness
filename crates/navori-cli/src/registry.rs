@@ -314,7 +314,8 @@ impl Store {
             .mode(0o666)
             .open(&lock)
             .ok()?;
-        let _ = std::io::Write::write_all(&mut file, format!("{}\n", std::process::id()).as_bytes());
+        let _ =
+            std::io::Write::write_all(&mut file, format!("{}\n", std::process::id()).as_bytes());
         let result = body(self);
         drop(file);
         let _ = std::fs::remove_file(&lock);
@@ -327,7 +328,9 @@ impl Store {
             let mut repos = store.read()?;
             let mut fs = RealFs::default();
             if let Some(existing) = repos.iter_mut().find(|r| r.path == path) {
-                if let Some(name) = name.filter(|n| !n.is_empty() && existing.name.as_deref() != Some(*n)) {
+                if let Some(name) =
+                    name.filter(|n| !n.is_empty() && existing.name.as_deref() != Some(*n))
+                {
                     existing.name = Some(name.to_owned());
                     store.write(&mut fs, &repos)?;
                     return Some("updated");
@@ -489,7 +492,11 @@ fn scan(store: &Store, cwd: &str, dirs: &[&str], depth: Option<&str>) -> Option<
             } else {
                 unchanged += 1;
             }
-            let badge = if result == "added" { "+ agregado" } else { "· conocido" };
+            let badge = if result == "added" {
+                "+ agregado"
+            } else {
+                "· conocido"
+            };
             let shown = repo_name(&mut clack.out, repo)?.unwrap_or_else(|| repo.clone());
             rows.push(format!("  {badge}  {shown}  {repo}"));
         }
