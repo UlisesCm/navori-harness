@@ -134,8 +134,13 @@ fn check(case: &Value, actual: &Evaluation, label: &str) {
     );
 }
 
-/// Corpus cases that run with this machine's own tools: no narrowed PATH and no fixture (those
-/// replace a tool and run end to end in the native replay).
+/// The Codex reason `navori codex approval request` answers with. A case that recorded it ran with
+/// a `navori` on the recorder's PATH, a tool this machine may not have (CI has none).
+const APPROVAL_ROUTE: &str = "[navori] PR create remains pending";
+
+/// Corpus cases that run with this machine's own tools: no narrowed PATH, no fixture and no
+/// recorded `navori` approval (those replace or need a tool and run end to end in the native
+/// replay).
 fn cases(hook: &str) -> Result<Vec<Value>, Box<dyn Error>> {
     let text = fs::read_to_string(repo().join(format!(
         "packages/cli/src/__tests__/fixtures/hook-verdict-corpus/{hook}.sh.jsonl"
@@ -143,7 +148,10 @@ fn cases(hook: &str) -> Result<Vec<Value>, Box<dyn Error>> {
     let mut out = Vec::new();
     for line in text.lines() {
         let case: Value = serde_json::from_str(line)?;
-        if case["envDelta"].get("PATH").is_none() && case.get("fixture").is_none() {
+        let approval = case["expected"]["off"]["stdout"]
+            .as_str()
+            .is_some_and(|out| out.contains(APPROVAL_ROUTE));
+        if case["envDelta"].get("PATH").is_none() && case.get("fixture").is_none() && !approval {
             out.push(case);
         }
     }
