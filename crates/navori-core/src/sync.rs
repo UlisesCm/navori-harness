@@ -345,6 +345,7 @@ fn refresh_accepted(
                         &ctx,
                         plugin,
                         extension,
+                        &extension.target,
                         &mut virtual_write,
                         &mut SubBlocks::default(),
                     )

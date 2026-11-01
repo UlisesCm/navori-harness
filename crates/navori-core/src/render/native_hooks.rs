@@ -1,5 +1,5 @@
-//! `finalizeNativeHooks` (spec 0058 T15, `lib/render/native-hook-render.ts`) for the Claude
-//! engine: once every plugin extension is planned, a hook script `crates/ported.json` declares is
+//! `finalizeNativeHooks` (spec 0058 T15, `lib/render/native-hook-render.ts`) for the Claude and
+//! Codex engines (spec 0059 T19): once every plugin extension is planned, a hook script `crates/ported.json` declares is
 //! wrapped with the native runtime arm and signed, but only when it is exactly what navori would
 //! render (the core block plus every configured extension, untouched). Anything else keeps its
 //! shell form, without the stale signature header a previous wrap left.
@@ -51,6 +51,60 @@ pub struct NativeHooksInput<'a> {
     pub ambient_floor: Option<&'a str>,
     /// The sealed owned paths, the guard's `extraVars` (`renderVars`).
     pub owned_paths: Option<&'a str>,
+    /// The engine whose hook copies are wrapped (`claude` or `codex`).
+    pub engine: NativeEngine,
+    /// `renderVars` by destination, when the engine's placements carry more than the guard's
+    /// owned paths (Codex); `None` reads them from [`placement_extra_vars`].
+    pub render_vars: Option<&'a BTreeMap<String, BTreeMap<String, String>>>,
+}
+
+impl NativeHooksInput<'_> {
+    /// The `engine` option of `renderManagedFile`.
+    const fn engine_id(&self) -> &'static str {
+        match self.engine {
+            NativeEngine::Claude => "claude",
+            NativeEngine::Codex => "codex",
+            NativeEngine::Pi => "pi",
+        }
+    }
+
+    /// `.<engine>/hooks/<id>.sh`.
+    fn target(&self, id: &str) -> String {
+        match self.engine {
+            NativeEngine::Pi => format!(".pi/navori/hooks/{id}.sh"),
+            _ => format!(".{}/hooks/{id}.sh", self.engine_id()),
+        }
+    }
+
+    /// `hookExtensionTarget(target, engine)`.
+    fn extension_target(&self, target: &str) -> Option<String> {
+        match self.engine {
+            NativeEngine::Claude => Some(target.to_owned()),
+            NativeEngine::Codex => target
+                .strip_prefix(".claude/hooks/")
+                .map(|hook| format!(".codex/hooks/{hook}")),
+            NativeEngine::Pi => target
+                .strip_prefix(".claude/hooks/")
+                .map(|hook| format!(".pi/navori/hooks/{hook}")),
+        }
+    }
+
+    /// `pluginScriptPlacements(plugin, engine)`'s engine.
+    const fn script_engine(&self) -> ScriptEngine {
+        match self.engine {
+            NativeEngine::Claude => ScriptEngine::Claude,
+            NativeEngine::Codex => ScriptEngine::Codex,
+            NativeEngine::Pi => ScriptEngine::Pi,
+        }
+    }
+
+    /// `renderVars.get(target)`.
+    fn render_vars_for(&self, target: &str) -> BTreeMap<String, String> {
+        match self.render_vars {
+            Some(vars) => vars.get(target).cloned().unwrap_or_default(),
+            None => placement_extra_vars(target, self.owned_paths).unwrap_or_default(),
+        }
+    }
 }
 
 /// `loadNativeHooks()`: the embedded `crates/ported.json`, or none when it does not validate.
@@ -199,9 +253,9 @@ fn reference_for(
         source: &source,
         version: &version,
         config: input.config,
-        extra_vars: placement_extra_vars(target, input.owned_paths).unwrap_or_default(),
+        extra_vars: input.render_vars_for(target),
         transform: None,
-        engine: Some("claude"),
+        engine: Some(input.engine_id()),
         force_overwrite: false,
         ambient_floor: input.ambient_floor,
     })
@@ -210,7 +264,7 @@ fn reference_for(
     let mut seen: BTreeSet<&str> = BTreeSet::from([hook.managed_id.as_str()]);
     for plugin in input.plugins {
         for extension in &plugin.hook_extension_assets {
-            if extension.target != target {
+            if input.extension_target(&extension.target).as_deref() != Some(target) {
                 continue;
             }
             if plugin
@@ -265,7 +319,7 @@ fn deps_for(
 ) -> Result<Option<Vec<Vec<u8>>>, NativeHooksDelegate> {
     let mut deps = Vec::new();
     for (path, expected) in &descriptor.deps {
-        let Some(resolved) = native_dependency_path(NativeEngine::Claude, path) else {
+        let Some(resolved) = native_dependency_path(input.engine, path) else {
             return Ok(None);
         };
         if !native_path_contained(input.view, &resolved) {
@@ -274,7 +328,7 @@ fn deps_for(
         let Some(script) = input
             .plugins
             .iter()
-            .flat_map(|plugin| plugin_script_placements(plugin, ScriptEngine::Claude))
+            .flat_map(|plugin| plugin_script_placements(plugin, input.script_engine()))
             .find(|placement| format!("scripts/{}", placement.script.dest) == *path)
         else {
             return Ok(None);
@@ -312,7 +366,7 @@ fn deps_for(
             config: input.config,
             extra_vars: BTreeMap::new(),
             transform: None,
-            engine: Some("claude"),
+            engine: Some(input.engine_id()),
             force_overwrite: false,
             ambient_floor: input.ambient_floor,
         })
@@ -344,7 +398,7 @@ pub fn finalize_native_hooks(
         return Ok(eligible);
     }
     for hook in input.hooks {
-        let target = format!(".claude/hooks/{}.sh", hook.id);
+        let target = input.target(&hook.id);
         if !native_path_contained(input.view, &target) {
             continue;
         }
@@ -366,7 +420,7 @@ pub fn finalize_native_hooks(
             continue;
         };
         let wrapper = native_runner_shell(&NativeShell {
-            engine: NativeEngine::Claude,
+            engine: input.engine,
             hook: &hook.id,
             mode: descriptor.mode,
             gating: descriptor.gating,
