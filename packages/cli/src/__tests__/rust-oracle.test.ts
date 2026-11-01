@@ -628,6 +628,38 @@ describe("rust oracle", () => {
     expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
   });
 
+  // Covers: R73
+  it("dominio en cada subcomando, sin workspace, con workspace ambiguo y con su salida de clack", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("dominio:"));
+    for (const sub of ["init", "list", "show", "reindex", "doctor"]) {
+      const mine = cases.filter((c) => c.args[1] === sub && c.native);
+      expect(
+        mine.some((c) => c.args.includes("--help")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => c.id.endsWith("-no-workspace")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => !c.args.includes("--help") && (c as { setup?: unknown[] }).setup?.length),
+        sub,
+      ).toBe(true);
+    }
+    expect(cases.some((c) => c.args.some((a) => a.startsWith("--workspace")) && c.native)).toBe(
+      true,
+    );
+    expect(cases.find((c) => c.id === "dominio:list-ambiguous")?.native).toBe(true);
+    // Color, a width clack would wrap and a name the registry rejects stay with the TS.
+    for (const id of [
+      "list-force-color-delegates",
+      "list-long-summary-delegates",
+      "list-invalid-name-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `dominio:${id}`)?.native, id).toBeUndefined();
+    }
+  });
+
   // Covers: R7
   it("selectsNative lee argv como el parser y el manifiesto", () => {
     const manifest = {
