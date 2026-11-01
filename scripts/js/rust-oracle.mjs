@@ -44,7 +44,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..", "..");
 export const ORACLE_DIR = join(HERE, "rust-oracle");
 export const FIXTURES_DIR = join(ORACLE_DIR, "fixtures");
-export const CASES_PATH = join(ORACLE_DIR, "cases.json");
+/** One `<area>.json` per command area (D47 of spec 0060), so parallel flows never edit one array. */
+export const CASES_DIR = join(ORACLE_DIR, "cases");
+/** Fixture the CLI surface golden cases run on. */
+export const SURFACE_FIXTURE = "empty";
 export const SURFACE_GOLDEN = join(
   REPO_ROOT,
   "packages",
@@ -823,25 +826,48 @@ export function selectsNative(manifest, args) {
 }
 
 /**
+ * The hand-written cases of every `<area>.json` in `dir`, in file-name order. A repeated id across
+ * files would make `--only` and the report ambiguous, so it fails here.
+ *
+ * @param {string} dir
+ * @returns {OracleCase[]}
+ */
+export function readAreaCases(dir) {
+  const seen = new Map();
+  const cases = [];
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json")).sort()) {
+    const file = JSON.parse(readFileSync(join(dir, name), "utf8"));
+    if (file.schema !== 1 || !Array.isArray(file.cases))
+      throw new Error(`rust-oracle: ${name}: expected { "schema": 1, "cases": [...] }`);
+    for (const c of file.cases) {
+      if (seen.has(c.id)) throw new Error(`rust-oracle: case ${c.id} in ${seen.get(c.id)} and ${name}`);
+      seen.set(c.id, name);
+      cases.push(c);
+    }
+  }
+  return cases;
+}
+
+/**
  * Cases to run: the hand-written ones plus one per entry of the CLI surface golden. A surface case
  * the manifest selects natively masks the Rust version (see {@link maskSide}).
  *
- * @param {{ casesPath?: string, goldenPath?: string, manifestPath?: string }} [paths]
+ * @param {{ casesDir?: string, goldenPath?: string, manifestPath?: string }} [paths]
  * @returns {OracleCase[]}
  */
 export function loadCases(paths = {}) {
-  const casesFile = JSON.parse(readFileSync(paths.casesPath ?? CASES_PATH, "utf8"));
+  const handWritten = readAreaCases(paths.casesDir ?? CASES_DIR);
   const golden = JSON.parse(readFileSync(paths.goldenPath ?? SURFACE_GOLDEN, "utf8"));
   const manifest = JSON.parse(readFileSync(paths.manifestPath ?? MANIFEST_PATH, "utf8"));
   const surface = golden.cases.map((c) => ({
     id: `surface:${c.args.join("_")}`,
-    fixture: casesFile.surfaceFixture,
+    fixture: SURFACE_FIXTURE,
     args: c.args,
     ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
   }));
   const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
   return [
-    ...casesFile.cases,
+    ...handWritten,
     ...surface,
     ...repoSpecCases(),
     ...masterCloseRenderCases(paths.manifestPath),

@@ -51,7 +51,8 @@ interface Oracle {
     manifest: { commands: Array<{ path: string[]; flags?: string[] }> },
     args: string[],
   ) => boolean;
-  CASES_PATH: string;
+  CASES_DIR: string;
+  readAreaCases: (dir: string) => OracleCase[];
   normalizeText: (text: string) => string;
   maskSide: (
     text: string,
@@ -447,6 +448,31 @@ describe("rust oracle", () => {
       expect(c.native).toBe(true);
       const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
       expect(config.harness.masterPlan, c.id).toBe(true);
+    }
+  });
+
+  // Covers: R77
+  it("los casos viven en un archivo por área y un id repetido entre archivos falla", () => {
+    const names = readdirSync(oracle.CASES_DIR).filter((n) => n.endsWith(".json"));
+    for (const area of ["master", "plan", "handoff", "spec", "render"])
+      expect(names, area).toContain(`${area}.json`);
+    for (const name of names) {
+      const area = name.slice(0, -".json".length);
+      const file = JSON.parse(readFileSync(join(oracle.CASES_DIR, name), "utf8")) as {
+        cases: OracleCase[];
+      };
+      for (const c of file.cases)
+        expect(c.args[0]?.startsWith("-") ? "cli" : c.args[0], c.id).toBe(area);
+    }
+    const dir = mkdtempSync(join(tmpdir(), "oracle-areas-"));
+    try {
+      const one = { id: "x:dup", fixture: "empty", args: ["status"] };
+      writeFileSync(join(dir, "a.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(oracle.readAreaCases(dir).map((c) => c.id)).toEqual(["x:dup"]);
+      writeFileSync(join(dir, "b.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(() => oracle.readAreaCases(dir)).toThrow(/x:dup in a\.json and b\.json/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
