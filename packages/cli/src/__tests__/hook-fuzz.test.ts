@@ -169,6 +169,50 @@ describe("deterministic live hook fuzzing", () => {
   });
 
   // Covers: R70
+  it("publish confirmation grammars cover each row, body form and draft source", () => {
+    const commands = (hook: string): string[] =>
+      fuzzer
+        .generatePayloads(1, 3000, hook)
+        .map((payload) => {
+          try {
+            return (JSON.parse(payload) as { tool_input?: { command?: unknown } } | null)
+              ?.tool_input?.command;
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((command): command is string => typeof command === "string");
+    const comments = commands("comment-draft-confirm.sh");
+    for (const needle of [
+      "gh pr comment",
+      "gh pr review 5 --approve",
+      "gh issue create",
+      "gh api graphql",
+      "-X PATCH",
+      "comment update --id 1 --body-adf",
+      "README.md",
+      "package.json",
+      "'a b.md'",
+      "x=$(",
+    ])
+      expect(
+        comments.some((c) => c.includes(needle)),
+        needle,
+      ).toBe(true);
+    expect(comments.some((c) => c.includes("@FILE@"))).toBe(false);
+    const prs = commands("pr-publisher-confirm.sh");
+    for (const needle of ["gh pr create --title t --body-file", "gh pr createx", "--fill"])
+      expect(
+        prs.some((c) => c.includes(needle)),
+        needle,
+      ).toBe(true);
+    const agents = fuzzer
+      .generatePayloads(1, 3000, "pr-publisher-confirm.sh")
+      .filter((p) => p.includes('"agent_id"') || p.includes('"subagent_id"'));
+    expect(agents.length).toBeGreaterThan(0);
+  });
+
+  // Covers: R70
   it("implementer-no-markdown grammar covers each tool, rule and analyzer form", () => {
     const parsed = fuzzer
       .generatePayloads(1, 3000, "implementer-no-markdown.sh")
