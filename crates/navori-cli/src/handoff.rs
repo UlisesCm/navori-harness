@@ -4,9 +4,10 @@
 //! decided before the first byte of output or the first write, so whatever Rust does not
 //! reproduce returns `None` and the invocation goes to the TS: an argv citty might read
 //! differently, a config `readConfig` rejects, a JSON `JSON.parse` or zod would reject (their
-//! messages are V8's and zod's), a file that is not UTF-8, the consumers that need the review
-//! evidence (`--for publisher`, `--produced-by`, `--parallel`), a state root the TS would throw on
-//! outside a caught path, and a possible audit event (`log-review` with an audit session).
+//! messages are V8's and zod's), a file that is not UTF-8, review evidence the core does not
+//! model (`navori_core::handoff::review_evidence`), a `--since` that is not ISO UTC, the
+//! scribe's `--parallel` authority, a state root the TS would throw on outside a caught path,
+//! and a possible audit event (`log-review` with an audit session).
 //! The parallel producers (`prepare-parallel`, `begin-parallel`, `complete-parallel`,
 //! `finalize-parallel`) and `attest` are not in the manifest: they always delegate.
 
@@ -18,6 +19,8 @@ use navori_core::config::Config;
 use navori_core::fs::{Fs, RealFs};
 use navori_core::handoff::implementation::{self, ImplHandoff};
 use navori_core::handoff::review::{self, FINDINGS_LOG_NAME};
+use navori_core::handoff::review_check::{ReviewCheck, check_review_handoff};
+use navori_core::handoff::review_evidence::{EvidenceOptions, review_evidence_warning};
 use navori_core::js_json::{self, JsValue};
 use navori_core::posix::js_trim;
 use navori_core::state_files::{self, Refusal, StateRoot};
@@ -263,7 +266,15 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         return Some(Output::usage(leaf, HANDOFF_PARENT, None).emit());
     }
     let strings: &[&str] = match row {
-        Row::Check => &["for", "target", "dir", "cwd"],
+        Row::Check => &[
+            "for",
+            "target",
+            "dir",
+            "cwd",
+            "produced-by",
+            "since",
+            "parallel",
+        ],
         _ => &["dir", "cwd"],
     };
     let options = parse_leaf(&rest[at + 1..], strings)?;
@@ -288,6 +299,8 @@ struct LeafOptions<'a> {
     feature: Option<&'a str>,
     strings: Vec<(&'static str, &'a str)>,
     json: bool,
+    /// `--parallel` (only `check` declares it).
+    parallel: bool,
 }
 
 impl<'a> LeafOptions<'a> {
@@ -311,6 +324,10 @@ fn parse_leaf<'a>(tokens: &[&'a str], names: &[&'static str]) -> Option<LeafOpti
             options.json = true;
             continue;
         }
+        if token == "--parallel" && names.contains(&"parallel") {
+            options.parallel = true;
+            continue;
+        }
         let Some(body) = token.strip_prefix("--") else {
             if token.starts_with('-') {
                 return None;
@@ -323,7 +340,9 @@ fn parse_leaf<'a>(tokens: &[&'a str], names: &[&'static str]) -> Option<LeafOpti
         let (name, inline) = body
             .split_once('=')
             .map_or((body, None), |(n, v)| (n, Some(v)));
-        let name = *names.iter().find(|known| **known == name)?;
+        let name = *names
+            .iter()
+            .find(|known| **known == name && **known != "parallel")?;
         if options.get(name).is_some() {
             return None;
         }
@@ -639,12 +658,48 @@ fn check_base(
     Some(result.settle())
 }
 
-/// `handoff check` for the orchestrator and the scribe.
+/// `resolveReceiptOptions(...)`'s `target` and `gate`: `--target ?? prTarget ?? branchBase` and
+/// `qualityGate.full ?? ""`; `None` for a config shape Rust does not model.
+fn receipt_target_gate(config: &Config, target: Option<&str>) -> Option<(String, String)> {
+    let data = Some(&config.data);
+    let target = match target {
+        Some(target) => target.to_owned(),
+        None => match (member(data, "prTarget"), member(data, "branchBase")) {
+            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
+            _ => return None,
+        },
+    };
+    let gate = match member(member(data, "qualityGate"), "full") {
+        None | Some(JsValue::Undefined | JsValue::Null) => String::new(),
+        Some(JsValue::String(t)) => t.to_rust()?,
+        Some(_) => return None,
+    };
+    Some((target, gate))
+}
+
+/// `checkReviewHandoff` (`--produced-by reviewer`).
+fn check_review(
+    root: &StateRoot,
+    feature: &str,
+    since: Option<&str>,
+    evidence: &EvidenceOptions<'_>,
+    env: &navori_core::process::Env,
+) -> Option<CheckResult> {
+    match check_review_handoff(root, feature, since, evidence, env).ok()? {
+        ReviewCheck::Error(detail) => Some(CheckResult::error("reviewer", detail)),
+        ReviewCheck::Failures(failures) => {
+            let mut result = CheckResult::new("reviewer");
+            result.failures = failures;
+            Some(result.settle())
+        }
+    }
+}
+
+/// `handoff check` for every consumer.
 fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
     let consumer = match options.get("for") {
         Some("scribe") => "scribe",
-        // The publisher consumes the review evidence (`reviewEvidenceWarning`).
-        Some("publisher") => return None,
+        Some("publisher") => "publisher",
         _ => "orchestrator",
     };
     let cwd = options.get("cwd").unwrap_or(process_cwd);
@@ -658,7 +713,38 @@ fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<
     print_warnings(&mut out, &config);
     print_warnings(&mut out, &config);
     let legacy = !scribe_owns_markdown(&config);
-    let result = check_base(&root, feature, consumer, legacy, process_cwd)?;
+    let (target, gate) = receipt_target_gate(&config, options.get("target"))?;
+    let evidence = EvidenceOptions {
+        target: &target,
+        gate: &gate,
+        current_content: None,
+        timeout: None,
+    };
+    let env = navori_core::plan::evidence::process_env();
+    let result = if options.get("produced-by") == Some("reviewer") {
+        check_review(&root, feature, options.get("since"), &evidence, &env)?
+    } else if options.parallel {
+        // `checkParallel` (the scribe's prior parallel authority) is not ported.
+        if consumer == "scribe" && !legacy {
+            return None;
+        }
+        let mut result = CheckResult::new(consumer);
+        result.failures.push((
+            "evidence",
+            "parallel check requires --for scribe, target and scribeOwnsMarkdown".to_owned(),
+        ));
+        result.settle()
+    } else {
+        let mut result = check_base(&root, feature, consumer, legacy, process_cwd)?;
+        if consumer == "publisher"
+            && let Some(detail) =
+                review_evidence_warning(&root, feature, Some(&evidence), &env).ok()?
+        {
+            result.failures.push(("evidence", detail));
+            result.status = "findings";
+        }
+        result
+    };
     if options.json {
         json_line(&mut out, &result.to_json(feature));
     } else {
@@ -941,6 +1027,7 @@ mod tests {
                 feature: Some("x"),
                 strings: vec![("for", "scribe"), ("cwd", "d")],
                 json: true,
+                parallel: false,
             })
         );
         for argv in [

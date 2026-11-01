@@ -9,6 +9,7 @@
 pub mod implementation;
 pub mod ownership;
 pub mod review;
+pub mod review_check;
 pub mod review_evidence;
 
 use crate::js_json::{JsObject, JsValue};

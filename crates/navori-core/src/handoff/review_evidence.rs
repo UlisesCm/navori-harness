@@ -57,6 +57,51 @@ fn iso_utc(text: &str) -> bool {
     }
 }
 
+/// `Date.parse(text)` for `YYYY-MM-DDTHH:MM:SS(.d+)?Z` with V8's reading (a day up to 31 in any
+/// month overflows into the next; the fraction keeps its first three digits); `None` for any
+/// other text, which the caller hands to the TS.
+#[must_use]
+pub fn iso_utc_ms(text: &str) -> Option<i64> {
+    if !iso_utc(text) {
+        return None;
+    }
+    let b = text.as_bytes();
+    let n = |r: std::ops::Range<usize>| text.get(r)?.parse::<i64>().ok();
+    let (year, month, day) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (hour, minute, second) = (n(11..13)?, n(14..16)?, n(17..19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    let fraction = &b[19..b.len() - 1];
+    let millis = match fraction.split_first() {
+        None => 0,
+        Some((_, digits)) => {
+            let mut ms = 0;
+            for i in 0..3 {
+                ms = ms * 10 + i64::from(digits.get(i).map_or(0, |d| d - b'0'));
+            }
+            ms
+        }
+    };
+    // `days_from_civil` (Howard Hinnant) for the first of the month, then the day as an offset.
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 9)
+    } else {
+        (year, month - 3)
+    };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468 + (day - 1);
+    Some(((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis)
+}
+
 /// `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/`.
 fn uuid(text: &str) -> bool {
     let parts: Vec<&str> = text.split('-').collect();
@@ -735,6 +780,26 @@ mod tests {
         assert!(!iso_utc("2026-11-01 00:00:00Z"));
         assert!(uuid("01234567-89ab-cdef-0123-456789abcdef"));
         assert!(!uuid("01234567-89ab-cdef-0123-456789abcdeF"));
+    }
+
+    #[test]
+    fn iso_utc_ms_reads_like_date_parse() {
+        // Values printed by Node's `Date.parse`.
+        assert_eq!(iso_utc_ms("2026-02-30T00:00:00Z"), Some(1_772_409_600_000));
+        assert_eq!(
+            iso_utc_ms("2026-02-31T00:00:00.000Z"),
+            Some(1_772_496_000_000)
+        );
+        assert_eq!(
+            iso_utc_ms("2026-11-01T00:00:00.1Z"),
+            Some(1_793_491_200_100)
+        );
+        assert_eq!(
+            iso_utc_ms("2026-11-01T00:00:00.1234Z"),
+            Some(1_793_491_200_123)
+        );
+        assert_eq!(iso_utc_ms("2026-13-01T00:00:00Z"), None);
+        assert_eq!(iso_utc_ms("2026-11-01"), None);
     }
 
     #[test]
