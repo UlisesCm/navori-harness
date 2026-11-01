@@ -6,6 +6,7 @@ pub mod delegate;
 pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
+pub mod governance_hook;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;

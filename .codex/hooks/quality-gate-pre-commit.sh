@@ -1,4 +1,4 @@
-# navori:native-hook v=1 file=sha256:72ae05760dce0bcfae5ff7aa1eaa8bbd77d1f3c5df2120d48dce63f55f9a5f4c impl=sha256:986476ab31d3d381efda2cfab2dc1c2c5406af9e7e933d7d4bd939dc1ab518d0
+# navori:native-hook v=1 file=sha256:b68ba6ea3060c2af1e42c05d87d791993c7bac1ada7197db882c1d1e5eff5389 impl=sha256:4ab38e63af7df5c217dd80b5fa56587614951d5d8eec499504f09ed64204c367
 # navori:managed start id="qg-pre-commit-base" hash="2f9da491" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
