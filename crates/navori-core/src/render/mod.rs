@@ -14,6 +14,7 @@ pub mod codex_config;
 pub mod codex_hooks;
 pub mod codex_profile;
 pub mod codex_rules;
+pub mod codex_skills;
 pub mod collect;
 pub mod command;
 pub mod context;
