@@ -26,6 +26,8 @@ pub struct Sidecar {
     pub feature: String,
     pub verdict: JsValue,
     pub findings: Vec<Finding>,
+    /// `evidence: z.unknown().optional()`: whatever the sidecar carries under `evidence`.
+    pub evidence: Option<JsValue>,
 }
 
 fn checked(value: &JsValue, valid: bool) -> Option<JsValue> {
@@ -71,6 +73,7 @@ pub fn parse_sidecar(raw: &JsValue) -> Option<Sidecar> {
         feature: non_empty(o.get("feature")?)?,
         verdict: verdict.clone(),
         findings,
+        evidence: o.get("evidence").cloned(),
     })
 }
 
