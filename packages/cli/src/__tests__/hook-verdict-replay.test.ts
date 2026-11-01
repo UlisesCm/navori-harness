@@ -476,6 +476,11 @@ process.exit(1);`,
     expect(
       rustAdapter.runRustHook({ binary: nativeFixture(dir, absent), script, input: "" }),
     ).toMatchObject({ available: false, toolDeferred: true });
+    const noBash =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: legacy Bash is absent\\n'); process.exit(1);";
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, noBash), script, input: "" }),
+    ).toMatchObject({ available: false, toolDeferred: true });
     const other =
       "process.stderr.write('navori-rust: hook deferred: hook is ineligible: unsupported locale\\n'); process.exit(1);";
     expect(
