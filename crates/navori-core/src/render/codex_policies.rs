@@ -96,7 +96,7 @@ fn bare_names(entries: &[String]) -> Vec<String> {
 }
 
 /// `coreAgentEntries`: the core agent's own `tools:` entries.
-fn core_agent_entries(id: &str) -> Option<Vec<String>> {
+pub(crate) fn core_agent_entries(id: &str) -> Option<Vec<String>> {
     let raw = std::str::from_utf8(assets::core(&format!("core-assets/agents/{id}.md"))?).ok()?;
     Some(
         get_frontmatter_field(split_frontmatter(raw).frontmatter, "tools")

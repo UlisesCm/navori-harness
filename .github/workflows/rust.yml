@@ -50,6 +50,7 @@ jobs:
       - run: bun run oracle:rust
       - run: node scripts/js/rust-oracle/plan-tables.mjs --check
       - run: node scripts/js/rust-oracle/tools-tables.mjs --check
+      - run: node scripts/js/gen-pi-extension-asset.mjs --check
 
   manifest:
     runs-on: ubuntu-latest
