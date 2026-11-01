@@ -1,7 +1,7 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Requirements
 
-**Estado:** aceptada para desarrollo · **Fecha:** 2026-10-31 · **Base:** `migration/rust`. E1 y E2
-abren su PR contra `migration/rust`; E3 (el corte) es el único PR contra `dev`.
+**Estado:** aceptada para desarrollo · **Fecha:** 2026-10-31 · **Base:** `migration/rust`. E1 (en
+dos lotes) y E2 abren su PR contra `migration/rust`; E3 (el corte) es el único PR contra `dev`.
 
 ## Contexto
 
@@ -21,9 +21,10 @@ de 0059 (Q19), además de E4–E6 de la versión anterior de 0060.
   **delegación permanente** al TS congelado, declarada en `scripts/js/rust-areas.mjs` (D48 de
   0060). Ningún hook puede quedar en `shadow` al corte (Q28).
 
-**Puerta de entrada.** E1 empieza cuando 0060 E1–E3 estén en `migration/rust`, o antes para los
-hooks ya en `shadow`, que se pueden activar por lotes. E2 empieza con E1 integrada. E3, con E2
-integrada y la aprobación explícita del usuario.
+**Puerta de entrada (en paralelo con 0059 y 0060).** E1 empieza ya: sus herramientas no dependen
+de ningún hook, y activa en dos lotes, primero los hooks con 7 días o más en `shadow` y después los
+que traen 0060 E1 (T13, T14), E2 y E3. E2 empieza ya, en paralelo con E1. E3 espera a que 0059 y
+0060 cierren, E1 y E2 estén integradas y el usuario apruebe.
 
 **Numeración.** Sigue la del programa. R79–R85, R18, R20–R22 y R24 se mudan desde 0060 sin cambio de
 número; R81, R82 y R20 cambian de texto por las decisiones de arriba. R60 y R61 de 0059 quedan

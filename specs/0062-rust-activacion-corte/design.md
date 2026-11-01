@@ -10,11 +10,11 @@ adelante), igual que los modos de falla (F44 en adelante). Aplica la política d
 
 ## Approach
 
-Tres entregas y tres PRs, en serie:
+Tres entregas y cuatro PRs. E1 y E2 corren en paralelo entre sí y con 0059 y 0060; E3 va al final:
 
 | Entrega | PR | Entregable |
 |---|---|---|
-| E1 | contra `migration/rust` | Los 22 hooks deciden en Rust (`active`), por lotes dentro del mismo PR |
+| E1 | dos, contra `migration/rust` | Los 22 hooks deciden en Rust (`active`), en dos lotes: primero los que llevan 7 días o más en `shadow`, después los de la cola larga |
 | E2 | contra `migration/rust` | El paquete instala y responde en macOS y Linux, sin publicar; `cutover:check` existe y está en verde |
 | E3 | contra `dev` | `navori` es el binario Rust en `dev`, con el TS congelado como respaldo y para las delegaciones permanentes |
 
@@ -35,9 +35,11 @@ permanentes, así que exigir el 100 % nativo solo retrasaba el corte sin bajar e
   lote, antes del PR; ver D47 de 0060) y sombra sin divergencias. Sin tráfico en un engine, la
   activación en ese engine necesita la aprobación por hook de R82.
 - **Advisory:** replay nativo a cero. La sombra se reporta, pero no bloquea.
-- **Lotes.** E1 activa en un solo PR todos los hooks que cumplen, cada uno con su línea `activate`.
-  Los que no cumplen todavía se quedan en `shadow` y pueden entrar en un segundo commit del mismo PR
-  o en E3, que exige que no quede ninguno (R20).
+- **Lotes.** E1 activa en dos PRs, cada hook con su línea `activate`: el lote 1 son los hooks con 7
+  días o más en `shadow` al abrir el PR (los siete de las fases 1–3 y los de 0060 E1 ya portados);
+  el lote 2, los de 0060 E1 (T13, T14), E2 y E3 cuando cumplan su ventana. Son dos PRs porque la
+  ventana es calendario: un solo PR dejaría esperando a los hooks que ya cumplen. E3 exige que no
+  quede ninguno en `shadow` (R20).
 - **Transiciones (R79, R80).** `scripts/js/rust-manifest-check.mjs` añade la regla de transiciones
   (antes T2 de 0058).
 
@@ -71,7 +73,7 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 
 - **Activación:** `hook-shadow-report.mjs` (R81, R82), `rust-manifest-check.mjs` con transiciones
   (R79, R80), replay nativo de los 22 hooks, el fuzz de 100 000 entradas de los hooks con compuerta
-  en una sola corrida y la matriz fail-closed por engine (R83).
+  (una corrida por lote) y la matriz fail-closed por engine (R83).
 - **Distribución y corte:** sondas de R84, `check:post-cutover` cronometrado (R18) y
   `cutover:check` (R20).
 

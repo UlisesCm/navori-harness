@@ -30,9 +30,10 @@ Alcance, según la tabla del programa y las decisiones del 2026-10-28:
 
 **Puerta de entrada.**
 - E1 está en curso (1a mergeada); lo que queda entra por los PRs abiertos y un PR final.
-- E2 puede empezar ya: sus archivos no chocan con lo que queda de E1.
-- E3 empieza cuando 0059 E2 esté en `migration/rust` (render multi-engine); lo que no dependa del
-  render puede empezar antes.
+- E2 y la parte de salud y mantenimiento de E3 pueden empezar ya, en paralelo, sobre la
+  infraestructura compartida del cierre de E1.
+- La parte de instalación de E3 (`init`, `add`, `configure`, `update`, `refresh`) espera a que 0059
+  E2 esté en `migration/rust` (render multi-engine).
 
 **Numeración.** Los `R<n>` siguen la numeración del programa: los nuevos empiezan en R70. Los
 requisitos del programa que esta spec redeclaraba para la activación, la distribución y el corte

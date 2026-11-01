@@ -6,22 +6,29 @@
 `specs/0062-rust-activacion-corte/` hace la activación, la distribución y el corte (antes E4–E6
 de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una referencia gruesa.
 
-**PRs**
+**PRs** (uno por entrega y por flujo; los flujos están en la política de velocidad)
 
-| PR | Entrega | Entregable | Se mergea cuando |
-|---|---|---|---|
-| 1a | E1 (M1, M2 y M3 parcial) | Mergeado (#1454) | — |
-| 1b | E1 (resto) | Lo que queda de E1 entra por los PRs ya abiertos o en vuelo (T11 parte 2, T13, T14) y un solo PR final con T8, T10, T16 y T17 | A3–A6 verdes y CI verde |
-| 2 | E2 | Auditoría, gate y telemetría en Rust: `audit`, `gate`, `receipt`, `bench`, `tools` nativos y sus 5 hooks en `shadow` | A7 verde y CI verde |
-| 3 | E3 | Instalación y salud del repo en Rust: `doctor`, `init`, `add`, `configure`, `update`, `workspace`, `codex` y el resto, con sus 2 hooks en `shadow` | A8–A9 verdes y CI verde |
+| PR | Flujo | Entrega | Contenido | Se mergea cuando |
+|---|---|---|---|---|
+| 1a | — | E1 | Mergeado (#1454) | — |
+| 1b | Hooks | E1 | T13 y T14 (las dos ramas en vuelo, en un solo PR) | El replay de A5 de esos cuatro hooks y la CI en verde |
+| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) entra antes por su cuenta | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
+| 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | El replay de A7 y A8 de esos hooks y la CI en verde |
+| 3 | Comandos | E2 | T19, T20 y T22 | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
+| 4 | Comandos | E3 | T23, T24 y T26–T29 | A8 y A9 verdes; entra después del PR 2 |
 
-**Precondiciones de entrada:**
-- **E2:** puede empezar ya; sus archivos no chocan con lo que queda de E1.
-- **E3:** 0059 E2 integrada (render multi-engine). Lo que no dependa del render puede empezar antes.
+**Precondiciones de entrada (trabajo en paralelo, D47):**
+- **E2 y M8 de E3:** empiezan ya. Sus comandos usan la infraestructura compartida de M6 (T17, T18),
+  que entra con el PR 1c; mientras 1c no esté en `migration/rust`, su rama sale de la de 1c. Los
+  hooks de E2 y E3 (PR 2) no la necesitan y pueden empezar en cuanto entre el PR 1b.
+- **M9 de E3:** espera a 0059 E2 (render multi-engine): `init`, `add`, `configure`, `update` y
+  `refresh` escriben por ese render. 0059 E2 está en la ruta crítica de esta spec.
+- **0062** corre en paralelo con esta spec (ver sus precondiciones); solo su corte (E3) espera a que
+  esta spec termine.
 
 **Política de velocidad (D47 de `design.md`):**
-- **Un PR por entrega**, con commits atómicos y una revisión cruzada por PR. Ninguna tarea abre su
-  propio PR.
+- **Un PR por entrega y por flujo**, con commits atómicos y una revisión cruzada por PR. Ninguna
+  tarea abre su propio PR, y dos flujos nunca comparten rama.
 - **Evidencia de un hook:** el replay nativo del corpus (`hook-verdict-replay --impl rust`). Se
   siembra corpus solo si falta una clase de veredicto. No se escribe un test Rust que repita el
   corpus. Fuzz al portar: 10 000 casos, solo para hooks con compuerta que analizan texto; el de
@@ -33,9 +40,20 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
   el replay del hook). El gate completo (`bun run check` y `cargo test --workspace`) corre en la CI
   del PR y no se exige en local.
 - **Herramientas primero:** `bun run rust:hooks-sync` y `bun run rust:verify` (T17) sustituyen los
-  pasos manuales de hashes, render y binario.
-- **Paralelismo:** una sesión porta hooks y otra comandos, cada una con la rama de su entrega, e
-  integran `origin/migration/rust` a diario.
+  pasos manuales de hashes, render y binario, y los casos del oráculo pasan a un archivo por área
+  para que dos sesiones no choquen en el mismo arreglo.
+- **Flujos de trabajo y dueños** (cada flujo es el único que toca su zona):
+
+  | Flujo | Tareas | Zona exclusiva |
+  |---|---|---|
+  | Hooks | T13, T14, T21, T25 de esta spec; E1 de 0062 | `crates/navori-hooks/**`, la sección `hooks` de `crates/ported.json`, los scripts renderizados, el corpus de hooks y `hook-fuzz.mjs` |
+  | Comandos | T8, T10, T11, T16, T17, T18, T19, T20, T22, T23, T24, T26, T27, T28, T29 | `crates/navori-cli/src/<comando>*.rs`, `navori-core` del área, la sección `commands` de `ported.json` y `scripts/js/rust-oracle/cases/<área>.json` |
+  | Render y distribución | 0059 E2; E2 de 0062 | `crates/navori-core/src/render/**`, los casos de render, Codex y Pi, los workflows de release y el empaquetado |
+
+  T17 lo escribe el flujo de comandos (son scripts y el archivo de casos por área) y lo usa el de
+  hooks; el reparto de `cases.json` va en un commit propio, antes de que los demás flujos agreguen
+  casos. Cada flujo integra `origin/migration/rust` a diario. Con dos sesiones, el tercer flujo lo
+  toma la que se desocupe primero; 0059 E2 conviene empezarlo pronto porque bloquea M9.
 
 Reglas de ejecución:
 - `tasks.md` es el tracking canónico. Cada prueba nueva lleva `// Covers: R<n>`.
@@ -110,10 +128,13 @@ deciden en Rust en `shadow`, `dominio` es nativo completo y el área E1 no tiene
   - Cerrado (2026-10-31): `dominio init`, `list`, `show`, `reindex` y `doctor` son nativos, con el grupo (uso, ayuda y subcomando desconocido de citty). El índice `DOMINIO.md` (`buildIndex`) y `validateDominio` viven en `navori_core::workspace::dominio_store`; las escrituras van por la capa `Fs`. La salida de `@clack/prompts` (intro, note, outro y cancel) se reproduce sin color, a 80 columnas y con sus símbolos Unicode. Delegan al TS: stdout en una TTY, `FORCE_COLOR`, `CI` sin `NO_COLOR` y `TERM=linux` (color y símbolos); una nota que clack podría partir a 74 columnas o con caracteres que Rust no mide como `fast-string-width`; un nombre de workspace que el registro rechaza y `init`/`reindex` sobre un workspace no registrado (el TS lanza sin capturar); y un registro o entrada que Rust no modela. Oráculo `--only dominio`: 67 casos (50 de los subcomandos, 42 nativos, y los de `inject`), 0 diferencias.
 - [ ] **T16** (R77, R78) — test de inventario del área E1 en verde, con E2 y E3 fuera del manifiesto · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"E1 completa sin E2 ni E3"
 
-### M6 — Herramientas de velocidad
-Entregable: un solo comando sincroniza los hooks portados y otro los verifica, sin pasos manuales.
-- **A6** [observable] — la sincronización y la verificación corren solas y no fallan por el plazo del sondeo · `bun run rust:hooks-sync -- --check && bun run rust:verify -- --hook general-purpose-confirm.sh --cases 2000 && cargo test -p navori-cli --test facts_cache --test hook_facts --locked` → exit 0
-- [ ] **T17** (R70, R77) — `scripts/js/rust-hooks-sync.mjs` (`bun run rust:hooks-sync`: recalcula `impl` y `blocks` de `crates/ported.json` sin reformatear, corre `render --apply` y recompila `navori-rust`; `--check` falla si algo quedó desfasado) y `scripts/js/rust-verify.mjs` (`bun run rust:verify`: replay nativo y fuzz con el binario recién compilado, reintentando una vez una llamada diferida por "probe deadline expired"); los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits` (D47) · effect: behavior · test: `packages/cli/src/__tests__/rust-hooks-sync.test.ts`::"un impl desfasado deja --check en rojo y la sincronización lo corrige"
+### M6 — Infraestructura compartida
+Entregable: un solo comando sincroniza los hooks portados y otro los verifica, los casos del
+oráculo viven en un archivo por área, y los comandos tienen un transporte grabado para procesos
+externos. E2 y E3 parten de aquí.
+- **A6** [observable] — la sincronización y la verificación corren solas, el oráculo lee sus casos por área y el transporte grabado responde · `bun run rust:hooks-sync -- --check && bun run rust:verify -- --hook general-purpose-confirm.sh --cases 2000 && bun run oracle:rust --only spec && cargo test -p navori-cli --test facts_cache --test hook_facts --locked && cargo test -p navori-core --test process_runner --locked` → exit 0
+- [ ] **T17** (R70, R77) — `scripts/js/rust-hooks-sync.mjs` (`bun run rust:hooks-sync`: recalcula `impl` y `blocks` de `crates/ported.json` sin reformatear, corre `render --apply` y recompila `navori-rust`; `--check` falla si algo quedó desfasado) y `scripts/js/rust-verify.mjs` (`bun run rust:verify`: replay nativo y fuzz con el binario recién compilado, reintentando una vez una llamada diferida por "probe deadline expired"); los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits`; `scripts/js/rust-oracle/cases.json` se parte en `scripts/js/rust-oracle/cases/<área>.json` y `loadCases` los lee todos (D47) · effect: behavior · test: `packages/cli/src/__tests__/rust-hooks-sync.test.ts`::"un impl desfasado deja --check en rojo y la sincronización lo corrige"
+- [ ] **T18** (R76) — `navori_core::process::ProcessRunner` (real y grabado) y stubs de oráculo para `git`, `gh`, `acli`, `codex`, `npm`, `tgrep`, `codegraph` y `pi` que responden por argv desde `scripts/js/rust-oracle/recordings/` con la versión de la herramienta que produjo cada grabación (D42; antes en E2, se adelanta porque la usan E2 y E3) · effect: behavior · test: `crates/navori-core/tests/process_runner.rs`::"la respuesta grabada se sirve por argv y registra la llamada"
 
 ## E2 — Auditoría, gate y telemetría de sesión
 Estimated LOC: 22000
@@ -123,9 +144,8 @@ Entregable: `audit`, `gate`, `receipt`, `bench` y el resto de `tools` son nativo
 `audit-mode-trigger`, `audit-mode-close`, `bash-outcome-watch`, `routing-watch` y
 `stop-verify-reminder` deciden en Rust en `shadow`.
 - **A7** [observable] — el área E2 está completa · `bun run oracle:rust --only audit,gate,receipt,bench,tools && node scripts/js/hook-verdict-replay.mjs --impl rust --only audit-mode-trigger.sh,audit-mode-close.sh,bash-outcome-watch.sh,routing-watch.sh,stop-verify-reminder.sh && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts -t E2` → exit 0; 0 diferencias
-- [ ] **T18** (R76) — `navori_core::process::ProcessRunner` (real y grabado) y stubs de oráculo para `git`, `gh`, `acli`, `codex`, `npm`, `tgrep`, `codegraph` y `pi` que responden por argv desde `scripts/js/rust-oracle/recordings/` con la versión de la herramienta que produjo cada grabación (D42) · effect: behavior · test: `crates/navori-core/tests/process_runner.rs`::"la respuesta grabada se sirve por argv y registra la llamada"
-- [ ] **T19** (R73, R74, R76) — `audit` nativo por las capas de D44: sesión (`--arm`, `--start`, `--close`, log por sesión y escritor de eventos), recolección y reporte con sus formatos, y el resto de subcomandos y flags; lo raro se delega (D48) · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"audit en todos sus subcomandos"
-- [ ] **T20** (R73, R74, R76) — `gate fast`, `gate full` y `gate foreign` por el `ProcessRunner`, `receipt` (todos sus subcomandos), `bench` y el resto de `tools` nativos · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"gate, receipt, bench y tools"
+- [ ] **T19** (R73, R74, R76) — `audit` nativo por las capas de D44: sesión (`--arm`, `--start`, `--close`, log por sesión y escritor de eventos), recolección y reporte con sus formatos, y el resto de subcomandos y flags; lo raro se delega (D48) · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"audit en todos sus subcomandos"
+- [ ] **T20** (R73, R74, R76) — `gate fast`, `gate full` y `gate foreign` por el `ProcessRunner`, `receipt` (todos sus subcomandos), `bench` y el resto de `tools` nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"gate, receipt, bench y tools"
 - [ ] **T21** (R70, R71, R72) — los cinco hooks de E2 en `shadow`: `audit` en proceso bajo la condición de versión de R53 de 0059, estado compartido de `bash-outcome` igual que el shell; corpus sembrado solo donde falte una clase · effect: behavior · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E2 cubren cada clase de veredicto y modo por engine"
 - [ ] **T22** (R77, R78) — inventario del área E2 en verde con E3 fuera del manifiesto, contando la lista de delegación permanente (D48) · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"E2 completa sin E3"
 
@@ -133,18 +153,21 @@ Entregable: `audit`, `gate`, `receipt`, `bench` y el resto de `tools` son nativo
 Estimated LOC: 25000
 
 ### M8 — Salud y mantenimiento
-Entregable: `doctor`, `status`, `scan`, `update`, `refresh`, `migrations` y `backup` son nativos,
-y `managed-drift-watch` y `worktree-reclaim` deciden en Rust en `shadow`.
-- **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,update,refresh,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
-- [ ] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"doctor, status y scan en cada fixture"
-- [ ] **T24** (R73, R74, R76) — `update` (con `npm` grabado), `refresh`, `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"update, refresh, migrations y backup"
+Entregable: `doctor`, `status`, `scan`, `migrations` y `backup` son nativos, y `managed-drift-watch`
+y `worktree-reclaim` deciden en Rust en `shadow`. Empieza ya: no escribe por el render
+multi-engine.
+- **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
+- [ ] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
+- [ ] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"
 - [ ] **T25** (R70, R71, R74) — `managed-drift-watch` y `worktree-reclaim` en `shadow`; las eliminaciones de `worktree-reclaim` pasan por la capa `Fs` en modo registro durante la sombra · effect: behavior · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E3 cubren cada clase de veredicto y modo por engine"
 
-### M9 — Instalación, workspaces y Codex
-Entregable: `init`, `add`, `configure`, `preset`, `workspace`, `registry`, `ticket` y `codex` son
-nativos con los mismos prompts que el TS, y ningún subcomando de `cli.ts` queda fuera del
-manifiesto ni de la lista de delegación permanente.
-- **A9** [observable] — el área E3 está completa · `bun run oracle:rust --only init,add,configure,preset,workspace,registry,ticket,codex && cargo test -p navori-oracle-tests --test prompts --locked && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts -t E3` → exit 0; 0 diferencias
+### M9 — Instalación, actualización, workspaces y Codex
+Entregable: `init`, `add`, `configure`, `preset`, `update`, `refresh`, `workspace`, `registry`,
+`ticket` y `codex` son nativos con los mismos prompts que el TS, y ningún subcomando de `cli.ts`
+queda fuera del manifiesto ni de la lista de delegación permanente. Espera a 0059 E2: estos
+comandos escriben por el render multi-engine.
+- **A9** [observable] — el área E3 está completa · `bun run oracle:rust --only init,add,configure,preset,update,refresh,workspace,registry,ticket,codex && cargo test -p navori-oracle-tests --test prompts --locked && cd packages/cli && bun run vitest run src/__tests__/rust-areas.test.ts -t E3` → exit 0; 0 diferencias
 - [ ] **T26** (R73, R74, R75) — `init`, `add`, `configure` y `preset` nativos, con escrituras por la capa `Fs` y guiones de prompts bajo pseudo-TTY con `expectrl` (D43) · effect: behavior · test: `crates/navori-oracle-tests/tests/prompts.rs`::"init, add, configure y preset preguntan lo mismo que el TS"
-- [ ] **T27** (R73, R74, R75, R76) — `workspace` (con su guion de prompts), `registry`, `ticket` y `codex` (perfil, aprobación, integración y evaluación, sin escribir `~/.codex/config.toml` más allá de lo que escribe el TS) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases.json`::"workspace, registry, ticket y codex"
-- [ ] **T28** (R77) — inventario del área E3 en verde; con E1–E3 integradas, todo subcomando y flag de `cli.ts` está en el manifiesto o en la lista de delegación permanente (D48) · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"E3 completa y ningún subcomando sin dueño"
+- [ ] **T27** (R73, R74, R76) — `update` (con `npm` grabado) y `refresh` nativos, por el render multi-engine de 0059 E2 · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"update y refresh"
+- [ ] **T28** (R73, R74, R75, R76) — `workspace` (con su guion de prompts), `registry`, `ticket` y `codex` (perfil, aprobación, integración y evaluación, sin escribir `~/.codex/config.toml` más allá de lo que escribe el TS) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"workspace, registry, ticket y codex"
+- [ ] **T29** (R77) — inventario del área E3 en verde; con E1–E3 integradas, todo subcomando y flag de `cli.ts` está en el manifiesto o en la lista de delegación permanente (D48) · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"E3 completa y ningún subcomando sin dueño"

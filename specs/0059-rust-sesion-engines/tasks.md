@@ -12,8 +12,11 @@ por el asset derivado de D29 (Q14).
 **Precondiciones de entrada** (verificables antes de abrir cada entrega):
 - **E1:** #1432 integrado en `migration/rust`: `crates/ported.json` tiene `guard-destructive` en
   `shadow` y existen `crates/navori-hooks/src/hooks/guard_destructive/{landing,ratchet}.rs`.
-- **E2:** 0058 E3 integrado: `ported.json` tiene `render`, `sync`, `remove` y `adopt` con
-  `when.engines = ["claude"]`, y existe el fixture `codex-trusted`.
+- **E2:** 0058 E3 integrado (ya lo está: `ported.json` tiene `render`, `sync` y `remove` con `when.engines =
+  ["claude"]`, `adopt` nativo y el fixture `codex-trusted`). Puede empezar ya y conviene
+  hacerlo pronto: es la ruta crítica de M9 de 0060 (`init`, `add`, `configure`, `update`, `refresh`).
+  Es del flujo de render y distribución de D47 de 0060 (zona: `crates/navori-core/src/render/**` y
+  los casos de render, Codex y Pi del oráculo).
 - **E3:** movida a 0062 (antes a la fase 4, 0060) por Q19 y Q26 de 0060; sin precondición en esta fase.
 
 Reglas de ejecución (desde el 2026-10-31 rige además la política de velocidad de D47 de 0060: un PR

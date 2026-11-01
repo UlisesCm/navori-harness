@@ -63,15 +63,17 @@ La asignación sale de lo que cada hook ejecuta. `audit-mode-trigger` y `audit-m
 La activación, la distribución y el corte (antes E4–E6) son `specs/0062-rust-activacion-corte/`
 desde el 2026-10-31 (Q26).
 
-**Por qué este orden.**
+**Orden y paralelismo (revisado el 2026-10-31, D47).**
 - Los hooks entran en `shadow` en la entrega de su área, así su ventana corre mientras se portan las
   otras áreas.
-- Las entregas van en serie: E1 M1 deja el inventario por área de D41 y E2 deja los stubs de
-  procesos externos de D42, que reutilizan las siguientes. Cada entrega sigue siendo integrable sin
-  las siguientes (R78).
-- E1 abre con los dos slices de referencia porque no dependen de 0059; sus milestones siguientes
-  (`master`, `handoff`, `plan`, gobierno de agentes) sí usan la base de hooks de 0059 E1.
-- E3 va al final porque además depende de la capa `Fs` y del render multi-engine (0058 E3, 0059 E2).
+- E1 abrió con los dos slices de referencia porque no dependían de 0059. Su PR final de comandos
+  (1c) trae la infraestructura que comparten E2 y E3: las herramientas de T17 y el
+  `ProcessRunner` de D42 (T18), que antes llegaba con E2 y obligaba a E3 a esperarla.
+- Con esa infraestructura, E2 y M8 de E3 avanzan en paralelo: ninguna depende en nativo de la otra
+  (R78) y cada una tiene su archivo de casos del oráculo.
+- Solo M9 de E3 espera a 0059 E2, porque `init`, `add`, `configure`, `update` y `refresh` escriben
+  por el render multi-engine. Por eso 0059 E2 es la ruta crítica de esta spec.
+- 0062 corre en paralelo con esta spec; solo su corte espera a que la cola larga termine.
 
 **Alternativa descartada: capas horizontales** (hooks, comandos de lectura, comandos de escritura).
 Deja cada área a medias hasta la última entrega: un hook de auditoría en Rust seguiría llamando al
@@ -92,27 +94,27 @@ infraestructura de prueba por área, que se paga con el test de inventario compa
 - `managed-drift-watch` va en E3 aunque observe escrituras de cualquier herramienta, porque su
   veredicto depende de `doctor` (deriva de bloques gestionados) y de `render`/`sync`.
 
-### D41 — Una sola fuente de inventario (R77, R20)
+### D41 — Una sola fuente de inventario (R77; R20 de 0062)
 
 - `scripts/js/rust-areas.mjs` exporta `inventory()` y `areaOf()`:
   - `inventory()` recorre el árbol de subcomandos y flags de `cli.ts` desde `dist/` (los `meta` y
     `args` de citty) y la lista de hooks de `core-assets/hooks` y de los plugins;
   - `areaOf()` aplica la tabla de D40 y falla con un subcomando o hook sin área.
-- El test de inventario por área (R77) y `cutover:check` (R20) usan esas dos funciones; no hay una
+- El test de inventario por área (R77) y `cutover:check` (R20 de 0062) usan esas dos funciones; no hay una
   segunda lista. El test de un área falla si falta en `crates/ported.json` un subcomando, una flag o
   un hook de esa área; `cutover:check` exige todas las áreas.
 
-### D42 — Transporte inyectable para red y procesos externos (R76, R85)
+### D42 — Transporte inyectable para red y procesos externos (R76; R85 de 0062)
 
 - **Procesos externos.** Rust los lanza por un `ProcessRunner` (trait de `navori-core`) con la
-  implementación real y una grabada; llega con el primer comando que ejecuta procesos (`gate`, en
-  E2). En el oráculo no hace falta la grabada: los dos lados corren
+  implementación real y una grabada; llega con la infraestructura compartida de E1 (T18), antes del primer comando que
+  ejecuta procesos (`gate` en E2, `doctor` en E3). En el oráculo no hace falta la grabada: los dos lados corren
   con stubs en `PATH` (`git`, `gh`, `acli`, `codex`, `npm`, `tgrep`, `codegraph`, `pi`) que responden
   según su argv desde `scripts/js/rust-oracle/recordings/` y registran la llamada. Así TS y Rust ven
   exactamente las mismas respuestas.
 - **HTTP.** El TS fija sus URLs (`update-notice.ts`, `tool-version-notice.ts`), así que el oráculo no
   puede redirigirlo. Durante la convivencia los avisos de red siguen omitidos en Rust (Q6 de 0058) y
-  el oráculo los apaga en los dos lados. R85 se prueba con tests Rust propios sobre un `HttpClient`
+  el oráculo los apaga en los dos lados. R85 (0062) se prueba con tests Rust propios sobre un `HttpClient`
   grabado (respuesta nueva, igual, error, tiempo agotado), comparando el texto contra las constantes
   de `lib/i18n.ts`. El aviso se enciende en el PR de corte.
 - Ninguna prueba ni job de CI toca la red real (R76).
@@ -147,8 +149,10 @@ La activación (D45) y la distribución y el corte (D46) pasaron a
 El tiempo de esta fase se iba más en verificar y en coordinar PRs que en escribir código (issue
 #1467). Desde el 2026-10-31 rige, para 0059, 0060 y 0062:
 
-- **Un PR por entrega.** Commits atómicos dentro del PR y una revisión cruzada por PR. Los PRs ya
-  abiertos al 2026-10-31 se terminan como están.
+- **Un PR por entrega y por flujo.** Commits atómicos dentro del PR y una revisión cruzada por PR;
+  dos flujos nunca comparten rama. Los PRs ya abiertos al 2026-10-31 se terminan como están. Cuando
+  un test de inventario (R77) necesita el trabajo de otro flujo, el PR que lo necesita entra después
+  (los hooks de un área antes que el PR de comandos que corre su inventario).
 - **Una evidencia principal por comportamiento.**
   - Hooks: el replay nativo del corpus. Se siembra corpus solo si falta una clase (R71). No se
     escribe un test Rust que repita el corpus; los tests Rust cubren lo que el corpus no alcanza
@@ -167,8 +171,19 @@ El tiempo de esta fase se iba más en verificar y en coordinar PRs que en escrib
     diferida por "probe deadline expired".
   - Los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits` (500 ms). El
     plazo de producción no cambia.
-- **Paralelismo fijo.** Una sesión porta hooks y otra comandos, con ramas por entrega, e integran
-  `origin/migration/rust` a diario.
+- **Flujos con zona exclusiva.** El trabajo se reparte en tres flujos y cada uno es el único que
+  toca su zona, para que el paralelismo no se pague en conflictos:
+  - *Hooks:* `crates/navori-hooks/**`, la sección `hooks` de `crates/ported.json`, los scripts
+    renderizados, el corpus de hooks y `hook-fuzz.mjs`; también la activación de 0062. Un cambio
+    en `navori-hooks/src/shell/` renueva el hash de todos los hooks, así que solo este flujo lo hace.
+  - *Comandos:* el código de cada comando en `navori-cli` y `navori-core`, la sección `commands`
+    de `ported.json`, su archivo `scripts/js/rust-oracle/cases/<área>.json` y las herramientas de
+    T17, que el flujo de hooks usa.
+  - *Render y distribución:* `render/**` (0059 E2) y el release y el empaquetado (E2 de 0062).
+- **Casos del oráculo por área.** `scripts/js/rust-oracle/cases.json` se parte en un archivo por
+  área (T17): dos flujos que agregan casos ya no editan el mismo arreglo, que fue la causa de los
+  conflictos de #1464 y #1466.
+- **Integración diaria.** Cada flujo integra `origin/migration/rust` a diario y resuelve en su rama.
 
 ### D48 — Delegación permanente de caminos raros (R73, R77; Q28)
 
