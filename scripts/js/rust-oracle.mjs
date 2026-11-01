@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
  * Spec 0057 R8-R10 / D5 - differential oracle: `navori` (TS `dist/`) vs `navori-rust`.
  *
  *   node scripts/js/rust-oracle.mjs                        every case; exit 1 on any difference
- *   node scripts/js/rust-oracle.mjs --only <substring>     only the cases whose id contains it
+ *   node scripts/js/rust-oracle.mjs --only <a>[,<b>...]    only the cases whose id contains one
  *   node scripts/js/rust-oracle.mjs --report <file>        also write the JSON report
  *   node scripts/js/rust-oracle.mjs --rust-bin <path>      use that binary and skip `cargo build`
  *   node scripts/js/rust-oracle.mjs --self-check           TS against itself: proves the harness is deterministic
@@ -957,8 +957,8 @@ export function main(argv) {
     }
     rust = { cmd: resolve(bin), args: [], version: rustVersion() };
   }
-  const only = flagValue(argv, "--only");
-  const cases = loadCases().filter((c) => !only || c.id.includes(only));
+  const only = flagValue(argv, "--only")?.split(",").filter(Boolean);
+  const cases = loadCases().filter((c) => !only || only.some((part) => c.id.includes(part)));
   if (cases.length === 0) {
     process.stderr.write("rust-oracle: no case matches\n");
     return 2;

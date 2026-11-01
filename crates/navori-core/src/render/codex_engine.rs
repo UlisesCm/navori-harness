@@ -76,6 +76,9 @@ pub struct CodexEnginePlan {
     pub collisions: Vec<(String, Vec<String>)>,
     /// Warnings up to `commit` (which appends the collision notes).
     pub warnings: Vec<String>,
+    /// Index in `warnings` of the first collision note, which the commit rewrites with the
+    /// backup path.
+    pub collision_warnings_at: usize,
 }
 
 /// What the Codex engine reads besides the repo.

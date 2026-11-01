@@ -444,3 +444,92 @@ proptest! {
         prop_assert_eq!(ts.as_str().map(str::to_owned), rust);
     }
 }
+
+/// Every section of an engine's snap, as `(header, body)`: the header is the path with its
+/// ` [exec]` mark, the body the normalized bytes (each section ends with one separator line).
+fn golden_sections(engine: &str) -> Result<Vec<(String, String)>, String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../packages/cli/src/engines/__tests__/__golden__/{engine}.snap"
+    ));
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut sections: Vec<(String, Vec<&str>)> = Vec::new();
+    for line in text.split('\n') {
+        if let Some(header) = line
+            .strip_prefix("===== FILE: ")
+            .and_then(|rest| rest.strip_suffix(" ====="))
+        {
+            sections.push((header.to_owned(), Vec::new()));
+        } else if line.starts_with("===== END: ") {
+            break;
+        } else if let Some((_, lines)) = sections.last_mut() {
+            lines.push(line);
+        }
+    }
+    Ok(sections
+        .into_iter()
+        .map(|(header, mut lines)| {
+            lines.pop();
+            (header, lines.join("\n"))
+        })
+        .collect())
+}
+
+// Covers: R62, R64, R66
+#[test]
+fn codex_tree_matches_the_codex_snap_of_golden_render_tree() -> Result<(), String> {
+    use navori_core::render::codex_engine::{
+        CodexEngineInput, codex_observed, plan_codex_engine, seal_observed,
+    };
+    let root = BASE.join("golden-codex");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::create_dir_all(&root);
+    // `goldenConfig(["claude", "codex"])`, rendered by `renderCodexEngine` alone.
+    let text = golden_config("claude\", \"codex");
+    let read = config::read(text.as_bytes()).map_err(|_| "config rejected".to_owned())?;
+    // The golden test runs outside the migration opt-in: `loadNativeHooks()` is empty there.
+    let manifest = std::collections::BTreeMap::new();
+    let input = CodexEngineInput {
+        config: &read.data,
+        repo_root: &root,
+        ambient_floor: None,
+        native_manifest: &manifest,
+        catalog: None,
+    };
+    let view = DiskView(&root);
+    let observed = codex_observed(&view, &input).map_err(|_| "codex delegated".to_owned())?;
+    let seal = seal_observed(&view, &observed).map_err(|_| "seal delegated".to_owned())?;
+    let plan = plan_codex_engine(&view, &input, &seal).map_err(|_| "codex delegated".to_owned())?;
+    let mut rust: Vec<(String, String)> = plan
+        .pending
+        .iter()
+        .map(|w| {
+            let exec = if w.chmod_exec { " [exec]" } else { "" };
+            (format!("{}{exec}", w.rel_path), normalize(&w.content))
+        })
+        .collect();
+    rust.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let golden = golden_sections("codex")?;
+    let names = |list: &[(String, String)]| list.iter().map(|(h, _)| h.clone()).collect::<Vec<_>>();
+    if names(&rust) != names(&golden) {
+        return Err(format!(
+            "file lists differ:\n  golden {:?}\n  rust   {:?}",
+            names(&golden),
+            names(&rust)
+        ));
+    }
+    for ((file, expected), (_, actual)) in golden.iter().zip(&rust) {
+        if expected != actual {
+            let at = expected
+                .split('\n')
+                .zip(actual.split('\n'))
+                .position(|(a, b)| a != b)
+                .unwrap_or(0);
+            return Err(format!(
+                "{file}: first differing line {at}:\n  golden {:?}\n  rust   {:?}",
+                expected.split('\n').nth(at),
+                actual.split('\n').nth(at)
+            ));
+        }
+    }
+    Ok(())
+}
