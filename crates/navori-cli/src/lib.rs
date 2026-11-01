@@ -1,6 +1,7 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
 pub mod adopt;
+pub mod backup;
 pub(crate) mod clack;
 pub mod commands;
 pub mod delegate;
@@ -226,6 +227,22 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["handoff"],
         run: handoff::run_group,
+    },
+    NativeCommand {
+        path: &["backup", "list"],
+        run: backup::run_list,
+    },
+    NativeCommand {
+        path: &["backup", "restore"],
+        run: backup::run_restore,
+    },
+    NativeCommand {
+        path: &["backup", "prune"],
+        run: backup::run_prune,
+    },
+    NativeCommand {
+        path: &["backup"],
+        run: backup::run_group,
     },
     NativeCommand {
         path: &["adopt"],
