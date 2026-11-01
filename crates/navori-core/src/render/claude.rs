@@ -219,6 +219,8 @@ pub fn plan_claude_engine(
             enabled: &enabled,
             disabled: &disabled,
             extra: &options.extra_observed,
+            classified: &options.extra_classified,
+            excluded: &options.extra_excluded,
         },
     ))?;
 

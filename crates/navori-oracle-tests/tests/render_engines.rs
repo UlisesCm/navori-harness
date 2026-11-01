@@ -533,3 +533,71 @@ fn codex_tree_matches_the_codex_snap_of_golden_render_tree() -> Result<(), Strin
     }
     Ok(())
 }
+
+// Covers: R62, R67, R68
+#[test]
+fn pi_tree_matches_the_pi_snap_of_golden_render_tree() -> Result<(), String> {
+    use navori_core::render::pi_engine::{PiEngineInput, pi_observed, pi_seal, plan_pi_engine};
+
+    let root = BASE.join("golden-pi");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::create_dir_all(&root);
+    let text = golden_config("pi");
+    let read = config::read(text.as_bytes()).map_err(|_| "config rejected".to_owned())?;
+    // The golden test runs outside the migration opt-in: `loadNativeHooks()` is empty there.
+    let manifest = std::collections::BTreeMap::new();
+    let input = PiEngineInput {
+        config: &read.data,
+        repo_root: &root,
+        ambient_floor: None,
+        native_manifest: &manifest,
+    };
+    let view = DiskView(&root);
+    let (observed, excluded) = pi_observed(&view, &input).map_err(|_| "pi delegated".to_owned())?;
+    let seal = pi_seal(&observed, &excluded).map_err(|_| "seal delegated".to_owned())?;
+    let plan = plan_pi_engine(&view, &input, &seal).map_err(|_| "pi delegated".to_owned())?;
+    let mut rust: Vec<(String, String)> = plan
+        .pending
+        .iter()
+        .chain(plan.context.iter().flat_map(|c| c.write.iter()))
+        .map(|w| {
+            let exec = if w.chmod_exec { " [exec]" } else { "" };
+            (format!("{}{exec}", w.rel_path), normalize(&w.content))
+        })
+        .collect();
+    rust.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let mut golden = golden_sections("pi")?;
+    // The extension comes from `dist` (D29): its serialized functions are the bundler's, not the
+    // sources' the golden test renders, so the oracle's Pi cases compare it against `dist`; here it
+    // only has to be a valid owned file at the same path.
+    let ext = ".pi/extensions/navori.ts";
+    let extension = plan.pending.iter().find(|w| w.rel_path == ext);
+    if !extension.is_some_and(|w| navori_core::render::pi_owned::owns_pi_source(&w.content)) {
+        return Err("the Pi extension is missing or not a valid owned file".to_owned());
+    }
+    rust.retain(|(h, _)| h != ext);
+    golden.retain(|(h, _)| h != ext);
+    let names = |list: &[(String, String)]| list.iter().map(|(h, _)| h.clone()).collect::<Vec<_>>();
+    if names(&rust) != names(&golden) {
+        return Err(format!(
+            "file lists differ:\n  golden {:?}\n  rust   {:?}",
+            names(&golden),
+            names(&rust)
+        ));
+    }
+    for ((file, expected), (_, actual)) in golden.iter().zip(&rust) {
+        if expected != actual {
+            let at = expected
+                .split('\n')
+                .zip(actual.split('\n'))
+                .position(|(a, b)| a != b)
+                .unwrap_or(0);
+            return Err(format!(
+                "{file}: first differing line {at}:\n  golden {:?}\n  rust   {:?}",
+                expected.split('\n').nth(at),
+                actual.split('\n').nth(at)
+            ));
+        }
+    }
+    Ok(())
+}

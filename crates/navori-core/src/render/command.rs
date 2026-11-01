@@ -30,7 +30,6 @@ use crate::render::claude::{ClaudeEnginePlan, plan_claude_engine};
 use crate::render::codex_catalog::default_codex_catalog_path;
 use crate::render::codex_engine::{
     CodexEngineInput, CodexEnginePlan, MIN_CODEX_VERSION, codex_observed, plan_codex_engine,
-    seal_observed,
 };
 use crate::render::codex_hooks::resolve_codex_hooks;
 use crate::render::codex_trust::{default_codex_home_config_path, read_codex_trust_state};
@@ -42,12 +41,14 @@ use crate::render::ignore_files::{
 };
 use crate::render::native_hooks::embedded_native_hooks;
 use crate::render::nested_gitignore::{NESTED_GITIGNORE_DIRS, plan_nested_gitignore};
+use crate::render::pi_engine::{PiEngineInput, PiEnginePlan, pi_observed, pi_seal, plan_pi_engine};
 use crate::render::plugins::load_enabled_plugins;
 use crate::render::prose::{ProseOptions, ProsePlan, plan_prose_file, prose_spec};
 use crate::render::report::{
     Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
     status_symbol, unchanged_engine_files, written,
 };
+use crate::render::retirements::PendingRemoval;
 
 /// What Rust prints where the TS names the `core-assets` root it read.
 pub const EMBEDDED_CORE: &str = "(embedded)";
@@ -154,49 +155,76 @@ pub struct ExtraEngine {
     pub plan: ProsePlan,
     /// The Codex engine's plan, with its final warnings.
     pub codex: Option<CodexEnginePlan>,
+    /// The Pi engine's plan, with the `AGENTS.md` it writes when it is the only owner.
+    pub pi: Option<PiEnginePlan>,
     /// The snapshot its write took, when it overwrote an existing file.
     pub backup_path: Option<String>,
 }
 
+fn writes_and_removals<'a>(
+    pending: &'a [PendingWrite],
+    removals: &'a [PendingRemoval],
+) -> impl Iterator<Item = (&'a str, &'static str)> {
+    pending
+        .iter()
+        .map(|w| (w.rel_path.as_str(), w.status.as_str()))
+        .chain(
+            removals
+                .iter()
+                .map(|r| (r.rel_path.as_str(), "removed-condition-false")),
+        )
+}
+
 impl ExtraEngine {
-    /// `written`: `(path, status)`; Codex lists its writes, then its removals.
+    /// `written`: `(path, status)`; Codex and Pi list their writes, then their removals (and Pi
+    /// then its `AGENTS.md`).
     #[must_use]
     pub fn written(&self) -> Vec<(&str, &'static str)> {
-        match &self.codex {
-            Some(codex) => codex
-                .pending
-                .iter()
-                .map(|w| (w.rel_path.as_str(), w.status.as_str()))
-                .chain(
-                    codex
-                        .removals
-                        .iter()
-                        .map(|r| (r.rel_path.as_str(), "removed-condition-false")),
-                )
-                .collect(),
-            None => self
-                .plan
-                .write
-                .iter()
-                .map(|w| (w.rel_path.as_str(), w.status.as_str()))
-                .collect(),
+        if let Some(codex) = &self.codex {
+            return writes_and_removals(&codex.pending, &codex.removals).collect();
         }
+        if let Some(pi) = &self.pi {
+            return writes_and_removals(&pi.pending, &pi.removals)
+                .chain(
+                    pi.context
+                        .iter()
+                        .flat_map(|c| c.write.iter())
+                        .map(|w| (w.rel_path.as_str(), w.status.as_str())),
+                )
+                .collect();
+        }
+        self.plan
+            .write
+            .iter()
+            .map(|w| (w.rel_path.as_str(), w.status.as_str()))
+            .collect()
     }
 
     /// `skipped`.
     #[must_use]
-    pub fn skipped(&self) -> &[SkippedFile] {
-        self.codex
-            .as_ref()
-            .map_or(&self.plan.skipped, |codex| &codex.skipped)
+    pub fn skipped(&self) -> Vec<&SkippedFile> {
+        if let Some(codex) = &self.codex {
+            return codex.skipped.iter().collect();
+        }
+        if let Some(pi) = &self.pi {
+            return pi
+                .skipped
+                .iter()
+                .chain(pi.context.iter().flat_map(|c| c.skipped.iter()))
+                .collect();
+        }
+        self.plan.skipped.iter().collect()
     }
 
     /// `warnings`.
     #[must_use]
     pub fn warnings(&self) -> &[String] {
-        self.codex
+        if let Some(codex) = &self.codex {
+            return &codex.warnings;
+        }
+        self.pi
             .as_ref()
-            .map_or(&self.plan.warnings, |codex| &codex.warnings)
+            .map_or(&self.plan.warnings, |pi| &pi.warnings)
     }
 }
 
@@ -470,6 +498,47 @@ fn commit_codex(
     Ok((backup_path, committed.real_writes))
 }
 
+/// `preparePiEngine(...).commit()`: one `commitWrites` (removals in the same failure scope),
+/// then `AGENTS.md` through the prose renderer when Pi is its only writer.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+fn commit_pi(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    pi: &mut PiEnginePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let input = CommitInput {
+        cwd: repo_root,
+        backup_exclude: &[],
+        dry_run: false,
+        write_last: None,
+        engine_label: Some("Pi Coding Agent"),
+        removals_best_effort: false,
+        lang,
+        now: apply.now,
+    };
+    let committed = commit_writes(
+        apply.fs,
+        apply.backups,
+        &mut pi.pending,
+        &pi.removals,
+        &input,
+    )
+    .map_err(RenderError::Commit)?;
+    let mut backup_path = committed.backup_path.map(|p| p.display().to_string());
+    let mut real_writes = committed.real_writes;
+    if let Some(context) = &pi.context {
+        let (backup, writes) = commit_prose(apply, repo_root, context, lang)?;
+        real_writes += writes;
+        if backup_path.is_none() {
+            backup_path = backup.map(|p| p.to_string());
+        }
+    }
+    Ok((backup_path, real_writes))
+}
+
 /// `appendCodexTrustHint`'s test: the project or a registered hook still lacks Codex's trust.
 ///
 /// # Errors
@@ -616,8 +685,12 @@ pub fn run_render(
     let engines = engines(&config.data);
     let has_claude = engines.iter().any(|e| e == "claude");
     let has_codex = engines.iter().any(|e| e == "codex");
-    for engine in engines.iter().filter(|e| *e != "claude" && *e != "codex") {
-        // Pi (M6) and an engine without an adapter stay the TS's.
+    let has_pi = engines.iter().any(|e| e == "pi");
+    for engine in engines
+        .iter()
+        .filter(|e| !matches!(e.as_str(), "claude" | "codex" | "pi"))
+    {
+        // An engine without an adapter stays the TS's.
         prose_spec(engine).ok_or(RenderError::Delegate)?;
     }
     // `reportMissingLocalSkills` lands on the first extra engine without Claude: not modelled.
@@ -645,12 +718,42 @@ pub fn run_render(
     if !has_codex && engines.iter().any(|e| e == "agents-md") {
         extra_observed.push(("AGENTS.md".to_owned(), "navori-agents".to_owned()));
     }
+    let pi_input = PiEngineInput {
+        config: &config.data,
+        repo_root,
+        ambient_floor: floor.as_deref(),
+        native_manifest: &native_manifest,
+    };
+    // Pi classifies its resources with its own validators, and a vetoed generation excludes its
+    // new files from the shared seal.
+    let (pi_classified, pi_excluded) = if has_pi {
+        pi_observed(view, &pi_input).map_err(|_| RenderError::Delegate)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
     let plan_options = PlanOptions {
         ambient_floor: floor.clone(),
         native_hooks: options.native_hooks.clone(),
         force,
         extra_observed: extra_observed.clone(),
+        extra_classified: pi_classified.clone(),
+        extra_excluded: pi_excluded.clone(),
         ..PlanOptions::default()
+    };
+    // The target's seal without Claude: every other engine's observations.
+    let shared_seal = || -> Result<String, RenderError> {
+        let mut classified = pi_classified.clone();
+        for (rel, id) in &extra_observed {
+            let foreign = view.lexists(rel)
+                && crate::render::removable::navori_authorship(
+                    view,
+                    rel,
+                    (!id.is_empty()).then_some(id.as_str()),
+                    true,
+                ) == crate::render::removable::Authorship::Foreign;
+            classified.push((rel.clone(), foreign));
+        }
+        pi_seal(&classified, &pi_excluded).map_err(|_| RenderError::Delegate)
     };
     let mut claude = if has_claude {
         Some(
@@ -670,13 +773,22 @@ pub fn run_render(
             engine: engine.clone(),
             plan: ProsePlan::default(),
             codex: None,
+            pi: None,
             backup_path: None,
         };
-        if engine == "codex" {
-            let owned_paths = match &claude {
-                Some(claude) => claude.owned_paths.clone(),
-                None => seal_observed(view, &extra_observed).map_err(|_| RenderError::Delegate)?,
-            };
+        let owned_paths = || -> Result<String, RenderError> {
+            match &claude {
+                Some(claude) => Ok(claude.owned_paths.clone()),
+                None => shared_seal(),
+            }
+        };
+        if engine == "pi" {
+            entry.pi = Some(
+                plan_pi_engine(view, &pi_input, &owned_paths()?)
+                    .map_err(|_| RenderError::Delegate)?,
+            );
+        } else if engine == "codex" {
+            let owned_paths = owned_paths()?;
             let mut codex = plan_codex_engine(view, &codex_input, &owned_paths)
                 .map_err(|_| RenderError::Delegate)?;
             codex.collision_warnings_at = codex.warnings.len();
@@ -702,9 +814,10 @@ pub fn run_render(
             None => (None, 0),
         };
         for engine in &mut extra_engines {
-            let (backup, writes) = match engine.codex.as_mut() {
-                Some(codex) => commit_codex(apply, repo_root, codex, lang)?,
-                None => commit_prose(apply, repo_root, &engine.plan, lang)?,
+            let (backup, writes) = match (engine.codex.as_mut(), engine.pi.as_mut()) {
+                (Some(codex), _) => commit_codex(apply, repo_root, codex, lang)?,
+                (_, Some(pi)) => commit_pi(apply, repo_root, pi, lang)?,
+                _ => commit_prose(apply, repo_root, &engine.plan, lang)?,
             };
             engine.backup_path = backup;
             real_writes += writes;
@@ -1036,10 +1149,10 @@ fn ignore_json(file: Option<&IgnoreResult>, prettier: bool) -> JsValue {
 }
 
 /// `skipped.map((s) => ({ path, reason }))`.
-fn skipped_json(skipped: &[SkippedFile]) -> JsValue {
+fn skipped_json<'a>(skipped: impl IntoIterator<Item = &'a SkippedFile>) -> JsValue {
     JsValue::Array(
         skipped
-            .iter()
+            .into_iter()
             .map(|s| {
                 object(vec![
                     ("path", JsValue::string(&s.rel_path)),

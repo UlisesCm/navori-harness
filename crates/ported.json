@@ -6,7 +6,7 @@
     {
       "path": ["render"],
       "flags": ["cwd", "dry-run", "json", "apply", "force"],
-      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
     {

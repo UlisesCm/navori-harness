@@ -244,6 +244,8 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
             enabled: &plugins.loaded,
             disabled: &disabled.loaded,
             extra: &[],
+            classified: &[],
+            excluded: &[],
         },
     )
     .ok()?;

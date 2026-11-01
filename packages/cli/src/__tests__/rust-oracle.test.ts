@@ -355,11 +355,19 @@ describe("rust oracle", () => {
           engines?: string[];
           language?: string;
           monorepo?: { enabled?: boolean; workspaces?: unknown[] };
+          project?: { localSkills?: unknown[] };
         };
         const workspaces =
           config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+        // Local-skill pointers on the shared `.agents/skills` root (Codex, Pi) stay the TS's
+        // (spec 0059 T19, T20), like workspaces.
+        const localSkillPointers =
+          (config.project?.localSkills ?? []).length > 0 &&
+          (config.engines ?? []).some((e) => e === "codex" || e === "pi");
         const applicable =
-          !workspaces && (config.engines ?? ["claude"]).every((e) => engines.includes(e));
+          !workspaces &&
+          !localSkillPointers &&
+          (config.engines ?? ["claude"]).every((e) => engines.includes(e));
         if (!applicable) continue;
         // Cases inside the native subset: the command, then positionals and its declared flags.
         const declared = (args: string[]): boolean =>
@@ -604,9 +612,9 @@ describe("rust oracle", () => {
     expect(cases.some((c) => c.fixture === "multi-engine" && (c.setup ?? []).length > 0)).toBe(
       true,
     );
-    // with Pi and a foreign Pi resource the TS decides, before anything is written
+    // with Pi and a foreign Pi resource, Rust vetoes the Pi generation natively (spec 0059 T20)
     const foreign = cases.find((c) => c.id === "multi-engine:pi-foreign-writes-nothing");
-    expect(foreign?.native).toBeUndefined();
+    expect(foreign?.native).toBe(true);
     expect(configOf(foreign!).engines).toContain("pi");
     expect(Object.keys(foreign?.files ?? {})).toContain(".pi/extensions/navori.ts");
   });

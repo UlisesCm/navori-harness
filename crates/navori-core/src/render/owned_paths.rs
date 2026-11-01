@@ -161,6 +161,10 @@ pub struct ClaudeOwnedInput<'a> {
     pub disabled: &'a [LoadedPlugin],
     /// `(relPath, managedId)` the other engines of the target observe.
     pub extra: &'a [(String, String)],
+    /// `(relPath, foreign)` the other engines observe with their own classifier.
+    pub classified: &'a [(String, bool)],
+    /// Paths a vetoed engine generation excludes from the seal.
+    pub excluded: &'a [String],
 }
 
 fn has_mcp_server(plugin: &LoadedPlugin) -> bool {
@@ -238,6 +242,12 @@ pub fn claude_owned_paths(
     }
     for (rel, id) in input.extra {
         owned.observe(view, rel, id, Classify::Marker)?;
+    }
+    for (rel, foreign) in input.classified {
+        owned.observe_classified(rel, *foreign)?;
+    }
+    for rel in input.excluded {
+        owned.exclude(rel);
     }
     Ok(owned.seal())
 }

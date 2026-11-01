@@ -248,6 +248,8 @@ fn rust_owned(root: &Path, text: &str) -> Option<String> {
             enabled: &enabled.loaded,
             disabled: &disabled.loaded,
             extra: &[],
+            classified: &[],
+            excluded: &[],
         },
     )
     .ok()
