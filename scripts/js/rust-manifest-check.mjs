@@ -180,27 +180,46 @@ export function assetSources(root) {
   return { blocks, deps };
 }
 
-/** Resolve blocks/deps from declared core/plugin assets; never hash rendered mirrors. */
-export function checkHashes(root, manifest) {
+/**
+ * Every recorded hash of `manifest.hooks` that no longer matches its source: block assets (with
+ * includes expanded), sibling-script deps and the D8 implementation hash. Resolves blocks/deps
+ * from declared core/plugin assets; never hashes rendered mirrors.
+ *
+ * @returns {{ id: string, kind: "blocks" | "deps" | "impl", name: string, recorded: string, expected: string }[]}
+ */
+export function staleHashes(root, manifest) {
   const { blocks, deps } = assetSources(root);
+  const stale = [];
   for (const [id, hook] of Object.entries(manifest.hooks)) {
     if (Object.keys(hook.blocks).length === 0) throw new Error(`${id}: blocks must not be empty`);
     for (const [kind, entries, sources] of [
       ["blocks", hook.blocks, blocks],
       ["deps", hook.deps ?? {}, deps],
     ]) {
-      for (const [name, expected] of Object.entries(entries)) {
+      for (const [name, recorded] of Object.entries(entries)) {
         const path = sources.get(name);
         if (!path) throw new Error(`${id}.${kind}: unknown asset ${name}`);
         const bytes =
           kind === "blocks"
             ? Buffer.from(expandHookIncludes(readFileSync(path, "utf8")))
             : readFileSync(path);
-        if (sha256(bytes) !== expected) throw new Error(`${id}.${kind}.${name}: hash mismatch`);
+        const expected = sha256(bytes);
+        if (expected !== recorded) stale.push({ id, kind, name, recorded, expected });
       }
     }
-    if (implementationHash(root, id) !== hook.impl) throw new Error(`${id}.impl: hash mismatch`);
+    const expected = implementationHash(root, id);
+    if (expected !== hook.impl) stale.push({ id, kind: "impl", name: "impl", recorded: hook.impl, expected });
   }
+  return stale;
+}
+
+/** Throws on the first hash of `manifest.hooks` that no longer matches its source. */
+export function checkHashes(root, manifest) {
+  const [first] = staleHashes(root, manifest);
+  if (first === undefined) return;
+  throw new Error(
+    first.kind === "impl" ? `${first.id}.impl: hash mismatch` : `${first.id}.${first.kind}.${first.name}: hash mismatch`,
+  );
 }
 
 export function checkManifest(root, base = "origin/migration/rust") {

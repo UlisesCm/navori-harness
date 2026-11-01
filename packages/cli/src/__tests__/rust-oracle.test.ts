@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -52,7 +53,10 @@ interface Oracle {
     manifest: { commands: Array<{ path: string[]; flags?: string[] }> },
     args: string[],
   ) => boolean;
-  CASES_PATH: string;
+  CASES_DIR: string;
+  RECORDINGS_DIR: string;
+  stubEnv: (work: string, tools: string[], pathValue: string) => Record<string, string>;
+  readAreaCases: (dir: string) => OracleCase[];
   normalizeText: (text: string) => string;
   maskSide: (
     text: string,
@@ -451,6 +455,66 @@ describe("rust oracle", () => {
     }
   });
 
+  // Covers: R76
+  it("los stubs de PATH responden por argv desde las grabaciones y registran cada llamada", () => {
+    const work = mkdtempSync(join(tmpdir(), "oracle-stubs-"));
+    try {
+      const env = oracle.stubEnv(work, ["gh", "npm"], process.env.PATH ?? "");
+      const recorded = JSON.parse(readFileSync(join(oracle.RECORDINGS_DIR, "gh.json"), "utf8")) as {
+        version: string;
+        responses: Array<{ args: string[]; stdout: string }>;
+      };
+      expect(recorded.version).toMatch(/^gh version /);
+      const run = (tool: string, args: string[]) =>
+        spawnSync(tool, args, { env: { ...process.env, ...env }, encoding: "utf8" });
+      const version = run("gh", ["--version"]);
+      expect(version.status).toBe(0);
+      expect(version.stdout).toBe(recorded.responses[0]?.stdout);
+      const missing = run("gh", ["api", "user"]);
+      expect(missing.status).toBe(127);
+      expect(missing.stderr).toBe("oracle stub: no recording for gh api user\n");
+      // A tool with no recordings file answers nothing, without reaching the real one.
+      expect(run("npm", ["view", "navori"]).status).toBe(127);
+      expect(
+        readFileSync(env.NAVORI_ORACLE_CALLS ?? "", "utf8")
+          .trim()
+          .split("\n"),
+      ).toEqual([
+        JSON.stringify({ tool: "gh", args: ["--version"] }),
+        JSON.stringify({ tool: "gh", args: ["api", "user"] }),
+        JSON.stringify({ tool: "npm", args: ["view", "navori"] }),
+      ]);
+      expect(() => oracle.stubEnv(work, ["curl"], "")).toThrow(/curl is not a stubbed tool/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R77
+  it("los casos viven en un archivo por área y un id repetido entre archivos falla", () => {
+    const names = readdirSync(oracle.CASES_DIR).filter((n) => n.endsWith(".json"));
+    for (const area of ["master", "plan", "handoff", "spec", "render"])
+      expect(names, area).toContain(`${area}.json`);
+    for (const name of names) {
+      const area = name.slice(0, -".json".length);
+      const file = JSON.parse(readFileSync(join(oracle.CASES_DIR, name), "utf8")) as {
+        cases: OracleCase[];
+      };
+      for (const c of file.cases)
+        expect(c.args[0]?.startsWith("-") ? "cli" : c.args[0], c.id).toBe(area);
+    }
+    const dir = mkdtempSync(join(tmpdir(), "oracle-areas-"));
+    try {
+      const one = { id: "x:dup", fixture: "empty", args: ["status"] };
+      writeFileSync(join(dir, "a.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(oracle.readAreaCases(dir).map((c) => c.id)).toEqual(["x:dup"]);
+      writeFileSync(join(dir, "b.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(() => oracle.readAreaCases(dir)).toThrow(/x:dup in a\.json and b\.json/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // Covers: R37, R49
   it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
     const cells = oracle.antiRollbackCases("0.12.3");
@@ -717,6 +781,17 @@ describe("rust oracle", () => {
     ]) {
       expect(cases.find((c) => c.id === `dominio:${id}`)?.native, id).toBeUndefined();
     }
+  });
+
+  // Covers: R73
+  it("spec check mapea las entregas de una etapa en modo deliveries", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("spec-deliveries:"));
+    for (const id of ["mapped", "unmapped", "target-mismatch", "invalid-parts", "no-parts-file"]) {
+      expect(cases.find((c) => c.id === `spec-deliveries:${id}`)?.native, id).toBe(true);
+    }
+    expect(
+      cases.find((c) => c.id === "spec-deliveries:bad-json-parts-delegates")?.native,
+    ).toBeUndefined();
   });
 
   // Covers: R7

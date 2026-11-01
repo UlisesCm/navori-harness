@@ -25,6 +25,18 @@ function executable(binary) {
 }
 
 /**
+ * Whether the binary deferred because the host-fact probes ran out of time ("probe deadline
+ * expired"), as opposed to a deferral that would repeat on every attempt.
+ *
+ * @param {{ status: number | null, stderr: Buffer | null }} output
+ * @returns {boolean}
+ */
+export function probeDeadlineExpired(output) {
+  const stderr = output.stderr?.toString("utf8") ?? "";
+  return (output.status === 1 || output.status === 3) && stderr.startsWith("navori-rust: hook deferred: ") && stderr.includes("probe deadline expired");
+}
+
+/**
  * Spec 0057 R11/R12 — direct native transport, never a shell/shadow fallback.
  * Process fixtures test this protocol; they do not prove a hook has been ported.
  *
@@ -49,7 +61,7 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, args 
   const argv = event === undefined
     ? ["hook", "--via-script", resolve(script), ...args]
     : ["hook", "--via-command", event, resolve(script), ...args];
-  const output = spawnSync(pinned, argv, {
+  const spawnOnce = () => spawnSync(pinned, argv, {
     input,
     cwd,
     env: { ...process.env, ...env, NAVORI_HOOK_IMPL: "rust" },
@@ -57,6 +69,11 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, args 
     timeout: timeoutMs,
     maxBuffer: 10 * 1024 * 1024,
   });
+  let output = spawnOnce();
+  // Spec 0060 T17: the host-fact probes have a fixed budget that a loaded machine can exhaust.
+  // That deferral happens before the hook reads stdin or acts, so one retry is safe and keeps a
+  // flaky host from turning into a missing verdict.
+  if (probeDeadlineExpired(output)) output = spawnOnce();
   if (output.error !== undefined) {
     return { available: false, reason: `native process error: ${output.error.code ?? output.error.message}` };
   }

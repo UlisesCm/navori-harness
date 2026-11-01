@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "cases": [
+    { "id": "empty:doctor", "fixture": "empty", "args": ["doctor"] },
+    { "id": "fresh-init:doctor", "fixture": "fresh-init", "args": ["doctor"] },
+    { "id": "self-hosted:doctor", "fixture": "self-hosted", "args": ["doctor"] },
+    { "id": "user-content:doctor", "fixture": "user-content", "args": ["doctor"] },
+    { "id": "drifted-block:doctor", "fixture": "drifted-block", "args": ["doctor"] }
+  ]
+}

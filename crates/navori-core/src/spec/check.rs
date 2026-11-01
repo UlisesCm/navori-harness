@@ -71,7 +71,16 @@ impl Findings {
     }
 }
 
-/// `checkSpec(parsed, thresholds, requirementIds, null)`.
+/// `MasterMapping`: the deliveries of the master-plan stage this spec belongs to (R22 of 0044).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MasterMapping {
+    /// `(id, prTarget)` of each `parts.json` delivery the spec implements, in file order.
+    pub deliveries: Vec<(String, String)>,
+    /// The repo's effective PR target (`prTarget ?? branchBase`).
+    pub pr_target: String,
+}
+
+/// `checkSpec(parsed, thresholds, requirementIds, master)`.
 ///
 /// # Errors
 /// [`LoneSurrogate`] when a malformed item's 60-unit excerpt would split a surrogate pair.
@@ -83,6 +92,7 @@ pub fn check(
     parsed: &ParsedTasks,
     thresholds: Thresholds,
     requirement_ids: Option<&[String]>,
+    master: Option<&MasterMapping>,
 ) -> Result<SpecCheck, LoneSurrogate> {
     use Severity::{Error, Warning};
     let classification = classify(parsed, thresholds);
@@ -189,6 +199,37 @@ pub fn check(
 
     for (index, delivery) in parsed.deliveries.iter().enumerate() {
         claim(&mut findings, &delivery.id, &delivery.id, delivery.line);
+        if let Some(master) = master {
+            match master.deliveries.iter().find(|(id, _)| *id == delivery.id) {
+                None => findings.add(
+                    "master-delivery-unmapped",
+                    Error,
+                    &delivery.id,
+                    format!(
+                        "{} is not a delivery of this part in parts.json ({})",
+                        delivery.id,
+                        master
+                            .deliveries
+                            .iter()
+                            .map(|(id, _)| id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    Some(delivery.line),
+                ),
+                Some((_, target)) if *target != master.pr_target => findings.add(
+                    "master-target-mismatch",
+                    Warning,
+                    &delivery.id,
+                    format!(
+                        "{} targets {target} in parts.json but the repo's prTarget is {}",
+                        delivery.id, master.pr_target
+                    ),
+                    Some(delivery.line),
+                ),
+                Some(_) => {}
+            }
+        }
         if delivery.milestones.is_empty() {
             findings.add(
                 "delivery-without-milestone",
