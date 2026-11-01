@@ -19,7 +19,7 @@
       "path": ["remove"],
       "flags": ["cwd", "yes"],
       "requires": [["yes"]],
-      "when": { "engines": ["claude"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
     { "path": ["plan", "gate"] },
