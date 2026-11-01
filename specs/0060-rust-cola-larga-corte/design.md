@@ -1,6 +1,7 @@
-# Migración a Rust, fase 4: cola larga, activaciones, distribución y corte — Design
+# Migración a Rust, fase 4: cola larga — Design
 
-**Estado:** borrador; Q20, Q21 y Q25 resueltas por el usuario, Q22–Q24 abiertas (§ "Preguntas") ·
+**Estado:** aceptada; reestructurada el 2026-10-31 (Q26–Q29). Q22 y Q24 se mudaron a 0062 y Q23 sigue
+abierta (§ "Preguntas") ·
 **Fecha:** 2026-10-28 · **Base verificada:** `migration/rust` = `b0b64ddd` (merge de #1442). Toda
 afirmación "ya existe" o "falta" se leyó en ese commit; las referencias citan archivo y símbolo.
 
@@ -59,8 +60,8 @@ La asignación sale de lo que cada hook ejecuta. `audit-mode-trigger` y `audit-m
 - **M2, referencia de comandos:** `spec`, de solo lectura y determinista: ejercita la entrada al
   manifiesto, el oráculo con diferencial cero y el test de inventario de un comando completo.
 
-E4 activa todos los hooks en un solo PR (los siete de las fases 1–3 y los 15 de esta). E5 ensaya la
-distribución sin publicar. E6 es el corte a `dev`.
+La activación, la distribución y el corte (antes E4–E6) son `specs/0062-rust-activacion-corte/`
+desde el 2026-10-31 (Q26).
 
 **Por qué este orden.**
 - Los hooks entran en `shadow` en la entrega de su área, así su ventana corre mientras se portan las
@@ -71,8 +72,6 @@ distribución sin publicar. E6 es el corte a `dev`.
 - E1 abre con los dos slices de referencia porque no dependen de 0059; sus milestones siguientes
   (`master`, `handoff`, `plan`, gobierno de agentes) sí usan la base de hooks de 0059 E1.
 - E3 va al final porque además depende de la capa `Fs` y del render multi-engine (0058 E3, 0059 E2).
-- La activación va después de las slices (decisión del usuario del 2026-10-28) y antes de la
-  distribución, porque `cutover:check` exige que ningún hook siga en `shadow` (D17 de 0057).
 
 **Alternativa descartada: capas horizontales** (hooks, comandos de lectura, comandos de escritura).
 Deja cada área a medias hasta la última entrega: un hook de auditoría en Rust seguiría llamando al
@@ -137,84 +136,82 @@ infraestructura de prueba por área, que se paga con el test de inventario compa
   3. el resto de subcomandos y flags de `audit` que el inventario de D41 marque como faltantes.
 - `--capture-child` lo porta 0059; esta fase no lo toca.
 
-### D45 — Activación conjunta con umbral por clase y excepción a 30 días (R79–R83)
+### D45 y D46 — se movieron a 0062
 
-- **Evidencia (R81).** `scripts/js/hook-shadow-report.mjs` (la herramienta que 0058 T3 difirió)
-  lee el ledger de `navori tools rust-shadow`, cuenta invocaciones y divergencias por hook y engine
-  dentro de la ventana y aplica el umbral por clase de D35 de 0059 a los 22 hooks:
+La activación (D45) y la distribución y el corte (D46) pasaron a
+`specs/0062-rust-activacion-corte/design.md` el 2026-10-31. D45 quedó reemplazada allí por D49
+(activación por evidencia mínima) y D46 enmendada por D50 (corte con delegación permanente).
 
-  | Clase | Ejemplos | Umbral en 14 días |
-  |---|---|---|
-  | Por tool call | `guard-destructive`, `quality-gate-pre-commit`, `implementer-no-markdown`, `routing-watch`, `bash-outcome-watch`, `managed-drift-watch` | 500 |
-  | Por turno o despacho | `subagent-no-background`, `plan-gate`, `subagent-stop-handoff`, `stop-verify-reminder`, `general-purpose-confirm`, `role-guard`, `engram-write-guard` | 100 |
-  | Por sesión o evento raro | `session-start-context`, `model-advisor` (`SessionStart`), `worktree-reclaim`, `audit-mode-trigger`, `audit-mode-close`, `master-plan-context`, `master-accept-confirm`, `comment-draft-confirm`, `pr-publisher-confirm` | 30 |
+### D47 — Política de velocidad (R70, R71, R73, R77; Q29)
 
-  La clase de un hook registrado en varios eventos es la de su evento más frecuente en ese engine.
-  `hook-shadow-report.mjs` lee la clase de cada hook de una tabla en el propio script, revisada en el
-  PR de E1, E2 o E3 que pone el hook en `shadow`.
-- **Excepción (R82; Q22).** Un hook que no llega a su umbral en 30 días se activa con el corpus
-  completo por clase y modo, el fuzz de R81 y la aprobación explícita del usuario para ese hook. La
-  línea `activate` lleva `reason: "below-threshold"` y el conteo real. Sin esto, un hook raro
-  (`pr-publisher-confirm`, `comment-draft-confirm`) bloquearía el corte indefinidamente, porque R20
-  no admite hooks en `shadow`.
-- **Un solo PR.** E4 activa todos los hooks que cumplen, cada uno con su línea `activate`. Uno que
-  diverge vuelve a `shadow` con `deactivate` (R80) y se corrige antes de reintentar.
-- **Transiciones (R79).** `scripts/js/rust-manifest-check.mjs` ya valida el manifiesto; E4 le
-  añade la regla de transiciones de R79 y R80 (antes T2 de 0058).
+El tiempo de esta fase se iba más en verificar y en coordinar PRs que en escribir código (issue
+#1467). Desde el 2026-10-31 rige, para 0059, 0060 y 0062:
 
-### D46 — Distribución y corte según D17 de 0057 (R18, R20–R22, R24, R84, R85)
+- **Un PR por entrega.** Commits atómicos dentro del PR y una revisión cruzada por PR. Los PRs ya
+  abiertos al 2026-10-31 se terminan como están.
+- **Una evidencia principal por comportamiento.**
+  - Hooks: el replay nativo del corpus. Se siembra corpus solo si falta una clase (R71). No se
+    escribe un test Rust que repita el corpus; los tests Rust cubren lo que el corpus no alcanza
+    (ramas de sistema de archivos, el carril en proceso).
+  - Comandos: el oráculo con diferencial cero (R73).
+- **Fuzz proporcional al riesgo.** Al portar: 10 000 casos, solo para hooks con compuerta que
+  analizan texto (por ejemplo `guard-destructive`, `implementer-no-markdown`, `role-guard`,
+  `master-accept-confirm`). Los advisory no llevan fuzz al portar. El fuzz de 100 000 casos corre
+  una sola vez, en lote, antes de activar (D49 de 0062).
+- **Gate.** En cada commit, `bun run check:fast` y los tests del área. El gate completo (`bun run
+  check` y `cargo test --workspace`) lo corre la CI del PR y no se repite en local.
+- **Herramientas antes que pasos manuales (T17).**
+  - `bun run rust:hooks-sync` recalcula `impl` y `blocks` de `crates/ported.json` sin
+    reformatear, re-renderiza y recompila `navori-rust`.
+  - `bun run rust:verify` corre el replay y el fuzz con ese binario y reintenta una vez una llamada
+    diferida por "probe deadline expired".
+  - Los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits` (500 ms). El
+    plazo de producción no cambia.
+- **Paralelismo fijo.** Una sesión porta hooks y otra comandos, con ramas por entrega, e integran
+  `origin/migration/rust` a diario.
 
-- Se ejecuta D17 de 0057 sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
-  `optionalDependencies` por plataforma, `postinstall` que enlaza solo si `--version` coincide),
-  `legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
-  estáticos en Linux.
-- **Sondas (R84).** `scripts/js/dist-probe.mjs` instala el tarball local (`npm pack`) con npm, pnpm
-  y bun, con y sin scripts, en un directorio limpio por plataforma, y verifica `navori --version` y
-  un hook registrado (`guard-destructive` con un payload de bloqueo).
-- **`check:post-cutover` (R18)** se define en `package.json` como la composición posterior al corte
-  y se cronometra en reposo; `cutover:check` (R20) lee su último tiempo registrado.
-- **Corte (R24).** El PR de E6 re-apunta `rust.yml` a `dev`, añade el workflow de release, el
-  empaquetado y `legacy/`, enciende los avisos de R85, borra `packages/cli/src` con sus tests (salvo
-  las suites de artefacto, D11 de 0057) y elimina la delegación al TS y el oráculo TS.
+### D48 — Delegación permanente de caminos raros (R73, R77; Q28)
+
+- Un comando portado es nativo en su camino feliz y en sus errores comunes. Un camino raro, cuya
+  salida depende de una implementación ajena (mensajes de zod o de V8), de un estado corrupto o de
+  una carrera, delega al TS antes de la primera salida o escritura, como ya hacen los comandos de E1.
+- Un subcomando o flag que no vale la pena portar entra en la **lista de delegación permanente** de
+  `scripts/js/rust-areas.mjs`, con un motivo de una línea. El test de inventario por área (R77) y
+  `cutover:check` (R20 de 0062) aceptan esa lista igual que el manifiesto.
+- Después del corte, la delegación va al TS congelado del paquete (D50 de 0062), así que la lista
+  no deja nada sin atender.
 
 ## Failure modes
 
 - **F39 — Una slice depende de otra sin declararlo.** Un hook de un área que en nativo llama a un
   comando de otra área todavía en TS falla al integrarse antes que ella. Mitigación: R78 y D40; el test de inventario
   de cada área corre también con las otras dos áreas fuera del manifiesto.
-- **F40 — Un hook raro nunca llega al umbral.** Bloquea el corte (R20). Mitigación: la excepción de
-  D45 con aprobación por hook.
 - **F41 — Las grabaciones de procesos externos se desfasan del comportamiento real.** Un `git` nuevo
   cambia su salida y el oráculo sigue verde contra la grabación vieja. Mitigación: cada grabación
   guarda la versión de la herramienta que la produjo, y un test semanal (el mismo job de frescura de
   D10 de 0057) las regenera y compara.
-- **F42 — Divergencia tras activar.** Mitigación: R80; vuelta a `shadow` con `deactivate` antes de
-  tocar la implementación.
-- **F43 — El postinstall no corre o el binario no coincide.** Mitigación: el lanzador ejecuta el
-  binario a través de Node o, sin binario, el TS congelado (R22); la sonda de R84 cubre los tres
-  gestores con y sin scripts.
+- **F46 — La lista de delegación permanente crece sin control.** Mitigación: cada entrada lleva su
+  motivo y entra por PR; la revisión cruzada la valida.
+- F40, F42 y F43 se movieron a 0062 con la activación y la distribución.
 
 ## Testing strategy
 
-- **Hooks:** corpus por clase y modo (R71) con `hook-verdict-replay.mjs --impl rust`, y
-  `fuzz:hooks` (100 000 casos con compuerta, 20 000 advisory; paralelo y con caché del oráculo
-  shell, D9 de 0057) antes de la sombra y otra vez en E4.
-- **Comandos:** `bun run oracle:rust --only <comando>` con diferencial cero (R73); oráculo de
-  escrituras para los efectos en disco (R74); guiones de prompts bajo pseudo-TTY (R75); stubs de
-  procesos externos grabados (R76).
-- **Slices:** test de inventario por área (R77) y la misma corrida con las otras áreas excluidas del
-  manifiesto (R78).
-- **Activación:** `hook-shadow-report.mjs` (R81, R82), `rust-manifest-check.mjs` con transiciones
-  (R79, R80) y la matriz fail-closed por engine sobre cada hook con compuerta en `active` (R83).
-- **Distribución y corte:** sondas de R84, `check:post-cutover` cronometrado (R18) y
-  `cutover:check` (R20).
+Con la política de D47:
+
+- **Hooks:** replay nativo del corpus (`hook-verdict-replay.mjs --impl rust`), corpus sembrado solo
+  donde falte una clase (R71) y fuzz de 10 000 casos para los hooks con compuerta que analizan texto.
+- **Comandos:** `bun run oracle:rust --only <comando>` con diferencial cero en el camino feliz y
+  los errores comunes (R73), oráculo de escrituras (R74), guiones de prompts bajo pseudo-TTY solo
+  para los comandos con prompts (R75) y stubs de procesos externos grabados (R76).
+- **Slices:** test de inventario por área, con la lista de delegación permanente (R77), y la misma
+  corrida con las otras áreas fuera del manifiesto (R78).
+- **Gate:** `check:fast` y los tests del área en cada commit; el gate completo en la CI del PR.
 
 ## NOT in scope
 
 - Workspaces de monorepo en `render`/`sync` nativos, salvo que el inventario de D41 los marque
   pendientes: en ese caso entran en E3 como flags de esos comandos.
-- Windows y otras plataformas sin binario: reciben el TS congelado (R22).
-- Publicar en npm: E5 ensaya sin publicar; la publicación sigue el paso manual del README tras E6.
+- La activación, la distribución y el corte: son 0062.
 - Reescribir la extensión Pi en Rust: sigue siendo el asset derivado de D29 de 0059.
 
 ## Decisiones del usuario
@@ -224,15 +221,15 @@ infraestructura de prueba por área, que se paga con el test de inventario compa
 | Q20 | (2026-10-28) La fase 4 queda en una sola spec con seis entregas (E1–E6), por encima del máximo de cuatro del programa |
 | Q21 | (2026-10-28) La cola larga se entrega en vertical slices por área funcional (D40), no por capas |
 | Q25 | (2026-10-28) Cada milestone es un slice con entregable observable; los dos primeros son de referencia (hooks de publicación y `spec`) y el desarrollo empieza por ellos, sin esperar más certidumbre en las estimaciones |
+| Q26 | (2026-10-31) La fase 4 se parte: esta spec se queda con la cola larga (E1–E3) y `specs/0062-rust-activacion-corte/` con la activación, la distribución y el corte |
+| Q27 | (2026-10-31) Activación por evidencia mínima (D49 de 0062): replay, fuzz de 100 000 y 7 días de sombra sin divergencias para hooks con compuerta; solo replay para advisory |
+| Q28 | (2026-10-31) Delegación permanente de caminos raros (D48) y corte con esa lista delegada al TS congelado (D50 de 0062) |
+| Q29 | (2026-10-31) Política de velocidad de D47 en 0059, 0060 y 0062 |
 
 ## Preguntas (abiertas)
 
-- **Q22 [human] — Hooks que no llegan al umbral.** La excepción de D45: activar con corpus completo,
-  fuzz y aprobación por hook si no llegan en 30 días. Alternativa: dejar el hook en TS (shell)
-  después del corte, lo que exige cambiar R20. Recomendación: la excepción. Bloquea solo E4.
 - **Q23 [human] — Challenge del `auditor`.** La spec toca áreas críticas (hooks, escrituras,
   distribución) y la skill `spec-bootstrap` pide un challenge con contexto fresco, que sin subagentes
   no puede correr. Recomendación: igual que Q18 de 0059, omitirlo y dejar revisión independiente
   pendiente en cada PR; o hacer una excepción a la regla de subagentes solo para ese paso.
-- **Q24 [human] — Scope npm de los paquetes de plataforma.** Pendiente desde la decisión 3 del
-  usuario en 0057. Bloquea solo M16 (E5).
+- Q22 quedó resuelta por Q27 y Q24 se mudó a 0062.
