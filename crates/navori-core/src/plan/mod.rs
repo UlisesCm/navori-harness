@@ -4,6 +4,7 @@
 pub mod acceptance_index;
 pub mod check;
 pub mod classify;
+pub mod evidence;
 pub mod expected;
 pub mod gate;
 pub mod report;
