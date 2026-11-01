@@ -343,9 +343,9 @@ describe("rust oracle", () => {
       for (const fixture of fixtures) {
         const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
         if (!existsSync(configPath)) continue;
-        // The fixtures of the `spec` and `master` commands (spec 0060) exist to exercise those
+        // The fixtures of the `spec`, `master` and `handoff` commands (spec 0060) exist to exercise those
         // commands: they carry a config because every command reads one, not to cover `render`.
-        if (/^(spec|master|chk)-/.test(fixture)) continue;
+        if (/^(spec|master|chk|handoff)-/.test(fixture)) continue;
         const config = JSON.parse(readFileSync(configPath, "utf8")) as {
           engines?: string[];
           language?: string;
@@ -546,6 +546,127 @@ describe("rust oracle", () => {
     expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
     // A spec of a master plan is `master`'s (M3): that case must stay delegated.
     expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
+  });
+
+  // Covers: R73, R74
+  it("handoff en todos sus subcomandos", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("handoff:"));
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
+    const native = manifest.commands
+      .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
+      .map((c: { path: string[] }) => c.path[1]);
+    expect(native.sort()).toEqual(["check", "log-review", "render"]);
+    for (const sub of native) {
+      for (const json of [true, false]) {
+        expect(
+          cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
+        ).toBe(true);
+      }
+      const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
+      expect(cases.some((c) => c.args[1] === sub && help(c) && c.native)).toBe(true);
+      expect(cases.some((c) => c.args[1] === sub && c.args.includes("--dir") && c.native)).toBe(
+        true,
+      );
+    }
+    // The parallel producers and `attest` are the TS's: their cases must stay delegated.
+    for (const sub of [
+      "prepare-parallel",
+      "begin-parallel",
+      "complete-parallel",
+      "finalize-parallel",
+      "attest",
+    ]) {
+      const delegated = cases.filter((c) => c.args[1] === sub);
+      expect(delegated.length).toBeGreaterThan(0);
+      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    }
+    for (const flag of ["--for", "--target", "--cwd"]) {
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    for (const flag of ["--produced-by", "--since", "--parallel"]) {
+      expect(cases.find((c) => c.args.includes(flag))?.native).toBeUndefined();
+    }
+    expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
+    expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
+  });
+
+  // Covers: R73, R74
+  it("plan classify, check, render, update y escalation-reset nativos con sus delegaciones", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
+    const native = manifest.commands
+      .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
+      .map((c: { path: string[] }) => c.path[1])
+      .sort();
+    expect(native).toEqual(["check", "classify", "escalation-reset", "gate", "render", "update"]);
+    const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
+    for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
+      for (const json of [true, false]) {
+        expect(
+          cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
+        ).toBe(true);
+      }
+      expect(cases.some((c) => c.args[1] === sub && help(c) && c.native)).toBe(true);
+      expect(cases.some((c) => c.args[1] === sub && c.args.includes("--cwd") && c.native)).toBe(
+        true,
+      );
+    }
+    // What stays in the TS must stay delegated: a native case there would hide a regression.
+    for (const sub of ["acknowledge", "resume"]) {
+      const delegated = cases.filter((c) => c.args[1] === sub);
+      expect(delegated.length).toBeGreaterThan(0);
+      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    }
+    expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
+    // Git evidence, audit events and escalation records stay with the TS.
+    for (const id of [
+      "update-evidence-session-delegates",
+      "update-audit-delegates",
+      "reset-escalation-record-delegates",
+      "reset-audit-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
+    }
+    for (const flag of ["--criticalArea", "--critical-area", "--files", "--dir"]) {
+      expect(cases.some((c) => c.args[1] === "classify" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
+  });
+
+  // Covers: R73
+  it("dominio en cada subcomando, sin workspace, con workspace ambiguo y con su salida de clack", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("dominio:"));
+    for (const sub of ["init", "list", "show", "reindex", "doctor"]) {
+      const mine = cases.filter((c) => c.args[1] === sub && c.native);
+      expect(
+        mine.some((c) => c.args.includes("--help")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => c.id.endsWith("-no-workspace")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => !c.args.includes("--help") && (c as { setup?: unknown[] }).setup?.length),
+        sub,
+      ).toBe(true);
+    }
+    expect(cases.some((c) => c.args.some((a) => a.startsWith("--workspace")) && c.native)).toBe(
+      true,
+    );
+    expect(cases.find((c) => c.id === "dominio:list-ambiguous")?.native).toBe(true);
+    // Color, a width clack would wrap and a name the registry rejects stay with the TS.
+    for (const id of [
+      "list-force-color-delegates",
+      "list-long-summary-delegates",
+      "list-invalid-name-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `dominio:${id}`)?.native, id).toBeUndefined();
+    }
   });
 
   // Covers: R7

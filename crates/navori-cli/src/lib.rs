@@ -3,10 +3,12 @@
 pub mod adopt;
 pub mod commands;
 pub mod delegate;
+pub mod dominio;
 pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
 pub mod governance_hook;
+pub mod handoff;
 pub mod help;
 pub mod hook;
 pub mod hook_facts;
@@ -21,6 +23,7 @@ pub mod master_write;
 pub mod model_advisor;
 pub(crate) mod native_io;
 pub mod parser;
+pub mod plan;
 pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod publish_confirm_hook;
@@ -102,8 +105,56 @@ pub const NATIVE: &[NativeCommand] = &[
         run: plan_gate::run,
     },
     NativeCommand {
+        path: &["plan", "classify"],
+        run: plan::run_classify,
+    },
+    NativeCommand {
+        path: &["plan", "check"],
+        run: plan::run_check,
+    },
+    NativeCommand {
+        path: &["plan", "render"],
+        run: plan::run_render,
+    },
+    NativeCommand {
+        path: &["plan", "update"],
+        run: plan::run_update,
+    },
+    NativeCommand {
+        path: &["plan", "escalation-reset"],
+        run: plan::run_escalation_reset,
+    },
+    NativeCommand {
+        path: &["plan"],
+        run: plan::run_group,
+    },
+    NativeCommand {
         path: &["dominio", "inject"],
         run: dominio_inject::run,
+    },
+    NativeCommand {
+        path: &["dominio", "init"],
+        run: dominio::run_init,
+    },
+    NativeCommand {
+        path: &["dominio", "list"],
+        run: dominio::run_list,
+    },
+    NativeCommand {
+        path: &["dominio", "show"],
+        run: dominio::run_show,
+    },
+    NativeCommand {
+        path: &["dominio", "reindex"],
+        run: dominio::run_reindex,
+    },
+    NativeCommand {
+        path: &["dominio", "doctor"],
+        run: dominio::run_doctor,
+    },
+    NativeCommand {
+        path: &["dominio"],
+        run: dominio::run_group,
     },
     NativeCommand {
         path: &["tools", "notice"],
@@ -160,6 +211,22 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["spec"],
         run: spec::run_group,
+    },
+    NativeCommand {
+        path: &["handoff", "check"],
+        run: handoff::run_check,
+    },
+    NativeCommand {
+        path: &["handoff", "render"],
+        run: handoff::run_render,
+    },
+    NativeCommand {
+        path: &["handoff", "log-review"],
+        run: handoff::run_log_review,
+    },
+    NativeCommand {
+        path: &["handoff"],
+        run: handoff::run_group,
     },
     NativeCommand {
         path: &["adopt"],
