@@ -8,21 +8,22 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
 
 **PRs** (uno por entrega y por flujo; los flujos están en la política de velocidad)
 
-| PR | Flujo | Entrega | Contenido | Se mergea cuando |
-|---|---|---|---|---|
-| 1a | — | E1 | Mergeado (#1454) | — |
-| 1b | Hooks | E1 | T13 y T14 (las dos ramas en vuelo, en un solo PR) | El replay de A5 de esos cuatro hooks y la CI en verde |
-| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) entra antes por su cuenta | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
-| 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | El replay de A7 y A8 de esos hooks y la CI en verde |
-| 3 | Comandos | E2 | T19, T20 y T22 | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
-| 4 | Comandos | E3 | T23, T24 y T26–T29 | A8 y A9 verdes; entra después del PR 2 |
+| PR | Flujo | Entrega | Contenido | Rama (2026-11-01) | Se mergea cuando |
+|---|---|---|---|---|---|
+| 1a | — | E1 | Mergeado (#1454) | — | — |
+| 1b | Hooks | E1 | T13 y T14 en un solo PR | `feat/0060-rust-e1b-hooks`: los cuatro hooks en `shadow`, replay verde (425 casos); falta el fuzz de 10 000 | El replay y el fuzz de 10 000 de esos cuatro hooks y la CI en verde |
+| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) ya entró | `feat/0060-rust-e1c-comandos`: el mapeo de `spec check` a `parts.json` de T8; sigue T17 | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
+| 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | Sin rama; empieza cuando entre 1b | El replay de A7 y A8 de esos hooks y la CI en verde |
+| 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de la de 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
+| 4 | Comandos | E3 | T23, T24 y T26–T29 | `feat/0060-rust-e3-comandos`, apilada sobre 1c: `backup` y `migrations` (T24), `preset init` (T26) y `registry` (T28) | A8 y A9 verdes; entra después del PR 2 |
 
 **Precondiciones de entrada (trabajo en paralelo, D47):**
 - **E2 y M8 de E3:** empiezan ya. Sus comandos usan la infraestructura compartida de M6 (T17, T18),
   que entra con el PR 1c; mientras 1c no esté en `migration/rust`, su rama sale de la de 1c. Los
   hooks de E2 y E3 (PR 2) no la necesitan y pueden empezar en cuanto entre el PR 1b.
-- **M9 de E3:** espera a 0059 E2 (render multi-engine): `init`, `add`, `configure`, `update` y
-  `refresh` escriben por ese render. 0059 E2 está en la ruta crítica de esta spec.
+- **M9 de E3:** `init`, `add`, `configure`, `update` y `refresh` esperan a 0059 E2 (render
+  multi-engine), porque escriben por ese render. 0059 E2 está en la ruta crítica de esta spec. Los
+  comandos de M9 que no escriben por el render (`preset`, `registry`) avanzan ya en el PR 4.
 - **0062** corre en paralelo con esta spec (ver sus precondiciones); solo su corte (E3) espera a que
   esta spec termine.
 
