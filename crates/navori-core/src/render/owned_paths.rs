@@ -36,6 +36,34 @@ pub enum Classify {
 pub struct OwnedPaths {
     /// Path → whether some block of it is not `foreign`.
     observed: BTreeMap<String, bool>,
+    /// `exclude`d paths, left out of the seal.
+    excluded: Vec<String>,
+}
+
+impl OwnedPaths {
+    /// `exclude(path)`: an observed path the seal leaves out (a vetoed generation's new file).
+    pub fn exclude(&mut self, rel: &str) {
+        if self.observed.contains_key(rel) && !self.excluded.iter().any(|p| p == rel) {
+            self.excluded.push(rel.to_owned());
+        }
+    }
+
+    /// Records an already classified destination (`observe(path, authorship)`).
+    ///
+    /// # Errors
+    /// [`OwnedPathsDelegate`] where `observe` throws.
+    pub fn observe_classified(
+        &mut self,
+        rel: &str,
+        foreign: bool,
+    ) -> Result<(), OwnedPathsDelegate> {
+        if invalid(rel) {
+            return Err(OwnedPathsDelegate);
+        }
+        let slot = self.observed.entry(rel.to_owned()).or_insert(false);
+        *slot |= !foreign;
+        Ok(())
+    }
 }
 
 fn invalid(path: &str) -> bool {
@@ -106,6 +134,7 @@ impl OwnedPaths {
         let mut paths: Vec<&str> = self
             .observed
             .iter()
+            .filter(|(path, _)| !self.excluded.contains(path))
             .filter_map(|(path, owned)| owned.then_some(path.as_str()))
             .collect();
         // `Array.prototype.sort`: UTF-16 code units.
