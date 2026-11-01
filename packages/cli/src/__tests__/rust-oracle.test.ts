@@ -593,16 +593,16 @@ describe("rust oracle", () => {
   });
 
   // Covers: R73, R74
-  it("plan classify, check y render nativos con sus delegaciones", () => {
+  it("plan classify, check, render, update y escalation-reset nativos con sus delegaciones", () => {
     const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
     const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1])
       .sort();
-    expect(native).toEqual(["check", "classify", "gate", "render"]);
+    expect(native).toEqual(["check", "classify", "escalation-reset", "gate", "render", "update"]);
     const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
-    for (const sub of ["classify", "check", "render"]) {
+    for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
       for (const json of [true, false]) {
         expect(
           cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
@@ -614,12 +614,21 @@ describe("rust oracle", () => {
       );
     }
     // What stays in the TS must stay delegated: a native case there would hide a regression.
-    for (const sub of ["update", "escalation-reset", "acknowledge", "resume"]) {
+    for (const sub of ["acknowledge", "resume"]) {
       const delegated = cases.filter((c) => c.args[1] === sub);
       expect(delegated.length).toBeGreaterThan(0);
       expect(delegated.every((c) => c.native === undefined)).toBe(true);
     }
     expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
+    // Git evidence, audit events and escalation records stay with the TS.
+    for (const id of [
+      "update-evidence-session-delegates",
+      "update-audit-delegates",
+      "reset-escalation-record-delegates",
+      "reset-audit-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
+    }
     for (const flag of ["--criticalArea", "--critical-area", "--files", "--dir"]) {
       expect(cases.some((c) => c.args[1] === "classify" && c.args.includes(flag) && c.native)).toBe(
         true,

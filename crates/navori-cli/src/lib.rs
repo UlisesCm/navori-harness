@@ -115,6 +115,14 @@ pub const NATIVE: &[NativeCommand] = &[
         run: plan::run_render,
     },
     NativeCommand {
+        path: &["plan", "update"],
+        run: plan::run_update,
+    },
+    NativeCommand {
+        path: &["plan", "escalation-reset"],
+        run: plan::run_escalation_reset,
+    },
+    NativeCommand {
         path: &["plan"],
         run: plan::run_group,
     },

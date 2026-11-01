@@ -432,6 +432,18 @@ fn render(plan: &Plan) -> Option<String> {
     Some(format!("{}\n", sections.join("\n")))
 }
 
+/// The `acceptance` criteria of a workplan zod accepts, as `(id, command, expected)` in order.
+#[must_use]
+pub fn criteria(raw: &JsValue) -> Option<Vec<(String, String, String)>> {
+    Some(
+        schema(raw)?
+            .acceptance
+            .into_iter()
+            .map(|c| (c.id, c.command, c.expected))
+            .collect(),
+    )
+}
+
 /// `renderWorkplan(WorkplanSchema.parse(raw))`; `None` for a workplan zod rejects (its message
 /// is zod's), a `source`, or a label only JS can compute.
 #[must_use]
