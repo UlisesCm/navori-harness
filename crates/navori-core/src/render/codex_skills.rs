@@ -14,7 +14,7 @@ use crate::markers::{
 use crate::render::codex_agents::CodexDelegate;
 use crate::render::codex_compat::adapt_harness_text_for_codex;
 use crate::render::collect::{
-    Collected, PendingWrite, RepoView, collect_body, collect_managed, read_if_exists,
+    BodyRequest, Collected, PendingWrite, RepoView, collect_body, collect_managed, read_if_exists,
 };
 use crate::render::context::Lang;
 use crate::render::frontmatter::{
@@ -128,16 +128,15 @@ pub fn collect_openai_policies(
 ) -> Result<Vec<Collected>, CodexDelegate> {
     ids.iter()
         .map(|id| {
-            collect_body(
-                view,
-                &format!(".agents/skills/{id}/agents/openai.yaml"),
-                &format!("{id}-openai-policy"),
+            let path = format!(".agents/skills/{id}/agents/openai.yaml");
+            let managed_id = format!("{id}-openai-policy");
+            let request = BodyRequest::new(
+                &path,
+                &managed_id,
                 OPENAI_MANUAL_ONLY_POLICY,
                 CommentStyle::Shell,
-                ambient_floor,
-                lang,
-            )
-            .map_err(|_| CodexDelegate)
+            );
+            collect_body(view, &request, ambient_floor, lang).map_err(|_| CodexDelegate)
         })
         .collect()
 }

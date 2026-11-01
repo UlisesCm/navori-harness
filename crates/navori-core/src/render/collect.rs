@@ -195,22 +195,64 @@ pub fn collect_managed(
     Ok(collected)
 }
 
+/// A `PlacementRequest` with a `body` instead of an asset.
+#[derive(Debug, Clone, Copy)]
+pub struct BodyRequest<'a> {
+    /// `destRelPath`.
+    pub rel_path: &'a str,
+    /// `managedId`.
+    pub managed_id: &'a str,
+    /// The block body.
+    pub body: &'a str,
+    /// `commentStyle`.
+    pub style: CommentStyle,
+    /// `firstRenderSeed.header`: what an absent destination starts as.
+    pub header: &'a str,
+    /// `firstRenderSeed.trailer`: appended after the block on the first render.
+    pub trailer: &'a str,
+}
+
+impl<'a> BodyRequest<'a> {
+    /// A request without a first-render seed.
+    #[must_use]
+    pub const fn new(
+        rel_path: &'a str,
+        managed_id: &'a str,
+        body: &'a str,
+        style: CommentStyle,
+    ) -> Self {
+        Self {
+            rel_path,
+            managed_id,
+            body,
+            style,
+            header: "",
+            trailer: "",
+        }
+    }
+}
+
 /// A `body` request of `collectRequest`: `body` injected as navori's block into the destination
-/// (an empty file when absent), with `attachResolution` for a hand-edited block.
+/// (the seed header when absent), with `attachResolution` for a hand-edited block.
 ///
 /// # Errors
 /// [`Unreadable`] when the destination exists but cannot be read.
 pub fn collect_body(
     view: &dyn RepoView,
-    rel_path: &str,
-    managed_id: &str,
-    body: &str,
-    style: CommentStyle,
+    request: &BodyRequest<'_>,
     ambient_floor: Option<&str>,
     lang: Lang,
 ) -> Result<Collected, Unreadable> {
+    let BodyRequest {
+        rel_path,
+        managed_id,
+        body,
+        style,
+        header,
+        trailer,
+    } = *request;
     let existing = read_if_exists(view, rel_path)?;
-    let basis = existing.clone().unwrap_or_default();
+    let basis = existing.clone().unwrap_or_else(|| header.to_owned());
     let meta = MarkerMeta {
         source: Some(CORE_SOURCE_ID.to_owned()),
         version: Some(STAMP_VERSION.to_owned()),
@@ -270,9 +312,13 @@ pub fn collect_body(
             });
         }
         status => {
+            let mut content = result.output;
+            if existing.is_none() {
+                content.push_str(trailer);
+            }
             collected.write = Some(PendingWrite {
                 rel_path: rel_path.to_owned(),
-                content: result.output,
+                content,
                 status,
                 chmod_exec: false,
             });

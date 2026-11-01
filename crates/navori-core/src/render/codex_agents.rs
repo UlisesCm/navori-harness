@@ -11,7 +11,7 @@ use crate::render::codex_compat::adapt_harness_text_for_codex;
 use crate::render::codex_profile::{
     planned_codex_profile_input, read_native_codex_profile, resolve_codex_profile,
 };
-use crate::render::collect::{Collected, RepoView, collect_body};
+use crate::render::collect::{BodyRequest, Collected, RepoView, collect_body};
 use crate::render::context::Lang;
 use crate::render::harness_files::asset_text;
 use crate::render::harness_plan::PlannedAgent;
@@ -183,16 +183,10 @@ pub fn collect_codex_agents(
         }
         let toml = build_agent_toml(agent, config, plugins, &mut out.warnings, cwd, catalog)?;
         out.catalog.push((agent.id.clone(), toml.description));
-        let collected = collect_body(
-            view,
-            &path,
-            &format!("{}-codex-base", agent.id),
-            &toml.body,
-            CommentStyle::Shell,
-            ambient_floor,
-            lang,
-        )
-        .map_err(|_| CodexDelegate)?;
+        let managed_id = format!("{}-codex-base", agent.id);
+        let request = BodyRequest::new(&path, &managed_id, &toml.body, CommentStyle::Shell);
+        let collected =
+            collect_body(view, &request, ambient_floor, lang).map_err(|_| CodexDelegate)?;
         out.files.push(collected);
     }
     Ok(out)
