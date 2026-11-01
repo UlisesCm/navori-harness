@@ -39,6 +39,8 @@ pub struct Entry {
     pub status: Status,
     /// First non-empty body line, cleaned and capped.
     pub summary: String,
+    /// `supersedes`: the ids this entry replaces.
+    pub supersedes: Vec<String>,
 }
 
 /// `parseList`: `[a, b]` or `a, b`, each item trimmed and stripped of one quote at each end.
@@ -117,6 +119,7 @@ fn read_entry(id: &str, path: &std::path::Path) -> Result<Entry, Stop> {
             applies_to: Some(Vec::new()),
             status: Status::Canonical,
             summary: String::new(),
+            supersedes: Vec::new(),
         });
     };
     let raw = String::from_utf8(bytes).map_err(|_| Stop::Delegate("entry is not UTF-8"))?;
@@ -145,6 +148,7 @@ pub fn parse_entry(id: &str, raw: &str) -> Result<Entry, Stop> {
         applies_to: parse_applies_to(field("applies-to").as_deref()),
         status,
         summary: first_body_line(split.body)?,
+        supersedes: parse_list(field("supersedes").as_deref()),
     })
 }
 
@@ -222,7 +226,10 @@ pub fn inject_strings(lang: Lang, workspace: &str) -> (String, &'static str) {
 }
 
 /// `workspaceLang(name)`: the workspace's `defaults.language`, Spanish when it does not load.
-fn workspace_lang(env: &Env, workspace: &str) -> Result<Lang, Stop> {
+///
+/// # Errors
+/// [`Stop::Delegate`] where only the TS can read the registry.
+pub fn workspace_lang(env: &Env, workspace: &str) -> Result<Lang, Stop> {
     match registry::load(env, workspace) {
         Ok(found) => Ok(Lang::resolve(found.and_then(|w| w.language).as_deref())),
         Err(Stop::Throw) => Ok(Lang::resolve(None)),

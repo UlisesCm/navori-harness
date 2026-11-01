@@ -21,9 +21,12 @@ use navori_core::js_json::{self, JsValue};
 use navori_core::plan::acceptance_index;
 use navori_core::plan::check::ProjectContext;
 use navori_core::plan::classify::{ClassifyInput, classify, declared_flags_from_signals};
+use navori_core::plan::expected::{Expected, parse_expected};
 use navori_core::plan::report::{self, Report};
+use navori_core::plan::update::{self, Mutation};
 use navori_core::posix::{js_trim, resolve};
 use navori_core::state_files::{self, Refusal, StateRoot, StateWrite};
+use sha2::{Digest as _, Sha256};
 
 use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color};
 use crate::native_io::{Output, json_line, member, number, object, read_config, string};
@@ -141,6 +144,55 @@ const RENDER: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const UPDATE: CommandDef = CommandDef {
+    name: "update",
+    description: "Change an A<n>'s progress or append a decision, then re-render",
+    args: &[
+        FEATURE,
+        DIR,
+        CWD,
+        JSON,
+        ArgDef {
+            name: "progress",
+            kind: ArgKind::String,
+            description: "A<n>=status (pendiente|cumplido|bloqueado)",
+        },
+        ArgDef {
+            name: "decision",
+            kind: ArgKind::String,
+            description: "Decision text to append",
+        },
+        ArgDef {
+            name: "date",
+            kind: ArgKind::String,
+            description: "Decision date (ISO), required with --decision",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const ESCALATION_RESET: CommandDef = CommandDef {
+    name: "escalation-reset",
+    description: "Restart the gate's rejection count for a level >= 2 feature (user approval)",
+    args: &[
+        FEATURE,
+        DIR,
+        CWD,
+        JSON,
+        ArgDef {
+            name: "approved-by",
+            kind: ArgKind::String,
+            description: "Must be user",
+        },
+        ArgDef {
+            name: "reason",
+            kind: ArgKind::String,
+            description: "Why another review round is authorized",
+        },
+    ],
+    sub_commands: &[],
+};
+
 const PLAN: CommandDef = CommandDef {
     name: "plan",
     description: "Classify, render, update and check a level-1/2 workplan",
@@ -208,6 +260,8 @@ enum Row {
     Classify,
     Check,
     Render,
+    Update,
+    EscalationReset,
 }
 
 /// `plan` alone: usage, `--help` and unknown subcommands.
@@ -232,6 +286,18 @@ pub fn run_check(call: &NativeCall<'_>) -> Outcome {
 #[must_use]
 pub fn run_render(call: &NativeCall<'_>) -> Outcome {
     outcome(run(call.args, Row::Render))
+}
+
+/// `plan update`.
+#[must_use]
+pub fn run_update(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Update))
+}
+
+/// `plan escalation-reset`.
+#[must_use]
+pub fn run_escalation_reset(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::EscalationReset))
 }
 
 fn outcome(code: Option<ExitCode>) -> Outcome {
@@ -261,6 +327,8 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "classify" => (&CLASSIFY, Row::Classify),
         "check" => (&CHECK, Row::Check),
         "render" => (&RENDER, Row::Render),
+        "update" => (&UPDATE, Row::Update),
+        "escalation-reset" => (&ESCALATION_RESET, Row::EscalationReset),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
             || PLAN.sub_commands.iter().any(|(sub, _)| *sub == name) =>
@@ -283,7 +351,11 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     if help {
         return Some(Output::usage(leaf, PLAN_PARENT, None).emit());
     }
-    let (strings, booleans): (&[&str], &[&str]) = if row == Row::Classify {
+    let (strings, booleans): (&[&str], &[&str]) = if row == Row::Update {
+        (&["dir", "cwd", "progress", "decision", "date"], &["json"])
+    } else if row == Row::EscalationReset {
+        (&["dir", "cwd", "approved-by", "reason"], &["json"])
+    } else if row == Row::Classify {
         (
             &["dir", "cwd", "files"],
             &[
@@ -314,6 +386,12 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     };
     let process_cwd = std::env::current_dir().ok()?;
     let process_cwd = process_cwd.to_str()?;
+    if row == Row::EscalationReset {
+        // Its flags are checked before the state root, which may still throw after them.
+        if let Some(out) = reset_usage(&options) {
+            return Some(out.emit());
+        }
+    }
     // `resolveStateRoot` runs outside any `try`: its throw is an uncaught stack trace.
     let cwd = options.get("cwd").unwrap_or(process_cwd);
     let root =
@@ -322,6 +400,8 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         Row::Classify => classify_command(feature, &options, &root)?,
         Row::Check => check_command(feature, &options, &root)?,
         Row::Render => render_command(feature, &options, &root)?,
+        Row::Update => update_command(feature, &options, &root)?,
+        Row::EscalationReset => reset_command(feature, &options, &root)?,
         Row::Group => return None,
     };
     Some(out.emit())
@@ -384,7 +464,8 @@ fn parse_leaf<'a>(
             .split_once('=')
             .map_or((body, None), |(n, v)| (n, Some(v)));
         let name = *strings.iter().find(|known| **known == name)?;
-        if options.get(name).is_some() {
+        // Only `--progress` repeats (`restoreRepeatedFlags`); any other repeat is the TS's.
+        if name != "progress" && options.get(name).is_some() {
             return None;
         }
         let value = if let Some(inline) = inline {
@@ -690,26 +771,30 @@ fn plan_write(root: &StateRoot, name: &str) -> Option<StateWrite> {
         .ok()
 }
 
-fn render_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
-    let mut out = Output::default();
-    let raw = match read_workplan(&mut out, root, feature)? {
-        Ok(raw) => raw,
-        Err(()) => return Some(out),
-    };
-    let markdown = report::render_workplan(&raw)?;
+/// Writes a workplan's files under `withPlanStateLock` as `writeWorkplanAndRender` does: the
+/// JSON (`plan update` only), the Markdown and the acceptance index. Every throw is planned
+/// before the first write: `None` hands the call to the TS, `Some(Err)` is a write that failed
+/// after them (the TS throws uncaught there).
+fn write_plan(
+    root: &StateRoot,
+    feature: &str,
+    json: Option<&str>,
+    markdown: &str,
+) -> Option<Result<(), String>> {
     // `writeAcceptanceIndex`: the neutral directory, both legacy ones and the root's own.
     let mut dirs: Vec<String> = std::iter::once(NEUTRAL_DIR)
         .chain(LEGACY_DIRS)
         .map(|dir| resolve(&root.cwd, dir))
         .collect();
     dirs.push(root.path.clone());
-    let index = acceptance_index::build(&dirs)?;
+    let json_name = format!("workplan_{feature}.json");
+    let json_path = state_files::artifact_path(root, &json_name).ok()?;
+    let index = acceptance_index::build(&dirs, json.map(|text| (json_path.as_str(), text)))?;
     let neutral = StateRoot {
         cwd: root.cwd.clone(),
         dir: NEUTRAL_DIR.to_owned(),
         path: resolve(&root.cwd, NEUTRAL_DIR),
     };
-    // Every throw of the lock, the directories and the three writes is planned before the first.
     if !state_files::plan_state_dirs(root).ok()?.is_empty() {
         return None;
     }
@@ -717,6 +802,10 @@ fn render_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) ->
     if std::fs::symlink_metadata(&lock).is_ok() {
         return None;
     }
+    let json_write = match json {
+        Some(_) => Some(plan_write(root, &json_name)?),
+        None => None,
+    };
     let md = plan_write(root, &format!("workplan_{feature}.md"))?;
     state_files::artifact_path(&neutral, "acceptance-index").ok()?;
     let expected = plan_write(&neutral, "acceptance-expected.jsonl")?;
@@ -724,17 +813,340 @@ fn render_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) ->
     let mut fs = RealFs::default();
     let _lock = PlanStateLock::acquire(lock).ok()?;
     let fs: &mut dyn Fs = &mut fs;
-    let written = state_files::write_state_file(fs, &md, &markdown)
-        .and_then(|()| state_files::write_state_file(fs, &expected, &index.expected))
-        // `expected` created the neutral directory if it was missing.
-        .and_then(|()| state_files::write_state_file(fs, &index_write, &index.index));
-    if let Err(message) = written {
+    let written = match (&json_write, json) {
+        (Some(write), Some(text)) => state_files::write_state_file(fs, write, text),
+        _ => Ok(()),
+    }
+    .and_then(|()| state_files::write_state_file(fs, &md, markdown))
+    .and_then(|()| state_files::write_state_file(fs, &expected, &index.expected))
+    // `expected` created the neutral directory if it was missing.
+    .and_then(|()| state_files::write_state_file(fs, &index_write, &index.index));
+    Some(written)
+}
+
+fn render_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
+    let mut out = Output::default();
+    let raw = match read_workplan(&mut out, root, feature)? {
+        Ok(raw) => raw,
+        Err(()) => return Some(out),
+    };
+    let markdown = report::render_workplan(&raw)?;
+    if let Err(message) = write_plan(root, feature, None, &markdown)? {
         // The TS throws uncaught here, after the checks above: only stderr reports it.
         fail(&mut out, &format!("navori-rust: {message}"));
         return Some(out);
     }
     if options.json {
         json_line(&mut out, &object(vec![("rendered", JsValue::Bool(true))]));
+    }
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// update
+
+/// `failUsage(message)`: one stderr line, exit 1.
+fn usage_error(out: &mut Output, message: &str) {
+    fail(out, &format!("ERROR: {message}"));
+}
+
+/// `evidenceRequired` may be true: an identified Claude child, Pi or Codex session, where
+/// `validateEvidence` (git, D42) decides a `cumplido`.
+fn evidence_session() -> bool {
+    let var = |name: &str| std::env::var_os(name);
+    let pi = var("PI_SESSION_ID").is_some_and(|v| {
+        v.to_str().is_none_or(|v| {
+            !v.is_empty()
+                && v.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
+    });
+    var("CLAUDE_CODE_CHILD_SESSION").is_some_and(|v| v == "1")
+        || pi
+        || var("CODEX_THREAD_ID").is_some_and(|v| !v.is_empty())
+}
+
+/// `rejectCumplido` without its audit event (an audit session delegates).
+fn reject_cumplido(out: &mut Output, id: &str, command: &str, json: bool) {
+    let what = format!("{id} not marked cumplido — no valid evidence");
+    let why = "comparison not recorded for the current expected value";
+    let fix = "Structured expectations require host-recorded evidence; an unsupported-engine acknowledgement cannot verify them.";
+    if json {
+        let error = object(vec![
+            ("what", string(&what)),
+            ("why", string(why)),
+            ("fix", string(fix)),
+            ("command", string(command)),
+        ]);
+        json_line(
+            out,
+            &object(vec![
+                ("updated", JsValue::Bool(false)),
+                ("id", string(id)),
+                ("error", error),
+            ]),
+        );
+    }
+    out.stderr
+        .push_str(&format!("ERROR: {what}\nWHY:   {why}\nFIX:   {fix}\n"));
+    out.code = 1;
+}
+
+fn update_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
+    // An audit session records a rejected `cumplido`; an identified session needs git evidence.
+    if crate::master_write::audit_may_write() || evidence_session() {
+        return None;
+    }
+    let mut out = Output::default();
+    let raw = match read_workplan(&mut out, root, feature)? {
+        Ok(raw) => raw,
+        Err(()) => return Some(out),
+    };
+    // A workplan zod rejects prints zod's issues: the TS's.
+    let criteria = report::criteria(&raw)?;
+    let progress: Vec<&str> = options
+        .strings
+        .iter()
+        .filter(|(key, _)| *key == "progress")
+        .map(|(_, value)| *value)
+        .collect();
+    let decision = options.get("decision");
+    let date = options.get("date");
+    if !progress.is_empty() && decision.is_some() {
+        usage_error(&mut out, "--progress and --decision are mutually exclusive");
+        return Some(out);
+    }
+    if let Some(date) = date
+        && !update::is_iso_date(date)
+    {
+        let quoted = JsValue::string(date).stringify(None)?;
+        usage_error(
+            &mut out,
+            &format!("--date must be an ISO date (YYYY-MM-DD), got {quoted}"),
+        );
+        return Some(out);
+    }
+    let mut updates = Vec::new();
+    if !progress.is_empty() {
+        for entry in &progress {
+            let Some((id, status)) = update::progress_entry(entry) else {
+                usage_error(
+                    &mut out,
+                    &format!(
+                        "--progress must look like A1=pendiente|cumplido|bloqueado, got \"{entry}\""
+                    ),
+                );
+                return Some(out);
+            };
+            updates.push(Mutation::Progress { id, status });
+        }
+    } else if let Some(text) = decision {
+        let Some(date) = date else {
+            usage_error(&mut out, "--decision requires --date");
+            return Some(out);
+        };
+        updates.push(Mutation::Decision {
+            text: text.to_owned(),
+            date: date.to_owned(),
+        });
+    } else {
+        usage_error(&mut out, "plan update requires --progress or --decision");
+        return Some(out);
+    }
+    // `applyWorkplanUpdate` over every update first: an unknown id throws.
+    for update in &updates {
+        if let Mutation::Progress { id, .. } = update
+            && !criteria.iter().any(|(known, _, _)| known == id)
+        {
+            fail(&mut out, &format!("unknown acceptance id: {id}"));
+            return Some(out);
+        }
+    }
+    let mut mutations = Vec::new();
+    for update in updates {
+        let Mutation::Progress { id, status } = &update else {
+            mutations.push(update);
+            continue;
+        };
+        let (id, status) = (id.clone(), status.clone());
+        mutations.push(update);
+        if status != "cumplido" {
+            mutations.push(Mutation::Evidence { id, value: None });
+            continue;
+        }
+        let Some((_, command, expected)) = criteria.iter().find(|(known, _, _)| *known == id)
+        else {
+            continue;
+        };
+        if parse_expected(expected)? != Expected::Free {
+            reject_cumplido(&mut out, &id, command, options.json);
+            return Some(out);
+        }
+        mutations.push(Mutation::Evidence {
+            id: id.clone(),
+            value: Some(update::unevidenced()),
+        });
+        out.stderr.push_str(&format!(
+            "WARNING: {id} marked cumplido without evidence — this engine/session exposes no verifiable Bash success signal\n"
+        ));
+    }
+    let next = update::apply_mutations(&raw, &mutations)?;
+    // An update that zod would reject prints zod's message: the TS's.
+    let markdown = report::render_workplan(&next)?;
+    let json = format!("{}\n", next.stringify(Some(2))?);
+    if let Err(message) = write_plan(root, feature, Some(&json), &markdown)? {
+        fail(&mut out, &format!("navori-rust: {message}"));
+        return Some(out);
+    }
+    if options.json {
+        json_line(&mut out, &object(vec![("updated", JsValue::Bool(true))]));
+    }
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// escalation-reset
+
+/// The flag checks `escalation-reset` runs before the state root.
+fn reset_usage(options: &LeafOptions<'_>) -> Option<Output> {
+    let mut out = Output::default();
+    let reason = js_trim(options.get("reason").unwrap_or_default());
+    if options.get("approved-by") != Some("user") {
+        usage_error(&mut out, "escalation-reset requires --approved-by user");
+    } else if reason.is_empty() {
+        usage_error(&mut out, "escalation-reset requires a non-empty --reason");
+    } else if reason.encode_utf16().count() > 4096 {
+        usage_error(&mut out, "escalation-reset reason exceeds 4096 characters");
+    } else {
+        return None;
+    }
+    Some(out)
+}
+
+/// `readPlanSnapshot(path, maximum)`: `Some(None)` when absent, `None` where the TS throws.
+fn snapshot(path: &str, maximum: u64) -> Option<Option<String>> {
+    match std::fs::metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(None),
+        Err(_) => None,
+        Ok(meta) if !meta.is_file() || meta.len() > maximum => None,
+        Ok(_) => String::from_utf8(std::fs::read(path).ok()?).ok().map(Some),
+    }
+}
+
+/// `reconcileHistory`: only an escalation directory without escalation records is modeled.
+fn escalation_records_absent(root: &StateRoot, feature: &str) -> Option<()> {
+    let neutral =
+        state_files::resolve_state_root(&root.cwd, &root.cwd, feature, Some(NEUTRAL_DIR)).ok()?;
+    let Ok(entries) = std::fs::read_dir(&neutral.path) else {
+        return std::fs::metadata(&neutral.path).is_err().then_some(());
+    };
+    let mut count = 0;
+    for entry in entries {
+        let name = entry.ok()?.file_name().into_string().ok()?;
+        count += 1;
+        let private = name
+            .strip_prefix("escalation_private_")
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+            .is_some_and(|id| {
+                id.len() == 36
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
+            });
+        if count > 8192 || (name.starts_with("escalation_") && !private) {
+            return None;
+        }
+    }
+    Some(())
+}
+
+fn reset_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
+    // The reset ends with an audit event (`appendCliEvent`, T18).
+    if crate::master_write::audit_may_write() {
+        return None;
+    }
+    let mut out = Output::default();
+    let path = state_files::artifact_path(root, &format!("workplan_{feature}.json")).ok()?;
+    let Some(text) = read_artifact(&path)? else {
+        usage_error(&mut out, &format!("workplan not found: {path}"));
+        return Some(out);
+    };
+    let level = match js_json::parse(&text)? {
+        JsValue::Object(o) => match o.get("level") {
+            Some(JsValue::Number(n)) => Some(*n),
+            _ => None,
+        },
+        _ => None,
+    };
+    if level.is_none_or(|l| l < 2.0) {
+        usage_error(
+            &mut out,
+            "escalation-reset applies to level >= 2 workplans; at level 0/1 the way out is a new solution and its challenge",
+        );
+        return Some(out);
+    }
+    // `recordAndCountRejections`: read, reconcile, maybe record the current rejection.
+    let log_name = format!("workplan_{feature}.gate.jsonl");
+    let log_path = state_files::artifact_path(root, &log_name).ok()?;
+    let review_path = state_files::artifact_path(root, &format!("review_{feature}.md")).ok()?;
+    let log = snapshot(&log_path, 1024 * 1024)?.unwrap_or_default();
+    let review = snapshot(&review_path, 4 * 1024 * 1024)?.unwrap_or_default();
+    let mut history = update::read_history(&log)?;
+    escalation_records_absent(root, feature)?;
+    let mut appends = Vec::new();
+    if update::rejects(&review)? {
+        let hash: String = Sha256::digest(review.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        if !history.hashes.contains(&hash) {
+            let ts = navori_core::handoff::review::iso_now();
+            appends.push(format!("{}\n", update::rejection_line(&ts, &hash)));
+            history.active.push(ts);
+        }
+    }
+    let count = history.active.len();
+    let reset = if count < 2 {
+        None
+    } else {
+        let line = update::reset_line(
+            &navori_core::handoff::review::iso_now(),
+            js_trim(options.get("reason").unwrap_or_default()),
+            count,
+        )?;
+        (line.len() <= 8192).then_some(line)
+    };
+    if let Some(line) = &reset {
+        appends.push(format!("{line}\n"));
+    }
+    if !appends.is_empty() && !state_files::plan_state_dirs(root).ok()?.is_empty() {
+        return None;
+    }
+    let mut fs = RealFs::default();
+    for text in &appends {
+        if let Err(error) = fs.append(std::path::Path::new(&log_path), text.as_bytes()) {
+            fail(
+                &mut out,
+                &format!("navori-rust: cannot append {log_path}: {error}"),
+            );
+            return Some(out);
+        }
+    }
+    if count < 2 {
+        usage_error(
+            &mut out,
+            &format!("escalation-reset needs two recorded rejections (found {count})"),
+        );
+    } else if reset.is_none() {
+        usage_error(&mut out, "escalation-reset record exceeds 8192 bytes");
+    } else if options.json {
+        json_line(
+            &mut out,
+            &object(vec![
+                ("reset", JsValue::Bool(true)),
+                ("rejectionsBefore", number(count)),
+            ]),
+        );
     }
     Some(out)
 }
