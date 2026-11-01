@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -52,6 +53,8 @@ interface Oracle {
     args: string[],
   ) => boolean;
   CASES_DIR: string;
+  RECORDINGS_DIR: string;
+  stubEnv: (work: string, tools: string[], pathValue: string) => Record<string, string>;
   readAreaCases: (dir: string) => OracleCase[];
   normalizeText: (text: string) => string;
   maskSide: (
@@ -448,6 +451,41 @@ describe("rust oracle", () => {
       expect(c.native).toBe(true);
       const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
       expect(config.harness.masterPlan, c.id).toBe(true);
+    }
+  });
+
+  // Covers: R76
+  it("los stubs de PATH responden por argv desde las grabaciones y registran cada llamada", () => {
+    const work = mkdtempSync(join(tmpdir(), "oracle-stubs-"));
+    try {
+      const env = oracle.stubEnv(work, ["gh", "npm"], process.env.PATH ?? "");
+      const recorded = JSON.parse(readFileSync(join(oracle.RECORDINGS_DIR, "gh.json"), "utf8")) as {
+        version: string;
+        responses: Array<{ args: string[]; stdout: string }>;
+      };
+      expect(recorded.version).toMatch(/^gh version /);
+      const run = (tool: string, args: string[]) =>
+        spawnSync(tool, args, { env: { ...process.env, ...env }, encoding: "utf8" });
+      const version = run("gh", ["--version"]);
+      expect(version.status).toBe(0);
+      expect(version.stdout).toBe(recorded.responses[0]?.stdout);
+      const missing = run("gh", ["api", "user"]);
+      expect(missing.status).toBe(127);
+      expect(missing.stderr).toBe("oracle stub: no recording for gh api user\n");
+      // A tool with no recordings file answers nothing, without reaching the real one.
+      expect(run("npm", ["view", "navori"]).status).toBe(127);
+      expect(
+        readFileSync(env.NAVORI_ORACLE_CALLS ?? "", "utf8")
+          .trim()
+          .split("\n"),
+      ).toEqual([
+        JSON.stringify({ tool: "gh", args: ["--version"] }),
+        JSON.stringify({ tool: "gh", args: ["api", "user"] }),
+        JSON.stringify({ tool: "npm", args: ["view", "navori"] }),
+      ]);
+      expect(() => oracle.stubEnv(work, ["curl"], "")).toThrow(/curl is not a stubbed tool/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
     }
   });
 

@@ -48,6 +48,11 @@ export const FIXTURES_DIR = join(ORACLE_DIR, "fixtures");
 export const CASES_DIR = join(ORACLE_DIR, "cases");
 /** Fixture the CLI surface golden cases run on. */
 export const SURFACE_FIXTURE = "empty";
+/** Recorded answers the PATH stubs serve (spec 0060 D42), one `<tool>.json` per tool. */
+export const RECORDINGS_DIR = join(ORACLE_DIR, "recordings");
+/** The external tools a case may stub (D42); any other name is a case error. */
+export const STUB_TOOLS = ["git", "gh", "acli", "codex", "npm", "tgrep", "codegraph", "pi"];
+const STUB_SCRIPT = join(ORACLE_DIR, "stub-tool.mjs");
 export const SURFACE_GOLDEN = join(
   REPO_ROOT,
   "packages",
@@ -67,11 +72,11 @@ const RUN_TIMEOUT_MS = 120_000;
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
  * @typedef {{ kind: string, detail: string }} Difference
- * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>> }} Outcome
+ * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>>, calls?: string[] }} Outcome  `calls`: the stub calls, one JSON line each
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
  */
 
@@ -414,7 +419,37 @@ export function compareOutcomes(ts, rust, ctx, mask = []) {
   for (const root of Object.keys(ts.trees)) {
     diffs.push(...compareTrees(root, ts.trees[root], rust.trees[root] ?? new Map(), normalizeText));
   }
+  const tsCalls = (ts.calls ?? []).join("\n");
+  const rustCalls = (rust.calls ?? []).join("\n");
+  if (tsCalls !== rustCalls) diffs.push({ kind: "calls", detail: `ts:\n${tsCalls}\nrust:\n${rustCalls}` });
   return diffs;
+}
+
+/**
+ * Lays out the PATH stubs of `tools` under `<work>/stubs` and returns the environment that puts
+ * them first, serves `recordings` and logs every call to `<work>/calls.jsonl` (spec 0060 D42).
+ *
+ * @param {string} work
+ * @param {string[]} tools
+ * @param {string} pathValue the case's `PATH`
+ * @param {string} [recordings]
+ * @returns {Record<string, string>}
+ */
+export function stubEnv(work, tools, pathValue, recordings = RECORDINGS_DIR) {
+  const dir = join(work, "stubs");
+  mkdirSync(dir, { recursive: true });
+  const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+  for (const tool of tools) {
+    if (!STUB_TOOLS.includes(tool)) throw new Error(`rust-oracle: ${tool} is not a stubbed tool`);
+    const wrapper = join(dir, tool);
+    writeFileSync(wrapper, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(STUB_SCRIPT)} ${tool} "$@"\n`);
+    chmodSync(wrapper, 0o755);
+  }
+  return {
+    PATH: `${dir}:${pathValue}`,
+    NAVORI_ORACLE_RECORDINGS: recordings,
+    NAVORI_ORACLE_CALLS: join(work, "calls.jsonl"),
+  };
 }
 
 /**
@@ -651,7 +686,8 @@ function runOnce(work, runner, testCase, opts) {
       value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
     ]),
   );
-  const env = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
+  const base = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
+  const env = testCase.tools ? { ...base, ...stubEnv(work, testCase.tools, base.PATH) } : base;
   // A write-failure case: these directories are read-only during the run, then restored so the
   // snapshot and the cleanup can walk them.
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
@@ -664,7 +700,10 @@ function runOnce(work, runner, testCase, opts) {
   });
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o755);
   if (run.error) throw new Error(`cannot run ${runner.cmd}: ${run.error.message}`);
+  const callLog = join(work, "calls.jsonl");
+  const calls = existsSync(callLog) ? readFileSync(callLog, "utf8").split("\n").filter(Boolean) : [];
   return {
+    calls,
     status: run.status,
     signal: run.signal,
     stdout: run.stdout,
