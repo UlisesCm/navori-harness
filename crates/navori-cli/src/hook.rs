@@ -85,7 +85,7 @@ fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 11]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 15]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -132,6 +132,38 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 11]> = LazyLock::new(|| {
             implementation: navori_hooks::compiled::implementation_hash("implementer-no-markdown")
                 .unwrap_or_default(),
             handler: Handler::Prepared(crate::implementer_no_markdown_hook::prepare),
+            phase: pre_tool_use,
+            tool: None,
+        },
+        NativeHook {
+            id: "comment-draft-confirm",
+            implementation: navori_hooks::compiled::implementation_hash("comment-draft-confirm")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::publish_confirm_hook::prepare_comment_draft),
+            phase: pre_tool_use,
+            tool: Some("Bash"),
+        },
+        NativeHook {
+            id: "pr-publisher-confirm",
+            implementation: navori_hooks::compiled::implementation_hash("pr-publisher-confirm")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::publish_confirm_hook::prepare_pr_publisher),
+            phase: pre_tool_use,
+            tool: Some("Bash"),
+        },
+        NativeHook {
+            id: "role-guard",
+            implementation: navori_hooks::compiled::implementation_hash("role-guard")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::governance_hook::prepare_role_guard),
+            phase: pre_tool_use,
+            tool: None,
+        },
+        NativeHook {
+            id: "engram-write-guard",
+            implementation: navori_hooks::compiled::implementation_hash("engram-write-guard")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::governance_hook::prepare_engram_write_guard),
             phase: pre_tool_use,
             tool: None,
         },
