@@ -84,6 +84,27 @@ describe("rust-areas (spec 0060 D40/D41)", () => {
     expect(missing).toEqual({ commands: [], flags: [], hooks: [] });
   });
 
+  // Covers: R73, R77
+  it("dominio sin subcomandos pendientes", () => {
+    const dominio = commands.filter((entry) => entry.path[0] === "dominio");
+    expect(dominio.map((entry) => entry.path.join(" "))).toEqual([
+      "dominio",
+      "dominio doctor",
+      "dominio init",
+      "dominio inject",
+      "dominio list",
+      "dominio reindex",
+      "dominio show",
+    ]);
+    const missing = areas.areaInventoryCheck(
+      "E1",
+      areas.withoutAreas(manifest, ["E2", "E3"]),
+      dominio,
+      [],
+    );
+    expect(missing).toEqual({ commands: [], flags: [], hooks: [] });
+  });
+
   // Covers: R77
   it("reporta comandos, flags y hooks pendientes de un área", () => {
     const partial: Manifest = {
