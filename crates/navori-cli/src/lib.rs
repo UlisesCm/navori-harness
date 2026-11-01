@@ -3,6 +3,7 @@
 pub mod adopt;
 pub mod commands;
 pub mod delegate;
+pub mod dominio;
 pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
@@ -120,6 +121,30 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["dominio", "inject"],
         run: dominio_inject::run,
+    },
+    NativeCommand {
+        path: &["dominio", "init"],
+        run: dominio::run_init,
+    },
+    NativeCommand {
+        path: &["dominio", "list"],
+        run: dominio::run_list,
+    },
+    NativeCommand {
+        path: &["dominio", "show"],
+        run: dominio::run_show,
+    },
+    NativeCommand {
+        path: &["dominio", "reindex"],
+        run: dominio::run_reindex,
+    },
+    NativeCommand {
+        path: &["dominio", "doctor"],
+        run: dominio::run_doctor,
+    },
+    NativeCommand {
+        path: &["dominio"],
+        run: dominio::run_group,
     },
     NativeCommand {
         path: &["tools", "notice"],
