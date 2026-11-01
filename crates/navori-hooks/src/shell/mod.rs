@@ -1,6 +1,7 @@
 //! Shell text conventions shared by every ported hook (spec 0057 D8: hashed with each hook).
 
 pub mod capture;
+pub mod draft_body;
 pub mod gate_ask;
 pub mod gate_trigger;
 pub mod hook_input;
@@ -10,6 +11,7 @@ pub mod payload;
 pub mod prepare;
 pub(crate) mod ratchet;
 pub mod repo;
+pub mod role_case;
 pub mod subcommand;
 
 /// Shell text/character-count convention, supplied instead of inspecting LC_ALL.

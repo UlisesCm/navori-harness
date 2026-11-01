@@ -77,7 +77,7 @@ fn engine_scope(id: &str) -> Option<&'static [&'static str]> {
 }
 
 /// `inEngineScope`.
-fn in_engine_scope(id: &str, engine: Option<&str>) -> bool {
+pub fn in_engine_scope(id: &str, engine: Option<&str>) -> bool {
     engine_scope(id).is_none_or(|scope| engine.is_some_and(|engine| scope.contains(&engine)))
 }
 
