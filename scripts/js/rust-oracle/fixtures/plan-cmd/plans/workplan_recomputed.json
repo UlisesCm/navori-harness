@@ -1,0 +1,26 @@
+{
+  "feature": "recomputed",
+  "level": 0,
+  "classification": {
+    "score": 0,
+    "level": 0,
+    "signals": [
+      "floor:multi-repo"
+    ]
+  },
+  "objective": "The recomputed level wins",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "exit 0"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/a.ts",
+      "new": false
+    }
+  ]
+}

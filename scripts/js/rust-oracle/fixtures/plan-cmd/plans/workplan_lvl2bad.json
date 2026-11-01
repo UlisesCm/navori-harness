@@ -1,0 +1,19 @@
+{
+  "feature": "lvl2bad",
+  "level": 2,
+  "classification": {
+    "score": 8,
+    "level": 2,
+    "signals": []
+  },
+  "objective": "Missing level 2 sections",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "exit 0"
+    }
+  ],
+  "phases": []
+}
