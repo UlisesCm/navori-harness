@@ -6,8 +6,8 @@
 //! differently (`--no-*`, a repeated or empty value), a state root the TS throws on uncaught, a
 //! config `readConfig` rejects or Rust does not model, a JSON `JSON.parse` or zod rejects (their
 //! messages are V8's and zod's), a `matches:` only a JS `RegExp` judges, a `source` projection,
-//! and `classify --diff` (git, D42). `update`, `escalation-reset`, `acknowledge` and `resume`
-//! are not in the manifest, and the group delegates them with `gate`.
+//! and `classify --diff` (git, D42). `resume` (`plan::resume`) delegates where its core does.
+//! `acknowledge` is not in the manifest, and the group delegates it with `gate`.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -23,8 +23,10 @@ use navori_core::plan::check::ProjectContext;
 use navori_core::plan::classify::{ClassifyInput, classify, declared_flags_from_signals};
 use navori_core::plan::expected::{Expected, parse_expected};
 use navori_core::plan::report::{self, Report};
+use navori_core::plan::resume::{ConfigFacts, RESUME_BUDGET, ResumeInput, resume_plans};
 use navori_core::plan::update::{self, Mutation};
 use navori_core::posix::{js_trim, resolve};
+use navori_core::process::RealRunner;
 use navori_core::state_files::{self, Refusal, StateRoot, StateWrite};
 use sha2::{Digest as _, Sha256};
 
@@ -193,6 +195,17 @@ const ESCALATION_RESET: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const RESUME: CommandDef = CommandDef {
+    name: "resume",
+    description: "Revalidate continuity without reviving stale guarantees",
+    args: &[ArgDef {
+        name: "json",
+        kind: ArgKind::Boolean,
+        description: "Output JSON",
+    }],
+    sub_commands: &[],
+};
+
 const PLAN: CommandDef = CommandDef {
     name: "plan",
     description: "Classify, render, update and check a level-1/2 workplan",
@@ -262,6 +275,7 @@ enum Row {
     Render,
     Update,
     EscalationReset,
+    Resume,
 }
 
 /// `plan` alone: usage, `--help` and unknown subcommands.
@@ -300,6 +314,12 @@ pub fn run_escalation_reset(call: &NativeCall<'_>) -> Outcome {
     outcome(run(call.args, Row::EscalationReset))
 }
 
+/// `plan resume`.
+#[must_use]
+pub fn run_resume(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Resume))
+}
+
 fn outcome(code: Option<ExitCode>) -> Outcome {
     code.map_or(Outcome::Delegate, Outcome::Exit)
 }
@@ -329,6 +349,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "render" => (&RENDER, Row::Render),
         "update" => (&UPDATE, Row::Update),
         "escalation-reset" => (&ESCALATION_RESET, Row::EscalationReset),
+        "resume" => (&RESUME, Row::Resume),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
             || PLAN.sub_commands.iter().any(|(sub, _)| *sub == name) =>
@@ -350,6 +371,9 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     }
     if help {
         return Some(Output::usage(leaf, PLAN_PARENT, None).emit());
+    }
+    if row == Row::Resume {
+        return resume_command(&rest[at + 1..]).map(Output::emit);
     }
     let (strings, booleans): (&[&str], &[&str]) = if row == Row::Update {
         (&["dir", "cwd", "progress", "decision", "date"], &["json"])
@@ -402,7 +426,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         Row::Render => render_command(feature, &options, &root)?,
         Row::Update => update_command(feature, &options, &root)?,
         Row::EscalationReset => reset_command(feature, &options, &root)?,
-        Row::Group => return None,
+        Row::Group | Row::Resume => return None,
     };
     Some(out.emit())
 }
@@ -1148,6 +1172,59 @@ fn reset_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> 
             ]),
         );
     }
+    Some(out)
+}
+
+// resume
+
+/// `plan resume [--json]`: `resumePlans(process.cwd())`, compact with `--json` and indented
+/// otherwise. Anything after `resume` other than `--json` is the TS's (citty would accept it).
+fn resume_command(tokens: &[&str]) -> Option<Output> {
+    let json = match tokens {
+        [] => false,
+        ["--json"] => true,
+        _ => return None,
+    };
+    let process_cwd = std::env::current_dir().ok()?;
+    let process_cwd = process_cwd.to_str()?;
+    let warnings = std::cell::RefCell::new(Vec::new());
+    let config = |root: &str| -> Option<ConfigFacts> {
+        let Some(config) = read_config(root)? else {
+            let path = format!("{root}/navori.config.json");
+            return Some(ConfigFacts::Thrown(format!(
+                "Cannot read {path}: ENOENT: no such file or directory, open '{path}'"
+            )));
+        };
+        let target = match (
+            member(Some(&config.data), "prTarget"),
+            member(Some(&config.data), "branchBase"),
+        ) {
+            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
+            _ => return None,
+        };
+        let gate = match member(member(Some(&config.data), "qualityGate"), "full") {
+            None | Some(JsValue::Undefined | JsValue::Null) => String::new(),
+            Some(JsValue::String(t)) => t.to_rust()?,
+            Some(_) => return None,
+        };
+        warnings.borrow_mut().extend(config.warnings);
+        Some(ConfigFacts::Values { target, gate })
+    };
+    let env = navori_core::plan::evidence::process_env();
+    let result = resume_plans(&ResumeInput {
+        cwd: process_cwd,
+        runner: &RealRunner,
+        env: &env,
+        budget: RESUME_BUDGET,
+        config: &config,
+    })?;
+    let mut out = Output::default();
+    for warning in warnings.into_inner() {
+        out.stderr.push_str(&warning);
+        out.stderr.push('\n');
+    }
+    out.stdout = result.stringify((!json).then_some(2))?;
+    out.stdout.push('\n');
     Some(out)
 }
 

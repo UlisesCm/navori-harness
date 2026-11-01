@@ -8,5 +8,6 @@ pub mod evidence;
 pub mod expected;
 pub mod gate;
 pub mod report;
+pub mod resume;
 pub mod roster;
 pub mod update;

@@ -48,6 +48,7 @@
     { "path": ["plan", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["plan", "update"], "flags": ["cwd", "date", "decision", "dir", "h", "help", "json", "progress"] },
     { "path": ["plan", "escalation-reset"], "flags": ["approved-by", "cwd", "dir", "h", "help", "json", "reason"] },
+    { "path": ["plan", "resume"], "flags": ["h", "help", "json"] },
     { "path": ["plan"], "flags": ["h", "help"] },
     { "path": ["dominio", "inject"] },
     { "path": ["dominio", "init"], "flags": ["h", "help", "workspace"] },
