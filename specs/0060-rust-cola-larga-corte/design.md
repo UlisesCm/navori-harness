@@ -1,6 +1,6 @@
 # Migración a Rust, fase 4: cola larga — Design
 
-**Estado:** aceptada; reestructurada el 2026-10-31 (Q26–Q29). Q22 y Q24 se mudaron a 0062 y Q23 sigue
+**Estado:** aceptada; reestructurada el 2026-10-31 (Q26–Q29) y con el PR 1c acotado el 2026-11-01 (Q30). Q22 y Q24 se mudaron a 0062 y Q23 sigue
 abierta (§ "Preguntas") ·
 **Fecha:** 2026-10-28 · **Base verificada:** `migration/rust` = `b0b64ddd` (merge de #1442). Toda
 afirmación "ya existe" o "falta" se leyó en ese commit; las referencias citan archivo y símbolo.
@@ -66,8 +66,8 @@ desde el 2026-10-31 (Q26).
 **Orden y paralelismo (revisado el 2026-10-31, D47).**
 - Los hooks entran en `shadow` en la entrega de su área, así su ventana corre mientras se portan las
   otras áreas.
-- E1 abrió con los dos slices de referencia porque no dependían de 0059. Su PR final de comandos
-  (1c) trae la infraestructura que comparten E2 y E3: las herramientas de T17 y el
+- E1 abrió con los dos slices de referencia porque no dependían de 0059. Su PR de comandos 1c
+  (Q30: sin esperar el resto de E1, que va en 1d) trae la infraestructura que comparten E2 y E3: las herramientas de T17 y el
   `ProcessRunner` de D42 (T18), que antes llegaba con E2 y obligaba a E3 a esperarla.
 - Con esa infraestructura, E2 y M8 de E3 avanzan en paralelo: ninguna depende en nativo de la otra
   (R78) y cada una tiene su archivo de casos del oráculo.
@@ -240,6 +240,7 @@ Con la política de D47:
 | Q27 | (2026-10-31) Activación por evidencia mínima (D49 de 0062): replay, fuzz de 100 000 y 7 días de sombra sin divergencias para hooks con compuerta; solo replay para advisory |
 | Q28 | (2026-10-31) Delegación permanente de caminos raros (D48) y corte con esa lista delegada al TS congelado (D50 de 0062) |
 | Q29 | (2026-10-31) Política de velocidad de D47 en 0059, 0060 y 0062 |
+| Q30 | (2026-11-01) El PR 1c se queda con la infraestructura compartida (T17, T18) y lo avanzado de T8, y entra sin esperar el resto de E1, para que E2 y E3 partan de `migration/rust`. El resto de E1 (T8, T10, T11 y T16) va en un PR 1d |
 
 ## Preguntas (abiertas)
 

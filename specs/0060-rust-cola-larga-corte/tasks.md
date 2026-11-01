@@ -11,11 +11,12 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
 | PR | Flujo | Entrega | Contenido | Rama (2026-11-01) | Se mergea cuando |
 |---|---|---|---|---|---|
 | 1a | — | E1 | Mergeado (#1454) | — | — |
-| 1b | Hooks | E1 | T13 y T14 en un solo PR | `feat/0060-rust-e1b-hooks`: los cuatro hooks en `shadow`, replay verde (425 casos); falta el fuzz de 10 000 | El replay y el fuzz de 10 000 de esos cuatro hooks y la CI en verde |
-| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) ya entró | `feat/0060-rust-e1c-comandos`: el mapeo de `spec check` a `parts.json` de T8; sigue T17 | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
+| 1b | Hooks | E1 | T13 y T14 en un solo PR | Mergeado (#1471) | — |
+| 1c | Comandos | E1 | La infraestructura compartida (T17, T18) y el avance de T8 (mapeo de `spec check` a `parts.json`), por Q30. #1466 (T11 parte 2) ya entró | `feat/0060-rust-e1c-comandos`: T17 y T18 cerrados, A6 verde | A6 verde y la CI en verde |
+| 1d | Comandos | E1 | El resto de E1 (Q30): `master init` y los `master delivery-*` (T8), los productores paralelos, `attest` y los flags de evidencia de `handoff check` (T10), `plan acknowledge`, `plan resume` y `classify --diff` (T11), y el inventario T16 | Sin rama; sale de `migration/rust` cuando entre 1c | A3, A4 y A5 completos y la CI en verde |
 | 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | Sin rama; empieza cuando entre 1b | El replay de A7 y A8 de esos hooks y la CI en verde |
-| 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de la de 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
-| 4 | Comandos | E3 | T23, T24 y T26–T29 | `feat/0060-rust-e3-comandos`, apilada sobre 1c: `backup` y `migrations` (T24), `preset init` (T26) y `registry` (T28) | A8 y A9 verdes; entra después del PR 2 |
+| 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de `migration/rust` cuando entre 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
+| 4 | Comandos | E3 | T23, T24 y T26–T29 | `feat/0060-rust-e3-comandos` (#1473), apilada sobre 1c hasta que entre: `backup` y `migrations` (T24), `preset init` (T26) y `registry` (T28) | A8 y A9 verdes; entra después del PR 2 |
 
 **Precondiciones de entrada (trabajo en paralelo, D47):**
 - **E2 y M8 de E3:** empiezan ya. Sus comandos usan la infraestructura compartida de M6 (T17, T18),
