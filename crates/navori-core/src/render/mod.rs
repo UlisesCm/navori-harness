@@ -12,6 +12,7 @@ pub mod codex_agents_md;
 pub mod codex_catalog;
 pub mod codex_compat;
 pub mod codex_config;
+pub mod codex_engine;
 pub mod codex_hooks;
 pub mod codex_orphans;
 pub mod codex_policies;

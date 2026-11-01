@@ -1088,3 +1088,138 @@ impl ProjectContext {
         }
     }
 }
+
+/// `engine.pluginLoadFailedCodex(id, reason)`.
+#[must_use]
+pub fn plugin_load_failed_codex(lang: Lang, id: &str, reason: &str) -> String {
+    match lang {
+        Lang::Es => format!("Plugin '{id}' no pudo cargarse para Codex: {reason}."),
+        Lang::En => format!("Plugin '{id}' couldn't be loaded for Codex: {reason}."),
+    }
+}
+
+/// `engine.presetNotFoundCodex(preset)`.
+#[must_use]
+pub fn preset_not_found_codex(lang: Lang, preset: &str) -> String {
+    match lang {
+        Lang::Es => format!("Preset '{preset}' no encontrado; Codex usar\u{e1} solo el core."),
+        Lang::En => format!("Preset '{preset}' not found; Codex will use the core only."),
+    }
+}
+
+/// `engine.keptOrphanCodex(path, reason)` for the reasons an orphan scan gives.
+#[must_use]
+pub fn kept_orphan_codex(lang: Lang, path: &str, reason: &str) -> String {
+    let (prefix, why) = match lang {
+        Lang::Es => (
+            "conservado",
+            match reason {
+                "newer" => {
+                    "lo escribi\u{f3} una versi\u{f3}n de navori m\u{e1}s nueva que este CLI; no se revierte"
+                }
+                "modified" => "archivo managed editado; se conserva para no perder cambios",
+                "hook-referenced" => {
+                    "un hook de git, un script o un workflow a\u{fa}n lo invoca; se conserva"
+                }
+                "settings-referenced" => {
+                    "un config.toml/settings.json que este render no reescribi\u{f3} a\u{fa}n lo registra; se conserva"
+                }
+                "native-hook-declared" => {
+                    "el plugin declara nativeHook: true; se conserva por si tu hook nativo lo llama"
+                }
+                _ => {
+                    "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribi\u{f3}"
+                }
+            },
+        ),
+        Lang::En => (
+            "kept",
+            match reason {
+                "newer" => "written by a navori newer than this CLI; not rolled back",
+                "modified" => "user-edited managed file; kept to avoid losing changes",
+                "hook-referenced" => "a git hook, a script or a workflow still invokes it; kept",
+                "settings-referenced" => {
+                    "a config.toml/settings.json this render did not rewrite still registers it; kept"
+                }
+                "native-hook-declared" => {
+                    "the plugin declares nativeHook: true; kept in case your native hook calls it"
+                }
+                _ => {
+                    "carries no navori marker (foreign); never deleted without proof navori wrote it"
+                }
+            },
+        ),
+    };
+    format!("{prefix} {path} \u{2014} {why}")
+}
+
+/// `engine.codexResidualPluginHook(path)`.
+#[must_use]
+pub fn codex_residual_plugin_hook(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "ALERTA: {path} conserva un registro de plugin deshabilitado en .codex/config.toml; el hook puede seguir activo y no es confiable. Revisa el archivo y el script manualmente."
+        ),
+        Lang::En => format!(
+            "WARNING: {path} retains a disabled plugin registration in .codex/config.toml; the hook may remain active and is untrusted. Review the config and script manually."
+        ),
+    }
+}
+
+/// `engine.codexPluginScriptChanged(path)`.
+#[must_use]
+pub fn codex_plugin_script_changed(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "REVISAR TRUST: cambi\u{f3} el contenido de {path}; el hash del registro Codex no cubre el script. Revisa el script antes de ejecutar o aprobar el hook."
+        ),
+        Lang::En => format!(
+            "TRUST REVIEW: {path} content changed; the Codex registration hash does not cover script bytes. Review the script before running or approving the hook."
+        ),
+    }
+}
+
+/// `engine.codexTrustCommandHint(minVersion)`.
+#[must_use]
+pub fn codex_trust_command_hint(lang: Lang, min_version: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Requiere Codex CLI >= {min_version}. Corre 'navori codex trust' para revisar y aprobar los hooks."
+        ),
+        Lang::En => format!(
+            "Requires Codex CLI >= {min_version}. Run 'navori codex trust' to review and approve the hooks."
+        ),
+    }
+}
+
+/// `engine.codexRulesSummary(notBash, innerWildcard, narrowed)`.
+#[must_use]
+pub fn codex_rules_summary(
+    lang: Lang,
+    not_bash: usize,
+    inner_wildcard: usize,
+    narrowed: usize,
+) -> String {
+    let dropped = not_bash + inner_wildcard;
+    match lang {
+        Lang::Es => format!(
+            ".codex/rules/navori.rules: {dropped} regla(s) omitida(s) ({not_bash} no-Bash, {inner_wildcard} con comod\u{ed}n interno) y {narrowed} acotada(s) en prompt/forbidden (comod\u{ed}n pegado al \u{fa}ltimo token) \u{2014} lista completa en 'navori render --json'."
+        ),
+        Lang::En => format!(
+            ".codex/rules/navori.rules: {dropped} rule(s) dropped ({not_bash} non-Bash, {inner_wildcard} with an inner wildcard) and {narrowed} narrowed on prompt/forbidden (wildcard glued to the last token) \u{2014} full list in 'navori render --json'."
+        ),
+    }
+}
+
+/// `engine.agentsMdRedundantWithCodex`.
+#[must_use]
+pub const fn agents_md_redundant_with_codex(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "El engine 'agents-md' es redundante junto a 'codex'; Codex ser\u{e1} el \u{fa}nico due\u{f1}o de AGENTS.md."
+        }
+        Lang::En => {
+            "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md."
+        }
+    }
+}
