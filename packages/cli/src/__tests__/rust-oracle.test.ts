@@ -619,7 +619,16 @@ describe("rust oracle", () => {
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1]);
-    expect(native.sort()).toEqual(["attest", "check", "log-review", "render"]);
+    expect(native.sort()).toEqual([
+      "attest",
+      "begin-parallel",
+      "check",
+      "complete-parallel",
+      "finalize-parallel",
+      "log-review",
+      "prepare-parallel",
+      "render",
+    ]);
     for (const sub of native) {
       for (const json of [true, false]) {
         expect(
@@ -632,16 +641,18 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // The parallel producers are the TS's: their cases must stay delegated.
+    // A config that prints warnings would print them once per `bindings` read: the producers
+    // and the scribe's parallel check hand it to the TS.
     for (const sub of [
       "prepare-parallel",
       "begin-parallel",
       "complete-parallel",
       "finalize-parallel",
     ]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+      expect(
+        cases.find((c) => c.id === `handoff:${sub}-config-con-avisos`)?.native,
+        sub,
+      ).toBeUndefined();
     }
     for (const flag of ["--for", "--target", "--cwd"]) {
       expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
@@ -653,8 +664,8 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // The scribe's prior parallel authority (`checkParallel`) stays with the TS.
     expect(cases.find((c) => c.id === "handoff:check-parallel-delegates")?.native).toBeUndefined();
+    expect(cases.find((c) => c.id === "handoff:check-parallel-scribe")?.native).toBe(true);
     // A native Codex producer attests, as implementer and as scribe over its record.
     for (const id of ["attest-implementer", "attest-scribe-tras-implementer"]) {
       expect(cases.find((c) => c.id === `handoff:${id}`)?.native, id).toBe(true);

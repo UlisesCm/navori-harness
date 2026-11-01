@@ -234,6 +234,22 @@ pub const NATIVE: &[NativeCommand] = &[
         run: handoff::run_attest,
     },
     NativeCommand {
+        path: &["handoff", "prepare-parallel"],
+        run: handoff::run_prepare,
+    },
+    NativeCommand {
+        path: &["handoff", "begin-parallel"],
+        run: handoff::run_begin,
+    },
+    NativeCommand {
+        path: &["handoff", "complete-parallel"],
+        run: handoff::run_complete,
+    },
+    NativeCommand {
+        path: &["handoff", "finalize-parallel"],
+        run: handoff::run_finalize,
+    },
+    NativeCommand {
         path: &["handoff"],
         run: handoff::run_group,
     },

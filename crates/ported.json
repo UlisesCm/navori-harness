@@ -100,6 +100,10 @@
     { "path": ["handoff", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["handoff", "log-review"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["handoff", "attest"], "flags": ["dir", "h", "help", "json", "target"] },
+    { "path": ["handoff", "prepare-parallel"], "flags": ["dir", "h", "help", "json", "request", "supersede", "target"] },
+    { "path": ["handoff", "begin-parallel"], "flags": ["dir", "h", "help", "json", "run", "target"] },
+    { "path": ["handoff", "complete-parallel"], "flags": ["dir", "h", "help", "json", "reason", "run", "status", "target"] },
+    { "path": ["handoff", "finalize-parallel"], "flags": ["dir", "h", "help", "json", "target"] },
     { "path": ["handoff"], "flags": ["h", "help"] }
   ],
   "hooks": {

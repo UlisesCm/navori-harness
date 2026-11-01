@@ -10,6 +10,7 @@ pub mod attest;
 pub mod implementation;
 pub mod native_actor;
 pub mod ownership;
+pub mod parallel;
 pub mod review;
 pub mod review_check;
 pub mod review_evidence;
