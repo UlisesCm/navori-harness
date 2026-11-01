@@ -28,6 +28,7 @@ pub mod plan;
 pub mod plugin_scripts;
 pub mod plugins;
 pub mod presets;
+pub mod prose;
 pub mod removable;
 pub mod report;
 pub mod retirements;

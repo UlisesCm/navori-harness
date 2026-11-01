@@ -796,6 +796,45 @@ pub fn block_from_newer_navori(lang: Lang, version: Option<&str>) -> String {
     }
 }
 
+/// `engine.proseNoClaudeInfra`.
+#[must_use]
+pub const fn prose_no_claude_infra(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "No replica la infraestructura específica de Claude Code: orquestación de subagentes (Agent tool), hooks (quality-gate/guard-destructive) y reglas de permisos. Configúralos en tu herramienta si las necesitas."
+        }
+        Lang::En => {
+            "Does not replicate Claude Code-specific infrastructure: subagent orchestration (Agent tool), hooks (quality-gate/guard-destructive) and permission rules. Configure them in your tool if you need them."
+        }
+    }
+}
+
+/// `engine.prosePluginBlocksOmitted(list)`.
+#[must_use]
+pub fn prose_plugin_blocks_omitted(lang: Lang, list: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "Bloques de plugins omitidos por asumir infraestructura de Claude Code: {list}."
+        ),
+        Lang::En => {
+            format!("Plugin blocks omitted because they assume Claude Code infrastructure: {list}.")
+        }
+    }
+}
+
+/// `engine.proseModelAssignmentOmitted`.
+#[must_use]
+pub const fn prose_model_assignment_omitted(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió."
+        }
+        Lang::En => {
+            "Per-agent model assignment (config.models) doesn't apply outside Claude Code; omitted."
+        }
+    }
+}
+
 /// `engine.renderFailedWriting(label, path, detail)`.
 #[must_use]
 pub fn render_failed_writing(lang: Lang, label: Option<&str>, path: &str, detail: &str) -> String {
