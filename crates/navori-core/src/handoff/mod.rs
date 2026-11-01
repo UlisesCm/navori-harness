@@ -6,7 +6,9 @@
 //! zod rejects (its issue text is zod's) or one with text Rust cannot carry (a lone surrogate) is
 //! `None`, and the command hands the invocation to the TS before any output.
 
+pub mod attest;
 pub mod implementation;
+pub mod native_actor;
 pub mod ownership;
 pub mod review;
 pub mod review_check;

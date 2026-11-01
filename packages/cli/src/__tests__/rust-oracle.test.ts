@@ -619,7 +619,7 @@ describe("rust oracle", () => {
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1]);
-    expect(native.sort()).toEqual(["check", "log-review", "render"]);
+    expect(native.sort()).toEqual(["attest", "check", "log-review", "render"]);
     for (const sub of native) {
       for (const json of [true, false]) {
         expect(
@@ -632,13 +632,12 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // The parallel producers and `attest` are the TS's: their cases must stay delegated.
+    // The parallel producers are the TS's: their cases must stay delegated.
     for (const sub of [
       "prepare-parallel",
       "begin-parallel",
       "complete-parallel",
       "finalize-parallel",
-      "attest",
     ]) {
       const delegated = cases.filter((c) => c.args[1] === sub);
       expect(delegated.length).toBeGreaterThan(0);
@@ -650,21 +649,37 @@ describe("rust oracle", () => {
       );
     }
     for (const flag of ["--produced-by", "--since", "--parallel"]) {
-      expect(cases.find((c) => c.args.includes(flag))?.native).toBeUndefined();
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    // The scribe's prior parallel authority (`checkParallel`) stays with the TS.
+    expect(cases.find((c) => c.id === "handoff:check-parallel-delegates")?.native).toBeUndefined();
+    // A native Codex producer attests, as implementer and as scribe over its record.
+    for (const id of ["attest-implementer", "attest-scribe-tras-implementer"]) {
+      expect(cases.find((c) => c.id === `handoff:${id}`)?.native, id).toBe(true);
     }
     expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
     expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
   });
 
   // Covers: R73, R74
-  it("plan classify, check, render, update y escalation-reset nativos con sus delegaciones", () => {
+  it("plan classify, check, render, update, escalation-reset y resume nativos con sus delegaciones", () => {
     const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
     const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1])
       .sort();
-    expect(native).toEqual(["check", "classify", "escalation-reset", "gate", "render", "update"]);
+    expect(native).toEqual([
+      "check",
+      "classify",
+      "escalation-reset",
+      "gate",
+      "render",
+      "resume",
+      "update",
+    ]);
     const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
     for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
       for (const json of [true, false]) {
@@ -678,11 +693,16 @@ describe("rust oracle", () => {
       );
     }
     // What stays in the TS must stay delegated: a native case there would hide a regression.
-    for (const sub of ["acknowledge", "resume"]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    const acknowledge = cases.filter((c) => c.args[1] === "acknowledge");
+    expect(acknowledge.length).toBeGreaterThan(0);
+    expect(acknowledge.every((c) => c.native === undefined)).toBe(true);
+    const resume = oracle
+      .loadCases()
+      .filter((c) => c.args[0] === "plan" && c.args[1] === "resume" && c.native);
+    for (const json of [true, false]) {
+      expect(resume.some((c) => c.args.includes("--json") === json)).toBe(true);
     }
+    expect(resume.some((c) => c.id === "plan-resume:recibo-firmado")).toBe(true);
     expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
     // Git evidence, audit events and escalation records stay with the TS.
     for (const id of [

@@ -99,6 +99,7 @@
     { "path": ["handoff", "check"], "flags": ["cwd", "dir", "for", "h", "help", "json", "parallel", "produced-by", "since", "target"] },
     { "path": ["handoff", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["handoff", "log-review"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff", "attest"], "flags": ["dir", "h", "help", "json", "target"] },
     { "path": ["handoff"], "flags": ["h", "help"] }
   ],
   "hooks": {

@@ -230,6 +230,10 @@ pub const NATIVE: &[NativeCommand] = &[
         run: handoff::run_log_review,
     },
     NativeCommand {
+        path: &["handoff", "attest"],
+        run: handoff::run_attest,
+    },
+    NativeCommand {
         path: &["handoff"],
         run: handoff::run_group,
     },

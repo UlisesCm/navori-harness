@@ -8,8 +8,9 @@
 //! model (`navori_core::handoff::review_evidence`), a `--since` that is not ISO UTC, the
 //! scribe's `--parallel` authority, a state root the TS would throw on outside a caught path,
 //! and a possible audit event (`log-review` with an audit session).
-//! The parallel producers (`prepare-parallel`, `begin-parallel`, `complete-parallel`,
-//! `finalize-parallel`) and `attest` are not in the manifest: they always delegate.
+//! `attest` is native over `navori_core::handoff::attest`. The parallel producers
+//! (`prepare-parallel`, `begin-parallel`, `complete-parallel`, `finalize-parallel`) are not in the
+//! manifest: they always delegate.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -17,6 +18,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 use navori_core::config::Config;
 use navori_core::fs::{Fs, RealFs};
+use navori_core::handoff::attest::{Attest, AttestInput, plan_attest};
 use navori_core::handoff::implementation::{self, ImplHandoff};
 use navori_core::handoff::review::{self, FINDINGS_LOG_NAME};
 use navori_core::handoff::review_check::{ReviewCheck, check_review_handoff};
@@ -126,6 +128,30 @@ const RENDER: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const ATTEST: CommandDef = CommandDef {
+    name: "attest",
+    description: "Attest delivery ownership from the native producer context",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "target",
+            kind: ArgKind::String,
+            description: "Review target branch",
+        },
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "State directory",
+        },
+        ArgDef {
+            name: "json",
+            kind: ArgKind::Boolean,
+            description: "Output JSON",
+        },
+    ],
+    sub_commands: &[],
+};
+
 const HANDOFF: CommandDef = CommandDef {
     name: "handoff",
     description: "Validate the implementer's handoff before dispatch",
@@ -190,6 +216,13 @@ enum Row {
     Check,
     Render,
     LogReview,
+    Attest,
+}
+
+/// `handoff attest`.
+#[must_use]
+pub fn run_attest(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Attest))
 }
 
 /// `handoff` alone: usage, `--help` and unknown subcommands.
@@ -243,6 +276,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "check" => (&CHECK, Row::Check),
         "render" => (&RENDER, Row::Render),
         "log-review" => (&LOG_REVIEW, Row::LogReview),
+        "attest" => (&ATTEST, Row::Attest),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
             || HANDOFF.sub_commands.iter().any(|(sub, _)| *sub == name) =>
@@ -275,6 +309,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
             "since",
             "parallel",
         ],
+        Row::Attest => &["target", "dir"],
         _ => &["dir", "cwd"],
     };
     let options = parse_leaf(&rest[at + 1..], strings)?;
@@ -288,6 +323,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         Row::Check => check(feature, &options, process_cwd)?,
         Row::Render => render(feature, &options, process_cwd)?,
         Row::LogReview => log_review(feature, &options, process_cwd)?,
+        Row::Attest => attest(feature, &options, process_cwd)?,
         Row::Group => return None,
     };
     Some(out.emit())
@@ -752,6 +788,58 @@ fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<
         out.stdout.push('\n');
     }
     out.code = result.exit_code();
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// attest
+
+/// `handoff attest`: `attestHandoff(resolveReceiptOptions({ feature, target, dir }))`.
+fn attest(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    // `resolveReceiptOptions` runs outside any `try`: its throws are the TS's.
+    let root =
+        state_files::resolve_state_root(process_cwd, process_cwd, feature, options.get("dir"))
+            .ok()?;
+    let config = read_config(&root.cwd)??;
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    let (target, _) = receipt_target_gate(&config, options.get("target"))?;
+    let env = navori_core::plan::evidence::process_env();
+    let planned = plan_attest(&AttestInput {
+        process_cwd,
+        root: &root,
+        feature,
+        target: &target,
+        env: &env,
+        runner: &navori_core::process::RealRunner,
+    })
+    .ok()?;
+    let error = match planned {
+        Attest::Error(message) => Some(message),
+        Attest::Write(text) => {
+            let name = format!("ownership_{feature}.json");
+            match state_files::plan_state_write(&root, &name, std::process::id()).ok()? {
+                Err(message) => Some(message),
+                Ok(write) => {
+                    state_files::write_state_file(&mut RealFs::default(), &write, &text).err()
+                }
+            }
+        }
+    };
+    let mut result = vec![(
+        "status",
+        string(if error.is_some() { "error" } else { "attested" }),
+    )];
+    if let Some(message) = &error {
+        result.push(("message", string(message)));
+    }
+    if options.json {
+        json_line(&mut out, &object(result));
+    } else {
+        out.stdout.push_str(error.as_deref().unwrap_or("attested"));
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(error.is_some());
     Some(out)
 }
 

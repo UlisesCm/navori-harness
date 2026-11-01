@@ -71,7 +71,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ navori: string[] } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
  * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
@@ -528,7 +528,9 @@ function applySetup(repo, env, ts, steps) {
       const prep = spawnSync(ts.cmd, [...ts.args, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
       if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
     } else if ("navori" in step) {
-      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env, input: "" });
+      // `env` on the step (e.g. a native Codex thread) applies to that setup run only.
+      const stepEnv = { ...env, ...(step.env ?? {}) };
+      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env: stepEnv, input: "" });
       if (run.status !== 0)
         throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
     } else if ("write" in step) {
