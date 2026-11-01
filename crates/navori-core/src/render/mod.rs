@@ -9,6 +9,7 @@ pub mod claude_md;
 pub mod claude_settings;
 pub mod codex_catalog;
 pub mod codex_compat;
+pub mod codex_config;
 pub mod codex_hooks;
 pub mod codex_profile;
 pub mod codex_rules;
