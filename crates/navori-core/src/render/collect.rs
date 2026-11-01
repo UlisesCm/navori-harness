@@ -4,12 +4,16 @@
 
 use std::path::Path;
 
+use crate::STAMP_VERSION;
 use crate::i18n;
-use crate::markers::InjectStatus;
+use crate::markers::{
+    CommentStyle, InjectOptions, InjectStatus, MarkerMeta, inject_managed_section,
+};
 use crate::render::context::Lang;
 use crate::render::managed_file::{
     ManagedFileDelegate, RenderManagedFileInput, forced_managed_file_content, render_managed_file,
 };
+use crate::render::plan::CORE_SOURCE_ID;
 
 /// Read access to the repo being rendered, by path relative to its root.
 pub trait RepoView {
@@ -185,6 +189,92 @@ pub fn collect_managed(
                 content: rendered.content,
                 status,
                 chmod_exec,
+            });
+        }
+    }
+    Ok(collected)
+}
+
+/// A `body` request of `collectRequest`: `body` injected as navori's block into the destination
+/// (an empty file when absent), with `attachResolution` for a hand-edited block.
+///
+/// # Errors
+/// [`Unreadable`] when the destination exists but cannot be read.
+pub fn collect_body(
+    view: &dyn RepoView,
+    rel_path: &str,
+    managed_id: &str,
+    body: &str,
+    style: CommentStyle,
+    ambient_floor: Option<&str>,
+    lang: Lang,
+) -> Result<Collected, Unreadable> {
+    let existing = read_if_exists(view, rel_path)?;
+    let basis = existing.clone().unwrap_or_default();
+    let meta = MarkerMeta {
+        source: Some(CORE_SOURCE_ID.to_owned()),
+        version: Some(STAMP_VERSION.to_owned()),
+        ..MarkerMeta::default()
+    };
+    let inject = |force_overwrite: bool| {
+        inject_managed_section(
+            &basis,
+            managed_id,
+            body,
+            &meta,
+            InjectOptions {
+                shell: style == CommentStyle::Shell,
+                force_overwrite,
+                ambient_floor,
+                ..InjectOptions::default()
+            },
+        )
+    };
+    let result = inject(false);
+    let mut collected = Collected::default();
+    match result.status {
+        InjectStatus::Unchanged => {}
+        InjectStatus::UserModifiedSkipped => {
+            let forced = inject(true);
+            let resolution = existing
+                .as_ref()
+                .and(view.read_regular(rel_path))
+                .filter(|_| forced.details.downgrade != Some(true))
+                .map(|_| forced.output)
+                .filter(|content| *content != basis);
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: if resolution.is_some() {
+                    i18n::managed_file_edited_resolvable(lang)
+                } else {
+                    i18n::managed_block_edited_by_hand(lang)
+                }
+                .to_owned(),
+                status: Some(result.status),
+                resolution,
+                markerless_resolution: None,
+                chmod_exec: false,
+            });
+        }
+        InjectStatus::DowngradeSkipped => {
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: i18n::block_from_newer_navori(
+                    lang,
+                    result.details.existing_version.as_deref(),
+                ),
+                status: Some(result.status),
+                resolution: None,
+                markerless_resolution: None,
+                chmod_exec: false,
+            });
+        }
+        status => {
+            collected.write = Some(PendingWrite {
+                rel_path: rel_path.to_owned(),
+                content: result.output,
+                status,
+                chmod_exec: false,
             });
         }
     }

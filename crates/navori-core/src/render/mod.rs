@@ -7,6 +7,7 @@ pub mod claude;
 pub mod claude_files;
 pub mod claude_md;
 pub mod claude_settings;
+pub mod codex_agents;
 pub mod codex_catalog;
 pub mod codex_compat;
 pub mod codex_config;
