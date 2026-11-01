@@ -14,6 +14,9 @@ cada tarea). El LOC es una referencia gruesa.
 | 2 | E2 | El paquete instala y responde en macOS y Linux, sin publicar | A3 verde |
 | 3 | E3 | `navori` es el binario Rust en `dev` | A4 verde y aprobación explícita del usuario (R20) |
 
+Estado (2026-11-01): ninguna entrega tiene rama todavía. 1a y 2 pueden empezar ya, desde
+`migration/rust`.
+
 E1 lleva dos PRs a propósito: la ventana de 7 días de R81 es calendario, y esperar a que el último
 hook de la cola larga la cumpla dejaría parados los que ya la cumplen.
 

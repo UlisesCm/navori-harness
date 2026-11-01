@@ -8,21 +8,22 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
 
 **PRs** (uno por entrega y por flujo; los flujos están en la política de velocidad)
 
-| PR | Flujo | Entrega | Contenido | Se mergea cuando |
-|---|---|---|---|---|
-| 1a | — | E1 | Mergeado (#1454) | — |
-| 1b | Hooks | E1 | T13 y T14 (las dos ramas en vuelo, en un solo PR) | El replay de A5 de esos cuatro hooks y la CI en verde |
-| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) entra antes por su cuenta | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
-| 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | El replay de A7 y A8 de esos hooks y la CI en verde |
-| 3 | Comandos | E2 | T19, T20 y T22 | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
-| 4 | Comandos | E3 | T23, T24 y T26–T29 | A8 y A9 verdes; entra después del PR 2 |
+| PR | Flujo | Entrega | Contenido | Rama (2026-11-01) | Se mergea cuando |
+|---|---|---|---|---|---|
+| 1a | — | E1 | Mergeado (#1454) | — | — |
+| 1b | Hooks | E1 | T13 y T14 en un solo PR | `feat/0060-rust-e1b-hooks`: los cuatro hooks en `shadow`, replay verde (425 casos); falta el fuzz de 10 000 | El replay y el fuzz de 10 000 de esos cuatro hooks y la CI en verde |
+| 1c | Comandos | E1 | T8, T10, T16 y la infraestructura compartida (T17, T18). #1466 (T11 parte 2) ya entró | `feat/0060-rust-e1c-comandos`: el mapeo de `spec check` a `parts.json` de T8; sigue T17 | A3, A4 y A6 verdes, y A5 completo cuando 1b y 1c estén dentro |
+| 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | Sin rama; empieza cuando entre 1b | El replay de A7 y A8 de esos hooks y la CI en verde |
+| 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de la de 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
+| 4 | Comandos | E3 | T23, T24 y T26–T29 | `feat/0060-rust-e3-comandos`, apilada sobre 1c: `backup` y `migrations` (T24), `preset init` (T26) y `registry` (T28) | A8 y A9 verdes; entra después del PR 2 |
 
 **Precondiciones de entrada (trabajo en paralelo, D47):**
 - **E2 y M8 de E3:** empiezan ya. Sus comandos usan la infraestructura compartida de M6 (T17, T18),
   que entra con el PR 1c; mientras 1c no esté en `migration/rust`, su rama sale de la de 1c. Los
   hooks de E2 y E3 (PR 2) no la necesitan y pueden empezar en cuanto entre el PR 1b.
-- **M9 de E3:** espera a 0059 E2 (render multi-engine): `init`, `add`, `configure`, `update` y
-  `refresh` escriben por ese render. 0059 E2 está en la ruta crítica de esta spec.
+- **M9 de E3:** `init`, `add`, `configure`, `update` y `refresh` esperan a 0059 E2 (render
+  multi-engine), porque escriben por ese render. 0059 E2 está en la ruta crítica de esta spec. Los
+  comandos de M9 que no escriben por el render (`preset`, `registry`) avanzan ya en el PR 4.
 - **0062** corre en paralelo con esta spec (ver sus precondiciones); solo su corte (E3) espera a que
   esta spec termine.
 
@@ -135,8 +136,10 @@ Entregable: un solo comando sincroniza los hooks portados y otro los verifica, l
 oráculo viven en un archivo por área, y los comandos tienen un transporte grabado para procesos
 externos. E2 y E3 parten de aquí.
 - **A6** [observable] — la sincronización y la verificación corren solas, el oráculo lee sus casos por área y el transporte grabado responde · `bun run rust:hooks-sync -- --check && bun run rust:verify -- --hook general-purpose-confirm.sh --cases 2000 && bun run oracle:rust --only spec && cargo test -p navori-cli --test facts_cache --test hook_facts --locked && cargo test -p navori-core --test process_runner --locked` → exit 0
-- [ ] **T17** (R70, R77) — `scripts/js/rust-hooks-sync.mjs` (`bun run rust:hooks-sync`: recalcula `impl` y `blocks` de `crates/ported.json` sin reformatear, corre `render --apply` y recompila `navori-rust`; `--check` falla si algo quedó desfasado) y `scripts/js/rust-verify.mjs` (`bun run rust:verify`: replay nativo y fuzz con el binario recién compilado, reintentando una vez una llamada diferida por "probe deadline expired"); los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits`; `scripts/js/rust-oracle/cases.json` se parte en `scripts/js/rust-oracle/cases/<área>.json` y `loadCases` los lee todos (D47) · effect: behavior · test: `packages/cli/src/__tests__/rust-hooks-sync.test.ts`::"un impl desfasado deja --check en rojo y la sincronización lo corrige"
-- [ ] **T18** (R76) — `navori_core::process::ProcessRunner` (real y grabado) y stubs de oráculo para `git`, `gh`, `acli`, `codex`, `npm`, `tgrep`, `codegraph` y `pi` que responden por argv desde `scripts/js/rust-oracle/recordings/` con la versión de la herramienta que produjo cada grabación (D42; antes en E2, se adelanta porque la usan E2 y E3) · effect: behavior · test: `crates/navori-core/tests/process_runner.rs`::"la respuesta grabada se sirve por argv y registra la llamada"
+- [x] **T17** (R70, R77) — `scripts/js/rust-hooks-sync.mjs` (`bun run rust:hooks-sync`: recalcula `impl` y `blocks` de `crates/ported.json` sin reformatear, corre `render --apply` y recompila `navori-rust`; `--check` falla si algo quedó desfasado) y `scripts/js/rust-verify.mjs` (`bun run rust:verify`: replay nativo y fuzz con el binario recién compilado, reintentando una vez una llamada diferida por "probe deadline expired"); los tests de `hook_facts` y `facts_cache` usan el plazo máximo de `Limits`; `scripts/js/rust-oracle/cases.json` se parte en `scripts/js/rust-oracle/cases/<área>.json` y `loadCases` los lee todos (D47) · effect: behavior · test: `packages/cli/src/__tests__/rust-hooks-sync.test.ts`::"un impl desfasado deja --check en rojo y la sincronización lo corrige"
+  - Cerrado (2026-11-01): `rust:hooks-sync` reescribe solo las cadenas de hash desfasadas dentro del objeto de su hook (`staleHashes` en `rust-manifest-check.mjs`), corre `render:apply` y `cargo install` (`--no-install`: `cargo build`); `--check` falla con un hash desfasado y, si no, corre `check:render`, porque los wrappers firmados llevan los hashes. `rust:verify` compila y corre el replay `--impl rust` y, con `--cases`, el fuzz de cada hook con `NAVORI_RUST_BIN` del binario recién compilado; el reintento ante "probe deadline expired" vive en `runRustHook`, que comparten replay y fuzz, y solo repite ese diferimiento. **Enmienda:** el plazo máximo de `Limits` es el que acepta `prepare::plan` (500 ms); los tests lo declaran como `PROBE_LIMITS` sin tocar `navori-hooks`, cuyo cambio movería el `impl` de todos los hooks. Los casos quedan en `cases/<área>.json` por el primer argumento del comando (`cli` para `--version`); `readAreaCases` falla con un id repetido entre archivos y la ayuda de superficie corre en `SURFACE_FIXTURE`. A6 en verde salvo T18 al cerrarla: `rust:hooks-sync -- --check`, `rust:verify` de `general-purpose-confirm` (15 casos y 2000 de fuzz), oráculo `spec` 119/119 y `facts_cache` y `hook_facts`.
+- [x] **T18** (R76) — `navori_core::process::ProcessRunner` (real y grabado) y stubs de oráculo para `git`, `gh`, `acli`, `codex`, `npm`, `tgrep`, `codegraph` y `pi` que responden por argv desde `scripts/js/rust-oracle/recordings/` con la versión de la herramienta que produjo cada grabación (D42; antes en E2, se adelanta porque la usan E2 y E3) · effect: behavior · test: `crates/navori-core/tests/process_runner.rs`::"la respuesta grabada se sirve por argv y registra la llamada"
+  - Cerrado (2026-11-01): `process::{Request, ProcessRunner, RealRunner, RecordedRunner}`; la grabada lee `recordings/<herramienta>.json` (`schema` 1, `tool`, `version` y `responses` con `args`, `status`, `stdout` y `stderr`), responde por nombre de archivo del programa y argv exacto, y guarda cada llamada con la versión que la contestó (`None` si ninguna). Un caso del oráculo con `tools` pone stubs de esas herramientas primero en `PATH` (`stub-tool.mjs`); sin grabación salen con 127 en los dos lados, nunca llaman a la herramienta real, y el oráculo compara las llamadas de TS y Rust. Grabaciones iniciales: `git --version` y `gh --version`; cada comando que llegue con E2 o E3 agrega las suyas. `Output` sigue sin `stderr`, porque ningún llamador lo lee todavía. A6 completo en verde.
 
 ## E2 — Auditoría, gate y telemetría de sesión
 Estimated LOC: 22000

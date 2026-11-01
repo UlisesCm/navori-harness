@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "cases": [
+    { "id": "fresh-init:scan", "fixture": "fresh-init", "args": ["scan"] },
+    { "id": "monorepo:scan", "fixture": "monorepo", "args": ["scan"] }
+  ]
+}
