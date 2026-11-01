@@ -36,6 +36,7 @@ interface OracleCase {
   mask?: string[];
   native?: boolean;
   files?: Record<string, string>;
+  setup?: unknown[];
   readonly?: string[];
 }
 interface Rule {
@@ -497,6 +498,55 @@ describe("rust oracle", () => {
   });
 
   // Covers: R9
+  // Covers: R62, R64
+  it("los fixtures multi-engine cubren AGENTS.md compartido", () => {
+    const cases = oracle.loadCases();
+    const configOf = (c: OracleCase): { engines?: string[]; language?: string } =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as { engines?: string[]; language?: string };
+    const prose = ["agents-md", "cursor", "copilot"];
+    for (const fixture of ["prose-engines", "multi-engine"]) {
+      const mine = cases.filter((c) => c.fixture === fixture && c.args[0] === "render");
+      // native, so a delegation is a difference; preview and apply, human and --json, es and en
+      for (const c of mine) expect(c.native, c.id).toBe(true);
+      for (const apply of [false, true])
+        for (const json of [false, true])
+          expect(
+            mine.some(
+              (c) => c.args.includes("--apply") === apply && c.args.includes("--json") === json,
+            ),
+            `${fixture} apply=${apply} json=${json}`,
+          ).toBe(true);
+      expect(new Set(mine.map((c) => configOf(c).language)), fixture).toEqual(
+        new Set(["es", "en"]),
+      );
+      for (const c of mine)
+        expect(configOf(c).engines, c.id).toEqual(expect.arrayContaining(prose));
+    }
+    // multi-engine: Claude beside the three prose engines, AGENTS.md is the user's own file, and
+    // the other two cover a hand-edited block and a block from a newer navori
+    const multi = JSON.parse(
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", "navori.config.json"), "utf8"),
+    ) as { engines: string[] };
+    expect(multi.engines).toContain("claude");
+    const fixtureFile = (rel: string): string =>
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", `${rel}.fixture`), "utf8");
+    expect(fixtureFile("AGENTS.md")).not.toContain("navori:managed");
+    expect(fixtureFile(".github/copilot-instructions.md")).toContain('hash="00000000"');
+    expect(fixtureFile(".cursor/rules/navori.mdc")).toContain('version="99.0.0"');
+    // a re-render: the first apply makes AGENTS.md navori's, which the guard then owns
+    expect(cases.some((c) => c.fixture === "multi-engine" && (c.setup ?? []).length > 0)).toBe(
+      true,
+    );
+    // with Pi and a foreign Pi resource the TS decides, before anything is written
+    const foreign = cases.find((c) => c.id === "multi-engine:pi-foreign-writes-nothing");
+    expect(foreign?.native).toBeUndefined();
+    expect(configOf(foreign!).engines).toContain("pi");
+    expect(Object.keys(foreign?.files ?? {})).toContain(".pi/extensions/navori.ts");
+  });
+
   it("los casos cubren el repo con contenido de usuario y la superficie del golden", () => {
     const cases = oracle.loadCases();
     const user = cases.find((c) => c.id === "user-content-outside-markers");
