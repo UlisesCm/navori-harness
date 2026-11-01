@@ -18,6 +18,7 @@ pub mod codex_policies;
 pub mod codex_profile;
 pub mod codex_rules;
 pub mod codex_skills;
+pub mod codex_trust;
 pub mod collect;
 pub mod command;
 pub mod context;
