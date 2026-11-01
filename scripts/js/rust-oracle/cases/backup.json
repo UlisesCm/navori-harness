@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "cases": [
+    { "id": "fresh-init:backup-list", "fixture": "fresh-init", "args": ["backup", "list"] }
+  ]
+}

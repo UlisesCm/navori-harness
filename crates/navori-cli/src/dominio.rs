@@ -10,7 +10,6 @@
 //! `dominio inject` has its own row (spec 0059).
 
 use std::ffi::OsString;
-use std::io::IsTerminal as _;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -21,6 +20,7 @@ use navori_core::workspace::dominio::{self, Entry, Status};
 use navori_core::workspace::dominio_store::{self, INDEX_NAME};
 use navori_core::workspace::registry::{self, Stop};
 
+use crate::clack::{Clack, plain_output};
 use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color};
 use crate::native_io::Output;
 use crate::{NativeCall, Outcome};
@@ -248,83 +248,6 @@ fn parse_leaf<'a>(tokens: &[&'a str]) -> Option<(Option<&'a str>, Option<&'a str
         }
     }
     Some((positional, workspace))
-}
-
-/// Whether picocolors and Node's `styleText` both print without color, and clack draws its
-/// Unicode symbols at its default 80 columns.
-fn plain_output() -> bool {
-    let set = |name: &str| std::env::var_os(name).is_some();
-    !std::io::stdout().is_terminal()
-        && !set("FORCE_COLOR")
-        && (set("NO_COLOR") || !set("CI"))
-        && std::env::var_os("TERM").is_none_or(|t| t != "linux")
-}
-
-// ---------------------------------------------------------------------------------------------
-// clack, without color, at 80 columns
-
-/// `fast-string-width` for the characters Rust measures as one column; `None` for any other
-/// (wide, combining, control or unassigned), which delegates.
-fn width(text: &str) -> Option<usize> {
-    text.chars()
-        .map(|c| {
-            let narrow = matches!(c,
-                ' '..='~'
-                | '\u{a1}'..='\u{2ff}'
-                | '\u{370}'..='\u{3ff}'
-                | '\u{400}'..='\u{482}'
-                | '\u{2010}'..='\u{2027}'
-                | '\u{2190}'..='\u{21ff}'
-                | '\u{2713}'
-            );
-            narrow.then_some(1)
-        })
-        .sum()
-}
-
-/// What clack would print, accumulated.
-#[derive(Default)]
-struct Clack {
-    out: Output,
-}
-
-impl Clack {
-    fn intro(&mut self, title: &str) {
-        self.out.stdout.push_str(&format!("┌  {title}\n"));
-    }
-
-    fn outro(&mut self, message: &str) {
-        self.out.stdout.push_str(&format!("│\n└  {message}\n\n"));
-    }
-
-    fn cancel(&mut self, message: &str) {
-        self.out.stdout.push_str(&format!("└  {message}\n\n"));
-        self.out.code = 1;
-    }
-
-    /// `note(message, title)`; `None` when a line could wrap at 74 columns or Rust cannot
-    /// measure it.
-    fn note(&mut self, message: &str, title: &str) -> Option<()> {
-        let mut lines = vec![""];
-        lines.extend(message.split('\n'));
-        lines.push("");
-        let widths: Vec<usize> = lines.iter().map(|l| width(l)).collect::<Option<_>>()?;
-        if widths.iter().any(|w| *w > 74) {
-            return None;
-        }
-        let n = width(title)?;
-        let t = widths.iter().copied().max().unwrap_or(0).max(n) + 2;
-        let mut text = format!(
-            "│\n◇  {title} {}╮\n",
-            "─".repeat(t.saturating_sub(n + 1).max(1))
-        );
-        for (line, w) in lines.iter().zip(widths) {
-            text.push_str(&format!("│  {line}{}│\n", " ".repeat(t - w)));
-        }
-        text.push_str(&format!("├{}╯\n", "─".repeat(t + 2)));
-        self.out.stdout.push_str(&text);
-        Some(())
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -577,22 +500,6 @@ fn command(row: Row, env: &Env, explicit: Option<&str>, id: Option<&str>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Covers: R73
-    #[test]
-    fn notes_draw_like_clack_and_refuse_what_could_wrap() {
-        let mut clack = Clack::default();
-        assert_eq!(clack.note("  · a", "T"), Some(()));
-        assert_eq!(
-            clack.out.stdout,
-            "│\n◇  T ─────╮\n│         │\n│    · a  │\n│         │\n├─────────╯\n"
-        );
-        assert_eq!(Clack::default().note(&"x".repeat(75), "T"), None);
-        assert_eq!(Clack::default().note("界", "T"), None);
-        assert_eq!(width("⇡ ✓"), Some(3));
-        assert_eq!(width("✔"), None);
-        assert_eq!(width("—·ñ"), Some(3));
-    }
 
     // Covers: R73
     #[test]

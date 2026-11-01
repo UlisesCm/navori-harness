@@ -1,6 +1,7 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
 pub mod adopt;
+pub(crate) mod clack;
 pub mod commands;
 pub mod delegate;
 pub mod dominio;

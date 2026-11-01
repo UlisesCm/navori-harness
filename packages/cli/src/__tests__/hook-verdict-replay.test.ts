@@ -470,6 +470,40 @@ process.exit(1);`,
   });
 
   // Covers: R70
+  it("retries once a call deferred by an expired probe deadline, and only that deferral", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    const count = join(dir, "count");
+    // Defers with `cause` on the first `defers` calls, then answers; counts every call.
+    const flaky = (cause: string, defers: number): string =>
+      nativeFixture(
+        dir,
+        [
+          "const fs = require('node:fs');",
+          `const n = fs.existsSync(${JSON.stringify(count)}) ? Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8')) : 0;`,
+          `fs.writeFileSync(${JSON.stringify(count)}, String(n + 1));`,
+          `if (n < ${defers}) { process.stderr.write(${JSON.stringify(`navori-rust: hook deferred: hook is ineligible: ${cause}\n`)}); process.exit(1); }`,
+          "process.stdout.write('verdict');",
+        ].join("\n"),
+      );
+    const calls = (): number => Number(readFileSync(count, "utf8"));
+    const run = (binary: string): unknown => {
+      rmSync(count, { force: true });
+      return rustAdapter.runRustHook({ binary, script, input: "" });
+    };
+    expect(run(flaky("probe deadline expired resolving Bash", 1))).toMatchObject({
+      available: true,
+      status: 0,
+      stdout: Buffer.from("verdict"),
+    });
+    expect(calls()).toBe(2);
+    expect(run(flaky("probe deadline expired", 2))).toMatchObject({ available: false });
+    expect(calls()).toBe(2);
+    expect(run(flaky("unsupported locale", 1))).toMatchObject({ available: false });
+    expect(calls()).toBe(1);
+  });
+
+  // Covers: R70
   it("accepts a missing-text-tool deferral only where the recorded shell died on that tool", () => {
     const dir = tmp();
     const absent =

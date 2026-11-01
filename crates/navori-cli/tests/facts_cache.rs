@@ -14,6 +14,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 type TestResult = Result<(), Box<dyn Error>>;
+/// Probes that must succeed get the largest budget `prepare::plan` accepts (500 ms, spec 0060
+/// T17): the 250 ms production default expired under load and made these tests flaky. Deadline
+/// expiry itself is covered by the tests that pass a tight `Limits` on purpose.
+const PROBE_LIMITS: Limits = Limits {
+    total: Duration::from_millis(500),
+};
 
 struct Temp(PathBuf);
 impl Temp {
@@ -212,7 +218,7 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
     path.push(&env[0].1);
     env[0].1 = path;
     let request = |env| request(&script, &source, env);
-    let probed = collect_cached(request(&env), &temp.0, Limits::default(), Some(&cache))?;
+    let probed = collect_cached(request(&env), &temp.0, PROBE_LIMITS, Some(&cache))?;
     // One millisecond cannot fit a single probe: success means the facts were replayed.
     let tight = Limits {
         total: Duration::from_millis(1),
