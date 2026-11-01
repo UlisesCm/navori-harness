@@ -30,6 +30,7 @@ pub mod plan_gate;
 pub mod plan_gate_hook;
 pub mod preset;
 pub mod quality_gate;
+pub mod registry;
 pub mod remove;
 pub mod render;
 pub mod session_start;
@@ -265,6 +266,30 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["preset"],
         run: preset::run_group,
+    },
+    NativeCommand {
+        path: &["registry", "ls"],
+        run: registry::run_ls,
+    },
+    NativeCommand {
+        path: &["registry", "scan"],
+        run: registry::run_scan,
+    },
+    NativeCommand {
+        path: &["registry", "add"],
+        run: registry::run_add,
+    },
+    NativeCommand {
+        path: &["registry", "remove"],
+        run: registry::run_remove,
+    },
+    NativeCommand {
+        path: &["registry", "prune"],
+        run: registry::run_prune,
+    },
+    NativeCommand {
+        path: &["registry"],
+        run: registry::run_group,
     },
     NativeCommand {
         path: &["adopt"],
