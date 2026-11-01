@@ -1,12 +1,14 @@
-//! `navori render` over a solo-Claude root (spec 0058 E3 M6 and M8, D23): `runRenderCore` and
-//! the two outputs of `renderCommand.run`, the human report and `--json`.
+//! `navori render` over a root (spec 0058 E3 M6 and M8, D23; spec 0059 T19, D36): `runRenderCore`
+//! and the two outputs of `renderCommand.run`, the human report and `--json`.
 //!
-//! The pipeline follows `runRenderCore`: the Claude plan, the root `.gitignore`, the nested
-//! `.claude`, `.codex` and `.navori` ones, `.prettierignore` and the orphaned engine outputs
-//! scan. With [`Apply`] each step commits through the `Fs` layer (one `commitWrites` each, so
-//! one backup each) before the next one reads the disk, as the TS does; then `harnessVersion` is
-//! recorded when something was really written. Workspaces, other engines and `--prune` are
-//! outside the native subset (Q8), so their report sections are always empty here.
+//! The pipeline follows `runRenderCore` and `prepareRenderTarget`: every engine is planned
+//! before anything is written, then the Claude plan commits, then each prose engine
+//! (`agents-md`, `cursor`, `copilot`, in config order) writes its file, then the root
+//! `.gitignore`, the nested `.claude`, `.codex` and `.navori` ones, `.prettierignore` and the
+//! orphaned engine outputs scan. With [`Apply`] each step commits through the `Fs` layer (one
+//! backup each) before the next one reads the disk, as the TS does; then `harnessVersion` is
+//! recorded when something was really written. Codex, Pi, workspaces and `--prune` are outside
+//! the native subset (Q8): they delegate, so their report sections are always empty here.
 //!
 //! The core provenance is `(embedded)`: Rust reads no `core-assets` directory, so it never names
 //! one (Q11). The oracle masks the TS side of that line and of the three `--json` keys.
@@ -15,22 +17,23 @@ use std::path::Path;
 
 use jiff::Zoned;
 
-use crate::backup::BackupStore;
+use crate::backup::{BackupStore, MAX_TOTAL_BYTES, RETENTION_DAYS, purge_old_backups};
 use crate::commit::{CommitError, CommitInput, commit_writes};
 use crate::config::{Config, HarnessRecord, record_harness_version};
-use crate::fs::{Fs, FsError, write_file_atomic};
+use crate::fs::{Fs, FsError, Syscall, node_message, write_file_atomic};
 use crate::i18n;
 use crate::js_json::{JsObject, JsValue};
 use crate::markers::InjectStatus;
 use crate::render::block_plan::PlanOptions;
 use crate::render::claude::{ClaudeEnginePlan, plan_claude_engine};
-use crate::render::collect::{PendingWrite, RepoView};
+use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
 use crate::render::context::Lang;
 use crate::render::doc_budget::{DocBudget, measure_doc_budget};
 use crate::render::ignore_files::{
     IgnoreFile, plan_gitignore, plan_prettierignore, scan_orphaned_engine_outputs,
 };
 use crate::render::nested_gitignore::{NESTED_GITIGNORE_DIRS, plan_nested_gitignore};
+use crate::render::prose::{ProseOptions, ProsePlan, plan_prose_file, prose_spec};
 use crate::render::report::{
     Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
     status_symbol, unchanged_engine_files, written,
@@ -132,13 +135,38 @@ impl IgnoreResult {
     }
 }
 
-/// The result of `runRenderCore` on a solo-Claude root without workspaces.
+/// A non-Claude engine's summary (`EngineRenderSummary`): today, a prose engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraEngine {
+    /// Engine id.
+    pub engine: String,
+    /// What its file becomes.
+    pub plan: ProsePlan,
+    /// The snapshot its write took, when it overwrote an existing file.
+    pub backup_path: Option<String>,
+}
+
+impl ExtraEngine {
+    /// `written`: `(path, status)`.
+    #[must_use]
+    pub fn written(&self) -> Vec<(&str, &'static str)> {
+        self.plan
+            .write
+            .iter()
+            .map(|w| (w.rel_path.as_str(), w.status.as_str()))
+            .collect()
+    }
+}
+
+/// The result of `runRenderCore` on a root without workspaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderPlan {
     /// `resolveLang(config.language)`.
     pub lang: Lang,
-    /// The Claude engine's plan.
-    pub claude: ClaudeEnginePlan,
+    /// The Claude engine's plan, when `claude` is configured.
+    pub claude: Option<ClaudeEnginePlan>,
+    /// The other engines, in config order.
+    pub extra_engines: Vec<ExtraEngine>,
     /// The root `.gitignore`; `None` in mode `off`.
     pub gitignore: Option<IgnoreResult>,
     /// `.claude/.gitignore`.
@@ -170,13 +198,14 @@ impl RenderPlan {
     /// `result.written`: the Claude engine has something to write or delete.
     #[must_use]
     pub fn claude_changed(&self) -> bool {
-        !written(&self.claude).is_empty()
+        self.claude.as_ref().is_some_and(|c| !written(c).is_empty())
     }
 
     /// `resultHasPendingWrites(result)`.
     #[must_use]
     pub fn has_pending_writes(&self) -> bool {
         self.claude_changed()
+            || self.extra_engines.iter().any(|e| e.plan.write.is_some())
             || self
                 .ignore_files()
                 .into_iter()
@@ -187,7 +216,12 @@ impl RenderPlan {
     /// `countSkippedFiles(result)`.
     #[must_use]
     pub fn skipped_files(&self) -> usize {
-        self.claude.skipped.len()
+        self.claude.as_ref().map_or(0, |c| c.skipped.len())
+            + self
+                .extra_engines
+                .iter()
+                .map(|e| e.plan.skipped.len())
+                .sum::<usize>()
             + self
                 .ignore_files()
                 .into_iter()
@@ -209,15 +243,22 @@ impl RenderPlan {
                 None => counts.push((status, n)),
             }
         };
-        for (_, status) in &self.claude.claude_md_entries {
-            bump(status.as_str(), 1);
+        if let Some(claude) = &self.claude {
+            for (_, status) in &claude.claude_md_entries {
+                bump(status.as_str(), 1);
+            }
+            for (path, status) in written(claude) {
+                if path != "CLAUDE.md" {
+                    bump(status, 1);
+                }
+            }
+            bump("unchanged", unchanged_engine_files(claude));
         }
-        for (path, status) in written(&self.claude) {
-            if path != "CLAUDE.md" {
+        for engine in &self.extra_engines {
+            for (_, status) in engine.written() {
                 bump(status, 1);
             }
         }
-        bump("unchanged", unchanged_engine_files(&self.claude));
         for file in self.ignore_files().into_iter().flatten() {
             if !file.skipped() {
                 bump(file.status.as_str(), 1);
@@ -345,6 +386,103 @@ pub fn commit_claude(
     Ok((backup_path, committed.real_writes))
 }
 
+/// `config.project[key] ?? []`, its strings.
+fn project_list(config: &JsValue, key: &str) -> Vec<String> {
+    let project = match config {
+        JsValue::Object(root) => root.get("project"),
+        _ => None,
+    };
+    match project {
+        Some(JsValue::Object(project)) => match project.get(key) {
+            Some(JsValue::Array(items)) => items
+                .iter()
+                .filter_map(|item| match item {
+                    JsValue::String(s) => s.to_rust(),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// The write of `renderProseFile`: a snapshot of the file it overwrites (none on a first
+/// render), then `mkdir -p` and the atomic write. Returns the backup and the real writes.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+fn commit_prose(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    plan: &ProsePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let Some(write) = &plan.write else {
+        return Ok((None, 0));
+    };
+    let mut backup_path = None;
+    if !plan.first_render {
+        let handle = apply
+            .backups
+            .create(
+                apply.fs,
+                repo_root,
+                std::slice::from_ref(&write.rel_path),
+                &[],
+                apply.now,
+            )
+            .map_err(|e| RenderError::Commit(CommitError::Backup(e)))?;
+        if !handle.files.is_empty() {
+            if let Ok(root) = apply.backups.root.clone() {
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "`Date.now()` is a JS number of milliseconds"
+                )]
+                let now_ms = apply.now.timestamp().as_millisecond() as f64;
+                purge_old_backups(
+                    apply.fs,
+                    &root,
+                    now_ms,
+                    RETENTION_DAYS,
+                    MAX_TOTAL_BYTES,
+                    Some(&handle.path),
+                )
+                .map_err(|e| RenderError::Commit(CommitError::Backup(e)))?;
+            }
+            backup_path = Some(handle.path);
+        }
+    }
+    let path = repo_root.join(&write.rel_path);
+    let written = (|| -> Result<(), FsError> {
+        if let Some(parent) = path.parent() {
+            apply.fs.mkdir_all(parent).map_err(|e| FsError {
+                message: node_message(&e, Syscall::Mkdir, parent, None),
+            })?;
+        }
+        write_file_atomic(apply.fs, &path, &write.content)
+    })();
+    if let Err(error) = written {
+        // `RenderWriteError`: the recovery breadcrumb rides the message.
+        let hint = backup_path.as_ref().map_or_else(String::new, |p| {
+            i18n::backup_available_at(lang, &p.display().to_string())
+        });
+        return Err(RenderError::Commit(CommitError::Write {
+            message: format!(
+                "{}.{hint}",
+                i18n::render_failed_writing(
+                    lang,
+                    None,
+                    &path.display().to_string(),
+                    &error.message
+                )
+            ),
+            backup_path,
+        }));
+    }
+    Ok((backup_path.map(|p| p.display().to_string()), 1))
+}
+
 /// `readFileOrEmpty` + `measureDocBudget` on the root `CLAUDE.md`.
 fn claude_md_budget(view: &dyn RepoView) -> DocBudget {
     measure_doc_budget(&view.read("CLAUDE.md").unwrap_or_default())
@@ -366,17 +504,66 @@ pub fn run_render(
     let floor = config.harness_version();
     let force = options.force;
     let budget_before = apply.is_some().then(|| claude_md_budget(view));
+    // `prepareRenderTarget`: every engine is planned before the first write, so a delegate can
+    // only happen while the disk is untouched.
+    let engines = engines(&config.data);
+    // `prepareNonClaudeEngines` observes `AGENTS.md` in the shared inventory when `agents-md`
+    // owns it: no `ownsAgentsMd` engine (Codex, Pi) is configured, and neither is native yet.
+    let extra_observed = if engines.iter().any(|e| e == "agents-md") {
+        vec![("AGENTS.md".to_owned(), "navori-agents".to_owned())]
+    } else {
+        Vec::new()
+    };
     let plan_options = PlanOptions {
         ambient_floor: floor.clone(),
         native_hooks: options.native_hooks.clone(),
         force,
+        extra_observed,
         ..PlanOptions::default()
     };
-    let mut claude = plan_claude_engine(view, &config.data, repo_root, &plan_options)
-        .map_err(|_| RenderError::Delegate)?;
+    let has_claude = engines.iter().any(|e| e == "claude");
+    let mut prose = Vec::new();
+    for engine in engines.iter().filter(|e| *e != "claude") {
+        // Codex, Pi (M6, M7) and an engine without an adapter stay the TS's.
+        prose.push(prose_spec(engine).ok_or(RenderError::Delegate)?);
+    }
+    // `reportMissingLocalSkills` lands on the first extra engine without Claude: not modelled.
+    if !has_claude && !project_list(&config.data, "localSkills").is_empty() {
+        return Err(RenderError::Delegate);
+    }
+    let mut claude = if has_claude {
+        Some(
+            plan_claude_engine(view, &config.data, repo_root, &plan_options)
+                .map_err(|_| RenderError::Delegate)?,
+        )
+    } else {
+        None
+    };
+    let prose_options = ProseOptions {
+        ambient_floor: floor.as_deref(),
+        ..ProseOptions::default()
+    };
+    let mut extra_engines = Vec::with_capacity(prose.len());
+    for spec in prose {
+        let plan = plan_prose_file(view, &config.data, repo_root, spec, prose_options, None)
+            .map_err(|_| RenderError::Delegate)?;
+        extra_engines.push(ExtraEngine {
+            engine: spec.engine.to_owned(),
+            plan,
+            backup_path: None,
+        });
+    }
     let mut applied = None;
     if let Some(apply) = apply.as_deref_mut() {
-        let (backup_path, real_writes) = commit_claude(apply, repo_root, &mut claude, lang)?;
+        let (backup_path, mut real_writes) = match claude.as_mut() {
+            Some(claude) => commit_claude(apply, repo_root, claude, lang)?,
+            None => (None, 0),
+        };
+        for engine in &mut extra_engines {
+            let (backup, writes) = commit_prose(apply, repo_root, &engine.plan, lang)?;
+            engine.backup_path = backup;
+            real_writes += writes;
+        }
         applied = Some(Applied {
             backup_path,
             real_writes,
@@ -405,7 +592,6 @@ pub fn run_render(
         .map_err(|_| RenderError::Delegate)?
         .map(IgnoreResult::from_ignore_file);
     let gitignore = ignore(gitignore, &mut applied)?;
-    let engines = engines(&config.data);
     let mut nested = Vec::with_capacity(NESTED_GITIGNORE_DIRS.len());
     for dir in NESTED_GITIGNORE_DIRS {
         let enabled = (dir != ".navori").then_some(engines.as_slice());
@@ -453,6 +639,7 @@ pub fn run_render(
     Ok(RenderPlan {
         lang,
         claude,
+        extra_engines,
         gitignore,
         claude_gitignore,
         codex_gitignore,
@@ -576,17 +763,37 @@ pub fn human_report(clack: Clack, cwd: &str, plan: &RenderPlan) -> String {
     let lang = plan.lang;
     let mut out = clack.intro("navori render");
     out.push_str(&clack.message(&format!("core: {EMBEDDED_CORE}")));
-    out.push_str(&claude_md_section(
-        clack,
-        &format!("{cwd}/CLAUDE.md"),
-        &plan.claude,
-        plan.applied.is_none(),
-        lang,
-    ));
-    out.extend(engine_files_section(clack, &plan.claude));
-    out.extend(lang_fallback_section(clack, &plan.claude, lang));
+    if let Some(claude) = &plan.claude {
+        out.push_str(&claude_md_section(
+            clack,
+            &format!("{cwd}/CLAUDE.md"),
+            claude,
+            plan.applied.is_none(),
+            lang,
+        ));
+        out.extend(engine_files_section(clack, claude));
+        out.extend(lang_fallback_section(clack, claude, lang));
+    }
     if let Some(backup) = plan.applied.as_ref().and_then(|a| a.backup_path.as_ref()) {
         out.push_str(&clack.message(&format!("{} {backup}", i18n::BACKUP_LABEL)));
+    }
+    // `reportExtraEngines`.
+    for engine in &plan.extra_engines {
+        out.push_str(&clack.message(&format!("engine {}", engine.engine)));
+        for (path, status) in engine.written() {
+            out.push_str(
+                &clack.message(&format!("  {} {path}  ({status})", status_symbol(status))),
+            );
+        }
+        for skip in &engine.plan.skipped {
+            out.push_str(&clack.warn(&format!("  {}: {}", skip.rel_path, skip.reason)));
+        }
+        for warning in &engine.plan.warnings {
+            out.push_str(&clack.warn(&format!("  {warning}")));
+        }
+        if let Some(backup) = &engine.backup_path {
+            out.push_str(&clack.message(&format!("  {} {backup}", i18n::BACKUP_LABEL)));
+        }
     }
     let gitignore_title = i18n::render_gitignore_title(lang);
     for file in [
@@ -625,7 +832,9 @@ pub fn human_report(clack: Clack, cwd: &str, plan: &RenderPlan) -> String {
             &lines.join("\n"),
         )));
     }
-    out.extend(downgrade_section(clack, &plan.claude, lang));
+    if let Some(claude) = &plan.claude {
+        out.extend(downgrade_section(clack, claude, lang));
+    }
     if let Some(after) = plan.applied.as_ref().and_then(|a| a.budget_crossed) {
         out.push_str(&clack.warn(&i18n::render_doc_budget_crossed(
             lang,
@@ -671,6 +880,21 @@ fn ignore_json(file: Option<&IgnoreResult>, prettier: bool) -> JsValue {
     object(entries)
 }
 
+/// `skipped.map((s) => ({ path, reason }))`.
+fn skipped_json(skipped: &[SkippedFile]) -> JsValue {
+    JsValue::Array(
+        skipped
+            .iter()
+            .map(|s| {
+                object(vec![
+                    ("path", JsValue::string(&s.rel_path)),
+                    ("reason", JsValue::string(&s.reason)),
+                ])
+            })
+            .collect(),
+    )
+}
+
 fn nullable(text: Option<&str>) -> JsValue {
     text.map_or(JsValue::Null, JsValue::string)
 }
@@ -678,7 +902,7 @@ fn nullable(text: Option<&str>) -> JsValue {
 /// `buildRenderJson(result, preview, provenance)` on `cwd`, the value `--json` prints.
 #[must_use]
 pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
-    let claude = &plan.claude;
+    let claude = plan.claude.as_ref();
     let root = object(vec![
         ("filePath", JsValue::string(&format!("{cwd}/CLAUDE.md"))),
         ("changed", JsValue::Bool(plan.claude_changed())),
@@ -686,8 +910,8 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
             "entries",
             JsValue::Array(
                 claude
-                    .claude_md_entries
-                    .iter()
+                    .into_iter()
+                    .flat_map(|c| &c.claude_md_entries)
                     .map(|(id, status)| {
                         object(vec![
                             ("id", JsValue::string(id)),
@@ -700,8 +924,9 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         (
             "written",
             JsValue::Array(
-                written(claude)
+                claude
                     .into_iter()
+                    .flat_map(written)
                     .map(|(path, status)| {
                         object(vec![
                             ("path", JsValue::string(path)),
@@ -713,23 +938,20 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         ),
         (
             "skipped",
-            JsValue::Array(
-                claude
-                    .skipped
-                    .iter()
-                    .map(|s| {
-                        object(vec![
-                            ("path", JsValue::string(&s.rel_path)),
-                            ("reason", JsValue::string(&s.reason)),
-                        ])
-                    })
-                    .collect(),
-            ),
+            skipped_json(claude.map_or(&[][..], |c| c.skipped.as_slice())),
         ),
-        ("unchangedFiles", number(unchanged_engine_files(claude))),
+        (
+            "unchangedFiles",
+            number(claude.map_or(0, unchanged_engine_files)),
+        ),
         (
             "languageFallbacks",
-            strings(claude.language_fallbacks.iter().map(String::as_str)),
+            strings(
+                claude
+                    .into_iter()
+                    .flat_map(|c| &c.language_fallbacks)
+                    .map(String::as_str),
+            ),
         ),
         (
             "backupPath",
@@ -747,10 +969,41 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
             })
             .collect(),
     );
+    let extra_engines = JsValue::Array(
+        plan.extra_engines
+            .iter()
+            .map(|engine| {
+                object(vec![
+                    ("engine", JsValue::string(&engine.engine)),
+                    (
+                        "written",
+                        JsValue::Array(
+                            engine
+                                .written()
+                                .into_iter()
+                                .map(|(path, status)| {
+                                    object(vec![
+                                        ("path", JsValue::string(path)),
+                                        ("status", JsValue::string(status)),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    ("skipped", skipped_json(&engine.plan.skipped)),
+                    (
+                        "warnings",
+                        strings(engine.plan.warnings.iter().map(String::as_str)),
+                    ),
+                    ("backupPath", nullable(engine.backup_path.as_deref())),
+                ])
+            })
+            .collect(),
+    );
     let downgrades = JsValue::Array(
         claude
-            .downgrades
-            .iter()
+            .into_iter()
+            .flat_map(|c| &c.downgrades)
             .map(|d| {
                 object(vec![
                     ("id", JsValue::string(&d.id)),
@@ -782,7 +1035,7 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         ("staleCore", JsValue::Null),
         ("root", root),
         ("workspaces", JsValue::Array(Vec::new())),
-        ("extraEngines", JsValue::Array(Vec::new())),
+        ("extraEngines", extra_engines),
         ("orphanedWorkspaces", JsValue::Array(Vec::new())),
         ("orphanedEngineOutputs", orphaned),
         ("prunedEngineOutputs", JsValue::Array(Vec::new())),

@@ -130,6 +130,8 @@ pub struct ClaudeOwnedInput<'a> {
     pub enabled: &'a [LoadedPlugin],
     /// Disabled plugins, in config order.
     pub disabled: &'a [LoadedPlugin],
+    /// `(relPath, managedId)` the other engines of the target observe.
+    pub extra: &'a [(String, String)],
 }
 
 fn has_mcp_server(plugin: &LoadedPlugin) -> bool {
@@ -204,6 +206,9 @@ pub fn claude_owned_paths(
         if view.lexists(target) {
             owned.observe(view, target, id, Classify::Marker)?;
         }
+    }
+    for (rel, id) in input.extra {
+        owned.observe(view, rel, id, Classify::Marker)?;
     }
     Ok(owned.seal())
 }

@@ -217,6 +217,7 @@ pub fn plan_claude_engine(
             preset_hooks: &hooks,
             enabled: &enabled,
             disabled: &disabled,
+            extra: &options.extra_observed,
         },
     ))?;
 

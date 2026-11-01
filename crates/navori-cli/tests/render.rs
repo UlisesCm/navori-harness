@@ -16,7 +16,7 @@ use navori_core::manifest::{Command, Manifest};
 type TestResult = Result<(), Box<dyn Error>>;
 
 const ENTRY: &str = r#"{"schema":2,"commands":[
-    {"path":["render"],"flags":["cwd","dry-run","json","apply","force"],"when":{"engines":["claude"]}}
+    {"path":["render"],"flags":["cwd","dry-run","json","apply","force"],"when":{"engines":["claude","agents-md","cursor","copilot"]}}
 ]}"#;
 
 fn manifest() -> Result<Manifest, Box<dyn Error>> {
@@ -143,6 +143,19 @@ fn the_config_decides_before_any_output() -> TestResult {
         ),
         (
             r#"{"name":"demo","preset":"custom","engines":["pi"]}"#,
+            false,
+        ),
+        // Spec 0059 T19: the prose engines, alone or beside Claude; Codex is still the TS's.
+        (
+            r#"{"name":"demo","preset":"custom","engines":["agents-md","cursor","copilot"]}"#,
+            true,
+        ),
+        (
+            r#"{"name":"demo","preset":"custom","engines":["claude","agents-md"]}"#,
+            true,
+        ),
+        (
+            r#"{"name":"demo","preset":"custom","engines":["agents-md","codex"]}"#,
             false,
         ),
         (r#"{"name":"demo","preset":"custom","engines":[]}"#, false),

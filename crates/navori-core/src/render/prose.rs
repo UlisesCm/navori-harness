@@ -107,6 +107,8 @@ pub struct ProsePlan {
     pub skipped: Vec<SkippedFile>,
     /// Parity warnings (`collectOmissionWarnings`).
     pub warnings: Vec<String>,
+    /// The destination did not exist: the write takes no backup.
+    pub first_render: bool,
 }
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
@@ -508,6 +510,7 @@ pub fn plan_prose_file(
     let result = inject(false);
     let mut plan = ProsePlan {
         warnings: omission_warnings(&config, lang),
+        first_render,
         ..ProsePlan::default()
     };
     match result.status {

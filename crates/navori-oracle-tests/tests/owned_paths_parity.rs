@@ -247,6 +247,7 @@ fn rust_owned(root: &Path, text: &str) -> Option<String> {
             preset_hooks: &hooks,
             enabled: &enabled.loaded,
             disabled: &disabled.loaded,
+            extra: &[],
         },
     )
     .ok()
