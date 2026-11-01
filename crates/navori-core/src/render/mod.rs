@@ -13,6 +13,7 @@ pub mod codex_catalog;
 pub mod codex_compat;
 pub mod codex_config;
 pub mod codex_hooks;
+pub mod codex_orphans;
 pub mod codex_policies;
 pub mod codex_profile;
 pub mod codex_rules;

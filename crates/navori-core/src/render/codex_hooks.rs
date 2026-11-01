@@ -331,6 +331,44 @@ pub fn resolve_codex_hooks(
     Some(early)
 }
 
+/// `hookExtensionTarget(target, "codex")`: the `.codex/hooks/` mirror of a Claude hook path.
+#[must_use]
+pub fn codex_hook_extension_target(target: &str) -> Option<String> {
+    target
+        .strip_prefix(".claude/hooks/")
+        .map(|hook| format!(".codex/hooks/{hook}"))
+}
+
+/// `codexInstalledScripts(config, plugins)`: every registered hook script, plus the scripts of a
+/// plugin whose hook extension rides inside an installed hook (spec 0041 D15). `None` when a
+/// plugin declares `hooks`.
+#[must_use]
+pub fn codex_installed_scripts(config: &JsValue, plugins: &[LoadedPlugin]) -> Option<Vec<String>> {
+    let mut installed: Vec<String> = Vec::new();
+    for hook in resolve_codex_hooks(config, plugins)? {
+        let path = format!(".codex/hooks/{}.sh", hook.script);
+        if !installed.contains(&path) {
+            installed.push(path);
+        }
+    }
+    for plugin in plugins {
+        let hosted = plugin.hook_extension_assets.iter().any(|extension| {
+            codex_hook_extension_target(&extension.target)
+                .is_some_and(|target| installed.contains(&target))
+        });
+        if !hosted {
+            continue;
+        }
+        for script in &plugin.script_assets {
+            let path = format!(".codex/scripts/{}", script.dest);
+            if !installed.contains(&path) {
+                installed.push(path);
+            }
+        }
+    }
+    Some(installed)
+}
+
 /// `codexHookCommand(hook, wsSubpath)`: the script resolved from the repo root, so it works from
 /// any working directory.
 #[must_use]

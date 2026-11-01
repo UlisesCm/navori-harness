@@ -84,7 +84,7 @@ pub fn native_path_contained(view: &dyn RepoView, rel: &str) -> bool {
 }
 
 /// `stripSignature(content)`: drops a leading, well-formed signature line.
-fn strip_signature(content: &str) -> &str {
+pub(crate) fn strip_signature(content: &str) -> &str {
     let Some(rest) = content.strip_prefix(INTEGRITY_PREFIX) else {
         return content;
     };
