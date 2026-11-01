@@ -14,6 +14,7 @@
 //! The core provenance is `(embedded)`: Rust reads no `core-assets` directory, so it never names
 //! one (Q11). The oracle masks the TS side of that line and of the three `--json` keys.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use jiff::Zoned;
@@ -362,6 +363,8 @@ pub struct RenderOptions {
     pub native_hooks: Option<std::collections::BTreeMap<String, crate::manifest::Hook>>,
     /// `--force`.
     pub force: bool,
+    /// `CLAUDE.md` block ids to overwrite despite a hand edit (`sync --accept-new`).
+    pub force_ids: BTreeSet<String>,
 }
 
 /// `runRenderCore(cwd, { dryRun: true, force })` on the root at `repo_root`, read through
@@ -664,22 +667,32 @@ fn claude_md_budget(view: &dyn RepoView) -> DocBudget {
     measure_doc_budget(&view.read("CLAUDE.md").unwrap_or_default())
 }
 
-/// `runRender(cwd, { dryRun: apply.is_none() })` on the root at `repo_root`, read through
-/// `view`, which must show the disk `apply` writes to.
+/// The engines of one target, planned and finalized before any write (`prepareRenderTarget`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetPlan {
+    /// The Claude engine's plan, when `claude` is configured.
+    pub claude: Option<ClaudeEnginePlan>,
+    /// The other engines, in config order.
+    pub extra_engines: Vec<ExtraEngine>,
+    /// The destinations Codex, `agents-md` and Pi observed in the shared inventory
+    /// (`destinations` without Claude's).
+    pub extra_destinations: Vec<String>,
+}
+
+/// `prepareRenderTarget(cwd, config, engines, …)` and its `finalize()` on the root at
+/// `repo_root`: every engine planned through the shared owned-path inventory, nothing written.
+/// The Codex trust hint is not appended here ([`append_codex_trust_hints`]).
 ///
 /// # Errors
-/// [`RenderError`] where a step delegates or the TS throws.
-pub fn run_render(
+/// [`RenderError::Delegate`] where a step delegates.
+pub fn plan_target(
     view: &dyn RepoView,
     config: &Config,
     repo_root: &Path,
     options: &RenderOptions,
-    mut apply: Option<&mut Apply<'_>>,
-) -> Result<RenderPlan, RenderError> {
+) -> Result<TargetPlan, RenderError> {
     let lang = config.lang();
     let floor = config.harness_version();
-    let force = options.force;
-    let budget_before = apply.is_some().then(|| claude_md_budget(view));
     // `prepareRenderTarget`: every engine is planned before the first write, so a delegate can
     // only happen while the disk is untouched.
     let engines = engines(&config.data);
@@ -734,7 +747,8 @@ pub fn run_render(
     let plan_options = PlanOptions {
         ambient_floor: floor.clone(),
         native_hooks: options.native_hooks.clone(),
-        force,
+        force: options.force,
+        force_ids: options.force_ids.clone(),
         extra_observed: extra_observed.clone(),
         extra_classified: pi_classified.clone(),
         extra_excluded: pi_excluded.clone(),
@@ -755,7 +769,7 @@ pub fn run_render(
         }
         pi_seal(&classified, &pi_excluded).map_err(|_| RenderError::Delegate)
     };
-    let mut claude = if has_claude {
+    let claude = if has_claude {
         Some(
             plan_claude_engine(view, &config.data, repo_root, &plan_options)
                 .map_err(|_| RenderError::Delegate)?,
@@ -807,21 +821,90 @@ pub fn run_render(
         }
         extra_engines.push(entry);
     }
+    let extra_destinations = extra_observed
+        .into_iter()
+        .map(|(rel, _)| rel)
+        .chain(pi_classified.into_iter().map(|(rel, _)| rel))
+        .collect();
+    Ok(TargetPlan {
+        claude,
+        extra_engines,
+        extra_destinations,
+    })
+}
+
+/// The target's `commit()`: Claude, then each other engine in config order, each with its own
+/// backup (left in its [`ExtraEngine::backup_path`]). Returns Claude's backup and the real
+/// writes across every engine.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+pub fn commit_target(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    target: &mut TargetPlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let (backup_path, mut real_writes) = match target.claude.as_mut() {
+        Some(claude) => commit_claude(apply, repo_root, claude, lang)?,
+        None => (None, 0),
+    };
+    for engine in &mut target.extra_engines {
+        let (backup, writes) = match (engine.codex.as_mut(), engine.pi.as_mut()) {
+            (Some(codex), _) => commit_codex(apply, repo_root, codex, lang)?,
+            (_, Some(pi)) => commit_pi(apply, repo_root, pi, lang)?,
+            _ => commit_prose(apply, repo_root, &engine.plan, lang)?,
+        };
+        engine.backup_path = backup;
+        real_writes += writes;
+    }
+    Ok((backup_path, real_writes))
+}
+
+/// `appendCodexTrustHint` on the Codex engine's warnings: read after its commit (or in a
+/// preview), since it reads the repo's `.codex/config.toml`.
+///
+/// # Errors
+/// [`RenderError::Delegate`] where the TS throws.
+pub fn append_codex_trust_hints(
+    config: &Config,
+    repo_root: &Path,
+    extra_engines: &mut [ExtraEngine],
+) -> Result<(), RenderError> {
+    for engine in extra_engines {
+        if let Some(codex) = engine.codex.as_mut()
+            && codex_trust_missing(&config.data, repo_root)?
+        {
+            codex.warnings.push(i18n::codex_trust_command_hint(
+                config.lang(),
+                MIN_CODEX_VERSION,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `runRender(cwd, { dryRun: apply.is_none() })` on the root at `repo_root`, read through
+/// `view`, which must show the disk `apply` writes to.
+///
+/// # Errors
+/// [`RenderError`] where a step delegates or the TS throws.
+pub fn run_render(
+    view: &dyn RepoView,
+    config: &Config,
+    repo_root: &Path,
+    options: &RenderOptions,
+    mut apply: Option<&mut Apply<'_>>,
+) -> Result<RenderPlan, RenderError> {
+    let lang = config.lang();
+    let floor = config.harness_version();
+    let force = options.force;
+    let budget_before = apply.is_some().then(|| claude_md_budget(view));
+    let mut target = plan_target(view, config, repo_root, options)?;
+    let engines = engines(&config.data);
     let mut applied = None;
     if let Some(apply) = apply.as_deref_mut() {
-        let (backup_path, mut real_writes) = match claude.as_mut() {
-            Some(claude) => commit_claude(apply, repo_root, claude, lang)?,
-            None => (None, 0),
-        };
-        for engine in &mut extra_engines {
-            let (backup, writes) = match (engine.codex.as_mut(), engine.pi.as_mut()) {
-                (Some(codex), _) => commit_codex(apply, repo_root, codex, lang)?,
-                (_, Some(pi)) => commit_pi(apply, repo_root, pi, lang)?,
-                _ => commit_prose(apply, repo_root, &engine.plan, lang)?,
-            };
-            engine.backup_path = backup;
-            real_writes += writes;
-        }
+        let (backup_path, real_writes) = commit_target(apply, repo_root, &mut target, lang)?;
         applied = Some(Applied {
             backup_path,
             real_writes,
@@ -829,16 +912,12 @@ pub fn run_render(
             budget_crossed: None,
         });
     }
-    // `appendCodexTrustHint`, after the Codex commit.
-    for engine in &mut extra_engines {
-        if let Some(codex) = engine.codex.as_mut()
-            && codex_trust_missing(&config.data, repo_root)?
-        {
-            codex
-                .warnings
-                .push(i18n::codex_trust_command_hint(lang, MIN_CODEX_VERSION));
-        }
-    }
+    append_codex_trust_hints(config, repo_root, &mut target.extra_engines)?;
+    let TargetPlan {
+        claude,
+        extra_engines,
+        ..
+    } = target;
     let floor = floor.as_deref();
     let mut ignore = |file: Option<IgnoreResult>,
                       applied: &mut Option<Applied>|

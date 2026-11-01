@@ -1,11 +1,18 @@
-//! `navori sync` without prompts over a solo-Claude root (`commands/sync.ts`, spec 0058 T29).
+//! `navori sync` without prompts over a root without workspaces (`commands/sync.ts`, spec 0058
+//! T29, spec 0059 T21).
 //!
-//! The run plans the Claude engine in preview, reports it, and with `--apply`/`--yes` plans again
-//! with the bulk resolution (`--accept-new` overwrites every conflicting `CLAUDE.md` block through
-//! `forceIds`; `--keep-mine` keeps them, which is what the engine does anyway) and commits it as
-//! `render` does. `--accept-new-files` first writes the rendered version of every whole file that
-//! kept its marker (`applyFileResolutions`, with its own backup), each recomposed with the plugin
-//! hook extensions that target it. Sync writes no ignore file and touches no registry.
+//! The run plans every configured engine in preview through the render's shared target
+//! ([`plan_target`]), reports it, and with `--apply`/`--yes` plans again with the bulk resolution
+//! (`--accept-new` overwrites every conflicting `CLAUDE.md` block through `forceIds`; `--keep-mine`
+//! keeps them, which is what the engine does anyway) and commits it as `render` does: Claude, then
+//! each other engine in config order. `--accept-new-files` first writes the rendered version of
+//! every whole file that kept its marker (`applyFileResolutions`, with its own backup), each
+//! recomposed with the plugin hook extensions that target it. Sync writes no ignore file and
+//! touches no registry.
+//!
+//! Accepting a file the TS cannot bind to its prepared apply (a prose engine's file, or one that is
+//! not an observed destination) makes the TS throw; that run is the TS's, decided before any
+//! output.
 //!
 //! Every branch that would prompt (`p.select`, `p.confirm`) is unreachable natively: the manifest
 //! entry `requires` one of `apply`, `yes`, `dry-run`, `json`, `accept-new`, `keep-mine` or
@@ -21,10 +28,14 @@ use crate::fs::write_file_atomic;
 use crate::i18n;
 use crate::js_json::{JsObject, JsValue};
 use crate::markers::{CommentStyle, InjectStatus, extract_managed_content};
-use crate::render::block_plan::{AssetStatus, PlanAsset, PlanOptions};
-use crate::render::claude::{ClaudeEnginePlan, plan_claude_engine};
-use crate::render::collect::{PendingWrite, RepoView};
-use crate::render::command::{Apply, RenderError, commit_claude};
+use crate::render::block_plan::{AssetStatus, PlanAsset};
+use crate::render::claude::ClaudeEnginePlan;
+use crate::render::codex_hooks::codex_hook_extension_target;
+use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
+use crate::render::command::{
+    Apply, RenderError, RenderOptions, TargetPlan, append_codex_trust_hints, commit_target,
+    plan_target,
+};
 use crate::render::context::Lang;
 use crate::render::plugins::load_enabled_plugins;
 use crate::render::report::{Clack, status_symbol, written};
@@ -85,6 +96,8 @@ pub struct SyncConflict {
     pub basis: Option<String>,
     /// `resolution.chmodExec`.
     pub chmod_exec: bool,
+    /// The non-Claude engine that skipped the file; `None` for Claude's.
+    pub engine: Option<String>,
 }
 
 /// What a native `sync` printed and how it ended, or the TS's turn.
@@ -108,19 +121,48 @@ fn plan(
     config: &Config,
     repo_root: &Path,
     force_ids: BTreeSet<String>,
-) -> Result<ClaudeEnginePlan, RenderError> {
-    let options = PlanOptions {
-        ambient_floor: config.harness_version(),
+) -> Result<TargetPlan, RenderError> {
+    let options = RenderOptions {
         force_ids,
-        ..PlanOptions::default()
+        ..RenderOptions::default()
     };
-    plan_claude_engine(view, &config.data, repo_root, &options).map_err(|_| RenderError::Delegate)
+    plan_target(view, config, repo_root, &options)
+}
+
+/// `countTargetWrites(plan)`.
+fn target_writes(plan: &TargetPlan) -> usize {
+    plan.claude.as_ref().map_or(0, |c| written(c).len())
+        + plan
+            .extra_engines
+            .iter()
+            .map(|e| e.written().len())
+            .sum::<usize>()
+}
+
+fn file_conflict(skip: &SkippedFile, view: &dyn RepoView, engine: Option<&str>) -> SyncConflict {
+    SyncConflict {
+        path: engine.map_or_else(
+            || skip.rel_path.clone(),
+            |engine| format!("[{engine}] {}", skip.rel_path),
+        ),
+        reason: skip.reason.clone(),
+        block: false,
+        bulk: skip.resolution.is_some(),
+        markerless: skip.markerless_resolution.is_some(),
+        rel_path: skip.rel_path.clone(),
+        basis: view.read_regular(&skip.rel_path),
+        chmod_exec: skip.chmod_exec,
+        engine: engine.map(str::to_owned),
+    }
 }
 
 /// `collectTargetConflicts` of the root target.
 #[must_use]
-pub fn conflicts(plan: &ClaudeEnginePlan, view: &dyn RepoView) -> Vec<SyncConflict> {
+pub fn conflicts(target: &TargetPlan, view: &dyn RepoView) -> Vec<SyncConflict> {
     let mut out = Vec::new();
+    let Some(plan) = &target.claude else {
+        return extra_conflicts(target, view, out);
+    };
     for (id, status) in &plan.claude_md_entries {
         if *status == AssetStatus::Inject(InjectStatus::UserModifiedSkipped) {
             out.push(SyncConflict {
@@ -132,24 +174,54 @@ pub fn conflicts(plan: &ClaudeEnginePlan, view: &dyn RepoView) -> Vec<SyncConfli
                 rel_path: String::new(),
                 basis: None,
                 chmod_exec: false,
+                engine: None,
             });
         }
     }
     for skip in &plan.skipped {
         if skip.status == Some(InjectStatus::UserModifiedSkipped) {
-            out.push(SyncConflict {
-                path: skip.rel_path.clone(),
-                reason: skip.reason.clone(),
-                block: false,
-                bulk: skip.resolution.is_some(),
-                markerless: skip.markerless_resolution.is_some(),
-                rel_path: skip.rel_path.clone(),
-                basis: view.read_regular(&skip.rel_path),
-                chmod_exec: skip.chmod_exec,
-            });
+            out.push(file_conflict(skip, view, None));
+        }
+    }
+    extra_conflicts(target, view, out)
+}
+
+fn extra_conflicts(
+    target: &TargetPlan,
+    view: &dyn RepoView,
+    mut out: Vec<SyncConflict>,
+) -> Vec<SyncConflict> {
+    for engine in &target.extra_engines {
+        for skip in engine.skipped() {
+            if skip.status == Some(InjectStatus::UserModifiedSkipped) {
+                out.push(file_conflict(skip, view, Some(&engine.engine)));
+            }
         }
     }
     out
+}
+
+/// The skipped files of the prepared owners `finalize()` returns (Claude, Codex, Pi), where
+/// `prepareSyncApply` looks for an accepted file's proposal. Prose engines (and the `AGENTS.md` Pi
+/// writes through one) render in `commit`, so their skips are not among them.
+fn finalized_skips(target: &TargetPlan) -> impl Iterator<Item = &SkippedFile> {
+    let claude = target.claude.iter().flat_map(|c| c.skipped.iter());
+    let extra = target.extra_engines.iter().flat_map(|e| {
+        let codex = e.codex.iter().flat_map(|c| c.skipped.iter());
+        let pi = e.pi.iter().flat_map(|p| p.skipped.iter());
+        codex.chain(pi)
+    });
+    claude.chain(extra)
+}
+
+/// Whether `prepareSyncApply` can bind an accepted file to the prepared apply without throwing:
+/// an observed destination with its proposal among the finalized skips. Claude's own files always
+/// are.
+fn bindable(target: &TargetPlan, conflict: &SyncConflict) -> bool {
+    conflict.engine.is_none()
+        || (target.extra_destinations.contains(&conflict.rel_path)
+            && finalized_skips(target)
+                .any(|s| s.rel_path == conflict.rel_path && s.resolution.is_some()))
 }
 
 /// `stillMatchesBasis`: still a regular file holding exactly what the diff was shown against.
@@ -192,9 +264,73 @@ fn diff_lines(lang: Lang, actual: &str, proposed: &str) -> Vec<String> {
     out
 }
 
+/// A skipped file's line and, when it carries a proposal, its bounded diff.
+fn skip_lines(lang: Lang, engine: &str, skip: &SkippedFile, view: &dyn RepoView) -> Vec<String> {
+    let mut lines = vec![format!(
+        "  ! [{engine}] {}  (skipped: {})",
+        skip.rel_path, skip.reason
+    )];
+    if let Some(proposal) = skip
+        .resolution
+        .as_deref()
+        .or(skip.markerless_resolution.as_deref())
+    {
+        let basis = view.read(&skip.rel_path).unwrap_or_default();
+        lines.extend(diff_lines(lang, &basis, proposal));
+    }
+    lines
+}
+
+/// A whole-file conflict the plan carries no rendered body for.
+fn unresolvable(skip: &SkippedFile) -> bool {
+    skip.status == Some(InjectStatus::UserModifiedSkipped)
+        && skip.resolution.is_none()
+        && skip.markerless_resolution.is_none()
+}
+
 /// `reportTargetPlan` of the root target, uncolored.
-fn report(clack: Clack, lang: Lang, plan: &ClaudeEnginePlan, view: &dyn RepoView) -> String {
+fn report(clack: Clack, lang: Lang, target: &TargetPlan, view: &dyn RepoView) -> String {
     let mut lines = vec![i18n::sync_plan_title("root")];
+    if let Some(plan) = &target.claude {
+        claude_report_lines(lang, plan, view, &mut lines);
+    }
+    for engine in &target.extra_engines {
+        for (path, status) in engine.written() {
+            lines.push(format!(
+                "  {} [{}] {path}  ({status})",
+                status_symbol(status),
+                engine.engine
+            ));
+        }
+        for skip in engine.skipped() {
+            lines.extend(skip_lines(lang, &engine.engine, skip, view));
+        }
+        for warning in engine.warnings() {
+            lines.push(format!("  ! [{}] {warning}", engine.engine));
+        }
+    }
+    let has_file_conflict = target
+        .claude
+        .iter()
+        .flat_map(|c| c.skipped.iter())
+        .chain(target.extra_engines.iter().flat_map(|e| e.skipped()))
+        .any(unresolvable);
+    if has_file_conflict {
+        lines.push(format!(
+            "      {}",
+            i18n::sync_conflict_diff_file_level(lang)
+        ));
+    }
+    clack.message(&lines.join("\n"))
+}
+
+/// The Claude part of `reportTargetPlan`: `CLAUDE.md` blocks, written files, skips and updates.
+fn claude_report_lines(
+    lang: Lang,
+    plan: &ClaudeEnginePlan,
+    view: &dyn RepoView,
+    lines: &mut Vec<String>,
+) {
     let has_block_conflict = plan
         .claude_md_plan
         .iter()
@@ -236,18 +372,7 @@ fn report(clack: Clack, lang: Lang, plan: &ClaudeEnginePlan, view: &dyn RepoView
         }
     }
     for skip in &plan.skipped {
-        lines.push(format!(
-            "  ! [claude] {}  (skipped: {})",
-            skip.rel_path, skip.reason
-        ));
-        if let Some(proposal) = skip
-            .resolution
-            .as_deref()
-            .or(skip.markerless_resolution.as_deref())
-        {
-            let basis = view.read(&skip.rel_path).unwrap_or_default();
-            lines.extend(diff_lines(lang, &basis, proposal));
-        }
+        lines.extend(skip_lines(lang, "claude", skip, view));
     }
     if !plan.updates_available.is_empty() {
         lines.push(String::new());
@@ -259,28 +384,17 @@ fn report(clack: Clack, lang: Lang, plan: &ClaudeEnginePlan, view: &dyn RepoView
             ));
         }
     }
-    let unresolvable = plan.skipped.iter().any(|s| {
-        s.status == Some(InjectStatus::UserModifiedSkipped)
-            && s.resolution.is_none()
-            && s.markerless_resolution.is_none()
-    });
-    if unresolvable {
-        lines.push(format!(
-            "      {}",
-            i18n::sync_conflict_diff_file_level(lang)
-        ));
-    }
-    clack.message(&lines.join("\n"))
 }
 
 /// What the apply pass did: writes, backups, the accepted files, `recordHarnessVersionIfWritten`'s
 /// stderr.
 struct Applied {
-    /// The engine's writes.
+    /// The engines' writes (`countTargetWrites` of the committed target).
     written: usize,
-    /// The engine's backup.
-    backup: Option<String>,
-    /// `applyFileResolutions`: files written, files dropped because they changed, the backup.
+    /// `collectTargetBackups`: `(<engine>, path)` of each engine that took one.
+    backups: Vec<(String, String)>,
+    /// `applyFileResolutions`: files written (relative paths), files dropped because they
+    /// changed (display paths), the backup.
     files_applied: Vec<String>,
     files_dropped: Vec<String>,
     files_backup: Option<String>,
@@ -295,7 +409,7 @@ struct Applied {
 fn refresh_accepted(
     view: &dyn RepoView,
     config: &Config,
-    claude: &mut ClaudeEnginePlan,
+    target: &mut TargetPlan,
     accepted: &[&SyncConflict],
 ) -> Result<Vec<PendingWrite>, RenderError> {
     let effective = effective_config(&config.data);
@@ -321,10 +435,8 @@ fn refresh_accepted(
                 conflict.path
             )));
         }
-        let Some(proposal) = claude
-            .skipped
-            .iter()
-            .find(|s| s.rel_path == conflict.rel_path)
+        let Some(proposal) = finalized_skips(target)
+            .find(|s| s.rel_path == conflict.rel_path && s.resolution.is_some())
             .and_then(|s| s.resolution.clone())
         else {
             return Err(RenderError::Thrown(format!(
@@ -338,14 +450,21 @@ fn refresh_accepted(
             status: InjectStatus::Updated,
             chmod_exec: conflict.chmod_exec,
         }];
+        // `hookExtensionTarget(extension.target, engine)`, with the engine read off the path.
+        let codex = conflict.rel_path.starts_with(".codex/");
         for plugin in &enabled {
             for extension in &plugin.hook_extension_assets {
-                if extension.target == conflict.rel_path {
+                let hook_target = if codex {
+                    codex_hook_extension_target(&extension.target)
+                } else {
+                    Some(extension.target.clone())
+                };
+                if hook_target.as_deref() == Some(conflict.rel_path.as_str()) {
                     apply_hook_extension(
                         &ctx,
                         plugin,
                         extension,
-                        &extension.target,
+                        &conflict.rel_path,
                         &mut virtual_write,
                         &mut SubBlocks::default(),
                     )
@@ -353,7 +472,19 @@ fn refresh_accepted(
                 }
             }
         }
-        claude.pending.retain(|w| w.rel_path != conflict.rel_path);
+        // Committed only by the checked forced-resolution writer.
+        let rel = conflict.rel_path.as_str();
+        if let Some(claude) = target.claude.as_mut() {
+            claude.pending.retain(|w| w.rel_path != rel);
+        }
+        for engine in &mut target.extra_engines {
+            if let Some(codex) = engine.codex.as_mut() {
+                codex.pending.retain(|w| w.rel_path != rel);
+            }
+            if let Some(pi) = engine.pi.as_mut() {
+                pi.pending.retain(|w| w.rel_path != rel);
+            }
+        }
         refreshed.extend(virtual_write.into_iter().take(1));
     }
     Ok(refreshed)
@@ -370,8 +501,8 @@ fn apply_pass(
     accepted: &[&SyncConflict],
 ) -> Result<Applied, RenderError> {
     let lang = config.lang();
-    let mut claude = plan(view, config, repo_root, force_ids)?;
-    let refreshed = refresh_accepted(view, config, &mut claude, accepted)?;
+    let mut target = plan(view, config, repo_root, force_ids)?;
+    let refreshed = refresh_accepted(view, config, &mut target, accepted)?;
     // `applyFileResolutions`: re-checked right before the write; a changed file is dropped.
     let mut files_applied = Vec::new();
     let mut files_dropped = Vec::new();
@@ -381,7 +512,7 @@ fn apply_pass(
             files_dropped.push(conflict.path.clone());
             continue;
         }
-        files_applied.push(conflict.path.clone());
+        files_applied.push(conflict.rel_path.clone());
         if !pending.iter().any(|w| w.rel_path == write.rel_path) {
             pending.push(write);
         }
@@ -404,7 +535,7 @@ fn apply_pass(
             Err(error) => {
                 return Ok(Applied {
                     written: 0,
-                    backup: None,
+                    backups: Vec::new(),
                     files_applied: Vec::new(),
                     files_dropped,
                     files_backup: None,
@@ -416,8 +547,18 @@ fn apply_pass(
         files_backup = committed.backup_path.map(|p| p.display().to_string());
         real_writes += committed.real_writes;
     }
-    let (backup, engine_writes) = commit_claude(apply, repo_root, &mut claude, lang)?;
+    let (claude_backup, engine_writes) = commit_target(apply, repo_root, &mut target, lang)?;
     real_writes += engine_writes;
+    let backups = claude_backup
+        .map(|path| ("claude".to_owned(), path))
+        .into_iter()
+        .chain(
+            target
+                .extra_engines
+                .iter()
+                .filter_map(|e| e.backup_path.clone().map(|path| (e.engine.clone(), path))),
+        )
+        .collect();
     let mut stderr = String::new();
     if real_writes > 0 {
         let record = view
@@ -437,8 +578,8 @@ fn apply_pass(
         }
     }
     Ok(Applied {
-        written: written(&claude).len(),
-        backup,
+        written: target_writes(&target),
+        backups,
         files_applied,
         files_dropped,
         files_backup,
@@ -448,9 +589,11 @@ fn apply_pass(
 }
 
 /// `buildBulkResolutions(plans, "accept-new")`: every conflicting block id.
-fn accept_new_ids(plan: &ClaudeEnginePlan) -> BTreeSet<String> {
-    plan.claude_md_entries
+fn accept_new_ids(target: &TargetPlan) -> BTreeSet<String> {
+    target
+        .claude
         .iter()
+        .flat_map(|plan| plan.claude_md_entries.iter())
         .filter(|(_, status)| *status == AssetStatus::Inject(InjectStatus::UserModifiedSkipped))
         .map(|(id, _)| id.clone())
         .collect()
@@ -475,15 +618,16 @@ fn number(n: usize) -> JsValue {
     reason = "the meta object of `buildSyncJson`, field for field"
 )]
 fn sync_json(
-    plan: &ClaudeEnginePlan,
+    target: &TargetPlan,
     conflicts: &[SyncConflict],
     resolved: &[String],
     flags: SyncFlags,
     ok: bool,
     mode: &str,
     written_total: usize,
-    backups: &[(&str, String)],
+    backups: &[(String, String)],
 ) -> JsValue {
+    let pending = target_writes(target);
     // A skip (or conflict) whose file `--accept-new-files` just wrote is no longer one.
     let still_skipped =
         |rel: &str, resolvable: bool| !resolvable || !resolved.iter().any(|r| r == rel);
@@ -493,13 +637,63 @@ fn sync_json(
             ("status", JsValue::string(status)),
         ])
     };
+    let skips = |skipped: &mut dyn Iterator<Item = &SkippedFile>| {
+        JsValue::Array(
+            skipped
+                .filter(|s| still_skipped(&s.rel_path, s.resolution.is_some()))
+                .map(|s| {
+                    object(vec![
+                        ("path", JsValue::string(&s.rel_path)),
+                        ("reason", JsValue::string(&s.reason)),
+                        (
+                            "status",
+                            s.status
+                                .map_or(JsValue::Undefined, |st| JsValue::string(st.as_str())),
+                        ),
+                    ])
+                })
+                .collect(),
+        )
+    };
+    let engines = target
+        .extra_engines
+        .iter()
+        .map(|engine| {
+            object(vec![
+                ("engine", JsValue::string(&engine.engine)),
+                (
+                    "written",
+                    JsValue::Array(
+                        engine
+                            .written()
+                            .into_iter()
+                            .map(|(path, status)| pair(path, status))
+                            .collect(),
+                    ),
+                ),
+                ("skipped", skips(&mut engine.skipped().into_iter())),
+                (
+                    "warnings",
+                    JsValue::Array(
+                        engine
+                            .warnings()
+                            .iter()
+                            .map(|w| JsValue::string(w))
+                            .collect(),
+                    ),
+                ),
+            ])
+        })
+        .collect();
+    let claude = target.claude.as_ref();
     let target = object(vec![
         ("label", JsValue::string("root")),
         (
             "claudeMd",
             JsValue::Array(
-                plan.claude_md_entries
+                claude
                     .iter()
+                    .flat_map(|plan| plan.claude_md_entries.iter())
                     .map(|(id, status)| {
                         object(vec![
                             ("id", JsValue::string(id)),
@@ -512,7 +706,9 @@ fn sync_json(
         (
             "written",
             JsValue::Array(
-                written(plan)
+                claude
+                    .map(written)
+                    .unwrap_or_default()
                     .into_iter()
                     .filter(|(path, _)| *path != "CLAUDE.md")
                     .map(|(path, status)| pair(path, status))
@@ -521,29 +717,14 @@ fn sync_json(
         ),
         (
             "skipped",
-            JsValue::Array(
-                plan.skipped
-                    .iter()
-                    .filter(|s| still_skipped(&s.rel_path, s.resolution.is_some()))
-                    .map(|s| {
-                        object(vec![
-                            ("path", JsValue::string(&s.rel_path)),
-                            ("reason", JsValue::string(&s.reason)),
-                            (
-                                "status",
-                                s.status
-                                    .map_or(JsValue::Undefined, |st| JsValue::string(st.as_str())),
-                            ),
-                        ])
-                    })
-                    .collect(),
-            ),
+            skips(&mut claude.iter().flat_map(|plan| plan.skipped.iter())),
         ),
         (
             "updatesAvailable",
             JsValue::Array(
-                plan.updates_available
+                claude
                     .iter()
+                    .flat_map(|plan| plan.updates_available.iter())
                     .map(|u| {
                         object(vec![
                             ("id", JsValue::string(&u.id)),
@@ -554,7 +735,7 @@ fn sync_json(
                     .collect(),
             ),
         ),
-        ("engines", JsValue::Array(Vec::new())),
+        ("engines", JsValue::Array(engines)),
     ]);
     let mut entries = vec![
         ("command", JsValue::string("sync")),
@@ -595,7 +776,7 @@ fn sync_json(
             ),
         ),
         ("orphanedWorkspaces", JsValue::Array(Vec::new())),
-        ("pending", number(written(plan).len())),
+        ("pending", number(pending)),
         ("written", number(written_total)),
         (
             "backups",
@@ -633,10 +814,21 @@ pub fn run_sync(
     apply: &mut Apply<'_>,
 ) -> Result<SyncRun, RenderError> {
     let lang = config.lang();
-    let preview = plan(view, config, repo_root, BTreeSet::new())?;
+    // `renderSyncTarget(target, true)`: the dry-run commit appends the Codex trust hint too.
+    let mut preview = plan(view, config, repo_root, BTreeSet::new())?;
+    append_codex_trust_hints(config, repo_root, &mut preview.extra_engines)?;
     let conflicts = conflicts(&preview, view);
-    let pending = written(&preview).len();
+    let pending = target_writes(&preview);
     let accept_files = flags.accept_new_files;
+    // Accepting a file `prepareSyncApply` cannot bind throws in the TS: its run, before any output.
+    if accept_files
+        && (flags.apply || flags.yes)
+        && conflicts
+            .iter()
+            .any(|c| !c.block && c.bulk && !bindable(&preview, c))
+    {
+        return Ok(SyncRun::Delegate);
+    }
     // `conflictsBlockYes`: a bulk mode answers everything; `--accept-new-files` only the files.
     let blocked_yes =
         flags.yes && flags.bulk().is_none() && conflicts.iter().any(|c| c.block || !accept_files);
@@ -651,7 +843,7 @@ pub fn run_sync(
     if flags.json {
         let auto_apply = (flags.apply || flags.yes) && !flags.dry_run;
         let mut written_total = 0;
-        let mut backups: Vec<(&str, String)> = Vec::new();
+        let mut backups: Vec<(String, String)> = Vec::new();
         let mut resolved = Vec::new();
         let mut stderr = String::new();
         if auto_apply && !blocked_yes {
@@ -675,8 +867,13 @@ pub fn run_sync(
                     code: 1,
                 });
             }
-            backups.extend(applied.files_backup.map(|p| ("root:sync", p)));
-            backups.extend(applied.backup.map(|p| ("root:claude", p)));
+            backups.extend(applied.files_backup.map(|p| ("root:sync".to_owned(), p)));
+            backups.extend(
+                applied
+                    .backups
+                    .into_iter()
+                    .map(|(engine, p)| (format!("root:{engine}"), p)),
+            );
             written_total = applied.files_applied.len() + applied.written;
             resolved = applied.files_applied;
             stderr = applied.stderr;
@@ -819,8 +1016,8 @@ pub fn run_sync(
     if let Some(backup) = &applied.files_backup {
         out.push_str(&clack.message(&format!("{} [root:sync] {backup}", i18n::BACKUP_LABEL)));
     }
-    if let Some(backup) = &applied.backup {
-        out.push_str(&clack.message(&format!("{} [root:claude] {backup}", i18n::BACKUP_LABEL)));
+    for (engine, backup) in &applied.backups {
+        out.push_str(&clack.message(&format!("{} [root:{engine}] {backup}", i18n::BACKUP_LABEL)));
     }
     let written_total = applied.files_applied.len() + applied.written;
     let kept = if flags.accept_new {
