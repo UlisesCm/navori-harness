@@ -29,6 +29,7 @@
         "cwd",
         "data-schema-migration",
         "dataSchemaMigration",
+        "diff",
         "dir",
         "files",
         "h",

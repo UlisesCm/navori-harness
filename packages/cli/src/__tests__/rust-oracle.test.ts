@@ -714,7 +714,12 @@ describe("rust oracle", () => {
       expect(resume.some((c) => c.args.includes("--json") === json)).toBe(true);
     }
     expect(resume.some((c) => c.id === "plan-resume:recibo-firmado")).toBe(true);
-    expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
+    // `classify --diff` is native over git (D42); a base git cannot resolve stays with the TS.
+    const diff = oracle.loadCases().filter((c) => c.id.startsWith("plan-diff:"));
+    for (const json of [true, false]) {
+      expect(diff.some((c) => c.args.includes("--json") === json && c.native)).toBe(true);
+    }
+    expect(diff.find((c) => c.id === "plan-diff:base-inexistente")?.native).toBeUndefined();
     // Git evidence, audit events and escalation records stay with the TS.
     for (const id of [
       "update-evidence-session-delegates",

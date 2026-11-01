@@ -403,7 +403,12 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     } else {
         (&["dir", "cwd"], &["json"])
     };
-    let options = parse_leaf(&rest[at + 1..], strings, booleans)?;
+    let (tokens, diff) = if row == Row::Classify {
+        extract_diff(&rest[at + 1..])?
+    } else {
+        (rest[at + 1..].to_vec(), None)
+    };
+    let options = parse_leaf(&tokens, strings, booleans)?;
     let Some(feature) = options.feature else {
         let error = "Missing required positional argument: FEATURE".to_owned();
         return Some(Output::usage(leaf, PLAN_PARENT, Some(error)).emit());
@@ -421,7 +426,10 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     let root =
         state_files::resolve_state_root(cwd, process_cwd, feature, options.get("dir")).ok()?;
     let out = match row {
-        Row::Classify => classify_command(feature, &options, &root)?,
+        Row::Classify => match diff {
+            Some(base) => classify_diff(feature, &options, &root, base)?,
+            None => classify_command(feature, &options, &root)?,
+        },
         Row::Check => check_command(feature, &options, &root)?,
         Row::Render => render_command(feature, &options, &root)?,
         Row::Update => update_command(feature, &options, &root)?,
@@ -628,6 +636,217 @@ fn split_list(value: &str) -> Vec<String> {
         .map(|v| js_trim(v).to_owned())
         .filter(|v| !v.is_empty())
         .collect()
+}
+
+/// `--diff [<base>]` as `reparseBareValueFlags` reads it: a bare `--diff` (last, or before
+/// another flag) is `""`. The other tokens go to [`parse_leaf`]; a repeated `--diff` is the TS's.
+fn extract_diff<'a>(tokens: &[&'a str]) -> Option<(Vec<&'a str>, Option<&'a str>)> {
+    let mut rest = Vec::new();
+    let mut diff = None;
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = tokens[index];
+        index += 1;
+        let value = if token == "--diff" {
+            match tokens.get(index) {
+                Some(next) if !next.starts_with('-') => {
+                    index += 1;
+                    *next
+                }
+                _ => "",
+            }
+        } else if let Some(value) = token.strip_prefix("--diff=") {
+            value
+        } else {
+            rest.push(token);
+            continue;
+        };
+        if diff.replace(value).is_some() {
+            return None;
+        }
+    }
+    Some((rest, diff))
+}
+
+/// `gitLines(cwd, args)`: the NUL-split stdout of a successful git; `None` where `execFileSync`
+/// throws (its message carries git's stderr).
+fn git_lines(cwd: &str, args: &[&str]) -> Option<Vec<String>> {
+    let env = navori_core::plan::evidence::process_env();
+    let mut full = vec!["-c", "core.fsmonitor=false", "--no-optional-locks"];
+    full.extend_from_slice(args);
+    let output = navori_core::process::ProcessRunner::run(
+        &RealRunner,
+        &navori_core::process::Request {
+            program: "git",
+            args: &full,
+            cwd: std::path::Path::new(cwd),
+            env: &env,
+            input: None,
+            timeout: std::time::Duration::from_secs(60 * 60),
+        },
+    )
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(
+        text.split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// `classifyDiff(root, feature, base, json, project)` (`plan classify <feature> --diff`).
+fn classify_diff(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    root: &StateRoot,
+    base: &str,
+) -> Option<Output> {
+    let mut out = Output::default();
+    let project = project_context(&mut out, &root.cwd)?;
+    let base = if base.is_empty() {
+        // `defaultDiffBase`: a second `readConfig` (its warnings print again), or `origin/main`.
+        match read_config(&root.cwd)? {
+            None => "origin/main".to_owned(),
+            Some(config) => {
+                for warning in &config.warnings {
+                    out.stderr.push_str(warning);
+                    out.stderr.push('\n');
+                }
+                let effective = navori_core::config::effective_config(&config.data);
+                match (
+                    member(Some(&effective), "prTarget"),
+                    member(Some(&effective), "branchBase"),
+                ) {
+                    (Some(JsValue::String(t)), _)
+                    | (None | Some(JsValue::Undefined), Some(JsValue::String(t))) => {
+                        format!("origin/{}", t.to_rust()?)
+                    }
+                    _ => return None,
+                }
+            }
+        }
+    } else {
+        base.to_owned()
+    };
+    let path = match state_files::artifact_path(root, &format!("workplan_{feature}.json")) {
+        Ok(path) => path,
+        Err(_) => return None,
+    };
+    let has_workplan = std::path::Path::new(&path).exists();
+    let plan = if has_workplan {
+        // `readWorkplanOrExit`: its message is V8's or zod's.
+        let raw = js_json::parse(&read_artifact(&path)??)?;
+        Some(navori_core::plan::check::workplan_level_signals(&raw)?)
+    } else {
+        None
+    };
+    let declared_level = plan.as_ref().map_or(0, |(level, _)| *level);
+    let merge_base = git_lines(&root.cwd, &["merge-base", "HEAD", &base])?
+        .first()
+        .map(|s| js_trim(s).to_owned())
+        .unwrap_or_default();
+    let since = if merge_base.is_empty() {
+        base.as_str()
+    } else {
+        merge_base.as_str()
+    };
+    // `[...new Set([...tracked, ...untracked])].sort()`.
+    let mut files = git_lines(&root.cwd, &["diff", "--name-only", "-z", since])?;
+    files.extend(git_lines(
+        &root.cwd,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+    )?);
+    files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    files.dedup();
+    let declared = plan
+        .as_ref()
+        .map(|(_, signals)| declared_flags_from_signals(signals))
+        .unwrap_or_default();
+    let input = ClassifyInput {
+        files: files.clone(),
+        critical_area: declared.critical_area,
+        money_credentials_pii: declared.money_credentials_pii,
+        multi_repo: declared.multi_repo,
+        new_external_dependency: declared.new_external_dependency,
+        shared_contract: declared.shared_contract,
+        data_schema_migration: declared.data_schema_migration,
+        bug_without_root_cause: declared.bug_without_root_cause,
+        critical_paths: project.critical_paths.clone().unwrap_or_default(),
+        local_skill_ids: project.local_skill_ids.map(|ids| ids.into_iter().collect()),
+    };
+    let result = classify(&input)?;
+    let exceeds = result.level > declared_level;
+    // `reviewDepth(hasWorkplan, result, criticalPaths)`.
+    let depth: (&str, Option<&str>) = if has_workplan {
+        ("full", Some("workplan"))
+    } else if result.level != 0 {
+        ("full", Some("level"))
+    } else if result.signals.iter().any(|s| s.starts_with("floor:")) {
+        ("full", Some("floor"))
+    } else if project.critical_paths.as_ref().is_none_or(Vec::is_empty) {
+        ("full", Some("criticalPaths-undeclared"))
+    } else if result
+        .signals
+        .iter()
+        .any(|s| s.starts_with("critical-area:"))
+    {
+        ("full", Some("critical-path-matched"))
+    } else {
+        ("light", None)
+    };
+    if options.json {
+        let mut fields = vec![
+            ("score", JsValue::Number(f64::from(result.score))),
+            ("level", JsValue::Number(f64::from(result.level))),
+            (
+                "signals",
+                JsValue::Array(result.signals.iter().map(|s| string(s)).collect()),
+            ),
+            ("nonTrivialCeiling", number(result.non_trivial_ceiling)),
+            ("base", string(&base)),
+            (
+                "files",
+                JsValue::Array(files.iter().map(|f| string(f)).collect()),
+            ),
+            ("declaredLevel", JsValue::Number(f64::from(declared_level))),
+            ("exceedsDeclared", JsValue::Bool(exceeds)),
+            ("workplan", JsValue::Bool(has_workplan)),
+            ("reviewDepth", string(depth.0)),
+        ];
+        if let Some(reason) = depth.1 {
+            fields.push(("depthReason", string(reason)));
+        }
+        json_line(&mut out, &object(fields));
+    } else {
+        let signals = if result.signals.is_empty() {
+            "(none)".to_owned()
+        } else {
+            result.signals.join(", ")
+        };
+        out.stdout.push_str(&format!(
+            "Diff vs {base}: Complexity: {}/10 · Level: {} (declared: {declared_level})\nSignals: {signals}\n",
+            result.score, result.level
+        ));
+        out.stdout.push_str(&if exceeds {
+            format!(
+                "Exceeds declared level: yes — the diff outgrew the workplan (level {} > {declared_level}).\n",
+                result.level
+            )
+        } else {
+            "Exceeds declared level: no.\n".to_owned()
+        });
+        out.stdout.push_str(&format!(
+            "Review depth: {}{}\n",
+            depth.0,
+            depth.1.map_or_else(String::new, |r| format!(" ({r})"))
+        ));
+    }
+    out.code = u8::from(exceeds);
+    Some(out)
 }
 
 fn classify_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
