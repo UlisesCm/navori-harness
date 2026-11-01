@@ -1,5 +1,19 @@
-# navori:managed start id="role-guard-base" hash="3505f472" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:e7059fada5006b084df1f6595bbc30a74c7d156175da1b6005a286dcd668bd1d impl=sha256:589ba7526e4b462f8262f5bd18ebacd7304aac731b649c906e6217607c07822a
+# navori:managed start id="role-guard-base" hash="53562a5d" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: role-guard native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: role-guard could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: role-guard native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(apply_patch | spawn_agent) guard, CODEX ONLY (spec 0041 D5/D13,
 # R6/R7/R8/R17/R31). Claude restricts a role with the agent's `tools:`

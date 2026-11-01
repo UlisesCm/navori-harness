@@ -1,5 +1,19 @@
-# navori:managed start id="engram-write-guard-base" hash="3f9e1f0a" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:e47c6a7b18c2229a2f144ace9028785a9feae49d63d3b8c1abdb0e52ced5e21b impl=sha256:aca57e55cc3ff7c77e3a7a9acc1cf3cc44cc91ba5083f73a1af4dfe05bb35802
+# navori:managed start id="engram-write-guard-base" hash="4f1f1347" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: engram-write-guard native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: engram-write-guard could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: engram-write-guard native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(mcp__engram__*) guard, CODEX ONLY. Claude gives a role its engram
 # tools through the agent's `tools:` allowlist; a Codex agent has no such field

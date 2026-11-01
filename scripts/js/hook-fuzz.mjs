@@ -284,6 +284,85 @@ function implementerNoMarkdownPayload(next, seed, index) {
   return JSON.stringify(payload);
 }
 
+/** Draft sources the publish confirmations read: missing, plain, long, JSON (ADF) and `-`. */
+const DRAFT_FILES = ["@CWD@/missing.md", "@REPO@/README.md", "@REPO@/package.json", "@REPO@/LICENSE", "/etc/hosts", "-", "'@CWD@/a b.md'"];
+/** comment-draft-confirm rows, their near misses and the body forms each one reads. */
+const CDC_COMMANDS = [
+  "gh pr comment 5 --body-file @FILE@", "gh issue comment 5 -F @FILE@", "gh pr comment 5 --body 'hi'", "gh pr comment 5 -b hi", "gh pr comment 5",
+  "gh pr review 5 --approve", "gh pr review 5 --comment -b x", "gh pr review 5 --request-changes -F @FILE@", "gh pr review 5 -a --body-file=@FILE@",
+  "gh issue create --title t --body-file @FILE@", "gh issue create --title t",
+  "gh api graphql -f query='mutation { addComment(input: $i) { clientMutationId } }' -F body=@@FILE@",
+  "gh api graphql -f query='mutation { createIssue(input: $i) { issue { id } } }' -f body=x",
+  "gh api graphql --input @FILE@ -f query='mutation { updateIssueComment(input: $i) { clientMutationId } }'",
+  "gh api graphql -f query='query { viewer { login } }'",
+  "gh api repos/o/r/issues/1/comments -X POST -F body=@@FILE@", "gh api repos/o/r/issues -X POST --input @FILE@", "gh api -X PATCH repos/o/r/issues/1 -f state=closed",
+  "gh api repos/o/r/pulls/1/reviews --input @FILE@", "gh api repos/o/r/pulls/1/reviews", "gh api --method=GET repos/o/r/issues/1/comments",
+  "acli jira workitem comment create --key K-1 --body-file @FILE@", "acli jira workitem comment create --key K-1 --body x",
+  "acli jira workitem comment update --id 1 --body-adf @FILE@", "acli jira workitem comment update --id 1 -F @FILE@",
+  "gh pr view 5 --comments", "echo api review",
+];
+const PUBLISH_WRAPS = [(c) => c, (c) => c, (c) => `cd x && ${c}`, (c) => `${c}; echo done`, (c) => `x=$(${c})`, (c) => `echo "${c}"`];
+
+/** One payload of a publish confirmation: a command from `commands` with a draft file.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @param {string[]} commands
+ * @param {boolean} agents whether `agent_id`/`subagent_id` vary
+ * @returns {string}
+ */
+function publishPayload(next, seed, index, commands, agents) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const command = pick(PUBLISH_WRAPS)(pick(commands).replaceAll("@FILE@", () => pick(DRAFT_FILES)).replaceAll("@CWD@/a b.md", "a b.md"));
+  const shape = (next() >>> 16) % 10;
+  /** @type {Record<string, unknown>} */
+  const payload = { session_id: `fuzz-${seed}-${index}`, hook_event_name: "PreToolUse", tool_name: shape === 0 ? "Read" : "Bash", tool_input: shape === 1 ? { command: [command] } : { command } };
+  if (agents) {
+    const agent = (next() >>> 16) % 4;
+    if (agent === 1) payload.agent_id = "publisher-1";
+    if (agent === 2) payload.subagent_id = "child-1";
+  }
+  return JSON.stringify(payload);
+}
+
+/** role-guard: paths a role may or may not patch, relative, absolute, temp, `..` and review outputs. */
+const RG_PATHS = [
+  "specs/a.md", "specs-evil/a.md", ".navori/state/handoffs/review_f.md", ".navori/state/handoffs/x.json", "src/a.ts",
+  "specs/../src/a.ts", "./specs/b.md", "../outside.md", "/tmp/scratch.txt", "/var/tmp/x", "@CWD@/specs/c.md", "@CWD@",
+  "/etc/navori-fuzz.txt", "/elsewhere/.navori/state/handoffs/review_f.md", "",
+];
+const RG_ROLES = ["scout", "auditor", "reviewer", "publisher", "architect", "implementer", "scribe", "default", "mystery-role", ""];
+
+/** One role-guard payload: a role, a tool and, for apply_patch, one or two paths.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function roleGuardPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const tool = pick(["apply_patch", "apply_patch", "apply_patch", "spawn_agent", "functions.spawn_agent", "Bash", "mcp__engram__mem_save"]);
+  const headers = [`*** ${pick(["Add File", "Update File", "Delete File"])}: ${pick(RG_PATHS)}`];
+  if (next() & 1) headers.push(`*** Move to: ${pick(RG_PATHS)}`);
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: tool,
+    tool_input: { command: `*** Begin Patch\n${headers.join("\n")}\n*** End Patch`, agent_type: "scout" },
+    cwd: "@CWD@",
+  };
+  if ((next() >>> 16) % 6 !== 0) payload.agent_type = pick(RG_ROLES);
+  if (next() & 1) payload.agent_id = "019a0000-0000-4000-8000-000000000000";
+  return JSON.stringify(payload);
+}
+
+/** pr-publisher-confirm: `gh pr create` forms, their near misses and the body forms of the Pi arm. */
+const PRP_COMMANDS = [
+  "gh pr create --title t --body-file @FILE@", "gh pr create -t t -F @FILE@", "gh pr create --title t --body b", "gh pr create --fill",
+  "gh pr create", "gh pr createx", "gh pr list", "git commit -m 'create'", "GH_TOKEN=x gh pr create --draft",
+];
+
 /** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
  * guard-destructive gets its own grammar over every rule; the others keep the original one.
  * @param {number} seed
@@ -312,6 +391,21 @@ export function generatePayloads(seed, count, hook = "subagent-no-background.sh"
     const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
     return Array.from({ length: count }, (_, index) =>
       index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "role-guard.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"agent_type":"scout"', '{"agent_type":"scout","tool_name":"apply_patch"}'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : roleGuardPayload(next, seed, index),
+    );
+  }
+  if (hook === "comment-draft-confirm.sh" || hook === "pr-publisher-confirm.sh") {
+    const commented = hook === "comment-draft-confirm.sh";
+    const malformed = ["", "{", "null", "[]", "{}", "gh pr create", '{"tool_input":{"command":"gh pr comment 5 -b x"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0
+        ? malformed[(next() >>> 16) % malformed.length]
+        : publishPayload(next, seed, index, commented ? CDC_COMMANDS : PRP_COMMANDS, !commented),
     );
   }
   if (hook === "implementer-no-markdown.sh") {

@@ -1212,7 +1212,11 @@ fn native_wiring_verifies_in_shadow_and_active() -> Result<(), String> {
                 .find(|w| w.rel_path == rel)
                 .map(|w| w.content.clone())
         };
-        for (id, hook) in &manifest {
+        // Codex-only hooks (`role-guard`, `engram-write-guard`) never ship to Claude.
+        let claude_hooks = manifest.iter().filter(|(id, _)| {
+            navori_core::render::harness_plan::in_engine_scope(id, Some("claude"))
+        });
+        for (id, hook) in claude_hooks {
             let script = content(&format!(".claude/hooks/{id}.sh"))
                 .ok_or_else(|| format!("{id}: not planned"))?;
             let deps: Vec<String> = hook

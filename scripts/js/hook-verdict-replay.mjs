@@ -691,7 +691,7 @@ export async function main(argv) {
   }
   const deferredNote =
     (result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "") +
-    (result.toolDeferred ? `, ${result.toolDeferred} deferred for a missing text tool` : "");
+    (result.toolDeferred ? `, ${result.toolDeferred} deferred for a missing Bash or text tool` : "");
   process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
   return 0;
 }
