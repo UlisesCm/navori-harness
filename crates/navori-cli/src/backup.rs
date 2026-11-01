@@ -89,7 +89,7 @@ const BACKUP: CommandDef = CommandDef {
     ],
 };
 
-const PROTOTYPE_KEYS: &[&str] = &[
+pub(crate) const PROTOTYPE_KEYS: &[&str] = &[
     "constructor",
     "hasOwnProperty",
     "isPrototypeOf",
@@ -214,27 +214,28 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Leaf<'a> {
-    positional: Option<&'a str>,
-    strings: Vec<(&'static str, &'a str)>,
-    booleans: Vec<&'static str>,
+pub(crate) struct Leaf<'a> {
+    pub(crate) positional: Option<&'a str>,
+    pub(crate) positionals: Vec<&'a str>,
+    pub(crate) strings: Vec<(&'static str, &'a str)>,
+    pub(crate) booleans: Vec<&'static str>,
 }
 
 impl<'a> Leaf<'a> {
-    fn get(&self, name: &str) -> Option<&'a str> {
+    pub(crate) fn get(&self, name: &str) -> Option<&'a str> {
         self.strings
             .iter()
             .find(|(key, _)| *key == name)
             .map(|(_, value)| *value)
     }
 
-    fn flag(&self, name: &str) -> bool {
+    pub(crate) fn flag(&self, name: &str) -> bool {
         self.booleans.contains(&name)
     }
 }
 
 /// `None` for any shape citty could read differently.
-fn parse_leaf<'a>(
+pub(crate) fn parse_leaf<'a>(
     tokens: &[&'a str],
     strings: &[&'static str],
     booleans: &[&'static str],
@@ -251,6 +252,7 @@ fn parse_leaf<'a>(
             if leaf.positional.is_none() {
                 leaf.positional = Some(token);
             }
+            leaf.positionals.push(token);
             continue;
         };
         if let Some(name) = booleans.iter().find(|b| **b == body) {
@@ -281,7 +283,7 @@ fn parse_leaf<'a>(
 
 /// `intFlagOrExit(raw, flag, fallback)` for plain digits; anything else `Number()` would read
 /// (spaces, hex, exponents, a sign) is the TS's.
-fn int_flag(raw: Option<&str>, fallback: Option<u64>) -> Option<Option<u64>> {
+pub(crate) fn int_flag(raw: Option<&str>, fallback: Option<u64>) -> Option<Option<u64>> {
     match raw {
         None => Some(fallback),
         Some(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
@@ -292,20 +294,20 @@ fn int_flag(raw: Option<&str>, fallback: Option<u64>) -> Option<Option<u64>> {
 }
 
 /// `stat.mtimeMs`: `sec * 1e3 + nsec / 1e6`, as Node computes it.
-fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
+pub(crate) fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
     let since = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     #[expect(clippy::cast_precision_loss, reason = "the same doubles Node computes")]
     Some(since.as_secs() as f64 * 1e3 + f64::from(since.subsec_nanos()) / 1e6)
 }
 
-fn now_ms() -> Option<f64> {
+pub(crate) fn now_ms() -> Option<f64> {
     let since = std::time::SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
     #[expect(clippy::cast_precision_loss, reason = "Date.now() is a double too")]
     Some(since.as_millis() as f64)
 }
 
 /// `collectFiles(root, dir)`; `None` where `readdirSync` throws.
-fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Option<()> {
+pub(crate) fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Option<()> {
     let mut names = Vec::new();
     for entry in std::fs::read_dir(dir).ok()? {
         names.push(entry.ok()?.file_name().into_string().ok()?);
@@ -368,7 +370,7 @@ fn list_backups(root: &Path) -> Option<Vec<Entry>> {
     Some(out)
 }
 
-fn iso(ms: f64) -> Option<String> {
+pub(crate) fn iso(ms: f64) -> Option<String> {
     navori_core::backup::iso_from_ms(ms)
 }
 
