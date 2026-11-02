@@ -1,0 +1,123 @@
+name: Rust release rehearsal
+
+# Spec 0062 T6/T7 (R21, R22, R84): builds the four binaries, assembles the npm packages and probes
+# them on each platform, without publishing anything. The real release (npm publish) stays a
+# manual step after the cutover (E3).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [migration/rust]
+    paths:
+      - "packaging/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/js/dist-*.mjs"
+      - ".github/workflows/rust-release.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-release-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+          # Built on Apple silicon with `--target`, as D17 of 0057 plans.
+          - platform: darwin-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+          - platform: linux-x64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked -p navori-cli --target ${{ matrix.target }}
+      - name: One static binary per Linux architecture (R21)
+        if: runner.os == 'Linux'
+        run: |
+          # ldd exits non-zero on a static binary; its message is the evidence.
+          out=$(ldd "target/${{ matrix.target }}/release/navori-rust" 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -Eq "not a dynamic executable|statically linked"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: navori-${{ matrix.platform }}
+          path: target/${{ matrix.target }}/release/navori-rust
+          if-no-files-found: error
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: navori-*
+          path: binaries
+      - name: Assemble navori and @navori/<os>-<cpu> without publishing
+        run: |
+          node scripts/js/dist-assemble.mjs --out npm-packages --pack \
+            --binary darwin-arm64=binaries/navori-darwin-arm64/navori-rust \
+            --binary darwin-x64=binaries/navori-darwin-x64/navori-rust \
+            --binary linux-arm64=binaries/navori-linux-arm64/navori-rust \
+            --binary linux-x64=binaries/navori-linux-x64/navori-rust
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-packages
+          path: npm-packages/*.tgz
+          if-no-files-found: error
+
+  # R84: on each platform with a binary, npm, pnpm and bun install the packages with and without
+  # scripts, and `navori --version`, a guard-destructive block and a delegated subcommand answer.
+  probe:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-latest
+          - platform: darwin-x64
+            runner: macos-15-intel
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: npm install --global pnpm@12.16.1
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: navori-${{ matrix.platform }}
+          path: binary
+      - run: chmod +x binary/navori-rust
+      - run: node scripts/js/dist-probe.mjs --binary binary/navori-rust
