@@ -3,8 +3,9 @@
 //! probe the installed versions and print the pending notices, or stamp their delivery.
 //!
 //! The refresh itself is network: [`prepare`] reserves it and hands the token to `spawn_worker`,
-//! which the CLI turns into `navori <flag> <token>` on `PATH`, the TS worker. Nothing here opens a
-//! socket.
+//! which the CLI turns into the private worker (the TS's on `PATH` until the cutover turns the
+//! native notices on). [`run_tool_version_worker`] is the native worker; it reaches the network
+//! only through an [`HttpClient`] (spec 0062 T9).
 //!
 //! Every branch only the TS reproduces is found by [`precheck`] before the first write, so a
 //! command that delegates has written nothing.
