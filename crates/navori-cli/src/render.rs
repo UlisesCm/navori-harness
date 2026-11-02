@@ -264,6 +264,20 @@ pub(crate) fn home() -> Option<PathBuf> {
     home.is_absolute().then_some(home)
 }
 
+/// `computeRenderPending(cwd, true)` through the native dry run: every status of
+/// `countRenderStatuses` except `unchanged` and the `*-skipped` refusals. `None` when the native
+/// render delegates (its subset excludes every `ok: false` result), so the caller delegates too.
+pub(crate) fn pending_changes(cwd: &Path, config: &Config) -> Option<usize> {
+    let plan = plan_render(&DiskView(cwd), config, cwd, &RenderOptions::default()).ok()?;
+    Some(
+        plan.status_counts()
+            .iter()
+            .filter(|(status, _)| *status != "unchanged" && !status.ends_with("-skipped"))
+            .map(|(_, count)| count)
+            .sum(),
+    )
+}
+
 /// What an apply printed besides the report: the error that stopped it, or the stderr of
 /// `recordHarnessVersionIfWritten`.
 pub(crate) fn apply_render(
