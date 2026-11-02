@@ -121,8 +121,17 @@ fn find_in_path(
     None
 }
 
-/// Resolves the TS CLI (D3): `NAVORI_TS_CLI`, the checkout's `dist/`, then `navori` in `PATH`
-/// without this binary. Launches nothing.
+/// The frozen TS the `navori` npm package ships beside the binary (spec 0062 D53):
+/// `<package>/legacy/dist/index.js` for a binary at `<package>/bin/<name>`. Symlinks are resolved
+/// first, since package managers link `node_modules/.bin/navori` to it.
+fn packaged_legacy(self_exe: Option<&Path>) -> Option<PathBuf> {
+    let exe = self_exe?.canonicalize().ok()?;
+    let package = exe.parent()?.parent()?;
+    Some(package.join("legacy").join("dist").join("index.js"))
+}
+
+/// Resolves the TS CLI (D3): `NAVORI_TS_CLI`, the packaged frozen TS next to this binary, the
+/// checkout's `dist/`, then `navori` in `PATH` without this binary. Launches nothing.
 ///
 /// # Errors
 /// [`NoTs`] naming `subcommand`, every probed location and, for a `.js`, a missing `node`.
@@ -145,6 +154,17 @@ pub fn plan(locations: &Locations, subcommand: &str) -> Result<Plan, NoTs> {
             }
         }
         None => tried.push(format!("{TS_CLI_VAR} (unset)")),
+    }
+
+    if chosen.is_none()
+        && let Some(legacy) = packaged_legacy(locations.self_exe.as_deref())
+    {
+        if legacy.is_file() {
+            // Frozen on purpose at the last TS release: an older version is no mismatch (F8).
+            chosen = Some((legacy.clone(), VersionSource::Unknown));
+        } else {
+            tried.push(format!("{} (not found)", legacy.display()));
+        }
     }
 
     if chosen.is_none() {
