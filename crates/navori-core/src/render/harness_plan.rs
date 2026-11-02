@@ -215,14 +215,14 @@ pub struct HarnessPlan {
 }
 
 /// `extraConditionMet`.
-fn extra_condition_met(extra: &JsValue, config: &JsValue) -> bool {
+pub(crate) fn extra_condition_met(extra: &JsValue, config: &JsValue) -> bool {
     match text(get(extra, "condition")) {
         Some(condition) if !condition.is_empty() => resolve_condition(config, &condition),
         _ => true,
     }
 }
 
-fn extras<'a>(preset: Option<&'a LoadedPreset>, kind: &str) -> &'a [JsValue] {
+pub(crate) fn extras<'a>(preset: Option<&'a LoadedPreset>, kind: &str) -> &'a [JsValue] {
     match preset
         .and_then(|p| get(&p.def, "extras"))
         .and_then(|e| get(e, kind))

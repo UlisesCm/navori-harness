@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
+  "name": "x",
+  "version": "1.0.0",
+  "harnessVersion": "0.12.2",
+  "engines": ["agents-md", "cursor", "copilot"],
+  "preset": "nextjs",
+  "language": "es",
+  "branchBase": "main",
+  "gitignoreHarness": "full",
+  "commits": "conventional-es",
+  "models": { "implementer": "sonnet" },
+  "plugins": {
+    "engram": { "enabled": true },
+    "gh": { "enabled": true },
+    "tgrep": { "enabled": false }
+  },
+  "project": {
+    "libraries": ["zod-validation"],
+    "extraLibraries": ["vitest"]
+  }
+}

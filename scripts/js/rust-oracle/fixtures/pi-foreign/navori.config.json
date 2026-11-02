@@ -1,0 +1,13 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
+  "name": "x",
+  "version": "1.0.0",
+  "harnessVersion": "0.12.2",
+  "engines": ["pi"],
+  "preset": "custom",
+  "language": "en",
+  "branchBase": "main",
+  "gitignoreHarness": "off",
+  "commits": "conventional-en",
+  "plugins": {}
+}

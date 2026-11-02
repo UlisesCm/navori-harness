@@ -1,10 +1,11 @@
-//! `navori sync` without prompts (spec 0058 T29, R48).
+//! `navori sync` without prompts (spec 0058 T29, R48; every engine since spec 0059 T21, R63).
 //!
 //! Native inside the manifest entry: its flags, at least one of the `requires` alternatives (so no
 //! native run can reach `p.select`/`p.confirm`), `when.engines`, no enabled monorepo workspaces, a
 //! config `readConfig` accepts, a usable backup root and a colorless stdout (unless `--json`).
-//! `--accept-new` with `--keep-mine` (the TS's contradiction error) and every other form are
-//! handed to the TS before any output or effect.
+//! `--accept-new` with `--keep-mine` (the TS's contradiction error), a render step the engines
+//! delegate, an accepted file the TS cannot bind to its apply and every other form are handed to
+//! the TS before any output or effect.
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};

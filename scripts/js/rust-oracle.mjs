@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
  * Spec 0057 R8-R10 / D5 - differential oracle: `navori` (TS `dist/`) vs `navori-rust`.
  *
  *   node scripts/js/rust-oracle.mjs                        every case; exit 1 on any difference
- *   node scripts/js/rust-oracle.mjs --only <substring>     only the cases whose id contains it (a,b: either)
+ *   node scripts/js/rust-oracle.mjs --only <a>[,<b>...]    only the cases whose id contains one
  *   node scripts/js/rust-oracle.mjs --report <file>        also write the JSON report
  *   node scripts/js/rust-oracle.mjs --rust-bin <path>      use that binary and skip `cargo build`
  *   node scripts/js/rust-oracle.mjs --self-check           TS against itself: proves the harness is deterministic
@@ -766,8 +766,11 @@ function managedBlock(style, id, body, version) {
 /** The anti-rollback levels of D26: absent, lower, equal to the checkout's CLI, higher. */
 export const ANTI_ROLLBACK_LEVELS = ["absent", "lower", "equal", "higher"];
 
-/** The operations of the matrix (D26). */
-export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
+/** The operations of the matrix (D26; `codex-config` and `agents-md` from spec 0059 T21, R63). */
+export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove", "codex-config", "agents-md"];
+
+/** The fixture each operation overlays: Claude's own, or the engine that owns the marker. */
+const ANTI_ROLLBACK_FIXTURE = { "codex-config": "codex", "agents-md": "prose-engines" };
 
 /**
  * The anti-rollback matrix (spec 0058 D26, T27): config floor (`harnessVersion`) × the stamp
@@ -779,7 +782,11 @@ export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
  * - `settings`: a managed `settings.json` with an older body under `$navori.version`
  *   (`render --apply`);
  * - `remove`: the stamped `CLAUDE.md` block of an enabled plugin (`remove tgrep --yes`), where
- *   the guarded removal ignores the floor (D21).
+ *   the guarded removal ignores the floor (D21);
+ * - `codex-config`: the `#` base block of `.codex/config.toml` with an older body, over `codex`
+ *   (`sync --apply`, native in every engine since spec 0059 T21);
+ * - `agents-md`: the `AGENTS.md` block of the `agents-md` engine with an older body, over
+ *   `prose-engines` (`render --apply`).
  *
  * @param {string} cliVersion the checkout's TS CLI version (the stamp Rust also writes, D20)
  * @returns {OracleCase[]}
@@ -787,10 +794,11 @@ export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
 export function antiRollbackCases(cliVersion) {
   const level = (name) =>
     ({ absent: null, lower: "0.1.0", equal: cliVersion, higher: "999.0.0" })[name];
-  const base = JSON.parse(readFileSync(join(FIXTURES_DIR, "fresh-init", "navori.config.json"), "utf8"));
   /** @type {OracleCase[]} */
   const cases = [];
   for (const op of ANTI_ROLLBACK_OPS) {
+    const fixture = ANTI_ROLLBACK_FIXTURE[op] ?? "fresh-init";
+    const base = JSON.parse(readFileSync(join(FIXTURES_DIR, fixture, "navori.config.json"), "utf8"));
     for (const floor of ANTI_ROLLBACK_LEVELS) {
       for (const marker of ANTI_ROLLBACK_LEVELS) {
         const config = { ...base };
@@ -807,16 +815,23 @@ export function antiRollbackCases(cliVersion) {
             `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
         } else if (op === "remove") {
           files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
+        } else if (op === "codex-config") {
+          files[".codex/config.toml"] = managedBlock("shell", "codex-config-base", 'model = "older"', stamp);
+        } else if (op === "agents-md") {
+          files["AGENTS.md"] = `# Notes\n\n${managedBlock("html", "navori-agents", "Older body.", stamp)}`;
         } else {
           const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
           files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
         }
         cases.push({
           id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
-          fixture: "fresh-init",
+          fixture,
           ...(op === "remove"
             ? { args: ["remove", "tgrep", "--yes"] }
-            : { args: ["render", "--apply"], mask: ["provenance"] }),
+            : op === "codex-config"
+              ? { args: ["sync", "--apply"], native: true }
+              : { args: ["render", "--apply"], mask: ["provenance"] }),
+          ...(op === "agents-md" ? { native: true } : {}),
           files,
         });
       }
@@ -959,9 +974,8 @@ export function main(argv) {
     }
     rust = { cmd: resolve(bin), args: [], version: rustVersion() };
   }
-  // A comma-separated list selects the union (`--only handoff,plan`, as A4 of 0060 runs it).
   const only = flagValue(argv, "--only")?.split(",").filter(Boolean);
-  const cases = loadCases().filter((c) => !only?.length || only.some((o) => c.id.includes(o)));
+  const cases = loadCases().filter((c) => !only || only.some((part) => c.id.includes(part)));
   if (cases.length === 0) {
     process.stderr.write("rust-oracle: no case matches\n");
     return 2;

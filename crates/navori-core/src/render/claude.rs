@@ -30,6 +30,7 @@ use crate::render::harness_files::{collect_harness_files, filter_inventory};
 use crate::render::harness_plan::{preset_hooks, resolve_harness_plan};
 use crate::render::library_skills::unknown_libraries;
 use crate::render::mcp_file::{MCP_PATH, declares_mcp_server, plan_mcp_registration};
+use crate::render::native_hook::NativeEngine;
 use crate::render::native_hooks::{
     NativeHooksInput, apply_native_claude_settings, embedded_native_hooks, finalize_native_hooks,
 };
@@ -217,6 +218,9 @@ pub fn plan_claude_engine(
             preset_hooks: &hooks,
             enabled: &enabled,
             disabled: &disabled,
+            extra: &options.extra_observed,
+            classified: &options.extra_classified,
+            excluded: &options.extra_excluded,
         },
     ))?;
 
@@ -308,6 +312,8 @@ pub fn plan_claude_engine(
             manifest: &native_manifest,
             ambient_floor: floor,
             owned_paths: Some(&owned_paths),
+            engine: NativeEngine::Claude,
+            render_vars: None,
         },
         &mut pending,
     ))?;

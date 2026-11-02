@@ -1,0 +1,9 @@
+---
+description: Contexto y reglas del proyecto generados por navori.
+alwaysApply: true
+---
+
+# Navori — reglas del proyecto
+<!-- navori:managed id="navori-cursor" hash="00000000" version="99.0.0" source="@navori/core" -->
+Bloque de una navori más nueva.
+<!-- /navori:managed id="navori-cursor" -->
