@@ -510,6 +510,28 @@ process.exit(1);`,
     }
   });
 
+  // Covers: R51
+  it("reads the verdict of a process that ends before taking all of stdin (EPIPE)", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    // Larger than any pipe buffer, so the write is still pending when the process is gone.
+    const input = "x".repeat(4 * 1024 * 1024);
+    const deferred = nativeFixture(
+      dir,
+      `process.stderr.write(${JSON.stringify("navori-rust: hook deferred: hook is ineligible: unsupported locale\n")}); process.exit(1);`,
+    );
+    expect(rustAdapter.runRustHook({ binary: deferred, script, input })).toEqual({
+      available: false,
+      reason: "native runtime deferred; no native verdict was evaluated",
+    });
+    const blocks = nativeFixture(dir, "process.stdout.write('blocked'); process.exit(2);");
+    expect(rustAdapter.runRustHook({ binary: blocks, script, input })).toMatchObject({
+      available: true,
+      status: 2,
+      stdout: Buffer.from("blocked"),
+    });
+  });
+
   // Covers: R70
   it("retries once a call deferred by an expired probe deadline, and only that deferral", () => {
     const dir = tmp();
