@@ -40,6 +40,8 @@
     "check:doc-budgets": "node packages/cli/scripts/check-doc-budgets.mjs",
     "check:blame-ignore": "node scripts/js/check-blame-ignore.mjs",
     "check:tests-preserved": "node scripts/js/check-test-preservation.mjs",
+    "check:post-cutover": "node scripts/js/post-cutover-check.mjs",
+    "cutover:check": "bun scripts/js/cutover-check.mjs",
     "check:dup": "./node_modules/.bin/jscpd -r silent || (./node_modules/.bin/jscpd; exit 1)",
     "check:dup:baseline": "./node_modules/.bin/jscpd --update-baseline",
     "check:ast": "./node_modules/.bin/ast-grep test --skip-snapshot-tests && ./node_modules/.bin/ast-grep scan",
