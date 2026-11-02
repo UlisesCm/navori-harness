@@ -1,6 +1,14 @@
 {
   "schema": 1,
   "cases": [
+    { "id": "master-group:sin-subcomando", "fixture": "fresh-init", "mask": ["version"], "args": ["master"], "native": true },
+    { "id": "master-group:help", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "--help"], "native": true },
+    { "id": "master-group:h", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "-h"], "native": true },
+    { "id": "master-group:desconocido", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "nope"], "native": true },
+    { "id": "master-group:desconocido-help", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "--help", "nope"], "native": true },
+    { "id": "master-group:prototipo", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "toString"] },
+    { "id": "master-group:init-delega", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "init", "uno"] },
+    { "id": "master-group:delivery-check-delega", "fixture": "fresh-init", "mask": ["version"], "args": ["master", "delivery-check"] },
     { "id": "master-status:no-index-json", "fixture": "fresh-init", "args": ["master", "status", "--json"], "native": true },
     { "id": "master-status:no-index-line", "fixture": "fresh-init", "args": ["master", "status", "--line"], "native": true },
     { "id": "master-status:closed-json", "fixture": "master-closed", "args": ["master", "status", "--json"], "native": true },

@@ -279,7 +279,7 @@ const PLAN: CommandDef = CommandDef {
 };
 
 /// Names `name in subCommands` finds on `Object.prototype`: citty would run them as commands.
-const PROTOTYPE_KEYS: &[&str] = &[
+pub(crate) const PROTOTYPE_KEYS: &[&str] = &[
     "constructor",
     "hasOwnProperty",
     "isPrototypeOf",
@@ -294,7 +294,7 @@ const PROTOTYPE_KEYS: &[&str] = &[
     "__lookupSetter__",
 ];
 
-const ROOT: Parent<'static> = Parent {
+pub(crate) const ROOT: Parent<'static> = Parent {
     name: "navori",
     version: Some(navori_core::VERSION),
 };

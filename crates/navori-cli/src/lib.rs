@@ -210,6 +210,10 @@ pub const NATIVE: &[NativeCommand] = &[
         run: master_read::run_template,
     },
     NativeCommand {
+        path: &["master"],
+        run: master::run_group,
+    },
+    NativeCommand {
         path: &["spec", "classify"],
         run: spec::run_classify,
     },
