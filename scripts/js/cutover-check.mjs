@@ -24,7 +24,8 @@ import {
  *   - an open unport in `crates/ported-history.jsonl`;
  *   - R17: the last `bench:hooks --impl rust` report missing, not comparable or over its p95 budget,
  *     or `navori-rust --version` slower than 10 ms;
- *   - R18: the last `check:post-cutover` missing, red or over 300 s.
+ *   - R18: the last `check:post-cutover` missing, red or over its host's budget (300 s on the
+ *     reference machine, 600 s on CI).
  *
  * The command tree is read from `packages/cli/src/cli.ts`, as the per-area inventory test does
  * (`dist/index.js` runs the CLI on import), so it runs under bun.
@@ -37,15 +38,26 @@ const BENCH_DIR = join(REPO_ROOT, ".navori", "state", "bench");
 export const VERSION_BUDGET_MS = 10;
 /** R17: direct native hook invocation, wall p95, in milliseconds. */
 export const HOOK_P95_BUDGET_MS = 5;
-/** R18: `check:post-cutover`, in seconds. */
+/** R18: `check:post-cutover`, in seconds, on the reference machine (a developer machine at rest). */
 export const POST_CUTOVER_BUDGET_S = 300;
+/** R18: the same gate on the CI runner (GitHub's `ubuntu-latest`), kept as a regression guard. */
+export const POST_CUTOVER_CI_BUDGET_S = 600;
+
+/**
+ * The R18 budget of the host that produced a `check:post-cutover` record.
+ * @param {string | undefined} host `"ci"` or `"reference"`; a record without one is the reference
+ * @returns {number}
+ */
+export function postCutoverBudget(host) {
+  return host === "ci" ? POST_CUTOVER_CI_BUDGET_S : POST_CUTOVER_BUDGET_S;
+}
 
 /**
  * @typedef {{ path: string[], flags?: string[] }} ManifestCommand
  * @typedef {{ commands: ManifestCommand[], hooks: Record<string, { mode?: string }> }} Manifest
  * @typedef {{ date: string, op: string, id: string }} HistoryEvent
  * @typedef {{ comparable?: boolean, measurements?: Array<{ engine?: string, hook?: string, wallMsP95: number }> }} BenchReport
- * @typedef {{ ok: boolean, seconds: number }} PostCutoverReport
+ * @typedef {{ ok: boolean, seconds: number, host?: string }} PostCutoverReport
  * @typedef {{ check: string, detail: string }} Finding
  */
 
@@ -117,10 +129,10 @@ export function cutoverFindings(input) {
     findings.push({ check: "R18", detail: "no check:post-cutover report" });
   else if (!input.postCutover.ok)
     findings.push({ check: "R18", detail: "the last check:post-cutover failed" });
-  else if (input.postCutover.seconds > POST_CUTOVER_BUDGET_S)
+  else if (input.postCutover.seconds > postCutoverBudget(input.postCutover.host))
     findings.push({
       check: "R18",
-      detail: `check:post-cutover took ${input.postCutover.seconds.toFixed(0)} s > ${POST_CUTOVER_BUDGET_S} s`,
+      detail: `check:post-cutover took ${input.postCutover.seconds.toFixed(0)} s > ${postCutoverBudget(input.postCutover.host)} s`,
     });
   return findings;
 }

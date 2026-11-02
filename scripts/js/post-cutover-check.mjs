@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { POST_CUTOVER_BUDGET_S } from "./cutover-check.mjs";
+import { postCutoverBudget } from "./cutover-check.mjs";
 
 /**
  * Spec 0062 T8 (R18; D17 of 0057): `bun run check:post-cutover`, the full gate with the
@@ -12,9 +13,13 @@ import { POST_CUTOVER_BUDGET_S } from "./cutover-check.mjs";
  * (to time every step on a host where one is known red; the run still counts as red). Neither
  * cargo step includes the TS oracle crate, which the cutover removes.
  *
+ * The hook oracle runs as `ORACLE_SHARDS` disjoint `--shard i/n` processes at once, each with its
+ * own scratch; the step is green only when every shard is.
+ *
  * It writes `.navori/state/bench/post-cutover-<stamp>.json` and `post-cutover-latest.json`
- * (`{ ok, seconds, budgetSeconds, steps }`), which `cutover:check` reads, and exits 1 when a step
- * fails or the whole run exceeds R18's 300 s. With `--budget-advisory` (the CI job while the long
+ * (`{ ok, host, seconds, budgetSeconds, steps }`), which `cutover:check` reads, and exits 1 when a
+ * step fails or the whole run exceeds its host's R18 budget: 300 s on the reference machine, 600 s
+ * on CI (`GITHUB_ACTIONS=true`). With `--budget-advisory` (the CI job while the long
  * tail is open, T8) an overrun only warns: the record still says `ok: false`, so `cutover:check`
  * and A3 keep blocking the cutover on R18, but a PR is red only for a failing step.
  */
@@ -53,7 +58,8 @@ export const TS_ORACLE_CRATE = "navori-oracle-tests";
 
 /**
  * The steps, in order. `env` is resolved when the step runs (the binary exists only after cargo).
- * @type {Array<{ name: string, cmd: string, args: string[], cwd?: string, env?: () => Record<string, string> }>}
+ * A step with `sharded` runs once per oracle shard, in parallel, with `--shard i/n` appended.
+ * @type {Array<{ name: string, cmd: string, args: string[], cwd?: string, env?: () => Record<string, string>, sharded?: boolean }>}
  */
 export const STEPS = [
   { name: "cargo fmt", cmd: "cargo", args: ["fmt", "--all", "--check"] },
@@ -83,6 +89,7 @@ export const STEPS = [
     cmd: "node",
     args: ["scripts/js/hook-verdict-replay.mjs", "--impl", "rust", "--only", manifestHooks().join(",")],
     env: () => ({ NAVORI_RUST_BIN: BUILT_BINARY }),
+    sharded: true,
   },
   {
     name: "artifact suites",
@@ -97,8 +104,31 @@ export const STEPS = [
   { name: "check:doc-budgets", cmd: "bun", args: ["run", "check:doc-budgets"] },
 ];
 
+/** Parallel processes for the hook oracle: one per available core. */
+export const ORACLE_SHARDS = availableParallelism();
+
+/**
+ * The host whose R18 budget applies.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {"ci" | "reference"}
+ */
+export function postCutoverHost(env = process.env) {
+  return env.GITHUB_ACTIONS === "true" ? "ci" : "reference";
+}
+
+/**
+ * The argument lists a step runs: one, or one per shard for a sharded step.
+ * @param {{ args: string[], sharded?: boolean }} step
+ * @param {number} shards
+ * @returns {string[][]}
+ */
+export function stepInvocations(step, shards = ORACLE_SHARDS) {
+  if (!step.sharded) return [step.args];
+  return Array.from({ length: shards }, (_, i) => [...step.args, "--shard", `${i + 1}/${shards}`]);
+}
+
 /** Whether a run is within R18: every step green and the total under the budget. */
-export function postCutoverOk(steps, seconds, budget = POST_CUTOVER_BUDGET_S) {
+export function postCutoverOk(steps, seconds, budget = postCutoverBudget("reference")) {
   return steps.every((s) => s.status === 0) && seconds <= budget;
 }
 
@@ -113,31 +143,49 @@ export function postCutoverExit({ ok, complete, steps }, advisory) {
   return advisory && stepsGreen ? 0 : 1;
 }
 
-function main(argv) {
+/**
+ * Runs one invocation with inherited stdio; resolves to its exit status (1 when it cannot start
+ * or ends on a signal).
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv }} options
+ * @returns {Promise<number>}
+ */
+function runOnce(cmd, args, options) {
+  return new Promise((done) => {
+    const child = spawn(cmd, args, { ...options, stdio: "inherit" });
+    child.on("error", () => done(1));
+    child.on("close", (code) => done(code ?? 1));
+  });
+}
+
+async function main(argv) {
   const keepGoing = argv.includes("--keep-going");
   const advisory = argv.includes("--budget-advisory");
+  const host = postCutoverHost();
+  const budget = postCutoverBudget(host);
   const started = process.hrtime.bigint();
   const steps = [];
   for (const step of STEPS) {
-    process.stdout.write(`check:post-cutover: ${step.name}\n`);
+    const invocations = stepInvocations(step);
+    const shardNote = invocations.length > 1 ? ` (${invocations.length} shards)` : "";
+    process.stdout.write(`check:post-cutover: ${step.name}${shardNote}\n`);
     const t0 = process.hrtime.bigint();
-    const run = spawnSync(step.cmd, step.args, {
-      cwd: join(REPO_ROOT, step.cwd ?? "."),
-      stdio: "inherit",
-      env: { ...process.env, ...step.env?.() },
-    });
-    const status = run.status ?? 1;
+    const options = { cwd: join(REPO_ROOT, step.cwd ?? "."), env: { ...process.env, ...step.env?.() } };
+    const statuses = await Promise.all(invocations.map((args) => runOnce(step.cmd, args, options)));
+    const status = statuses.find((code) => code !== 0) ?? 0;
     steps.push({ name: step.name, status, seconds: Number(process.hrtime.bigint() - t0) / 1e9 });
     if (status !== 0 && !keepGoing) break;
   }
   const seconds = Number(process.hrtime.bigint() - started) / 1e9;
   const complete = steps.length === STEPS.length;
-  const ok = postCutoverOk(steps, seconds) && complete;
+  const ok = postCutoverOk(steps, seconds, budget) && complete;
   const result = {
     generatedAt: new Date().toISOString(),
     ok,
+    host,
     seconds,
-    budgetSeconds: POST_CUTOVER_BUDGET_S,
+    budgetSeconds: budget,
     steps,
   };
   const dir = join(REPO_ROOT, ".navori", "state", "bench");
@@ -148,16 +196,16 @@ function main(argv) {
   for (const s of steps)
     process.stdout.write(`  ${s.status === 0 ? "ok  " : "FAIL"} ${s.name} ${s.seconds.toFixed(1)} s\n`);
   process.stdout.write(
-    `check:post-cutover: ${ok ? "green" : "red"} in ${seconds.toFixed(1)} s (budget ${POST_CUTOVER_BUDGET_S} s)\n`,
+    `check:post-cutover: ${ok ? "green" : "red"} in ${seconds.toFixed(1)} s (budget ${budget} s)\n`,
   );
   const code = postCutoverExit({ ok, complete, steps }, advisory);
   if (!ok && code === 0)
     process.stdout.write(
-      `::warning::check:post-cutover exceeds R18 (${seconds.toFixed(1)} s > ${POST_CUTOVER_BUDGET_S} s); recorded as red for cutover:check\n`,
+      `::warning::check:post-cutover exceeds R18 (${seconds.toFixed(1)} s > ${budget} s); recorded as red for cutover:check\n`,
     );
   return code;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }

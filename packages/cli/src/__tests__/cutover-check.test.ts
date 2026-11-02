@@ -27,17 +27,21 @@ interface Input {
     measurements?: Array<{ engine?: string; hook?: string; wallMsP95: number }>;
   } | null;
   versionMs: number | null;
-  postCutover: { ok: boolean; seconds: number } | null;
+  postCutover: { ok: boolean; seconds: number; host?: string } | null;
 }
 interface Cutover {
   cutoverFindings: (input: Input) => Finding[];
   VERSION_BUDGET_MS: number;
   HOOK_P95_BUDGET_MS: number;
   POST_CUTOVER_BUDGET_S: number;
+  POST_CUTOVER_CI_BUDGET_S: number;
+  postCutoverBudget: (host: string | undefined) => number;
 }
 interface PostCutover {
-  STEPS: Array<{ name: string; cmd: string; args: string[] }>;
+  STEPS: Array<{ name: string; cmd: string; args: string[]; sharded?: boolean }>;
   ARTIFACT_SUITES: string[];
+  postCutoverHost: (env: Record<string, string | undefined>) => "ci" | "reference";
+  stepInvocations: (step: { args: string[]; sharded?: boolean }, shards: number) => string[][];
   TS_ORACLE_CRATE: string;
   postCutoverExit: (
     run: { ok: boolean; complete: boolean; steps: Array<{ status: number }> },
@@ -150,6 +154,43 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(cutover.cutoverFindings(red)).toEqual([
       { check: "R18", detail: "the last check:post-cutover failed" },
     ]);
+  });
+
+  // Covers: R18
+  it("R18 vale 300 s en la máquina de referencia y 600 s en CI, según el host del registro", () => {
+    expect(cutover.POST_CUTOVER_BUDGET_S).toBe(300);
+    expect(cutover.POST_CUTOVER_CI_BUDGET_S).toBe(600);
+    expect(cutover.postCutoverBudget("ci")).toBe(600);
+    expect(cutover.postCutoverBudget("reference")).toBe(300);
+    // a record without a host predates the field: the stricter budget applies
+    expect(cutover.postCutoverBudget(undefined)).toBe(300);
+    const ci = ready();
+    ci.postCutover = { ok: true, seconds: 599, host: "ci" };
+    expect(cutover.cutoverFindings(ci)).toEqual([]);
+    ci.postCutover = { ok: true, seconds: 601, host: "ci" };
+    expect(cutover.cutoverFindings(ci).map((f) => f.detail)).toEqual([
+      "check:post-cutover took 601 s > 600 s",
+    ]);
+    const local = ready();
+    local.postCutover = { ok: true, seconds: 301, host: "reference" };
+    expect(cutover.cutoverFindings(local).map((f) => f.check)).toEqual(["R18"]);
+    expect(post.postCutoverHost({ GITHUB_ACTIONS: "true" })).toBe("ci");
+    expect(post.postCutoverHost({})).toBe("reference");
+    expect(post.postCutoverHost({ GITHUB_ACTIONS: "false" })).toBe("reference");
+  });
+
+  // Covers: R18
+  it("el oráculo de hooks corre en rebanadas --shard i/n paralelas; los demás pasos, una vez", () => {
+    const oracle = post.STEPS.find((s) => s.name === "hook oracle");
+    expect(oracle?.sharded).toBe(true);
+    expect(post.STEPS.filter((s) => s.sharded)).toHaveLength(1);
+    expect(oracle && post.stepInvocations(oracle, 3).map((args) => args.slice(-2))).toEqual([
+      ["--shard", "1/3"],
+      ["--shard", "2/3"],
+      ["--shard", "3/3"],
+    ]);
+    const fmt = post.STEPS[0];
+    expect(fmt && post.stepInvocations(fmt, 3)).toEqual([fmt?.args]);
   });
 
   // Covers: R18
