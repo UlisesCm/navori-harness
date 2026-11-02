@@ -311,7 +311,7 @@ describe("payload declarations and rendered extraction", () => {
   // Covers: R10, R13
   it("declares every literal from each rendered hook including its expanded partials", () => {
     const canonical = readdirSync(ASSETS).filter((name) => name.endsWith(".sh"));
-    expect(canonical).toHaveLength(22);
+    expect(canonical).toHaveLength(23);
     for (const name of canonical) {
       const source = readFileSync(join(ASSETS, name), "utf8");
       expect(source.indexOf("nv_payload_fields="), name).toBeLessThan(

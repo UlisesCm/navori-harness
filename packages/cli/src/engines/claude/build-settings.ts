@@ -87,6 +87,7 @@ const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const IMPLEMENTER_NO_MD_HOOK_DEST = ".claude/hooks/implementer-no-markdown.sh";
 const SUBAGENT_NO_BACKGROUND_HOOK_DEST = ".claude/hooks/subagent-no-background.sh";
+const PII_EGRESS_HOOK_DEST = ".claude/hooks/pii-egress-guard.sh";
 const PLAN_GATE_HOOK_DEST = ".claude/hooks/plan-gate.sh";
 const MASTER_PLAN_CONTEXT_HOOK_DEST = ".claude/hooks/master-plan-context.sh";
 const MASTER_ACCEPT_CONFIRM_HOOK_DEST = ".claude/hooks/master-accept-confirm.sh";
@@ -225,6 +226,28 @@ export function buildClaudeSettings(
               command: claudeHookCommand("PreToolUse", SUBAGENT_NO_BACKGROUND_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: subagent-no-background",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // #1445: never send the user's personal data (git email, NAVORI_PERSONAL_IDS) to
+  // an external host. Always registered; no identifier resolvable → no-op. The matcher is the
+  // web tools ONLY: the Bash half is a lane inside guard-destructive (spec 0039 R28 forbids a
+  // second hook on the Bash path). Static statusMessage: it never carries a value.
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "WebFetch|WebSearch",
+          hooks: [
+            {
+              type: "command",
+              command: claudeHookCommand("PreToolUse", PII_EGRESS_HOOK_DEST),
+              timeout: 10,
+              statusMessage: "navori: pii-egress-guard",
             },
           ],
         },

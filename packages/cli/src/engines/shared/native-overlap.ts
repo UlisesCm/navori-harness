@@ -203,6 +203,7 @@ const HOOK_IDS: readonly string[] = [
   "guard-destructive",
   "implementer-no-markdown",
   "subagent-no-background",
+  "pii-egress-guard",
   "session-start-context",
   "model-advisor",
   "subagent-stop-handoff",

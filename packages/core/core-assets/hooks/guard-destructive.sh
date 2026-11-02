@@ -30,6 +30,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the PII-egress lane (#1445, `_partials/pii-egress*.sh`): hard — personal data leaving the machine cannot be
+#     recalled; it denies through its own function (never `block()`, which prints the command), audit reason
+#     `pii-egress`, and the route is a generic identifier (`navori-agent/1.0`).
 #   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
 #     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
 #     Navori's own files change.
@@ -191,6 +194,17 @@ fi
 # `$skeleton` and the heredoc ceilings (LINE_MAX, HEREDOC_PROBE_MAX): the shared
 # partial, called here so the fail-closed order is unchanged.
 navori_inert_skeleton
+
+# PII-egress lane (#1445): a Bash request to an external host that carries the user's git email
+# or a `NAVORI_PERSONAL_IDS` entry is denied. It lives HERE and not in a hook of its own because
+# spec 0039 R28 forbids adding a hook to the Bash path. It runs BEFORE the fast path below (a
+# `curl` carries none of that path's tokens), behind a fork-free gate, in a subshell (no failure
+# of the lane can disable the rules below), with its own deny path: `block()` prints the
+# command, and this lane never echoes the command or the identifier. Matching, the failure
+# contract and the documented false negatives: `_partials/pii-egress*.sh`.
+# navori:include pii-egress
+# navori:include pii-egress-bash
+navori_pii_bash_lane
 
 # ─── Fast path: a command no rule below can possibly match ───────────────────
 #

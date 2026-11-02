@@ -76,6 +76,11 @@ export const SUPPLEMENTAL_SCENARIOS = {
     events: ["PreToolUse"],
     tools: { codex: "mcp__engram__mem_search" },
   },
+  // #1445: Claude's web-tool hook (pii-egress-guard); the Bash half rides inside the destructive guard.
+  WebFetch: {
+    events: ["PreToolUse"],
+    tools: { claude: "WebFetch" },
+  },
 };
 
 /**
@@ -159,6 +164,8 @@ export function parseCodexRegistrations(toml) {
  */
 export function selectHooks(registrations, scenario, engine) {
   const spec = SCENARIOS[scenario] ?? SUPPLEMENTAL_SCENARIOS[scenario];
+  // A scenario with a tool map only exists for the engines it names.
+  if (spec.tools && spec.tools[engine] === undefined) return [];
   const subject = spec.tools ? spec.tools[engine] : (spec.source ?? "");
   return registrations.filter((reg) => {
     if (reg.engine !== engine || !spec.events.includes(reg.event)) return false;
@@ -635,6 +642,13 @@ export function writePayload(sandbox, scenario, reg) {
       hook_event_name: reg.event,
       tool_name: "mcp__engram__mem_search",
       tool_input: { query: "benchmark fixture", response_format: "compact" },
+    },
+    WebFetch: {
+      session_id: "bench-session",
+      cwd: sandbox.project,
+      hook_event_name: reg.event,
+      tool_name: "WebFetch",
+      tool_input: { url: "https://example.com/", prompt: "benchmark fixture" },
     },
   }[scenario];
   if (supplemental) {

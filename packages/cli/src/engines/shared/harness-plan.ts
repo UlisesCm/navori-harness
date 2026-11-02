@@ -275,7 +275,14 @@ export function resolveHarnessPlan(
       managedId: "audit-mode-close-base",
     },
   ];
-  for (const id of ["master-plan-context", "master-accept-confirm", "role-guard"]) {
+  // #1445: `pii-egress-guard` (WebFetch/WebSearch; Claude-only through HOOK_ENGINES) is unconditional like
+  // `role-guard`; no identifier resolvable → no-op. Codex and Pi get the Bash half as a lane inside guard-destructive.
+  for (const id of [
+    "master-plan-context",
+    "master-accept-confirm",
+    "role-guard",
+    "pii-egress-guard",
+  ]) {
     if (!inEngineScope(HOOK_ENGINES[id], options.engine)) continue;
     hooks.push({
       id,

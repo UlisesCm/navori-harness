@@ -158,7 +158,7 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 
 Navori 的防护规则是基于文本的策略。Pi 没有权限系统，因此每条规则都通过匹配调用文本来工作，是安全带而不是沙箱。[兼容性清单](#兼容性清单)中的相关行标为 `enforced (seatbelt)`。
 
-**破坏性命令和 deny 规则（`guard-destructive`）。** 共享破坏性规则和共享的 `deny` 权限规则会在父会话及所有子会话中阻止操作。渲染时会将 `deny` 规则转换为 token 前缀，转换方式与 Codex 相同。它的 `ask` 规则会在父会话中确认（见下文的共享 `ask` 规则）。
+**破坏性命令和 deny 规则（`guard-destructive`）。** 共享破坏性规则和共享的 `deny` 权限规则会在父会话及所有子会话中阻止操作。渲染时会将 `deny` 规则转换为 token 前缀，转换方式与 Codex 相同。它的 `ask` 规则会在父会话中确认（见下文的共享 `ask` 规则）。同一脚本还包含 PII 外泄通道：bash 中的 `curl`、`wget`、`http`/`https`/`xh`/`xhs` 或内联 `fetch(` 请求若指向外部主机，且其中携带 git `user.email` 或某个 `NAVORI_PERSONAL_IDS` 条目，则会被拒绝，适用于父会话及每个子会话；拒绝消息会指明规则与来源，且从不回显该值；请使用 `navori-agent/1.0` 作为通用标识符。WebFetch/WebSearch 在 Pi 中不存在。
 Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 - **控制平面。** 当写入动词（`>`、`>>`、`>|`、`tee`、`sed -i`、`rm`、`mv`、`cp`、`ln`、`dd`、`install`、`truncate`、`chmod`、`git checkout|restore`）和内联解释器（`python -c`、`node -e`、`perl -i`、`ruby -e`、`php -r`）指向 `.pi/navori/**`、`.pi/extensions/**`、`.pi/settings.json` 或 `.pi/navori.json` 时，会阻止操作。读取仍然允许。
@@ -383,12 +383,13 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 | `hook:comment-draft-confirm` | enforced | 安全带（上述绕过方式类别） | 内联正文或无法读取的正文只会作为命令显示；stdin 正文（`-F -`）和由 shell 构建的路径（`$VAR`、`$(…)`）不会显示。检查与执行之间仍有一个时间窗口。间接 shell 形式可以绕过它。 |
 | `hook:engram-write-guard` | n/a | — | 仅适用于 Codex：Pi 子进程以 `--no-mcp` 运行，且从不获得 engram 写入工具（只有只读的 `navori_mem_*`；见 engram 的 `plugin-skill` 行）；`bash` 仍可访问 engram CLI，Pi 没有任何控制对此设防 |
 | `hook:general-purpose-confirm` | unsupported | 控制项 `general-purpose-confirm` | — |
-| `hook:guard-destructive` | enforced | 安全带（上述绕过方式类别） | 对命令字符串实施文本策略：共享脚本中的破坏性规则、共享 `deny` 权限规则、对 Pi 控制平面（`.pi/navori/**`、`.pi/extensions/**`、`.pi/settings.json`、`.pi/navori.json`）的写入，以及 `pi --no-extensions`。共享 `ask` 规则会给出 `ask`（见对应行）。 |
+| `hook:guard-destructive` | enforced | 安全带（上述绕过方式类别） | 对命令字符串实施文本策略：共享脚本中的破坏性规则、其 PII 外泄通道（发往外部主机且携带 git 邮箱或 `NAVORI_PERSONAL_IDS` 条目的 `curl`/`wget` 请求；从不回显两者中的任何一个）、共享 `deny` 权限规则、对 Pi 控制平面（`.pi/navori/**`、`.pi/extensions/**`、`.pi/settings.json`、`.pi/navori.json`）的写入，以及 `pi --no-extensions`。共享 `ask` 规则会给出 `ask`（见对应行）。 |
 | `hook:implementer-no-markdown` | advisory | 控制项 `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | 不会阻止操作；只会检查带有哈希标记的区块（AGENTS.md、skills、hook 副本）。扩展、manifest 和角色文件没有逐区块哈希，因此改由防护规则和 edit/write 通道保护。无法评估的漂移会静默处理。 |
 | `hook:master-accept-confirm` | enforced | 安全带（上述绕过方式类别） | 覆盖 `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`、`master close`、`delivery-review\|decision\|publication\|revoke` 和 `delivery-slice --refresh`；间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过。该确认是安全带，不是沙箱。 |
 | `hook:master-plan-context` | advisory | 控制项 `master-plan` | — |
 | `hook:model-advisor` | unsupported | — | 移植到 Pi 需要脚本提供 Pi 模式并添加绑定；目前没有计划（模型通过 `/model` 选择并传给子进程，spec 0047 R17）。 |
+| `hook:pii-egress-guard` | n/a | — | 仅 Claude：它防护 WebFetch 和 WebSearch，而 Pi 没有这些工具。Pi 的 `bash` 由 guard-destructive 中的 PII 外泄通道覆盖（见其所在行） |
 | `hook:plan-gate` | enforced | 控制项 `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | 安全带（上述绕过方式类别） | 仅在启用 publisher 角色时安装；内联正文或无法读取的正文只会作为命令显示。间接 shell 形式可以绕过它。 |
 | `hook:quality-gate-pre-commit` | enforced | 安全带（上述绕过方式类别） | 仅在配置了 `qualityGate.fast` 时存在（与 Claude 和 Codex 一样，否则没有对应行）；结果仅适用于当时的工作树。间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过；代理以外的 hook（例如用户自己的终端）无法被检测到。 |

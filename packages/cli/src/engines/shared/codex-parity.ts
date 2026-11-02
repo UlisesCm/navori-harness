@@ -183,6 +183,7 @@ export function codexCapabilityFor(
 export const CODEX_HOOKS_WITHOUT_REGISTRATION: readonly string[] = [
   "bash-outcome-watch",
   "subagent-no-background",
+  "pii-egress-guard",
 ];
 
 /** `kind:id` key a unit is stored under in {@link CODEX_PARITY}. */
@@ -766,6 +767,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
         "the run_in_background/Monitor vector does not exist in Codex (probe V6b, spec 0041 R12), so there is nothing to block there. The script now also carries a shell lane (`&`, nohup, setsid, disown, spec 0048 R8/D-U2) for every engine that registers it, but Codex does not: its hook payload has no agent_id to tell a child from the main thread. Reference: " +
           SOURCES.execCommand,
         "no hook is registered or installed in Codex; shell backgrounding stays a prose rule there, while Claude enforces it mechanically",
+      ),
+    ],
+    [
+      "hook:pii-egress-guard",
+      equivalente(
+        "the Bash half is a lane inside guard-destructive on PreToolUse(Bash): a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry is denied (#1445). Spec 0039 R28 forbids a second hook on the Bash path, so no separate script is registered",
+        "Codex's hosted web search has no hook event, so WebFetch/WebSearch egress is not guarded; the script is neither installed nor registered in Codex",
       ),
     ],
     [

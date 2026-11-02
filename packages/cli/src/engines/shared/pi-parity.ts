@@ -246,7 +246,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "guard-destructive",
       seatbelt(
         "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/guard-destructive.sh`) under bash for the parent and every child; exit 2 blocks the call before it runs (PI_HOOK_BINDINGS)",
-        "textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row)",
+        "textual policy over the command string: the destructive rules of the shared script, its PII-egress lane (a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry; never echoes either), the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row)",
         "pi-extension:tool_call",
       ),
     ),
@@ -326,6 +326,12 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "role-guard",
       notApplicable(
         "Codex-only: Claude and Pi restrict roles by their tool allowlist, not a hook (HOOK_ENGINES)",
+      ),
+    ),
+    h(
+      "pii-egress-guard",
+      notApplicable(
+        "Claude-only: it guards WebFetch and WebSearch, which Pi does not have. Pi's `bash` is covered by the PII-egress lane inside guard-destructive (its row)",
       ),
     ),
     h(

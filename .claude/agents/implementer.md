@@ -8,7 +8,7 @@ maxTurns: 160
 maxWords: 2705
 ---
 
-<!-- navori:managed id="implementer-base" hash="1142f592" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="41e5514c" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -39,10 +39,11 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 - **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.
 - **Self scope review before reporting**: `git diff --stat origin/dev...HEAD` (plus uncommitted changes) — every file outside the encargo's scope is either justified in the report or reverted before you close.
 - **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.json`.
-- **Strong typing, `any` forbidden in new code.** Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
+- **Strong typing, `any` forbidden in new code.** Use `unknown` + narrowing, generics, or domain types. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
+- Never send personal data (email, name, git user.email) to external services; use a generic identifier, e.g. navori-agent/1.0.
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone. Returning red because of your change is automatic `CHANGES_REQUESTED`.
 - **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.
 - **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
@@ -50,7 +51,7 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.
 - Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
-- Keep intermediate runs quiet; use verbose output only to diagnose a concrete failure. Record this turn's gate command, exit code, and summary before reporting green.
+- Keep runs quiet; verbose output only to diagnose a failure. Record this turn's gate command, exit code, and summary before reporting green.
 
 ## Restraint (YAGNI)
 
