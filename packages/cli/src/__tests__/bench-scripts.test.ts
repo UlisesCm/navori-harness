@@ -697,8 +697,8 @@ describe("bench scripts", () => {
         selectHooks(registrations, scenario, engine),
       ),
     );
-    // The context consumer iterates only SCENARIOS: its 49 groups stay separate from supplements.
-    expect(original).toHaveLength(49);
+    // The context consumer iterates only SCENARIOS: its 48 groups (master-accept-confirm is Pi-registered only with masterPlan) stay separate from supplements.
+    expect(original).toHaveLength(48);
     const scenarios = [
       ...Object.keys(hooksModule.SCENARIOS),
       ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),
@@ -792,6 +792,44 @@ describe("bench scripts", () => {
         );
         expect(run.status).toBe(2);
         expect(run.stderr).toContain("--scenario needs a known scenario name");
+      }
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  // Covers: R3
+  it("bench:hooks mide comandos Bash largos fuera de SCENARIOS y del presupuesto de 300 ms", () => {
+    const longScenarios = Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS).filter((name) =>
+      name.startsWith("BashLong"),
+    );
+    expect(longScenarios.sort()).toEqual([
+      "BashLong40kGrep",
+      "BashLong40kNoGrep",
+      "BashLong6kGrep",
+      "BashLong6kNoGrep",
+    ]);
+    // Not in SCENARIOS: bench-context and the `Bash` budget never see them.
+    expect(longScenarios.some((name) => name in hooksModule.SCENARIOS)).toBe(false);
+    const registrations = hooksModule.readRegistrations();
+    const sandbox = createSandbox();
+    try {
+      for (const name of longScenarios) {
+        const reg = selectHooks(registrations, name, "claude")[0]!;
+        const payload = JSON.parse(
+          readFileSync(hooksModule.writePayload(sandbox, name, reg), "utf8"),
+        ) as {
+          tool_name: string;
+          tool_input: { command: string };
+        };
+        const { command } = payload.tool_input;
+        const size = name.includes("40k") ? 40_000 : 6_000;
+        expect(command.length).toBeGreaterThan(size);
+        expect(command.length).toBeLessThan(size * 1.25);
+        expect(command).toContain("navori");
+        expect(command).toContain("master");
+        expect(command.includes("| grep")).toBe(name.endsWith("Grep") && !name.endsWith("NoGrep"));
+        expect(payload.tool_name).toBe("Bash");
       }
     } finally {
       sandbox.cleanup();
