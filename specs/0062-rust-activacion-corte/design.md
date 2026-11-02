@@ -81,6 +81,32 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   de guarda de regresión. Un registro sin `host` se juzga con 300 s. `cutover:check` aplica el
   presupuesto del host del registro.
 
+### D53 — Ensayo del paquete sin tocar `packages/cli` (R21, R22, R84; enmienda D17 de 0057)
+
+- **Aparte del TS.** Mientras dure la convivencia, `packages/cli` sigue publicando el TS sin
+  artefactos Rust ni `postinstall` (R4). El paquete del corte se arma aparte:
+  `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
+  hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
+  `@navori/<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
+- **`legacy/` es el paquete entero.** El tarball del último TS publicado (`packaging/legacy.json`
+  fija versión e `integrity`) se desempaca completo en `legacy/`, así que el TS congelado es
+  `legacy/dist/index.js` y no `legacy/index.js`: conserva su `package.json` y sus lecturas
+  relativas, y responde su propia versión.
+- **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
+  127, así el prólogo del hook corre su cuerpo shell.
+- **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
+  bajo pnpm (`npm_config_user_agent`), y el lanzador quita del `NODE_PATH` las rutas `/.pnpm/` que
+  agrega el shim: con ellas el binario declara el hook no elegible (`NODE_*`).
+- **Delegación.** El binario busca el TS congelado junto a sí mismo
+  (`<paquete>/legacy/dist/index.js`, después de `NAVORI_TS_CLI` y antes del `dist/` del checkout),
+  sin aviso de versión: la diferencia es deliberada. Por Node, el lanzador fija `NAVORI_TS_CLI`.
+- **Sonda.** `dist-probe.mjs` instala tarballs locales. pnpm no empareja `allowBuilds: navori` con
+  un id `navori@file:<ruta>`, así que el caso con scripts habilita los builds de su proyecto
+  desechable. Mientras la lista de delegación permanente esté vacía, la delegación se prueba con un
+  subcomando que nadie porta y exige el banner del TS congelado.
+- **Workflow.** `.github/workflows/rust-release.yml` compila los cuatro binarios (musl estático
+  comprobado con `ldd`), arma los paquetes y corre la sonda en cada plataforma. No publica.
+
 ## Failure modes
 
 - **F44 — Un hook activado diverge en uso real.** Mitigación: R80 (vuelta a `shadow` con
