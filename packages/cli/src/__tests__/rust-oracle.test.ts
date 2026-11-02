@@ -687,6 +687,72 @@ describe("rust oracle", () => {
     expect(byId.get("multi-engine-pi:remove-yes")?.native).toBe(true);
   });
 
+  // Covers: R19
+  it("cada dimensión de config de las suites de aceptación de Pi y Codex tiene fixture", () => {
+    interface Config {
+      engines?: string[];
+      harness?: Record<string, boolean>;
+      qualityGate?: { fast?: string };
+      plugins?: Record<string, { enabled?: boolean }>;
+      models?: { codexMap?: Record<string, string> };
+    }
+    const configOf = (c: OracleCase): Config =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as Config;
+    const pluginsDir = join(root, "packages", "plugins");
+    const mcp = readdirSync(pluginsDir).filter((id) => {
+      const manifest = join(pluginsDir, id, "plugin.json");
+      return existsSync(manifest) && "mcpServer" in JSON.parse(readFileSync(manifest, "utf8"));
+    });
+    expect(mcp.length).toBeGreaterThan(0);
+    // A file overwritten after a first render: the user's edit the next render must respect.
+    const edited = (c: OracleCase): boolean => {
+      const steps = (c.setup ?? []) as unknown[];
+      const rendered = steps.findIndex(
+        (s) => Array.isArray(s) && s[0] === "render" && s.includes("--apply"),
+      );
+      return (
+        rendered >= 0 &&
+        steps
+          .slice(rendered + 1)
+          .some((s) => typeof s === "object" && s !== null && "write" in s && !("in" in s))
+      );
+    };
+    const role = (name: string, on: boolean) => (c: Config) => (c.harness?.[name] ?? true) === on;
+    // D39: the dimensions the first-class Pi suites and the Codex parity and trust suites exercise.
+    const dimensions: Array<[string, string[], (config: Config, c: OracleCase) => boolean]> = [
+      ["harness.planTiers", ["pi", "codex"], (c) => c.harness?.planTiers === true],
+      ["harness.masterPlan", ["pi"], (c) => c.harness?.masterPlan === true],
+      ["harness.scribeOwnsMarkdown", ["pi"], (c) => c.harness?.scribeOwnsMarkdown === true],
+      ["qualityGate.fast", ["pi", "codex"], (c) => Boolean(c.qualityGate?.fast)],
+      ["rol publisher", ["pi"], role("publisher", true)],
+      ["sin rol publisher", ["pi"], role("publisher", false)],
+      ["rol scout", ["pi"], role("scout", true)],
+      ["sin rol scout", ["pi"], role("scout", false)],
+      [
+        "plugins MCP",
+        ["pi", "codex"],
+        (c) => Object.entries(c.plugins ?? {}).some(([id, p]) => p.enabled && mcp.includes(id)),
+      ],
+      ["codexMap", ["pi", "codex"], (c) => Object.keys(c.models?.codexMap ?? {}).length > 0],
+      ["recurso editado por el usuario", ["pi", "codex"], (_, c) => edited(c)],
+    ];
+    // Tree equality needs a write: native renders with --apply.
+    const applied = oracle
+      .loadCases()
+      .filter((c) => c.native === true && c.args[0] === "render" && c.args.includes("--apply"));
+    for (const [name, engines, holds] of dimensions)
+      for (const engine of engines)
+        expect(
+          applied.some(
+            (c) => (configOf(c).engines ?? ["claude"]).includes(engine) && holds(configOf(c), c),
+          ),
+          `${name} with ${engine}`,
+        ).toBe(true);
+  });
+
   it("los casos cubren el repo con contenido de usuario y la superficie del golden", () => {
     const cases = oracle.loadCases();
     const user = cases.find((c) => c.id === "user-content-outside-markers");
