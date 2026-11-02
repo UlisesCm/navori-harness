@@ -627,6 +627,22 @@ describe("Pi child failure diagnostics", () => {
       childStop: { stopReason: "error", errorMessage: "invalid_grant: refresh failed" },
     });
     expect(String(result.details.failure)).toContain("invalid_grant");
+    expect(text).not.toContain("Working without children");
+  });
+
+  // Covers: R7
+  it("suggests another route only when the provider rejects the request (4xx other than 408/429)", async () => {
+    const suggestion = async (stopReason: string, errorMessage: string): Promise<boolean> => {
+      const result = await runScout([assistant({ stopReason, errorMessage }), settled]);
+      expect(result.isError).toBe(true);
+      return result.content[0]!.text.includes("Working without children");
+    };
+    expect(await suggestion("error", '400 {"type":"error"}')).toBe(true);
+    expect(await suggestion("error", "403 forbidden")).toBe(true);
+    expect(await suggestion("error", "429 rate limited")).toBe(false);
+    expect(await suggestion("error", "408 request timeout")).toBe(false);
+    expect(await suggestion("error", "529 overloaded")).toBe(false);
+    expect(await suggestion("aborted", "400 aborted by user")).toBe(false);
   });
 
   // Covers: R7

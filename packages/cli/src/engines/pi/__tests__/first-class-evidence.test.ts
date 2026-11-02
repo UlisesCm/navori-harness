@@ -328,6 +328,7 @@ describe("parent and child evidence", () => {
 });
 
 const STAGE = "specs/_master/02-demo";
+const OTHER = "specs/_master/03-other";
 const HASH = "a".repeat(64);
 const binding = (over: Partial<DeliveryEvidenceBinding> = {}): DeliveryEvidenceBinding => ({
   policy: "deliveries-content-v1",
@@ -341,19 +342,30 @@ const binding = (over: Partial<DeliveryEvidenceBinding> = {}): DeliveryEvidenceB
   ...over,
 });
 
-/** project() whose only index row is delivery-bound (6 fields), with a stage holding its lifecycle files. */
+/** A stage directory with valid lifecycle files, so a rejection can only come from the rule under test. */
+function stage(cwd: string, path: string): void {
+  mkdirSync(join(cwd, path), { recursive: true });
+  writeFileSync(join(cwd, path, "state.json"), "{}\n");
+  writeFileSync(join(cwd, path, "STATUS.md"), "# status\n");
+}
+
+/** project() whose only index row is delivery-bound (6 fields); both STAGE and OTHER exist on disk. */
 function deliveryProject(row: { binding?: unknown; stage?: string } = {}): string {
   const cwd = project();
-  mkdirSync(join(cwd, STAGE), { recursive: true });
-  writeFileSync(join(cwd, STAGE, "state.json"), "{}\n");
-  writeFileSync(join(cwd, STAGE, "STATUS.md"), "# status\n");
+  stage(cwd, STAGE);
+  stage(cwd, OTHER);
   const escaped = JSON.stringify(COMMAND).slice(1, -1);
-  const value = row.binding ?? binding();
   writeFileSync(
     join(cwd, DIR, "acceptance-index"),
-    `${escaped}\tdemo\tA1\t${join(cwd, DIR)}\t${JSON.stringify(value)}\t${row.stage ?? STAGE}\n`,
+    `${escaped}\tdemo\tA1\t${join(cwd, DIR)}\t${JSON.stringify(row.binding ?? binding())}\t${row.stage ?? STAGE}\n`,
   );
   return cwd;
+}
+
+/** The evidence log exactly as written, without readEvidenceLog's silent filtering of invalid lines. */
+function rawLog(cwd: string): string {
+  const file = join(cwd, DIR, "workplan_demo.evidence.jsonl");
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
 
 // Covers: R7
@@ -361,20 +373,22 @@ describe("delivery-bound evidence", () => {
   // Covers: R7
   it("records a delivery row with its binding and fp 2, accepted by validateEvidence under that binding", async () => {
     const cwd = deliveryProject();
+    // progress/ is excluded only by fingerprint v2: its presence makes v2 and legacy differ.
+    mkdirSync(join(cwd, "progress"));
+    writeFileSync(join(cwd, "progress/current.md"), "state\n");
     await load(BUILTIN).result?.(ok(), ctx(cwd));
-    const recorded = lines(cwd);
+    const recorded = rawLog(cwd).split("\n").filter(Boolean);
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toMatchObject({
-      fp: 2,
-      deliveryBinding: binding(),
-      feature: "demo",
-      id: "A1",
-    });
-    const expected = fingerprintTree(cwd, binding());
-    expect(recorded[0]?.worktreeTree).toBe(expected.ok ? expected.tree : undefined);
-    // Lifecycle writes after the run (delivery-criterion itself) must not stale the proof.
+    const line = JSON.parse(recorded[0]!) as Record<string, unknown>;
+    expect(line).toMatchObject({ fp: 2, deliveryBinding: binding(), feature: "demo", id: "A1" });
+    const v2 = fingerprintTree(cwd, binding());
+    const legacy = fingerprintTree(cwd, binding(), { legacy: true });
+    expect(v2.ok && legacy.ok && v2.tree !== legacy.tree).toBe(true);
+    expect(line.worktreeTree).toBe(v2.ok ? v2.tree : undefined);
+    // Lifecycle and progress writes after the run (delivery-criterion itself) must not stale the proof.
     writeFileSync(join(cwd, STAGE, "state.json"), '{"criteria":[]}\n');
     writeFileSync(join(cwd, STAGE, "STATUS.md"), "# changed\n");
+    writeFileSync(join(cwd, "progress/current.md"), "next\n");
     const root = resolveStateRoot({ cwd, feature: "demo" });
     const verdict = (deliveryBinding?: DeliveryEvidenceBinding) =>
       validateEvidence({
@@ -391,18 +405,31 @@ describe("delivery-bound evidence", () => {
   });
 
   // Covers: R7
-  it("records nothing for a malformed or uncontained delivery row", async () => {
+  it("writes nothing to disk for a malformed or uncontained delivery row", async () => {
     const cases: Array<[string, () => string]> = [
       [
         "unknown policy",
         () => deliveryProject({ binding: binding({ policy: "other" as "deliveries-content-v1" }) }),
       ],
       ["binding not an object", () => deliveryProject({ binding: "x" })],
-      ["stage differs from binding", () => deliveryProject({ stage: "specs/_master/03-other" })],
+      // OTHER exists and is valid: only the stage == binding.stagePath rule rejects it.
+      ["existing stage that differs from the binding", () => deliveryProject({ stage: OTHER })],
       [
-        "parent segment",
-        () =>
-          deliveryProject({ binding: binding({ stagePath: "specs/../x" }), stage: "specs/../x" }),
+        "parent segment resolving to a valid stage",
+        () => {
+          const path = "specs/_master/x/../02-demo";
+          return deliveryProject({ binding: binding({ stagePath: path }), stage: path });
+        },
+      ],
+      [
+        "symlinked stage directory",
+        () => {
+          const cwd = deliveryProject();
+          stage(cwd, "real-stage");
+          rmSync(join(cwd, STAGE), { recursive: true });
+          symlinkSync(join(cwd, "real-stage"), join(cwd, STAGE));
+          return cwd;
+        },
       ],
       [
         "missing state.json",
@@ -422,11 +449,21 @@ describe("delivery-bound evidence", () => {
           return cwd;
         },
       ],
+      [
+        "symlinked STATUS.md",
+        () => {
+          const cwd = deliveryProject();
+          writeFileSync(join(cwd, "real.md"), "# s\n");
+          rmSync(join(cwd, STAGE, "STATUS.md"));
+          symlinkSync(join(cwd, "real.md"), join(cwd, STAGE, "STATUS.md"));
+          return cwd;
+        },
+      ],
     ];
     for (const [label, make] of cases) {
       const cwd = make();
       await load(BUILTIN).result?.(ok({ toolCallId: label }), ctx(cwd));
-      expect(lines(cwd), label).toHaveLength(0);
+      expect(rawLog(cwd), label).toBe("");
     }
   });
 });

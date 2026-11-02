@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="ddcf8eb87c9909a594013466ec890aede2e0d997149f9c7e6376e4c336ff7f02"
+// navori:managed-file id="pi-extension" hash="aa470fd282b6538958af75541df2511b0935b361dfc5367d0e98e0d2a95acc7d"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -646,9 +646,11 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
         try { done = parser.finish(); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); return; }
         // --mode json exits 0 even when the model call failed: the last assistant stopReason is the signal ("length" is not a failure).
         if (done.stop && (done.stop.stopReason === "error" || done.stop.stopReason === "aborted")) {
+          // Only a provider rejection (4xx other than timeout or rate limit) suggests another route; aborts and transient errors do not.
+          const rejected = done.stop.stopReason === "error" && /^4(?!08|29)\d\d\b/.test(done.stop.errorMessage ?? "");
           fail("Pi child model call failed (stopReason " + done.stop.stopReason + ") on " + model + ": " + (done.stop.errorMessage ?? "no error message")
-            + ". If this provider rejects child processes, map the role to one that accepts them with models.piMap, or run the role"
-            + " in a second interactive Pi session (docs/pi.md, Working without children).", done);
+            + (rejected ? ". If the provider rejected child processes, map the role to one that accepts them with models.piMap, or run the role"
+              + " in a second interactive Pi session (docs/pi.md, Working without children)." : ""), done);
         } else {
           const note = stderrNote();
           resolve({ ...done, approvals, ...(note ? { stderrNote: note } : {}) });
