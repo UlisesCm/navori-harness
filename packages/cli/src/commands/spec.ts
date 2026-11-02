@@ -1,7 +1,7 @@
 /**
- * `navori spec` — classify a spec's `tasks.md` as one PR or one PR per
- * delivery (spec 0044 R4-R9). Read-only: it never runs the acceptance
- * commands and never opens a PR (invariant 9).
+ * `navori spec` — validate a one-page `spec.md`, or classify a legacy
+ * `tasks.md` as one PR or one PR per delivery (spec 0044 R4-R9). Read-only:
+ * it never runs the acceptance commands and never opens a PR (invariant 9).
  */
 import { defineCommand } from "citty";
 import { existsSync, readFileSync } from "node:fs";
@@ -16,6 +16,7 @@ import { deliveryIdsForSpec } from "../lib/master/delivery-checks.ts";
 import { checkSpec } from "../lib/spec/check.ts";
 import { classifySpec, type SpecWarning } from "../lib/spec/classify.ts";
 import { locateSpecDir } from "../lib/spec/locate.ts";
+import { checkOnePageSpec } from "../lib/spec/onepage.ts";
 import { parseRequirementIds } from "../lib/spec/requirements.ts";
 import { parseTasks, type ParsedTasks } from "../lib/spec/tasks.ts";
 
@@ -29,19 +30,23 @@ interface Failure {
   fix: string;
 }
 
-/** Everything a `spec` subcommand needs once the feature resolved. */
-interface SpecContext {
+/** Config and spec directory, resolved before deciding which format the spec uses. */
+interface SpecLocation {
   feature: string;
-  /** Repo-relative, forward-slash path of `tasks.md` (for messages and JSON). */
-  tasksPath: string;
-  /** The requirements file next to `tasks.md`. */
-  requirementsFile: string;
   /** Absolute repo root and spec directory, for the master-plan mapping (R22). */
   cwd: string;
   dir: string;
   /** Effective PR target (`prTarget ?? branchBase`) the harness renders. */
   prTarget: string;
   thresholds: DeliveryThresholds;
+}
+
+/** Everything a legacy `tasks.md` subcommand needs once the feature resolved. */
+interface SpecContext extends SpecLocation {
+  /** Repo-relative, forward-slash path of `tasks.md` (for messages and JSON). */
+  tasksPath: string;
+  /** The requirements file next to `tasks.md`. */
+  requirementsFile: string;
   parsed: ParsedTasks;
 }
 
@@ -78,15 +83,14 @@ function printWarnings(warnings: readonly SpecWarning[]): void {
 }
 
 /**
- * Resolves config, spec directory and `tasks.md`, or reports the failure
- * (R3 invalid config, R9 unreadable `tasks.md`, path outside `specsDir`) and
- * returns `undefined`. Shared by every `spec` subcommand.
+ * Resolves config and spec directory, or reports the failure (R3 invalid
+ * config, path outside `specsDir`) and returns `undefined`.
  */
-function loadSpec(
+function locateSpec(
   feature: string,
   cwdArg: string | undefined,
   json: boolean,
-): SpecContext | undefined {
+): SpecLocation | undefined {
   const cwd = resolve(cwdArg ?? process.cwd());
   const configPath = join(cwd, "navori.config.json");
   let specsDir = "specs";
@@ -125,7 +129,16 @@ function loadSpec(
       json,
     );
   }
-  const tasksFile = join(location.dir, "tasks.md");
+  return { feature, cwd, dir: location.dir, prTarget, thresholds };
+}
+
+/**
+ * Resolves the spec directory and reads `tasks.md`, or reports the failure
+ * (R9 unreadable `tasks.md`) and returns `undefined`.
+ */
+function loadSpec(base: SpecLocation, json: boolean): SpecContext | undefined {
+  const { cwd, feature } = base;
+  const tasksFile = join(base.dir, "tasks.md");
   const tasksPath = relative(cwd, tasksFile).split("\\").join("/");
   let text: string;
   try {
@@ -136,31 +149,81 @@ function loadSpec(
       {
         what: `cannot read ${tasksPath}`,
         why: `expected ${tasksPath} (${cause instanceof Error ? cause.message : String(cause)})`,
-        fix: `create ${tasksPath} (see the spec-bootstrap skill) or check the spec name`,
+        fix: `create ${relative(cwd, join(base.dir, "spec.md")).split("\\").join("/")} (see the spec-bootstrap skill) or check the spec name`,
       },
       json,
     );
   }
   return {
-    feature,
+    ...base,
     tasksPath,
-    requirementsFile: join(location.dir, "requirements.md"),
-    cwd,
-    dir: location.dir,
-    prTarget,
-    thresholds,
+    requirementsFile: join(base.dir, "requirements.md"),
     parsed: parseTasks(text),
   };
+}
+
+/** `spec check` for a one-page `spec.md`: prints findings and sets the exit code (2 on errors). */
+function runOnePageCheck(feature: string, path: string, file: string, json: boolean): void {
+  const result = checkOnePageSpec(readFileSync(file, "utf8"));
+  const errors = result.findings.filter((f) => f.severity === "error");
+  const warnings = result.findings.filter((f) => f.severity === "warning");
+  const where = (line: number | undefined): string =>
+    line === undefined ? path : `${path}:${line}`;
+  for (const f of warnings) {
+    process.stderr.write(`WARN:  [${f.rule}] ${where(f.line)} — ${f.message}\n`);
+  }
+  if (json) {
+    process.stdout.write(
+      `${JSON.stringify({
+        formatVersion: FORMAT_VERSION,
+        feature,
+        format: "onepage",
+        ok: result.ok,
+        words: result.words,
+        findings: result.findings,
+      })}\n`,
+    );
+  } else {
+    process.stdout.write(
+      `${feature}: ${result.ok ? "ok" : "findings"} — ${errors.length} error(s), ${warnings.length} warning(s), ${result.words} words\n`,
+    );
+  }
+  if (errors.length > 0) {
+    printFailure({
+      what: `${path} has ${errors.length} error finding(s)`,
+      why: errors.map((f) => `[${f.rule}] ${where(f.line)} — ${f.message}`).join("\n       "),
+      fix: "correct each finding in spec.md, then run `navori spec check` again",
+    });
+    process.exitCode = 2;
+    return;
+  }
+  process.exitCode = 0;
 }
 
 const classifySubCommand = defineCommand({
   meta: {
     name: "classify",
-    description: "Classify a spec as single (1 PR) or split (1 PR per delivery)",
+    description:
+      "Classify a spec as single (1 PR) or split (1 PR per delivery); a one-page spec.md is always single",
   },
   args: shared,
   run({ args }) {
-    const spec = loadSpec(args.feature, args.cwd, args.json ?? false);
+    const json = args.json ?? false;
+    const base = locateSpec(args.feature, args.cwd, json);
+    if (!base) return;
+    if (existsSync(join(base.dir, "spec.md"))) {
+      const message = "one-page spec, one slice";
+      if (json) {
+        process.stdout.write(
+          `${JSON.stringify({ formatVersion: FORMAT_VERSION, feature: base.feature, format: "onepage", shape: "single", prCount: 1 })}\n`,
+        );
+      } else {
+        process.stdout.write(`${base.feature}: single (1 PR) — ${message}\n`);
+      }
+      process.exitCode = 0;
+      return;
+    }
+    const spec = loadSpec(base, json);
     if (!spec) return;
     const classification = classifySpec(spec.parsed, spec.thresholds);
     printWarnings(classification.warnings);
@@ -197,12 +260,25 @@ const classifySubCommand = defineCommand({
 const checkSubCommand = defineCommand({
   meta: {
     name: "check",
-    description: "Validate a spec's tasks.md: milestones, criteria, coverage, vertical deliveries",
+    description:
+      "Validate a spec: a one-page spec.md (sections, caps, word limit) or a legacy tasks.md",
   },
   args: shared,
   run({ args }) {
     const json = args.json ?? false;
-    const spec = loadSpec(args.feature, args.cwd, json);
+    const base = locateSpec(args.feature, args.cwd, json);
+    if (!base) return;
+    const specFile = join(base.dir, "spec.md");
+    if (existsSync(specFile)) {
+      runOnePageCheck(
+        base.feature,
+        relative(base.cwd, specFile).split("\\").join("/"),
+        specFile,
+        json,
+      );
+      return;
+    }
+    const spec = loadSpec(base, json);
     if (!spec) return;
     let requirementIds: string[] | undefined;
     try {
@@ -256,6 +332,6 @@ const checkSubCommand = defineCommand({
 });
 
 export const specCommand = defineCommand({
-  meta: { name: "spec", description: "Classify and validate a spec's tasks.md" },
+  meta: { name: "spec", description: "Classify and validate a spec (spec.md, or legacy tasks.md)" },
   subCommands: { classify: classifySubCommand, check: checkSubCommand },
 });
