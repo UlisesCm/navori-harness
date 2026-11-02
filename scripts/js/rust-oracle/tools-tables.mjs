@@ -36,7 +36,10 @@ function collation() {
   const next = rng(59);
   const alphabet = "aAbBzZ09 -_.,:()'\"`~$";
   const word = () =>
-    Array.from({ length: Math.floor(next() * 5) }, () => alphabet[Math.floor(next() * alphabet.length)]).join("");
+    Array.from(
+      { length: Math.floor(next() * 5) },
+      () => alphabet[Math.floor(next() * alphabet.length)],
+    ).join("");
   const pairs = Array.from({ length: 600 }, () => {
     const a = word();
     const b = next() < 0.2 ? a.toUpperCase() : word();
@@ -52,7 +55,9 @@ const ENTRIES = [
   "---\ntitle: '  Quoted  '\napplies-to: [api, \"web\", 'cli']\nstatus: deprecated\n---\n\n- **Regla** de negocio\n",
   "---\ntitle:\napplies-to: all\nstatus: weird\n---\n\n   \n## \n**bold**\n",
   "---\ntitle: x\napplies-to: [ALL]\n---\nbody\r\nsecond\r\n",
-  "---\ntitle: x\napplies-to: a,,b\nstatus: superseded\nsupersedes: [y]\n---\n" + "z".repeat(150) + "\n",
+  "---\ntitle: x\napplies-to: a,,b\nstatus: superseded\nsupersedes: [y]\n---\n" +
+    "z".repeat(150) +
+    "\n",
   "---\ntitle: emoji\n---\n" + "e".repeat(138) + "😀tail\n",
   "---\ntitle: tabs\n---\n#\tTitle with tab\n*\tstar item\n",
   "--- \ntitle: not frontmatter\n---\nbody\n",
@@ -79,14 +84,23 @@ const WORKSPACES = [
   [],
   { name: "ok" },
   { name: "Bad" },
-  { name: "ok", repos: [{ name: "api", path: "/r/api" }, { name: "web", path: "rel/web", stack: "ts" }] },
+  {
+    name: "ok",
+    repos: [
+      { name: "api", path: "/r/api" },
+      { name: "web", path: "rel/web", stack: "ts" },
+    ],
+  },
   { name: "ok", repos: [{ name: "api", path: "" }] },
   { name: "ok", repos: [{ name: "API", path: "/r" }] },
   { name: "ok", repos: [{ name: "api", path: "/r", stack: null }] },
   { name: "ok", repos: {} },
   { name: "ok", defaults: { language: "en" } },
   { name: "ok", defaults: { language: "fr" } },
-  { name: "ok", defaults: { commits: "free", engines: ["claude"], plugins: { x: { enabled: true } } } },
+  {
+    name: "ok",
+    defaults: { commits: "free", engines: ["claude"], plugins: { x: { enabled: true } } },
+  },
   { name: "ok", defaults: { plugins: { x: { enabled: "yes" } } } },
   { name: "ok", defaults: { engines: [1] } },
   { name: "ok", defaults: null },

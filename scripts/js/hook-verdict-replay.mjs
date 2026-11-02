@@ -14,7 +14,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  normalize as normalizePath,
+  resolve,
+} from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 
@@ -26,6 +33,7 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *   node scripts/js/hook-verdict-replay.mjs --shell zsh      replay every case under that shell (D9 parity)
  *   node scripts/js/hook-verdict-replay.mjs --coverage       per-hook cases and % of the invocations the tests make
  *   node scripts/js/hook-verdict-replay.mjs --impl rust --only hook.sh
+ *   node scripts/js/hook-verdict-replay.mjs --impl rust --registered   (every hook of crates/ported.json)
  *                                                         direct native replay of a ported hook; audit active
  *                                                         compares the event Rust drops in the session spool
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
@@ -56,7 +64,7 @@ const MODES = ["off", "active"];
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
  * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], fixture?: Array<{ path: string, content: string, mode?: number }> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
- * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
+ * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, registered?: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
@@ -94,7 +102,12 @@ export function mergeRaw(lines) {
       slot.included += 1;
       const { hook, engine, shell, input, envDelta, cwdKind, args, fixture } = line;
       included.set(caseKey(line), {
-        hook, engine, shell, input, envDelta, cwdKind,
+        hook,
+        engine,
+        shell,
+        input,
+        envDelta,
+        cwdKind,
         ...(args !== undefined && args.length > 0 ? { args } : {}),
         ...(fixture !== undefined && fixture.length > 0 ? { fixture } : {}),
       });
@@ -172,9 +185,11 @@ export function normalizeShellDiagnostics(text) {
       const zshNotFound = /^(.*?):\d+: command not found: (.*)$/.exec(line);
       if (zshNotFound) return `${zshNotFound[1]}: <shell>: command not found: ${zshNotFound[2]}`;
       const bashMissing = /^(.*?): line \d+: (.*): No such file or directory$/.exec(line);
-      if (bashMissing) return `${bashMissing[1]}: <shell>: no such file or directory: ${bashMissing[2]}`;
+      if (bashMissing)
+        return `${bashMissing[1]}: <shell>: no such file or directory: ${bashMissing[2]}`;
       const zshMissing = /^(.*?):\d+: no such file or directory: (.*)$/.exec(line);
-      if (zshMissing) return `${zshMissing[1]}: <shell>: no such file or directory: ${zshMissing[2]}`;
+      if (zshMissing)
+        return `${zshMissing[1]}: <shell>: no such file or directory: ${zshMissing[2]}`;
       return line;
     })
     .join("\n");
@@ -207,7 +222,12 @@ export function coverageRows(cases, observed) {
   return [...hooks].sort().map((hook) => {
     const total = observed[hook]?.observed ?? 0;
     const n = counts.get(hook) ?? 0;
-    return { hook, cases: n, observed: total, pct: total === 0 ? 0 : Math.round((n / total) * 1000) / 10 };
+    return {
+      hook,
+      cases: n,
+      observed: total,
+      pct: total === 0 ? 0 : Math.round((n / total) * 1000) / 10,
+    };
   });
 }
 
@@ -216,12 +236,26 @@ const sh = (text, token, value) => text.replaceAll(token, value);
 /** Scratch project, tmp, home, empty cwd and local `navori` bin shared by every replay run. */
 export function createScratch() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-replay-")));
-  const dirs = { root, project: join(root, "project"), tmp: join(root, "tmp"), home: join(root, "home"), none: join(root, "none"), bin: join(root, "bin"), nodeBin: join(root, "node-bin"), audits: join(root, "audits") };
-  for (const dir of [dirs.project, dirs.tmp, dirs.home, dirs.none, dirs.bin, dirs.nodeBin]) mkdirSync(dir, { recursive: true });
+  const dirs = {
+    root,
+    project: join(root, "project"),
+    tmp: join(root, "tmp"),
+    home: join(root, "home"),
+    none: join(root, "none"),
+    bin: join(root, "bin"),
+    nodeBin: join(root, "node-bin"),
+    audits: join(root, "audits"),
+  };
+  for (const dir of [dirs.project, dirs.tmp, dirs.home, dirs.none, dirs.bin, dirs.nodeBin])
+    mkdirSync(dir, { recursive: true });
   symlinkSync(process.execPath, join(dirs.nodeBin, "node"));
   dirs.cases = join(root, "cases");
-  if (existsSync(join(REPO_ROOT, "navori.config.json"))) copyFileSync(join(REPO_ROOT, "navori.config.json"), join(dirs.project, "navori.config.json"));
-  spawnSync("git", ["init", "-q"], { cwd: dirs.project, env: { PATH: process.env.PATH ?? "", HOME: dirs.home } });
+  if (existsSync(join(REPO_ROOT, "navori.config.json")))
+    copyFileSync(join(REPO_ROOT, "navori.config.json"), join(dirs.project, "navori.config.json"));
+  spawnSync("git", ["init", "-q"], {
+    cwd: dirs.project,
+    env: { PATH: process.env.PATH ?? "", HOME: dirs.home },
+  });
   const dist = join(REPO_ROOT, "packages", "cli", "dist", "index.js");
   if (existsSync(dist)) symlinkSync(dist, join(dirs.bin, "navori"));
   // `project` is the template every "repo" case copies: a case never sees another's state files.
@@ -237,11 +271,14 @@ export function createScratch() {
  * @returns {string}
  */
 function replayToolPath(path, scratch) {
-  return path.split(":").map((entry) => {
-    if (entry === "@REPO@/packages/cli/node_modules/.bin") return scratch.bin;
-    if (/\/\.nvm\/versions\/node\/v[^/]+\/bin$/.test(entry)) return scratch.nodeBin;
-    return entry;
-  }).join(":");
+  return path
+    .split(":")
+    .map((entry) => {
+      if (entry === "@REPO@/packages/cli/node_modules/.bin") return scratch.bin;
+      if (/\/\.nvm\/versions\/node\/v[^/]+\/bin$/.test(entry)) return scratch.nodeBin;
+      return entry;
+    })
+    .join(":");
 }
 
 /**
@@ -254,7 +291,8 @@ export function withActiveSession(input) {
   try {
     const payload = JSON.parse(input);
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return input;
-    if (typeof payload.session_id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(payload.session_id)) return input;
+    if (typeof payload.session_id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(payload.session_id))
+      return input;
     return JSON.stringify({ ...payload, session_id: ACTIVE_SESSION });
   } catch {
     return input;
@@ -277,7 +315,9 @@ function armAudit(root, input, fallbackCwd) {
   }
   const id = payload?.session_id;
   if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(id)) return null;
-  const repo = auditRepoOf(typeof payload.cwd === "string" && payload.cwd !== "" ? payload.cwd : fallbackCwd);
+  const repo = auditRepoOf(
+    typeof payload.cwd === "string" && payload.cwd !== "" ? payload.cwd : fallbackCwd,
+  );
   if (repo === "" || repo === "." || repo === ".." || /[^A-Za-z0-9_.-]/.test(repo)) return null;
   const spool = join(root, repo, `spool-${id}`);
   mkdirSync(spool, { recursive: true, mode: 0o700 });
@@ -302,10 +342,19 @@ function readEvents(spool) {
  * @param {{ resolveHook: (hook: string, engine: string, scratch: ReturnType<typeof createScratch>) => string, runHookBatch?: Function, binary?: string, timeoutMs?: number, impl?: "shell" | "rust", scratch: ReturnType<typeof createScratch> }} deps
  * @returns {Array<Verdict | ActiveVerdict>}
  */
-export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeoutMs, impl = "shell", scratch }) {
+export function runMode(
+  cases,
+  mode,
+  { resolveHook, runHookBatch, binary, timeoutMs, impl = "shell", scratch },
+) {
   const results = new Array(cases.length);
-  const baseline = { PATH: [scratch.bin, scratch.nodeBin, process.env.PATH ?? ""].join(":"), HOME: scratch.home, TMPDIR: scratch.tmp };
-  for (const key of ["LANG", "LC_ALL", "LC_CTYPE", "TERM"]) if (process.env[key] !== undefined) baseline[key] = process.env[key];
+  const baseline = {
+    PATH: [scratch.bin, scratch.nodeBin, process.env.PATH ?? ""].join(":"),
+    HOME: scratch.home,
+    TMPDIR: scratch.tmp,
+  };
+  for (const key of ["LANG", "LC_ALL", "LC_CTYPE", "TERM"])
+    if (process.env[key] !== undefined) baseline[key] = process.env[key];
   const saved = { ...process.env };
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, baseline);
@@ -345,15 +394,24 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         const cwd = c.cwdKind === "repo" ? project : join(caseRoot, "none");
         // Declared state (spec 0059 T5): recreated under the case's own cwd before it runs.
         for (const file of c.fixture ?? []) {
-          if (isAbsolute(file.path) || normalizePath(file.path).split("/").includes("..")) throw new Error(`fixture escapes the case: ${file.path}`);
+          if (isAbsolute(file.path) || normalizePath(file.path).split("/").includes(".."))
+            throw new Error(`fixture escapes the case: ${file.path}`);
           const target = join(cwd, file.path);
           mkdirSync(dirname(target), { recursive: true });
           writeFileSync(target, hostPaths(file.content, project, cwd));
           chmodSync(target, file.mode ?? 0o644);
         }
         const auditsRoot = join(scratch.audits, String(i));
-        const env = Object.fromEntries(Object.entries(c.envDelta).map(([k, v]) => [k, hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd)]));
-        const input = mode === "active" ? withActiveSession(hostPaths(c.input, project, cwd)) : hostPaths(c.input, project, cwd);
+        const env = Object.fromEntries(
+          Object.entries(c.envDelta).map(([k, v]) => [
+            k,
+            hostPaths(k === "PATH" ? replayToolPath(v, scratch) : v, project, cwd),
+          ]),
+        );
+        const input =
+          mode === "active"
+            ? withActiveSession(hostPaths(c.input, project, cwd))
+            : hostPaths(c.input, project, cwd);
         if (mode === "active") {
           mkdirSync(auditsRoot, { recursive: true });
           spools[i] = armAudit(auditsRoot, input, cwd);
@@ -362,19 +420,27 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         const args = (c.args ?? []).map((arg) => hostPaths(arg, project, cwd));
         return { input, env, cwd, args };
       });
-      const outputs = impl === "rust" ? batchCases.map((c, n) => {
-        const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
-        if (result.modeDeferred) return { deferred: true };
-        // Only where the recorded shell also died on the missing tool (`command not found`).
-        if (result.toolDeferred && cases[indexes[n]].expected?.[mode]?.status === 127) {
-          return { deferred: true, tool: true };
-        }
-        if (!result.available) throw new Error(`native unavailable: ${first.hook}: ${result.reason}`);
-        // The corpus stores text. Reject malformed UTF-8 instead of hiding byte differences
-        // through replacement characters; the adapter itself retains the original bytes.
-        const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-        return { status: result.status, stdout: decoder.decode(result.stdout), stderr: decoder.decode(result.stderr) };
-      }) : runHookBatch(hookPath, first.shell, batchCases);
+      const outputs =
+        impl === "rust"
+          ? batchCases.map((c, n) => {
+              const result = runRustHook({ binary, script: hookPath, timeoutMs, ...c });
+              if (result.modeDeferred) return { deferred: true };
+              // Only where the recorded shell also died on the missing tool (`command not found`).
+              if (result.toolDeferred && cases[indexes[n]].expected?.[mode]?.status === 127) {
+                return { deferred: true, tool: true };
+              }
+              if (!result.available)
+                throw new Error(`native unavailable: ${first.hook}: ${result.reason}`);
+              // The corpus stores text. Reject malformed UTF-8 instead of hiding byte differences
+              // through replacement characters; the adapter itself retains the original bytes.
+              const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+              return {
+                status: result.status,
+                stdout: decoder.decode(result.stdout),
+                stderr: decoder.decode(result.stderr),
+              };
+            })
+          : runHookBatch(hookPath, first.shell, batchCases);
       indexes.forEach((i, n) => {
         const out = outputs[n];
         if (out.deferred) {
@@ -383,11 +449,19 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
         }
         // The native lane runs the signed asset outside the scratch; Bash names `$0` in its
         // diagnostics, so that copy reads as the installed one the shell lane runs.
-        const signedRoot = impl === "rust" && hookPath.endsWith(`/${ENGINE_DIRS[first.engine]}/${first.hook}`)
-          ? hookPath.slice(0, -`/${ENGINE_DIRS[first.engine]}/${first.hook}`.length)
-          : undefined;
-        const asInstalled = (text) => (signedRoot === undefined ? text : text.replaceAll(signedRoot, join(scratch.root, "installed")));
-        const verdict = { status: out.status, stdout: normalize(asInstalled(out.stdout), i), stderr: normalize(asInstalled(out.stderr), i) };
+        const signedRoot =
+          impl === "rust" && hookPath.endsWith(`/${ENGINE_DIRS[first.engine]}/${first.hook}`)
+            ? hookPath.slice(0, -`/${ENGINE_DIRS[first.engine]}/${first.hook}`.length)
+            : undefined;
+        const asInstalled = (text) =>
+          signedRoot === undefined
+            ? text
+            : text.replaceAll(signedRoot, join(scratch.root, "installed"));
+        const verdict = {
+          status: out.status,
+          stdout: normalize(asInstalled(out.stdout), i),
+          stderr: normalize(asInstalled(out.stderr), i),
+        };
         results[i] = mode === "active" ? { ...verdict, event: readEvents(spools[i]) } : verdict;
       });
     }
@@ -401,7 +475,9 @@ export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeou
 
 /** Loads the TS helpers and the hook expander (Node strips the types). */
 export async function loadDeps() {
-  const batch = await import(pathToFileURL(join(CLI_SRC, "__tests__", "helpers", "hook-batch.ts")).href);
+  const batch = await import(
+    pathToFileURL(join(CLI_SRC, "__tests__", "helpers", "hook-batch.ts")).href
+  );
   const { corpusAsset } = await import("./corpus-asset.mjs");
   const resolveHook = (hook, engine, scratch) => {
     // Outside the project (cases copy it); hooks only read `$0` to tell the engines apart.
@@ -456,23 +532,32 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
     const byHook = new Map();
     cases.forEach((c, i) => {
       const stable = !firstDifference(off1[i], off2[i]) && !firstDifference(active1[i], active2[i]);
-      if (stable) byHook.set(c.hook, [...(byHook.get(c.hook) ?? []), { ...c, expected: { off: off1[i], active: active1[i] } }]);
-      else (observed[c.hook].unstable = (observed[c.hook].unstable ?? 0) + 1);
+      if (stable)
+        byHook.set(c.hook, [
+          ...(byHook.get(c.hook) ?? []),
+          { ...c, expected: { off: off1[i], active: active1[i] } },
+        ]);
+      else observed[c.hook].unstable = (observed[c.hook].unstable ?? 0) + 1;
     });
     const generated = [...byHook.values()].flat().length;
     if (generated === 0) throw new Error("generation produced no stable corpus cases");
     mkdirSync(outDir, { recursive: true });
     const coveragePath = join(outDir, "coverage.json");
     const coverage = existsSync(coveragePath) ? JSON.parse(readFileSync(coveragePath, "utf8")) : {};
-    const hooks = new Set([...readdirSync(HOOKS_SOURCE).filter((n) => n.endsWith(".sh")), ...Object.keys(observed)]);
+    const hooks = new Set([
+      ...readdirSync(HOOKS_SOURCE).filter((n) => n.endsWith(".sh")),
+      ...Object.keys(observed),
+    ]);
     for (const hook of [...hooks].sort().filter(wanted)) {
       const kept = byHook.get(hook) ?? [];
       const entry = observed[hook] ?? { observed: 0, included: 0, excluded: {} };
       // A hook with no case says why: the reasons its invocations were excluded, or that no test runs it.
-      if (kept.length === 0) entry.note = Object.keys(entry.excluded).join(", ") || "never invoked by a test";
+      if (kept.length === 0)
+        entry.note = Object.keys(entry.excluded).join(", ") || "never invoked by a test";
       coverage[hook] = entry;
       const file = join(outDir, `${hook}.jsonl`);
-      if (kept.length > 0) writeFileSync(file, kept.map((c) => JSON.stringify(c)).join("\n") + "\n");
+      if (kept.length > 0)
+        writeFileSync(file, kept.map((c) => JSON.stringify(c)).join("\n") + "\n");
       else rmSync(file, { force: true });
     }
     writeFileSync(coveragePath, `${JSON.stringify(coverage, null, 2)}\n`);
@@ -498,15 +583,28 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
  * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, toolDeferred?: number, failure?: string }>}
  */
-export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell" } = {}) {
+export async function replayCorpus({
+  corpus,
+  modes = MODES,
+  deps,
+  only,
+  shell,
+  all = false,
+  impl = "shell",
+} = {}) {
   const cases = (corpus ?? readCorpus())
     .filter((c) => only === undefined || only.includes(c.hook))
     .filter((c) => shell === undefined || shell === c.shell || !hasPlaceholderCommand(c.hook))
     .map((c) => (shell === undefined ? c : { ...c, shell, capturedShell: c.shell }));
-  if (!["shell", "rust"].includes(impl) || modes.length === 0 || modes.some((mode) => !MODES.includes(mode))) {
+  if (
+    !["shell", "rust"].includes(impl) ||
+    modes.length === 0 ||
+    modes.some((mode) => !MODES.includes(mode))
+  ) {
     return { ok: false, cases: cases.length, failure: "invalid implementation or audit mode" };
   }
-  if (cases.length === 0) return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
+  if (cases.length === 0)
+    return { ok: false, cases: 0, failure: "selection contains no corpus cases" };
   let deferred = 0;
   let toolDeferred = 0;
   /** @type {string[]} */
@@ -516,14 +614,21 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
   let signed;
   try {
     // Native preflight cannot be replaced by shell test dependencies.
-    resolved = impl === "rust" ? prepareRustReplay({
-      manifestPath: join(REPO_ROOT, "crates", "ported.json"),
-      binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
-      scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR ?? (signed = await signedAssets()),
-    }) : deps ?? (await loadDeps());
+    resolved =
+      impl === "rust"
+        ? prepareRustReplay({
+            manifestPath: join(REPO_ROOT, "crates", "ported.json"),
+            binary: process.env.NAVORI_RUST_BIN ?? "navori-rust",
+            scriptsRoot: process.env.NAVORI_RUST_HOOKS_DIR ?? (signed = await signedAssets()),
+          })
+        : (deps ?? (await loadDeps()));
   } catch (error) {
     if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
-    return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "native preflight failed" };
+    return {
+      ok: false,
+      cases: cases.length,
+      failure: error instanceof Error ? error.message : "native preflight failed",
+    };
   }
   const scratch = createScratch();
   try {
@@ -537,7 +642,8 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
           else if (mode === modes[0]) deferred += 1;
           continue;
         }
-        const cross = cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
+        const cross =
+          cases[i].capturedShell !== undefined && cases[i].capturedShell !== cases[i].shell;
         const diff = firstDifference(
           cross ? withShellDiagnostics(cases[i].expected[mode]) : cases[i].expected[mode],
           cross ? withShellDiagnostics(actual[i]) : actual[i],
@@ -552,11 +658,19 @@ export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, a
         failures.push(failure);
       }
     }
-    if (failures.length > 0) return { ok: false, cases: cases.length, failure: failures.join("\n") };
-    const counts = { ...(deferred > 0 ? { deferred } : {}), ...(toolDeferred > 0 ? { toolDeferred } : {}) };
+    if (failures.length > 0)
+      return { ok: false, cases: cases.length, failure: failures.join("\n") };
+    const counts = {
+      ...(deferred > 0 ? { deferred } : {}),
+      ...(toolDeferred > 0 ? { toolDeferred } : {}),
+    };
     return { ok: true, cases: cases.length - deferred - toolDeferred, ...counts };
   } catch (error) {
-    return { ok: false, cases: cases.length, failure: error instanceof Error ? error.message : "replay execution failed" };
+    return {
+      ok: false,
+      cases: cases.length,
+      failure: error instanceof Error ? error.message : "replay execution failed",
+    };
   } finally {
     scratch.cleanup();
     if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
@@ -581,13 +695,25 @@ export async function signedAssets() {
 }
 
 /** Verdict with its stderr in the shell-neutral form of {@link normalizeShellDiagnostics}. */
-const withShellDiagnostics = (verdict) => ({ ...verdict, stderr: normalizeShellDiagnostics(verdict.stderr) });
+const withShellDiagnostics = (verdict) => ({
+  ...verdict,
+  stderr: normalizeShellDiagnostics(verdict.stderr),
+});
 
 /** The committed corpus: every `<hook>.jsonl` of the directory. */
 export function readCorpus(dir = CORPUS_DIR) {
-  const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".jsonl")).sort() : [];
+  const files = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((n) => n.endsWith(".jsonl"))
+        .sort()
+    : [];
   if (files.length === 0) throw new Error(`no hook corpus in ${dir}; capture it with --generate`);
-  const cases = files.flatMap((name) => readFileSync(join(dir, name), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)));
+  const cases = files.flatMap((name) =>
+    readFileSync(join(dir, name), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line)),
+  );
   if (cases.length === 0) throw new Error("hook corpus contains no cases");
   return cases;
 }
@@ -600,14 +726,23 @@ function printCoverage() {
   const engines = { claude: 0, codex: 0, pi: 0 };
   for (const c of cases) engines[c.engine] = (engines[c.engine] ?? 0) + 1;
   process.stdout.write(
-    `hook-verdict-replay coverage: ${cases.length} cases (${Object.entries(engines).map(([e, n]) => `${e}=${n}`).join(" ")})\n`,
+    `hook-verdict-replay coverage: ${cases.length} cases (${Object.entries(engines)
+      .map(([e, n]) => `${e}=${n}`)
+      .join(" ")})\n`,
   );
   const perEngine = (hook) =>
-    ["claude", "codex", "pi"].map((e) => `${e}=${cases.filter((c) => c.hook === hook && c.engine === e).length}`).join(" ");
+    ["claude", "codex", "pi"]
+      .map((e) => `${e}=${cases.filter((c) => c.hook === hook && c.engine === e).length}`)
+      .join(" ");
   for (const row of coverageRows(cases, observed)) {
     const note = observed[row.hook]?.note;
-    const low = row.pct < MIN_COVERAGE_PCT ? `  < 60%: no test rewrite that cuts cases before replay passes (D2)${note ? ` [${note}]` : ""}` : "";
-    process.stdout.write(`  ${row.hook.padEnd(32)} cases=${String(row.cases).padStart(5)} observed=${String(row.observed).padStart(5)} ${row.pct.toFixed(1).padStart(5)}%  ${perEngine(row.hook)}${low}\n`);
+    const low =
+      row.pct < MIN_COVERAGE_PCT
+        ? `  < 60%: no test rewrite that cuts cases before replay passes (D2)${note ? ` [${note}]` : ""}`
+        : "";
+    process.stdout.write(
+      `  ${row.hook.padEnd(32)} cases=${String(row.cases).padStart(5)} observed=${String(row.observed).padStart(5)} ${row.pct.toFixed(1).padStart(5)}%  ${perEngine(row.hook)}${low}\n`,
+    );
   }
 }
 
@@ -626,15 +761,24 @@ export function parseReplayArgs(argv) {
     const key = flag === "--only" ? "--hook" : flag;
     if (seen.has(key)) throw new Error(`duplicate option ${flag}`);
     seen.add(key);
-    if (["--all", "--check-stable", "--coverage"].includes(flag)) {
-      options[flag === "--all" ? "all" : flag === "--coverage" ? "coverage" : "stable"] = true;
+    if (["--all", "--check-stable", "--coverage", "--registered"].includes(flag)) {
+      options[
+        flag === "--all"
+          ? "all"
+          : flag === "--coverage"
+            ? "coverage"
+            : flag === "--registered"
+              ? "registered"
+              : "stable"
+      ] = true;
       continue;
     }
     if (!["--impl", "--audit", "--only", "--hook", "--shell", "--generate"].includes(flag)) {
       throw new Error(`unknown option ${flag}`);
     }
     const value = argv[++i];
-    if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`${flag} needs a value`);
+    if (value === undefined || value === "" || value.startsWith("--"))
+      throw new Error(`${flag} needs a value`);
     switch (flag) {
       case "--impl":
         if (!["shell", "rust"].includes(value)) throw new Error("--impl must be shell or rust");
@@ -647,8 +791,9 @@ export function parseReplayArgs(argv) {
       case "--only":
       case "--hook":
         options.only = value.split(",");
-        if (options.only.some((hook) => !/^[A-Za-z0-9_-]+(?:\.sh)?$/.test(hook))) throw new Error("hook selection must contain nonempty hook names");
-        options.only = options.only.map((hook) => hook.endsWith(".sh") ? hook : `${hook}.sh`);
+        if (options.only.some((hook) => !/^[A-Za-z0-9_-]+(?:\.sh)?$/.test(hook)))
+          throw new Error("hook selection must contain nonempty hook names");
+        options.only = options.only.map((hook) => (hook.endsWith(".sh") ? hook : `${hook}.sh`));
         break;
       case "--shell":
         if (!["bash", "zsh"].includes(value)) throw new Error("--shell must be bash or zsh");
@@ -659,12 +804,31 @@ export function parseReplayArgs(argv) {
         break;
     }
   }
-  if (options.stable && options.generate === undefined) throw new Error("--check-stable requires --generate");
-  if (options.generate !== undefined && (options.coverage || seen.has("--impl") || seen.has("--audit") || options.shell !== undefined || options.all)) {
+  if (options.stable && options.generate === undefined)
+    throw new Error("--check-stable requires --generate");
+  if (
+    options.generate !== undefined &&
+    (options.coverage ||
+      seen.has("--impl") ||
+      seen.has("--audit") ||
+      options.shell !== undefined ||
+      options.all)
+  ) {
     throw new Error("--generate cannot be combined with replay or coverage options");
   }
-  if (options.coverage && seen.size !== 1) throw new Error("--coverage cannot be combined with other options");
-  if (options.impl === "rust" && options.shell !== undefined) throw new Error("--shell applies only to shell replay");
+  if (options.coverage && seen.size !== 1)
+    throw new Error("--coverage cannot be combined with other options");
+  if (options.impl === "rust" && options.shell !== undefined)
+    throw new Error("--shell applies only to shell replay");
+  if (
+    options.registered &&
+    (options.impl !== "rust" ||
+      options.only !== undefined ||
+      options.generate !== undefined ||
+      options.coverage)
+  ) {
+    throw new Error("--registered applies only to --impl rust and excludes --only");
+  }
   return options;
 }
 
@@ -676,23 +840,40 @@ export function parseReplayArgs(argv) {
 export async function main(argv) {
   const options = parseReplayArgs(argv);
   if (options.generate !== undefined) {
-    const result = await generateCorpus(resolve(options.generate), CORPUS_DIR, options.only, options.stable);
-    process.stdout.write(`hook-verdict-replay: wrote ${result.cases} cases (${result.candidates} candidates)\n`);
+    const result = await generateCorpus(
+      resolve(options.generate),
+      CORPUS_DIR,
+      options.only,
+      options.stable,
+    );
+    process.stdout.write(
+      `hook-verdict-replay: wrote ${result.cases} cases (${result.candidates} candidates)\n`,
+    );
     return 0;
   }
   if (options.coverage) {
     printCoverage();
     return 0;
   }
-  const result = await replayCorpus(options);
+  // Hooks outside the manifest have no native verdict to compare yet (0062 A1 covers the ported ones).
+  const only = options.registered
+    ? Object.keys(
+        JSON.parse(readFileSync(join(REPO_ROOT, "crates", "ported.json"), "utf8")).hooks,
+      ).map((hook) => `${hook}.sh`)
+    : options.only;
+  const result = await replayCorpus({ ...options, only });
   if (!result.ok) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;
   }
   const deferredNote =
     (result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "") +
-    (result.toolDeferred ? `, ${result.toolDeferred} deferred for a missing Bash or text tool` : "");
-  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
+    (result.toolDeferred
+      ? `, ${result.toolDeferred} deferred for a missing Bash or text tool`
+      : "");
+  process.stdout.write(
+    `hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`,
+  );
   return 0;
 }
 
@@ -700,7 +881,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     process.exit(await main(process.argv.slice(2)));
   } catch (error) {
-    process.stderr.write(`hook-verdict-replay: ${error instanceof Error ? error.message : "invalid invocation"}\n`);
+    process.stderr.write(
+      `hook-verdict-replay: ${error instanceof Error ? error.message : "invalid invocation"}\n`,
+    );
     process.exit(1);
   }
 }

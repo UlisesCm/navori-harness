@@ -194,10 +194,9 @@ function table() {
       hits: PATHS.filter((path) => matchesCriticalPaths([path], globs)),
     })),
     nonImplementerRoles: NON_IMPLEMENTER_ROLES,
-    parseTasks: [
-      ...TASK_TEXTS.map((text, i) => ({ name: `edge-${i}`, text })),
-      ...realTasks(),
-    ].map(({ name, text }) => ({ name, text, ...structure(text) })),
+    parseTasks: [...TASK_TEXTS.map((text, i) => ({ name: `edge-${i}`, text })), ...realTasks()].map(
+      ({ name, text }) => ({ name, text, ...structure(text) }),
+    ),
     locateSpecDir: ["specs", "./docs/../specs", "/abs/specs", "specs/"].flatMap((specsDir) =>
       ["0059-x", "a.b_c-d", "..", "a..b", "a/b", "-x", ".hidden", "", "ñ"].map((spec) => ({
         specsDir,

@@ -1,1 +1,12 @@
-{"feature":"minimal","status":"BLOCKED","worktree":"w","branch":"b","commits":[],"filesTouched":[],"verification":{"command":"c","exitCode":-1,"summary":"s"},"markdownRequests":[],"acceptance":[],"doubts":[]}
+{
+  "feature": "minimal",
+  "status": "BLOCKED",
+  "worktree": "w",
+  "branch": "b",
+  "commits": [],
+  "filesTouched": [],
+  "verification": { "command": "c", "exitCode": -1, "summary": "s" },
+  "markdownRequests": [],
+  "acceptance": [],
+  "doubts": []
+}

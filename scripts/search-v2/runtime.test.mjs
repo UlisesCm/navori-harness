@@ -1003,6 +1003,10 @@ describe("codegraph — G09 (dos checkouts, literal distinto)", () => {
 // editor requiere Read previo..."), which this task excludes. Recorded here
 // as a deliberate skip so it shows as NOT RUN, never as a false PASS.
 // ---------------------------------------------------------------------------
-test("G10 — source suficiente + operación Edit en Claude real (verificado en §9, fuera de alcance aquí)", {
-  skip: "requires the §9 Claude Code real benchmark — out of scope for this runtime-only task",
-}, () => {});
+test(
+  "G10 — source suficiente + operación Edit en Claude real (verificado en §9, fuera de alcance aquí)",
+  {
+    skip: "requires the §9 Claude Code real benchmark — out of scope for this runtime-only task",
+  },
+  () => {},
+);

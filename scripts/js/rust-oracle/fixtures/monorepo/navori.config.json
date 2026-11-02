@@ -3,9 +3,7 @@
   "name": "mono",
   "version": "1.0.0",
   "harnessVersion": "0.12.2",
-  "engines": [
-    "claude"
-  ],
+  "engines": ["claude"],
   "preset": "custom",
   "language": "es",
   "branchBase": "main",
@@ -36,9 +34,7 @@
       {
         "name": "api",
         "path": "apps/api",
-        "libraries": [
-          "hono"
-        ]
+        "libraries": ["hono"]
       },
       {
         "name": "web",

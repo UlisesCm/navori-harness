@@ -3,6 +3,11 @@
   "cases": [
     { "id": "empty:status", "fixture": "empty", "args": ["status"] },
     { "id": "fresh-init:status", "fixture": "fresh-init", "args": ["status"] },
-    { "id": "fresh-init:status-with-stdin", "fixture": "fresh-init", "args": ["status"], "stdin": "ignored input\n" }
+    {
+      "id": "fresh-init:status-with-stdin",
+      "fixture": "fresh-init",
+      "args": ["status"],
+      "stdin": "ignored input\n"
+    }
   ]
 }

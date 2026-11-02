@@ -14,7 +14,8 @@ function git(...args) {
 }
 
 const root = git("rev-parse", "--show-toplevel");
-const hookPath = (name) => resolve(root, git("-C", root, "rev-parse", "--git-path", `hooks/${name}`));
+const hookPath = (name) =>
+  resolve(root, git("-C", root, "rev-parse", "--git-path", `hooks/${name}`));
 const target = hookPath("pre-commit");
 
 if (existsSync(target) && !readFileSync(target, "utf-8").includes(marker)) {

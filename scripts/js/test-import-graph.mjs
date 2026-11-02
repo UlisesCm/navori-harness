@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = join(REPO_ROOT, "packages", "cli", "src");
 export const HUB_FRACTION = 0.4;
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
+const SPECIFIER =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
 
 /**
  * Relative specifiers a source text imports or re-exports.
@@ -89,7 +90,8 @@ export function fanIn(graph, testFiles) {
       }
     }
     seen.delete(test);
-    for (const module of seen) if (!tests.has(module)) counts.set(module, (counts.get(module) ?? 0) + 1);
+    for (const module of seen)
+      if (!tests.has(module)) counts.set(module, (counts.get(module) ?? 0) + 1);
   }
   const total = testFiles.length;
   const modules = [...counts.entries()]
@@ -120,17 +122,27 @@ function listTs(dir) {
 
 function main() {
   const files = listTs(SRC);
-  const sources = Object.fromEntries(files.map((f) => [f, readFileSync(join(REPO_ROOT, f), "utf8")]));
+  const sources = Object.fromEntries(
+    files.map((f) => [f, readFileSync(join(REPO_ROOT, f), "utf8")]),
+  );
   const testFiles = files.filter((f) => f.endsWith(".test.ts"));
   const result = fanIn(buildGraph(sources), testFiles);
   const hubList = hubs(result);
-  const output = { generatedAt: new Date().toISOString(), hubFraction: HUB_FRACTION, totalTests: result.totalTests, hubs: hubList, modules: result.modules };
+  const output = {
+    generatedAt: new Date().toISOString(),
+    hubFraction: HUB_FRACTION,
+    totalTests: result.totalTests,
+    hubs: hubList,
+    modules: result.modules,
+  };
   const dir = join(REPO_ROOT, ".navori", "state", "bench");
   mkdirSync(dir, { recursive: true });
   const stamped = join(dir, `graph-${output.generatedAt.replace(/[:.]/g, "-")}.json`);
   writeFileSync(stamped, `${JSON.stringify(output, null, 2)}\n`);
   copyFileSync(stamped, join(dir, "graph-latest.json"));
-  process.stdout.write(`test-import-graph: ${result.totalTests} test files, ${result.modules.length} modules reached, ${hubList.length} hubs (>= ${HUB_FRACTION * 100}%)\n`);
+  process.stdout.write(
+    `test-import-graph: ${result.totalTests} test files, ${result.modules.length} modules reached, ${hubList.length} hubs (>= ${HUB_FRACTION * 100}%)\n`,
+  );
   for (const h of result.modules.filter((m) => hubList.includes(m.module))) {
     process.stdout.write(`  ${String(h.pct).padStart(5)}%  ${h.module}\n`);
   }

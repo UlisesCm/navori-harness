@@ -3,11 +3,7 @@
   "name": "navori-harness",
   "version": "1.0.0",
   "harnessVersion": "0.12.2",
-  "engines": [
-    "claude",
-    "codex",
-    "pi"
-  ],
+  "engines": ["claude", "codex", "pi"],
   "preset": "custom",
   "language": "es",
   "branchBase": "dev",
@@ -73,18 +69,8 @@
       "managed-block markers and the anti-rollback guard"
     ],
     "testsExclude": [],
-    "localSkills": [
-      "playwright-cli",
-      "author-agent",
-      "rebase-rerender",
-      "worktree-hygiene"
-    ],
-    "libraries": [
-      "zod-validation",
-      "vitest",
-      "citty",
-      "clack"
-    ],
+    "localSkills": ["playwright-cli", "author-agent", "rebase-rerender", "worktree-hygiene"],
+    "libraries": ["zod-validation", "vitest", "citty", "clack"],
     "libraryMigrations": []
   }
 }

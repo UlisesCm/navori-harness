@@ -1,1 +1,5 @@
-{"feature":"bad","verdict":"APPROVED","findings":[{"category":"c","severity":"blocker","score":101,"file":"f"}]}
+{
+  "feature": "bad",
+  "verdict": "APPROVED",
+  "findings": [{ "category": "c", "severity": "blocker", "score": 101, "file": "f" }]
+}

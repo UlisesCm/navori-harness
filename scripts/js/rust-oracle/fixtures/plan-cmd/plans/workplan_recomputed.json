@@ -4,9 +4,7 @@
   "classification": {
     "score": 0,
     "level": 0,
-    "signals": [
-      "floor:multi-repo"
-    ]
+    "signals": ["floor:multi-repo"]
   },
   "objective": "The recomputed level wins",
   "acceptance": [

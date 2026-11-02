@@ -4,9 +4,7 @@
   "classification": {
     "score": 8,
     "level": 2,
-    "signals": [
-      "floor:shared-contract"
-    ]
+    "signals": ["floor:shared-contract"]
   },
   "objective": "A level 2 plan",
   "acceptance": [
@@ -24,9 +22,7 @@
   "phases": [
     {
       "name": "Core",
-      "acceptance": [
-        "A1"
-      ]
+      "acceptance": ["A1"]
     },
     {
       "name": "Empty",

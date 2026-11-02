@@ -146,10 +146,14 @@ if (offenders.length > 0) {
 }
 
 if (staleExceptions.length > 0) {
-  console.error(`✗ ${staleExceptions.length} stale KNOWN_EXCEPTIONS entry(ies) — link no longer broken:`);
+  console.error(
+    `✗ ${staleExceptions.length} stale KNOWN_EXCEPTIONS entry(ies) — link no longer broken:`,
+  );
   for (const stale of staleExceptions) console.error(`    ${stale}`);
   console.error(`  Good news, and the list has to record it: delete those entries.`);
   process.exit(1);
 }
 
-console.log(`✓ link check: ${discovered} relative link(s) across ${files.length} file(s), all resolve`);
+console.log(
+  `✓ link check: ${discovered} relative link(s) across ${files.length} file(s), all resolve`,
+);

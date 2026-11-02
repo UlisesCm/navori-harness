@@ -102,9 +102,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
           if (!(approved[hook] ?? []).includes(engine))
             row.problems.push("no shadow traffic and no no-shadow-traffic approval (R82)");
         } else if (row.spanDays < windowDays) {
-          row.problems.push(
-            `window ${row.spanDays.toFixed(1)} d is shorter than ${windowDays} d`,
-          );
+          row.problems.push(`window ${row.spanDays.toFixed(1)} d is shorter than ${windowDays} d`);
         }
       }
       row.ok = row.problems.length === 0;

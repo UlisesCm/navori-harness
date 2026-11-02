@@ -1,68 +1,1239 @@
 {
   "schema": 1,
   "cases": [
-    {"id":"dominio-inject:sin-workspaces","fixture":"empty","args":["dominio","inject"],"setup":[]},
-    {"id":"dominio-inject:un-workspace","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"},{"write":".navori/workspaces/acme/dominio/billing.md","in":"home","content":"---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"},{"write":".navori/workspaces/acme/dominio/old.md","in":"home","content":"---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"},{"write":".navori/workspaces/acme/dominio/api-v2.md","in":"home","content":"---\ntitle: API v2\n---\nUse v2.\n"},{"write":".navori/workspaces/acme/dominio/api.md","in":"home","content":"---\ntitle: api\n---\nlowercase first\n"},{"write":".navori/workspaces/acme/dominio/DOMINIO.md","in":"home","content":"# index\n"},{"write":".navori/workspaces/acme/dominio/notes.txt","in":"home","content":"ignored\n"}]},
-    {"id":"dominio-inject:idioma-por-defecto","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/beta/workspace.json","in":"home","content":"{\"name\":\"beta\",\"repos\":[{\"name\":\"repo\",\"path\":\".\"}]}"},{"write":".navori/workspaces/beta/dominio/x.md","in":"home","content":"---\ntitle: Regla\n---\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n"},{"write":".navori/workspaces/beta/dominio/y.md","in":"home","content":"---\napplies-to: ALL\n---\n\n\n## Heading\n"}]},
-    {"id":"dominio-inject:repo-ancestro","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/up/workspace.json","in":"home","content":"{\"name\":\"up\",\"repos\":[{\"name\":\"parent\",\"path\":\"@REPO@/..\"}]}"},{"write":".navori/workspaces/up/dominio/a.md","in":"home","content":"---\ntitle: A\n---\na\n"}]},
-    {"id":"dominio-inject:repo-ajeno","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/other/workspace.json","in":"home","content":"{\"name\":\"other\",\"repos\":[{\"name\":\"x\",\"path\":\"/nonexistent/x\"}]}"},{"write":".navori/workspaces/other/dominio/a.md","in":"home","content":"---\ntitle: A\n---\na\n"}]},
-    {"id":"dominio-inject:dos-workspaces","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"},{"write":".navori/workspaces/acme/dominio/billing.md","in":"home","content":"---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"},{"write":".navori/workspaces/acme/dominio/old.md","in":"home","content":"---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"},{"write":".navori/workspaces/acme/dominio/api-v2.md","in":"home","content":"---\ntitle: API v2\n---\nUse v2.\n"},{"write":".navori/workspaces/acme/dominio/api.md","in":"home","content":"---\ntitle: api\n---\nlowercase first\n"},{"write":".navori/workspaces/acme/dominio/DOMINIO.md","in":"home","content":"# index\n"},{"write":".navori/workspaces/acme/dominio/notes.txt","in":"home","content":"ignored\n"},{"write":".navori/workspaces/zeta/workspace.json","in":"home","content":"{\"name\":\"zeta\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/zeta/dominio/b.md","in":"home","content":"---\ntitle: B\n---\nb\n"},{"write":".navori/workspaces/alpha/workspace.json","in":"home","content":"{\"name\":\"alpha\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"}]},
-    {"id":"dominio-inject:workspace-invalido","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/bad/workspace.json","in":"home","content":"{\"name\":\"Bad\",\"repos\":[{\"name\":\"r\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/bad/dominio/a.md","in":"home","content":"---\ntitle: A\n---\na\n"},{"write":".navori/workspaces/broken/workspace.json","in":"home","content":"{nope"},{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"}]},
-    {"id":"dominio-inject:dominio-archivo","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio","in":"home","content":"not a dir\n"}]},
-    {"id":"dominio-inject:bom","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"﻿{\"name\":\"acme\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/a.md","in":"home","content":"---\ntitle: A\n---\na\n"}]},
-    {"id":"dominio-inject:titulos-con-acento","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"},{"write":".navori/workspaces/acme/dominio/billing.md","in":"home","content":"---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"},{"write":".navori/workspaces/acme/dominio/old.md","in":"home","content":"---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"},{"write":".navori/workspaces/acme/dominio/api-v2.md","in":"home","content":"---\ntitle: API v2\n---\nUse v2.\n"},{"write":".navori/workspaces/acme/dominio/api.md","in":"home","content":"---\ntitle: api\n---\nlowercase first\n"},{"write":".navori/workspaces/acme/dominio/DOMINIO.md","in":"home","content":"# index\n"},{"write":".navori/workspaces/acme/dominio/notes.txt","in":"home","content":"ignored\n"},{"write":".navori/workspaces/acme/dominio/sesion.md","in":"home","content":"---\ntitle: Sesión\n---\ns\n"}]},
-    {"id":"dominio-inject:locale-danes","fixture":"empty","args":["dominio","inject"],"env":{"LC_ALL":"da_DK.UTF-8"},"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"},{"write":".navori/workspaces/acme/dominio/billing.md","in":"home","content":"---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"},{"write":".navori/workspaces/acme/dominio/old.md","in":"home","content":"---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"},{"write":".navori/workspaces/acme/dominio/api-v2.md","in":"home","content":"---\ntitle: API v2\n---\nUse v2.\n"},{"write":".navori/workspaces/acme/dominio/api.md","in":"home","content":"---\ntitle: api\n---\nlowercase first\n"},{"write":".navori/workspaces/acme/dominio/DOMINIO.md","in":"home","content":"# index\n"},{"write":".navori/workspaces/acme/dominio/notes.txt","in":"home","content":"ignored\n"}]},
-    {"id":"dominio-inject:layout-legacy","fixture":"empty","args":["dominio","inject"],"setup":[{"write":".navori/workspaces/legacy.json","in":"home","content":"{\"name\":\"legacy\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"}]},
-    {"id":"dominio-inject:argv-extra","fixture":"empty","args":["dominio","inject","--x"],"setup":[{"write":".navori/workspaces/acme/workspace.json","in":"home","content":"{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"},{"write":".navori/workspaces/acme/dominio/users.md","in":"home","content":"---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"},{"write":".navori/workspaces/acme/dominio/billing.md","in":"home","content":"---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"},{"write":".navori/workspaces/acme/dominio/old.md","in":"home","content":"---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"},{"write":".navori/workspaces/acme/dominio/api-v2.md","in":"home","content":"---\ntitle: API v2\n---\nUse v2.\n"},{"write":".navori/workspaces/acme/dominio/api.md","in":"home","content":"---\ntitle: api\n---\nlowercase first\n"},{"write":".navori/workspaces/acme/dominio/DOMINIO.md","in":"home","content":"# index\n"},{"write":".navori/workspaces/acme/dominio/notes.txt","in":"home","content":"ignored\n"}]},
-    { "id": "dominio:group-no-command", "fixture": "empty", "mask": ["version"], "args": ["dominio"], "native": true },
-    { "id": "dominio:group-help", "fixture": "empty", "mask": ["version"], "args": ["dominio", "--help"], "native": true },
-    { "id": "dominio:group-unknown", "fixture": "empty", "mask": ["version"], "args": ["dominio", "nope"], "native": true },
-    { "id": "dominio:group-unknown-help", "fixture": "empty", "mask": ["version"], "args": ["dominio", "nope", "-h"], "native": true },
-    { "id": "dominio:group-prototype-key", "fixture": "empty", "mask": ["stderr"], "args": ["dominio", "valueOf"] },
-    { "id": "dominio:inject-help-delegates", "fixture": "empty", "args": ["dominio", "inject", "--help"] },
-    { "id": "dominio:init-help", "fixture": "empty", "args": ["dominio", "init", "--help"], "native": true },
-    { "id": "dominio:list-help", "fixture": "empty", "args": ["dominio", "list", "--help"], "native": true },
-    { "id": "dominio:show-help", "fixture": "empty", "args": ["dominio", "show", "--help"], "native": true },
-    { "id": "dominio:reindex-help", "fixture": "empty", "args": ["dominio", "reindex", "--help"], "native": true },
-    { "id": "dominio:doctor-help", "fixture": "empty", "args": ["dominio", "doctor", "--help"], "native": true },
-    { "id": "dominio:show-missing-id", "fixture": "empty", "args": ["dominio", "show"], "native": true },
-    { "id": "dominio:init-no-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "init"], "native": true },
-    { "id": "dominio:list-no-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:reindex-no-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "reindex"], "native": true },
-    { "id": "dominio:doctor-no-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:show-no-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "show", "x"], "native": true },
-    { "id": "dominio:list-ambiguous", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/one/workspace.json", "in": "home", "content": "{\"name\": \"one\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/two/workspace.json", "in": "home", "content": "{\"name\": \"two\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:list", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:list-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:list-explicit", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }, { "write": ".navori/workspaces/other/workspace.json", "in": "home", "content": "{\"name\": \"other\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "list", "--workspace", "acme"], "native": true },
-    { "id": "dominio:list-explicit-inline", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "list", "--workspace=beta"], "native": true },
-    { "id": "dominio:list-empty", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:list-unknown-workspace", "fixture": "empty", "setup": [], "args": ["dominio", "list", "--workspace", "zz"], "native": true },
-    { "id": "dominio:list-one-entry", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/solo.md", "in": "home", "content": "---\ntitle: Solo\n---\nx\n" }], "args": ["dominio", "list"], "native": true },
-    { "id": "dominio:list-long-summary-delegates", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/long.md", "in": "home", "content": "---\ntitle: Long\n---\nword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \n" }], "args": ["dominio", "list"] },
-    { "id": "dominio:list-wide-title-delegates", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/wide.md", "in": "home", "content": "---\ntitle: 漢字\n---\nx\n" }], "args": ["dominio", "list"] },
-    { "id": "dominio:list-invalid-name-delegates", "fixture": "empty", "mask": ["stderr"], "setup": [], "args": ["dominio", "list", "--workspace", "Bad_Name"] },
-    { "id": "dominio:list-force-color-delegates", "fixture": "empty", "env": { "FORCE_COLOR": "1" }, "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "list"] },
-    { "id": "dominio:show", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "show", "users"], "native": true },
-    { "id": "dominio:show-explicit", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "show", "regla", "--workspace", "beta"], "native": true },
-    { "id": "dominio:show-missing", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "show", "nope"], "native": true },
-    { "id": "dominio:show-missing-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "show", "nope"], "native": true },
-    { "id": "dominio:init-new", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "init"], "native": true },
-    { "id": "dominio:init-new-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "init"], "native": true },
-    { "id": "dominio:init-exists", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }, ["dominio", "reindex"]], "args": ["dominio", "init"], "native": true },
-    { "id": "dominio:init-explicit", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "init", "--workspace", "beta"], "native": true },
-    { "id": "dominio:init-unregistered-delegates", "fixture": "empty", "mask": ["stderr"], "setup": [], "args": ["dominio", "init", "--workspace", "zz"] },
-    { "id": "dominio:reindex", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "reindex"], "native": true },
-    { "id": "dominio:reindex-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }], "args": ["dominio", "reindex"], "native": true },
-    { "id": "dominio:reindex-empty", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "reindex"], "native": true },
-    { "id": "dominio:reindex-overwrites", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }, { "write": ".navori/workspaces/acme/dominio/DOMINIO.md", "in": "home", "content": "stale\n" }], "args": ["dominio", "reindex"], "native": true },
-    { "id": "dominio:reindex-unregistered-delegates", "fixture": "empty", "mask": ["stderr"], "setup": [], "args": ["dominio", "reindex", "--workspace", "zz"] },
-    { "id": "dominio:doctor-clean", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }, ["dominio", "reindex"]], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-clean-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/beta/workspace.json", "in": "home", "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/beta/dominio/regla.md", "in": "home", "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n" }, ["dominio", "reindex"]], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-no-dir", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-index-missing", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-index-stale", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/acme/workspace.json", "in": "home", "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/acme/dominio/users.md", "in": "home", "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n" }, { "write": ".navori/workspaces/acme/dominio/billing.md", "in": "home", "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n" }, { "write": ".navori/workspaces/acme/dominio/legacy.md", "in": "home", "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n" }, { "write": ".navori/workspaces/acme/dominio/old.md", "in": "home", "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n" }, { "write": ".navori/workspaces/acme/dominio/DOMINIO.md", "in": "home", "content": "stale\n" }], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-findings", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/gamma/workspace.json", "in": "home", "content": "{\"name\": \"gamma\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/gamma/dominio/a.md", "in": "home", "content": "---\ntitle: A\ntype: weird\nstatus: strange\n---\na\n" }, { "write": ".navori/workspaces/gamma/dominio/b.md", "in": "home", "content": "---\ntype: gotcha\nstatus: superseded\n---\nno title, no target\n" }, { "write": ".navori/workspaces/gamma/dominio/c.md", "in": "home", "content": "---\ntitle: C\nsupersedes: [missing, a]\n---\nc\n" }], "args": ["dominio", "doctor"], "native": true },
-    { "id": "dominio:doctor-findings-es", "fixture": "empty", "setup": [{ "write": ".navori/workspaces/delta/workspace.json", "in": "home", "content": "{\"name\": \"delta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}" }, { "write": ".navori/workspaces/delta/dominio/a.md", "in": "home", "content": "---\ntype: x\nstatus: y\n---\na\n" }], "args": ["dominio", "doctor", "--workspace", "delta"], "native": true }
+    {
+      "id": "dominio-inject:sin-workspaces",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": []
+    },
+    {
+      "id": "dominio-inject:un-workspace",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api-v2.md",
+          "in": "home",
+          "content": "---\ntitle: API v2\n---\nUse v2.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api.md",
+          "in": "home",
+          "content": "---\ntitle: api\n---\nlowercase first\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "# index\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/notes.txt",
+          "in": "home",
+          "content": "ignored\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:idioma-por-defecto",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"beta\",\"repos\":[{\"name\":\"repo\",\"path\":\".\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/x.md",
+          "in": "home",
+          "content": "---\ntitle: Regla\n---\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/y.md",
+          "in": "home",
+          "content": "---\napplies-to: ALL\n---\n\n\n## Heading\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:repo-ancestro",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/up/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"up\",\"repos\":[{\"name\":\"parent\",\"path\":\"@REPO@/..\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/up/dominio/a.md",
+          "in": "home",
+          "content": "---\ntitle: A\n---\na\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:repo-ajeno",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/other/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"other\",\"repos\":[{\"name\":\"x\",\"path\":\"/nonexistent/x\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/other/dominio/a.md",
+          "in": "home",
+          "content": "---\ntitle: A\n---\na\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:dos-workspaces",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api-v2.md",
+          "in": "home",
+          "content": "---\ntitle: API v2\n---\nUse v2.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api.md",
+          "in": "home",
+          "content": "---\ntitle: api\n---\nlowercase first\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "# index\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/notes.txt",
+          "in": "home",
+          "content": "ignored\n"
+        },
+        {
+          "write": ".navori/workspaces/zeta/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"zeta\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/zeta/dominio/b.md",
+          "in": "home",
+          "content": "---\ntitle: B\n---\nb\n"
+        },
+        {
+          "write": ".navori/workspaces/alpha/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"alpha\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:workspace-invalido",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/bad/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"Bad\",\"repos\":[{\"name\":\"r\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/bad/dominio/a.md",
+          "in": "home",
+          "content": "---\ntitle: A\n---\na\n"
+        },
+        { "write": ".navori/workspaces/broken/workspace.json", "in": "home", "content": "{nope" },
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:dominio-archivo",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        { "write": ".navori/workspaces/acme/dominio", "in": "home", "content": "not a dir\n" }
+      ]
+    },
+    {
+      "id": "dominio-inject:bom",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "﻿{\"name\":\"acme\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/a.md",
+          "in": "home",
+          "content": "---\ntitle: A\n---\na\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:titulos-con-acento",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api-v2.md",
+          "in": "home",
+          "content": "---\ntitle: API v2\n---\nUse v2.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api.md",
+          "in": "home",
+          "content": "---\ntitle: api\n---\nlowercase first\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "# index\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/notes.txt",
+          "in": "home",
+          "content": "ignored\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/sesion.md",
+          "in": "home",
+          "content": "---\ntitle: Sesión\n---\ns\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:locale-danes",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "env": { "LC_ALL": "da_DK.UTF-8" },
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api-v2.md",
+          "in": "home",
+          "content": "---\ntitle: API v2\n---\nUse v2.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api.md",
+          "in": "home",
+          "content": "---\ntitle: api\n---\nlowercase first\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "# index\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/notes.txt",
+          "in": "home",
+          "content": "ignored\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:layout-legacy",
+      "fixture": "empty",
+      "args": ["dominio", "inject"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/legacy.json",
+          "in": "home",
+          "content": "{\"name\":\"legacy\",\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        }
+      ]
+    },
+    {
+      "id": "dominio-inject:argv-extra",
+      "fixture": "empty",
+      "args": ["dominio", "inject", "--x"],
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\":\"acme\",\"defaults\":{\"language\":\"en\"},\"repos\":[{\"name\":\"repo\",\"path\":\"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\n---\n# User model\n\nThe user is a profile.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: billing rules\nstatus: deprecated\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\nstatus: superseded\nsupersedes: [users]\n---\ngone\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api-v2.md",
+          "in": "home",
+          "content": "---\ntitle: API v2\n---\nUse v2.\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/api.md",
+          "in": "home",
+          "content": "---\ntitle: api\n---\nlowercase first\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "# index\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/notes.txt",
+          "in": "home",
+          "content": "ignored\n"
+        }
+      ]
+    },
+    {
+      "id": "dominio:group-no-command",
+      "fixture": "empty",
+      "mask": ["version"],
+      "args": ["dominio"],
+      "native": true
+    },
+    {
+      "id": "dominio:group-help",
+      "fixture": "empty",
+      "mask": ["version"],
+      "args": ["dominio", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:group-unknown",
+      "fixture": "empty",
+      "mask": ["version"],
+      "args": ["dominio", "nope"],
+      "native": true
+    },
+    {
+      "id": "dominio:group-unknown-help",
+      "fixture": "empty",
+      "mask": ["version"],
+      "args": ["dominio", "nope", "-h"],
+      "native": true
+    },
+    {
+      "id": "dominio:group-prototype-key",
+      "fixture": "empty",
+      "mask": ["stderr"],
+      "args": ["dominio", "valueOf"]
+    },
+    {
+      "id": "dominio:inject-help-delegates",
+      "fixture": "empty",
+      "args": ["dominio", "inject", "--help"]
+    },
+    {
+      "id": "dominio:init-help",
+      "fixture": "empty",
+      "args": ["dominio", "init", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-help",
+      "fixture": "empty",
+      "args": ["dominio", "list", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-help",
+      "fixture": "empty",
+      "args": ["dominio", "show", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-help",
+      "fixture": "empty",
+      "args": ["dominio", "reindex", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-help",
+      "fixture": "empty",
+      "args": ["dominio", "doctor", "--help"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-missing-id",
+      "fixture": "empty",
+      "args": ["dominio", "show"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-no-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "init"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-no-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-no-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "reindex"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-no-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-no-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "show", "x"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-ambiguous",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/one/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"one\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/two/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"two\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:list",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-explicit",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        },
+        {
+          "write": ".navori/workspaces/other/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"other\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "list", "--workspace", "acme"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-explicit-inline",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "list", "--workspace=beta"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-empty",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-unknown-workspace",
+      "fixture": "empty",
+      "setup": [],
+      "args": ["dominio", "list", "--workspace", "zz"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-one-entry",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/solo.md",
+          "in": "home",
+          "content": "---\ntitle: Solo\n---\nx\n"
+        }
+      ],
+      "args": ["dominio", "list"],
+      "native": true
+    },
+    {
+      "id": "dominio:list-long-summary-delegates",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/long.md",
+          "in": "home",
+          "content": "---\ntitle: Long\n---\nword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \n"
+        }
+      ],
+      "args": ["dominio", "list"]
+    },
+    {
+      "id": "dominio:list-wide-title-delegates",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/wide.md",
+          "in": "home",
+          "content": "---\ntitle: 漢字\n---\nx\n"
+        }
+      ],
+      "args": ["dominio", "list"]
+    },
+    {
+      "id": "dominio:list-invalid-name-delegates",
+      "fixture": "empty",
+      "mask": ["stderr"],
+      "setup": [],
+      "args": ["dominio", "list", "--workspace", "Bad_Name"]
+    },
+    {
+      "id": "dominio:list-force-color-delegates",
+      "fixture": "empty",
+      "env": { "FORCE_COLOR": "1" },
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "list"]
+    },
+    {
+      "id": "dominio:show",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "show", "users"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-explicit",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "show", "regla", "--workspace", "beta"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-missing",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "show", "nope"],
+      "native": true
+    },
+    {
+      "id": "dominio:show-missing-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "show", "nope"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-new",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "init"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-new-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "init"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-exists",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        },
+        ["dominio", "reindex"]
+      ],
+      "args": ["dominio", "init"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-explicit",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "init", "--workspace", "beta"],
+      "native": true
+    },
+    {
+      "id": "dominio:init-unregistered-delegates",
+      "fixture": "empty",
+      "mask": ["stderr"],
+      "setup": [],
+      "args": ["dominio", "init", "--workspace", "zz"]
+    },
+    {
+      "id": "dominio:reindex",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "reindex"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        }
+      ],
+      "args": ["dominio", "reindex"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-empty",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "reindex"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-overwrites",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "stale\n"
+        }
+      ],
+      "args": ["dominio", "reindex"],
+      "native": true
+    },
+    {
+      "id": "dominio:reindex-unregistered-delegates",
+      "fixture": "empty",
+      "mask": ["stderr"],
+      "setup": [],
+      "args": ["dominio", "reindex", "--workspace", "zz"]
+    },
+    {
+      "id": "dominio:doctor-clean",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        },
+        ["dominio", "reindex"]
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-clean-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/beta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"beta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/beta/dominio/regla.md",
+          "in": "home",
+          "content": "---\ntitle: Regla de cobro\ntype: business-rule\n---\nSe cobra el día uno — ñandú\n"
+        },
+        ["dominio", "reindex"]
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-no-dir",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        }
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-index-missing",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        }
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-index-stale",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/acme/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"acme\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/users.md",
+          "in": "home",
+          "content": "---\ntitle: Users\ntype: architecture\napplies-to: [api, web]\nstatus: canonical\n---\n# The user model\nbody\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/billing.md",
+          "in": "home",
+          "content": "---\ntitle: Billing\ntype: business-rule\napplies-to: all\n---\n- **Invoices** close monthly\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/legacy.md",
+          "in": "home",
+          "content": "---\ntitle: Legacy ids\ntype: migration\nstatus: deprecated\n---\n\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/old.md",
+          "in": "home",
+          "content": "---\ntitle: Old\ntype: gotcha\nstatus: superseded\nsupersedes: [users]\n---\nold text\n"
+        },
+        {
+          "write": ".navori/workspaces/acme/dominio/DOMINIO.md",
+          "in": "home",
+          "content": "stale\n"
+        }
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-findings",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/gamma/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"gamma\", \"defaults\": {\"language\": \"en\"}, \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/gamma/dominio/a.md",
+          "in": "home",
+          "content": "---\ntitle: A\ntype: weird\nstatus: strange\n---\na\n"
+        },
+        {
+          "write": ".navori/workspaces/gamma/dominio/b.md",
+          "in": "home",
+          "content": "---\ntype: gotcha\nstatus: superseded\n---\nno title, no target\n"
+        },
+        {
+          "write": ".navori/workspaces/gamma/dominio/c.md",
+          "in": "home",
+          "content": "---\ntitle: C\nsupersedes: [missing, a]\n---\nc\n"
+        }
+      ],
+      "args": ["dominio", "doctor"],
+      "native": true
+    },
+    {
+      "id": "dominio:doctor-findings-es",
+      "fixture": "empty",
+      "setup": [
+        {
+          "write": ".navori/workspaces/delta/workspace.json",
+          "in": "home",
+          "content": "{\"name\": \"delta\", \"repos\": [{\"name\": \"repo\", \"path\": \"@REPO@\"}]}"
+        },
+        {
+          "write": ".navori/workspaces/delta/dominio/a.md",
+          "in": "home",
+          "content": "---\ntype: x\nstatus: y\n---\na\n"
+        }
+      ],
+      "args": ["dominio", "doctor", "--workspace", "delta"],
+      "native": true
+    }
   ]
 }

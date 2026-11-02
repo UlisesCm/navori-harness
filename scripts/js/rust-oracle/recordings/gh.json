@@ -4,9 +4,7 @@
   "version": "gh version 2.103.3 (2026-10-26)",
   "responses": [
     {
-      "args": [
-        "--version"
-      ],
+      "args": ["--version"],
       "status": 0,
       "stdout": "gh version 2.103.3 (2026-10-26)\nhttps://github.com/cli/cli/releases/tag/v2.103.3\n",
       "stderr": ""

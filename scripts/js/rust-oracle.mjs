@@ -93,7 +93,10 @@ export const RULES = [
     token: "@ISO@",
     // toISOString()
     apply: (t) =>
-      t.replace(/(?<![\dA-Za-z])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\dA-Za-z])/g, "@ISO@"),
+      t.replace(
+        /(?<![\dA-Za-z])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\dA-Za-z])/g,
+        "@ISO@",
+      ),
   },
   {
     name: "EPOCHMS",
@@ -117,7 +120,10 @@ export const RULES = [
     token: "@BACKUP@",
     // backup.ts: `<repo>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>`; the stamp is replaced, `p<pid>` is @PID@'s
     apply: (t) =>
-      t.replace(/(?<=-)\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}(?=-p\d+-\d+(?![\d]))/g, "@BACKUP@"),
+      t.replace(
+        /(?<=-)\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}(?=-p\d+-\d+(?![\d]))/g,
+        "@BACKUP@",
+      ),
   },
   {
     name: "PID",
@@ -421,7 +427,8 @@ export function compareOutcomes(ts, rust, ctx, mask = []) {
   }
   const tsCalls = (ts.calls ?? []).join("\n");
   const rustCalls = (rust.calls ?? []).join("\n");
-  if (tsCalls !== rustCalls) diffs.push({ kind: "calls", detail: `ts:\n${tsCalls}\nrust:\n${rustCalls}` });
+  if (tsCalls !== rustCalls)
+    diffs.push({ kind: "calls", detail: `ts:\n${tsCalls}\nrust:\n${rustCalls}` });
   return diffs;
 }
 
@@ -442,7 +449,10 @@ export function stubEnv(work, tools, pathValue, recordings = RECORDINGS_DIR) {
   for (const tool of tools) {
     if (!STUB_TOOLS.includes(tool)) throw new Error(`rust-oracle: ${tool} is not a stubbed tool`);
     const wrapper = join(dir, tool);
-    writeFileSync(wrapper, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(STUB_SCRIPT)} ${tool} "$@"\n`);
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(STUB_SCRIPT)} ${tool} "$@"\n`,
+    );
     chmodSync(wrapper, 0o755);
   }
   return {
@@ -525,7 +535,12 @@ function gitInit(repo, env) {
 function applySetup(repo, env, ts, steps) {
   for (const step of steps) {
     if (Array.isArray(step)) {
-      const prep = spawnSync(ts.cmd, [...ts.args, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
+      const prep = spawnSync(ts.cmd, [...ts.args, ...step], {
+        cwd: repo,
+        env,
+        input: "",
+        timeout: RUN_TIMEOUT_MS,
+      });
       if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
     } else if ("navori" in step) {
       const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env, input: "" });
@@ -561,7 +576,9 @@ export function copyFixture(from, to) {
   mkdirSync(to, { recursive: true });
   for (const entry of readdirSync(from, { withFileTypes: true })) {
     if (entry.name === FIXTURE_MANIFEST) continue;
-    const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
+    const name = entry.name.endsWith(".fixture")
+      ? entry.name.slice(0, -".fixture".length)
+      : entry.name;
     const target = join(to, name);
     if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
     else cpSync(join(from, entry.name), target, { verbatimSymlinks: true });
@@ -616,7 +633,8 @@ export function masterCloseRenderCases(manifestPath = MANIFEST_PATH) {
     const configPath = join(FIXTURES_DIR, fixture, "navori.config.json");
     if (/^(spec|master|chk|handoff)-/.test(fixture) || !existsSync(configPath)) continue;
     const config = JSON.parse(readFileSync(configPath, "utf8"));
-    const workspaces = config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+    const workspaces =
+      config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
     if (workspaces || !(config.engines ?? ["claude"]).every((e) => engines.includes(e))) continue;
     const reconciling = { ...config, harness: { ...config.harness, masterPlan: true } };
     cases.push({
@@ -647,7 +665,15 @@ function layout(work, testCase, opts) {
     mkdirSync(dirname(join(repo, rel)), { recursive: true });
     writeFileSync(join(repo, rel), text);
   }
-  for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
+  for (const dir of [
+    "home",
+    "tmp",
+    "backups",
+    "audits",
+    "git-template/hooks",
+    "git-template/info",
+    "xdg",
+  ]) {
     mkdirSync(join(work, dir), { recursive: true });
   }
   applyFixtureManifest(join(opts.fixturesDir, testCase.fixture), work, Date.now());
@@ -701,7 +727,9 @@ function runOnce(work, runner, testCase, opts) {
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o755);
   if (run.error) throw new Error(`cannot run ${runner.cmd}: ${run.error.message}`);
   const callLog = join(work, "calls.jsonl");
-  const calls = existsSync(callLog) ? readFileSync(callLog, "utf8").split("\n").filter(Boolean) : [];
+  const calls = existsSync(callLog)
+    ? readFileSync(callLog, "utf8").split("\n").filter(Boolean)
+    : [];
   return {
     calls,
     status: run.status,
@@ -726,7 +754,11 @@ function runOnce(work, runner, testCase, opts) {
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCase(testCase, opts) {
-  const layoutOpts = { ts: opts.ts, tsCli: opts.tsCli, fixturesDir: opts.fixturesDir ?? FIXTURES_DIR };
+  const layoutOpts = {
+    ts: opts.ts,
+    tsCli: opts.tsCli,
+    fixturesDir: opts.fixturesDir ?? FIXTURES_DIR,
+  };
   const work = join(opts.base, "w");
   if (testCase.setup) {
     layoutOpts.template = join(opts.base, "template");
@@ -785,7 +817,9 @@ export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove"];
 export function antiRollbackCases(cliVersion) {
   const level = (name) =>
     ({ absent: null, lower: "0.1.0", equal: cliVersion, higher: "999.0.0" })[name];
-  const base = JSON.parse(readFileSync(join(FIXTURES_DIR, "fresh-init", "navori.config.json"), "utf8"));
+  const base = JSON.parse(
+    readFileSync(join(FIXTURES_DIR, "fresh-init", "navori.config.json"), "utf8"),
+  );
   /** @type {OracleCase[]} */
   const cases = [];
   for (const op of ANTI_ROLLBACK_OPS) {
@@ -799,15 +833,18 @@ export function antiRollbackCases(cliVersion) {
         /** @type {Record<string, string>} */
         const files = { "navori.config.json": `${JSON.stringify(config, null, 2)}\n` };
         if (op === "inject") {
-          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "idioma-rol", "Older body.", stamp)}`;
+          files["CLAUDE.md"] =
+            `# Notes\n\n${managedBlock("html", "idioma-rol", "Older body.", stamp)}`;
         } else if (op === "hook") {
           files[".claude/hooks/implementer-no-markdown.sh"] =
             `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
         } else if (op === "remove") {
-          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
+          files["CLAUDE.md"] =
+            `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
         } else {
           const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
-          files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
+          files[".claude/settings.json"] =
+            `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
         }
         cases.push({
           id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
@@ -834,7 +871,10 @@ function decoyCli(base) {
   const path = join(base, "decoy", "dist", "index.js");
   if (!existsSync(path)) {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, 'process.stderr.write("rust-oracle: delegated to the TS\\n");\nprocess.exitCode = 97;\n');
+    writeFileSync(
+      path,
+      'process.stderr.write("rust-oracle: delegated to the TS\\n");\nprocess.exitCode = 97;\n',
+    );
   }
   return path;
 }
@@ -849,7 +889,9 @@ function decoyCli(base) {
  */
 export function selectsNative(manifest, args) {
   if (args.length === 1 && ["--version", "--help", "-h"].includes(args[0])) {
-    return manifest.commands.some((c) => c.path.join(" ") === (args[0] === "-h" ? "--help" : args[0]));
+    return manifest.commands.some(
+      (c) => c.path.join(" ") === (args[0] === "-h" ? "--help" : args[0]),
+    );
   }
   const first = args.findIndex((a) => a.startsWith("-"));
   const path = first === -1 ? args : args.slice(0, first);
@@ -860,7 +902,8 @@ export function selectsNative(manifest, args) {
     );
   return manifest.commands.some(
     (c) =>
-      c.path.every((token, i) => path[i] === token) && flags.every((f) => (c.flags ?? []).includes(f)),
+      c.path.every((token, i) => path[i] === token) &&
+      flags.every((f) => (c.flags ?? []).includes(f)),
   );
 }
 
@@ -874,12 +917,15 @@ export function selectsNative(manifest, args) {
 export function readAreaCases(dir) {
   const seen = new Map();
   const cases = [];
-  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json")).sort()) {
+  for (const name of readdirSync(dir)
+    .filter((n) => n.endsWith(".json"))
+    .sort()) {
     const file = JSON.parse(readFileSync(join(dir, name), "utf8"));
     if (file.schema !== 1 || !Array.isArray(file.cases))
       throw new Error(`rust-oracle: ${name}: expected { "schema": 1, "cases": [...] }`);
     for (const c of file.cases) {
-      if (seen.has(c.id)) throw new Error(`rust-oracle: case ${c.id} in ${seen.get(c.id)} and ${name}`);
+      if (seen.has(c.id))
+        throw new Error(`rust-oracle: case ${c.id} in ${seen.get(c.id)} and ${name}`);
       seen.set(c.id, name);
       cases.push(c);
     }
@@ -916,7 +962,9 @@ export function loadCases(paths = {}) {
 
 /** `version` of the workspace package in the root `Cargo.toml`. */
 function rustVersion() {
-  const m = /^\[workspace\.package\][^[]*?^version\s*=\s*"([^"]+)"/ms.exec(readFileSync(CARGO_TOML, "utf8"));
+  const m = /^\[workspace\.package\][^[]*?^version\s*=\s*"([^"]+)"/ms.exec(
+    readFileSync(CARGO_TOML, "utf8"),
+  );
   if (!m) throw new Error("cannot read [workspace.package].version from Cargo.toml");
   return m[1];
 }

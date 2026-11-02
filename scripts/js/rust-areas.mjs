@@ -140,7 +140,9 @@ export function withoutAreas(manifest, areas) {
       (entry) => !areas.some((area) => AREAS[area].commands.includes(entry.path[0])),
     ),
     hooks: Object.fromEntries(
-      Object.entries(manifest.hooks).filter(([id]) => !areas.some((area) => AREAS[area].hooks.includes(id))),
+      Object.entries(manifest.hooks).filter(
+        ([id]) => !areas.some((area) => AREAS[area].hooks.includes(id)),
+      ),
     ),
   };
 }
@@ -153,13 +155,21 @@ export function withoutAreas(manifest, areas) {
  * @param {string[]} hooks
  */
 export function areaInventoryCheck(area, manifest, commands, hooks) {
-  const declared = new Map(manifest.commands.map((entry) => [entry.path.join(" "), entry.flags ?? []]));
+  const declared = new Map(
+    manifest.commands.map((entry) => [entry.path.join(" "), entry.flags ?? []]),
+  );
   const mine = commands.filter((entry) => areaOf({ command: entry.path }) === area);
   return {
-    commands: mine.filter((entry) => !declared.has(entry.path.join(" "))).map((entry) => entry.path.join(" ")),
+    commands: mine
+      .filter((entry) => !declared.has(entry.path.join(" ")))
+      .map((entry) => entry.path.join(" ")),
     flags: mine.flatMap((entry) => {
       const flags = declared.get(entry.path.join(" "));
-      return flags === undefined ? [] : entry.flags.filter((flag) => !flags.includes(flag)).map((flag) => `${entry.path.join(" ")} --${flag}`);
+      return flags === undefined
+        ? []
+        : entry.flags
+            .filter((flag) => !flags.includes(flag))
+            .map((flag) => `${entry.path.join(" ")} --${flag}`);
     }),
     hooks: hooks.filter((id) => areaOf({ hook: id }) === area && !(id in manifest.hooks)),
   };

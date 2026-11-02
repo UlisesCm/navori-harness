@@ -5,8 +5,15 @@
   "branch": "feat/ok",
   "commits": ["abc1234", "def5678"],
   "filesTouched": ["src/a.ts", "src/b.ts"],
-  "verification": { "command": "bun run check", "exitCode": 0, "summary": "all green", "extra": true },
-  "markdownRequests": [{ "path": "docs/guide.md", "intent": "document the flag", "evidence": "src/a.ts:10", "note": 1 }],
+  "verification": {
+    "command": "bun run check",
+    "exitCode": 0,
+    "summary": "all green",
+    "extra": true
+  },
+  "markdownRequests": [
+    { "path": "docs/guide.md", "intent": "document the flag", "evidence": "src/a.ts:10", "note": 1 }
+  ],
   "rootCause": "the flag was ignored",
   "blockers": ["waiting on review"],
   "acceptance": [

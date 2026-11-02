@@ -1,1 +1,8 @@
-{"name":"mono","version":"1.0.0","private":true,"workspaces":["apps/*"]}
+{
+  "name": "mono",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ]
+}
