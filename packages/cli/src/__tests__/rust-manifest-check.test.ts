@@ -9,7 +9,7 @@ interface Manifest {
   commands: { path: string[] }[];
   hooks: Record<
     string,
-    { blocks: Record<string, string>; deps?: Record<string, string>; impl: string }
+    { mode?: string; blocks: Record<string, string>; deps?: Record<string, string>; impl: string }
   >;
 }
 interface CommandEntry {
@@ -65,6 +65,32 @@ it("quitar una entrada sin unport falla, incluso con un registro antiguo", (): v
     checks.checkHistory(before, after, "", `${unport}\n${event("port")}`),
   ).toThrow("unport");
   expect(checks.checkHistory(after, before, unport, `${unport}\n${event("port")}`)).toEqual([]);
+});
+
+const withMode = (mode: string | undefined): Manifest => ({
+  commands: [],
+  hooks: mode === undefined ? {} : { example: { mode, blocks: {}, impl: "sha256:0" } },
+});
+
+// Covers: R79, R80
+it("activar sin línea activate o sin sombra previa falla", (): void => {
+  const port = event("port", "example");
+  const activate = event("activate", "example");
+  const deactivate = event("deactivate", "example");
+  const run = (before: Manifest, after: Manifest, added: string[]): string[] =>
+    checks.checkHistory(before, after, port, [port, ...added].join("\n"));
+  const shadow = withMode("shadow");
+  const active = withMode("active");
+  expect((): string[] => run(shadow, active, [])).toThrow("without a new activate");
+  expect((): string[] => run(withMode(undefined), active, [activate])).toThrow(
+    "without shadow in the merge-base",
+  );
+  expect(run(shadow, active, [activate])).toEqual([]);
+  expect((): string[] => run(active, shadow, [])).toThrow("without a new deactivate");
+  expect(run(active, shadow, [deactivate])).toEqual([]);
+  expect((): string[] => run(shadow, shadow, [activate])).toThrow("without a shadow to active");
+  expect((): string[] => run(active, active, [deactivate])).toThrow("without an active to shadow");
+  expect(run(active, active, [])).toEqual([]);
 });
 
 // Covers: R10

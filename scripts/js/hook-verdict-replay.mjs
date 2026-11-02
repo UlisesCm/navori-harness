@@ -26,6 +26,7 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *   node scripts/js/hook-verdict-replay.mjs --shell zsh      replay every case under that shell (D9 parity)
  *   node scripts/js/hook-verdict-replay.mjs --coverage       per-hook cases and % of the invocations the tests make
  *   node scripts/js/hook-verdict-replay.mjs --impl rust --only hook.sh
+ *   node scripts/js/hook-verdict-replay.mjs --impl rust --registered   (every hook of crates/ported.json)
  *                                                         direct native replay of a ported hook; audit active
  *                                                         compares the event Rust drops in the session spool
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
@@ -56,7 +57,7 @@ const MODES = ["off", "active"];
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
  * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], fixture?: Array<{ path: string, content: string, mode?: number }> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
- * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
+ * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, registered?: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
  */
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
@@ -626,8 +627,8 @@ export function parseReplayArgs(argv) {
     const key = flag === "--only" ? "--hook" : flag;
     if (seen.has(key)) throw new Error(`duplicate option ${flag}`);
     seen.add(key);
-    if (["--all", "--check-stable", "--coverage"].includes(flag)) {
-      options[flag === "--all" ? "all" : flag === "--coverage" ? "coverage" : "stable"] = true;
+    if (["--all", "--check-stable", "--coverage", "--registered"].includes(flag)) {
+      options[flag === "--all" ? "all" : flag === "--coverage" ? "coverage" : flag === "--registered" ? "registered" : "stable"] = true;
       continue;
     }
     if (!["--impl", "--audit", "--only", "--hook", "--shell", "--generate"].includes(flag)) {
@@ -665,6 +666,8 @@ export function parseReplayArgs(argv) {
   }
   if (options.coverage && seen.size !== 1) throw new Error("--coverage cannot be combined with other options");
   if (options.impl === "rust" && options.shell !== undefined) throw new Error("--shell applies only to shell replay");
+  if (options.registered && (options.impl !== "rust" || options.only !== undefined || options.generate !== undefined || options.coverage))
+    throw new Error("--registered applies only to --impl rust and excludes --only");
   return options;
 }
 
@@ -684,7 +687,13 @@ export async function main(argv) {
     printCoverage();
     return 0;
   }
-  const result = await replayCorpus(options);
+  // Hooks outside the manifest have no native verdict to compare yet (0062 A1 covers the ported ones).
+  const only = options.registered
+    ? Object.keys(
+        JSON.parse(readFileSync(join(REPO_ROOT, "crates", "ported.json"), "utf8")).hooks,
+      ).map((hook) => `${hook}.sh`)
+    : options.only;
+  const result = await replayCorpus({ ...options, only });
   if (!result.ok) {
     process.stderr.write(`hook-verdict-replay: ${result.failure}\n`);
     return 1;
