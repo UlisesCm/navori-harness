@@ -205,6 +205,13 @@ pub struct PlanOptions {
     pub native_hooks: Option<BTreeMap<String, crate::manifest::Hook>>,
     /// `render --force`: the engine's JSON files overwrite what the user left.
     pub force: bool,
+    /// `(relPath, managedId)` the other engines of the target observe in the shared inventory
+    /// (`prepareNonClaudeEngines`: `AGENTS.md` when `agents-md` owns it).
+    pub extra_observed: Vec<(String, String)>,
+    /// `(relPath, foreign)` the other engines observe with their own classifier (Pi's resources).
+    pub extra_classified: Vec<(String, bool)>,
+    /// Paths a vetoed engine generation excludes from the seal (`inventory.exclude`).
+    pub extra_excluded: Vec<String>,
 }
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {

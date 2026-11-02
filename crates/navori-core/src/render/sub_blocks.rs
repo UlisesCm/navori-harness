@@ -267,7 +267,8 @@ pub fn apply_sub_block_inject(
     Ok(())
 }
 
-/// Step 8.3 for one hook extension (`applyHookExtension` with the Claude target).
+/// Step 8.3 for one hook extension (`applyHookExtension`), into `target`: the Claude hook path
+/// the manifest names, or its Codex mirror.
 ///
 /// # Errors
 /// [`SubBlocksDelegate`] where the TS throws or the path is not modeled.
@@ -275,10 +276,10 @@ pub fn apply_hook_extension(
     ctx: &SubBlockCtx<'_>,
     plugin: &LoadedPlugin,
     extension: &PluginHookExtension,
+    target: &str,
     pending: &mut Vec<PendingWrite>,
     out: &mut SubBlocks,
 ) -> Result<(), SubBlocksDelegate> {
-    let target = extension.target.as_str();
     check_target(target)?;
     let at = current(ctx.view, pending, target)?;
     let Some(existing) = at.content(pending) else {
@@ -406,16 +407,16 @@ pub fn remove_sub_block(
     Ok(())
 }
 
-/// A disabled plugin's hook extension stripped from its hook (`removeHookExtension`).
+/// A disabled plugin's hook extension stripped from `target` (`removeHookExtension`).
 ///
 /// # Errors
 /// [`SubBlocksDelegate`] where the TS throws or the path is not modeled.
 pub fn remove_hook_extension(
     ctx: &SubBlockCtx<'_>,
     extension: &PluginHookExtension,
+    target: &str,
     pending: &mut Vec<PendingWrite>,
 ) -> Result<(), SubBlocksDelegate> {
-    let target = extension.target.as_str();
     check_target(target)?;
     let at = current(ctx.view, pending, target)?;
     let Some(existing) = at.content(pending) else {
@@ -498,7 +499,7 @@ pub fn apply_sub_blocks(
     for plugin in enabled {
         for extension in &plugin.hook_extension_assets {
             out.inspected += 1;
-            apply_hook_extension(ctx, plugin, extension, pending, &mut out)?;
+            apply_hook_extension(ctx, plugin, extension, &extension.target, pending, &mut out)?;
         }
     }
     apply_codex_cross_review(ctx, pending)?;
@@ -513,7 +514,7 @@ pub fn apply_sub_blocks(
         }
         for extension in &plugin.hook_extension_assets {
             out.inspected += 1;
-            remove_hook_extension(ctx, extension, pending)?;
+            remove_hook_extension(ctx, extension, &extension.target, pending)?;
         }
     }
     strip_retired_sub_blocks(ctx, pending, &mut out)?;

@@ -101,6 +101,28 @@ pub fn plugin_script_placements(
         .collect()
 }
 
+/// `pluginScriptCollisions`: destinations claimed by a second script, in first-collision order.
+/// A destination claimed twice has no safe Codex owner.
+#[must_use]
+pub fn plugin_script_collisions(plugins: &[LoadedPlugin]) -> Vec<String> {
+    let mut owned: Vec<&str> = Vec::new();
+    let mut collisions: Vec<String> = Vec::new();
+    for plugin in plugins {
+        // `if (owner)`: an empty id never counts as an owner.
+        let has_id = !plugin.manifest_id().is_empty();
+        for script in &plugin.script_assets {
+            if owned.contains(&script.dest.as_str()) {
+                if !collisions.contains(&script.dest) {
+                    collisions.push(script.dest.clone());
+                }
+            } else if has_id {
+                owned.push(&script.dest);
+            }
+        }
+    }
+    collisions
+}
+
 /// `legacyPluginScriptContent`: the template with includes expanded and interpolated, as
 /// navori wrote scripts before they carried a marker. `None` where the TS throws.
 #[must_use]

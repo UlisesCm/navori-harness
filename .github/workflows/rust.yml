@@ -48,8 +48,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: rustup show active-toolchain
       - run: bun run oracle:rust
+      # A6 (spec 0059): the oracle left `navori-rust` and `dist/` built; here the Rust tree smoke is
+      # mandatory instead of skipped.
+      - run: bun run vitest run src/__tests__/rust-oracle.test.ts src/engines/pi/__tests__/rust-tree.test.ts
+        working-directory: packages/cli
+        env:
+          NAVORI_RUST_TREE: "1"
       - run: node scripts/js/rust-oracle/plan-tables.mjs --check
       - run: node scripts/js/rust-oracle/tools-tables.mjs --check
+      - run: node scripts/js/gen-pi-extension-asset.mjs --check
 
   manifest:
     runs-on: ubuntu-latest
