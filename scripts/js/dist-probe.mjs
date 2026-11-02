@@ -139,7 +139,8 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
 
   const own = run("navori", ["--version"]);
   const expected = native ? version : legacyVersion;
-  if (own.status !== 0 || own.stdout.trim() !== expected) {
+  // The frozen TS prints through consola, which prefixes `[log] ` under CI: its last word counts.
+  if (own.status !== 0 || own.stdout.trim().split(/\s+/).at(-1) !== expected) {
     failures.push(`navori --version answered ${JSON.stringify(own.stdout.trim())} (exit ${own.status}), expected ${expected}`);
   }
   const launcher = join(project, "node_modules", "navori", "bin", "navori");
@@ -160,7 +161,16 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
         env: { NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
       });
       if (!result.available || result.status !== 2) {
-        failures.push(`navori-native-hook did not block a destructive command: ${JSON.stringify(result.available ? { status: result.status } : result)}`);
+        // The adapter keeps a deferral's stderr to itself; one direct run says why.
+        const again = spawnSync(hook, ["hook", "--via-script", join(hooks, ".claude", "hooks", c.hook)], {
+          cwd,
+          input: c.input,
+          encoding: "utf8",
+          env: { ...process.env, NAVORI_HOOK_IMPL: "rust", NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+        });
+        failures.push(
+          `navori-native-hook did not block a destructive command: ${JSON.stringify(result.available ? { status: result.status } : result)}; stderr: ${again.stderr.trim().slice(0, 300)}`,
+        );
       }
     } finally {
       rmSync(cwd, { recursive: true, force: true });
