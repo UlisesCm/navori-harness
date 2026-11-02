@@ -2,6 +2,7 @@
 
 pub mod cache;
 pub mod notice;
+pub mod update_notice;
 
 use std::path::Path;
 

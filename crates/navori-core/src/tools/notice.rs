@@ -21,6 +21,7 @@ use super::cache::{
 };
 use crate::atomic::{random_uuid, write_file_atomic};
 use crate::config::Config;
+use crate::http::{HttpClient, HttpRequest, get_json};
 use crate::js_json::{JsObject, JsValue};
 use crate::process::{self, Env};
 use crate::render::context::Lang;
@@ -579,4 +580,232 @@ pub fn notice_reserve(value: &str) -> Option<u64> {
         .ok()
         .filter(|n| safe_integer(*n))
         .map(|n| n as u64)
+}
+
+// --- the network worker (spec 0062 T9, R85) -----------------------------------------------------
+
+/// `REQUEST_TIMEOUT_MS`.
+const REQUEST_TIMEOUT: Duration = Duration::from_millis(2_000);
+/// `WORKER_SOFT_LIMIT_MS`.
+const WORKER_SOFT_LIMIT: Duration = Duration::from_millis(3_000);
+
+/// `endpoint(release)`.
+#[must_use]
+pub fn endpoint(release: &Release) -> String {
+    if release.source == "npm" {
+        format!(
+            "https://registry.npmjs.org/{}/latest",
+            release.id.replacen('/', "%2F", 1)
+        )
+    } else {
+        format!(
+            "https://api.github.com/repos/{}/releases/latest",
+            release.id
+        )
+    }
+}
+
+/// `{ at, source, id, status, version }`, in the TS's key order.
+fn latest_entry(at: f64, release: &Release, version: Option<String>) -> JsValue {
+    let mut entry = JsObject::new();
+    entry.insert("at", JsValue::Number(at));
+    entry.insert("source", JsValue::string(&release.source));
+    entry.insert("id", JsValue::string(&release.id));
+    match version {
+        Some(version) => {
+            entry.insert("status", JsValue::string("ok"));
+            entry.insert("version", JsValue::string(&version));
+        }
+        None => {
+            entry.insert("status", JsValue::string("unparseable"));
+            entry.insert("version", JsValue::Null);
+        }
+    }
+    JsValue::Object(entry)
+}
+
+/// `entryFromBody(release, raw, now)`: `None` for a body that is not an object (keep the cache),
+/// else a validated `x.y.z` or `unparseable`; raw tags are never stored.
+#[must_use]
+pub fn entry_from_body(release: &Release, raw: &JsValue, now: f64) -> Option<JsValue> {
+    static TAG: LazyLock<Option<Regex>> =
+        // JS `\d` is ASCII only.
+        LazyLock::new(|| Regex::new(r"^v?([0-9]+\.[0-9]+\.[0-9]+)$").ok());
+    // `typeof raw !== "object" || raw === null`: an array is an object too.
+    if !matches!(raw, JsValue::Object(_) | JsValue::Array(_)) {
+        return None;
+    }
+    let version = if release.source == "npm" {
+        stable_version(member(raw, "version"))
+    } else if member(raw, "prerelease") == Some(&JsValue::Bool(false))
+        && member(raw, "draft") == Some(&JsValue::Bool(false))
+    {
+        text(member(raw, "tag_name"))
+            .and_then(|tag| {
+                TAG.as_ref()?
+                    .captures(&tag)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().to_owned())
+            })
+            .and_then(|v| stable_version(Some(&JsValue::string(&v))))
+    } else {
+        None
+    };
+    Some(latest_entry(now, release, version))
+}
+
+/// `readLatest(now, Infinity)` as entries in `latest.json`'s order (the worker rewrites the file).
+fn latest_entries(
+    dir: &Path,
+    now: f64,
+    plugins: &mut Plugins,
+) -> Result<Vec<(String, JsValue)>, Stop> {
+    let state = read_state(&dir.join("latest.json"))?;
+    let tools = record(state.as_ref().and_then(|s| member(s, "tools")));
+    let mut out = Vec::new();
+    for (id, raw) in tools.ordered() {
+        let id = id
+            .to_rust()
+            .ok_or(Stop::Delegate("lone surrogate in state"))?;
+        let Some(release) = plugins.watched(&id)? else {
+            continue;
+        };
+        let Some(at) = stamp(raw, now) else {
+            continue;
+        };
+        if text(member(raw, "source")).as_deref() != Some(release.source.as_str())
+            || text(member(raw, "id")).as_deref() != Some(release.id.as_str())
+        {
+            continue;
+        }
+        let version = member(raw, "version");
+        let entry = match (
+            text(member(raw, "status")).as_deref(),
+            stable_version(version),
+        ) {
+            (Some("ok"), Some(version)) => latest_entry(at, &release, Some(version)),
+            (Some("unparseable"), _) if matches!(version, Some(JsValue::Null)) => {
+                latest_entry(at, &release, None)
+            }
+            _ => continue,
+        };
+        out.push((id, entry));
+    }
+    Ok(out)
+}
+
+/// `runToolVersionWorker(token)`: claim this token's tools, fetch each one (sequentially, 2 s per
+/// request, stopping past the 3 s soft limit) and merge what arrived into `latest.json`. Silent on
+/// every failure, like the TS. `now` is `Date.now()` and `elapsed` the time since the fetches began.
+pub fn run_tool_version_worker(
+    env: &Env,
+    token: Option<&str>,
+    http: &dyn HttpClient,
+    plugins: &mut Plugins,
+    now: &dyn Fn() -> f64,
+    elapsed: &dyn Fn() -> Duration,
+) {
+    static TOKEN: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new("^[0-9a-f-]{36}$").ok());
+    let Some(token) = token.filter(|t| TOKEN.as_ref().is_some_and(|re| re.is_match(t))) else {
+        return;
+    };
+    if !machine_eligible(env) {
+        return;
+    }
+    let Ok(dir) = state_dir(env) else {
+        return;
+    };
+    let claimed = locked(&dir, || {
+        let path = dir.join("attempts.json");
+        let now = now();
+        let mut attempts = record(read_state(&path)?.as_ref());
+        let mut mine = Vec::new();
+        let mut touched = false;
+        let entries: Vec<(String, JsValue)> = attempts
+            .ordered()
+            .into_iter()
+            .filter_map(|(id, value)| id.to_rust().map(|id| (id, value.clone())))
+            .collect();
+        for (id, value) in entries {
+            let ours = valid_attempt(&value, now)
+                && matches!(member(&value, "token"), Some(JsValue::String(t)) if t.to_rust().as_deref() == Some(token));
+            let Some(at) = stamp(&value, now).filter(|at| ours && now - at < DAY) else {
+                continue;
+            };
+            touched = true;
+            if plugins.watched(&id)?.is_some() {
+                mine.push(id.clone());
+                let mut claimed = JsObject::new();
+                claimed.insert("at", JsValue::Number(at));
+                claimed.insert("token", JsValue::Null);
+                attempts.insert(id.as_str(), JsValue::Object(claimed));
+            } else {
+                attempts.remove(&id);
+            }
+        }
+        if touched {
+            let body = JsValue::Object(attempts)
+                .stringify(None)
+                .ok_or(Stop::Throw)?;
+            write_file_atomic(&path, body.as_bytes()).map_err(|_| Stop::Throw)?;
+        }
+        Ok(mine)
+    });
+    let Ok(Some(claimed)) = claimed else {
+        return;
+    };
+    if claimed.is_empty() {
+        return;
+    }
+    let agent = format!("navori/{}", crate::STAMP_VERSION);
+    let mut fetched: Vec<(String, JsValue)> = Vec::new();
+    for id in claimed {
+        if elapsed() > WORKER_SOFT_LIMIT {
+            break;
+        }
+        let Ok(Some(release)) = plugins.watched(&id) else {
+            continue;
+        };
+        let github = release.source != "npm";
+        let url = endpoint(&release);
+        let headers = [
+            ("user-agent", agent.as_str()),
+            (
+                "accept",
+                if github {
+                    "application/vnd.github+json"
+                } else {
+                    "application/json"
+                },
+            ),
+        ];
+        let body = get_json(
+            http,
+            &HttpRequest {
+                url: &url,
+                headers: &headers,
+                timeout: REQUEST_TIMEOUT,
+                max_bytes: if github { 64 * 1024 } else { 16 * 1024 },
+            },
+        );
+        if let Some(entry) = body.and_then(|raw| entry_from_body(&release, &raw, now())) {
+            fetched.push((id, entry));
+        }
+    }
+    if fetched.is_empty() {
+        return;
+    }
+    let _ = locked(&dir, || {
+        let mut tools = JsObject::new();
+        for (id, entry) in latest_entries(&dir, now(), plugins)? {
+            tools.insert(id.as_str(), entry);
+        }
+        for (id, entry) in fetched {
+            tools.insert(id.as_str(), entry);
+        }
+        let mut root = JsObject::new();
+        root.insert("tools", JsValue::Object(tools));
+        let body = JsValue::Object(root).stringify(None).ok_or(Stop::Throw)?;
+        write_file_atomic(&dir.join("latest.json"), body.as_bytes()).map_err(|_| Stop::Throw)
+    });
 }
