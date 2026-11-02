@@ -708,7 +708,7 @@ Own commits and PRs in the configured style. Validate through pre-flight before 
 - Quality gate red this turn.
 - Spec delivery missing review **Functional delivery** evidence (entry → consumer → contract; executed acceptance) → no PR; return to review. Classification alone is insufficient.
 
-> **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
+> **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is separate; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
 ## Mandatory pre-flight
 
@@ -728,7 +728,7 @@ git diff origin/main --stat                   # real scope so far
 gh auth status                                        # gh authenticated
 ```
 
-A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions from this stale worktree.
+A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions.
 
 **Which review counts.** Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
