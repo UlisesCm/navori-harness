@@ -18,6 +18,7 @@ interface Probe {
   delegationProbe: (list?: Array<{ path: string[] }>) => string[];
   blockingCase: () => { hook: string; engine: string; expected: { off: { status: number } } };
   isScript: (file: string) => boolean;
+  hookPath: (node?: string) => string;
 }
 
 const repo = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -67,6 +68,11 @@ describe("dist-probe", () => {
       "trust",
       "--help",
     ]);
+
+    // the hook runs under Node's directory and the system's, never a package manager's tools
+    expect(probe.hookPath("/opt/node/bin/node")).toBe(
+      "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    );
 
     const blocking = probe.blockingCase();
     expect(blocking).toMatchObject({ hook: "guard-destructive.sh", engine: "claude" });

@@ -106,6 +106,15 @@ export function blockingCase(corpus = readCorpus()) {
   return found;
 }
 
+/**
+ * The PATH the hook check runs under: Node's directory and the system's. The probe tests that the
+ * package delivers a native verdict; which host tools the binary accredits (a Homebrew `jq` on
+ * GitHub's macOS images is not, so the hook defers to its shell body) is the hooks flow's matrix.
+ */
+export function hookPath(node = process.execPath) {
+  return [dirname(node), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter);
+}
+
 /** The program and leading arguments for a manager, with pnpm through npx when not installed. */
 function managerCommand(argv) {
   const [name, ...rest] = argv;
@@ -158,7 +167,7 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
         script: join(hooks, ".claude", "hooks", c.hook),
         input: c.input,
         cwd,
-        env: { NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+        env: { PATH: hookPath(), NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
       });
       if (!result.available || result.status !== 2) {
         // The adapter keeps a deferral's stderr to itself; one direct run says why.
@@ -166,7 +175,7 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
           cwd,
           input: c.input,
           encoding: "utf8",
-          env: { ...process.env, NAVORI_HOOK_IMPL: "rust", NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+          env: { ...process.env, PATH: hookPath(), NAVORI_HOOK_IMPL: "rust", NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
         });
         failures.push(
           `navori-native-hook did not block a destructive command: ${JSON.stringify(result.available ? { status: result.status } : result)}; stderr: ${again.stderr.trim().slice(0, 300)}`,
