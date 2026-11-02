@@ -94,15 +94,19 @@
   预发布版本 `0.13.0-rust.<n>`。
 - **委托：** 未列入 `crates/ported.json` 的子命令交给 TS CLI（依次为 `NAVORI_TS_CLI`、本检出的
   `packages/cli/dist`、`PATH` 中的 `navori`）。请先运行 `bun run build`。
-- **原生命令：** `render` 在仅 Claude、无 workspace 的根目录中以原生方式运行，支持 `--cwd`、
+- **原生命令：** `render` 在无 workspace、且 `engines` 为 `claude`、`codex`、`agents-md`、`cursor`、
+  `copilot` 与 `pi` 的非空子集的根目录中以原生方式运行，支持 `--cwd`、
   `--dry-run`、`--json`、`--apply` 与 `--force`，且仅在无颜色时（stdout 不是 TTY、未设置 `FORCE_COLOR`，且
-  `CI` 仅与 `NO_COLOR` 同时出现）；其他情况在输出前委托。若 `~/.navori/registry.json` 以其他名称
+  `CI` 仅与 `NO_COLOR` 同时出现）；其他情况在输出前委托。使用 Codex 或 Pi 时，`project.localSkills`、
+  声明了 `hooks` 的插件，以及磁盘上并非 navori 原样拥有的插件脚本也会委托。若 `~/.navori/registry.json` 以其他名称
   列出该仓库，apply 也会委托。其来源行显示 `core: (embedded)`，原生命令在 spec 0060 之前不显示更新提示。
 - **`adopt`** 以原生方式运行，支持 `--apply` 与 `--cwd`（一个位置参数路径、有效配置或无配置、可用的
   备份根目录，且无颜色）。
 - **`sync`** 仅在不会提示时以原生方式运行：带有 `--apply`、`--yes`、`--dry-run`、`--json`、
   `--accept-new`、`--keep-mine` 或 `--accept-new-files` 之一（条目的 `requires`）。`--interactive` 与
-  `--workspace` 会委托。**`remove <plugin>`** 仅在带 `--yes` 时以原生方式运行。
+  `--workspace` 会委托；当 `--accept-new-files --apply` 接受某个文案类 engine 的文件时（TS 在此会抛出
+  异常）也会委托。**`remove <plugin>`** 仅在带 `--yes` 时以原生方式运行。两者覆盖的 engine 与
+  `render` 相同。
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
   无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`
@@ -110,8 +114,14 @@
 - **与 `dev` 同步：** 只用 merge，不用 rebase。从 `origin/migration/rust` 建分支，运行
   `git merge origin/dev`，并向 `migration/rust` 发起 PR。若缺少超过 7 天的 `dev` 第一父提交，CI
   的 `freshness` job 会失败。
+- **重新生成 Pi 扩展资源：** `navori-rust` 依据 `crates/navori-core/assets/pi/extension.ts.in`
+  写出 `.pi/extensions/navori.ts`，该资源派生自编译后的 TS CLI。当 TS 的 Pi 扩展变化时
+  （`packages/cli/src/engines/pi/`，合并 `dev` 时也一样），运行
+  `bun run build && node scripts/js/gen-pi-extension-asset.mjs`，并将资源与该变更一起提交。
+  `oracle` job 会运行 `--check`，资源过期时失败。
 - **检查：** `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
-  `cargo test --workspace`、`bun run oracle:rust` 以及 `node scripts/js/rust-manifest-check.mjs`。
+  `cargo test --workspace`、`bun run oracle:rust`、`node scripts/js/gen-pi-extension-asset.mjs
+  --check` 以及 `node scripts/js/rust-manifest-check.mjs`。
 
 ## 文案预算：哪些会设上限，哪些只报告
 
