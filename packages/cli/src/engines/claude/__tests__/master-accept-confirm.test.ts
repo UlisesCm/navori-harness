@@ -338,6 +338,47 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
       PATH: "/usr/bin:/bin",
     });
   });
+
+  // Issue #1481: bash 3.2's `${var//[class]/}` is superlinear (6.5 KB took 44 s, over Pi's 10 s
+  // hook timeout). The bound is generous for a loaded CI box yet ~20x under the old cost.
+  describe("40 KB command containing navori and master (issue #1481)", () => {
+    const BOUND_MS = 2_000;
+    // ~437 lines, ~1700 segments (several `&&`/`|`/`;` per line): realistic long commands cost per
+    // segment as well as per byte, so the filler must be multi-segment.
+    const line = `echo 'navori master check' && ls /Users/x/navori-harness/packages | grep "core"; cat a || true\n`;
+    const filler = line.repeat(440);
+    const heredoc = `cat <<'EOF'\n${"navori master line with 'quotes' and \"more\"\n".repeat(400)}EOF\n`;
+    const timed = (command: string): { ms: number; result: HookRun } => {
+      const start = performance.now();
+      const result = runHook("bash", payload(command));
+      return { ms: performance.now() - start, result };
+    };
+
+    // Covers: R62
+    it("stays silent on a 40 KB command without a trigger, in under 2 s", () => {
+      expect(filler.length).toBeGreaterThan(40_000);
+      const { ms, result } = timed(filler);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(ms).toBeLessThan(BOUND_MS);
+    });
+
+    // Covers: R62
+    it("still asks when the same 40 KB command ends with a real trigger", () => {
+      const { ms, result } = timed(`${filler}navori master part P2 --accept A3 --approved-by user`);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+      expect(ms).toBeLessThan(BOUND_MS);
+    });
+
+    // Covers: R62
+    it("asks on a trigger after a ~400-line heredoc body", () => {
+      const { ms, result } = timed(
+        `${heredoc}navori master part P2 --accept A3 --approved-by user\n`,
+      );
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+      expect(ms).toBeLessThan(BOUND_MS);
+    });
+  });
 });
 
 const base = {

@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="e7faf25b" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="5872ff47" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1850,16 +1850,11 @@ navori_strip_heredoc_bodies() {
 }
 
 # Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
-# global `navori_trigger_hits`. `$2` = 1 stops at the first hit (is_scan_trigger
-# only needs "any"). The single home of the segment normalisation, shared with
+# global `navori_trigger_hits`. A second argument (1 = "any" in older callers)
+# is ignored: counting all hits costs the same single grep. The single home of the segment normalisation, shared with
 # navori_commit_landing so the two can never disagree about what a segment is.
 navori_count_triggers() {
-  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
-  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
-  # left compound commands unsplit there and the gate silently skipped
-  # `cd x && git commit` (#391). A plain variable expands identically in
-  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
-  local input="$1" stop="${2:-0}" segment nl=$'\n'
+  local input="$1" segment
   navori_trigger_hits=0
   if [ "${TRIGGER_STRIP_HEREDOC_BODIES:-}" = 1 ]; then
     case "$input" in *'<<'*) navori_strip_heredoc_bodies "$input"; input="$navori_heredoc_stripped" ;; esac
@@ -1867,14 +1862,32 @@ navori_count_triggers() {
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).
-  input="${input//\\$'\n'/ }"
-  input="${input//&&/$nl}"
-  input="${input//||/$nl}"
-  input="${input//;/$nl}"
-  input="${input//|/$nl}"
+  # Then `&&`, `||`, `;`, `|` become newlines, in that order. One awk pass:
+  # bash 3.2's `${var//pat/repl}` is superlinear on long input. The `x`
+  # sentinel keeps trailing newlines exact across `$(…)`. No `$'\n'` in a
+  # shell replacement, which zsh does not expand (#391).
+  # Without awk on PATH (a stripped-down host) fall back to the slower pure-bash
+  # substitutions so the gate never silently skips; `nl` is pre-expanded for zsh.
+  if command -v awk >/dev/null 2>&1; then
+  input=$(printf '%sx' "$input" | LC_ALL=C awk '{ s = s sep $0; sep = "\n" } END { s = substr(s, 1, length(s) - 1); gsub(/\\\n/, " ", s); gsub(/&&/, "\n", s); gsub(/\|\|/, "\n", s); gsub(/;/, "\n", s); gsub(/\|/, "\n", s); printf "%sx", s }')
+  input="${input%x}"
+  else
+    local nl=$'\n'
+    input="${input//\\$'\n'/ }"
+    input="${input//&&/$nl}"
+    input="${input//||/$nl}"
+    input="${input//;/$nl}"
+    input="${input//|/$nl}"
+  fi
   # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
   # command that contains backticks/$() is inspected, never executed.
-  while IFS= read -r segment; do
+  # The peeled segments stream into ONE `grep -c` (a fork per segment made the
+  # cost scale with the segment count, #1481). A segment holds no newline and
+  # grep is line-based, so the matching-line count equals the per-segment count;
+  # an empty segment is skipped, as an empty `printf` never produced a match.
+  # grep -c exits 1 on zero matches (and pipefail may add a failure): the
+  # printed count is what counts, normalised to 0 so `set -e` callers survive.
+  navori_trigger_hits=$(while IFS= read -r segment; do
     segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
     # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
     # `VAR=val git …` all reduce to a plain `git …` before matching.
@@ -1884,12 +1897,13 @@ navori_count_triggers() {
     done
     segment="${segment#\\}"                                 # strip a leading backslash (\git)
     while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      # Patterns carry a leading `(`: bash 3.2 mis-parses a bare `pat)` inside `$( … )`.
       case "$segment" in
-        *[[:space:]]*)
+        (*[[:space:]]*)
           segment="${segment#*[[:space:]]}"
           segment="${segment#"${segment%%[![:space:]]*}"}"
           ;;
-        *) segment=""; break ;;
+        (*) segment=""; break ;;
       esac
     done
     if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
@@ -1899,11 +1913,9 @@ navori_count_triggers() {
     # FIX C: allow git global options between `git` and the subcommand
     # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
     # keeps `git commitgraph` / `git config …` from matching.
-    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
-      navori_trigger_hits=$((navori_trigger_hits + 1))
-      if [ "$stop" = 1 ]; then return 0; fi
-    fi
-  done <<< "$input"
+    if [ -n "$segment" ]; then printf '%s\n' "$segment"; fi
+  done <<< "$input" | grep -cE -- "$TRIGGER_RE") || true
+  case "$navori_trigger_hits" in '' | *[!0-9]*) navori_trigger_hits=0 ;; esac
   return 0
 }
 
