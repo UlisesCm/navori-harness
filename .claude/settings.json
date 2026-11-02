@@ -1,7 +1,7 @@
 {
   "$navori": {
     "managed": true,
-    "version": "0.12.1",
+    "version": "0.12.3",
     "notes": "Archivo generado por navori. NO editar a mano — los cambios se pierden en el próximo `navori render`. Per-user / per-machine permissions van a settings.local.json (gitignored)."
   },
   "attribution": {
@@ -311,6 +311,7 @@
       "mcp__codegraph__codegraph_explore",
       "Bash(bun run check:fast:*)",
       "Bash(bun run check:scoped:*)",
+      "Bash(bun run check:deps:*)",
       "Bash(bun run format:check:*)",
       "Bash(bun run lint:*)",
       "Bash(bun run typecheck:*)",
@@ -325,7 +326,7 @@
       "Bash(cd packages/cli)",
       "Bash(bun run check:size:*)",
       "Bash(bun run test:coverage:*)",
-      "Bash(bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage)",
+      "Bash(bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage)",
       "Bash(navori gate fast)",
       "Bash(navori gate full)",
       "Bash(bun run build:*)",

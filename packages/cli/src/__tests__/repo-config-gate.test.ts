@@ -108,6 +108,12 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
  */
 const EXEMPT_FROM_CI = new Map<string, string>([
   [
+    "check:deps",
+    // CI installs with `bun install --frozen-lockfile`, so node_modules matches
+    // bun.lock by construction; the check only guards stale LOCAL installs.
+    "CI already runs `bun install --frozen-lockfile`; the check would be a no-op there",
+  ],
+  [
     "check:assets",
     // The inverse of the `check:assets:ci` exemption above, and the same pair of
     // checks: CI runs the STRICTER `:ci` variant, which is this one plus
@@ -446,7 +452,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
 
   it("check:fast runs the scans, lint, format and typecheck (anti-false-green)", () => {
     expect([...fast].sort()).toEqual(
-      ["check:ast", "check:dup", "format:check", "lint", "typecheck"].sort(),
+      ["check:ast", "check:dup", "check:deps", "format:check", "lint", "typecheck"].sort(),
     );
   });
 
@@ -463,7 +469,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
 
   it("CI's fast job runs only the check:fast set, no tests", () => {
     const checks = ciChecks("checks");
-    expect([...fast].filter((c) => !checks.has(c))).toEqual([]);
+    expect([...fast].filter((c) => !checks.has(c) && !EXEMPT_FROM_CI.has(c))).toEqual([]);
     expect([...checks].some((c) => c.startsWith("test"))).toBe(false);
     expect(jobBody("checks")).not.toMatch(/^ {4}if:/m);
     expect(jobBody("checks")).not.toMatch(/^\s*run: .*\b(?:test|vitest)\b/m);
