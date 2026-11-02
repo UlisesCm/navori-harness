@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Design
 
-**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; Q24 y R18 resueltas el 2026-11-02) · **Fecha:**
+**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; R18 resuelta el 2026-11-02; Q24 aplazada) · **Fecha:**
 2026-10-31 · **Base:** `migration/rust` en `e8859f49` (merge de #1465).
 
 **Alcance del documento:** activación de los 22 hooks, ensayo de distribución y corte. Sale de E4–E6
@@ -59,14 +59,15 @@ Se conserva sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
 `legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
 estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover` cronometrado.
 
-### D51 — Paquetes de plataforma con scope `@navori` (Q24; R21)
+### D51 — Nombres provisionales de los paquetes de plataforma (Q24 aplazada; R21)
 
-- Los cuatro paquetes de plataforma se llaman `@navori/darwin-arm64`, `@navori/darwin-x64`,
-  `@navori/linux-arm64` y `@navori/linux-x64`, y `navori` los declara en `optionalDependencies`.
-- El scope protege los nombres: sin él, cualquiera podría registrar `navori-linux-x64` antes del
-  primer publish. Es el mismo patrón que `@esbuild/*`.
-- Requiere crear la org `navori` en npm (gratuita para paquetes públicos) antes de publicar. E2
-  ensaya sin publicar, así que la org no bloquea E2; bloquea el publish posterior a E3.
+- El ensayo de E2 arma `@navori/darwin-arm64`, `@navori/darwin-x64`, `@navori/linux-arm64` y
+  `@navori/linux-x64`, y `navori` los declara en `optionalDependencies`. Los nombres son
+  provisionales: no se publican, y cambiarlos toca `SCOPE` de `dist-assemble.mjs` y
+  `platformPackage` del lanzador.
+- La forma de publicar queda para después del ensayo (Q24): paquetes de plataforma con scope (que
+  exige una org o un usuario dueño del scope), sin scope, o un solo paquete `navori` con los cuatro
+  binarios.
 
 ### D52 — R18 por host y oráculo de hooks en paralelo (R18; enmienda D17 de 0057)
 
@@ -141,10 +142,11 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 | Q28 | (2026-10-31) Corte con delegación permanente de subcomandos raros al TS congelado (D50) |
 | Q29 | (2026-10-31) Política de velocidad de D47 de 0060 en las tres specs abiertas (0059, 0060, 0062) |
 | Q30 | (2026-11-02) Partir el PR 1a: las herramientas (T1, T2, T4) entran sin esperar la ventana de sombra, que empezó el 2026-11-02; el lote 1 (T3) y el reporte de sombra de A1 van en 1a′ |
-
-| Q24 | (2026-11-02) Paquetes de plataforma con scope `@navori/<os>-<cpu>` y org nueva en npm (D51) |
 | R18 | (2026-11-02) Paralelizar el replay de hooks y medir R18 por host: 300 s en la máquina de referencia y 600 s en CI (D52) |
 
 ## Preguntas (abiertas)
 
-Ninguna.
+- **Q24 [human] — Cómo publicar los binarios.** Aplazada por el usuario el 2026-11-02: no se
+  crea una org `navori` en npm. Opciones: paquetes de plataforma sin scope, con el scope del
+  usuario, o un solo paquete con los cuatro binarios. No bloquea E2 (no publica); bloquea el
+  publish posterior a E3.

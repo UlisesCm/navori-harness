@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Tasks
 
-**Estado:** aceptada para desarrollo (Q26–Q29 resueltas; Q24 y R18 resueltas el 2026-11-02, D51 y D52) · **Base:**
+**Estado:** aceptada para desarrollo (Q26–Q29 resueltas; R18 resuelta el 2026-11-02, D52; Q24 aplazada, no bloquea E2) · **Base:**
 `migration/rust`. Tres entregas y cinco PRs: E1 (herramientas y dos lotes de activación, Q30) y E2 contra
 `migration/rust`, E3 contra `dev`. Sale de E4–E6 de la versión anterior de 0060 (correspondencia en
 cada tarea). El LOC es una referencia gruesa.
