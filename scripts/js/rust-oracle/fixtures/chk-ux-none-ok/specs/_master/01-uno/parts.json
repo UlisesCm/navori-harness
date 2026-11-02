@@ -62,8 +62,13 @@
           }
         }
       ],
-      "dependsOn": ["P1"],
-      "scope": ["a", "b"]
+      "dependsOn": [
+        "P1"
+      ],
+      "scope": [
+        "a",
+        "b"
+      ]
     }
   ]
 }

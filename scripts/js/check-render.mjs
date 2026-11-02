@@ -144,8 +144,7 @@ for (const { label, scope } of scopes) {
   for (const file of scope.skipped ?? []) blocked.push([prefixed(label, file.path), file.reason]);
   for (const engine of scope.extraEngines ?? []) {
     for (const file of engine.written ?? []) recordWritten(file.status, prefixed(label, file.path));
-    for (const file of engine.skipped ?? [])
-      blocked.push([prefixed(label, file.path), file.reason]);
+    for (const file of engine.skipped ?? []) blocked.push([prefixed(label, file.path), file.reason]);
   }
 }
 for (const engine of report.extraEngines ?? []) {
@@ -172,9 +171,7 @@ if (stale.length === 0 && blocked.length === 0) {
   process.exit(0);
 }
 
-const lines = [
-  `✗ the rendered harness mirror is OUT OF DATE (.claude/ + CLAUDE.md vs @navori/core)`,
-];
+const lines = [`✗ the rendered harness mirror is OUT OF DATE (.claude/ + CLAUDE.md vs @navori/core)`];
 
 if (stale.length > 0) {
   lines.push(``, `  stale files (${stale.length}):`);

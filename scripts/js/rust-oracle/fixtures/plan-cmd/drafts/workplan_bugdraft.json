@@ -5,6 +5,8 @@
     }
   ],
   "classification": {
-    "signals": ["bug-without-root-cause(+2)"]
+    "signals": [
+      "bug-without-root-cause(+2)"
+    ]
   }
 }

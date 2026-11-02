@@ -1,79 +1,23 @@
 {
   "schema": 1,
   "cases": [
-    {
-      "id": "remove-plugin:remove-yes",
-      "fixture": "remove-plugin",
-      "setup": [["render", "--apply"]],
-      "args": ["remove", "tgrep", "--yes"]
-    },
-    {
-      "id": "remove-plugin:remove-yes-native-hook",
-      "fixture": "remove-plugin",
-      "setup": [["render", "--apply"]],
-      "args": ["remove", "--yes", "codegraph", "--cwd", "."]
-    },
-    {
-      "id": "remove-plugin:remove-unrendered",
-      "fixture": "remove-plugin",
-      "args": ["remove", "tgrep", "--yes"]
-    },
-    {
-      "id": "remove-plugin:remove-not-declared",
-      "fixture": "remove-plugin",
-      "args": ["remove", "gh", "--yes"]
-    },
-    {
-      "id": "fresh-init:remove-not-declared",
-      "fixture": "fresh-init",
-      "args": ["remove", "tgrep", "--yes"]
-    },
+    { "id": "remove-plugin:remove-yes", "fixture": "remove-plugin", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"] },
+    { "id": "remove-plugin:remove-yes-native-hook", "fixture": "remove-plugin", "setup": [["render", "--apply"]], "args": ["remove", "--yes", "codegraph", "--cwd", "."] },
+    { "id": "remove-plugin:remove-unrendered", "fixture": "remove-plugin", "args": ["remove", "tgrep", "--yes"] },
+    { "id": "remove-plugin:remove-not-declared", "fixture": "remove-plugin", "args": ["remove", "gh", "--yes"] },
+    { "id": "fresh-init:remove-not-declared", "fixture": "fresh-init", "args": ["remove", "tgrep", "--yes"] },
     { "id": "claude-en:remove-yes", "fixture": "claude-en", "args": ["remove", "tgrep", "--yes"] },
     { "id": "adopt:remove-not-declared", "fixture": "adopt", "args": ["remove", "tgrep", "--yes"] },
-    {
-      "id": "sync-conflicts:remove-not-declared",
-      "fixture": "sync-conflicts",
-      "args": ["remove", "gh", "--yes"]
-    },
-    {
-      "id": "drifted-block:remove-not-declared",
-      "fixture": "drifted-block",
-      "args": ["remove", "gh", "--yes"]
-    },
+    { "id": "sync-conflicts:remove-not-declared", "fixture": "sync-conflicts", "args": ["remove", "gh", "--yes"] },
+    { "id": "drifted-block:remove-not-declared", "fixture": "drifted-block", "args": ["remove", "gh", "--yes"] },
     { "id": "remove-delegates:no-yes", "fixture": "remove-plugin", "args": ["remove", "tgrep"] },
-    {
-      "id": "remove-delegates:engram",
-      "fixture": "remove-plugin",
-      "args": ["remove", "engram", "--yes"]
-    },
-    {
-      "id": "remove-delegates:codex",
-      "fixture": "user-content",
-      "args": ["remove", "engram", "--yes"]
-    },
-    {
-      "id": "aged-backups:remove-not-declared",
-      "fixture": "aged-backups",
-      "args": ["remove", "gh", "--yes"]
-    },
-    {
-      "id": "foreign-blocks:remove-not-declared",
-      "fixture": "foreign-blocks",
-      "args": ["remove", "gh", "--yes"]
-    },
-    {
-      "id": "codex-trusted:remove-delegates",
-      "fixture": "codex-trusted",
-      "args": ["remove", "gh", "--yes"]
-    },
-    {
-      "id": "write-failure:remove-yes",
-      "fixture": "remove-plugin",
-      "setup": [["render", "--apply"]],
-      "args": ["remove", "tgrep", "--yes"],
-      "readonly": [".claude/hooks"]
-    },
-    { "id": "gate:remove-yes", "fixture": "gate", "args": ["remove", "engram", "--yes"] },
-    { "id": "tools:remove-yes", "fixture": "tools", "args": ["remove", "engram", "--yes"] }
+    { "id": "remove-delegates:engram", "fixture": "remove-plugin", "args": ["remove", "engram", "--yes"] },
+    { "id": "remove-delegates:codex", "fixture": "user-content", "args": ["remove", "engram", "--yes"] },
+    { "id": "aged-backups:remove-not-declared", "fixture": "aged-backups", "args": ["remove", "gh", "--yes"] },
+    { "id": "foreign-blocks:remove-not-declared", "fixture": "foreign-blocks", "args": ["remove", "gh", "--yes"] },
+    { "id": "codex-trusted:remove-delegates", "fixture": "codex-trusted", "args": ["remove", "gh", "--yes"] },
+    { "id": "write-failure:remove-yes", "fixture": "remove-plugin", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "readonly": [".claude/hooks"] },
+    {"id":"gate:remove-yes","fixture":"gate","args":["remove","engram","--yes"]},
+    {"id":"tools:remove-yes","fixture":"tools","args":["remove","engram","--yes"]}
   ]
 }

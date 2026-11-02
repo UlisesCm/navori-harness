@@ -3,13 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { availableParallelism, loadavg } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createSandbox,
-  readRegistrations,
-  SCENARIOS,
-  selectHooks,
-  writePayload,
-} from "./bench-hooks.mjs";
+import { createSandbox, readRegistrations, SCENARIOS, selectHooks, writePayload } from "./bench-hooks.mjs";
 
 /**
  * Spec 0055 R4 — `bun run bench:context`.
@@ -61,10 +55,7 @@ export function injectsContext(stdout) {
   try {
     const parsed = JSON.parse(text);
     const context = parsed?.hookSpecificOutput?.additionalContext;
-    return (
-      (typeof context === "string" && context.trim() !== "") ||
-      (typeof parsed?.systemMessage === "string" && parsed.systemMessage.trim() !== "")
-    );
+    return (typeof context === "string" && context.trim() !== "") || (typeof parsed?.systemMessage === "string" && parsed.systemMessage.trim() !== "");
   } catch {
     return true;
   }
@@ -99,20 +90,14 @@ function gateGreenBytes(sandbox) {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
   writeFileSync(
     join(sandbox.project, "package.json"),
-    JSON.stringify({
-      name: "bench-context",
-      scripts: { lint: "echo lint ok", typecheck: "echo typecheck ok" },
-    }),
+    JSON.stringify({ name: "bench-context", scripts: { lint: "echo lint ok", typecheck: "echo typecheck ok" } }),
   );
   const run = spawnSync("node", [DIST, "gate", "fast", "--force", "--cwd", sandbox.project], {
     cwd: sandbox.project,
     env: sandbox.baseEnv,
     encoding: "utf8",
   });
-  if (run.status !== 0)
-    throw new Error(
-      `bench:context: scratch gate was not green (exit ${run.status}): ${run.stdout}${run.stderr}`,
-    );
+  if (run.status !== 0) throw new Error(`bench:context: scratch gate was not green (exit ${run.status}): ${run.stdout}${run.stderr}`);
   return bytesOf(run.stdout) + bytesOf(run.stderr);
 }
 
@@ -127,19 +112,9 @@ function testAffectedBytes(files) {
   const env = { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" };
   delete env.NAVORI_BENCH_PROC_DIR;
   const run = native
-    ? spawnSync("node", [TEST_AFFECTED, "--files", ...files.map((f) => `packages/cli/${f}`)], {
-        cwd: REPO_ROOT,
-        env,
-        encoding: "utf8",
-      })
-    : spawnSync("bun", ["x", "vitest", "run", ...files], {
-        cwd: PACKAGE_ROOT,
-        env,
-        encoding: "utf8",
-      });
-  const header = native
-    ? ""
-    : `test:affected: affected subset, not a gate\ntest:affected: ${files.length} selected test file(s)\n`;
+    ? spawnSync("node", [TEST_AFFECTED, "--files", ...files.map((f) => `packages/cli/${f}`)], { cwd: REPO_ROOT, env, encoding: "utf8" })
+    : spawnSync("bun", ["x", "vitest", "run", ...files], { cwd: PACKAGE_ROOT, env, encoding: "utf8" });
+  const header = native ? "" : `test:affected: affected subset, not a gate\ntest:affected: ${files.length} selected test file(s)\n`;
   return {
     bytes: bytesOf(header) + bytesOf(run.stdout) + bytesOf(run.stderr),
     status: run.status ?? 1,
@@ -150,8 +125,7 @@ function testAffectedBytes(files) {
 /** Measures `test:affected` green and with a failing fixture (removed afterwards). */
 function measureTestAffected() {
   const green = testAffectedBytes(AFFECTED_FILES);
-  if (green.status !== 0)
-    throw new Error("bench:context: the fixed test:affected files are not green");
+  if (green.status !== 0) throw new Error("bench:context: the fixed test:affected files are not green");
   const redPath = join(PACKAGE_ROOT, RED_FIXTURE);
   writeFileSync(
     redPath,
@@ -182,8 +156,7 @@ export function renderNeutralHooks(sandbox) {
     env: sandbox.baseEnv,
     encoding: "utf8",
   });
-  if (run.status !== 0)
-    throw new Error(`bench:context: neutral render failed: ${run.stdout}${run.stderr}`);
+  if (run.status !== 0) throw new Error(`bench:context: neutral render failed: ${run.stdout}${run.stderr}`);
 }
 
 function main() {
@@ -202,16 +175,8 @@ function main() {
           const payloadPath = writePayload(sandbox, scenario, reg);
           const stdout = hookStdout(reg.command, payloadPath, sandbox.project, env);
           const hook = /([\w-]+\.sh)/.exec(reg.command)?.[1] ?? reg.command;
-          if (scenario === "SessionStart" && engine in sessionStart)
-            sessionStart[engine] += bytesOf(stdout);
-          hooks.push({
-            engine,
-            hook,
-            scenario,
-            event: reg.event,
-            bytes: bytesOf(stdout),
-            injectsContext: injectsContext(stdout),
-          });
+          if (scenario === "SessionStart" && engine in sessionStart) sessionStart[engine] += bytesOf(stdout);
+          hooks.push({ engine, hook, scenario, event: reg.event, bytes: bytesOf(stdout), injectsContext: injectsContext(stdout) });
         }
       }
     }
@@ -244,9 +209,7 @@ function main() {
     `bench:context sessionStart claude=${sessionStart.claude}B codex=${sessionStart.codex}B gate.green=${gate.green}B ` +
       `test:affected green=${testAffected.green}B red=${testAffected.red}B (${testAffected.mode})\n`,
   );
-  process.stdout.write(
-    `bench:context hooks=${hooks.length} contextWithoutSignal=${result.contextWithoutSignal.length}\n`,
-  );
+  process.stdout.write(`bench:context hooks=${hooks.length} contextWithoutSignal=${result.contextWithoutSignal.length}\n`);
   for (const h of result.contextWithoutSignal) {
     process.stdout.write(`  ${h.engine} ${h.scenario} ${h.hook} ${h.bytes}B\n`);
   }

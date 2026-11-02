@@ -16,7 +16,9 @@
       "expected": "matches: /ok/i"
     }
   ],
-  "outOfScope": ["the parallel producers"],
+  "outOfScope": [
+    "the parallel producers"
+  ],
   "files": [
     {
       "path": "src/a.ts",

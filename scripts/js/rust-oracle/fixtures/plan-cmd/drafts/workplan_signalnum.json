@@ -5,6 +5,8 @@
     }
   ],
   "classification": {
-    "signals": [1]
+    "signals": [
+      1
+    ]
   }
 }

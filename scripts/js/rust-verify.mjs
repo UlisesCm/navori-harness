@@ -25,8 +25,7 @@ export function parseArgs(argv) {
     const at = argv.indexOf(name);
     if (at === -1) return undefined;
     const next = argv[at + 1];
-    if (next === undefined || next.startsWith("--"))
-      throw new Error(`rust-verify: ${name} needs a value`);
+    if (next === undefined || next.startsWith("--")) throw new Error(`rust-verify: ${name} needs a value`);
     return next;
   };
   const known = new Set(["--hook", "--cases", "--seed", "--engine"]);
@@ -43,12 +42,7 @@ export function parseArgs(argv) {
     return Number(raw);
   };
   const engine = value("--engine");
-  return {
-    hooks,
-    cases: integer("--cases"),
-    seed: integer("--seed") ?? 1,
-    ...(engine ? { engine } : {}),
-  };
+  return { hooks, cases: integer("--cases"), seed: integer("--seed") ?? 1, ...(engine ? { engine } : {}) };
 }
 
 /**
@@ -64,13 +58,7 @@ export function plan(options, binary) {
     { cmd: "cargo", args: ["build", "-p", "navori-cli", "--locked"] },
     {
       cmd: process.execPath,
-      args: [
-        "scripts/js/hook-verdict-replay.mjs",
-        "--impl",
-        "rust",
-        "--only",
-        options.hooks.join(","),
-      ],
+      args: ["scripts/js/hook-verdict-replay.mjs", "--impl", "rust", "--only", options.hooks.join(",")],
       env,
     },
   ];

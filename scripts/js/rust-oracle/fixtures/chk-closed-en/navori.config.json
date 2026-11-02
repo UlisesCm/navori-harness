@@ -3,7 +3,9 @@
   "name": "x",
   "version": "1.0.0",
   "harnessVersion": "0.12.2",
-  "engines": ["claude"],
+  "engines": [
+    "claude"
+  ],
   "preset": "custom",
   "language": "en",
   "branchBase": "main",

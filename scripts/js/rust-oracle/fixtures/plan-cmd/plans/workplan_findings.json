@@ -92,7 +92,10 @@
   "phases": [
     {
       "name": "P",
-      "acceptance": ["A1", "A7"]
+      "acceptance": [
+        "A1",
+        "A7"
+      ]
     }
   ]
 }

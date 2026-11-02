@@ -56,12 +56,7 @@ export function median(values) {
  * @returns {{ sub: string, bundleMs: number[], isolatedMs: number[], savingMsMedian: number }}
  */
 export function summarizeSub(sub, bundleMs, isolatedMs) {
-  return {
-    sub,
-    bundleMs,
-    isolatedMs,
-    savingMsMedian: Math.round((median(bundleMs) - median(isolatedMs)) * 10) / 10,
-  };
+  return { sub, bundleMs, isolatedMs, savingMsMedian: Math.round((median(bundleMs) - median(isolatedMs)) * 10) / 10 };
 }
 
 /**
@@ -72,9 +67,7 @@ export function summarizeSub(sub, bundleMs, isolatedMs) {
  * @returns {string[]}
  */
 export function belowThreshold(subs, thresholdMs = THRESHOLD_MS) {
-  return subs
-    .filter((s) => s.savingMsMedian < thresholdMs)
-    .map((s) => `${s.sub}: ${s.savingMsMedian} ms < ${thresholdMs} ms`);
+  return subs.filter((s) => s.savingMsMedian < thresholdMs).map((s) => `${s.sub}: ${s.savingMsMedian} ms < ${thresholdMs} ms`);
 }
 
 /**
@@ -129,10 +122,7 @@ function bundleIsolated(scratch, sub) {
     encoding: "utf8",
   });
   const out = join(dir, "out", "index.js");
-  if (build.status !== 0 || !existsSync(out))
-    throw new Error(
-      `probe: cannot bundle the ${sub} entry\n${(build.stdout + build.stderr).slice(0, 3000)}`,
-    );
+  if (build.status !== 0 || !existsSync(out)) throw new Error(`probe: cannot bundle the ${sub} entry\n${(build.stdout + build.stderr).slice(0, 3000)}`);
   return out;
 }
 
@@ -145,8 +135,7 @@ function coldStartMs(script, args, home) {
     env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" },
   });
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
-  if (run.status !== 0)
-    throw new Error(`probe: node ${script} ${args.join(" ")} exited ${run.status}\n${run.stderr}`);
+  if (run.status !== 0) throw new Error(`probe: node ${script} ${args.join(" ")} exited ${run.status}\n${run.stderr}`);
   return Math.round(ms * 10) / 10;
 }
 
@@ -160,9 +149,7 @@ function main(argv) {
     return 2;
   }
   if (!existsSync(DIST)) {
-    process.stderr.write(
-      "probe-lazy-load: packages/cli/dist/index.js is missing; run `bun run build` first\n",
-    );
+    process.stderr.write("probe-lazy-load: packages/cli/dist/index.js is missing; run `bun run build` first\n");
     return 2;
   }
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), "navori-probe-lazy-")));
@@ -203,14 +190,9 @@ function main(argv) {
         `probe-lazy-load ${s.sub}: bundle=${median(s.bundleMs)} ms isolated=${median(s.isolatedMs)} ms saving=${s.savingMsMedian} ms\n`,
       );
     }
-    process.stdout.write(
-      `probe-lazy-load comparable=${result.comparable} load=${loadBefore.map((n) => n.toFixed(2)).join("/")} cpus=${cpus}\n`,
-    );
+    process.stdout.write(`probe-lazy-load comparable=${result.comparable} load=${loadBefore.map((n) => n.toFixed(2)).join("/")} cpus=${cpus}\n`);
     const low = belowThreshold(subs);
-    if (low.length > 0)
-      process.stderr.write(
-        `probe-lazy-load: under the ${THRESHOLD_MS} ms bar (D8):\n${low.map((l) => `  - ${l}`).join("\n")}\n`,
-      );
+    if (low.length > 0) process.stderr.write(`probe-lazy-load: under the ${THRESHOLD_MS} ms bar (D8):\n${low.map((l) => `  - ${l}`).join("\n")}\n`);
     return compare && low.length > 0 ? 1 : 0;
   } finally {
     rmSync(scratch, { recursive: true, force: true });

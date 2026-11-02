@@ -11,6 +11,9 @@
     }
   ],
   "classification": {
-    "signals": ["floor:multi-repo", "critical-area:declared(+3)"]
+    "signals": [
+      "floor:multi-repo",
+      "critical-area:declared(+3)"
+    ]
   }
 }

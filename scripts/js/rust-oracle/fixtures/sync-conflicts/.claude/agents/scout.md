@@ -6,7 +6,6 @@ maxWords: 1050
 ---
 
 <!-- navori:managed id="scout-base" hash="9109c42f" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
-
 # Scout Agent
 
 Local note the user added.
@@ -56,19 +55,15 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
    **Status:** DONE | PARTIAL (reason)
 
    ## Direct answer
-
    <1-3 lines that answer the question>
 
    ## Evidence
-
    - `<file>:<line>` — <what I found there + how it confirms the answer>
 
    ## What I did NOT look at (scope boundary)
-
    - <subsystem the question didn't cover>
 
    ## Notes / doubts
-
    - <repo ambiguities I discovered, optional>
    ```
 
@@ -80,17 +75,14 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
    **Status:** DONE
 
    ## Executive summary
-
    <2-4 lines: what this module does, its role in the system>
 
    ## Structure
    ```
-
    <area>/
-   index.ts ← entry point: exports A, B, C
-   services/
-   foo.service.ts ← <role>
-
+     index.ts            ← entry point: exports A, B, C
+     services/
+       foo.service.ts    ← <role>
    ```
 
    ## Entry points

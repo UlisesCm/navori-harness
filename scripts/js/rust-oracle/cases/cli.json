@@ -1,10 +1,6 @@
 {
   "schema": 1,
   "cases": [
-    {
-      "id": "delegation:ported-command-unported-flag",
-      "fixture": "empty",
-      "args": ["--version", "--bogus-flag"]
-    }
+    { "id": "delegation:ported-command-unported-flag", "fixture": "empty", "args": ["--version", "--bogus-flag"] }
   ]
 }

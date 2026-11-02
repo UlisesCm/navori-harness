@@ -573,15 +573,7 @@ export function isComparable(loadavgBefore, cpus) {
  * @returns {Registration[]}
  */
 export function readRegistrations(sourceRoot = REPO_ROOT) {
-  const piBindings = join(
-    sourceRoot,
-    "packages",
-    "cli",
-    "src",
-    "engines",
-    "pi",
-    "hook-bindings.ts",
-  );
+  const piBindings = join(sourceRoot, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
   return [
     ...parseClaudeRegistrations(
       JSON.parse(readFileSync(join(sourceRoot, ".claude", "settings.json"), "utf8")),
@@ -613,8 +605,7 @@ export function summarizeObservations(reports) {
     const p = report?.provenance;
     const problems = [];
     if (report?.comparable !== true) problems.push("not comparable");
-    if (!Array.isArray(report?.measurements) || report.measurements.length === 0)
-      problems.push("no measurements");
+    if (!Array.isArray(report?.measurements) || report.measurements.length === 0) problems.push("no measurements");
     if (typeof p !== "object" || p === null) problems.push("no provenance");
     else {
       if (typeof p.head !== "string") problems.push("provenance without head");
@@ -633,36 +624,19 @@ export function summarizeObservations(reports) {
     byHead.set(p.head, cells);
     for (const m of report.measurements) {
       const key = [m.engine, m.scenario, m.hook, m.audit].join("\0");
-      const cell = cells.get(key) ?? {
-        engine: m.engine,
-        scenario: m.scenario,
-        hook: m.hook,
-        audit: m.audit,
-        wall: [],
-        cpu: [],
-      };
+      const cell = cells.get(key) ?? { engine: m.engine, scenario: m.scenario, hook: m.hook, audit: m.audit, wall: [], cpu: [] };
       cell.wall.push(m.wallMsMedian);
       cell.cpu.push(m.cpuMsMedian);
       cells.set(key, cell);
     }
   }
-  if (observers.size > 1)
-    errors.push(`reports come from different observers: ${[...observers].join(", ")}`);
+  if (observers.size > 1) errors.push(`reports come from different observers: ${[...observers].join(", ")}`);
   const groups = [...byHead].map(([head, cells]) => ({
     head,
     reports: counts.get(head) ?? 0,
     cells: [...cells.values()]
-      .sort((a, b) =>
-        `${a.scenario}${a.hook}${a.engine}${a.audit}`.localeCompare(
-          `${b.scenario}${b.hook}${b.engine}${b.audit}`,
-        ),
-      )
-      .map(({ wall, cpu, ...rest }) => ({
-        ...rest,
-        samples: wall.length,
-        wallMsMedian: median(wall),
-        cpuMsMedian: median(cpu),
-      })),
+      .sort((a, b) => `${a.scenario}${a.hook}${a.engine}${a.audit}`.localeCompare(`${b.scenario}${b.hook}${b.engine}${b.audit}`))
+      .map(({ wall, cpu, ...rest }) => ({ ...rest, samples: wall.length, wallMsMedian: median(wall), cpuMsMedian: median(cpu) })),
   }));
   return { errors, groups };
 }
@@ -684,9 +658,7 @@ function summarize(paths) {
     try {
       reports.push({ name: path, report: JSON.parse(readFileSync(resolve(path), "utf8")) });
     } catch (error) {
-      errors.push(
-        `${path}: cannot read (${error instanceof Error ? error.message : String(error)})`,
-      );
+      errors.push(`${path}: cannot read (${error instanceof Error ? error.message : String(error)})`);
     }
   }
   const summary = summarizeObservations(reports);
@@ -700,9 +672,7 @@ function summarize(paths) {
   }
   const all = [...errors, ...summary.errors];
   if (all.length > 0) {
-    process.stderr.write(
-      `bench:hooks --summarize rejected:\n${all.map((e) => `  - ${e}`).join("\n")}\n`,
-    );
+    process.stderr.write(`bench:hooks --summarize rejected:\n${all.map((e) => `  - ${e}`).join("\n")}\n`);
     return 1;
   }
   return 0;
@@ -1046,9 +1016,7 @@ export async function main(argv) {
   try {
     registrations = filterHooks(readRegistrations(sourceRoot), scenarios, options.hooks);
   } catch (error) {
-    process.stderr.write(
-      `bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
+    process.stderr.write(`bench:hooks: ${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
   const sandbox = createSandbox(sourceRoot, { requireDist: true });

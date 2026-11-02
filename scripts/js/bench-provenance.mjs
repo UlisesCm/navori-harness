@@ -17,11 +17,7 @@ import { withoutRepoGitEnv } from "./git-env.mjs";
 
 /** Runs git in `root` without the repo-local variables a hook may have exported. */
 function git(root, args) {
-  return spawnSync("git", args, {
-    cwd: root,
-    env: withoutRepoGitEnv(process.env),
-    encoding: "utf8",
-  });
+  return spawnSync("git", args, { cwd: root, env: withoutRepoGitEnv(process.env), encoding: "utf8" });
 }
 
 /**
@@ -41,11 +37,7 @@ function listFiles(dir) {
   return readdirSync(dir, { withFileTypes: true })
     .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap((entry) =>
-      entry.isDirectory()
-        ? listFiles(join(dir, entry.name))
-        : entry.isFile()
-          ? [join(dir, entry.name)]
-          : [],
+      entry.isDirectory() ? listFiles(join(dir, entry.name)) : entry.isFile() ? [join(dir, entry.name)] : [],
     );
 }
 
@@ -83,9 +75,7 @@ export function readProvenance(root) {
   return {
     head,
     dirty: status === null || status.status !== 0 || (status.stdout ?? "").trim() !== "",
-    distSha256: existsSync(entry)
-      ? createHash("sha256").update(readFileSync(entry)).digest("hex")
-      : null,
+    distSha256: existsSync(entry) ? createHash("sha256").update(readFileSync(entry)).digest("hex") : null,
     assetsSha256: hashTree(join(dist, "assets")),
   };
 }

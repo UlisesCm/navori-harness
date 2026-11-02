@@ -158,9 +158,7 @@ function checkContent(sha, parentSha) {
     const oldContent = normalize(showBlob(parentSha, oldPath));
     const newContent = normalize(showBlob(sha, newPath));
     if (oldContent !== newContent) {
-      problems.push(
-        `non-mechanical change in ${newPath}${oldPath !== newPath ? ` (was ${oldPath})` : ""}`,
-      );
+      problems.push(`non-mechanical change in ${newPath}${oldPath !== newPath ? ` (was ${oldPath})` : ""}`);
     }
   }
   return problems;
@@ -208,14 +206,10 @@ function main() {
   }
 
   if (failures.length > 0) {
-    fail(
-      `.git-blame-ignore-revs has ${failures.length} invalid entr${failures.length === 1 ? "y" : "ies"}:\n  ${failures.join("\n  ")}`,
-    );
+    fail(`.git-blame-ignore-revs has ${failures.length} invalid entr${failures.length === 1 ? "y" : "ies"}:\n  ${failures.join("\n  ")}`);
   }
 
-  console.log(
-    `✓ every entry in .git-blame-ignore-revs is an ancestor of origin/main with a mechanical diff (${entries.length} checked)`,
-  );
+  console.log(`✓ every entry in .git-blame-ignore-revs is an ancestor of origin/main with a mechanical diff (${entries.length} checked)`);
   process.exit(0);
 }
 

@@ -18,9 +18,7 @@ import { expandHookIncludes } from "../../packages/cli/src/lib/render/hook-inclu
  */
 export function corpusAsset(hooksDir, name) {
   const expanded = expandHookIncludes(readFileSync(join(hooksDir, name), "utf8"));
-  if (name === "role-guard.sh")
-    return expanded.replace("{{rolePolicy}}", () => buildRolePolicyShell({}));
-  if (name === "engram-write-guard.sh")
-    return expanded.replace("{{engramPolicy}}", () => buildEngramPolicyShell());
+  if (name === "role-guard.sh") return expanded.replace("{{rolePolicy}}", () => buildRolePolicyShell({}));
+  if (name === "engram-write-guard.sh") return expanded.replace("{{engramPolicy}}", () => buildEngramPolicyShell());
   return expanded;
 }

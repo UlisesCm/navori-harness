@@ -40,7 +40,9 @@
       "expected": "exit 0"
     }
   ],
-  "outOfScope": ["the parallel producers"],
+  "outOfScope": [
+    "the parallel producers"
+  ],
   "files": [
     {
       "path": "src/a.ts",

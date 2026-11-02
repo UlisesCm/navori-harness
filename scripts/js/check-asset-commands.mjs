@@ -186,9 +186,7 @@ if (unreleased.length === 0) {
 }
 
 // A warning, not a failure: the code is right, it just is not out yet.
-console.log(
-  `⚠ assets cite ${unreleased.length} subcommand(s) missing from the published CLI (${tag}):`,
-);
+console.log(`⚠ assets cite ${unreleased.length} subcommand(s) missing from the published CLI (${tag}):`);
 for (const cmd of unreleased) {
   console.log(`\n  navori ${cmd} — registered in the working tree, absent from ${tag}`);
   for (const where of [...citations.get(cmd)].sort()) console.log(`    ${where}`);

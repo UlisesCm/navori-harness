@@ -93,10 +93,8 @@ function checkTransitions(before, after, added) {
   for (const [id, hook] of Object.entries(after.hooks)) {
     const was = before.hooks[id]?.mode;
     if (hook.mode === "active" && was !== "active") {
-      if (was !== "shadow")
-        throw new Error(`${id} cannot become active without shadow in the merge-base`);
-      if (!has("activate", id))
-        throw new Error(`${id} became active without a new activate record`);
+      if (was !== "shadow") throw new Error(`${id} cannot become active without shadow in the merge-base`);
+      if (!has("activate", id)) throw new Error(`${id} became active without a new activate record`);
     } else if (hook.mode === "shadow" && was === "active" && !has("deactivate", id)) {
       throw new Error(`${id} returned to shadow without a new deactivate record`);
     }
@@ -235,8 +233,7 @@ export function staleHashes(root, manifest) {
       }
     }
     const expected = implementationHash(root, id);
-    if (expected !== hook.impl)
-      stale.push({ id, kind: "impl", name: "impl", recorded: hook.impl, expected });
+    if (expected !== hook.impl) stale.push({ id, kind: "impl", name: "impl", recorded: hook.impl, expected });
   }
   return stale;
 }
@@ -246,9 +243,7 @@ export function checkHashes(root, manifest) {
   const [first] = staleHashes(root, manifest);
   if (first === undefined) return;
   throw new Error(
-    first.kind === "impl"
-      ? `${first.id}.impl: hash mismatch`
-      : `${first.id}.${first.kind}.${first.name}: hash mismatch`,
+    first.kind === "impl" ? `${first.id}.impl: hash mismatch` : `${first.id}.${first.kind}.${first.name}: hash mismatch`,
   );
 }
 

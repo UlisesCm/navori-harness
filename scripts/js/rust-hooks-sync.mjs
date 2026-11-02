@@ -47,8 +47,7 @@ function objectEnd(text, open) {
  */
 function memberSpan(text, key, from, to) {
   const at = text.indexOf(`${JSON.stringify(key)}:`, from);
-  if (at === -1 || at >= to)
-    throw new Error(`rust-hooks-sync: ${key} not found in crates/ported.json`);
+  if (at === -1 || at >= to) throw new Error(`rust-hooks-sync: ${key} not found in crates/ported.json`);
   const open = text.indexOf("{", at);
   return [open, objectEnd(text, open)];
 }
@@ -112,8 +111,7 @@ export function main(argv, seams = {}) {
   }
   if (stale.length > 0) {
     writeFileSync(path, text);
-    for (const entry of stale)
-      process.stderr.write(`rust-hooks-sync: updated ${describe(entry)}\n`);
+    for (const entry of stale) process.stderr.write(`rust-hooks-sync: updated ${describe(entry)}\n`);
   }
   if (run("bun", ["run", "render:apply"]) !== 0) return 1;
   const cargo = argv.includes("--no-install")

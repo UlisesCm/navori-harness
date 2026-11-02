@@ -36,7 +36,9 @@
           "evidence": null
         }
       ],
-      "dependsOn": ["P1"]
+      "dependsOn": [
+        "P1"
+      ]
     },
     {
       "id": "P3",

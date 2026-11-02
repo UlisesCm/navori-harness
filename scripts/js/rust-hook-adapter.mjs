@@ -10,10 +10,9 @@ const record = (value) => value !== null && typeof value === "object" && !Array.
  * @returns {string}
  */
 function executable(binary) {
-  const candidates =
-    isAbsolute(binary) || binary.includes("/")
-      ? [resolve(binary)]
-      : (process.env.PATH ?? "").split(delimiter).map((dir) => resolve(dir, binary));
+  const candidates = isAbsolute(binary) || binary.includes("/")
+    ? [resolve(binary)]
+    : (process.env.PATH ?? "").split(delimiter).map((dir) => resolve(dir, binary));
   for (const candidate of candidates) {
     try {
       accessSync(candidate, constants.X_OK);
@@ -34,11 +33,7 @@ function executable(binary) {
  */
 export function probeDeadlineExpired(output) {
   const stderr = output.stderr?.toString("utf8") ?? "";
-  return (
-    (output.status === 1 || output.status === 3) &&
-    stderr.startsWith("navori-rust: hook deferred: ") &&
-    stderr.includes("probe deadline expired")
-  );
+  return (output.status === 1 || output.status === 3) && stderr.startsWith("navori-rust: hook deferred: ") && stderr.includes("probe deadline expired");
 }
 
 /**
@@ -55,62 +50,39 @@ export function probeDeadlineExpired(output) {
  * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, args?: string[], timeoutMs?: number }} options
  * @returns {NativeResult}
  */
-export function runRustHook({
-  binary,
-  script,
-  input,
-  event,
-  cwd,
-  env = {},
-  args = [],
-  timeoutMs = 10_000,
-}) {
+export function runRustHook({ binary, script, input, event, cwd, env = {}, args = [], timeoutMs = 10_000 }) {
   let pinned;
   try {
     pinned = executable(binary);
   } catch (error) {
-    return {
-      available: false,
-      reason: error instanceof Error ? error.message : "native binary unavailable",
-    };
+    return { available: false, reason: error instanceof Error ? error.message : "native binary unavailable" };
   }
   // Hook arguments (the registration's mode) follow the script, as the rendered prologue passes `"$@"`.
-  const argv =
-    event === undefined
-      ? ["hook", "--via-script", resolve(script), ...args]
-      : ["hook", "--via-command", event, resolve(script), ...args];
-  const spawnOnce = () =>
-    spawnSync(pinned, argv, {
-      input,
-      cwd,
-      env: { ...process.env, ...env, NAVORI_HOOK_IMPL: "rust" },
-      shell: false,
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-    });
+  const argv = event === undefined
+    ? ["hook", "--via-script", resolve(script), ...args]
+    : ["hook", "--via-command", event, resolve(script), ...args];
+  const spawnOnce = () => spawnSync(pinned, argv, {
+    input,
+    cwd,
+    env: { ...process.env, ...env, NAVORI_HOOK_IMPL: "rust" },
+    shell: false,
+    timeout: timeoutMs,
+    maxBuffer: 10 * 1024 * 1024,
+  });
   let output = spawnOnce();
   // Spec 0060 T17: the host-fact probes have a fixed budget that a loaded machine can exhaust.
   // That deferral happens before the hook reads stdin or acts, so one retry is safe and keeps a
   // flaky host from turning into a missing verdict.
   if (probeDeadlineExpired(output)) output = spawnOnce();
   if (output.error !== undefined) {
-    return {
-      available: false,
-      reason: `native process error: ${output.error.code ?? output.error.message}`,
-    };
+    return { available: false, reason: `native process error: ${output.error.code ?? output.error.message}` };
   }
   if (output.signal !== null || output.status === null) {
-    return {
-      available: false,
-      reason: `native process ended without a verdict (${output.signal ?? "no status"})`,
-    };
+    return { available: false, reason: `native process ended without a verdict (${output.signal ?? "no status"})` };
   }
   // Spec 0059 D31: a mode the binary does not port defers before stdin by design; production
   // runs the shell for it, so it is not a native verdict and not a failure either.
-  if (
-    output.status === 1 &&
-    output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: hook mode is not ported")
-  ) {
+  if (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: hook mode is not ported")) {
     return { available: false, modeDeferred: true, reason: "hook mode is not ported (D31)" };
   }
   // Spec 0060 T14: without Bash or a required text tool (`cat`, `sed`, `grep`, `tr`) on PATH the
@@ -118,26 +90,14 @@ export function runRustHook({
   // recorded verdict is the shell failing on that same tool.
   const toolAbsent = ["required legacy text tool is absent", "legacy Bash is absent"];
   const stderrText = output.stderr.toString("utf8");
-  if (
-    output.status === 1 &&
-    toolAbsent.some((cause) =>
-      stderrText.startsWith(`navori-rust: hook deferred: hook is ineligible: ${cause}`),
-    )
-  ) {
+  if (output.status === 1 && toolAbsent.some((cause) => stderrText.startsWith(`navori-rust: hook deferred: hook is ineligible: ${cause}`))) {
     return { available: false, toolDeferred: true, reason: "a required tool is absent" };
   }
-  if (
-    output.status === 3 ||
-    (output.status === 1 &&
-      output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: "))
-  ) {
+  if (output.status === 3 || (output.status === 1 && output.stderr.toString("utf8").startsWith("navori-rust: hook deferred: "))) {
     return { available: false, reason: "native runtime deferred; no native verdict was evaluated" };
   }
   if (![0, 1, 2].includes(output.status)) {
-    return {
-      available: false,
-      reason: `native process returned unsupported exit ${output.status}`,
-    };
+    return { available: false, reason: `native process returned unsupported exit ${output.status}` };
   }
   return { available: true, status: output.status, stdout: output.stdout, stderr: output.stderr };
 }
@@ -158,11 +118,9 @@ export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
     throw new Error("native unavailable: invalid hook registry");
   }
   const hooks = manifest.hooks;
-  if (Object.keys(hooks).length === 0)
-    throw new Error("native unavailable: hook registry is empty");
+  if (Object.keys(hooks).length === 0) throw new Error("native unavailable: hook registry is empty");
   const pinned = executable(binary);
-  const scripts =
-    scriptsRoot === undefined || scriptsRoot === "" ? undefined : resolve(scriptsRoot);
+  const scripts = scriptsRoot === undefined || scriptsRoot === "" ? undefined : resolve(scriptsRoot);
   return {
     binary: pinned,
     /** Whether `<id>.sh` has a manifest entry; callers skip unported hooks instead of failing. */
@@ -174,19 +132,13 @@ export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
         throw new Error("native unavailable: invalid hook identity");
       }
       const id = hook.slice(0, -3);
-      if (!Object.hasOwn(hooks, id))
-        throw new Error(`native unavailable: ${hook} is not registered`);
+      if (!Object.hasOwn(hooks, id)) throw new Error(`native unavailable: ${hook} is not registered`);
       const entry = hooks[id];
-      if (!record(entry) || (entry.mode !== "active" && entry.mode !== "shadow"))
-        throw new Error(`native unavailable: ${hook} has an unsupported hook mode`);
+      if (!record(entry) || (entry.mode !== "active" && entry.mode !== "shadow")) throw new Error(`native unavailable: ${hook} has an unsupported hook mode`);
       if (scripts === undefined) {
-        throw new Error(
-          "native unavailable: prepared scripts are missing; renderer integration is pending",
-        );
+        throw new Error("native unavailable: prepared scripts are missing; renderer integration is pending");
       }
-      const directory = { claude: ".claude/hooks", codex: ".codex/hooks", pi: ".pi/navori/hooks" }[
-        engine
-      ];
+      const directory = { claude: ".claude/hooks", codex: ".codex/hooks", pi: ".pi/navori/hooks" }[engine];
       if (directory === undefined) throw new Error("native unavailable: unknown engine");
       const script = join(scripts, directory, hook);
       let regular = false;
@@ -195,8 +147,7 @@ export function prepareRustReplay({ manifestPath, binary, scriptsRoot }) {
       } catch {
         // The renderer has not prepared this fixture; never substitute an expanded shell hook.
       }
-      if (!regular)
-        throw new Error("native unavailable: prepared script is missing or not a regular file");
+      if (!regular) throw new Error("native unavailable: prepared script is missing or not a regular file");
       return script;
     },
   };
