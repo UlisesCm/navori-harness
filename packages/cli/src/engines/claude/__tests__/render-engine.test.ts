@@ -150,7 +150,7 @@ describe("renderClaudeEngine — first render with full config", () => {
     // switch. Spec 0019 routes the orchestration block to `.claude/context/`,
     // not inline in CLAUDE.md.
     const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
-    expect(orquestacionBody).toContain("`architect` applies `solution-design` and writes");
+    expect(orquestacionBody).toContain("architect pass (`solution-design`)");
   });
 
   it("writes CLAUDE.md last so a mid-loop crash leaves it intact (#71 item 10)", () => {

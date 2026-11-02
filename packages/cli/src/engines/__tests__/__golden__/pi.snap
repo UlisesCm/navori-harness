@@ -562,7 +562,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
+| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; route by risk. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
@@ -1265,7 +1265,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0 | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span | The exit code (`sed -i` exits 0 on no match) |
 | Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |
@@ -1914,7 +1914,7 @@ report; don't try to fix it yourself.
 ---
 # navori:managed-file id="pi-agent-publisher" hash="<HASH>"
 name: "publisher"
-description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR."
+description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
 ---
 # Publisher Agent
@@ -1923,8 +1923,8 @@ Own commits and PRs in the configured style. Validate through pre-flight before 
 
 ## When to trigger
 
-- Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: commits on the branch, harness approved, and fresh full-gate evidence over the diff that ships (see Gate below).
+- Working tree with changes ready to commit (review APPROVED, or a declared direct route).
+- Branch finished, ready for PR: commits on the branch, approved or routed direct, and fresh full-gate evidence over the diff that ships (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -1957,9 +1957,9 @@ gh auth status                                        # gh authenticated
 
 A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions.
 
-**Which review counts.** Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
+**Which review counts** (review route only; a direct change has no `review_<feature>.md` and skips this and the receipt check). Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt: the diff must still match what was approved.** The `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/main`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
+**Content receipt: the diff must still match what was approved.** On the review route the `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/main`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
 
 ```bash
 navori receipt check --feature <feature> --target main --dir .navori/state/handoffs --json
@@ -1978,17 +1978,7 @@ Continue only on `"status":"ok"`, and read the rest of the JSON by this table:
 
 If the real PR base differs from `main`, pass that actual base as `--target`.
 
-<!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
-
-**A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
-
-**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
-
-- you do NOT abort for the missing review;
-- you MUST run the full gate green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
-- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
-
-**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
+**A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
 ### Gate: `pnpm test && pnpm lint` green before the PR
 
@@ -1996,7 +1986,7 @@ The PR gate is the FULL one, not `pnpm lint`. Which steps sit where is a per-pro
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`; never rerun a gate the cache already covers (`navori gate` answers `PASS (cached …)`). The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Any duplication or security scan beyond the quality gate is the repo's own tooling and only runs if the repo wired it in — don't assume a net that may not be there.
 - **`"fresh":false`:** no trustworthy evidence — YOU run `navori gate full` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
-- **Declared inline (no reviewer):** no review evidence either — run it yourself.
+- **Direct change (no review):** no review evidence — run it yourself.
 
 Never open the PR with the gate red.
 

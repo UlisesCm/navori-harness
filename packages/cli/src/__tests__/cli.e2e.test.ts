@@ -834,8 +834,7 @@ describe("CLI e2e — happy paths", () => {
     // Organic routing (M1): the block leads with the smallest-route model, so a
     // 1–3 file mechanical change is done inline — not funneled through a
     // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
-    expect(doctrine).toContain("Every change to source goes through");
-    expect(doctrine).toContain("Delegation is about WRITING");
+    expect(doctrine).toContain("route by risk");
     expect(doctrine).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the orchestrator,

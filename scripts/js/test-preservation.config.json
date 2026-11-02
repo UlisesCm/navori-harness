@@ -72,6 +72,74 @@
           "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
         }
       ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/analysis-cascade-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "the lookup ships with a row per decision, not a paragraph per mechanism",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "every mechanism it routes into is still reachable from the always-on layer",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "the architectural signals moved into the table and are not restated below it",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "the SDD row points at the block that owns the threshold instead of restating it",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/commit-pr-pilot-contract.test.ts",
+      "removedCases": [
+        {
+          "title": "lee la región de la excepción",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "nombra los dos casos de imposibilidad, no una categoría vaga",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "exige el gate completo al pilot, porque no hay review en que confiar",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "exige la traza en el PR — es lo que la vuelve contable",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "declara explícitamente que no hay conteo, para que no vuelva en silencio",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/handoff-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "does not require an implementation handoff before its first producer exists",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/protocol-coherence.test.ts",
+      "removedCases": [
+        {
+          "title": "the pilot owns the PR side of the delegation rule",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "orquestacion apunta a esa excepción con una sola redacción",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
     }
   ],
   "merges": [
@@ -87,10 +155,11 @@
       ],
       "literalBaseline": {
         "path": "packages/cli/src/__tests__/fixtures/doctrine-literals.baseline.json",
-        "positive": 114,
-        "negative": 43,
+        "positive": 100,
+        "negative": 42,
         "equivalenceCase": "cada token afirmado antes de la fusión sigue afirmado"
-      }
+      },
+      "removedCases": []
     }
   ]
 }

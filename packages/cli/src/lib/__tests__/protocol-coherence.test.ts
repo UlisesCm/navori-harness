@@ -100,7 +100,6 @@ describe("SDD threshold — one formulation, and it's a proposal (F2)", () => {
     );
     expect(owners).toEqual(["managed/sdd.md"]);
 
-    expect(read("managed/orquestacion.md")).toContain("don't duplicate its criteria");
     expect(read("skills/spec-bootstrap.md")).toMatch(/threshold and its opt-in gate live in ONE/i);
   });
 });
@@ -139,7 +138,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
     // Fresh evidence over the shipping diff, by route: reviewer's Pass 2 (bound
     // by the receipt) in R2+, your own run in R1.
     expect(row()).toMatch(/receipt/i);
-    expect(row()).toMatch(/declared-inline change, your own run/i);
+    expect(row()).toMatch(/direct change, your own run/i);
   });
 
   it("the pilot's own trigger list demands no clean tree either", () => {
@@ -165,28 +164,8 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
 });
 
 describe("R1 → PR boundary — defined once, by the agent that applies it (M6)", () => {
-  it("the pilot owns the PR side of the delegation rule", () => {
-    const pilot = read("agents/publisher.md");
-    expect(pilot).toMatch(/where the PR side of/);
-    // The criterion itself stays here — and since #502.3 there is exactly ONE
-    // of them (the non-trivial-file count), defined in that same paragraph
-    // instead of borrowed. `commit-pr-pilot-contract.test.ts` owns the shape of
-    // the definition; what this line pins is that it lives in the pilot.
-    // El definiendum "non-trivial" se retiró con la escalera: decidía un waiver
-    // por conteo que ya no existe. Vuelve cuando vuelva el ruling, como código
-    // compartido y no como prosa (ver leader.md).
-    expect(pilot).toContain("delegation was genuinely impossible");
-    expect(pilot).toMatch(/or a declared impossibility/);
-  });
-
-  it("orquestacion apunta a esa excepción con una sola redacción", () => {
-    // La escalera se retiró: el bloque ya no enumera rutas ni nombra una
-    // excepción por conteo. Lo que debe seguir apuntando al pilot es la
-    // salida declarada, que es la única que deja pasar un diff sin review.
-    expect(
-      lineWith("managed/orquestacion.md", "When delegation is genuinely impossible"),
-    ).toBeTruthy();
-    expect(read("managed/orquestacion.md")).toContain("`publisher` will require");
+  it("the pilot owns the PR side of the routing rule", () => {
+    expect(read("agents/publisher.md")).toContain("A PR needs one of two things");
   });
 });
 

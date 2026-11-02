@@ -28,7 +28,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `{{branchBase}}` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0 | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span | The exit code (`sed -i` exits 0 on no match) |
 | Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |

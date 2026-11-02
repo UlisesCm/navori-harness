@@ -1,6 +1,6 @@
 ---
 name: publisher
-description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
+description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR.
 tools: Read, Glob, Grep, Bash
 model: {{models.publisher}}
 effort: {{effort.publisher}}
@@ -16,8 +16,8 @@ Own commits and PRs in the configured style. Validate through pre-flight before 
 
 ## When to trigger
 
-- Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: commits on the branch, harness approved, and fresh full-gate evidence over the diff that ships (see Gate below).
+- Working tree with changes ready to commit (review APPROVED, or a declared direct route).
+- Branch finished, ready for PR: commits on the branch, approved or routed direct, and fresh full-gate evidence over the diff that ships (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -50,9 +50,9 @@ gh auth status                                        # gh authenticated
 
 A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions.
 
-**Which review counts.** Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
+**Which review counts** (review route only; a direct change has no `review_<feature>.md` and skips this and the receipt check). Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt: the diff must still match what was approved.** The `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/{{prTarget}}`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
+**Content receipt: the diff must still match what was approved.** On the review route the `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/{{prTarget}}`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
 
 ```bash
 navori receipt check --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json
@@ -71,17 +71,7 @@ Continue only on `"status":"ok"`, and read the rest of the JSON by this table:
 
 If the real PR base differs from `{{prTarget}}`, pass that actual base as `--target`.
 
-<!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
-
-**A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
-
-**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
-
-- you do NOT abort for the missing review;
-- you MUST run the full gate green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
-- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
-
-**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
+**A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
@@ -89,7 +79,7 @@ The PR gate is the FULL one, not `{{qualityGate.fast}}`. Which steps sit where i
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`; never rerun a gate the cache already covers (`navori gate` answers `PASS (cached …)`). The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Any duplication or security scan beyond the quality gate is the repo's own tooling and only runs if the repo wired it in — don't assume a net that may not be there.
 - **`"fresh":false`:** no trustworthy evidence — YOU run `{{gateRun.full}}` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
-- **Declared inline (no reviewer):** no review evidence either — run it yourself.
+- **Direct change (no review):** no review evidence — run it yourself.
 
 Never open the PR with the gate red.
 
