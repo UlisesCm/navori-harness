@@ -4,11 +4,13 @@
 //! decided before the first byte of output or the first write, so whatever Rust does not
 //! reproduce returns `None` and the invocation goes to the TS: an argv citty might read
 //! differently, a config `readConfig` rejects, a JSON `JSON.parse` or zod would reject (their
-//! messages are V8's and zod's), a file that is not UTF-8, the consumers that need the review
-//! evidence (`--for publisher`, `--produced-by`, `--parallel`), a state root the TS would throw on
-//! outside a caught path, and a possible audit event (`log-review` with an audit session).
-//! The parallel producers (`prepare-parallel`, `begin-parallel`, `complete-parallel`,
-//! `finalize-parallel`) and `attest` are not in the manifest: they always delegate.
+//! messages are V8's and zod's), a file that is not UTF-8, review evidence the core does not
+//! model (`navori_core::handoff::review_evidence`), a `--since` that is not ISO UTC, the
+//! scribe's `--parallel` authority, a state root the TS would throw on outside a caught path,
+//! and a possible audit event (`log-review` with an audit session).
+//! `attest` is native over `navori_core::handoff::attest`. The parallel producers
+//! (`prepare-parallel`, `begin-parallel`, `complete-parallel`, `finalize-parallel`) are not in the
+//! manifest: they always delegate.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -16,8 +18,11 @@ use std::process::{Command, ExitCode, Stdio};
 
 use navori_core::config::Config;
 use navori_core::fs::{Fs, RealFs};
+use navori_core::handoff::attest::{Attest, AttestInput, plan_attest};
 use navori_core::handoff::implementation::{self, ImplHandoff};
 use navori_core::handoff::review::{self, FINDINGS_LOG_NAME};
+use navori_core::handoff::review_check::{ReviewCheck, check_review_handoff};
+use navori_core::handoff::review_evidence::{EvidenceOptions, review_evidence_warning};
 use navori_core::js_json::{self, JsValue};
 use navori_core::posix::js_trim;
 use navori_core::state_files::{self, Refusal, StateRoot};
@@ -123,6 +128,120 @@ const RENDER: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const P_FEATURE: ArgDef = ArgDef {
+    name: "feature",
+    kind: ArgKind::Positional,
+    description: "Feature slug",
+};
+const P_TARGET: ArgDef = ArgDef {
+    name: "target",
+    kind: ArgKind::String,
+    description: "Review target branch",
+};
+const P_TARGET_REQUIRED: ArgDef = ArgDef {
+    name: "target",
+    kind: ArgKind::RequiredString,
+    description: "Review target branch",
+};
+const P_DIR: ArgDef = ArgDef {
+    name: "dir",
+    kind: ArgKind::String,
+    description: "State directory",
+};
+const P_JSON: ArgDef = ArgDef {
+    name: "json",
+    kind: ArgKind::Boolean,
+    description: "Output JSON",
+};
+const P_RUN: ArgDef = ArgDef {
+    name: "run",
+    kind: ArgKind::RequiredString,
+    description: "Run ID from prior authorization",
+};
+
+const PREPARE: CommandDef = CommandDef {
+    name: "prepare-parallel",
+    description: "Bind immutable approved level-3 parallel scope",
+    args: &[
+        P_FEATURE,
+        P_TARGET_REQUIRED,
+        P_DIR,
+        P_JSON,
+        ArgDef {
+            name: "request",
+            kind: ArgKind::RequiredString,
+            description: "Prior parallel request JSON file",
+        },
+        ArgDef {
+            name: "supersede",
+            kind: ArgKind::String,
+            description: "Explicit previous parallel run ID",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const BEGIN: CommandDef = CommandDef {
+    name: "begin-parallel",
+    description: "Start the native producer's immutable parallel work interval",
+    args: &[P_FEATURE, P_TARGET, P_DIR, P_JSON, P_RUN],
+    sub_commands: &[],
+};
+
+const COMPLETE: CommandDef = CommandDef {
+    name: "complete-parallel",
+    description: "Seal the native producer's own parallel paths",
+    args: &[
+        P_FEATURE,
+        P_TARGET,
+        P_DIR,
+        P_JSON,
+        P_RUN,
+        ArgDef {
+            name: "status",
+            kind: ArgKind::RequiredString,
+            description: "DONE or BLOCKED",
+        },
+        ArgDef {
+            name: "reason",
+            kind: ArgKind::String,
+            description: "Required blocker description when status is BLOCKED",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const FINALIZE: CommandDef = CommandDef {
+    name: "finalize-parallel",
+    description: "Join both producers after serial render and shared checks",
+    args: &[P_FEATURE, P_TARGET_REQUIRED, P_DIR, P_JSON],
+    sub_commands: &[],
+};
+
+const ATTEST: CommandDef = CommandDef {
+    name: "attest",
+    description: "Attest delivery ownership from the native producer context",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "target",
+            kind: ArgKind::String,
+            description: "Review target branch",
+        },
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "State directory",
+        },
+        ArgDef {
+            name: "json",
+            kind: ArgKind::Boolean,
+            description: "Output JSON",
+        },
+    ],
+    sub_commands: &[],
+};
+
 const HANDOFF: CommandDef = CommandDef {
     name: "handoff",
     description: "Validate the implementer's handoff before dispatch",
@@ -187,6 +306,41 @@ enum Row {
     Check,
     Render,
     LogReview,
+    Attest,
+    Prepare,
+    Begin,
+    Complete,
+    Finalize,
+}
+
+/// `handoff prepare-parallel`.
+#[must_use]
+pub fn run_prepare(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Prepare))
+}
+
+/// `handoff begin-parallel`.
+#[must_use]
+pub fn run_begin(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Begin))
+}
+
+/// `handoff complete-parallel`.
+#[must_use]
+pub fn run_complete(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Complete))
+}
+
+/// `handoff finalize-parallel`.
+#[must_use]
+pub fn run_finalize(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Finalize))
+}
+
+/// `handoff attest`.
+#[must_use]
+pub fn run_attest(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Attest))
 }
 
 /// `handoff` alone: usage, `--help` and unknown subcommands.
@@ -240,6 +394,11 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "check" => (&CHECK, Row::Check),
         "render" => (&RENDER, Row::Render),
         "log-review" => (&LOG_REVIEW, Row::LogReview),
+        "attest" => (&ATTEST, Row::Attest),
+        "prepare-parallel" => (&PREPARE, Row::Prepare),
+        "begin-parallel" => (&BEGIN, Row::Begin),
+        "complete-parallel" => (&COMPLETE, Row::Complete),
+        "finalize-parallel" => (&FINALIZE, Row::Finalize),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
             || HANDOFF.sub_commands.iter().any(|(sub, _)| *sub == name) =>
@@ -263,7 +422,19 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         return Some(Output::usage(leaf, HANDOFF_PARENT, None).emit());
     }
     let strings: &[&str] = match row {
-        Row::Check => &["for", "target", "dir", "cwd"],
+        Row::Check => &[
+            "for",
+            "target",
+            "dir",
+            "cwd",
+            "produced-by",
+            "since",
+            "parallel",
+        ],
+        Row::Attest | Row::Finalize => &["target", "dir"],
+        Row::Prepare => &["target", "dir", "request", "supersede"],
+        Row::Begin => &["target", "dir", "run"],
+        Row::Complete => &["target", "dir", "run", "status", "reason"],
         _ => &["dir", "cwd"],
     };
     let options = parse_leaf(&rest[at + 1..], strings)?;
@@ -277,6 +448,10 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         Row::Check => check(feature, &options, process_cwd)?,
         Row::Render => render(feature, &options, process_cwd)?,
         Row::LogReview => log_review(feature, &options, process_cwd)?,
+        Row::Attest => attest(feature, &options, process_cwd)?,
+        Row::Prepare | Row::Begin | Row::Complete | Row::Finalize => {
+            producer(row, feature, &options, process_cwd)?
+        }
         Row::Group => return None,
     };
     Some(out.emit())
@@ -288,6 +463,8 @@ struct LeafOptions<'a> {
     feature: Option<&'a str>,
     strings: Vec<(&'static str, &'a str)>,
     json: bool,
+    /// `--parallel` (only `check` declares it).
+    parallel: bool,
 }
 
 impl<'a> LeafOptions<'a> {
@@ -311,6 +488,10 @@ fn parse_leaf<'a>(tokens: &[&'a str], names: &[&'static str]) -> Option<LeafOpti
             options.json = true;
             continue;
         }
+        if token == "--parallel" && names.contains(&"parallel") {
+            options.parallel = true;
+            continue;
+        }
         let Some(body) = token.strip_prefix("--") else {
             if token.starts_with('-') {
                 return None;
@@ -323,7 +504,9 @@ fn parse_leaf<'a>(tokens: &[&'a str], names: &[&'static str]) -> Option<LeafOpti
         let (name, inline) = body
             .split_once('=')
             .map_or((body, None), |(n, v)| (n, Some(v)));
-        let name = *names.iter().find(|known| **known == name)?;
+        let name = *names
+            .iter()
+            .find(|known| **known == name && **known != "parallel")?;
         if options.get(name).is_some() {
             return None;
         }
@@ -639,12 +822,48 @@ fn check_base(
     Some(result.settle())
 }
 
-/// `handoff check` for the orchestrator and the scribe.
+/// `resolveReceiptOptions(...)`'s `target` and `gate`: `--target ?? prTarget ?? branchBase` and
+/// `qualityGate.full ?? ""`; `None` for a config shape Rust does not model.
+fn receipt_target_gate(config: &Config, target: Option<&str>) -> Option<(String, String)> {
+    let data = Some(&config.data);
+    let target = match target {
+        Some(target) => target.to_owned(),
+        None => match (member(data, "prTarget"), member(data, "branchBase")) {
+            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
+            _ => return None,
+        },
+    };
+    let gate = match member(member(data, "qualityGate"), "full") {
+        None | Some(JsValue::Undefined | JsValue::Null) => String::new(),
+        Some(JsValue::String(t)) => t.to_rust()?,
+        Some(_) => return None,
+    };
+    Some((target, gate))
+}
+
+/// `checkReviewHandoff` (`--produced-by reviewer`).
+fn check_review(
+    root: &StateRoot,
+    feature: &str,
+    since: Option<&str>,
+    evidence: &EvidenceOptions<'_>,
+    env: &navori_core::process::Env,
+) -> Option<CheckResult> {
+    match check_review_handoff(root, feature, since, evidence, env).ok()? {
+        ReviewCheck::Error(detail) => Some(CheckResult::error("reviewer", detail)),
+        ReviewCheck::Failures(failures) => {
+            let mut result = CheckResult::new("reviewer");
+            result.failures = failures;
+            Some(result.settle())
+        }
+    }
+}
+
+/// `handoff check` for every consumer.
 fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
     let consumer = match options.get("for") {
         Some("scribe") => "scribe",
-        // The publisher consumes the review evidence (`reviewEvidenceWarning`).
-        Some("publisher") => return None,
+        Some("publisher") => "publisher",
         _ => "orchestrator",
     };
     let cwd = options.get("cwd").unwrap_or(process_cwd);
@@ -658,7 +877,56 @@ fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<
     print_warnings(&mut out, &config);
     print_warnings(&mut out, &config);
     let legacy = !scribe_owns_markdown(&config);
-    let result = check_base(&root, feature, consumer, legacy, process_cwd)?;
+    let (target, gate) = receipt_target_gate(&config, options.get("target"))?;
+    let evidence = EvidenceOptions {
+        target: &target,
+        gate: &gate,
+        current_content: None,
+        timeout: None,
+    };
+    let env = navori_core::plan::evidence::process_env();
+    let result = if options.get("produced-by") == Some("reviewer") {
+        check_review(&root, feature, options.get("since"), &evidence, &env)?
+    } else if options.parallel {
+        let failure = if consumer == "scribe" && !legacy {
+            // `bindings` reads the config again: its warnings would print once more per read.
+            if !config.warnings.is_empty() {
+                return None;
+            }
+            let ctx = navori_core::handoff::parallel::Context {
+                root: &root,
+                feature,
+                target: &target,
+                process_cwd,
+                env: &env,
+                runner: &navori_core::process::RealRunner,
+                config: &config.data,
+                uuid: "",
+                now: "",
+            };
+            match navori_core::handoff::parallel::check(&ctx)? {
+                navori_core::handoff::parallel::Planned::Error(message) => Some(message),
+                navori_core::handoff::parallel::Planned::Done { .. } => None,
+            }
+        } else {
+            Some("parallel check requires --for scribe, target and scribeOwnsMarkdown".to_owned())
+        };
+        let mut result = CheckResult::new(consumer);
+        if let Some(detail) = failure {
+            result.failures.push(("evidence", detail));
+        }
+        result.settle()
+    } else {
+        let mut result = check_base(&root, feature, consumer, legacy, process_cwd)?;
+        if consumer == "publisher"
+            && let Some(detail) =
+                review_evidence_warning(&root, feature, Some(&evidence), &env).ok()?
+        {
+            result.failures.push(("evidence", detail));
+            result.status = "findings";
+        }
+        result
+    };
     if options.json {
         json_line(&mut out, &result.to_json(feature));
     } else {
@@ -666,6 +934,213 @@ fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<
         out.stdout.push('\n');
     }
     out.code = result.exit_code();
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// parallel producers
+
+/// The config `bindings` reads on every call: one that prints warnings would print them once
+/// per read, a count this port does not track.
+fn quiet_config(root: &StateRoot) -> Option<Config> {
+    let config = read_config(&root.cwd)??;
+    config.warnings.is_empty().then_some(config)
+}
+
+/// `projectClassifyContext(cwd)` for a config already read.
+fn project(config: &Config) -> Option<navori_core::plan::check::ProjectContext> {
+    let list = |key: &str| -> Option<Option<Vec<String>>> {
+        match member(member(Some(&config.data), "project"), key) {
+            None | Some(JsValue::Undefined | JsValue::Null) => Some(None),
+            Some(JsValue::Array(items)) => items
+                .iter()
+                .map(|v| match v {
+                    JsValue::String(s) => s.to_rust(),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(Some),
+            Some(_) => None,
+        }
+    };
+    Some(navori_core::plan::check::ProjectContext {
+        critical_paths: list("criticalPaths")?,
+        local_skill_ids: list("localSkills")?,
+    })
+}
+
+/// `JSON.parse(readFileSync(path, "utf8"))` for the producers: `Err(message)` for a missing
+/// file (Node's `ENOENT`), `None` for anything Rust does not reproduce.
+fn read_json_or_enoent(path: &str) -> Option<Result<JsValue, String>> {
+    match std::fs::read(path) {
+        Ok(bytes) => js_json::parse(&String::from_utf8(bytes).ok()?).map(Ok),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Err(format!(
+            "ENOENT: no such file or directory, open '{path}'"
+        ))),
+        Err(_) => None,
+    }
+}
+
+/// `prepare-parallel`, `begin-parallel`, `complete-parallel` and `finalize-parallel`:
+/// `resolveReceiptOptions(args)`, the entrypoint, then `emitProducer`.
+fn producer(
+    row: Row,
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Output> {
+    use navori_core::handoff::parallel::{self, Context, Planned};
+    // citty's missing required argument is its usage error: the TS's.
+    let required: &[&str] = match row {
+        Row::Prepare => &["request", "target"],
+        Row::Begin => &["run"],
+        Row::Complete => &["run", "status"],
+        _ => &["target"],
+    };
+    if required.iter().any(|r| options.get(r).is_none()) {
+        return None;
+    }
+    let root =
+        state_files::resolve_state_root(process_cwd, process_cwd, feature, options.get("dir"))
+            .ok()?;
+    let config = quiet_config(&root)?;
+    let (target, _) = receipt_target_gate(&config, options.get("target"))?;
+    let env = navori_core::plan::evidence::process_env();
+    let uuid = navori_core::atomic::random_uuid().ok()?;
+    let now = review::iso_now();
+    let ctx = Context {
+        root: &root,
+        feature,
+        target: &target,
+        process_cwd,
+        env: &env,
+        runner: &navori_core::process::RealRunner,
+        config: &config.data,
+        uuid: &uuid,
+        now: &now,
+    };
+    let (planned, ok) = match row {
+        Row::Prepare => {
+            let request_path = navori_core::posix::resolve(&root.cwd, options.get("request")?);
+            let planned = match read_json_or_enoent(&request_path)? {
+                Err(message) => Planned::Error(message),
+                Ok(request) => {
+                    let workplan =
+                        state_files::artifact_path(&root, &format!("workplan_{feature}.json"))
+                            .ok()?;
+                    match read_json_or_enoent(&workplan)? {
+                        Err(message) => Planned::Error(message),
+                        Ok(raw) => {
+                            let checked = navori_core::plan::check::check_workplan(
+                                &raw,
+                                feature,
+                                &project(&config)?,
+                            );
+                            let ok =
+                                matches!(checked, navori_core::plan::check::Checked::Ok { .. });
+                            parallel::prepare(
+                                &ctx,
+                                &request,
+                                options.get("supersede"),
+                                ok.then_some(true),
+                            )?
+                        }
+                    }
+                }
+            };
+            (planned, "prepared")
+        }
+        Row::Begin => (parallel::begin(&ctx, options.get("run")?)?, "ok"),
+        Row::Complete => (
+            parallel::complete(
+                &ctx,
+                options.get("run")?,
+                options.get("status")?,
+                options.get("reason"),
+            )?,
+            "completed",
+        ),
+        _ => (parallel::finalize(&ctx)?, "finalized"),
+    };
+    let result = match planned {
+        Planned::Error(message) => Err(message),
+        Planned::Done {
+            status,
+            run_id,
+            writes,
+        } => match parallel::apply(&mut RealFs::default(), &root, &writes) {
+            Ok(()) => Ok((status, run_id)),
+            Err(message) => Err(message),
+        },
+    };
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    let fields = match &result {
+        Ok((status, run_id)) => vec![("status", string(status)), ("runId", string(run_id))],
+        Err(message) => vec![("status", string("error")), ("message", string(message))],
+    };
+    if options.json {
+        json_line(&mut out, &object(fields));
+    } else {
+        out.stdout.push_str(match &result {
+            Ok((status, _)) => status,
+            Err(message) => message,
+        });
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(!matches!(&result, Ok((status, _)) if *status == ok));
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// attest
+
+/// `handoff attest`: `attestHandoff(resolveReceiptOptions({ feature, target, dir }))`.
+fn attest(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    // `resolveReceiptOptions` runs outside any `try`: its throws are the TS's.
+    let root =
+        state_files::resolve_state_root(process_cwd, process_cwd, feature, options.get("dir"))
+            .ok()?;
+    let config = read_config(&root.cwd)??;
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    let (target, _) = receipt_target_gate(&config, options.get("target"))?;
+    let env = navori_core::plan::evidence::process_env();
+    let planned = plan_attest(&AttestInput {
+        process_cwd,
+        root: &root,
+        feature,
+        target: &target,
+        env: &env,
+        runner: &navori_core::process::RealRunner,
+    })
+    .ok()?;
+    let error = match planned {
+        Attest::Error(message) => Some(message),
+        Attest::Write(text) => {
+            let name = format!("ownership_{feature}.json");
+            match state_files::plan_state_write(&root, &name, std::process::id()).ok()? {
+                Err(message) => Some(message),
+                Ok(write) => {
+                    state_files::write_state_file(&mut RealFs::default(), &write, &text).err()
+                }
+            }
+        }
+    };
+    let mut result = vec![(
+        "status",
+        string(if error.is_some() { "error" } else { "attested" }),
+    )];
+    if let Some(message) = &error {
+        result.push(("message", string(message)));
+    }
+    if options.json {
+        json_line(&mut out, &object(result));
+    } else {
+        out.stdout.push_str(error.as_deref().unwrap_or("attested"));
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(error.is_some());
     Some(out)
 }
 
@@ -941,6 +1416,7 @@ mod tests {
                 feature: Some("x"),
                 strings: vec![("for", "scribe"), ("cwd", "d")],
                 json: true,
+                parallel: false,
             })
         );
         for argv in [

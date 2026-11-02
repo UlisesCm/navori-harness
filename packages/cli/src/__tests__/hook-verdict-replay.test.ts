@@ -61,6 +61,7 @@ interface Replay {
     modes: string[];
     only?: string[];
     shell?: string;
+    registered?: boolean;
     shard?: { index: number; count: number };
   };
   shardCases: <T>(cases: T[], shard: { index: number; count: number } | undefined) => T[];
@@ -278,6 +279,18 @@ describe("native hook replay transport", () => {
     expect(
       replay.parseReplayArgs(["--impl", "rust", "--only", "subagent-no-background"]).modes,
     ).toEqual(["off", "active"]);
+  });
+
+  // Covers: R81
+  it("--registered selects the manifest hooks and only for the native replay", () => {
+    expect(replay.parseReplayArgs(["--impl", "rust", "--registered"])).toMatchObject({
+      impl: "rust",
+      registered: true,
+    });
+    expect(() => replay.parseReplayArgs(["--registered"])).toThrow("--registered applies only");
+    expect(() =>
+      replay.parseReplayArgs(["--impl", "rust", "--registered", "--only", "a.sh"]),
+    ).toThrow("--registered applies only");
   });
 
   // Covers: R11

@@ -127,6 +127,14 @@ pub const NATIVE: &[NativeCommand] = &[
         run: plan::run_escalation_reset,
     },
     NativeCommand {
+        path: &["plan", "acknowledge"],
+        run: plan::run_acknowledge,
+    },
+    NativeCommand {
+        path: &["plan", "resume"],
+        run: plan::run_resume,
+    },
+    NativeCommand {
         path: &["plan"],
         run: plan::run_group,
     },
@@ -203,6 +211,10 @@ pub const NATIVE: &[NativeCommand] = &[
         run: master_read::run_template,
     },
     NativeCommand {
+        path: &["master"],
+        run: master::run_group,
+    },
+    NativeCommand {
         path: &["spec", "classify"],
         run: spec::run_classify,
     },
@@ -225,6 +237,26 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["handoff", "log-review"],
         run: handoff::run_log_review,
+    },
+    NativeCommand {
+        path: &["handoff", "attest"],
+        run: handoff::run_attest,
+    },
+    NativeCommand {
+        path: &["handoff", "prepare-parallel"],
+        run: handoff::run_prepare,
+    },
+    NativeCommand {
+        path: &["handoff", "begin-parallel"],
+        run: handoff::run_begin,
+    },
+    NativeCommand {
+        path: &["handoff", "complete-parallel"],
+        run: handoff::run_complete,
+    },
+    NativeCommand {
+        path: &["handoff", "finalize-parallel"],
+        run: handoff::run_finalize,
     },
     NativeCommand {
         path: &["handoff"],

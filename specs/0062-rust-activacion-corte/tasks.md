@@ -1,7 +1,7 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Tasks
 
 **Estado:** aceptada para desarrollo (Q26–Q29 resueltas; Q24 y R18 resueltas el 2026-11-02, D51 y D52) · **Base:**
-`migration/rust`. Tres entregas y cuatro PRs: E1 (dos lotes de activación) y E2 contra
+`migration/rust`. Tres entregas y cinco PRs: E1 (herramientas y dos lotes de activación, Q30) y E2 contra
 `migration/rust`, E3 contra `dev`. Sale de E4–E6 de la versión anterior de 0060 (correspondencia en
 cada tarea). El LOC es una referencia gruesa.
 
@@ -9,20 +9,25 @@ cada tarea). El LOC es una referencia gruesa.
 
 | PR | Entrega | Entregable | Se mergea cuando |
 |---|---|---|---|
-| 1a | E1, M1 | Herramientas de activación y el primer lote de hooks en `active` (los que llevan 7 días o más en `shadow` al abrir el PR) | A1 verde, evidencia de R81 adjunta y aprobación del usuario |
+| 1a | E1, M1 | Herramientas de activación (T1, T2, T4), sin activar ningún hook (Q30) | Los tests de A1, el replay `--registered` de A1 y la CI en verde |
+| 1a′ | E1, M1 | El primer lote de hooks en `active` (T3: los que llevan 7 días o más en `shadow` al abrir el PR) | A1 verde, evidencia de R81 adjunta y aprobación del usuario |
 | 1b | E1, M2 | El resto de los hooks en `active` | A2 verde, evidencia de R81 adjunta y aprobación del usuario |
 | 2 | E2 | El paquete instala y responde en macOS y Linux, sin publicar | A3 verde |
 | 3 | E3 | `navori` es el binario Rust en `dev` | A4 verde y aprobación explícita del usuario (R20) |
 
-Estado (2026-11-01): ninguna entrega tiene rama todavía. 1a y 2 pueden empezar ya, desde
-`migration/rust`.
+Estado (2026-11-02): 1a (`feat/0062-rust-e1-m1`, #1479) trae T1, T2 y T4 y `--registered` en el
+replay (el corpus trae los 7 hooks de 0060 E2 y E3 aún sin portar); T3 pasó a 1a′ (Q30) y espera
+los 7 días de sombra. Cada checkout escribe su propio journal y los hooks de `main` no llevan `--shadow`, así que
+el tráfico sale de los worktrees de la migración: la ventana corre desde el 2026-11-02 y el reporte
+los suma con `--journals <dir>` (repetible). 2 puede empezar ya, desde
+`migration/rust`. Los PRs se abren terminados, nunca en draft.
 
 E1 lleva dos PRs a propósito: la ventana de 7 días de R81 es calendario, y esperar a que el último
 hook de la cola larga la cumpla dejaría parados los que ya la cumplen.
 
 **Precondiciones de entrada (trabajo en paralelo):**
-- **M1 (PR 1a):** empieza ya. T1, T2 y T4 no dependen de ningún hook; el lote 1 son los hooks que
-  ya están en `shadow` con 7 días o más al abrir el PR.
+- **M1 (PRs 1a y 1a′):** empieza ya. T1, T2 y T4 no dependen de ningún hook (1a); el lote 1 (1a′)
+  son los hooks que ya están en `shadow` con 7 días o más al abrir el PR.
 - **M2 (PR 1b):** cada hook de 0060 E2 y E3 (y T13, T14 de 0060 E1) entra cuando cumple 7 días en
   `shadow`; el PR se abre cuando estén todos.
 - **E2 (PR 2):** empieza ya, en paralelo con E1 y con 0060. `cutover-check` puede salir en rojo
@@ -50,11 +55,11 @@ Estimated LOC: 3000
 ### M1 — Herramientas y primer lote
 Entregable: el reporte de sombra, las reglas de transición y la matriz fail-closed existen, y los
 hooks que llevan 7 días o más en `shadow` deciden en Rust.
-- **A1** [observable] — el primer lote tiene su evidencia y ninguna salida anómala permite · `node scripts/js/hook-verdict-replay.mjs --impl rust && node scripts/js/hook-shadow-report.mjs --window 7 && cargo test -p navori-hooks --locked && cd packages/cli && bun run vitest run src/__tests__/rust-manifest-check.test.ts src/__tests__/hook-shadow-report.test.ts src/__tests__/native-hook-failclosed.test.ts` → exit 0; 0 divergencias
-- [ ] **T1** (R81, R82) — `scripts/js/hook-shadow-report.mjs`: invocaciones y divergencias por hook y engine en la ventana, en rojo ante cualquier divergencia o ante un hook con compuerta sin tráfico ni aprobación de R82 (antes T39 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"una divergencia o un hook con compuerta sin tráfico deja el reporte en rojo"
-- [ ] **T2** (R79, R80) — `scripts/js/rust-manifest-check.mjs`: `shadow` → `active` exige `shadow` en la merge-base y una línea `activate` nueva; `active` → `shadow` exige `deactivate` (antes T40 de 0060 y T2 de 0058) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar sin línea activate o sin sombra previa falla"
+- **A1** [observable] — el primer lote tiene su evidencia y ninguna salida anómala permite · `node scripts/js/hook-verdict-replay.mjs --impl rust --registered && node scripts/js/hook-shadow-report.mjs --window 7 && cargo test -p navori-hooks --locked && cd packages/cli && bun run vitest run src/__tests__/rust-manifest-check.test.ts src/__tests__/hook-shadow-report.test.ts src/__tests__/native-hook-failclosed.test.ts` → exit 0; 0 divergencias
+- [x] **T1** (R81, R82) — `scripts/js/hook-shadow-report.mjs`: invocaciones y divergencias por hook y engine en la ventana, en rojo ante cualquier divergencia o ante un hook con compuerta sin tráfico ni aprobación de R82 (antes T39 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/hook-shadow-report.test.ts`::"una divergencia o un hook con compuerta sin tráfico deja el reporte en rojo"
+- [x] **T2** (R79, R80) — `scripts/js/rust-manifest-check.mjs`: `shadow` → `active` exige `shadow` en la merge-base y una línea `activate` nueva; `active` → `shadow` exige `deactivate` (antes T40 de 0060 y T2 de 0058) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"activar sin línea activate o sin sombra previa falla"
 - [ ] **T3** (R81, R83) — lote 1: replay nativo y fuzz de 100 000 entradas (los de compuerta) de los hooks con 7 días o más en `shadow`; `ported.json` los pasa a `active` con su línea `activate` y el render deja el fragmento activo en los tres engines (antes T41, T42 y T44 de 0060; incluye T27 de 0057, T4 de 0058 y T35 de 0059) · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"hooks del lote 1 active"
-- [ ] **T4** (R83) — matriz fail-closed sobre cada hook con compuerta en `active`, invocado por el comando registrado exacto de cada engine; crece con cada lote (antes T43 de 0060; incluye T5 de 0058 y T36 de 0059) · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"ningún hook activo con compuerta permite ante SIGSEGV, 101 o stdout cerrado"
+- [x] **T4** (R83) — matriz fail-closed sobre cada hook con compuerta en `active`, invocado por el comando registrado exacto de cada engine; crece con cada lote (antes T43 de 0060; incluye T5 de 0058 y T36 de 0059) · effect: tests · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"ningún hook activo con compuerta permite ante SIGSEGV, 101 o stdout cerrado"
 
 ### M2 — Segundo lote
 Entregable: los 22 hooks deciden en Rust en los tres engines.
