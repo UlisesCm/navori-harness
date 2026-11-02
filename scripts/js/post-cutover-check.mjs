@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { POST_CUTOVER_BUDGET_S, rustBinary } from "./cutover-check.mjs";
+import { POST_CUTOVER_BUDGET_S } from "./cutover-check.mjs";
 
 /**
  * Spec 0062 T8 (R18; D17 of 0057): `bun run check:post-cutover`, the full gate with the
@@ -17,15 +17,19 @@ import { POST_CUTOVER_BUDGET_S, rustBinary } from "./cutover-check.mjs";
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+/** The binary the `cargo build` step leaves, which the later steps run. */
+const BUILT_BINARY = join(REPO_ROOT, "target", "debug", "navori-rust");
 
 /**
  * The suites that test the rendered artifact on its real host and stay after the cutover (D11 of
- * 0057, D39 of 0059): the first-class Pi suites, the syntax of the generated Pi resources and the
- * fail-closed matrix of native hooks (R83). Paths relative to `packages/cli`.
+ * 0057, D39 of 0059): the first-class Pi suites, the syntax of the generated Pi resources, the Rust
+ * tree loaded by Pi's real loader (mandatory here) and the fail-closed matrix of native hooks (R83).
+ * Paths relative to `packages/cli`.
  */
 export const ARTIFACT_SUITES = [
   "src/engines/pi/__tests__/first-class-",
   "src/engines/pi/__tests__/render-syntax.test.ts",
+  "src/engines/pi/__tests__/rust-tree.test.ts",
   "src/__tests__/native-hook-failclosed.test.ts",
 ];
 
@@ -55,13 +59,14 @@ export const STEPS = [
     name: "hook oracle",
     cmd: "node",
     args: ["scripts/js/hook-verdict-replay.mjs", "--impl", "rust", "--only", manifestHooks().join(",")],
-    env: () => ({ NAVORI_RUST_BIN: rustBinary() ?? "navori-rust" }),
+    env: () => ({ NAVORI_RUST_BIN: BUILT_BINARY }),
   },
   {
     name: "artifact suites",
     cmd: "bun",
     args: ["run", "vitest", "run", ...ARTIFACT_SUITES],
     cwd: "packages/cli",
+    env: () => ({ NAVORI_RUST_TREE: "1", NAVORI_RUST_BIN: BUILT_BINARY }),
   },
   { name: "check:links", cmd: "bun", args: ["run", "check:links"] },
   { name: "check:render", cmd: "bun", args: ["run", "check:render"] },
