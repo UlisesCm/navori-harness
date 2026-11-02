@@ -75,19 +75,26 @@ function run(
 }
 
 const QUALITY_GATE = "quality-gate-pre-commit";
-const QUALITY_GATE_TARGETS: Readonly<Record<NativeEngine, string>> = {
-  claude: `.claude/hooks/${QUALITY_GATE}.sh`,
-  codex: `.codex/hooks/${QUALITY_GATE}.sh`,
-  pi: `.pi/navori/hooks/${QUALITY_GATE}.sh`,
-};
+const targetsOf = (hook: string): Readonly<Record<NativeEngine, string>> => ({
+  claude: `.claude/hooks/${hook}.sh`,
+  codex: `.codex/hooks/${hook}.sh`,
+  pi: `.pi/navori/hooks/${hook}.sh`,
+});
+/** Core hooks whose managed block id is not `<hook>-base`. */
+const managedIdOf = (hook: string): string =>
+  hook === QUALITY_GATE ? "qg-pre-commit-base" : `${hook}-base`;
 
 /**
- * A project where the real `quality-gate-pre-commit` asset is rendered and wrapped by the
+ * A project where the real hook asset (default `quality-gate-pre-commit`) is rendered and wrapped by the
  * renderer for every engine, with the shipped manifest descriptor and a fake `navori-rust`.
  */
-function qualityGateProject(): { dir: string; descriptor: NativeHook } {
-  const descriptor = loadNativeHooks()[QUALITY_GATE];
-  if (descriptor === undefined) throw new Error(`${QUALITY_GATE} is not in crates/ported.json`);
+function hookProject(
+  hook: string,
+  override?: Partial<NativeHook>,
+): { dir: string; descriptor: NativeHook } {
+  const manifestEntry = loadNativeHooks()[hook];
+  if (manifestEntry === undefined) throw new Error(`${hook} is not in crates/ported.json`);
+  const descriptor: NativeHook = { ...manifestEntry, ...override };
   const dir = project("exit 0");
   spawnSync("git", ["init", "-q"], { cwd: dir });
   const base = readConfig(
@@ -101,19 +108,16 @@ function qualityGateProject(): { dir: string; descriptor: NativeHook } {
     harnessVersion: readCliVersion(),
     qualityGate: { full: "exit 0", ...base.qualityGate, fast: "exit 0" },
   };
-  const assetPath = resolve(
-    import.meta.dirname,
-    `../../../core/core-assets/hooks/${QUALITY_GATE}.sh`,
-  );
+  const assetPath = resolve(import.meta.dirname, `../../../core/core-assets/hooks/${hook}.sh`);
   for (const engine of ["claude", "codex", "pi"] as const) {
-    const target = QUALITY_GATE_TARGETS[engine];
+    const target = targetsOf(hook)[engine];
     mkdirSync(join(dir, target, ".."), { recursive: true });
     writeFileSync(
       join(dir, target),
       renderManagedFile({
         assetPath,
         existingContent: null,
-        managedId: "qg-pre-commit-base",
+        managedId: managedIdOf(hook),
         meta: { source: "@navori/core", version: readCliVersion() },
         config,
         engine,
@@ -125,12 +129,12 @@ function qualityGateProject(): { dir: string; descriptor: NativeHook } {
       engine,
       config,
       pending,
-      hooks: [{ id: QUALITY_GATE, assetPath, managedId: "qg-pre-commit-base" }],
+      hooks: [{ id: hook, assetPath, managedId: managedIdOf(hook) }],
       plugins: [],
-      manifest: { [QUALITY_GATE]: descriptor },
+      manifest: { [hook]: descriptor },
     });
     if (!wrapped.has(target) || pending[0] === undefined)
-      throw new Error(`${engine}: the renderer did not wrap ${QUALITY_GATE}`);
+      throw new Error(`${engine}: the renderer did not wrap ${hook}`);
     writeFileSync(join(dir, target), pending[0].content);
   }
   return { dir, descriptor };
@@ -138,6 +142,7 @@ function qualityGateProject(): { dir: string; descriptor: NativeHook } {
 
 /** Runs the command each engine registers for the hook, with a commit payload on stdin. */
 function runRegistered(
+  hook: string,
   shell: HookShell,
   dir: string,
   engine: NativeEngine,
@@ -145,10 +150,10 @@ function runRegistered(
   closeStdout: boolean,
 ): { code: number | null; stdout: string } {
   const command = {
-    claude: claudeHookCommand("PreToolUse", QUALITY_GATE_TARGETS.claude, undefined, descriptor),
-    codex: codexHookCommand({ script: QUALITY_GATE, event: "PreToolUse", timeout: 600 }),
+    claude: claudeHookCommand("PreToolUse", targetsOf(hook).claude, undefined, descriptor),
+    codex: codexHookCommand({ script: hook, event: "PreToolUse", timeout: 600 }),
     // The Pi bridge spawns bash on the installed script, with the project as cwd.
-    pi: `bash "${QUALITY_GATE_TARGETS.pi}"`,
+    pi: `bash "${targetsOf(hook).pi}"`,
   }[engine];
   const value = spawnSync(shell, ["-c", `${closeStdout ? "exec 1>&-\n" : ""}${command}`], {
     cwd: dir,
@@ -173,9 +178,56 @@ function runRegistered(
 }
 
 describe("native hook fail-closed wrapper", (): void => {
+  // Covers: R83
+  it("ningún hook activo con compuerta permite ante SIGSEGV, 101 o stdout cerrado", (): void => {
+    const gating = Object.entries(loadNativeHooks()).filter(
+      ([, descriptor]: [string, NativeHook]): boolean => descriptor.gating,
+    );
+    expect(gating.length).toBeGreaterThan(0);
+    const failures = [
+      { body: "printf 'partial'; kill -SEGV $$", closeStdout: false },
+      { body: "printf 'partial'; exit 101", closeStdout: false },
+      { body: "printf 'complete'; exit 0", closeStdout: true },
+    ];
+    // Every gating hook, forced to `active`: today's shadow ones are tomorrow's active ones.
+    for (const [hook] of gating) {
+      // The wrapper precedes the body and never depends on plugin blocks or sibling scripts, so
+      // each hook renders with its core block alone (plugin extensions need their own fixtures).
+      const manifestEntry = loadNativeHooks()[hook];
+      if (manifestEntry === undefined) throw new Error(`${hook} is not in crates/ported.json`);
+      const core = managedIdOf(hook);
+      const { dir, descriptor } = hookProject(hook, {
+        mode: "active",
+        blocks: { [core]: manifestEntry.blocks[core] ?? "" },
+        deps: {},
+      });
+      for (const failure of failures) {
+        writeFileSync(join(dir, "navori-rust"), `#!/bin/sh\n${failure.body}\n`);
+        for (const engine of ["claude", "codex", "pi"] as const) {
+          const label = `${hook} ${engine}: ${failure.body}`;
+          const result = acrossShells(
+            (shell: HookShell) =>
+              runRegistered(hook, shell, dir, engine, descriptor, failure.closeStdout),
+            sensitive,
+          );
+          expect(result.stdout, label).not.toContain("partial");
+          expect(result.stdout, label).not.toContain("complete");
+          if (!failure.closeStdout && engine === "claude") {
+            expect(result.code, label).toBe(0);
+            expect(JSON.parse(result.stdout) as unknown, label).toMatchObject({
+              hookSpecificOutput: { permissionDecision: "ask" },
+            });
+          } else {
+            expect(result.code, label).toBe(2);
+          }
+        }
+      }
+    }
+  });
+
   // Covers: R50
   it("quality-gate-pre-commit nunca permite ante SIGSEGV, 101 o stdout cerrado", (): void => {
-    const { dir, descriptor } = qualityGateProject();
+    const { dir, descriptor } = hookProject(QUALITY_GATE);
     expect(descriptor).toMatchObject({ mode: "shadow", gating: true });
     const failures = [
       { body: "printf 'partial'; kill -SEGV $$", closeStdout: false },
@@ -187,7 +239,8 @@ describe("native hook fail-closed wrapper", (): void => {
       for (const engine of ["claude", "codex", "pi"] as const) {
         const label = `${engine}: ${failure.body}`;
         const result = acrossShells(
-          (shell: HookShell) => runRegistered(shell, dir, engine, descriptor, failure.closeStdout),
+          (shell: HookShell) =>
+            runRegistered(QUALITY_GATE, shell, dir, engine, descriptor, failure.closeStdout),
           sensitive,
         );
         expect(result.stdout, label).not.toContain("partial");
