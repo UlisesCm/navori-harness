@@ -70,7 +70,9 @@ jobs:
         with:
           bun-version: 1.4.4
       # A warm cargo cache, like the developer machine R18 is stated for; a cold build is not the gate.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore and save are split so a red run, which R18 still records, warms the next one.
+      - id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -83,6 +85,14 @@ jobs:
       - run: bun run ensure-dist
       - run: rustup show active-toolchain
       - run: bun run check:post-cutover
+      - if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
