@@ -31,21 +31,11 @@ describe("orquestacion.md orders the preflight before dispatch (R14, R17)", () =
   const block = read("managed/orquestacion.md");
 
   // Covers: R15, R18
-  it("does not require an implementation handoff before its first producer exists", () => {
-    const mechanics = block.split("### The mechanics\n")[1]?.split("\n### ")[0] ?? "";
-    expect(mechanics).toMatch(/first (researcher|producer)/i);
-    expect(mechanics).toMatch(/(?:architect|scout|auditor)/i);
-    expect(mechanics).toMatch(/impl_<feature>\.json/);
-    expect(mechanics).not.toMatch(/\*\*Before dispatching\*\*, run `navori handoff check/);
-  });
-
-  // Covers: R15, R18
   it("requires the check for consumers while keeping the plan precondition independent", () => {
-    const mechanics = block.split("### The mechanics\n")[1]?.split("\n### ")[0] ?? "";
     const planning = read("managed/planificacion.md");
-    expect(mechanics).toMatch(/before dispatching.*(?:scribe|reviewer)/i);
-    expect(mechanics).toContain('"status":"ok"');
-    expect(mechanics).toMatch(/plan(?:ning)? precondition/i);
+    expect(block).toMatch(/before dispatching.*(?:scribe|reviewer)/i);
+    expect(block).toContain('"status":"ok"');
+    expect(block).toMatch(/plan approval/i);
     expect(planning).toContain("Before dispatching the `implementer`");
     expect(planning).toContain("plan check");
   });

@@ -7,14 +7,12 @@ effort: medium
 maxWords: 3365
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="ab8fd744" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="d26012b3" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
-
-**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Route by risk (`navori plan classify` level, critical areas): small reversible changes go direct; critical areas or level ≥ 2 get an independent `reviewer` — see "## Role: orchestrator" in `CLAUDE.md`.
 
 
 
@@ -73,7 +71,7 @@ Fan-out is a lever, not a toll — so when you do delegate, hand the smallest en
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **An informational observation (<80) after `APPROVED`** goes to the PR body and doesn't reopen the cycle.
 - **Run each `A<n>` yourself, from the main thread, as written, in the foreground** (the host records evidence only that way). An `A<n>` never runs the full suite; the gate does.
-- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+- **A minor finding after `APPROVED` is a delta fix** — a fresh `implementer`, or you directly when it is level 0 with no critical area. The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ## Continuous execution (don't pause between tasks)
 
@@ -170,7 +168,7 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 
 ## When NOT to orchestrate
 
-If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
+If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else routes by risk — see the top of this file.
 <!-- /navori:managed id="orchestrator-base" -->
 
 <!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.11.3" source="@navori/plugin-codegraph" -->

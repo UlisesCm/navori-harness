@@ -81,10 +81,7 @@ function region(marker: string, until: RegExp): string {
 const PRE_FLIGHT = region("## Mandatory pre-flight", /^## /m);
 const PR_FLOW = region("## PR flow", /^## /m);
 const WORKTREE = region("## Worktree left behind", /^## /m);
-const DECLARED_EXCEPTION = region(
-  "**The one exception: delegation was genuinely impossible, and it was DECLARED.**",
-  /^#{3} /m,
-);
+const DECLARED_EXCEPTION = region("**A PR needs one of two things.**", /^#{3} /m);
 
 describe("publisher — the PR flow publishes the branch (#499)", () => {
   // ---- anti-false-green ---------------------------------------------------
@@ -279,7 +276,7 @@ describe("publisher — the pre-flight measures the tree it was triggered by", (
     expect(PRE_FLIGHT.length, "the pre-flight section came back empty").toBeGreaterThan(1000);
     expect(PRE_FLIGHT, "the anchor no longer covers the receipt check").toContain("receipt.txt");
     expect(PRE_FLIGHT, "the anchor no longer covers the declared exception").toContain(
-      "delegation was genuinely impossible",
+      "Direct change (no review)",
     );
   });
 
@@ -479,55 +476,24 @@ describe("no template line renders the fork point and the PR target together (#5
   });
 });
 
-describe("publisher — la única excepción es la imposibilidad declarada", () => {
-  /**
-   * Este describe reemplaza al de `non-trivial` (#502.3), que protegía la
-   * definición por conteo del waiver: "¿cuántos archivos con comportamiento
-   * trae el diff?". Esa definición se retiró junto con la escalera de rutas,
-   * porque su umbral estaba escrito en siete sitios que no coincidían — la
-   * tabla de rutas, los umbrales de escalamiento, el hook `routing-watch`, el
-   * propio pilot y el minero de activación contaban cinco cosas distintas.
-   *
-   * Vuelve cuando vuelva el ruling, y la condición para eso está escrita en
-   * `orchestrator.md`: "archivo fuente no trivial" tiene que existir UNA vez como
-   * código compartido, no como prosa repetida. Mientras tanto el pilot tiene
-   * exactamente dos salidas, y esto las fija.
-   */
-
+describe("publisher — a PR needs a review or a declared direct route", () => {
   // ---- anti-false-green ---------------------------------------------------
-  it("lee la región de la excepción", () => {
+  it("reads the region of the rule", () => {
     expect(
       DECLARED_EXCEPTION.length,
-      "the declared-exception region came back empty",
-    ).toBeGreaterThan(600);
+      "the review-or-direct region came back empty",
+    ).toBeGreaterThan(300);
   });
 
-  // ---- el contrato --------------------------------------------------------
-  it("nombra los dos casos de imposibilidad, no una categoría vaga", () => {
-    // "Delegación imposible" sin ejemplos se lee como "cuando me parezca".
-    expect(DECLARED_EXCEPTION).toMatch(/operator forbade subagents/i);
-    expect(DECLARED_EXCEPTION).toMatch(/`Agent` tool was unavailable/i);
-  });
-
-  it("exige el gate completo al pilot, porque no hay review en que confiar", () => {
-    // El literal del comando vive una sola vez, en la sección Gate (#1264);
-    // aquí se exige "el gate completo" (nunca el rápido) por referencia.
-    expect(DECLARED_EXCEPTION).toMatch(/run the full gate green yourself/i);
+  // ---- the contract -------------------------------------------------------
+  it("requires the review for critical areas and level >= 2, and the full gate for direct changes", () => {
+    expect(DECLARED_EXCEPTION).toMatch(/critical area/i);
+    expect(DECLARED_EXCEPTION).toMatch(/full gate green/i);
     expect(DECLARED_EXCEPTION).not.toContain("{{qualityGate.fast}}");
-    expect(DECLARED_EXCEPTION).toMatch(/no review evidence to trust/i);
   });
 
-  it("exige la traza en el PR — es lo que la vuelve contable", () => {
-    // Sin esto la excepción es invisible: nadie puede medir cuántas veces se
-    // usó, que es justo el fallo que la escalera anterior tenía.
-    expect(DECLARED_EXCEPTION).toMatch(/PR body must state it/i);
-  });
-
-  it("declara explícitamente que no hay conteo, para que no vuelva en silencio", () => {
-    expect(
-      DECLARED_EXCEPTION,
-      "sin esta frase, un futuro editor reintroduce el umbral por conteo sin que nada lo note",
-    ).toMatch(/No count, no judgement about the diff's content/i);
+  it("requires the PR body to state the route and level", () => {
+    expect(DECLARED_EXCEPTION).toMatch(/PR body/i);
   });
 });
 

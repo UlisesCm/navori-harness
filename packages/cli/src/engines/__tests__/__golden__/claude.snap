@@ -479,9 +479,7 @@ maxWords: 3365
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
-
-**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Route by risk (`navori plan classify` level, critical areas): small reversible changes go direct; critical areas or level ≥ 2 get an independent `reviewer` — see "## Role: orchestrator" in `CLAUDE.md`.
 
 
 
@@ -539,7 +537,7 @@ Fan-out is a lever, not a toll — so when you do delegate, hand the smallest en
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **An informational observation (<80) after `APPROVED`** goes to the PR body and doesn't reopen the cycle.
 - **Run each `A<n>` yourself, from the main thread, as written, in the foreground** (the host records evidence only that way). An `A<n>` never runs the full suite; the gate does.
-- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+- **A minor finding after `APPROVED` is a delta fix** — a fresh `implementer`, or you directly when it is level 0 with no critical area. The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ## Continuous execution (don't pause between tasks)
 
@@ -636,7 +634,7 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 
 ## When NOT to orchestrate
 
-If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
+If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else routes by risk — see the top of this file.
 <!-- /navori:managed id="orchestrator-base" -->
 
 <!-- navori:managed id="engram-orchestrator-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
@@ -684,7 +682,7 @@ Use for `criticalAreas`, high-blast-radius changes, or user-requested cross-chec
 ===== FILE: .claude/agents/publisher.md =====
 ---
 name: publisher
-description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
+description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR.
 tools: Read, Glob, Grep, Bash
 maxWords: 4200
 ---
@@ -696,8 +694,8 @@ Own commits and PRs in the configured style. Validate through pre-flight before 
 
 ## When to trigger
 
-- Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: commits on the branch, harness approved, and fresh full-gate evidence over the diff that ships (see Gate below).
+- Working tree with changes ready to commit (review APPROVED, or a declared direct route).
+- Branch finished, ready for PR: commits on the branch, approved or routed direct, and fresh full-gate evidence over the diff that ships (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -730,9 +728,9 @@ gh auth status                                        # gh authenticated
 
 A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions.
 
-**Which review counts.** Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
+**Which review counts** (review route only; a direct change has no `review_<feature>.md` and skips this and the receipt check). Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt: the diff must still match what was approved.** The `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/main`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
+**Content receipt: the diff must still match what was approved.** On the review route the `receipt.txt` check is also a hard stop. Run it with the feature id from `review_<feature>.md`. It owns the shipping set (working tree against `origin/main`, untracked files included), the coverage check and the drift check: do not reproduce any of them in shell.
 
 ```bash
 navori receipt check --feature <feature> --target main --dir .navori/state/handoffs --json
@@ -751,17 +749,7 @@ Continue only on `"status":"ok"`, and read the rest of the JSON by this table:
 
 If the real PR base differs from `main`, pass that actual base as `--target`.
 
-<!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
-
-**A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
-
-**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
-
-- you do NOT abort for the missing review;
-- you MUST run the full gate green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
-- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
-
-**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
+**A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
 ### Gate: `pnpm test && pnpm lint` green before the PR
 
@@ -769,7 +757,7 @@ The PR gate is the FULL one, not `pnpm lint`. Which steps sit where is a per-pro
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`; never rerun a gate the cache already covers (`navori gate` answers `PASS (cached …)`). The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Any duplication or security scan beyond the quality gate is the repo's own tooling and only runs if the repo wired it in — don't assume a net that may not be there.
 - **`"fresh":false`:** no trustworthy evidence — YOU run `navori gate full` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
-- **Declared inline (no reviewer):** no review evidence either — run it yourself.
+- **Direct change (no review):** no review evidence — run it yourself.
 
 Never open the PR with the gate red.
 
@@ -1466,71 +1454,37 @@ This role is registered ahead of the typed-handoff migration. Until a producer/c
 
 ===== FILE: .claude/context/10-orquestacion.md =====
 <!-- navori:managed id="orquestacion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Role: orchestrator (every change goes through the harness)
+## Role: orchestrator (route by risk)
 
-You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator: **you decompose, you coordinate, you synthesize**, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
 
-### What the rule binds, and what it does not
+Route by `navori plan classify <feature>` (level) and critical areas (`auth, permissions, payments, data integrity`):
 
-**Delegation is about WRITING, not about answering:**
-
-| You are about to… | Route |
+| Change | Route |
 |---|---|
-| change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
-| **answer, explain, investigate, review, or plan** | do it yourself; nothing written, nothing to review. Delegate only for scale (signal table) |
-| write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
-| run commands, read files, inspect state | you do it |
+| level 0, no critical area | direct: inspect the diff, run the focused check |
+| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff once before the PR |
+| critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
+| answer, investigate, plan, ephemeral probe | yourself |
 
-### The mechanics
-
-- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
+- One review per PR; later minor fixes get a delta review, not a new cycle.
+- Checks run once on the final diff; rerun only what a later change or failure invalidated. `pnpm test && pnpm lint` green once per PR.
+- A subagent ban is respected: work directly and say so in the reply.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `pnpm lint` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
+- Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
+- Independent sub-tasks: ALL `Agent` calls in ONE turn (Claude serializes by default); synthesis is never delegated. At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs do not prove a cap.
+- Without nested dispatch, run `scout` before `architect`.
 
-- **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
-- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers, verification). Artifacts supplement it; approval gates unchanged.
-- **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review each output.
-
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `pnpm lint` plus its `A<n>` commands; `navori receipt gate` decides the gate; you run each `A<n>` from the main thread, foreground; publisher commits until the closing milestone. Merging `E<n>` before `E<n+1>` is recommended, not required; parallel deliveries need disjoint files and own PRs.
-- **Parallel implementers need disjoint files.**
-- **`pnpm test && pnpm lint` green** is Pass 2 on the shipping diff of the PR, once per PR.
-- **A verification brief names the probe criterion**, never an open "verify X"; track agents by artifact.
-
-### Claude agent turn limits
-
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
-
-### How much analysis does this task deserve (signal → mechanism)
-
-| Signal (verifiable, in the task or the ticket) | Mechanism |
+| Signal | Mechanism |
 |---|---|
-| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — chains the rest |
-| …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
-| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
-| New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose SDD (`/spec-bootstrap` scaffolds once accepted) — opt-in, never self-assigned; don't duplicate its criteria |
-| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
-| A scoped question (does Y happen? what consumes X?) or a broad map (where does X live?) | `scout` |
-| Independent sub-questions or sub-bugs (no shared state) | N `scout` in PARALLEL (same turn) → your synthesis |
-| Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact. **The change still goes through `implementer` → `reviewer`** |
-| Nothing above fires | none extra — go straight to the `implementer` |
+| Non-trivial ticket | `resolve-ticket` |
+| …citing evidence in 2+ repos, crossing frontend/backend, or naming modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize |
+| Shared contract, migration, new dependency, critical area, hard-to-reverse decision, 2+ viable approaches | architect pass (`solution-design`) before plan approval |
+| Real scope (SDD block's threshold) | propose SDD, opt-in |
+| Scoped or broad question | `scout` (parallel for independent ones) |
 
-**The architectural pass — design before you decompose.** When its row fires, run a solution pass first: `architect` applies `solution-design` and writes `solution_<scope>.md` → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED — always yours; proposer and challenger never decide. It runs BEFORE plan approval, never mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and trivial rollback does not need it.
-
-### Analytical parallelism (the lever — mechanical, not optional)
-
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default. **Independent** sub-tasks go in the same turn; serialize only on a real dependency. Scope first; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check.
-
-### Nested dispatch unavailable
-
-Without nested dispatch (Codex, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`), run `scout` before `architect`.
-
-### When delegation is genuinely impossible
-
-Rare: the operator forbade subagents or `Agent` is unavailable. Do the work and **say why in your reply**; the `publisher` will require `pnpm test && pnpm lint` green in pre-flight, since no review exists. An undeclared inline change is a deviation.
-
-### Where the depth lives
-
-Open when the moment asks: **`.claude/agents/orchestrator.md`** (decomposing, delegation, caps, closing the cycle, second opinion, worktree reclaim) · **`.claude/skills/resolve-ticket/SKILL.md`** · **`.claude/skills/solution-design/SKILL.md`** (the design pass).
+Depth: `.claude/agents/orchestrator.md`, `.claude/skills/resolve-ticket/SKILL.md`, `.claude/skills/solution-design/SKILL.md`.
 <!-- /navori:managed id="orquestacion" -->
 
 
@@ -21073,7 +21027,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
+| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; route by risk. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
@@ -21776,7 +21730,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0 | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span | The exit code (`sed -i` exits 0 on no match) |
 | Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |

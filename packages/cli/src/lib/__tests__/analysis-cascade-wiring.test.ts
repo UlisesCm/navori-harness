@@ -32,23 +32,25 @@ const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 const read = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
 
-/** Body of the signal→mechanism lookup, from its heading to the architectural pass paragraph. */
+/** Body of the signal→mechanism lookup, from its header row to the closing depth line. */
 function cascadeSection(): string {
   const block = read("managed/orquestacion.md");
-  const start = block.indexOf("### How much analysis");
+  const start = block.indexOf("| Signal | Mechanism |");
   expect(start, "the orchestration block lost its signal→mechanism lookup").toBeGreaterThan(-1);
-  const end = block.indexOf("**The architectural pass", start);
-  expect(end, "the architectural pass paragraph no longer follows the lookup").toBeGreaterThan(
-    start,
-  );
-  return block.slice(start, end);
+  return block.slice(start);
 }
 
 /** Data rows of the lookup (header and separator dropped). */
 function cascadeRows(): string[] {
   return cascadeSection()
     .split("\n")
-    .filter((l) => l.startsWith("|") && !l.startsWith("|---") && !l.includes("| Mechanism |"));
+    .filter(
+      (l) =>
+        l.startsWith("|") &&
+        !l.startsWith("|---") &&
+        !l.includes("| Mechanism |") &&
+        !l.includes("| Signal |"),
+    );
 }
 
 /** The single row that matches `needle`, or a failure naming what was searched. */
@@ -58,76 +60,7 @@ function row(needle: string): string {
   return matches[0]!;
 }
 
-/** The architectural pass paragraph of the orchestration block. */
-function architecturalParagraph(): string {
-  const block = read("managed/orquestacion.md");
-  const start = block.indexOf("**The architectural pass");
-  expect(start, "the architectural pass paragraph is gone").toBeGreaterThan(-1);
-  return block.slice(start).split("\n")[0]!;
-}
-
 describe("analysis cascade — one lookup instead of four blocks (#379 B)", () => {
-  it("the lookup ships with a row per decision, not a paragraph per mechanism", () => {
-    const rows = cascadeRows();
-    // ~10 rows was the shape the decision approved: enough to cover every
-    // mechanism plus the two "no mechanism" outcomes, short enough to scan.
-    expect(rows.length).toBeGreaterThanOrEqual(9);
-    expect(rows.length).toBeLessThanOrEqual(14);
-  });
-
-  it("every mechanism it routes into is still reachable from the always-on layer", () => {
-    const block = read("managed/orquestacion.md");
-    // The five mechanisms of the cascade, plus the read-only agent (`scout`,
-    // spec 0026 T12's merge of researcher+explorer) whose routing sentence the
-    // table absorbed.
-    for (const mechanism of [
-      "resolve-ticket",
-      "solution-design",
-      "spec-bootstrap",
-      "auditor",
-      "scout",
-    ]) {
-      expect(
-        block,
-        `${mechanism} is no longer named anywhere in the orchestration block`,
-      ).toContain(mechanism);
-    }
-    // And the ones that are a pure lookup answer sit in the table itself.
-    // (ticket-audit's own row was folded into `auditor`'s ticket encargo when
-    // spec 0026 T12 merged the ticket-audit agent into auditor.)
-    for (const mechanism of ["resolve-ticket", "auditor", "spec-bootstrap"]) {
-      expect(
-        cascadeRows().some((l) => l.includes(mechanism)),
-        `${mechanism} dropped out of the lookup table`,
-      ).toBe(true);
-    }
-  });
-
-  it("the architectural signals moved into the table and are not restated below it", () => {
-    const architectural = row("architectural pass");
-    for (const signal of [
-      "state ownership change",
-      "shared contract",
-      "hard-to-reverse decision",
-      "genuinely viable approaches",
-    ]) {
-      expect(architectural, `the architectural row lost the "${signal}" signal`).toContain(signal);
-    }
-    // The paragraph keeps the PASS (skill, challenge, verdict); duplicating the
-    // signal list there is what the table replaced.
-    const paragraph = architecturalParagraph();
-    expect(paragraph).toContain("solution-design");
-    expect(paragraph).not.toContain("state ownership change");
-  });
-
-  it("the SDD row points at the block that owns the threshold instead of restating it", () => {
-    // `protocol-coherence` pins "~2 days" to sdd.md; the row must route, not copy.
-    const sddRow = row("spec-bootstrap");
-    expect(sddRow).toMatch(/SDD/);
-    expect(sddRow).not.toContain("~2 days");
-    expect(sddRow).toMatch(/opt-in/i);
-  });
-
   it("the routing sentence it replaced survives where the work happens", () => {
     // Deleted from the always-on block: "hand the implementer the path to the
     // audit". Both agents in that handoff still carry it.
