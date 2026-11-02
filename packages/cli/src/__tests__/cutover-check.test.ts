@@ -38,6 +38,7 @@ interface Cutover {
 interface PostCutover {
   STEPS: Array<{ name: string; cmd: string; args: string[] }>;
   ARTIFACT_SUITES: string[];
+  TS_ORACLE_CRATE: string;
   postCutoverOk: (steps: Array<{ status: number }>, seconds: number) => boolean;
 }
 interface Areas {
@@ -161,6 +162,15 @@ describe("cutover-check (spec 0062 T8)", () => {
       "check:assets",
       "check:doc-budgets",
     ]);
+    // the TS oracle crate leaves with the cutover (R24): neither clippy nor the tests build it
+    for (const name of ["cargo clippy", "cargo test"]) {
+      const args = post.STEPS.find((s) => s.name === name)?.args ?? [];
+      expect(args.slice(args.indexOf("--exclude"), args.indexOf("--exclude") + 2)).toEqual([
+        "--exclude",
+        post.TS_ORACLE_CRATE,
+      ]);
+    }
+    expect(post.TS_ORACLE_CRATE).toBe("navori-oracle-tests");
     const suites = post.STEPS.find((s) => s.name === "artifact suites");
     expect(suites?.args.slice(0, 3)).toEqual(["run", "vitest", "run"]);
     expect(suites?.args.slice(3)).toEqual(post.ARTIFACT_SUITES);

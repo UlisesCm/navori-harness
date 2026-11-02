@@ -9,7 +9,8 @@ import { POST_CUTOVER_BUDGET_S } from "./cutover-check.mjs";
  * composition it keeps after the cutover, timed. Without the TS suite: cargo, the frozen hook oracle
  * (the verdict corpus replayed against `navori-rust`), the artifact suites and the docs and render
  * checks. Each step runs in order and the first red one stops the run, unless `--keep-going`
- * (to time every step on a host where one is known red; the run still counts as red).
+ * (to time every step on a host where one is known red; the run still counts as red). Neither
+ * cargo step includes the TS oracle crate, which the cutover removes.
  *
  * It writes `.navori/state/bench/post-cutover-<stamp>.json` and `post-cutover-latest.json`
  * (`{ ok, seconds, budgetSeconds, steps }`), which `cutover:check` reads, and exits 1 when a step
@@ -43,6 +44,12 @@ export function manifestHooks(root = REPO_ROOT) {
 }
 
 /**
+ * The crate that compares the Rust port with the TS. The cutover PR removes the TS oracle (R24,
+ * D17 of 0057), so the post-cutover composition lints and tests the workspace without it.
+ */
+export const TS_ORACLE_CRATE = "navori-oracle-tests";
+
+/**
  * The steps, in order. `env` is resolved when the step runs (the binary exists only after cargo).
  * @type {Array<{ name: string, cmd: string, args: string[], cwd?: string, env?: () => Record<string, string> }>}
  */
@@ -51,9 +58,23 @@ export const STEPS = [
   {
     name: "cargo clippy",
     cmd: "cargo",
-    args: ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"],
+    args: [
+      "clippy",
+      "--workspace",
+      "--exclude",
+      TS_ORACLE_CRATE,
+      "--all-targets",
+      "--locked",
+      "--",
+      "-D",
+      "warnings",
+    ],
   },
-  { name: "cargo test", cmd: "cargo", args: ["test", "--workspace", "--locked"] },
+  {
+    name: "cargo test",
+    cmd: "cargo",
+    args: ["test", "--workspace", "--exclude", TS_ORACLE_CRATE, "--locked"],
+  },
   { name: "cargo build", cmd: "cargo", args: ["build", "-p", "navori-cli", "--locked"] },
   {
     name: "hook oracle",
