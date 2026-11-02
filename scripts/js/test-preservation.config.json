@@ -1,8 +1,12 @@
 {
   "baseRef": "origin/dev",
   "files": [
-    { "path": "packages/cli/src/lib/master/__tests__/slice.test.ts" },
-    { "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts" },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/slice.test.ts"
+    },
+    {
+      "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts"
+    },
     {
       "path": "packages/cli/src/__tests__/cli.e2e.test.ts",
       "removedCases": [
@@ -45,7 +49,30 @@
         }
       ]
     },
-    { "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts" }
+    {
+      "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts"
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/always-on-delta-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "spec-bootstrap offers it as an optional, rare spec artifact",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "the method is RED/GREEN over one isolated variable, with evidence",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "it lives in the spec because that is what survives the session",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "optional stays optional: traceability is still tasks and tests",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        }
+      ]
+    }
   ],
   "merges": [
     {

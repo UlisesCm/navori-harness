@@ -675,9 +675,8 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
     const planificacion = readFileSync(join(cwd, ".claude/context/05-planificacion.md"), "utf-8");
     expect(planificacion).toContain("`<spec>-e<n>`");
     const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
-    expect(skill).toContain("## E1 —");
-    expect(skill).toContain("### M1 —");
-    expect(skill).toContain("**A1**");
+    expect(skill).toContain("## Acceptance script");
+    expect(skill).toContain("navori spec check <feature>");
     expect(skill).not.toContain("batches of 1-3");
   });
 
