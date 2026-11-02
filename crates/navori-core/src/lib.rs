@@ -21,6 +21,7 @@ pub mod diagnose;
 pub mod fs;
 pub mod gate;
 pub mod handoff;
+pub mod http;
 pub mod i18n;
 pub mod integrity;
 pub mod js_json;
