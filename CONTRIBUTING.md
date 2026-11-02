@@ -98,9 +98,12 @@ stay TypeScript-only.
   `navori-rust --version` reports the internal prerelease `0.13.0-rust.<n>`.
 - **Delegation:** a subcommand missing from `crates/ported.json` goes to the TS CLI (`NAVORI_TS_CLI`,
   then this checkout's `packages/cli/dist`, then `navori` in `PATH`). Run `bun run build` first.
-- **Native commands:** `render` runs natively on a Claude-only root without workspaces, with
+- **Native commands:** `render` runs natively on a root without workspaces whose `engines` are a
+  non-empty subset of `claude`, `codex`, `agents-md`, `cursor`, `copilot` and `pi`, with
   `--cwd`, `--dry-run`, `--json`, `--apply` and `--force`, and only without color (a non-TTY stdout, no
-  `FORCE_COLOR`, and `CI` only with `NO_COLOR`); anything else delegates before printing. An
+  `FORCE_COLOR`, and `CI` only with `NO_COLOR`); anything else delegates before printing. With Codex
+  or Pi, `project.localSkills`, a plugin that declares `hooks` and a plugin script on disk that
+  navori does not own intact also delegate. An
   apply also delegates when `~/.navori/registry.json` lists the repo under another name. Its
   provenance line reads `core: (embedded)`, and native commands skip the update notice until
   spec 0060.
@@ -108,7 +111,9 @@ stay TypeScript-only.
   a usable backup root, no color).
 - **`sync`** is native only when it cannot prompt: with one of `--apply`, `--yes`, `--dry-run`,
   `--json`, `--accept-new`, `--keep-mine` or `--accept-new-files` (the entry's `requires`).
-  `--interactive` and `--workspace` delegate. **`remove <plugin>`** is native only with `--yes`.
+  `--interactive` and `--workspace` delegate, and so does `--accept-new-files --apply` when it
+  accepts a prose engine's file (the TS throws there). **`remove <plugin>`** is native only with
+  `--yes`. Both cover the same engines as `render`.
 - **Native hooks:** a hook in `ported.json` runs natively only where `navori-rust` is in `PATH`;
   otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and
   `NAVORI_HOOK_IMPL=rust` forces native evaluation, failing instead of deferring. Shadow
@@ -116,8 +121,14 @@ stay TypeScript-only.
 - **Sync with `dev`:** merge, never rebase. Branch from `origin/migration/rust`, run
   `git merge origin/dev` and open the PR against `migration/rust`. CI `freshness` fails when a
   first-parent `dev` commit older than 7 days is missing.
+- **Regenerate the Pi extension asset:** `navori-rust` writes `.pi/extensions/navori.ts` from
+  `crates/navori-core/assets/pi/extension.ts.in`, derived from the built TS CLI. When the TS Pi
+  extension changes (`packages/cli/src/engines/pi/`, also when merging `dev`), run
+  `bun run build && node scripts/js/gen-pi-extension-asset.mjs` and commit the asset with the change.
+  The `oracle` job runs `--check` and fails when it is stale.
 - **Checks:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`, `bun run oracle:rust` and `node scripts/js/rust-manifest-check.mjs`.
+  `cargo test --workspace`, `bun run oracle:rust`, `node scripts/js/gen-pi-extension-asset.mjs
+  --check` and `node scripts/js/rust-manifest-check.mjs`.
 
 ## Prose budget: what is capped and what is only reported
 

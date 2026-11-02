@@ -3,19 +3,23 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
-    { "path": ["render"], "flags": ["cwd", "dry-run", "json", "apply", "force"], "when": { "engines": ["claude"] } },
+    {
+      "path": ["render"],
+      "flags": ["cwd", "dry-run", "json", "apply", "force"],
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
+    },
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
     {
       "path": ["sync"],
       "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],
       "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"], ["accept-new-files"]],
-      "when": { "engines": ["claude"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     {
       "path": ["remove"],
       "flags": ["cwd", "yes"],
       "requires": [["yes"]],
-      "when": { "engines": ["claude"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
     { "path": ["plan", "gate"] },
