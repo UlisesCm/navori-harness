@@ -386,6 +386,13 @@ fn level_ok(plan: &Plan, project: &ProjectContext) -> V<()> {
     (plan.classification_level.max(recomputed) <= plan.level).then_some(())
 }
 
+/// `readWorkplan(path)`'s `level` and `classification.signals` for a workplan zod accepts;
+/// `None` for one it rejects or a `source` projection, which the caller hands to the TS.
+#[must_use]
+pub fn workplan_level_signals(raw: &JsValue) -> Option<(u8, Vec<String>)> {
+    schema(raw).map(|plan| (plan.level, plan.signals))
+}
+
 /// `checkWorkplan(raw, { cwd, feature }).ok` (evidence notes never fail it), with the level.
 #[must_use]
 pub fn check_workplan(raw: &JsValue, feature: &str, project: &ProjectContext) -> Checked {

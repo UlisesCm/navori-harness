@@ -12,6 +12,13 @@
     { "id": "adopt:refuse-outside", "fixture": "adopt", "args": ["adopt", "../fuera.md"] },
     { "id": "adopt:no-config", "fixture": "empty", "args": ["adopt", ".claude/x.md"] },
     { "id": "adopt-delegates:no-path", "fixture": "adopt", "args": ["adopt", "--apply"] },
-    { "id": "write-failure:adopt-apply", "fixture": "adopt", "args": ["adopt", "--apply", ".claude/agents/mia.md"], "readonly": [".claude/agents/mia.md"], "mask": ["stderr"] }
+    { "id": "write-failure:adopt-apply", "fixture": "adopt", "args": ["adopt", "--apply", ".claude/agents/mia.md"], "readonly": [".claude/agents/mia.md"], "mask": ["stderr"] },
+    { "id": "codex:adopt-apply", "fixture": "codex", "files": { ".claude/agents/mine.md": "# Mine\n\nHand-made agent.\n" }, "args": ["adopt", ".claude/agents/mine.md", "--apply"], "native": true },
+    { "id": "codex-untrusted:adopt-preview", "fixture": "codex-untrusted", "files": { ".claude/agents/mine.md": "# Mine\n" }, "args": ["adopt", ".claude/agents/mine.md"], "native": true },
+    { "id": "pi:adopt-apply", "fixture": "pi", "files": { ".claude/agents/mine.md": "# Mine\n\nHand-made agent.\n" }, "args": ["adopt", "--apply", ".claude/agents/mine.md"], "native": true },
+    { "id": "pi-foreign:adopt-missing", "fixture": "pi-foreign", "args": ["adopt", ".claude/agents/mine.md", "--apply"], "native": true },
+    { "id": "prose-engines:adopt-refuse-agents-md", "fixture": "prose-engines", "args": ["adopt", "AGENTS.md", "--apply"], "native": true },
+    { "id": "multi-engine:adopt-apply", "fixture": "multi-engine", "files": { ".claude/agents/mine.md": "# Mine\n\nHand-made agent.\n" }, "args": ["adopt", ".claude/agents/mine.md", "--apply"], "native": true },
+    { "id": "multi-engine-pi:adopt-after-render", "fixture": "multi-engine-pi", "files": { ".claude/agents/mine.md": "# Mine\n" }, "setup": [["render", "--apply"], ["adopt", ".claude/agents/mine.md", "--apply"]], "args": ["adopt", ".claude/agents/mine.md", "--apply"], "native": true }
   ]
 }

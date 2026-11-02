@@ -1,14 +1,17 @@
 //! The authorship test every delete path shares: `navoriAuthorship` and `isRemovableNavoriFile`
-//! of `lib/render/removable.ts` (spec 0058 T14), without `requirePristine`, which only the
-//! native-overlap retirement uses and Claude has no native unit.
+//! of `lib/render/removable.ts` (spec 0058 T14), with `requirePristine` for the Codex orphan
+//! scans that judge a file against its fresh render (spec 0059 T19).
 
 use crate::STAMP_VERSION;
+use crate::integrity::js_trim_end;
 use crate::js_json::{self, JsValue};
 use crate::markers::{
     CommentStyle, compute_managed_hash, extract_managed_content, locate_managed_blocks,
     read_marker_attrs,
 };
+use crate::posix::js_trim;
 use crate::render::collect::RepoView;
+use crate::render::frontmatter::{parse_frontmatter_fields, split_frontmatter};
 use crate::semver::is_downgrade;
 
 /// `NavoriAuthorship`: only `Ours` may be deleted.
@@ -112,6 +115,74 @@ fn style_of(content: &str) -> CommentStyle {
     }
 }
 
+/// `requirePristine`: the unit as navori renders it fresh, and the rewrite applied to the copy
+/// on disk before comparing.
+pub struct Pristine<'a> {
+    /// `expected`.
+    pub expected: &'a str,
+    /// `normalize`.
+    pub normalize: Option<&'a dyn Fn(&str) -> String>,
+}
+
+const BLOCK_TOKEN: &str = "@@navori-block@@";
+
+static BLOCK_RUNS: std::sync::LazyLock<Option<regex::Regex>> =
+    std::sync::LazyLock::new(|| regex::Regex::new(&format!("(\\n*{BLOCK_TOKEN}\\n*)+")).ok());
+
+/// `outsideTheBlocks`: frontmatter fields (sorted, `mcp__*` tools dropped) and the text around
+/// the managed blocks, normalized. Keys sort by UTF-16 units where the TS uses `localeCompare`:
+/// they differ only for distinct keys `localeCompare` ranks equal, which frontmatter keys are not.
+fn outside_the_blocks(content: &str) -> Option<(Vec<(String, String)>, String)> {
+    let style = style_of(content);
+    let split = split_frontmatter(content);
+    let mut text = split.body.to_owned();
+    let mut blocks = locate_managed_blocks(split.body, style);
+    blocks.sort_by_key(|block| std::cmp::Reverse(block.open_start));
+    for block in blocks {
+        text = format!(
+            "{}\n{BLOCK_TOKEN}\n{}",
+            &text[..block.open_start],
+            &text[block.close_end..]
+        );
+    }
+    let mut fields: Vec<(String, String)> = parse_frontmatter_fields(split.frontmatter)
+        .entries()
+        .iter()
+        .map(|(key, value)| {
+            if key == "tools" {
+                let kept: Vec<&str> = value
+                    .split(',')
+                    .map(js_trim)
+                    .filter(|tool| !tool.starts_with("mcp__"))
+                    .collect();
+                (key.clone(), kept.join(", "))
+            } else {
+                (key.clone(), value.clone())
+            }
+        })
+        .collect();
+    fields.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let lines: Vec<&str> = text.split('\n').map(js_trim_end).collect();
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| !line.is_empty() || (*i > 0 && !lines[i - 1].is_empty()))
+        .map(|(_, line)| *line)
+        .collect();
+    let joined = kept.join("\n");
+    let collapsed = BLOCK_RUNS
+        .as_ref()?
+        .replace_all(&joined, format!("\n{BLOCK_TOKEN}\n").as_str());
+    Some((fields, js_trim(&collapsed).to_owned()))
+}
+
+/// `hasUserWrittenText`: `content` differs from `expected` outside its managed blocks.
+fn has_user_written_text(content: &str, expected: &str) -> bool {
+    let actual = outside_the_blocks(crate::render::native_hooks::strip_signature(content));
+    let wanted = outside_the_blocks(expected);
+    actual.is_none() || actual != wanted
+}
+
 /// `navoriAuthorship(path, markerId, { verifyHash })`.
 #[must_use]
 pub fn navori_authorship(
@@ -119,6 +190,18 @@ pub fn navori_authorship(
     rel: &str,
     marker_id: Option<&str>,
     verify_hash: bool,
+) -> Authorship {
+    navori_authorship_pristine(view, rel, marker_id, verify_hash, None)
+}
+
+/// `navoriAuthorship(path, markerId, { verifyHash, requirePristine })`.
+#[must_use]
+pub fn navori_authorship_pristine(
+    view: &dyn RepoView,
+    rel: &str,
+    marker_id: Option<&str>,
+    verify_hash: bool,
+    pristine: Option<&Pristine<'_>>,
 ) -> Authorship {
     // `lstat().isFile()` and a readable UTF-8 body, or it is not ours.
     let Some(content) = view.read_regular(rel) else {
@@ -144,6 +227,14 @@ pub fn navori_authorship(
             {
                 return Authorship::Modified;
             }
+        }
+    }
+    if let Some(pristine) = pristine {
+        let compared = pristine
+            .normalize
+            .map_or_else(|| content.clone(), |normalize| normalize(&content));
+        if has_user_written_text(&compared, pristine.expected) {
+            return Authorship::Modified;
         }
     }
     Authorship::Ours

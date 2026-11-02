@@ -37,6 +37,7 @@ interface OracleCase {
   mask?: string[];
   native?: boolean;
   files?: Record<string, string>;
+  setup?: unknown[];
   readonly?: string[];
 }
 interface Rule {
@@ -354,11 +355,19 @@ describe("rust oracle", () => {
           engines?: string[];
           language?: string;
           monorepo?: { enabled?: boolean; workspaces?: unknown[] };
+          project?: { localSkills?: unknown[] };
         };
         const workspaces =
           config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+        // Local-skill pointers on the shared `.agents/skills` root (Codex, Pi) stay the TS's
+        // (spec 0059 T19, T20), like workspaces.
+        const localSkillPointers =
+          (config.project?.localSkills ?? []).length > 0 &&
+          (config.engines ?? []).some((e) => e === "codex" || e === "pi");
         const applicable =
-          !workspaces && (config.engines ?? ["claude"]).every((e) => engines.includes(e));
+          !workspaces &&
+          !localSkillPointers &&
+          (config.engines ?? ["claude"]).every((e) => engines.includes(e));
         if (!applicable) continue;
         // Cases inside the native subset: the command, then positionals and its declared flags.
         const declared = (args: string[]): boolean =>
@@ -514,12 +523,19 @@ describe("rust oracle", () => {
     }
   });
 
-  // Covers: R37, R49
+  // Covers: R37, R49, R63
   it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
     const cells = oracle.antiRollbackCases("0.12.3");
     const levels = oracle.ANTI_ROLLBACK_LEVELS;
     expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
-    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings", "remove"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual([
+      "inject",
+      "hook",
+      "settings",
+      "remove",
+      "codex-config",
+      "agents-md",
+    ]);
     const ids = new Set(cells.map((c) => c.id));
     for (const op of oracle.ANTI_ROLLBACK_OPS)
       for (const floor of levels)
@@ -536,9 +552,22 @@ describe("rust oracle", () => {
         const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
         expect(config.plugins.tgrep).toEqual({ enabled: true });
         expect(c.files?.["CLAUDE.md"]).toContain('id="tgrep-search-v2"');
+      } else if (c.id.startsWith("anti-rollback:codex-config:")) {
+        // the Codex config's `#` marker, under a native `sync` (spec 0059 T21)
+        expect(c.fixture).toBe("codex");
+        expect(c.args).toEqual(["sync", "--apply"]);
+        expect(c.native).toBe(true);
+        expect(c.files?.[".codex/config.toml"]).toMatch(
+          /^# navori:managed start id="codex-config-base"/,
+        );
       } else {
         expect(c.args).toEqual(["render", "--apply"]);
         expect(c.mask).toEqual(["provenance"]);
+        if (c.id.startsWith("anti-rollback:agents-md:")) {
+          expect(c.fixture).toBe("prose-engines");
+          expect(c.native).toBe(true);
+          expect(c.files?.["AGENTS.md"]).toContain('id="navori-agents"');
+        }
       }
     }
     // the floor lands in the config, the stamp on the block, and the block hash matches its body
@@ -561,6 +590,169 @@ describe("rust oracle", () => {
   });
 
   // Covers: R9
+  // Covers: R62, R64
+  it("los fixtures multi-engine cubren AGENTS.md compartido", () => {
+    const cases = oracle.loadCases();
+    const configOf = (c: OracleCase): { engines?: string[]; language?: string } =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as { engines?: string[]; language?: string };
+    const prose = ["agents-md", "cursor", "copilot"];
+    for (const fixture of ["prose-engines", "multi-engine"]) {
+      const mine = cases.filter((c) => c.fixture === fixture && c.args[0] === "render");
+      // native, so a delegation is a difference; preview and apply, human and --json, es and en
+      for (const c of mine) expect(c.native, c.id).toBe(true);
+      for (const apply of [false, true])
+        for (const json of [false, true])
+          expect(
+            mine.some(
+              (c) => c.args.includes("--apply") === apply && c.args.includes("--json") === json,
+            ),
+            `${fixture} apply=${apply} json=${json}`,
+          ).toBe(true);
+      expect(new Set(mine.map((c) => configOf(c).language)), fixture).toEqual(
+        new Set(["es", "en"]),
+      );
+      for (const c of mine)
+        expect(configOf(c).engines, c.id).toEqual(expect.arrayContaining(prose));
+    }
+    // multi-engine: Claude beside the three prose engines, AGENTS.md is the user's own file, and
+    // the other two cover a hand-edited block and a block from a newer navori
+    const multi = JSON.parse(
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", "navori.config.json"), "utf8"),
+    ) as { engines: string[] };
+    expect(multi.engines).toContain("claude");
+    const fixtureFile = (rel: string): string =>
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", `${rel}.fixture`), "utf8");
+    expect(fixtureFile("AGENTS.md")).not.toContain("navori:managed");
+    expect(fixtureFile(".github/copilot-instructions.md")).toContain('hash="00000000"');
+    expect(fixtureFile(".cursor/rules/navori.mdc")).toContain('version="99.0.0"');
+    // a re-render: the first apply makes AGENTS.md navori's, which the guard then owns
+    expect(cases.some((c) => c.fixture === "multi-engine" && (c.setup ?? []).length > 0)).toBe(
+      true,
+    );
+    // with Pi and a foreign Pi resource, Rust vetoes the Pi generation natively (spec 0059 T20)
+    const foreign = cases.find((c) => c.id === "multi-engine:pi-foreign-writes-nothing");
+    expect(foreign?.native).toBe(true);
+    expect(configOf(foreign!).engines).toContain("pi");
+    expect(Object.keys(foreign?.files ?? {})).toContain(".pi/extensions/navori.ts");
+  });
+
+  // Covers: R62, R63
+  it("render, sync, remove y adopt nativos en multi-engine", () => {
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8")) as {
+      commands: Array<{ path: string[]; when?: { engines?: string[] } }>;
+    };
+    const r62 = ["claude", "agents-md", "cursor", "copilot", "codex", "pi"];
+    for (const name of ["render", "sync", "remove"]) {
+      const entry = manifest.commands.find((c) => c.path.join(" ") === name);
+      expect(entry?.when?.engines, name).toEqual(r62);
+    }
+    // `adopt` touches only `.claude/**/*.md`, so it never had an engine subset
+    expect(manifest.commands.find((c) => c.path.join(" ") === "adopt")?.when).toBeUndefined();
+    const cases = oracle.loadCases();
+    const enginesOf = (c: OracleCase): string[] =>
+      (
+        JSON.parse(
+          c.files?.["navori.config.json"] ??
+            readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+        ) as { engines?: string[] }
+      ).engines ?? ["claude"];
+    for (const name of ["render", "sync", "remove", "adopt"]) {
+      const native = cases.filter((c) => c.args[0] === name && c.native === true);
+      // every engine of R62 on its own, and a fixture with several engines beside Claude
+      for (const engine of r62.filter((e) => e !== "claude"))
+        expect(
+          native.some((c) => enginesOf(c).includes(engine)),
+          `${name} native with ${engine}`,
+        ).toBe(true);
+      expect(
+        native.some((c) => enginesOf(c).includes("claude") && enginesOf(c).length >= 4),
+        `${name} native on a multi-engine fixture`,
+      ).toBe(true);
+    }
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    // sync resolves a Codex file natively, and hands the TS a prose file its apply cannot bind
+    expect(byId.get("codex:sync-accept-new-files")?.native).toBe(true);
+    expect(byId.get("codex:sync-config-edited")?.native).toBe(true);
+    expect(byId.get("sync-delegates:prose-accept-new-files")?.native).toBeUndefined();
+    // the four commands, one after another, on Claude, the prose engines and Pi
+    const chained = byId.get("multi-engine-pi:sync-after-adopt");
+    expect(chained?.native).toBe(true);
+    expect(chained?.setup).toEqual([
+      ["render", "--apply"],
+      ["adopt", ".claude/agents/mine.md", "--apply"],
+    ]);
+    expect(byId.get("multi-engine-pi:remove-yes")?.native).toBe(true);
+  });
+
+  // Covers: R19
+  it("cada dimensión de config de las suites de aceptación de Pi y Codex tiene fixture", () => {
+    interface Config {
+      engines?: string[];
+      harness?: Record<string, boolean>;
+      qualityGate?: { fast?: string };
+      plugins?: Record<string, { enabled?: boolean }>;
+      models?: { codexMap?: Record<string, string> };
+    }
+    const configOf = (c: OracleCase): Config =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as Config;
+    const pluginsDir = join(root, "packages", "plugins");
+    const mcp = readdirSync(pluginsDir).filter((id) => {
+      const manifest = join(pluginsDir, id, "plugin.json");
+      return existsSync(manifest) && "mcpServer" in JSON.parse(readFileSync(manifest, "utf8"));
+    });
+    expect(mcp.length).toBeGreaterThan(0);
+    // A file overwritten after a first render: the user's edit the next render must respect.
+    const edited = (c: OracleCase): boolean => {
+      const steps = (c.setup ?? []) as unknown[];
+      const rendered = steps.findIndex(
+        (s) => Array.isArray(s) && s[0] === "render" && s.includes("--apply"),
+      );
+      return (
+        rendered >= 0 &&
+        steps
+          .slice(rendered + 1)
+          .some((s) => typeof s === "object" && s !== null && "write" in s && !("in" in s))
+      );
+    };
+    const role = (name: string, on: boolean) => (c: Config) => (c.harness?.[name] ?? true) === on;
+    // D39: the dimensions the first-class Pi suites and the Codex parity and trust suites exercise.
+    const dimensions: Array<[string, string[], (config: Config, c: OracleCase) => boolean]> = [
+      ["harness.planTiers", ["pi", "codex"], (c) => c.harness?.planTiers === true],
+      ["harness.masterPlan", ["pi"], (c) => c.harness?.masterPlan === true],
+      ["harness.scribeOwnsMarkdown", ["pi"], (c) => c.harness?.scribeOwnsMarkdown === true],
+      ["qualityGate.fast", ["pi", "codex"], (c) => Boolean(c.qualityGate?.fast)],
+      ["rol publisher", ["pi"], role("publisher", true)],
+      ["sin rol publisher", ["pi"], role("publisher", false)],
+      ["rol scout", ["pi"], role("scout", true)],
+      ["sin rol scout", ["pi"], role("scout", false)],
+      [
+        "plugins MCP",
+        ["pi", "codex"],
+        (c) => Object.entries(c.plugins ?? {}).some(([id, p]) => p.enabled && mcp.includes(id)),
+      ],
+      ["codexMap", ["pi", "codex"], (c) => Object.keys(c.models?.codexMap ?? {}).length > 0],
+      ["recurso editado por el usuario", ["pi", "codex"], (_, c) => edited(c)],
+    ];
+    // Tree equality needs a write: native renders with --apply.
+    const applied = oracle
+      .loadCases()
+      .filter((c) => c.native === true && c.args[0] === "render" && c.args.includes("--apply"));
+    for (const [name, engines, holds] of dimensions)
+      for (const engine of engines)
+        expect(
+          applied.some(
+            (c) => (configOf(c).engines ?? ["claude"]).includes(engine) && holds(configOf(c), c),
+          ),
+          `${name} with ${engine}`,
+        ).toBe(true);
+  });
+
   it("los casos cubren el repo con contenido de usuario y la superficie del golden", () => {
     const cases = oracle.loadCases();
     const user = cases.find((c) => c.id === "user-content-outside-markers");
@@ -619,7 +811,16 @@ describe("rust oracle", () => {
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1]);
-    expect(native.sort()).toEqual(["check", "log-review", "render"]);
+    expect(native.sort()).toEqual([
+      "attest",
+      "begin-parallel",
+      "check",
+      "complete-parallel",
+      "finalize-parallel",
+      "log-review",
+      "prepare-parallel",
+      "render",
+    ]);
     for (const sub of native) {
       for (const json of [true, false]) {
         expect(
@@ -632,17 +833,18 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // The parallel producers and `attest` are the TS's: their cases must stay delegated.
+    // A config that prints warnings would print them once per `bindings` read: the producers
+    // and the scribe's parallel check hand it to the TS.
     for (const sub of [
       "prepare-parallel",
       "begin-parallel",
       "complete-parallel",
       "finalize-parallel",
-      "attest",
     ]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+      expect(
+        cases.find((c) => c.id === `handoff:${sub}-config-con-avisos`)?.native,
+        sub,
+      ).toBeUndefined();
     }
     for (const flag of ["--for", "--target", "--cwd"]) {
       expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
@@ -650,23 +852,47 @@ describe("rust oracle", () => {
       );
     }
     for (const flag of ["--produced-by", "--since", "--parallel"]) {
-      expect(cases.find((c) => c.args.includes(flag))?.native).toBeUndefined();
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.find((c) => c.id === "handoff:check-parallel-delegates")?.native).toBeUndefined();
+    expect(cases.find((c) => c.id === "handoff:check-parallel-scribe")?.native).toBe(true);
+    // A native Codex producer attests, as implementer and as scribe over its record.
+    for (const id of ["attest-implementer", "attest-scribe-tras-implementer"]) {
+      expect(cases.find((c) => c.id === `handoff:${id}`)?.native, id).toBe(true);
     }
     expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
     expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
   });
 
   // Covers: R73, R74
-  it("plan classify, check, render, update y escalation-reset nativos con sus delegaciones", () => {
+  it("plan classify, check, render, update, escalation-reset, acknowledge y resume nativos con sus delegaciones", () => {
     const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
     const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1])
       .sort();
-    expect(native).toEqual(["check", "classify", "escalation-reset", "gate", "render", "update"]);
+    expect(native).toEqual([
+      "acknowledge",
+      "check",
+      "classify",
+      "escalation-reset",
+      "gate",
+      "render",
+      "resume",
+      "update",
+    ]);
     const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
-    for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
+    for (const sub of [
+      "classify",
+      "check",
+      "render",
+      "update",
+      "escalation-reset",
+      "acknowledge",
+    ]) {
       for (const json of [true, false]) {
         expect(
           cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
@@ -677,19 +903,40 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // What stays in the TS must stay delegated: a native case there would hide a regression.
-    for (const sub of ["acknowledge", "resume"]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    // `acknowledge` covers the acknowledgement, its inspection and a continuation natively; zod's
+    // and citty's own errors stay with the TS.
+    for (const id of [
+      "acknowledge-repeat",
+      "acknowledge-inspect",
+      "acknowledge-continue-unconsumed",
+      "acknowledge-records-the-review",
+      "acknowledge-level-1",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBe(true);
     }
-    expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
-    // Git evidence, audit events and escalation records stay with the TS.
+    const resume = oracle
+      .loadCases()
+      .filter((c) => c.args[0] === "plan" && c.args[1] === "resume" && c.native);
+    for (const json of [true, false]) {
+      expect(resume.some((c) => c.args.includes("--json") === json)).toBe(true);
+    }
+    expect(resume.some((c) => c.id === "plan-resume:recibo-firmado")).toBe(true);
+    // `classify --diff` is native over git (D42); a base git cannot resolve stays with the TS.
+    const diff = oracle.loadCases().filter((c) => c.id.startsWith("plan-diff:"));
+    for (const json of [true, false]) {
+      expect(diff.some((c) => c.args.includes("--json") === json && c.native)).toBe(true);
+    }
+    expect(diff.find((c) => c.id === "plan-diff:base-inexistente")?.native).toBeUndefined();
+    // Git evidence, audit events, escalation records and acknowledge's zod and citty errors stay
+    // with the TS.
     for (const id of [
       "update-evidence-session-delegates",
       "update-audit-delegates",
       "reset-escalation-record-delegates",
       "reset-audit-delegates",
+      "acknowledge-invalid-reference-delegates",
+      "acknowledge-extra-positional-delegates",
+      "acknowledge-missing-opening-delegates",
     ]) {
       expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
     }

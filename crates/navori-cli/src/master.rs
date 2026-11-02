@@ -41,6 +41,82 @@ const STATUS: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+/// `navori master`: only usage, `--help` and unknown subcommands are its own (citty).
+const MASTER: CommandDef = CommandDef {
+    name: "master",
+    description: "Master-plan project flow (spec 0034)",
+    args: &[],
+    sub_commands: &[
+        (
+            "delivery-slice",
+            "Project an authorized slice into a workplan",
+        ),
+        (
+            "delivery-check",
+            "Check delivery preparation without writes",
+        ),
+        (
+            "delivery-baseline",
+            "Record explicit operator baseline approval",
+        ),
+        ("delivery-queue", "Authorize a bounded delivery queue"),
+        (
+            "delivery-revoke",
+            "Explicitly revoke queue authority and prior generation proof",
+        ),
+        (
+            "delivery-criterion",
+            "Consume current host provenance or explicit manual attestation",
+        ),
+        (
+            "delivery-review",
+            "Operator-attested technical review; CLI verifies content/receipt, not identity or QA execution",
+        ),
+        (
+            "delivery-present",
+            "Record a current technically reviewed demo identity, not client consent",
+        ),
+        (
+            "delivery-decision",
+            "Explicit operator-attested client decision on an exact reviewed identity",
+        ),
+        (
+            "delivery-publication",
+            "Attest release/deploy reference without executing deployment",
+        ),
+        (
+            "init",
+            "Open, or complete, the active master-plan stage (R3, R5)",
+        ),
+        (
+            "mode",
+            "Register the first stage's mode: template | en-curso | desde-cero (R16)",
+        ),
+        (
+            "ux",
+            "Record the UX contract decision in phase ux: none | md | md-json",
+        ),
+        (
+            "template",
+            "Print a master-plan template, or a filled issue (R42)",
+        ),
+        (
+            "check",
+            "Validate the active stage, or a closed one with --stage (R50)",
+        ),
+        ("advance", "Advance the active stage one phase (R8)"),
+        ("status", "Show or regenerate derived master-plan status"),
+        (
+            "part",
+            "Update a master-plan part or record acceptance evidence",
+        ),
+        (
+            "close",
+            "Close, convert or abandon the active stage (R47, R57, R58)",
+        ),
+    ],
+};
+
 pub(crate) const MASTER_PARENT: Parent<'static> = Parent {
     name: "master",
     version: None,
@@ -85,6 +161,47 @@ fn parse_status<'a>(tokens: &[&'a str]) -> Option<StatusOptions<'a>> {
         }
     }
     Some(options)
+}
+
+/// `master` alone: usage, `--help` and unknown subcommands. A known subcommand reaching this row
+/// is not native yet and goes to the TS.
+#[must_use]
+pub fn run_group(call: &NativeCall<'_>) -> Outcome {
+    group(call.args).map_or(Outcome::Delegate, |out| Outcome::Exit(out.emit()))
+}
+
+fn group(args: &[std::ffi::OsString]) -> Option<Output> {
+    let argv: Vec<&str> = args.iter().map(|a| a.to_str()).collect::<Option<_>>()?;
+    let rest = match argv.as_slice() {
+        ["master", rest @ ..] => rest,
+        _ => return None,
+    };
+    if rest.contains(&"--") {
+        return None;
+    }
+    let is_help = |a: &&str| *a == "--help" || *a == "-h";
+    let help = rest.iter().any(is_help);
+    let at = rest.iter().position(|a| !a.starts_with('-'));
+    if rest[..at.unwrap_or(rest.len())].iter().any(|a| !is_help(a)) {
+        return None;
+    }
+    let Some(at) = at else {
+        let error = (!help).then(|| "No command specified.".to_owned());
+        return Some(Output::usage(&MASTER, crate::plan::ROOT, error));
+    };
+    let name = rest[at];
+    if crate::plan::PROTOTYPE_KEYS.contains(&name)
+        || MASTER.sub_commands.iter().any(|(sub, _)| *sub == name)
+    {
+        return None;
+    }
+    let error = (!help).then(|| {
+        let paint = crate::help::Paint {
+            color: !crate::help::citty_no_color(),
+        };
+        format!("Unknown command {}", paint.cyan(name))
+    });
+    Some(Output::usage(&MASTER, crate::plan::ROOT, error))
 }
 
 /// `master status`.

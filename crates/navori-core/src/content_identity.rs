@@ -60,6 +60,8 @@ pub struct Identity {
     pub fingerprint: String,
     /// `HEAD` commit.
     pub head: String,
+    /// `origin/<target>` as known locally (no fetch), when a target was given and it resolves.
+    pub base: Option<String>,
     /// Staged blobs differ from the working tree (informational, outside the hash).
     pub index_diverges: bool,
 }
@@ -178,6 +180,21 @@ pub fn working_within(
     timeout: Duration,
     max_bytes: u64,
 ) -> Result<Identity, Failure> {
+    working_for(cwd, env, None, timeout, max_bytes)
+}
+
+/// `contentIdentity(cwd, { target, timeoutMs, maxBytes })`: [`working_within`] that also records
+/// the local `origin/<target>` as [`Identity::base`].
+///
+/// # Errors
+/// The [`Failure`] that made the identity unavailable.
+pub fn working_for(
+    cwd: &Path,
+    env: &Env,
+    target: Option<&str>,
+    timeout: Duration,
+    max_bytes: u64,
+) -> Result<Identity, Failure> {
     let deadline = Instant::now() + timeout;
     if !is_work_tree(cwd, env, deadline)? {
         return Err(Failure::NotACheckout);
@@ -205,6 +222,19 @@ pub fn working_within(
     .map(|text| js_trim(&text).to_owned())
     .filter(|head| !head.is_empty())
     .ok_or(Failure::GitFailed)?;
+    // `target ? run(...)?.trim() ?? null : null`: an empty target records no base.
+    let base = match target.filter(|t| !t.is_empty()) {
+        Some(target) => git(
+            cwd,
+            env,
+            &["rev-parse", "--verify", "-q", &format!("origin/{target}")],
+            deadline,
+            None,
+            true,
+        )?
+        .map(|text| js_trim(&text).to_owned()),
+        None => None,
+    };
 
     let excludes: Vec<String> = IDENTITY_EXCLUDES
         .iter()
@@ -328,6 +358,7 @@ pub fn working_within(
         fingerprint,
         index_diverges: diverges(&staged, &entries),
         head,
+        base,
     })
 }
 

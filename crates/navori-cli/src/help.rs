@@ -50,6 +50,8 @@ pub enum ArgKind {
     String,
     /// `type: "boolean"`, optional and without default.
     Boolean,
+    /// `type: "string", required: true`, without default.
+    RequiredString,
 }
 
 /// One entry of a citty `args` table, in declaration order.
@@ -151,16 +153,23 @@ pub fn render_usage(cmd: &CommandDef, parent: Parent<'_>, paint: Paint) -> Strin
                 ]);
                 usage_line.push(format!("<{name}>"));
             }
-            ArgKind::String | ArgKind::Boolean => {
-                let hint = if arg.kind == ArgKind::String {
-                    format!("=<{}>", arg.name.replace('-', "_"))
-                } else {
+            ArgKind::String | ArgKind::Boolean | ArgKind::RequiredString => {
+                let hint = if arg.kind == ArgKind::Boolean {
                     String::new()
+                } else {
+                    format!("=<{}>", arg.name.replace('-', "_"))
                 };
-                options.push([
-                    paint.cyan(&format!("--{}{hint}", arg.name)),
-                    arg.description.to_owned(),
-                ]);
+                let required = arg.kind == ArgKind::RequiredString;
+                let gray = paint.gray("(Required)");
+                let description = [arg.description, if required { gray.as_str() } else { "" }]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                options.push([paint.cyan(&format!("--{}{hint}", arg.name)), description]);
+                if required {
+                    usage_line.push(format!("--{}{hint}", arg.name));
+                }
             }
         }
     }

@@ -3,19 +3,23 @@
   "commands": [
     { "path": ["--version"] },
     { "path": ["--help"] },
-    { "path": ["render"], "flags": ["cwd", "dry-run", "json", "apply", "force"], "when": { "engines": ["claude"] } },
+    {
+      "path": ["render"],
+      "flags": ["cwd", "dry-run", "json", "apply", "force"],
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
+    },
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
     {
       "path": ["sync"],
       "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],
       "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"], ["accept-new-files"]],
-      "when": { "engines": ["claude"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     {
       "path": ["remove"],
       "flags": ["cwd", "yes"],
       "requires": [["yes"]],
-      "when": { "engines": ["claude"] }
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
     { "path": ["plan", "gate"] },
@@ -29,6 +33,7 @@
         "cwd",
         "data-schema-migration",
         "dataSchemaMigration",
+        "diff",
         "dir",
         "files",
         "h",
@@ -48,6 +53,22 @@
     { "path": ["plan", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["plan", "update"], "flags": ["cwd", "date", "decision", "dir", "h", "help", "json", "progress"] },
     { "path": ["plan", "escalation-reset"], "flags": ["approved-by", "cwd", "dir", "h", "help", "json", "reason"] },
+    {
+      "path": ["plan", "acknowledge"],
+      "flags": [
+        "authorization-id",
+        "continue-after",
+        "cwd",
+        "decision",
+        "h",
+        "help",
+        "inspect",
+        "json",
+        "opening",
+        "snapshot"
+      ]
+    },
+    { "path": ["plan", "resume"], "flags": ["h", "help", "json"] },
     { "path": ["plan"], "flags": ["h", "help"] },
     { "path": ["dominio", "inject"] },
     { "path": ["dominio", "init"], "flags": ["h", "help", "workspace"] },
@@ -107,12 +128,18 @@
       "path": ["master", "status"],
       "flags": ["cwd", "h", "help", "json", "line"]
     },
+    { "path": ["master"], "flags": ["h", "help"] },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec"], "flags": ["h", "help"] },
-    { "path": ["handoff", "check"], "flags": ["cwd", "dir", "for", "h", "help", "json", "target"] },
+    { "path": ["handoff", "check"], "flags": ["cwd", "dir", "for", "h", "help", "json", "parallel", "produced-by", "since", "target"] },
     { "path": ["handoff", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
     { "path": ["handoff", "log-review"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff", "attest"], "flags": ["dir", "h", "help", "json", "target"] },
+    { "path": ["handoff", "prepare-parallel"], "flags": ["dir", "h", "help", "json", "request", "supersede", "target"] },
+    { "path": ["handoff", "begin-parallel"], "flags": ["dir", "h", "help", "json", "run", "target"] },
+    { "path": ["handoff", "complete-parallel"], "flags": ["dir", "h", "help", "json", "reason", "run", "status", "target"] },
+    { "path": ["handoff", "finalize-parallel"], "flags": ["dir", "h", "help", "json", "target"] },
     { "path": ["handoff"], "flags": ["h", "help"] }
   ],
   "hooks": {
