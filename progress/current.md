@@ -1,9 +1,11 @@
 # Sesión actual
 
-#1361/T9, rama fix/1361-pi-event-correlation desde origin/dev e9e556f4. Correlación exacta de hijos Pi en K2, hooks, eventos CLI y evidencia, incluidos IDs nativos con `:`. Trabajo directo por solicitud del usuario, sin subagentes.
+Doctrina de slices verticales en navori (4 PRs, uno a la vez; el usuario revisa diff y resumen antes de cada siguiente). PR 1 abierto: #1483 (`feat/spec-una-pagina` → dev, HEAD 825c8b270), spec.md de una página + `navori spec check`.
 
 ## Siguiente paso
 
-Gate completo `bun run check` verde: 10184 aprobadas, 2 omitidas, 476 archivos, 946s; piso de cobertura 160 módulos sin excepciones; bundle 1626.2/1650KiB. Siguiente: abrir PR normal hacia dev con `.navori/state/1361-events-open-pr.sh`; creación automática bloqueada por consentimiento del host, no reintentar.
+PR 2 desde dev tras el merge de #1483: bloque SDD gestionado (`core-assets/managed/sdd.md`) en ≤8 líneas, sin EARS, trazabilidad ni cadena obligatoria orchestrator→implementer→reviewer, y fila 3 de `managed/planificacion.md` (hoy cita `tasks.md` y `spec: <spec> E<n> M<n>`; una spec.md se despacha con `workplan: <feature>` nivel 3). Proponerlo antes de codear.
 
-T10 (catálogo de denegaciones), T11 y A5 completo, M6–M7 siguen pendientes; no cerrar #1361. Pi mantiene startup capture y spool deshabilitados; la correlación no concede autoridad. Prueba SDK/CLI con modelo simulado, sin credenciales ni inferencia viva. Cambios locales de #1326 preservados en el checkout principal; #1367 sigue apartado por petición del usuario.
+Después: PR 3 (master-plan: partes de una sola capa fallan, A1 manual en qa + A2 E2E obligatorios, D<n> provisionales, quitar "cero supuestos"; `master/check-part.ts` debe leer spec.md y dejar de exigir Libraries con versión, Pattern e Interfaces; skill por debajo de 2,752 palabras), PR 4 (agentes implementer/reviewer/publisher y presets que citan tasks.md/Covers), validación con `navori render --apply` sobre jey en una rama y tabla antes/después de palabras. Issue #1482 (gate falla rápido con node_modules desalineado) va justo después.
+
+Pendiente de otra sesión: #1361/T9 (rama fix/1361-pi-event-correlation) espera abrir su PR con `.navori/state/1361-events-open-pr.sh`; T10, T11, A5, M6–M7 siguen abiertos.

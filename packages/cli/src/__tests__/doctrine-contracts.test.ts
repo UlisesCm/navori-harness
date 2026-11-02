@@ -730,9 +730,9 @@ const ROWS: readonly ContractRow[] = [
     ],
   },
   {
-    id: "R28: spec-bootstrap's rendered Order has the architect apply solution-design for design.md",
+    id: "R28: spec-bootstrap's rendered skill produces the one-page spec.md for a vertical slice",
     file: claude("tiers", ".claude/skills/spec-bootstrap/SKILL.md"),
-    tokens: ["The `architect` writes `design.md`, applying `solution-design`."],
+    tokens: ["<feature>/spec.md` — one file, one vertical slice, one delivery"],
   },
   {
     id: "R23/R24: planTiers on routes level 2 through architect/auditor/user/verdict",
@@ -952,10 +952,11 @@ describe("doctrine contracts — intake doctrine has two owners by engine, one w
   });
 
   // Covers: #1273
-  it("the SDD threshold stays single-owner and spec-bootstrap owns the Covers convention", () => {
+  it("the SDD threshold stays single-owner and spec-bootstrap owns the one-page spec.md", () => {
     has(readAsset("managed/sdd.md"), "~2 days");
     lacks(readAsset("skills/spec-bootstrap.md"), "~2 days");
-    has(readAsset("skills/spec-bootstrap.md"), "// Covers: R<n>");
+    lacks(readAsset("skills/spec-bootstrap.md"), "EARS");
+    has(readAsset("skills/spec-bootstrap.md"), "spec.md");
   });
 });
 

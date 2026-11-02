@@ -396,9 +396,9 @@ describe("plan skills — spec 0052 doctrine", () => {
   });
 
   // Covers: R39
-  it("spec-bootstrap documenta la apertura sin entregas y el workplan de entrega de nivel 3", () => {
+  it("spec-bootstrap documenta el workplan de nivel 3 y el encargo `workplan: <feature>`", () => {
     const text = body("spec-bootstrap");
-    expect(text).toContain("A spec without deliveries opens with `workplan: <feature>`");
-    expect(text).toContain('a delivery\'s workplan is level 3 (`"level": 3`)');
+    expect(text).toContain("A level-3 workplan named `<feature>`");
+    expect(text).toContain("encargos open with `workplan: <feature>`");
   });
 });

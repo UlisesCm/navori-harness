@@ -1,5 +1,11 @@
 # History
 
+## 2026-11-02 11:20 Claude — spec-bootstrap genera una spec.md de una página (PR #1483)
+
+Primer PR de cuatro para llevar a navori las reglas de slices de jey (`specs/_master/02-mvp-slices/MASTER.md`, auditoría del 01-mvp). `spec-bootstrap` reemplaza requirements/design/tasks, EARS y `// Covers: R<n>` por una sola `spec.md` (≤1,200 palabras, siete secciones fijas, guion ≤10 pasos, ≤8 tareas); la skill baja de 1,108 a 567 palabras (maxWords 906 → 568). `navori spec check` valida `spec.md` con `lib/spec/onepage.ts` (errores estructurales; avisos por estados faltantes y por versión/ruta/firma en tareas); `classify` la trata como un PR. La gramática E/M/A/T de `tasks.md` queda como compatibilidad de lectura. Sobre jey, `spec check 02-mvp-s01-cuenta-correo` da ok con 3 avisos.
+
+Gate full verde en el árbol commiteado (test:coverage 10483 aprobadas, 2 omitidas; bundle 1591.8KB), recibo full fresco en 825c8b270. El rojo inicial de typecheck/size/citty/zod/Pi era `node_modules` desalineado con `bun.lock`; `bun install --frozen-lockfile` lo resolvió e #1482 pide que el gate lo detecte al inicio. Siguen PR 2 (bloque SDD ≤8 líneas y fila 3 de planificación), PR 3 (master-plan y `master check-part`) y PR 4 (resto de skills y agentes), y la validación con render sobre jey.
+
 ## 2026-10-28 15:40 Pi — Separa en dos archivos del spool los eventos de una invocación
 
 Con bash < 5.1 (macOS `/bin/bash` 3.2) o sin `EPOCHREALTIME`, los dos eventos de una corrida del gate (`gate-started` y luego el veredicto) calculaban el mismo nombre de spool: el sello valía 0 y el subshell repetía el `$RANDOM` del padre, así que `noclobber` descartaba el segundo y, sin `navori` en PATH, se perdía. `navori_audit_spool_write` agrega un contador por proceso, contado en el shell padre y desde 1000, para que los nombres `<stamp>-<pid>-<seq>-<rand>.json` sigan el orden de escritura. Regresión nueva en bash y zsh que falla sin el fix; hooks y goldens re-renderizados. Trabajo directo sin subagentes porque los de Pi devuelven 400 (Q18).
