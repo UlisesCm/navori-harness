@@ -872,6 +872,10 @@ fn evaluate_nivel0(
 }
 
 /// `evaluateWorkplan`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the TS signature plus the acknowledgement capture"
+)]
 fn evaluate_workplan(
     root: &StateRoot,
     feature: &str,
@@ -880,7 +884,8 @@ fn evaluate_workplan(
     warnings: &mut Vec<String>,
     ctx: &Context<'_>,
     p: &Patterns,
-) -> R<()> {
+    ack: Option<&mut Vec<(String, Option<String>)>>,
+) -> R<u8> {
     let path = root.artifact(&format!("workplan_{feature}.json"))?;
     if !exists(&path) {
         return deny(format!(
@@ -891,6 +896,10 @@ fn evaluate_workplan(
     let Some(text) = read_snapshot(&path)? else {
         return delegate("workplan vanished");
     };
+    let acknowledging = ack.is_some();
+    if let Some(files) = ack {
+        files.push((path.to_string_lossy().into_owned(), Some(text.clone())));
+    }
     let Some(raw) = js_json::parse(&text) else {
         return delegate("workplan JSON error message");
     };
@@ -915,9 +924,16 @@ fn evaluate_workplan(
     if declared != feature {
         return deny("workplan feature does not match opening");
     }
-    no_rejections(root, feature, ctx, p)
+    if !acknowledging {
+        no_rejections(root, feature, ctx, p)?;
+    }
+    Ok(level)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the TS signature plus the acknowledgement capture"
+)]
 fn evaluate_spec(
     root: &StateRoot,
     config: &Config,
@@ -926,7 +942,8 @@ fn evaluate_spec(
     warnings: &mut Vec<String>,
     ctx: &Context<'_>,
     p: &Patterns,
-) -> R<()> {
+    mut ack: Option<&mut Vec<(String, Option<String>)>>,
+) -> R<u8> {
     let specs_dir = match member(&config.data, "sdd").and_then(|s| member(s, "specsDir")) {
         Some(JsValue::String(s)) => match s.to_rust() {
             Some(dir) => dir,
@@ -942,7 +959,11 @@ fn evaluate_spec(
         Some(Ok(dir)) => dir,
     };
     let tasks_path = format!("{dir}/tasks.md");
-    let text = read_snapshot(Path::new(&tasks_path))?.unwrap_or_default();
+    let snapshot = read_snapshot(Path::new(&tasks_path))?;
+    if let Some(files) = ack.as_deref_mut() {
+        files.push((tasks_path.clone(), snapshot.clone()));
+    }
+    let text = snapshot.unwrap_or_default();
     let Some(tasks) = parse_tasks(&text) else {
         return delegate("tasks patterns failed to compile");
     };
@@ -970,7 +991,118 @@ fn evaluate_spec(
             "{tasks_path} must contain exactly one {milestone} milestone in {delivery}."
         ));
     }
-    evaluate_workplan(root, feature, config, true, warnings, ctx, p)
+    evaluate_workplan(root, feature, config, true, warnings, ctx, p, ack)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Acknowledgement front
+
+/// What `acknowledgePlanEscalation` validates before the escalation itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AckScope {
+    /// `root.cwd`.
+    pub cwd: String,
+    /// `root.path`, the feature's state directory.
+    pub state: String,
+    /// The workplan's level.
+    pub level: u8,
+    /// `context.files`: the config, the spec's `tasks.md` and the workplan, as read.
+    pub files: Vec<(String, Option<String>)>,
+}
+
+/// The front of `acknowledgePlanEscalation`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AckFront {
+    Scope(AckScope),
+    /// The message it throws.
+    Deny(String),
+    Delegate,
+}
+
+/// `acknowledgePlanEscalation(cwd, feature, opening, ...)` up to the escalation: the state root,
+/// the config snapshot, `planTiers`, the exact opening and the normal workplan/spec gate.
+#[must_use]
+pub fn acknowledge_front(cwd: &str, feature: &str, opening: &str, ctx: &Context<'_>) -> AckFront {
+    let Some(p) = PATTERNS.as_ref() else {
+        return AckFront::Delegate;
+    };
+    let run = || -> R<AckScope> {
+        let root = resolve_state_root(cwd, feature, None, ctx, p)?;
+        let config_path = root.cwd.join("navori.config.json");
+        let snapshot = read_snapshot(&config_path)?;
+        let Some(bytes) = snapshot.as_ref() else {
+            let path = config_path.display();
+            return deny(format!(
+                "Cannot read {path}: ENOENT: no such file or directory, open '{path}'"
+            ));
+        };
+        let config = config::read(bytes.as_bytes())
+            .or_else(|_| delegate("config outside the ported model"))?;
+        if !config.warnings.is_empty() {
+            return delegate("config warnings print once per read");
+        }
+        let plan_tiers = member(&config.data, "harness").and_then(|h| member(h, "planTiers"));
+        if !matches!(plan_tiers, Some(JsValue::Bool(true))) {
+            return deny("plan tiers must be enabled for escalation acknowledgement");
+        }
+        let spec = p.spec.captures(opening);
+        let group = |c: &regex::Captures<'_>, i: usize| {
+            c.get(i).map(|m| m.as_str().to_owned()).unwrap_or_default()
+        };
+        let spec_feature = spec
+            .as_ref()
+            .map(|s| format!("{}-e{}", group(s, 1), group(s, 2)));
+        if opening != format!("workplan: {feature}") && spec_feature.as_deref() != Some(feature) {
+            return deny("exact normal dispatch opening required");
+        }
+        let mut files = vec![(config_path.to_string_lossy().into_owned(), snapshot)];
+        let mut warnings = Vec::new();
+        let level = match &spec {
+            Some(s) => {
+                let delivery = format!("E{}", group(s, 2));
+                let milestone = format!("M{}", group(s, 3));
+                let name = group(s, 1);
+                let target = (name.as_str(), delivery.as_str(), milestone.as_str());
+                evaluate_spec(
+                    &root,
+                    &config,
+                    target,
+                    feature,
+                    &mut warnings,
+                    ctx,
+                    p,
+                    Some(&mut files),
+                )?
+            }
+            None => evaluate_workplan(
+                &root,
+                feature,
+                &config,
+                false,
+                &mut warnings,
+                ctx,
+                p,
+                Some(&mut files),
+            )?,
+        };
+        Ok(AckScope {
+            cwd: root.cwd.to_string_lossy().into_owned(),
+            state: root.path.to_string_lossy().into_owned(),
+            level,
+            files,
+        })
+    };
+    match run() {
+        Ok(scope) => AckFront::Scope(scope),
+        Err(Stop::Deny(reason)) => AckFront::Deny(reason),
+        Err(Stop::Delegate(_)) => AckFront::Delegate,
+    }
+}
+
+/// `Date.parse(text)` for the ISO date-times the gate log records (`Z` or `+HH:MM`).
+#[must_use]
+pub fn iso_date_ms(text: &str) -> Option<f64> {
+    iso_ms(text, PATTERNS.as_ref()?)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1165,9 +1297,9 @@ fn run(stdin: &[u8], force_codex: bool, ctx: &Context<'_>, warnings: &mut Vec<St
             let milestone = format!("M{}", group(s, 3).unwrap_or_default());
             let name = group(s, 1).unwrap_or_default();
             let target = (name.as_str(), delivery.as_str(), milestone.as_str());
-            evaluate_spec(&root, &config, target, &feature, warnings, ctx, p)?;
+            evaluate_spec(&root, &config, target, &feature, warnings, ctx, p, None)?;
         } else {
-            evaluate_workplan(&root, &feature, &config, false, warnings, ctx, p)?;
+            evaluate_workplan(&root, &feature, &config, false, warnings, ctx, p, None)?;
         }
     }
     // An allow with a feature reports a dispatch outcome; only the TS writes audit events. The

@@ -6,10 +6,20 @@
 //! zod rejects (its issue text is zod's) or one with text Rust cannot carry (a lone surrogate) is
 //! `None`, and the command hands the invocation to the TS before any output.
 
+pub mod attest;
 pub mod implementation;
+pub mod native_actor;
+pub mod ownership;
+pub mod parallel;
 pub mod review;
+pub mod review_check;
+pub mod review_evidence;
 
 use crate::js_json::{JsObject, JsValue};
+
+/// The TS would answer in a way this port does not reproduce: hand the call to the TS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unmodeled;
 
 /// `z.string()` as Rust text; `None` for a non-string or a lone surrogate.
 fn text(value: &JsValue) -> Option<String> {

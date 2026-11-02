@@ -811,7 +811,16 @@ describe("rust oracle", () => {
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1]);
-    expect(native.sort()).toEqual(["check", "log-review", "render"]);
+    expect(native.sort()).toEqual([
+      "attest",
+      "begin-parallel",
+      "check",
+      "complete-parallel",
+      "finalize-parallel",
+      "log-review",
+      "prepare-parallel",
+      "render",
+    ]);
     for (const sub of native) {
       for (const json of [true, false]) {
         expect(
@@ -824,17 +833,18 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // The parallel producers and `attest` are the TS's: their cases must stay delegated.
+    // A config that prints warnings would print them once per `bindings` read: the producers
+    // and the scribe's parallel check hand it to the TS.
     for (const sub of [
       "prepare-parallel",
       "begin-parallel",
       "complete-parallel",
       "finalize-parallel",
-      "attest",
     ]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+      expect(
+        cases.find((c) => c.id === `handoff:${sub}-config-con-avisos`)?.native,
+        sub,
+      ).toBeUndefined();
     }
     for (const flag of ["--for", "--target", "--cwd"]) {
       expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
@@ -842,23 +852,47 @@ describe("rust oracle", () => {
       );
     }
     for (const flag of ["--produced-by", "--since", "--parallel"]) {
-      expect(cases.find((c) => c.args.includes(flag))?.native).toBeUndefined();
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.find((c) => c.id === "handoff:check-parallel-delegates")?.native).toBeUndefined();
+    expect(cases.find((c) => c.id === "handoff:check-parallel-scribe")?.native).toBe(true);
+    // A native Codex producer attests, as implementer and as scribe over its record.
+    for (const id of ["attest-implementer", "attest-scribe-tras-implementer"]) {
+      expect(cases.find((c) => c.id === `handoff:${id}`)?.native, id).toBe(true);
     }
     expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
     expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
   });
 
   // Covers: R73, R74
-  it("plan classify, check, render, update y escalation-reset nativos con sus delegaciones", () => {
+  it("plan classify, check, render, update, escalation-reset, acknowledge y resume nativos con sus delegaciones", () => {
     const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
     const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
     const native = manifest.commands
       .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
       .map((c: { path: string[] }) => c.path[1])
       .sort();
-    expect(native).toEqual(["check", "classify", "escalation-reset", "gate", "render", "update"]);
+    expect(native).toEqual([
+      "acknowledge",
+      "check",
+      "classify",
+      "escalation-reset",
+      "gate",
+      "render",
+      "resume",
+      "update",
+    ]);
     const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
-    for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
+    for (const sub of [
+      "classify",
+      "check",
+      "render",
+      "update",
+      "escalation-reset",
+      "acknowledge",
+    ]) {
       for (const json of [true, false]) {
         expect(
           cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
@@ -869,19 +903,40 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // What stays in the TS must stay delegated: a native case there would hide a regression.
-    for (const sub of ["acknowledge", "resume"]) {
-      const delegated = cases.filter((c) => c.args[1] === sub);
-      expect(delegated.length).toBeGreaterThan(0);
-      expect(delegated.every((c) => c.native === undefined)).toBe(true);
+    // `acknowledge` covers the acknowledgement, its inspection and a continuation natively; zod's
+    // and citty's own errors stay with the TS.
+    for (const id of [
+      "acknowledge-repeat",
+      "acknowledge-inspect",
+      "acknowledge-continue-unconsumed",
+      "acknowledge-records-the-review",
+      "acknowledge-level-1",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBe(true);
     }
-    expect(cases.find((c) => c.args.includes("--diff"))?.native).toBeUndefined();
-    // Git evidence, audit events and escalation records stay with the TS.
+    const resume = oracle
+      .loadCases()
+      .filter((c) => c.args[0] === "plan" && c.args[1] === "resume" && c.native);
+    for (const json of [true, false]) {
+      expect(resume.some((c) => c.args.includes("--json") === json)).toBe(true);
+    }
+    expect(resume.some((c) => c.id === "plan-resume:recibo-firmado")).toBe(true);
+    // `classify --diff` is native over git (D42); a base git cannot resolve stays with the TS.
+    const diff = oracle.loadCases().filter((c) => c.id.startsWith("plan-diff:"));
+    for (const json of [true, false]) {
+      expect(diff.some((c) => c.args.includes("--json") === json && c.native)).toBe(true);
+    }
+    expect(diff.find((c) => c.id === "plan-diff:base-inexistente")?.native).toBeUndefined();
+    // Git evidence, audit events, escalation records and acknowledge's zod and citty errors stay
+    // with the TS.
     for (const id of [
       "update-evidence-session-delegates",
       "update-audit-delegates",
       "reset-escalation-record-delegates",
       "reset-audit-delegates",
+      "acknowledge-invalid-reference-delegates",
+      "acknowledge-extra-positional-delegates",
+      "acknowledge-missing-opening-delegates",
     ]) {
       expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
     }

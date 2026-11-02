@@ -1,4 +1,5 @@
-//! `navori plan classify|check|render <feature>`, native (spec 0060 T11, R73/R74).
+//! `navori plan classify|check|render|update|escalation-reset|acknowledge|resume`, native (spec
+//! 0060 T11, R73/R74).
 //!
 //! The command layer of `commands/plan.ts` over `navori_core::plan`. Everything is read and
 //! decided before the first byte of output or the first write, so whatever Rust does not
@@ -6,8 +7,9 @@
 //! differently (`--no-*`, a repeated or empty value), a state root the TS throws on uncaught, a
 //! config `readConfig` rejects or Rust does not model, a JSON `JSON.parse` or zod rejects (their
 //! messages are V8's and zod's), a `matches:` only a JS `RegExp` judges, a `source` projection,
-//! and `classify --diff` (git, D42). `update`, `escalation-reset`, `acknowledge` and `resume`
-//! are not in the manifest, and the group delegates them with `gate`.
+//! and `classify --diff` (git, D42). `resume` (`plan::resume`) and `acknowledge`
+//! (`plan::gate::acknowledge_front` and `plan::escalation`) delegate where their cores do; the
+//! group delegates `gate`, which has its own manifest row.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -21,10 +23,14 @@ use navori_core::js_json::{self, JsValue};
 use navori_core::plan::acceptance_index;
 use navori_core::plan::check::ProjectContext;
 use navori_core::plan::classify::{ClassifyInput, classify, declared_flags_from_signals};
+use navori_core::plan::escalation;
 use navori_core::plan::expected::{Expected, parse_expected};
+use navori_core::plan::gate::{AckFront, Context, acknowledge_front};
 use navori_core::plan::report::{self, Report};
+use navori_core::plan::resume::{ConfigFacts, RESUME_BUDGET, ResumeInput, resume_plans};
 use navori_core::plan::update::{self, Mutation};
 use navori_core::posix::{js_trim, resolve};
+use navori_core::process::RealRunner;
 use navori_core::state_files::{self, Refusal, StateRoot, StateWrite};
 use sha2::{Digest as _, Sha256};
 
@@ -193,6 +199,57 @@ const ESCALATION_RESET: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const ACKNOWLEDGE: CommandDef = CommandDef {
+    name: "acknowledge",
+    description: "Record one bound user workflow escalation decision; does not approve review or protected effects",
+    args: &[
+        FEATURE,
+        CWD,
+        JSON,
+        ArgDef {
+            name: "opening",
+            kind: ArgKind::RequiredString,
+            description: "Exact normal dispatch opening",
+        },
+        ArgDef {
+            name: "decision",
+            kind: ArgKind::String,
+            description: "Explicit user workflow escalation decision retained by the orchestrator",
+        },
+        boolean(
+            "inspect",
+            "Read-only terminal grant and current snapshot inspection",
+        ),
+        ArgDef {
+            name: "continue-after",
+            kind: ArgKind::String,
+            description: "Explicit consumed predecessor reference",
+        },
+        ArgDef {
+            name: "authorization-id",
+            kind: ArgKind::String,
+            description: "Operator-assigned intent/idempotency identifier, not authentication",
+        },
+        ArgDef {
+            name: "snapshot",
+            kind: ArgKind::String,
+            description: "Expected current snapshot SHA-256",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const RESUME: CommandDef = CommandDef {
+    name: "resume",
+    description: "Revalidate continuity without reviving stale guarantees",
+    args: &[ArgDef {
+        name: "json",
+        kind: ArgKind::Boolean,
+        description: "Output JSON",
+    }],
+    sub_commands: &[],
+};
+
 const PLAN: CommandDef = CommandDef {
     name: "plan",
     description: "Classify, render, update and check a level-1/2 workplan",
@@ -213,10 +270,7 @@ const PLAN: CommandDef = CommandDef {
             "gate",
             "PreToolUse(Agent) gate for harness.planTiers (R16/R17/R19) — reads the hook payload from stdin",
         ),
-        (
-            "acknowledge",
-            "Record one bound user workflow escalation decision; does not approve review or protected effects",
-        ),
+        ("acknowledge", ACKNOWLEDGE.description),
         (
             "escalation-reset",
             "Restart the gate's rejection count for a level >= 2 feature (user approval)",
@@ -225,7 +279,7 @@ const PLAN: CommandDef = CommandDef {
 };
 
 /// Names `name in subCommands` finds on `Object.prototype`: citty would run them as commands.
-const PROTOTYPE_KEYS: &[&str] = &[
+pub(crate) const PROTOTYPE_KEYS: &[&str] = &[
     "constructor",
     "hasOwnProperty",
     "isPrototypeOf",
@@ -240,7 +294,7 @@ const PROTOTYPE_KEYS: &[&str] = &[
     "__lookupSetter__",
 ];
 
-const ROOT: Parent<'static> = Parent {
+pub(crate) const ROOT: Parent<'static> = Parent {
     name: "navori",
     version: Some(navori_core::VERSION),
 };
@@ -262,6 +316,8 @@ enum Row {
     Render,
     Update,
     EscalationReset,
+    Acknowledge,
+    Resume,
 }
 
 /// `plan` alone: usage, `--help` and unknown subcommands.
@@ -300,6 +356,18 @@ pub fn run_escalation_reset(call: &NativeCall<'_>) -> Outcome {
     outcome(run(call.args, Row::EscalationReset))
 }
 
+/// `plan acknowledge`.
+#[must_use]
+pub fn run_acknowledge(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Acknowledge))
+}
+
+/// `plan resume`.
+#[must_use]
+pub fn run_resume(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Resume))
+}
+
 fn outcome(code: Option<ExitCode>) -> Outcome {
     code.map_or(Outcome::Delegate, Outcome::Exit)
 }
@@ -329,6 +397,8 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "render" => (&RENDER, Row::Render),
         "update" => (&UPDATE, Row::Update),
         "escalation-reset" => (&ESCALATION_RESET, Row::EscalationReset),
+        "acknowledge" => (&ACKNOWLEDGE, Row::Acknowledge),
+        "resume" => (&RESUME, Row::Resume),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
             || PLAN.sub_commands.iter().any(|(sub, _)| *sub == name) =>
@@ -351,10 +421,25 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     if help {
         return Some(Output::usage(leaf, PLAN_PARENT, None).emit());
     }
+    if row == Row::Resume {
+        return resume_command(&rest[at + 1..]).map(Output::emit);
+    }
     let (strings, booleans): (&[&str], &[&str]) = if row == Row::Update {
         (&["dir", "cwd", "progress", "decision", "date"], &["json"])
     } else if row == Row::EscalationReset {
         (&["dir", "cwd", "approved-by", "reason"], &["json"])
+    } else if row == Row::Acknowledge {
+        (
+            &[
+                "cwd",
+                "opening",
+                "decision",
+                "continue-after",
+                "authorization-id",
+                "snapshot",
+            ],
+            &["json", "inspect"],
+        )
     } else if row == Row::Classify {
         (
             &["dir", "cwd", "files"],
@@ -379,13 +464,22 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     } else {
         (&["dir", "cwd"], &["json"])
     };
-    let options = parse_leaf(&rest[at + 1..], strings, booleans)?;
+    let (tokens, diff) = if row == Row::Classify {
+        extract_diff(&rest[at + 1..])?
+    } else {
+        (rest[at + 1..].to_vec(), None)
+    };
+    let options = parse_leaf(&tokens, strings, booleans)?;
     let Some(feature) = options.feature else {
         let error = "Missing required positional argument: FEATURE".to_owned();
         return Some(Output::usage(leaf, PLAN_PARENT, Some(error)).emit());
     };
     let process_cwd = std::env::current_dir().ok()?;
     let process_cwd = process_cwd.to_str()?;
+    if row == Row::Acknowledge {
+        // Its state root resolves inside the command's `try`: a throw is a denial.
+        return acknowledge_command(feature, &options, process_cwd).map(Output::emit);
+    }
     if row == Row::EscalationReset {
         // Its flags are checked before the state root, which may still throw after them.
         if let Some(out) = reset_usage(&options) {
@@ -397,12 +491,15 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     let root =
         state_files::resolve_state_root(cwd, process_cwd, feature, options.get("dir")).ok()?;
     let out = match row {
-        Row::Classify => classify_command(feature, &options, &root)?,
+        Row::Classify => match diff {
+            Some(base) => classify_diff(feature, &options, &root, base)?,
+            None => classify_command(feature, &options, &root)?,
+        },
         Row::Check => check_command(feature, &options, &root)?,
         Row::Render => render_command(feature, &options, &root)?,
         Row::Update => update_command(feature, &options, &root)?,
         Row::EscalationReset => reset_command(feature, &options, &root)?,
-        Row::Group => return None,
+        Row::Group | Row::Resume | Row::Acknowledge => return None,
     };
     Some(out.emit())
 }
@@ -411,6 +508,8 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LeafOptions<'a> {
     feature: Option<&'a str>,
+    /// Every positional, the feature included (citty's `_`).
+    positionals: usize,
     strings: Vec<(&'static str, &'a str)>,
     booleans: Vec<&'static str>,
     json: bool,
@@ -450,6 +549,7 @@ fn parse_leaf<'a>(
             if options.feature.is_none() {
                 options.feature = Some(token);
             }
+            options.positionals += 1;
             continue;
         };
         if let Some(name) = booleans.iter().find(|b| **b == body) {
@@ -604,6 +704,217 @@ fn split_list(value: &str) -> Vec<String> {
         .map(|v| js_trim(v).to_owned())
         .filter(|v| !v.is_empty())
         .collect()
+}
+
+/// `--diff [<base>]` as `reparseBareValueFlags` reads it: a bare `--diff` (last, or before
+/// another flag) is `""`. The other tokens go to [`parse_leaf`]; a repeated `--diff` is the TS's.
+fn extract_diff<'a>(tokens: &[&'a str]) -> Option<(Vec<&'a str>, Option<&'a str>)> {
+    let mut rest = Vec::new();
+    let mut diff = None;
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = tokens[index];
+        index += 1;
+        let value = if token == "--diff" {
+            match tokens.get(index) {
+                Some(next) if !next.starts_with('-') => {
+                    index += 1;
+                    *next
+                }
+                _ => "",
+            }
+        } else if let Some(value) = token.strip_prefix("--diff=") {
+            value
+        } else {
+            rest.push(token);
+            continue;
+        };
+        if diff.replace(value).is_some() {
+            return None;
+        }
+    }
+    Some((rest, diff))
+}
+
+/// `gitLines(cwd, args)`: the NUL-split stdout of a successful git; `None` where `execFileSync`
+/// throws (its message carries git's stderr).
+fn git_lines(cwd: &str, args: &[&str]) -> Option<Vec<String>> {
+    let env = navori_core::plan::evidence::process_env();
+    let mut full = vec!["-c", "core.fsmonitor=false", "--no-optional-locks"];
+    full.extend_from_slice(args);
+    let output = navori_core::process::ProcessRunner::run(
+        &RealRunner,
+        &navori_core::process::Request {
+            program: "git",
+            args: &full,
+            cwd: std::path::Path::new(cwd),
+            env: &env,
+            input: None,
+            timeout: std::time::Duration::from_secs(60 * 60),
+        },
+    )
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(
+        text.split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// `classifyDiff(root, feature, base, json, project)` (`plan classify <feature> --diff`).
+fn classify_diff(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    root: &StateRoot,
+    base: &str,
+) -> Option<Output> {
+    let mut out = Output::default();
+    let project = project_context(&mut out, &root.cwd)?;
+    let base = if base.is_empty() {
+        // `defaultDiffBase`: a second `readConfig` (its warnings print again), or `origin/main`.
+        match read_config(&root.cwd)? {
+            None => "origin/main".to_owned(),
+            Some(config) => {
+                for warning in &config.warnings {
+                    out.stderr.push_str(warning);
+                    out.stderr.push('\n');
+                }
+                let effective = navori_core::config::effective_config(&config.data);
+                match (
+                    member(Some(&effective), "prTarget"),
+                    member(Some(&effective), "branchBase"),
+                ) {
+                    (Some(JsValue::String(t)), _)
+                    | (None | Some(JsValue::Undefined), Some(JsValue::String(t))) => {
+                        format!("origin/{}", t.to_rust()?)
+                    }
+                    _ => return None,
+                }
+            }
+        }
+    } else {
+        base.to_owned()
+    };
+    let path = match state_files::artifact_path(root, &format!("workplan_{feature}.json")) {
+        Ok(path) => path,
+        Err(_) => return None,
+    };
+    let has_workplan = std::path::Path::new(&path).exists();
+    let plan = if has_workplan {
+        // `readWorkplanOrExit`: its message is V8's or zod's.
+        let raw = js_json::parse(&read_artifact(&path)??)?;
+        Some(navori_core::plan::check::workplan_level_signals(&raw)?)
+    } else {
+        None
+    };
+    let declared_level = plan.as_ref().map_or(0, |(level, _)| *level);
+    let merge_base = git_lines(&root.cwd, &["merge-base", "HEAD", &base])?
+        .first()
+        .map(|s| js_trim(s).to_owned())
+        .unwrap_or_default();
+    let since = if merge_base.is_empty() {
+        base.as_str()
+    } else {
+        merge_base.as_str()
+    };
+    // `[...new Set([...tracked, ...untracked])].sort()`.
+    let mut files = git_lines(&root.cwd, &["diff", "--name-only", "-z", since])?;
+    files.extend(git_lines(
+        &root.cwd,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+    )?);
+    files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    files.dedup();
+    let declared = plan
+        .as_ref()
+        .map(|(_, signals)| declared_flags_from_signals(signals))
+        .unwrap_or_default();
+    let input = ClassifyInput {
+        files: files.clone(),
+        critical_area: declared.critical_area,
+        money_credentials_pii: declared.money_credentials_pii,
+        multi_repo: declared.multi_repo,
+        new_external_dependency: declared.new_external_dependency,
+        shared_contract: declared.shared_contract,
+        data_schema_migration: declared.data_schema_migration,
+        bug_without_root_cause: declared.bug_without_root_cause,
+        critical_paths: project.critical_paths.clone().unwrap_or_default(),
+        local_skill_ids: project.local_skill_ids.map(|ids| ids.into_iter().collect()),
+    };
+    let result = classify(&input)?;
+    let exceeds = result.level > declared_level;
+    // `reviewDepth(hasWorkplan, result, criticalPaths)`.
+    let depth: (&str, Option<&str>) = if has_workplan {
+        ("full", Some("workplan"))
+    } else if result.level != 0 {
+        ("full", Some("level"))
+    } else if result.signals.iter().any(|s| s.starts_with("floor:")) {
+        ("full", Some("floor"))
+    } else if project.critical_paths.as_ref().is_none_or(Vec::is_empty) {
+        ("full", Some("criticalPaths-undeclared"))
+    } else if result
+        .signals
+        .iter()
+        .any(|s| s.starts_with("critical-area:"))
+    {
+        ("full", Some("critical-path-matched"))
+    } else {
+        ("light", None)
+    };
+    if options.json {
+        let mut fields = vec![
+            ("score", JsValue::Number(f64::from(result.score))),
+            ("level", JsValue::Number(f64::from(result.level))),
+            (
+                "signals",
+                JsValue::Array(result.signals.iter().map(|s| string(s)).collect()),
+            ),
+            ("nonTrivialCeiling", number(result.non_trivial_ceiling)),
+            ("base", string(&base)),
+            (
+                "files",
+                JsValue::Array(files.iter().map(|f| string(f)).collect()),
+            ),
+            ("declaredLevel", JsValue::Number(f64::from(declared_level))),
+            ("exceedsDeclared", JsValue::Bool(exceeds)),
+            ("workplan", JsValue::Bool(has_workplan)),
+            ("reviewDepth", string(depth.0)),
+        ];
+        if let Some(reason) = depth.1 {
+            fields.push(("depthReason", string(reason)));
+        }
+        json_line(&mut out, &object(fields));
+    } else {
+        let signals = if result.signals.is_empty() {
+            "(none)".to_owned()
+        } else {
+            result.signals.join(", ")
+        };
+        out.stdout.push_str(&format!(
+            "Diff vs {base}: Complexity: {}/10 · Level: {} (declared: {declared_level})\nSignals: {signals}\n",
+            result.score, result.level
+        ));
+        out.stdout.push_str(&if exceeds {
+            format!(
+                "Exceeds declared level: yes — the diff outgrew the workplan (level {} > {declared_level}).\n",
+                result.level
+            )
+        } else {
+            "Exceeds declared level: no.\n".to_owned()
+        });
+        out.stdout.push_str(&format!(
+            "Review depth: {}{}\n",
+            depth.0,
+            depth.1.map_or_else(String::new, |r| format!(" ({r})"))
+        ));
+    }
+    out.code = u8::from(exceeds);
+    Some(out)
 }
 
 fn classify_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
@@ -1151,6 +1462,178 @@ fn reset_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> 
     Some(out)
 }
 
+// acknowledge
+
+/// The `catch` of `acknowledge`: the message on stdout (JSON with `--json`), exit 2.
+fn acknowledge_denied(out: &mut Output, json: bool, error: &str) {
+    if json {
+        json_line(
+            out,
+            &object(vec![("status", string("denied")), ("error", string(error))]),
+        );
+    } else {
+        out.stdout.push_str(error);
+        out.stdout.push('\n');
+    }
+    out.code = 2;
+}
+
+/// `plan acknowledge <feature> --opening <line> ...`: the flag checks, then
+/// `acknowledgePlanEscalation` decided over a view of the state and its writes run before the
+/// output, as the TS does them.
+fn acknowledge_command(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Output> {
+    // citty's own error for a missing `--opening`, and the TS's for a second positional.
+    let opening = options.get("opening")?;
+    if options.positionals != 1 {
+        return None;
+    }
+    let mut out = Output::default();
+    let json = options.json;
+    let inspect = options.flag("inspect", "inspect");
+    let decision = options.get("decision");
+    let supplied = [
+        options.get("continue-after"),
+        options.get("authorization-id"),
+        options.get("snapshot"),
+    ];
+    let continuing = supplied.iter().any(Option::is_some);
+    if continuing && supplied.iter().any(Option::is_none) {
+        acknowledge_denied(
+            &mut out,
+            json,
+            "continue-after, authorization-id and snapshot are required together",
+        );
+        return Some(out);
+    }
+    let excluded = if inspect {
+        decision.is_some() || continuing
+    } else {
+        decision.is_none_or(|d| js_trim(d).is_empty())
+    };
+    if excluded {
+        acknowledge_denied(
+            &mut out,
+            json,
+            "inspect excludes mutation inputs; mutations require decision",
+        );
+        return Some(out);
+    }
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let ctx = Context {
+        process_cwd: std::path::Path::new(process_cwd),
+        env: &env,
+        now_ms: now_ms as f64,
+        pid: std::process::id(),
+    };
+    let cwd = options.get("cwd").unwrap_or(process_cwd);
+    let scope = match acknowledge_front(cwd, feature, opening, &ctx) {
+        AckFront::Delegate => return None,
+        AckFront::Deny(error) => {
+            acknowledge_denied(&mut out, json, &error);
+            return Some(out);
+        }
+        AckFront::Scope(scope) => scope,
+    };
+    let now = navori_core::handoff::review::iso_now();
+    let request = escalation::Request {
+        feature,
+        opening,
+        decision: decision.unwrap_or_default(),
+        inspect,
+        continuation: match supplied {
+            [Some(after), Some(id), Some(snapshot)] => Some((after, id, snapshot)),
+            _ => None,
+        },
+        now: &now,
+    };
+    let outcome = escalation::acknowledge(&scope, &request).ok()?;
+    if let Err(error) = escalation::apply(&mut RealFs::default(), &outcome.writes) {
+        acknowledge_denied(&mut out, json, &error);
+        return Some(out);
+    }
+    match outcome.result {
+        Err(error) => acknowledge_denied(&mut out, json, &error),
+        Ok(result) => {
+            let field = |name: &str| match member(Some(&result), name) {
+                Some(JsValue::String(s)) => s.to_rust(),
+                _ => None,
+            };
+            let status = field("status")?;
+            if json || status == "inspected" {
+                json_line(&mut out, &result);
+            } else {
+                let reference = field("reference")
+                    .filter(|r| !r.is_empty())
+                    .map(|r| format!(" {r}"))
+                    .unwrap_or_default();
+                out.stdout = format!("{}: {status}{reference}\n", field("feature")?);
+            }
+        }
+    }
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// resume
+
+/// `plan resume [--json]`: `resumePlans(process.cwd())`, compact with `--json` and indented
+/// otherwise. Anything after `resume` other than `--json` is the TS's (citty would accept it).
+fn resume_command(tokens: &[&str]) -> Option<Output> {
+    let json = match tokens {
+        [] => false,
+        ["--json"] => true,
+        _ => return None,
+    };
+    let process_cwd = std::env::current_dir().ok()?;
+    let process_cwd = process_cwd.to_str()?;
+    let warnings = std::cell::RefCell::new(Vec::new());
+    let config = |root: &str| -> Option<ConfigFacts> {
+        let Some(config) = read_config(root)? else {
+            let path = format!("{root}/navori.config.json");
+            return Some(ConfigFacts::Thrown(format!(
+                "Cannot read {path}: ENOENT: no such file or directory, open '{path}'"
+            )));
+        };
+        let target = match (
+            member(Some(&config.data), "prTarget"),
+            member(Some(&config.data), "branchBase"),
+        ) {
+            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
+            _ => return None,
+        };
+        let gate = match member(member(Some(&config.data), "qualityGate"), "full") {
+            None | Some(JsValue::Undefined | JsValue::Null) => String::new(),
+            Some(JsValue::String(t)) => t.to_rust()?,
+            Some(_) => return None,
+        };
+        warnings.borrow_mut().extend(config.warnings);
+        Some(ConfigFacts::Values { target, gate })
+    };
+    let env = navori_core::plan::evidence::process_env();
+    let result = resume_plans(&ResumeInput {
+        cwd: process_cwd,
+        runner: &RealRunner,
+        env: &env,
+        budget: RESUME_BUDGET,
+        config: &config,
+    })?;
+    let mut out = Output::default();
+    for warning in warnings.into_inner() {
+        out.stderr.push_str(&warning);
+        out.stderr.push('\n');
+    }
+    out.stdout = result.stringify((!json).then_some(2))?;
+    out.stdout.push('\n');
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1169,6 +1652,7 @@ mod tests {
             ok,
             Some(LeafOptions {
                 feature: Some("x"),
+                positionals: 1,
                 strings: vec![("files", "a,b")],
                 booleans: vec!["critical-area"],
                 json: true,
