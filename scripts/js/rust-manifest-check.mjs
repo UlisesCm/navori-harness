@@ -22,6 +22,9 @@ function ids(manifest) {
 }
 
 const SCHEMA = 2;
+const LEDGER_OPS = ["port", "unport", "activate", "deactivate"];
+/** Lifecycle events do not decide whether an id is ported (only `port`/`unport` do). */
+const PORTING_OPS = new Set(["port", "unport"]);
 const sameSet = (a, b) => a.size === b.size && [...a].every((item) => b.has(item));
 
 /** `requires` as sets of flags, so alternative and flag order do not count (D25). */
@@ -81,6 +84,27 @@ export function checkCommands(manifest) {
   }
 }
 
+/**
+ * R79/R80: a hook leaves `shadow` only with a new `activate` line and only if the merge-base
+ * already had it in `shadow`; it returns to `shadow` only with a new `deactivate` line.
+ */
+function checkTransitions(before, after, added) {
+  const has = (op, id) => added.some((event) => event.op === op && event.id === id);
+  for (const [id, hook] of Object.entries(after.hooks)) {
+    const was = before.hooks[id]?.mode;
+    if (hook.mode === "active" && was !== "active") {
+      if (was !== "shadow") throw new Error(`${id} cannot become active without shadow in the merge-base`);
+      if (!has("activate", id)) throw new Error(`${id} became active without a new activate record`);
+    } else if (hook.mode === "shadow" && was === "active" && !has("deactivate", id)) {
+      throw new Error(`${id} returned to shadow without a new deactivate record`);
+    }
+    if (has("activate", id) && !(hook.mode === "active" && was === "shadow"))
+      throw new Error(`activate record for ${id} without a shadow to active transition`);
+    if (has("deactivate", id) && !(hook.mode === "shadow" && was === "active"))
+      throw new Error(`deactivate record for ${id} without an active to shadow transition`);
+  }
+}
+
 /** Validate append-only history and require a NEW unport for every removed entry. */
 export function checkHistory(before, after, previousText, currentText, now = Date.now()) {
   const lines = (text) => (text.trimEnd() === "" ? [] : text.trimEnd().split("\n"));
@@ -93,7 +117,7 @@ export function checkHistory(before, after, previousText, currentText, now = Dat
     if (
       !/^\d{4}-\d{2}-\d{2}$/.test(event.date) ||
       !Number.isFinite(Date.parse(`${event.date}T00:00:00Z`)) ||
-      !["port", "unport", "activate"].includes(event.op) ||
+      !LEDGER_OPS.includes(event.op) ||
       typeof event.id !== "string" ||
       !event.id.trim() ||
       typeof event.reason !== "string" ||
@@ -109,8 +133,9 @@ export function checkHistory(before, after, previousText, currentText, now = Dat
     if (!active.has(id) && latestNew.get(id)?.op !== "unport")
       throw new Error(`removed ${id} without a new unport record`);
   }
+  checkTransitions(before, after, events.slice(previous.length));
   const latest = new Map(
-    events.filter((event) => event.op !== "activate").map((event) => [event.id, event]),
+    events.filter((event) => PORTING_OPS.has(event.op)).map((event) => [event.id, event]),
   );
   for (const [id, event] of latest) {
     if ((event.op === "unport") === active.has(id))
