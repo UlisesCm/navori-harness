@@ -3663,7 +3663,11 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
         try { done = parser.finish(); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); return; }
         // --mode json exits 0 even when the model call failed: the last assistant stopReason is the signal ("length" is not a failure).
         if (done.stop && (done.stop.stopReason === "error" || done.stop.stopReason === "aborted")) {
-          fail("Pi child model call failed (stopReason " + done.stop.stopReason + ") on " + model + ": " + (done.stop.errorMessage ?? "no error message"), done);
+          // Only a provider rejection (4xx other than timeout or rate limit) suggests another route; aborts and transient errors do not.
+          const rejected = done.stop.stopReason === "error" && /^4(?!08|29)\d\d\b/.test(done.stop.errorMessage ?? "");
+          fail("Pi child model call failed (stopReason " + done.stop.stopReason + ") on " + model + ": " + (done.stop.errorMessage ?? "no error message")
+            + (rejected ? ". If the provider rejected child processes, map the role to one that accepts them with models.piMap, or run the role"
+              + " in a second interactive Pi session (docs/pi.md, Working without children)." : ""), done);
         } else {
           const note = stderrNote();
           resolve({ ...done, approvals, ...(note ? { stderrNote: note } : {}) });
@@ -3678,6 +3682,9 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
 // never run from here: it only records what Pi's own built-in bash tool already ran and reported.
 const EVIDENCE_DIRS = [".navori/state/handoffs", ".claude/progress", ".codex/progress"];
 const FINGERPRINT_EXCLUDES = [".navori/state", ".claude/progress", ".codex/progress", ".claude/worktrees"];
+// Fingerprint v2 ("fp":2): IDENTITY_EXCLUDES of lib/primitives/content-identity.ts, the set the Claude hook stamps.
+const FINGERPRINT_V2_EXCLUDES = [".navori/state", ".claude/progress", ".codex/progress", "progress", ".claude/worktrees"];
+const DELIVERY_POLICY = "deliveries-content-v1";
 const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
 const GIT_TIMEOUT_MS = 120_000;
 const MAX_SEEN_CALLS = 1024;
@@ -3699,12 +3706,38 @@ function git(cwd: string, args: string[], options: GitOptions = {}): Promise<str
   });
 }
 
+/** Stage path a delivery row may name: relative, no empty, "." or ".." segment, no tab, newline or backslash. */
+function isStagePath(path: string): boolean {
+  return /^[^\t\r\n\\]+$/.test(path) && !path.startsWith("/") && !path.split("/").some((part) => !part || part === "." || part === "..");
+}
+
+/** Physical path or undefined; a symlink anywhere in the path makes it differ from the joined one. */
+function realPath(path: string): string | undefined {
+  try { return realpathSync(path); } catch { return undefined; }
+}
+
+/**
+ * Fingerprint excludes for a delivery-bound line: v2 plus the stage's state.json and STATUS.md, after the same
+ * containment checks as fingerprintTree in lib/plan/evidence.ts. undefined = the stage is unusable (fail closed).
+ */
+function deliveryExcludes(tree: string, stagePath: string): string[] | undefined {
+  if (!isStagePath(stagePath)) return undefined;
+  const root = realPath(tree);
+  const stage = root && join(root, stagePath);
+  if (!root || !stage || !stage.startsWith(root + sep) || realPath(stage) !== stage) return undefined;
+  for (const name of ["state.json", "STATUS.md"]) {
+    const path = join(stage, name);
+    if ((name === "state.json" || existsSync(path)) && realPath(path) !== path) return undefined;
+  }
+  return [...FINGERPRINT_V2_EXCLUDES, stagePath + "/state.json", stagePath + "/STATUS.md"];
+}
+
 /** Content hash of the whole working tree; same procedure as fingerprintTree in lib/plan/evidence.ts (change one, change both). */
-async function fingerprintTree(tree: string): Promise<string | undefined> {
+async function fingerprintTree(tree: string, excludes: readonly string[] = FINGERPRINT_EXCLUDES): Promise<string | undefined> {
   const scratch = (await git(tree, ["rev-parse", "--path-format=absolute", "--git-path", "navori-fp-index"]))?.trim();
   if (!scratch || existsSync(scratch + ".lock")) return undefined;
   const listed = await git(tree, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate", "--", ".",
-    ...FINGERPRINT_EXCLUDES.map((path) => ":(exclude,literal)" + path)]);
+    ...excludes.map((path) => ":(exclude,literal)" + path)]);
   if (listed === undefined) return undefined;
   const files: Array<{ path: string; mode: string }> = [];
   const links: Array<{ path: string; target: string }> = [];
@@ -3785,22 +3818,32 @@ function isBuiltinBash(pi: ToolRegistry): boolean {
   return bash?.sourceInfo?.path === "builtin:bash" && bash.sourceInfo.source === "builtin";
 }
 
-/** Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. */
-function matchingCriteria(cwd: string, command: string): Array<{ feature: string; id: string; dir: string }> {
+type CriterionHit = { feature: string; id: string; dir: string; binding?: Record<string, unknown>; stage?: string };
+
+/**
+ * Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
+ * (6 fields) carries the producer authority the CLI projected (binding JSON and stage path); it is copied verbatim
+ * and "navori master delivery-criterion" recomputes and compares it, so the line never grants authority by itself.
+ */
+function matchingCriteria(cwd: string, command: string): CriterionHit[] {
   let index: string;
   try { index = readFileSync(join(cwd, EVIDENCE_DIRS[0], "acceptance-index"), "utf8"); } catch { return []; }
-  const hits: Array<{ feature: string; id: string; dir: string }> = [];
+  const hits: CriterionHit[] = [];
   for (const row of index.split("\n")) {
     const fields = row.split("\t");
-    // Delivery-bound criteria (6 fields) need producer authority Pi does not capture: never recorded here.
-    if (fields.length !== 4) continue;
+    if (fields.length !== 4 && fields.length !== 6) continue;
     let criterion: unknown;
     try { criterion = JSON.parse('"' + fields[0] + '"'); } catch { continue; }
     if (criterion !== command) continue;
     const [, feature, id, dir] = fields;
     if (!/^[a-z0-9][a-z0-9._-]*$/.test(feature) || !/^A[0-9]+$/.test(id)) continue;
     if (!EVIDENCE_DIRS.some((rel) => join(cwd, rel) === dir)) continue;
-    hits.push({ feature, id, dir });
+    if (fields.length === 4) { hits.push({ feature, id, dir }); continue; }
+    const stage = fields[5];
+    let binding: unknown;
+    try { binding = JSON.parse(fields[4]); } catch { continue; }
+    if (!isRecord(binding) || binding.policy !== DELIVERY_POLICY || binding.stagePath !== stage || !isStagePath(stage)) continue;
+    hits.push({ feature, id, dir, binding, stage });
   }
   return hits;
 }
@@ -3820,8 +3863,7 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
   if (!tree || /[\u0000-\u001f]/.test(ctx.cwd + tree)) return;
   const head = (await git(tree, ["rev-parse", "HEAD"]))?.trim() ?? "";
   const headTree = (await git(tree, ["rev-parse", "HEAD^{tree}"]))?.trim() ?? "";
-  const worktreeTree = await fingerprintTree(tree);
-  if (!worktreeTree) return;
+  const plain = hits.some((hit) => !hit.binding) ? await fingerprintTree(tree) : undefined;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9._-]/g, "");
   const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
   const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + role;
@@ -3830,8 +3872,15 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
     const file = join(hit.dir, "workplan_" + hit.feature + ".evidence.jsonl");
     try {
       if (existsSync(file) && lstatSync(file).isSymbolicLink()) continue;
-      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree, dirty: worktreeTree !== headTree,
-        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}) };
+      // Delivery lines use fingerprint v2 without the stage lifecycle files, stamped "fp":2 like the Claude hook.
+      const excludes = hit.stage === undefined ? undefined : deliveryExcludes(tree, hit.stage);
+      if (hit.stage !== undefined && !excludes) continue;
+      const worktreeTree = excludes ? await fingerprintTree(tree, excludes) : plain;
+      if (!worktreeTree) continue;
+      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree,
+        ...(excludes ? { fp: 2 } : {}), dirty: worktreeTree !== headTree,
+        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}),
+        ...(hit.binding ? { deliveryBinding: hit.binding } : {}) };
       appendFileSync(file, JSON.stringify(line) + "\n");
     } catch { /* Fail-open: no line means plan update asks for a rerun. */ }
   }

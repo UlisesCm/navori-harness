@@ -47,7 +47,7 @@ navori render --apply
 | `handoff-consumer` | enforced | 会检查带有明确 feature 的 reviewer `navori_subagent` 调用。直接 shell 和工具调用可以绕过它。 |
 | `analytic-write-tools` | advisory | 按角色设置的工具允许列表只是模型可见的能力，并不是操作系统、文件系统或网络沙箱。Scout 和 reviewer 仍保留 `write`。 |
 | `local-skill-discovery` | enforced | `project.localSkills` 会投影为 `.agents/skills/<id>` 下的指针；仅在未启用 Codex 时写入。 |
-| `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。此机制会关闭失败：若 bash 工具被替换或缺少 `exit_code`，则不会记录任何内容。 |
+| `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。绑定到交付的验收标准（`navori master delivery-slice`）会连同其绑定和 v2 指纹一起记录，与 Claude 相同；`navori master delivery-criterion` 会重新计算该绑定。此机制会关闭失败：若 bash 工具被替换、缺少 `exit_code` 或阶段目录不受包含，则不会记录任何内容。 |
 | `repeat-failure-advice` | advisory | 内置 bash 连续出现三次相同失败后，会附加一条建议。它不会阻止操作或更改结果；缺少 `exit_code` 时也不会显示。 |
 | `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此 publisher 派发后不会注入上下文大小建议。 |
 | `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有七个固定角色，没有可确认的 general-purpose 角色。 |
@@ -246,6 +246,19 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - 降级注意：较旧的 navori 会忽略 `piMap`，并把 Pi 角色恢复为 `codexMap`。
 - 子进程失败时会报告 `stopReason` 和 `errorMessage`（或 `auto_retry_end.finalError`），并附带经过脱敏、有长度上限的 stderr 尾部。结果还包含附加字段 `details.childStop {stopReason, errorMessage?}`。退出码为 0 但 `stopReason` 为 `error` 或 `aborted` 时仍视为失败。脱敏只是下限，不是保证。
 - reviewer 或 scribe 预检被拒绝时，会附加交接失败详情。
+
+## 不使用子进程工作
+
+某些提供方会拒绝 `navori_subagent` 启动的子进程，或以不同于交互会话的方式计费。此时失败的子进程会报告提供方的
+`errorMessage`。支持两种做法：
+
+- **映射角色**：用 `models.piMap` 将角色映射到接受子进程的提供方（例如 API key 或本地模型），然后运行 `navori render`。
+- **每个角色使用独立的交互式 Pi 会话**：主会话负责产出；用户在同一 worktree 中再打开一个 `pi` 作为审查者，
+  按 `.pi/agents/reviewer.md` 工作并写出报告。需要独立审查者的关卡（例如 `navori master delivery-review`）
+  属于操作者声明：由用户声明是另一个会话进行了审查，并使用不同的产出者与审查者标签。Navori 无法验证这种独立性。
+
+验收证据不依赖子进程：由主会话的内置 bash 记录。请在包含 workplan 的检出根目录（包括 worktree）启动 Pi，
+因为证据是相对会话的工作目录记录的。
 
 ## 限制与无头运行
 
