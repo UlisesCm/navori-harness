@@ -16,7 +16,9 @@ cada tarea). El LOC es una referencia gruesa.
 
 Estado (2026-11-01): 1a tiene rama (`feat/0062-rust-e1-m1`) con T1, T2 y T4 hechas y `--registered` en el
 replay (el corpus trae los 7 hooks de 0060 E2 y E3 aún sin portar). Falta T3, que espera los 7 días de
-sombra: el binario con journal vivo se instaló el 2026-11-01. 2 puede empezar ya, desde
+sombra. Cada checkout escribe su propio journal y los hooks de `main` no llevan `--shadow`, así que
+el tráfico sale de los worktrees de la migración: la ventana corre desde el 2026-11-02 y el reporte
+los suma con `--journals <dir>` (repetible). 2 puede empezar ya, desde
 `migration/rust`. Los PRs se abren terminados, nunca en draft.
 
 E1 lleva dos PRs a propósito: la ventana de 7 días de R81 es calendario, y esperar a que el último

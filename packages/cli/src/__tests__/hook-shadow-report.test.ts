@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -16,7 +18,7 @@ interface Report {
 }
 interface ReportInput {
   hooks: Record<string, { gating: boolean; impl: string }>;
-  journals: Record<string, Uint8Array | undefined>;
+  journals: Record<string, Uint8Array | Uint8Array[] | undefined>;
   engines: Record<string, string[]>;
   approved: Record<string, string[]>;
   now: number;
@@ -25,6 +27,7 @@ interface ReportInput {
 interface Module {
   buildReport: (input: ReportInput) => Report;
   approvedWithoutTraffic: (history: string, hook: string) => string[];
+  collect: (root: string, windowDays: number, now: number, journalRoots?: string[]) => Report;
 }
 const shadow = (await import(
   pathToFileURL(join(import.meta.dirname, "../../../../scripts/js/hook-shadow-report.mjs")).href
@@ -110,6 +113,52 @@ it("una ventana corta o una observación sin completar rompe un hook con compuer
     windowDays: 7,
   });
   expect(garbage.ok).toBe(false);
+});
+
+// Covers: R81
+it("suma los journals de varios checkouts y uno inválido deja el reporte en rojo", (): void => {
+  const scratch = mkdtempSync(join(tmpdir(), "shadow-report-"));
+  try {
+    const root = join(scratch, "root");
+    const other = join(scratch, "other");
+    mkdirSync(join(root, "crates"), { recursive: true });
+    writeFileSync(
+      join(root, "crates/ported.json"),
+      JSON.stringify({ hooks: { example: { gating: true, impl: IMPL } } }),
+    );
+    mkdirSync(join(root, ".claude/hooks"), { recursive: true });
+    writeFileSync(join(root, ".claude/hooks/example.sh"), "# navori:native-runtime start\n");
+    for (const [dir, ageDays] of [
+      [root, 1],
+      [other, 8],
+    ] as const) {
+      mkdirSync(join(dir, ".navori/state/rust-shadow"), { recursive: true });
+      writeFileSync(
+        join(dir, ".navori/state/rust-shadow/example.jsonl"),
+        journal("example", "claude", [{ ageDays }]),
+      );
+    }
+    const alone = shadow.collect(root, 7, NOW);
+    expect(alone.ok).toBe(false);
+    expect(alone.rows[0]?.invocations).toBe(1);
+    const merged = shadow.collect(root, 7, NOW, [root, other]);
+    expect(merged.ok).toBe(true);
+    expect(merged.rows[0]?.invocations).toBe(1);
+
+    const invalid = shadow.buildReport({
+      hooks: { example: { gating: false, impl: IMPL } },
+      journals: {
+        example: [journal("example", "claude", [{ ageDays: 1 }]), Buffer.from("not json\n")],
+      },
+      engines: { example: ["claude"] },
+      approved: {},
+      now: NOW,
+      windowDays: 7,
+    });
+    expect(invalid.ok).toBe(false);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 // Covers: R82

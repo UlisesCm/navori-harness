@@ -9,6 +9,10 @@ import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.
  * Red on any divergence, and for a gating hook on a registered engine without traffic (unless its
  * `activate` line carries `no-shadow-traffic`, R82) or with a window shorter than requested.
  * Advisory hooks are reported but only a divergence turns them red.
+ *
+ * Each checkout writes its own journal under `.navori/state/rust-shadow/`, so the shadow traffic of
+ * the migration worktrees is scattered: `--journals <dir>` (repeatable) adds the journals of other
+ * checkouts. The manifest, history and registered engines always come from `--root`.
  */
 
 const DAY_MS = 86_400_000;
@@ -47,7 +51,7 @@ export function approvedWithoutTraffic(historyText, hook) {
 /**
  * @param {{
  *   hooks: Record<string, { gating: boolean, impl: string }>,
- *   journals: Record<string, Uint8Array | undefined>,
+ *   journals: Record<string, Uint8Array | Uint8Array[] | undefined>,
  *   engines: Record<string, string[]>,
  *   approved: Record<string, string[]>,
  *   now: number,
@@ -58,8 +62,8 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
   const windowMs = windowDays * DAY_MS;
   const rows = [];
   for (const [hook, descriptor] of Object.entries(hooks)) {
-    const bytes = journals[hook];
-    const records = bytes === undefined ? [] : decodeRecords(bytes);
+    const decoded = [journals[hook] ?? []].flat().map((bytes) => decodeRecords(bytes));
+    const records = decoded.every((part) => part !== null) ? decoded.flat() : null;
     const problems = [];
     if (records === null) problems.push("journal is invalid or unavailable");
     const begins = new Map();
@@ -127,8 +131,8 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
   return { ok: rows.every((row) => row.ok), windowDays, rows };
 }
 
-/** Collects the inputs of `buildReport` from a project root. */
-export function collect(root, windowDays, now = Date.now()) {
+/** Collects the inputs of `buildReport` from a project root and the checkouts holding journals. */
+export function collect(root, windowDays, now = Date.now(), journalRoots = [root]) {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
   const historyPath = join(root, HISTORY);
   const history = existsSync(historyPath) ? readFileSync(historyPath, "utf8") : "";
@@ -136,8 +140,10 @@ export function collect(root, windowDays, now = Date.now()) {
   const engines = {};
   const approved = {};
   for (const hook of Object.keys(manifest.hooks)) {
-    const path = join(root, ".navori/state/rust-shadow", `${hook}.jsonl`);
-    journals[hook] = existsSync(path) ? readFileSync(path) : undefined;
+    journals[hook] = journalRoots
+      .map((dir) => join(dir, ".navori/state/rust-shadow", `${hook}.jsonl`))
+      .filter((path) => existsSync(path))
+      .map((path) => readFileSync(path));
     engines[hook] = registeredEngines(root, hook);
     approved[hook] = approvedWithoutTraffic(history, hook);
   }
@@ -170,7 +176,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2);
   }
   try {
-    const report = collect(resolve(value("--root", process.cwd())), windowDays);
+    const root = resolve(value("--root", process.cwd()));
+    const extra = args.flatMap((arg, at) => (arg === "--journals" ? [args[at + 1]] : []));
+    if (extra.some((dir) => dir === undefined || !existsSync(dir)))
+      throw new Error("--journals needs an existing directory");
+    const journalRoots = [...new Set([root, ...extra.map((dir) => resolve(dir))])];
+    const report = collect(root, windowDays, Date.now(), journalRoots);
     console.log(args.includes("--json") ? JSON.stringify(report) : format(report));
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
