@@ -145,6 +145,7 @@ fn case() -> impl Strategy<Value = Case> {
         )
 }
 
+/// Copies `from` to `to` with each file's bytes, permissions and modification time.
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     std::fs::set_permissions(to, std::fs::metadata(from)?.permissions())?;
@@ -155,6 +156,12 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
             copy_tree(&entry.path(), &target)?;
         } else {
             std::fs::copy(entry.path(), &target)?;
+            // The level-0/1 cap compares `solution_*` mtimes with the latest rejection pair.
+            let modified = entry.metadata()?.modified()?;
+            std::fs::File::options()
+                .write(true)
+                .open(&target)?
+                .set_modified(modified)?;
         }
     }
     Ok(())
@@ -349,6 +356,27 @@ proptest! {
     fn acknowledge_matches_the_ts(c in case()) {
         check(&c)?;
     }
+}
+
+// Covers: R73
+#[test]
+fn a_rejection_recorded_after_the_solution_keeps_the_level_1_cap() -> Result<(), String> {
+    // CI's minimal case: the restored tree must keep `solution_*` older than the new rejection.
+    let c = Case {
+        level: 1,
+        tiers: true,
+        history: vec![2],
+        review: 0,
+        solution: true,
+        steps: vec![4],
+        last: 2,
+        decision: 0,
+        after: 0,
+        id: 0,
+        snapshot: 0,
+    };
+    check(&c).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // Covers: R73
