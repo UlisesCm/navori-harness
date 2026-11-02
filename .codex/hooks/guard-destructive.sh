@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="4920342a" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="1f3fe7d3" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -747,7 +747,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .pi/navori/hooks/guard-destructive.sh
 .pi/navori/hooks/implementer-no-markdown.sh
 .pi/navori/hooks/managed-drift-watch.sh
-.pi/navori/hooks/master-accept-confirm.sh
 .pi/navori/hooks/pr-publisher-confirm.sh
 .pi/navori/hooks/quality-gate-pre-commit.sh
 .pi/navori/hooks/routing-watch.sh
