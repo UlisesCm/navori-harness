@@ -39,6 +39,10 @@ interface PostCutover {
   STEPS: Array<{ name: string; cmd: string; args: string[] }>;
   ARTIFACT_SUITES: string[];
   TS_ORACLE_CRATE: string;
+  postCutoverExit: (
+    run: { ok: boolean; complete: boolean; steps: Array<{ status: number }> },
+    advisory: boolean,
+  ) => number;
   postCutoverOk: (steps: Array<{ status: number }>, seconds: number) => boolean;
 }
 interface Areas {
@@ -182,6 +186,18 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(post.postCutoverOk([{ status: 0 }], 300)).toBe(true);
     expect(post.postCutoverOk([{ status: 0 }], 300.5)).toBe(false);
     expect(post.postCutoverOk([{ status: 0 }, { status: 1 }], 10)).toBe(false);
+  });
+
+  // Covers: R18
+  it("con --budget-advisory un exceso de tiempo solo avisa; un paso rojo o faltante sigue fallando", () => {
+    const green = [{ status: 0 }];
+    const red = [{ status: 0 }, { status: 1 }];
+    expect(post.postCutoverExit({ ok: true, complete: true, steps: green }, false)).toBe(0);
+    // over budget: red without the flag, a warning with it (the record keeps ok: false)
+    expect(post.postCutoverExit({ ok: false, complete: true, steps: green }, false)).toBe(1);
+    expect(post.postCutoverExit({ ok: false, complete: true, steps: green }, true)).toBe(0);
+    expect(post.postCutoverExit({ ok: false, complete: true, steps: red }, true)).toBe(1);
+    expect(post.postCutoverExit({ ok: false, complete: false, steps: green }, true)).toBe(1);
   });
 
   // Covers: R20

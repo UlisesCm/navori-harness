@@ -14,7 +14,9 @@ import { POST_CUTOVER_BUDGET_S } from "./cutover-check.mjs";
  *
  * It writes `.navori/state/bench/post-cutover-<stamp>.json` and `post-cutover-latest.json`
  * (`{ ok, seconds, budgetSeconds, steps }`), which `cutover:check` reads, and exits 1 when a step
- * fails or the whole run exceeds R18's 300 s.
+ * fails or the whole run exceeds R18's 300 s. With `--budget-advisory` (the CI job while the long
+ * tail is open, T8) an overrun only warns: the record still says `ok: false`, so `cutover:check`
+ * and A3 keep blocking the cutover on R18, but a PR is red only for a failing step.
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -100,8 +102,20 @@ export function postCutoverOk(steps, seconds, budget = POST_CUTOVER_BUDGET_S) {
   return steps.every((s) => s.status === 0) && seconds <= budget;
 }
 
+/**
+ * The exit code: 1 for a failing or missing step; for an overrun, 1 unless the budget is advisory.
+ * @param {{ ok: boolean, complete: boolean, steps: Array<{ status: number }> }} run
+ * @param {boolean} advisory
+ */
+export function postCutoverExit({ ok, complete, steps }, advisory) {
+  if (ok) return 0;
+  const stepsGreen = complete && steps.every((s) => s.status === 0);
+  return advisory && stepsGreen ? 0 : 1;
+}
+
 function main(argv) {
   const keepGoing = argv.includes("--keep-going");
+  const advisory = argv.includes("--budget-advisory");
   const started = process.hrtime.bigint();
   const steps = [];
   for (const step of STEPS) {
@@ -117,7 +131,8 @@ function main(argv) {
     if (status !== 0 && !keepGoing) break;
   }
   const seconds = Number(process.hrtime.bigint() - started) / 1e9;
-  const ok = postCutoverOk(steps, seconds) && steps.length === STEPS.length;
+  const complete = steps.length === STEPS.length;
+  const ok = postCutoverOk(steps, seconds) && complete;
   const result = {
     generatedAt: new Date().toISOString(),
     ok,
@@ -135,7 +150,12 @@ function main(argv) {
   process.stdout.write(
     `check:post-cutover: ${ok ? "green" : "red"} in ${seconds.toFixed(1)} s (budget ${POST_CUTOVER_BUDGET_S} s)\n`,
   );
-  return ok ? 0 : 1;
+  const code = postCutoverExit({ ok, complete, steps }, advisory);
+  if (!ok && code === 0)
+    process.stdout.write(
+      `::warning::check:post-cutover exceeds R18 (${seconds.toFixed(1)} s > ${POST_CUTOVER_BUDGET_S} s); recorded as red for cutover:check\n`,
+    );
+  return code;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
