@@ -17,15 +17,17 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
 | 1e | Comandos | E1 | El resto de E1 (Q31): `master init` y los diez `master delivery-*` (T8) y el inventario T16 | Sin rama; sale de `migration/rust` cuando entre 1d | A3 y A5 completos y la CI en verde |
 | 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | Sin rama; empieza cuando entre 1b | El replay de A7 y A8 de esos hooks y la CI en verde |
 | 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de `migration/rust` cuando entre 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
-| 4 | Comandos | E3 | T23, T24 y T26–T29 | `feat/0060-rust-e3-comandos` (#1473), apilada sobre 1c hasta que entre: `backup` y `migrations` (T24), `preset init` (T26) y `registry` (T28) | A8 y A9 verdes; entra después del PR 2 |
+| 4 | Comandos | E3 | Acotado por Q32: M8 (T23 y T24), con el avance de T26 (`preset init`) y T28 (`registry`) | `feat/0060-rust-e3-comandos` (#1473): `backup`, `migrations`, `preset init`, `registry` y `scan` nativos | La mitad de oráculo de A8 verde y la CI en verde |
+| 4b | Comandos | E3 | El resto de M9 (Q32): T26–T29 | Sin rama; sale de `migration/rust` cuando entre el PR 4 | A9 verde; entra después del PR 2 |
 
 **Precondiciones de entrada (trabajo en paralelo, D47):**
 - **E2 y M8 de E3:** empiezan ya. Sus comandos usan la infraestructura compartida de M6 (T17, T18),
   que entra con el PR 1c; mientras 1c no esté en `migration/rust`, su rama sale de la de 1c. Los
   hooks de E2 y E3 (PR 2) no la necesitan y pueden empezar en cuanto entre el PR 1b.
 - **M9 de E3:** `init`, `add`, `configure`, `update` y `refresh` esperan a 0059 E2 (render
-  multi-engine), porque escriben por ese render. 0059 E2 está en la ruta crítica de esta spec. Los
-  comandos de M9 que no escriben por el render (`preset`, `registry`) avanzan ya en el PR 4.
+  multi-engine), porque escriben por ese render. 0059 E2 está en la ruta crítica de esta spec. Lo ya
+  avanzado de los comandos de M9 que no escriben por el render (`preset init`, `registry`) entra con
+  el PR 4; el resto de M9 va en el PR 4b (Q32).
 - **0062** corre en paralelo con esta spec (ver sus precondiciones); solo su corte (E3) espera a que
   esta spec termine.
 
@@ -169,6 +171,7 @@ Entregable: `doctor`, `status`, `scan`, `migrations` y `backup` son nativos, y `
 y `worktree-reclaim` deciden en Rust en `shadow`. Empieza ya: no escribe por el render
 multi-engine.
 - **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
+  - La mitad de replay de hooks de A8 (`hook-verdict-replay.mjs ... managed-drift-watch.sh,worktree-reclaim.sh`) cierra con T25 en el PR 2 (Q32); la mitad de oráculo cierra el PR 4.
 - [ ] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
   - Avance (2026-11-02): `scan` es nativo (sin config, fuera de un monorepo, sin patrones, el resumen con las listas de nuevos y huérfanos, la config al día y `--yes`, que escribe por `writeConfig`); delega al TS `scan` sin `--yes` cuando hay workspaces que agregar (interactivo), los workspaces de Python (`pyproject` o `requirements`) y las rutas o entradas fuera de la collation o el formato modelados. Faltan `status` y `doctor`.
 - [ ] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"

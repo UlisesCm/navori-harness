@@ -1,6 +1,6 @@
 # Migración a Rust, fase 4: cola larga — Design
 
-**Estado:** aceptada; reestructurada el 2026-10-31 (Q26–Q29) y con los PR 1c y 1d acotados el 2026-11-01 (Q30) y el 2026-11-02 (Q31). Q22 y Q24 se mudaron a 0062 y Q23 sigue
+**Estado:** aceptada; reestructurada el 2026-10-31 (Q26–Q29) y con los PR 1c, 1d y 4 acotados el 2026-11-01 (Q30) y el 2026-11-02 (Q31 y Q32). Q22 y Q24 se mudaron a 0062 y Q23 sigue
 abierta (§ "Preguntas") ·
 **Fecha:** 2026-10-28 · **Base verificada:** `migration/rust` = `b0b64ddd` (merge de #1442). Toda
 afirmación "ya existe" o "falta" se leyó en ese commit; las referencias citan archivo y símbolo.
@@ -242,6 +242,7 @@ Con la política de D47:
 | Q29 | (2026-10-31) Política de velocidad de D47 en 0059, 0060 y 0062 |
 | Q30 | (2026-11-01) El PR 1c se queda con la infraestructura compartida (T17, T18) y lo avanzado de T8, y entra sin esperar el resto de E1, para que E2 y E3 partan de `migration/rust`. El resto de E1 (T8, T10, T11 y T16) va en un PR 1d |
 | Q31 | (2026-11-02) El PR 1d se queda con T10 y T11 cerrados y el grupo `master`, y entra sin esperar `master init` ni los diez `master delivery-*`: son el tramo más grande de T8 (recibos, evidencia, autoridad de cola y `git`) y se revisan aparte. Ese resto de T8 y el inventario T16 van en un PR 1e |
+| Q32 | (2026-11-02) El PR 4 (#1473) se queda con M8 (T23 y T24) y entra al cerrar M8 —la mitad de oráculo de A8 verde (`bun run oracle:rust --only doctor,status,scan,migrations,backup`) y la CI en verde— sin esperar el PR 2 ni M9: la condición «después del PR 2» viene del inventario de R77 (T29, M9), que exige los hooks en `shadow`, y la mitad de replay de hooks de A8 es de T25, que va en el PR 2. Lo que #1473 ya trae de M9 (`preset init` de T26, `registry` de T28) entra con él como avance. El resto de M9 (T26–T29) va en un PR 4b, que sale de `migration/rust` cuando entre el PR 4 y sigue entrando después del PR 2 |
 
 ## Preguntas (abiertas)
 
