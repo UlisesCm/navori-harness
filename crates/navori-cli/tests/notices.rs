@@ -10,10 +10,12 @@ use navori_core::tools::{notice, update_notice};
 // Covers: R85
 #[test]
 fn los_avisos_nativos_siguen_apagados_durante_la_convivencia() {
-    assert!(
-        !ENABLED,
-        "the notices turn on with the cutover (T11), not before"
-    );
+    const {
+        assert!(
+            !ENABLED,
+            "the notices turn on with the cutover (T11), not before"
+        );
+    }
     let token = OsString::from("11111111-1111-4111-8111-111111111111");
     for flag in [update_notice::WORKER_ARG, notice::WORKER_ARG] {
         assert!(
