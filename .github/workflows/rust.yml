@@ -84,8 +84,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run ensure-dist
       - run: rustup show active-toolchain
-      # While the long tail is open (T8) an overrun warns; cutover:check still blocks on the record.
-      - run: bun run check:post-cutover --budget-advisory
+      - run: bun run check:post-cutover
       - if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
