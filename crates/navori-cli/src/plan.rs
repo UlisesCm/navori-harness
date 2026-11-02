@@ -1,4 +1,5 @@
-//! `navori plan classify|check|render <feature>`, native (spec 0060 T11, R73/R74).
+//! `navori plan classify|check|render|update|escalation-reset|acknowledge|resume`, native (spec
+//! 0060 T11, R73/R74).
 //!
 //! The command layer of `commands/plan.ts` over `navori_core::plan`. Everything is read and
 //! decided before the first byte of output or the first write, so whatever Rust does not
@@ -6,8 +7,9 @@
 //! differently (`--no-*`, a repeated or empty value), a state root the TS throws on uncaught, a
 //! config `readConfig` rejects or Rust does not model, a JSON `JSON.parse` or zod rejects (their
 //! messages are V8's and zod's), a `matches:` only a JS `RegExp` judges, a `source` projection,
-//! and `classify --diff` (git, D42). `resume` (`plan::resume`) delegates where its core does.
-//! `acknowledge` is not in the manifest, and the group delegates it with `gate`.
+//! and `classify --diff` (git, D42). `resume` (`plan::resume`) and `acknowledge`
+//! (`plan::gate::acknowledge_front` and `plan::escalation`) delegate where their cores do; the
+//! group delegates `gate`, which has its own manifest row.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -21,7 +23,9 @@ use navori_core::js_json::{self, JsValue};
 use navori_core::plan::acceptance_index;
 use navori_core::plan::check::ProjectContext;
 use navori_core::plan::classify::{ClassifyInput, classify, declared_flags_from_signals};
+use navori_core::plan::escalation;
 use navori_core::plan::expected::{Expected, parse_expected};
+use navori_core::plan::gate::{AckFront, Context, acknowledge_front};
 use navori_core::plan::report::{self, Report};
 use navori_core::plan::resume::{ConfigFacts, RESUME_BUDGET, ResumeInput, resume_plans};
 use navori_core::plan::update::{self, Mutation};
@@ -195,6 +199,46 @@ const ESCALATION_RESET: CommandDef = CommandDef {
     sub_commands: &[],
 };
 
+const ACKNOWLEDGE: CommandDef = CommandDef {
+    name: "acknowledge",
+    description: "Record one bound user workflow escalation decision; does not approve review or protected effects",
+    args: &[
+        FEATURE,
+        CWD,
+        JSON,
+        ArgDef {
+            name: "opening",
+            kind: ArgKind::RequiredString,
+            description: "Exact normal dispatch opening",
+        },
+        ArgDef {
+            name: "decision",
+            kind: ArgKind::String,
+            description: "Explicit user workflow escalation decision retained by the orchestrator",
+        },
+        boolean(
+            "inspect",
+            "Read-only terminal grant and current snapshot inspection",
+        ),
+        ArgDef {
+            name: "continue-after",
+            kind: ArgKind::String,
+            description: "Explicit consumed predecessor reference",
+        },
+        ArgDef {
+            name: "authorization-id",
+            kind: ArgKind::String,
+            description: "Operator-assigned intent/idempotency identifier, not authentication",
+        },
+        ArgDef {
+            name: "snapshot",
+            kind: ArgKind::String,
+            description: "Expected current snapshot SHA-256",
+        },
+    ],
+    sub_commands: &[],
+};
+
 const RESUME: CommandDef = CommandDef {
     name: "resume",
     description: "Revalidate continuity without reviving stale guarantees",
@@ -226,10 +270,7 @@ const PLAN: CommandDef = CommandDef {
             "gate",
             "PreToolUse(Agent) gate for harness.planTiers (R16/R17/R19) — reads the hook payload from stdin",
         ),
-        (
-            "acknowledge",
-            "Record one bound user workflow escalation decision; does not approve review or protected effects",
-        ),
+        ("acknowledge", ACKNOWLEDGE.description),
         (
             "escalation-reset",
             "Restart the gate's rejection count for a level >= 2 feature (user approval)",
@@ -275,6 +316,7 @@ enum Row {
     Render,
     Update,
     EscalationReset,
+    Acknowledge,
     Resume,
 }
 
@@ -314,6 +356,12 @@ pub fn run_escalation_reset(call: &NativeCall<'_>) -> Outcome {
     outcome(run(call.args, Row::EscalationReset))
 }
 
+/// `plan acknowledge`.
+#[must_use]
+pub fn run_acknowledge(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Acknowledge))
+}
+
 /// `plan resume`.
 #[must_use]
 pub fn run_resume(call: &NativeCall<'_>) -> Outcome {
@@ -349,6 +397,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         "render" => (&RENDER, Row::Render),
         "update" => (&UPDATE, Row::Update),
         "escalation-reset" => (&ESCALATION_RESET, Row::EscalationReset),
+        "acknowledge" => (&ACKNOWLEDGE, Row::Acknowledge),
         "resume" => (&RESUME, Row::Resume),
         name if row != Row::Group
             || PROTOTYPE_KEYS.contains(&name)
@@ -379,6 +428,18 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         (&["dir", "cwd", "progress", "decision", "date"], &["json"])
     } else if row == Row::EscalationReset {
         (&["dir", "cwd", "approved-by", "reason"], &["json"])
+    } else if row == Row::Acknowledge {
+        (
+            &[
+                "cwd",
+                "opening",
+                "decision",
+                "continue-after",
+                "authorization-id",
+                "snapshot",
+            ],
+            &["json", "inspect"],
+        )
     } else if row == Row::Classify {
         (
             &["dir", "cwd", "files"],
@@ -415,6 +476,10 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
     };
     let process_cwd = std::env::current_dir().ok()?;
     let process_cwd = process_cwd.to_str()?;
+    if row == Row::Acknowledge {
+        // Its state root resolves inside the command's `try`: a throw is a denial.
+        return acknowledge_command(feature, &options, process_cwd).map(Output::emit);
+    }
     if row == Row::EscalationReset {
         // Its flags are checked before the state root, which may still throw after them.
         if let Some(out) = reset_usage(&options) {
@@ -434,7 +499,7 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
         Row::Render => render_command(feature, &options, &root)?,
         Row::Update => update_command(feature, &options, &root)?,
         Row::EscalationReset => reset_command(feature, &options, &root)?,
-        Row::Group | Row::Resume => return None,
+        Row::Group | Row::Resume | Row::Acknowledge => return None,
     };
     Some(out.emit())
 }
@@ -443,6 +508,8 @@ fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LeafOptions<'a> {
     feature: Option<&'a str>,
+    /// Every positional, the feature included (citty's `_`).
+    positionals: usize,
     strings: Vec<(&'static str, &'a str)>,
     booleans: Vec<&'static str>,
     json: bool,
@@ -482,6 +549,7 @@ fn parse_leaf<'a>(
             if options.feature.is_none() {
                 options.feature = Some(token);
             }
+            options.positionals += 1;
             continue;
         };
         if let Some(name) = booleans.iter().find(|b| **b == body) {
@@ -1394,6 +1462,125 @@ fn reset_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> 
     Some(out)
 }
 
+// acknowledge
+
+/// The `catch` of `acknowledge`: the message on stdout (JSON with `--json`), exit 2.
+fn acknowledge_denied(out: &mut Output, json: bool, error: &str) {
+    if json {
+        json_line(
+            out,
+            &object(vec![("status", string("denied")), ("error", string(error))]),
+        );
+    } else {
+        out.stdout.push_str(error);
+        out.stdout.push('\n');
+    }
+    out.code = 2;
+}
+
+/// `plan acknowledge <feature> --opening <line> ...`: the flag checks, then
+/// `acknowledgePlanEscalation` decided over a view of the state and its writes run before the
+/// output, as the TS does them.
+fn acknowledge_command(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Output> {
+    // citty's own error for a missing `--opening`, and the TS's for a second positional.
+    let opening = options.get("opening")?;
+    if options.positionals != 1 {
+        return None;
+    }
+    let mut out = Output::default();
+    let json = options.json;
+    let inspect = options.flag("inspect", "inspect");
+    let decision = options.get("decision");
+    let supplied = [
+        options.get("continue-after"),
+        options.get("authorization-id"),
+        options.get("snapshot"),
+    ];
+    let continuing = supplied.iter().any(Option::is_some);
+    if continuing && supplied.iter().any(Option::is_none) {
+        acknowledge_denied(
+            &mut out,
+            json,
+            "continue-after, authorization-id and snapshot are required together",
+        );
+        return Some(out);
+    }
+    let excluded = if inspect {
+        decision.is_some() || continuing
+    } else {
+        decision.is_none_or(|d| js_trim(d).is_empty())
+    };
+    if excluded {
+        acknowledge_denied(
+            &mut out,
+            json,
+            "inspect excludes mutation inputs; mutations require decision",
+        );
+        return Some(out);
+    }
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let ctx = Context {
+        process_cwd: std::path::Path::new(process_cwd),
+        env: &env,
+        now_ms: now_ms as f64,
+        pid: std::process::id(),
+    };
+    let cwd = options.get("cwd").unwrap_or(process_cwd);
+    let scope = match acknowledge_front(cwd, feature, opening, &ctx) {
+        AckFront::Delegate => return None,
+        AckFront::Deny(error) => {
+            acknowledge_denied(&mut out, json, &error);
+            return Some(out);
+        }
+        AckFront::Scope(scope) => scope,
+    };
+    let now = navori_core::handoff::review::iso_now();
+    let request = escalation::Request {
+        feature,
+        opening,
+        decision: decision.unwrap_or_default(),
+        inspect,
+        continuation: match supplied {
+            [Some(after), Some(id), Some(snapshot)] => Some((after, id, snapshot)),
+            _ => None,
+        },
+        now: &now,
+    };
+    let outcome = escalation::acknowledge(&scope, &request).ok()?;
+    if let Err(error) = escalation::apply(&mut RealFs::default(), &outcome.writes) {
+        acknowledge_denied(&mut out, json, &error);
+        return Some(out);
+    }
+    match outcome.result {
+        Err(error) => acknowledge_denied(&mut out, json, &error),
+        Ok(result) => {
+            let field = |name: &str| match member(Some(&result), name) {
+                Some(JsValue::String(s)) => s.to_rust(),
+                _ => None,
+            };
+            let status = field("status")?;
+            if json || status == "inspected" {
+                json_line(&mut out, &result);
+            } else {
+                let reference = field("reference")
+                    .filter(|r| !r.is_empty())
+                    .map(|r| format!(" {r}"))
+                    .unwrap_or_default();
+                out.stdout = format!("{}: {status}{reference}\n", field("feature")?);
+            }
+        }
+    }
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
 // resume
 
 /// `plan resume [--json]`: `resumePlans(process.cwd())`, compact with `--json` and indented
@@ -1465,6 +1652,7 @@ mod tests {
             ok,
             Some(LeafOptions {
                 feature: Some("x"),
+                positionals: 1,
                 strings: vec![("files", "a,b")],
                 booleans: vec!["critical-area"],
                 json: true,

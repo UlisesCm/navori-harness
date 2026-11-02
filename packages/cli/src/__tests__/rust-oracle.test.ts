@@ -675,7 +675,7 @@ describe("rust oracle", () => {
   });
 
   // Covers: R73, R74
-  it("plan classify, check, render, update, escalation-reset y resume nativos con sus delegaciones", () => {
+  it("plan classify, check, render, update, escalation-reset, acknowledge y resume nativos con sus delegaciones", () => {
     const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
     const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
     const native = manifest.commands
@@ -683,6 +683,7 @@ describe("rust oracle", () => {
       .map((c: { path: string[] }) => c.path[1])
       .sort();
     expect(native).toEqual([
+      "acknowledge",
       "check",
       "classify",
       "escalation-reset",
@@ -692,7 +693,14 @@ describe("rust oracle", () => {
       "update",
     ]);
     const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
-    for (const sub of ["classify", "check", "render", "update", "escalation-reset"]) {
+    for (const sub of [
+      "classify",
+      "check",
+      "render",
+      "update",
+      "escalation-reset",
+      "acknowledge",
+    ]) {
       for (const json of [true, false]) {
         expect(
           cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
@@ -703,10 +711,17 @@ describe("rust oracle", () => {
         true,
       );
     }
-    // What stays in the TS must stay delegated: a native case there would hide a regression.
-    const acknowledge = cases.filter((c) => c.args[1] === "acknowledge");
-    expect(acknowledge.length).toBeGreaterThan(0);
-    expect(acknowledge.every((c) => c.native === undefined)).toBe(true);
+    // `acknowledge` covers the acknowledgement, its inspection and a continuation natively; zod's
+    // and citty's own errors stay with the TS.
+    for (const id of [
+      "acknowledge-repeat",
+      "acknowledge-inspect",
+      "acknowledge-continue-unconsumed",
+      "acknowledge-records-the-review",
+      "acknowledge-level-1",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBe(true);
+    }
     const resume = oracle
       .loadCases()
       .filter((c) => c.args[0] === "plan" && c.args[1] === "resume" && c.native);
@@ -720,12 +735,16 @@ describe("rust oracle", () => {
       expect(diff.some((c) => c.args.includes("--json") === json && c.native)).toBe(true);
     }
     expect(diff.find((c) => c.id === "plan-diff:base-inexistente")?.native).toBeUndefined();
-    // Git evidence, audit events and escalation records stay with the TS.
+    // Git evidence, audit events, escalation records and acknowledge's zod and citty errors stay
+    // with the TS.
     for (const id of [
       "update-evidence-session-delegates",
       "update-audit-delegates",
       "reset-escalation-record-delegates",
       "reset-audit-delegates",
+      "acknowledge-invalid-reference-delegates",
+      "acknowledge-extra-positional-delegates",
+      "acknowledge-missing-opening-delegates",
     ]) {
       expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
     }
