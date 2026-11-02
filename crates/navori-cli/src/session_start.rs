@@ -121,7 +121,7 @@ impl SystemHost<'_> {
             &vars,
             self.cwd,
             Some(notice_reserve(reserve)),
-            &crate::tools::spawn_worker,
+            &crate::notices::spawn_worker,
         );
         match printed {
             Ok(printed) => Some(Called {

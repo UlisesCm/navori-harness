@@ -258,6 +258,57 @@ fn resolution_order_is_env_then_checkout_then_path_without_itself() -> TestResul
     Ok(())
 }
 
+// Covers: R22
+#[test]
+fn an_installed_package_delegates_to_its_frozen_ts_after_the_env_override() -> TestResult {
+    let dir = scratch("packaged")?;
+    // The npm layout: `<package>/bin/navori` is the binary, reached through `.bin/navori`.
+    let package = dir.join("node_modules").join("navori");
+    let legacy = package.join("legacy").join("dist").join("index.js");
+    fs::create_dir_all(package.join("bin"))?;
+    fs::create_dir_all(legacy.parent().ok_or("no parent")?)?;
+    fs::write(&legacy, "")?;
+    let exe = package.join("bin").join("navori");
+    fs::copy(BIN, &exe)?;
+    let dot_bin = dir.join("node_modules").join(".bin");
+    fs::create_dir_all(&dot_bin)?;
+    symlink(&exe, dot_bin.join("navori"))?;
+    let other = dir.join("other");
+    fs::create_dir_all(&other)?;
+    script(&other.join("node"), "exit 0")?;
+    script(&other.join("navori"), "echo 0.0.1")?;
+    let dist = dir.join("dist.js");
+    fs::write(&dist, "")?;
+
+    let mut locations = Locations {
+        ts_cli: None,
+        checkout_dist: dist.clone(),
+        path: Some(other.into_os_string()),
+        self_exe: Some(dot_bin.join("navori")),
+    };
+    let plan = delegate::plan(&locations, "x").ok().ok_or("no plan")?;
+    assert_eq!(plan.target, legacy.canonicalize()?);
+    // Older on purpose: no version notice on every delegated command.
+    assert_eq!(plan.version, VersionSource::Unknown);
+    assert_eq!(delegate::version_notice(&plan, navori_core::VERSION), None);
+
+    // The env override still wins; without the frozen TS, the checkout's `dist/` follows.
+    let env_js = dir.join("env.js");
+    fs::write(&env_js, "")?;
+    locations.ts_cli = Some(env_js.clone().into_os_string());
+    assert_eq!(
+        delegate::plan(&locations, "x").ok().map(|p| p.target),
+        Some(env_js)
+    );
+    locations.ts_cli = None;
+    fs::remove_file(&legacy)?;
+    assert_eq!(
+        delegate::plan(&locations, "x").ok().map(|p| p.target),
+        Some(dist)
+    );
+    Ok(())
+}
+
 // Covers: R7
 #[test]
 fn the_loop_exits_70_only_for_its_own_pid() -> TestResult {

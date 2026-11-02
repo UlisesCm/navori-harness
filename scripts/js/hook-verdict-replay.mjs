@@ -29,6 +29,8 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *   node scripts/js/hook-verdict-replay.mjs --impl rust --registered   (every hook of crates/ported.json)
  *                                                         direct native replay of a ported hook; audit active
  *                                                         compares the event Rust drops in the session spool
+ *   node scripts/js/hook-verdict-replay.mjs --impl rust --shard 2/4
+ *                                                         replay only the second of four disjoint slices
  *   node scripts/js/hook-verdict-replay.mjs --generate <dir> [--hook a.sh,b.sh] build the corpus from the raw capture of
  *                                                            `NAVORI_HOOK_CORPUS=<dir> vitest run`
  *
@@ -57,8 +59,37 @@ const MODES = ["off", "active"];
  * @typedef {Verdict & { event: unknown[] }} ActiveVerdict
  * @typedef {{ hook: string, engine: string, shell: string, input: string, envDelta: Record<string, string>, cwdKind: "none" | "repo", args?: string[], fixture?: Array<{ path: string, content: string, mode?: number }> }} CaseKey
  * @typedef {CaseKey & { expected: { off: Verdict, active: ActiveVerdict } }} CorpusCase
- * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, registered?: boolean, only?: string[], shell?: string, generate?: string }} ReplayArgs
+ * @typedef {{ impl: "shell" | "rust", modes: string[], all: boolean, stable: boolean, coverage: boolean, registered?: boolean, only?: string[], shell?: string, generate?: string, shard?: Shard }} ReplayArgs
+ * @typedef {{ index: number, count: number }} Shard 1-based `index` of `count` disjoint slices
  */
+
+/**
+ * The cases of one shard: every `count`-th case from position `index - 1`, so the shards are
+ * disjoint, cover the selection together and each mixes every hook (spec 0062 T8: the
+ * post-cutover gate runs them in parallel processes, each with its own scratch).
+ *
+ * @template T
+ * @param {T[]} cases
+ * @param {Shard | undefined} shard
+ * @returns {T[]}
+ */
+export function shardCases(cases, shard) {
+  if (shard === undefined) return cases;
+  return cases.filter((_, i) => i % shard.count === shard.index - 1);
+}
+
+/**
+ * `i/n` with 1 <= i <= n.
+ * @param {string} value
+ * @returns {Shard}
+ */
+function parseShard(value) {
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(value);
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (match === null || index > count) throw new Error("--shard must be i/n with 1 <= i <= n");
+  return { index, count };
+}
 
 /** Stable identity of a case: the same invocation recorded twice is one case. */
 export function caseKey(c) {
@@ -496,12 +527,11 @@ export async function generateCorpus(rawDir, outDir = CORPUS_DIR, only, stable =
  * corpus recorded, signed for the binary ({@link signedAssets}). No live shell result can stand
  * in for a native verdict.
  *
- * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
+ * @param {{ corpus?: CorpusCase[], modes?: string[], only?: string[], shell?: string, all?: boolean, impl?: "shell" | "rust", shard?: Shard, deps?: Awaited<ReturnType<typeof loadDeps>> }} [options]
  * @returns {Promise<{ ok: boolean, cases: number, deferred?: number, toolDeferred?: number, failure?: string }>}
  */
-export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell" } = {}) {
-  const cases = (corpus ?? readCorpus())
-    .filter((c) => only === undefined || only.includes(c.hook))
+export async function replayCorpus({ corpus, modes = MODES, deps, only, shell, all = false, impl = "shell", shard } = {}) {
+  const cases = shardCases((corpus ?? readCorpus()).filter((c) => only === undefined || only.includes(c.hook)), shard)
     .filter((c) => shell === undefined || shell === c.shell || !hasPlaceholderCommand(c.hook))
     .map((c) => (shell === undefined ? c : { ...c, shell, capturedShell: c.shell }));
   if (!["shell", "rust"].includes(impl) || modes.length === 0 || modes.some((mode) => !MODES.includes(mode))) {
@@ -631,7 +661,7 @@ export function parseReplayArgs(argv) {
       options[flag === "--all" ? "all" : flag === "--coverage" ? "coverage" : flag === "--registered" ? "registered" : "stable"] = true;
       continue;
     }
-    if (!["--impl", "--audit", "--only", "--hook", "--shell", "--generate"].includes(flag)) {
+    if (!["--impl", "--audit", "--only", "--hook", "--shell", "--generate", "--shard"].includes(flag)) {
       throw new Error(`unknown option ${flag}`);
     }
     const value = argv[++i];
@@ -658,7 +688,13 @@ export function parseReplayArgs(argv) {
       case "--generate":
         options.generate = value;
         break;
+      case "--shard":
+        options.shard = parseShard(value);
+        break;
     }
+  }
+  if (options.shard !== undefined && (options.generate !== undefined || options.coverage)) {
+    throw new Error("--shard applies only to replay");
   }
   if (options.stable && options.generate === undefined) throw new Error("--check-stable requires --generate");
   if (options.generate !== undefined && (options.coverage || seen.has("--impl") || seen.has("--audit") || options.shell !== undefined || options.all)) {
@@ -701,7 +737,8 @@ export async function main(argv) {
   const deferredNote =
     (result.deferred ? `, ${result.deferred} deferred by mode to the shell (D31)` : "") +
     (result.toolDeferred ? `, ${result.toolDeferred} deferred for a missing Bash or text tool` : "");
-  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
+  const shardNote = options.shard ? `shard ${options.shard.index}/${options.shard.count}, ` : "";
+  process.stdout.write(`hook-verdict-replay: ${result.cases} cases identical (${shardNote}${options.impl === "rust" ? "impl rust, " : ""}audit ${options.modes.join(" and ")}${deferredNote})\n`);
   return 0;
 }
 

@@ -73,7 +73,8 @@ sustituidos por R81 y R82.
 
 - **R18** — Tras el corte, el gate full (`check:post-cutover`: cargo, el oráculo congelado de hooks,
   las suites de artefacto y los checks de docs y render, sin la suite TS) SHALL tardar ≤ 5 minutos en
-  reposo en la máquina de referencia, medido en `migration/rust` antes del corte.
+  reposo en la máquina de referencia y ≤ 10 minutos en el runner de CI (`ubuntu-latest`), medido en
+  `migration/rust` antes del corte (enmienda del 2026-11-02, D52).
 - **R20** — El corte SHALL ocurrir solo con `cutover:check` en verde (todo subcomando y flag de
   `cli.ts` en el manifiesto o en la lista de delegación permanente de `scripts/js/rust-areas.mjs`,
   todo hook o bloque de `core-assets` y de los plugins en el manifiesto, ningún hook en `shadow`,

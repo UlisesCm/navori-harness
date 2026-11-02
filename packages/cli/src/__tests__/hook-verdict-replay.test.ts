@@ -62,7 +62,9 @@ interface Replay {
     only?: string[];
     shell?: string;
     registered?: boolean;
+    shard?: { index: number; count: number };
   };
+  shardCases: <T>(cases: T[], shard: { index: number; count: number } | undefined) => T[];
   caseKey: (c: Case) => string;
   coverageRows: (
     cases: Case[],
@@ -327,6 +329,32 @@ describe("native hook replay transport", () => {
       expect(() => replay.parseReplayArgs(args)).toThrow();
   });
 
+  // Covers: R18
+  it("--shard i/n parte la selección en rebanadas disjuntas que juntas la cubren", () => {
+    expect(replay.parseReplayArgs(["--impl", "rust", "--shard", "2/4"]).shard).toEqual({
+      index: 2,
+      count: 4,
+    });
+    for (const args of [
+      ["--shard", "0/4"],
+      ["--shard", "5/4"],
+      ["--shard", "1"],
+      ["--shard", "1/0"],
+      ["--shard", "a/b"],
+      ["--coverage", "--shard", "1/2"],
+      ["--generate", "raw", "--shard", "1/2"],
+    ])
+      expect(() => replay.parseReplayArgs(args)).toThrow();
+    const corpus = replay.readCorpus();
+    const slices = [1, 2, 3, 4].map((index) => replay.shardCases(corpus, { index, count: 4 }));
+    expect(slices.flat().map(replay.caseKey).sort()).toEqual(corpus.map(replay.caseKey).sort());
+    expect(new Set(slices.flat()).size).toBe(corpus.length);
+    // round-robin: no slice is more than one case larger than another
+    const sizes = slices.map((s) => s.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(replay.shardCases(corpus, undefined)).toBe(corpus);
+  });
+
   // Covers: R11
   it("rejects unknown flags and zero selection at the actual CLI", () => {
     for (const args of [
@@ -480,6 +508,28 @@ process.exit(1);`,
         expect(result).toMatchObject({ available: true, status: 1 });
       }
     }
+  });
+
+  // Covers: R51
+  it("reads the verdict of a process that ends before taking all of stdin (EPIPE)", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    // Larger than any pipe buffer, so the write is still pending when the process is gone.
+    const input = "x".repeat(4 * 1024 * 1024);
+    const deferred = nativeFixture(
+      dir,
+      `process.stderr.write(${JSON.stringify("navori-rust: hook deferred: hook is ineligible: unsupported locale\n")}); process.exit(1);`,
+    );
+    expect(rustAdapter.runRustHook({ binary: deferred, script, input })).toEqual({
+      available: false,
+      reason: "native runtime deferred; no native verdict was evaluated",
+    });
+    const blocks = nativeFixture(dir, "process.stdout.write('blocked'); process.exit(2);");
+    expect(rustAdapter.runRustHook({ binary: blocks, script, input })).toMatchObject({
+      available: true,
+      status: 2,
+      stdout: Buffer.from("blocked"),
+    });
   });
 
   // Covers: R70

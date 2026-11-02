@@ -70,6 +70,30 @@ export const AREAS = {
 };
 
 /**
+ * Spec 0060 D48 (R20 of 0062): subcommands and flags that stay delegated to the frozen TS after the
+ * cutover, each with a one-line reason. An entry without `flags` delegates the whole subcommand;
+ * with `flags`, only those flags of a subcommand the manifest declares. Entries arrive by PR and the
+ * cross review validates them (F46).
+ * @type {ReadonlyArray<{ path: string[], flags?: string[], reason: string }>}
+ */
+export const PERMANENT_DELEGATION = [];
+
+/**
+ * Whether `PERMANENT_DELEGATION` (or `list`) covers a subcommand, or one of its flags.
+ * @param {string[]} path
+ * @param {string} [flag]
+ * @param {ReadonlyArray<{ path: string[], flags?: string[], reason: string }>} [list]
+ */
+export function permanentlyDelegated(path, flag, list = PERMANENT_DELEGATION) {
+  const key = path.join(" ");
+  return list.some(
+    (entry) =>
+      entry.path.join(" ") === key &&
+      (entry.flags === undefined || (flag !== undefined && entry.flags.includes(flag))),
+  );
+}
+
+/**
  * Area of a command path (by its root) or of a hook id. Fails on anything without an area, so a
  * subcommand or hook that arrives from `dev` cannot slip past the inventory (D40).
  * @param {{ command?: string[], hook?: string }} item

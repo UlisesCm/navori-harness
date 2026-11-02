@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Design
 
-**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; Q24 sigue abierta) · **Fecha:**
+**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; R18 resuelta el 2026-11-02; Q24 aplazada) · **Fecha:**
 2026-10-31 · **Base:** `migration/rust` en `e8859f49` (merge de #1465).
 
 **Alcance del documento:** activación de los 22 hooks, ensayo de distribución y corte. Sale de E4–E6
@@ -59,6 +59,55 @@ Se conserva sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
 `legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
 estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover` cronometrado.
 
+### D51 — Nombres provisionales de los paquetes de plataforma (Q24 aplazada; R21)
+
+- El ensayo de E2 arma `@navori/darwin-arm64`, `@navori/darwin-x64`, `@navori/linux-arm64` y
+  `@navori/linux-x64`, y `navori` los declara en `optionalDependencies`. Los nombres son
+  provisionales: no se publican, y cambiarlos toca `SCOPE` de `dist-assemble.mjs` y
+  `platformPackage` del lanzador.
+- La forma de publicar queda para después del ensayo (Q24): paquetes de plataforma con scope (que
+  exige una org o un usuario dueño del scope), sin scope, o un solo paquete `navori` con los cuatro
+  binarios.
+
+### D52 — R18 por host y oráculo de hooks en paralelo (R18; enmienda D17 de 0057)
+
+- **Medición en CI.** Con la composición de D17 y sin `navori-oracle-tests`, que el corte elimina
+  (R24), el gate tarda unos 620 s en `ubuntu-latest` con caché de cargo. El replay de hooks, serial
+  y con un proceso por caso, se lleva unos 400 s.
+- **Paralelo.** `hook-verdict-replay.mjs --shard i/n` replica una rebanada disjunta del corpus
+  (casos por turno, así cada rebanada mezcla todos los hooks) y `check:post-cutover` corre una por
+  núcleo a la vez, cada una con su propio scratch.
+- **Presupuesto por host.** El registro guarda `host`: `ci` con `GITHUB_ACTIONS=true` y
+  `reference` en otro caso. R18 vale 300 s en la máquina de referencia y 600 s en CI, donde sirve
+  de guarda de regresión. Un registro sin `host` se juzga con 300 s. `cutover:check` aplica el
+  presupuesto del host del registro.
+
+### D53 — Ensayo del paquete sin tocar `packages/cli` (R21, R22, R84; enmienda D17 de 0057)
+
+- **Aparte del TS.** Mientras dure la convivencia, `packages/cli` sigue publicando el TS sin
+  artefactos Rust ni `postinstall` (R4). El paquete del corte se arma aparte:
+  `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
+  hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
+  `@navori/<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
+- **`legacy/` es el paquete entero.** El tarball del último TS publicado (`packaging/legacy.json`
+  fija versión e `integrity`) se desempaca completo en `legacy/`, así que el TS congelado es
+  `legacy/dist/index.js` y no `legacy/index.js`: conserva su `package.json` y sus lecturas
+  relativas, y responde su propia versión.
+- **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
+  127, así el prólogo del hook corre su cuerpo shell.
+- **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
+  bajo pnpm (`npm_config_user_agent`), y el lanzador quita del `NODE_PATH` las rutas `/.pnpm/` que
+  agrega el shim: con ellas el binario declara el hook no elegible (`NODE_*`).
+- **Delegación.** El binario busca el TS congelado junto a sí mismo
+  (`<paquete>/legacy/dist/index.js`, después de `NAVORI_TS_CLI` y antes del `dist/` del checkout),
+  sin aviso de versión: la diferencia es deliberada. Por Node, el lanzador fija `NAVORI_TS_CLI`.
+- **Sonda.** `dist-probe.mjs` instala tarballs locales. pnpm no empareja `allowBuilds: navori` con
+  un id `navori@file:<ruta>`, así que el caso con scripts habilita los builds de su proyecto
+  desechable. Mientras la lista de delegación permanente esté vacía, la delegación se prueba con un
+  subcomando que nadie porta y exige el banner del TS congelado.
+- **Workflow.** `.github/workflows/rust-release.yml` compila los cuatro binarios (musl estático
+  comprobado con `ldd`), arma los paquetes y corre la sonda en cada plataforma. No publica.
+
 ## Failure modes
 
 - **F44 — Un hook activado diverge en uso real.** Mitigación: R80 (vuelta a `shadow` con
@@ -93,8 +142,11 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 | Q28 | (2026-10-31) Corte con delegación permanente de subcomandos raros al TS congelado (D50) |
 | Q29 | (2026-10-31) Política de velocidad de D47 de 0060 en las tres specs abiertas (0059, 0060, 0062) |
 | Q30 | (2026-11-02) Partir el PR 1a: las herramientas (T1, T2, T4) entran sin esperar la ventana de sombra, que empezó el 2026-11-02; el lote 1 (T3) y el reporte de sombra de A1 van en 1a′ |
+| R18 | (2026-11-02) Paralelizar el replay de hooks y medir R18 por host: 300 s en la máquina de referencia y 600 s en CI (D52) |
 
 ## Preguntas (abiertas)
 
-- **Q24 [human] — Scope npm de los paquetes de plataforma.** Pendiente desde la decisión 3 del
-  usuario en 0057. Bloquea solo E2.
+- **Q24 [human] — Cómo publicar los binarios.** Aplazada por el usuario el 2026-11-02: no se
+  crea una org `navori` en npm. Opciones: paquetes de plataforma sin scope, con el scope del
+  usuario, o un solo paquete con los cuatro binarios. No bloquea E2 (no publica); bloquea el
+  publish posterior a E3.

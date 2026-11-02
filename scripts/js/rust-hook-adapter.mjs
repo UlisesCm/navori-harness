@@ -69,11 +69,15 @@ export function runRustHook({ binary, script, input, event, cwd, env = {}, args 
     timeout: timeoutMs,
     maxBuffer: 10 * 1024 * 1024,
   });
-  let output = spawnOnce();
+  // A process that ends before reading all of stdin (every deferral happens before the hook reads
+  // it) can make Node's write fail with EPIPE. The process still ended with a status, so that is
+  // its verdict, not a transport failure.
+  const settle = (run) => (run.error?.code === "EPIPE" && run.status !== null ? { ...run, error: undefined } : run);
+  let output = settle(spawnOnce());
   // Spec 0060 T17: the host-fact probes have a fixed budget that a loaded machine can exhaust.
   // That deferral happens before the hook reads stdin or acts, so one retry is safe and keeps a
   // flaky host from turning into a missing verdict.
-  if (probeDeadlineExpired(output)) output = spawnOnce();
+  if (probeDeadlineExpired(output)) output = settle(spawnOnce());
   if (output.error !== undefined) {
     return { available: false, reason: `native process error: ${output.error.code ?? output.error.message}` };
   }

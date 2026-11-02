@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+"use strict";
+// Replaced by the platform binary when the postinstall runs; see ../lib/launcher.js.
+require("../lib/launcher.js").launch("navori", require("node:path").join(__dirname, ".."));
