@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
+  "name": "x",
+  "version": "1.0.0",
+  "harnessVersion": "0.12.2",
+  "engines": ["pi"],
+  "preset": "nextjs",
+  "language": "es",
+  "branchBase": "main",
+  "gitignoreHarness": "off",
+  "commits": "conventional-es",
+  "qualityGate": { "fast": "bun run check:fast", "full": "bun run check" },
+  "harness": { "planTiers": true, "masterPlan": true, "scribeOwnsMarkdown": true, "publisher": false, "scout": false },
+  "hooks": { "verifyOnStop": true },
+  "audit": { "mode": "always" },
+  "plugins": { "tgrep": { "enabled": true } }
+}

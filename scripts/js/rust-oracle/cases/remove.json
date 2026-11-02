@@ -18,6 +18,20 @@
     { "id": "codex-trusted:remove-delegates", "fixture": "codex-trusted", "args": ["remove", "gh", "--yes"] },
     { "id": "write-failure:remove-yes", "fixture": "remove-plugin", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "readonly": [".claude/hooks"] },
     {"id":"gate:remove-yes","fixture":"gate","args":["remove","engram","--yes"]},
-    {"id":"tools:remove-yes","fixture":"tools","args":["remove","engram","--yes"]}
+    {"id":"tools:remove-yes","fixture":"tools","args":["remove","engram","--yes"]},
+    { "id": "codex:remove-yes", "fixture": "codex", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "codex:remove-unrendered", "fixture": "codex", "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "codex-untrusted:remove-yes", "fixture": "codex-untrusted", "setup": [["render", "--apply"]], "args": ["remove", "gh", "--yes"], "native": true },
+    { "id": "codex-trusted:remove-not-declared", "fixture": "codex-trusted", "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "user-content:remove-not-declared", "fixture": "user-content", "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "plan-gate:remove-not-declared", "fixture": "plan-gate", "args": ["remove", "gh", "--yes"], "native": true },
+    { "id": "multi-engine:remove-not-declared", "fixture": "multi-engine", "args": ["remove", "gh", "--yes"], "native": true },
+    { "id": "multi-engine-pi:remove-not-declared", "fixture": "multi-engine-pi", "args": ["remove", "gh", "--yes"], "native": true },
+    { "id": "prose-engines:remove-yes", "fixture": "prose-engines", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "pi:remove-not-declared", "fixture": "pi", "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "pi-controls:remove-yes", "fixture": "pi-controls", "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "native": true },
+    { "id": "pi-foreign:remove-not-declared", "fixture": "pi-foreign", "args": ["remove", "gh", "--yes"], "native": true },
+    { "id": "pi-mcp:remove-yes", "fixture": "pi-mcp", "setup": [["render", "--apply"]], "args": ["remove", "codegraph", "--yes"], "native": true },
+    { "id": "multi-engine-pi:remove-yes", "fixture": "multi-engine-pi", "files": { "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\", \"agents-md\", \"copilot\", \"cursor\", \"pi\"],\n  \"preset\": \"custom\",\n  \"plugins\": { \"engram\": { \"enabled\": true }, \"tgrep\": { \"enabled\": true } }\n}\n" }, "setup": [["render", "--apply"]], "args": ["remove", "tgrep", "--yes"], "native": true }
   ]
 }

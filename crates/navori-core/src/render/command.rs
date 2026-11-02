@@ -1,40 +1,55 @@
-//! `navori render` over a solo-Claude root (spec 0058 E3 M6 and M8, D23): `runRenderCore` and
-//! the two outputs of `renderCommand.run`, the human report and `--json`.
+//! `navori render` over a root (spec 0058 E3 M6 and M8, D23; spec 0059 T19, D36): `runRenderCore`
+//! and the two outputs of `renderCommand.run`, the human report and `--json`.
 //!
-//! The pipeline follows `runRenderCore`: the Claude plan, the root `.gitignore`, the nested
-//! `.claude`, `.codex` and `.navori` ones, `.prettierignore` and the orphaned engine outputs
-//! scan. With [`Apply`] each step commits through the `Fs` layer (one `commitWrites` each, so
-//! one backup each) before the next one reads the disk, as the TS does; then `harnessVersion` is
-//! recorded when something was really written. Workspaces, other engines and `--prune` are
-//! outside the native subset (Q8), so their report sections are always empty here.
+//! The pipeline follows `runRenderCore` and `prepareRenderTarget`: every engine is planned
+//! before anything is written, then the Claude plan commits, then each other engine (`codex` and
+//! the prose engines `agents-md`, `cursor`, `copilot`, in config order) commits, then the root
+//! `.gitignore`, the nested `.claude`, `.codex` and `.navori` ones, `.prettierignore` and the
+//! orphaned engine outputs scan. Every engine shares one owned-path inventory, which
+//! `guard-destructive` embeds. With [`Apply`] each step commits through the `Fs` layer (one
+//! backup each) before the next one reads the disk, as the TS does; then `harnessVersion` is
+//! recorded when something was really written. Pi, workspaces and `--prune` are outside the
+//! native subset (Q8): they delegate, so their report sections are always empty here.
 //!
 //! The core provenance is `(embedded)`: Rust reads no `core-assets` directory, so it never names
 //! one (Q11). The oracle masks the TS side of that line and of the three `--json` keys.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use jiff::Zoned;
 
-use crate::backup::BackupStore;
+use crate::backup::{BackupStore, MAX_TOTAL_BYTES, RETENTION_DAYS, purge_old_backups};
 use crate::commit::{CommitError, CommitInput, commit_writes};
 use crate::config::{Config, HarnessRecord, record_harness_version};
-use crate::fs::{Fs, FsError, write_file_atomic};
+use crate::fs::{Fs, FsError, Syscall, node_message, write_file_atomic};
 use crate::i18n;
 use crate::js_json::{JsObject, JsValue};
 use crate::markers::InjectStatus;
 use crate::render::block_plan::PlanOptions;
 use crate::render::claude::{ClaudeEnginePlan, plan_claude_engine};
-use crate::render::collect::{PendingWrite, RepoView};
+use crate::render::codex_catalog::default_codex_catalog_path;
+use crate::render::codex_engine::{
+    CodexEngineInput, CodexEnginePlan, MIN_CODEX_VERSION, codex_observed, plan_codex_engine,
+};
+use crate::render::codex_hooks::resolve_codex_hooks;
+use crate::render::codex_trust::{default_codex_home_config_path, read_codex_trust_state};
+use crate::render::collect::{PendingWrite, RepoView, SkippedFile};
 use crate::render::context::Lang;
 use crate::render::doc_budget::{DocBudget, measure_doc_budget};
 use crate::render::ignore_files::{
     IgnoreFile, plan_gitignore, plan_prettierignore, scan_orphaned_engine_outputs,
 };
+use crate::render::native_hooks::embedded_native_hooks;
 use crate::render::nested_gitignore::{NESTED_GITIGNORE_DIRS, plan_nested_gitignore};
+use crate::render::pi_engine::{PiEngineInput, PiEnginePlan, pi_observed, pi_seal, plan_pi_engine};
+use crate::render::plugins::load_enabled_plugins;
+use crate::render::prose::{ProseOptions, ProsePlan, plan_prose_file, prose_spec};
 use crate::render::report::{
     Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
     status_symbol, unchanged_engine_files, written,
 };
+use crate::render::retirements::PendingRemoval;
 
 /// What Rust prints where the TS names the `core-assets` root it read.
 pub const EMBEDDED_CORE: &str = "(embedded)";
@@ -132,13 +147,97 @@ impl IgnoreResult {
     }
 }
 
-/// The result of `runRenderCore` on a solo-Claude root without workspaces.
+/// A non-Claude engine's summary (`EngineRenderSummary`): today, a prose engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraEngine {
+    /// Engine id.
+    pub engine: String,
+    /// What a prose engine's file becomes (empty for Codex and a redundant `agents-md`).
+    pub plan: ProsePlan,
+    /// The Codex engine's plan, with its final warnings.
+    pub codex: Option<CodexEnginePlan>,
+    /// The Pi engine's plan, with the `AGENTS.md` it writes when it is the only owner.
+    pub pi: Option<PiEnginePlan>,
+    /// The snapshot its write took, when it overwrote an existing file.
+    pub backup_path: Option<String>,
+}
+
+fn writes_and_removals<'a>(
+    pending: &'a [PendingWrite],
+    removals: &'a [PendingRemoval],
+) -> impl Iterator<Item = (&'a str, &'static str)> {
+    pending
+        .iter()
+        .map(|w| (w.rel_path.as_str(), w.status.as_str()))
+        .chain(
+            removals
+                .iter()
+                .map(|r| (r.rel_path.as_str(), "removed-condition-false")),
+        )
+}
+
+impl ExtraEngine {
+    /// `written`: `(path, status)`; Codex and Pi list their writes, then their removals (and Pi
+    /// then its `AGENTS.md`).
+    #[must_use]
+    pub fn written(&self) -> Vec<(&str, &'static str)> {
+        if let Some(codex) = &self.codex {
+            return writes_and_removals(&codex.pending, &codex.removals).collect();
+        }
+        if let Some(pi) = &self.pi {
+            return writes_and_removals(&pi.pending, &pi.removals)
+                .chain(
+                    pi.context
+                        .iter()
+                        .flat_map(|c| c.write.iter())
+                        .map(|w| (w.rel_path.as_str(), w.status.as_str())),
+                )
+                .collect();
+        }
+        self.plan
+            .write
+            .iter()
+            .map(|w| (w.rel_path.as_str(), w.status.as_str()))
+            .collect()
+    }
+
+    /// `skipped`.
+    #[must_use]
+    pub fn skipped(&self) -> Vec<&SkippedFile> {
+        if let Some(codex) = &self.codex {
+            return codex.skipped.iter().collect();
+        }
+        if let Some(pi) = &self.pi {
+            return pi
+                .skipped
+                .iter()
+                .chain(pi.context.iter().flat_map(|c| c.skipped.iter()))
+                .collect();
+        }
+        self.plan.skipped.iter().collect()
+    }
+
+    /// `warnings`.
+    #[must_use]
+    pub fn warnings(&self) -> &[String] {
+        if let Some(codex) = &self.codex {
+            return &codex.warnings;
+        }
+        self.pi
+            .as_ref()
+            .map_or(&self.plan.warnings, |pi| &pi.warnings)
+    }
+}
+
+/// The result of `runRenderCore` on a root without workspaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderPlan {
     /// `resolveLang(config.language)`.
     pub lang: Lang,
-    /// The Claude engine's plan.
-    pub claude: ClaudeEnginePlan,
+    /// The Claude engine's plan, when `claude` is configured.
+    pub claude: Option<ClaudeEnginePlan>,
+    /// The other engines, in config order.
+    pub extra_engines: Vec<ExtraEngine>,
     /// The root `.gitignore`; `None` in mode `off`.
     pub gitignore: Option<IgnoreResult>,
     /// `.claude/.gitignore`.
@@ -170,13 +269,14 @@ impl RenderPlan {
     /// `result.written`: the Claude engine has something to write or delete.
     #[must_use]
     pub fn claude_changed(&self) -> bool {
-        !written(&self.claude).is_empty()
+        self.claude.as_ref().is_some_and(|c| !written(c).is_empty())
     }
 
     /// `resultHasPendingWrites(result)`.
     #[must_use]
     pub fn has_pending_writes(&self) -> bool {
         self.claude_changed()
+            || self.extra_engines.iter().any(|e| !e.written().is_empty())
             || self
                 .ignore_files()
                 .into_iter()
@@ -187,7 +287,12 @@ impl RenderPlan {
     /// `countSkippedFiles(result)`.
     #[must_use]
     pub fn skipped_files(&self) -> usize {
-        self.claude.skipped.len()
+        self.claude.as_ref().map_or(0, |c| c.skipped.len())
+            + self
+                .extra_engines
+                .iter()
+                .map(|e| e.skipped().len())
+                .sum::<usize>()
             + self
                 .ignore_files()
                 .into_iter()
@@ -209,15 +314,22 @@ impl RenderPlan {
                 None => counts.push((status, n)),
             }
         };
-        for (_, status) in &self.claude.claude_md_entries {
-            bump(status.as_str(), 1);
+        if let Some(claude) = &self.claude {
+            for (_, status) in &claude.claude_md_entries {
+                bump(status.as_str(), 1);
+            }
+            for (path, status) in written(claude) {
+                if path != "CLAUDE.md" {
+                    bump(status, 1);
+                }
+            }
+            bump("unchanged", unchanged_engine_files(claude));
         }
-        for (path, status) in written(&self.claude) {
-            if path != "CLAUDE.md" {
+        for engine in &self.extra_engines {
+            for (_, status) in engine.written() {
                 bump(status, 1);
             }
         }
-        bump("unchanged", unchanged_engine_files(&self.claude));
         for file in self.ignore_files().into_iter().flatten() {
             if !file.skipped() {
                 bump(file.status.as_str(), 1);
@@ -251,6 +363,8 @@ pub struct RenderOptions {
     pub native_hooks: Option<std::collections::BTreeMap<String, crate::manifest::Hook>>,
     /// `--force`.
     pub force: bool,
+    /// `CLAUDE.md` block ids to overwrite despite a hand edit (`sync --accept-new`).
+    pub force_ids: BTreeSet<String>,
 }
 
 /// `runRenderCore(cwd, { dryRun: true, force })` on the root at `repo_root`, read through
@@ -345,9 +459,429 @@ pub fn commit_claude(
     Ok((backup_path, committed.real_writes))
 }
 
+/// `prepareCodexEngine(...).commit()`: one `commitWrites` with `AGENTS.md` last and removals in
+/// the same failure scope, then the collision warnings rewritten with the backup path.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+fn commit_codex(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    codex: &mut CodexEnginePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let agents_md = |w: &PendingWrite| w.rel_path == "AGENTS.md";
+    let input = CommitInput {
+        cwd: repo_root,
+        backup_exclude: &[],
+        dry_run: false,
+        write_last: Some(&agents_md),
+        engine_label: Some("Codex"),
+        removals_best_effort: false,
+        lang,
+        now: apply.now,
+    };
+    let committed = commit_writes(
+        apply.fs,
+        apply.backups,
+        &mut codex.pending,
+        &codex.removals,
+        &input,
+    )
+    .map_err(RenderError::Commit)?;
+    let backup_path = committed.backup_path.map(|p| p.display().to_string());
+    if let Some(backup) = &backup_path {
+        for (offset, (path, keys)) in codex.collisions.iter().enumerate() {
+            if let Some(slot) = codex.warnings.get_mut(codex.collision_warnings_at + offset) {
+                let original = Path::new(backup).join(path).display().to_string();
+                *slot = i18n::markerless_collision(lang, path, keys, Some(&original));
+            }
+        }
+    }
+    Ok((backup_path, committed.real_writes))
+}
+
+/// `preparePiEngine(...).commit()`: one `commitWrites` (removals in the same failure scope),
+/// then `AGENTS.md` through the prose renderer when Pi is its only writer.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+fn commit_pi(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    pi: &mut PiEnginePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let input = CommitInput {
+        cwd: repo_root,
+        backup_exclude: &[],
+        dry_run: false,
+        write_last: None,
+        engine_label: Some("Pi Coding Agent"),
+        removals_best_effort: false,
+        lang,
+        now: apply.now,
+    };
+    let committed = commit_writes(
+        apply.fs,
+        apply.backups,
+        &mut pi.pending,
+        &pi.removals,
+        &input,
+    )
+    .map_err(RenderError::Commit)?;
+    let mut backup_path = committed.backup_path.map(|p| p.display().to_string());
+    let mut real_writes = committed.real_writes;
+    if let Some(context) = &pi.context {
+        let (backup, writes) = commit_prose(apply, repo_root, context, lang)?;
+        real_writes += writes;
+        if backup_path.is_none() {
+            backup_path = backup.map(|p| p.to_string());
+        }
+    }
+    Ok((backup_path, real_writes))
+}
+
+/// `appendCodexTrustHint`'s test: the project or a registered hook still lacks Codex's trust.
+///
+/// # Errors
+/// [`RenderError::Delegate`] where the TS throws (an unusable `CODEX_HOME`, a plugin `hooks`).
+fn codex_trust_missing(config: &JsValue, repo_root: &Path) -> Result<bool, RenderError> {
+    let plugins = match config {
+        JsValue::Object(object) => object.get("plugins").cloned(),
+        _ => None,
+    };
+    let enabled = load_enabled_plugins(plugins.as_ref()).map_err(|_| RenderError::Delegate)?;
+    let hooks = resolve_codex_hooks(config, &enabled.loaded).ok_or(RenderError::Delegate)?;
+    let home = default_codex_home_config_path().ok_or(RenderError::Delegate)?;
+    let root = repo_root.display().to_string();
+    let toml = repo_root
+        .join(".codex")
+        .join("config.toml")
+        .display()
+        .to_string();
+    let state =
+        read_codex_trust_state(&root, &toml, &hooks, &home, "").ok_or(RenderError::Delegate)?;
+    Ok(state.something_missing())
+}
+
+/// `config.project[key] ?? []`, its strings.
+fn project_list(config: &JsValue, key: &str) -> Vec<String> {
+    let project = match config {
+        JsValue::Object(root) => root.get("project"),
+        _ => None,
+    };
+    match project {
+        Some(JsValue::Object(project)) => match project.get(key) {
+            Some(JsValue::Array(items)) => items
+                .iter()
+                .filter_map(|item| match item {
+                    JsValue::String(s) => s.to_rust(),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// The write of `renderProseFile`: a snapshot of the file it overwrites (none on a first
+/// render), then `mkdir -p` and the atomic write. Returns the backup and the real writes.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+fn commit_prose(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    plan: &ProsePlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let Some(write) = &plan.write else {
+        return Ok((None, 0));
+    };
+    let mut backup_path = None;
+    if !plan.first_render {
+        let handle = apply
+            .backups
+            .create(
+                apply.fs,
+                repo_root,
+                std::slice::from_ref(&write.rel_path),
+                &[],
+                apply.now,
+            )
+            .map_err(|e| RenderError::Commit(CommitError::Backup(e)))?;
+        if !handle.files.is_empty() {
+            if let Ok(root) = apply.backups.root.clone() {
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "`Date.now()` is a JS number of milliseconds"
+                )]
+                let now_ms = apply.now.timestamp().as_millisecond() as f64;
+                purge_old_backups(
+                    apply.fs,
+                    &root,
+                    now_ms,
+                    RETENTION_DAYS,
+                    MAX_TOTAL_BYTES,
+                    Some(&handle.path),
+                )
+                .map_err(|e| RenderError::Commit(CommitError::Backup(e)))?;
+            }
+            backup_path = Some(handle.path);
+        }
+    }
+    let path = repo_root.join(&write.rel_path);
+    let written = (|| -> Result<(), FsError> {
+        if let Some(parent) = path.parent() {
+            apply.fs.mkdir_all(parent).map_err(|e| FsError {
+                message: node_message(&e, Syscall::Mkdir, parent, None),
+            })?;
+        }
+        write_file_atomic(apply.fs, &path, &write.content)
+    })();
+    if let Err(error) = written {
+        // `RenderWriteError`: the recovery breadcrumb rides the message.
+        let hint = backup_path.as_ref().map_or_else(String::new, |p| {
+            i18n::backup_available_at(lang, &p.display().to_string())
+        });
+        return Err(RenderError::Commit(CommitError::Write {
+            message: format!(
+                "{}.{hint}",
+                i18n::render_failed_writing(
+                    lang,
+                    None,
+                    &path.display().to_string(),
+                    &error.message
+                )
+            ),
+            backup_path,
+        }));
+    }
+    Ok((backup_path.map(|p| p.display().to_string()), 1))
+}
+
 /// `readFileOrEmpty` + `measureDocBudget` on the root `CLAUDE.md`.
 fn claude_md_budget(view: &dyn RepoView) -> DocBudget {
     measure_doc_budget(&view.read("CLAUDE.md").unwrap_or_default())
+}
+
+/// The engines of one target, planned and finalized before any write (`prepareRenderTarget`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetPlan {
+    /// The Claude engine's plan, when `claude` is configured.
+    pub claude: Option<ClaudeEnginePlan>,
+    /// The other engines, in config order.
+    pub extra_engines: Vec<ExtraEngine>,
+    /// The destinations Codex, `agents-md` and Pi observed in the shared inventory
+    /// (`destinations` without Claude's).
+    pub extra_destinations: Vec<String>,
+}
+
+/// `prepareRenderTarget(cwd, config, engines, …)` and its `finalize()` on the root at
+/// `repo_root`: every engine planned through the shared owned-path inventory, nothing written.
+/// The Codex trust hint is not appended here ([`append_codex_trust_hints`]).
+///
+/// # Errors
+/// [`RenderError::Delegate`] where a step delegates.
+pub fn plan_target(
+    view: &dyn RepoView,
+    config: &Config,
+    repo_root: &Path,
+    options: &RenderOptions,
+) -> Result<TargetPlan, RenderError> {
+    let lang = config.lang();
+    let floor = config.harness_version();
+    // `prepareRenderTarget`: every engine is planned before the first write, so a delegate can
+    // only happen while the disk is untouched.
+    let engines = engines(&config.data);
+    let has_claude = engines.iter().any(|e| e == "claude");
+    let has_codex = engines.iter().any(|e| e == "codex");
+    let has_pi = engines.iter().any(|e| e == "pi");
+    for engine in engines
+        .iter()
+        .filter(|e| !matches!(e.as_str(), "claude" | "codex" | "pi"))
+    {
+        // An engine without an adapter stays the TS's.
+        prose_spec(engine).ok_or(RenderError::Delegate)?;
+    }
+    // `reportMissingLocalSkills` lands on the first extra engine without Claude: not modelled.
+    if !has_claude && !project_list(&config.data, "localSkills").is_empty() {
+        return Err(RenderError::Delegate);
+    }
+    let native_manifest = options
+        .native_hooks
+        .clone()
+        .unwrap_or_else(embedded_native_hooks);
+    let codex_input = CodexEngineInput {
+        config: &config.data,
+        repo_root,
+        ambient_floor: floor.as_deref(),
+        native_manifest: &native_manifest,
+        catalog: default_codex_catalog_path(),
+    };
+    // The shared owned-path inventory (`prepareRenderTarget`): Codex observes its destinations;
+    // `agents-md` observes `AGENTS.md` only when no engine that owns it (Codex) is configured.
+    let mut extra_observed = if has_codex {
+        codex_observed(view, &codex_input).map_err(|_| RenderError::Delegate)?
+    } else {
+        Vec::new()
+    };
+    if !has_codex && engines.iter().any(|e| e == "agents-md") {
+        extra_observed.push(("AGENTS.md".to_owned(), "navori-agents".to_owned()));
+    }
+    let pi_input = PiEngineInput {
+        config: &config.data,
+        repo_root,
+        ambient_floor: floor.as_deref(),
+        native_manifest: &native_manifest,
+    };
+    // Pi classifies its resources with its own validators, and a vetoed generation excludes its
+    // new files from the shared seal.
+    let (pi_classified, pi_excluded) = if has_pi {
+        pi_observed(view, &pi_input).map_err(|_| RenderError::Delegate)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let plan_options = PlanOptions {
+        ambient_floor: floor.clone(),
+        native_hooks: options.native_hooks.clone(),
+        force: options.force,
+        force_ids: options.force_ids.clone(),
+        extra_observed: extra_observed.clone(),
+        extra_classified: pi_classified.clone(),
+        extra_excluded: pi_excluded.clone(),
+        ..PlanOptions::default()
+    };
+    // The target's seal without Claude: every other engine's observations.
+    let shared_seal = || -> Result<String, RenderError> {
+        let mut classified = pi_classified.clone();
+        for (rel, id) in &extra_observed {
+            let foreign = view.lexists(rel)
+                && crate::render::removable::navori_authorship(
+                    view,
+                    rel,
+                    (!id.is_empty()).then_some(id.as_str()),
+                    true,
+                ) == crate::render::removable::Authorship::Foreign;
+            classified.push((rel.clone(), foreign));
+        }
+        pi_seal(&classified, &pi_excluded).map_err(|_| RenderError::Delegate)
+    };
+    let claude = if has_claude {
+        Some(
+            plan_claude_engine(view, &config.data, repo_root, &plan_options)
+                .map_err(|_| RenderError::Delegate)?,
+        )
+    } else {
+        None
+    };
+    let prose_options = ProseOptions {
+        ambient_floor: floor.as_deref(),
+        ..ProseOptions::default()
+    };
+    let mut extra_engines = Vec::with_capacity(engines.len());
+    for engine in engines.iter().filter(|e| *e != "claude") {
+        let mut entry = ExtraEngine {
+            engine: engine.clone(),
+            plan: ProsePlan::default(),
+            codex: None,
+            pi: None,
+            backup_path: None,
+        };
+        let owned_paths = || -> Result<String, RenderError> {
+            match &claude {
+                Some(claude) => Ok(claude.owned_paths.clone()),
+                None => shared_seal(),
+            }
+        };
+        if engine == "pi" {
+            entry.pi = Some(
+                plan_pi_engine(view, &pi_input, &owned_paths()?)
+                    .map_err(|_| RenderError::Delegate)?,
+            );
+        } else if engine == "codex" {
+            let owned_paths = owned_paths()?;
+            let mut codex = plan_codex_engine(view, &codex_input, &owned_paths)
+                .map_err(|_| RenderError::Delegate)?;
+            codex.collision_warnings_at = codex.warnings.len();
+            let collisions: Vec<String> = codex
+                .collisions
+                .iter()
+                .map(|(path, keys)| i18n::markerless_collision(lang, path, keys, None))
+                .collect();
+            codex.warnings.extend(collisions);
+            entry.codex = Some(codex);
+        } else if engine == "agents-md" && has_codex {
+            entry.plan.warnings = vec![i18n::agents_md_redundant_with_codex(lang).to_owned()];
+        } else if let Some(spec) = prose_spec(engine) {
+            entry.plan = plan_prose_file(view, &config.data, repo_root, spec, prose_options, None)
+                .map_err(|_| RenderError::Delegate)?;
+        }
+        extra_engines.push(entry);
+    }
+    let extra_destinations = extra_observed
+        .into_iter()
+        .map(|(rel, _)| rel)
+        .chain(pi_classified.into_iter().map(|(rel, _)| rel))
+        .collect();
+    Ok(TargetPlan {
+        claude,
+        extra_engines,
+        extra_destinations,
+    })
+}
+
+/// The target's `commit()`: Claude, then each other engine in config order, each with its own
+/// backup (left in its [`ExtraEngine::backup_path`]). Returns Claude's backup and the real
+/// writes across every engine.
+///
+/// # Errors
+/// [`RenderError::Commit`] where the TS throws.
+pub fn commit_target(
+    apply: &mut Apply<'_>,
+    repo_root: &Path,
+    target: &mut TargetPlan,
+    lang: Lang,
+) -> Result<(Option<String>, usize), RenderError> {
+    let (backup_path, mut real_writes) = match target.claude.as_mut() {
+        Some(claude) => commit_claude(apply, repo_root, claude, lang)?,
+        None => (None, 0),
+    };
+    for engine in &mut target.extra_engines {
+        let (backup, writes) = match (engine.codex.as_mut(), engine.pi.as_mut()) {
+            (Some(codex), _) => commit_codex(apply, repo_root, codex, lang)?,
+            (_, Some(pi)) => commit_pi(apply, repo_root, pi, lang)?,
+            _ => commit_prose(apply, repo_root, &engine.plan, lang)?,
+        };
+        engine.backup_path = backup;
+        real_writes += writes;
+    }
+    Ok((backup_path, real_writes))
+}
+
+/// `appendCodexTrustHint` on the Codex engine's warnings: read after its commit (or in a
+/// preview), since it reads the repo's `.codex/config.toml`.
+///
+/// # Errors
+/// [`RenderError::Delegate`] where the TS throws.
+pub fn append_codex_trust_hints(
+    config: &Config,
+    repo_root: &Path,
+    extra_engines: &mut [ExtraEngine],
+) -> Result<(), RenderError> {
+    for engine in extra_engines {
+        if let Some(codex) = engine.codex.as_mut()
+            && codex_trust_missing(&config.data, repo_root)?
+        {
+            codex.warnings.push(i18n::codex_trust_command_hint(
+                config.lang(),
+                MIN_CODEX_VERSION,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `runRender(cwd, { dryRun: apply.is_none() })` on the root at `repo_root`, read through
@@ -366,17 +900,11 @@ pub fn run_render(
     let floor = config.harness_version();
     let force = options.force;
     let budget_before = apply.is_some().then(|| claude_md_budget(view));
-    let plan_options = PlanOptions {
-        ambient_floor: floor.clone(),
-        native_hooks: options.native_hooks.clone(),
-        force,
-        ..PlanOptions::default()
-    };
-    let mut claude = plan_claude_engine(view, &config.data, repo_root, &plan_options)
-        .map_err(|_| RenderError::Delegate)?;
+    let mut target = plan_target(view, config, repo_root, options)?;
+    let engines = engines(&config.data);
     let mut applied = None;
     if let Some(apply) = apply.as_deref_mut() {
-        let (backup_path, real_writes) = commit_claude(apply, repo_root, &mut claude, lang)?;
+        let (backup_path, real_writes) = commit_target(apply, repo_root, &mut target, lang)?;
         applied = Some(Applied {
             backup_path,
             real_writes,
@@ -384,6 +912,12 @@ pub fn run_render(
             budget_crossed: None,
         });
     }
+    append_codex_trust_hints(config, repo_root, &mut target.extra_engines)?;
+    let TargetPlan {
+        claude,
+        extra_engines,
+        ..
+    } = target;
     let floor = floor.as_deref();
     let mut ignore = |file: Option<IgnoreResult>,
                       applied: &mut Option<Applied>|
@@ -405,7 +939,6 @@ pub fn run_render(
         .map_err(|_| RenderError::Delegate)?
         .map(IgnoreResult::from_ignore_file);
     let gitignore = ignore(gitignore, &mut applied)?;
-    let engines = engines(&config.data);
     let mut nested = Vec::with_capacity(NESTED_GITIGNORE_DIRS.len());
     for dir in NESTED_GITIGNORE_DIRS {
         let enabled = (dir != ".navori").then_some(engines.as_slice());
@@ -453,6 +986,7 @@ pub fn run_render(
     Ok(RenderPlan {
         lang,
         claude,
+        extra_engines,
         gitignore,
         claude_gitignore,
         codex_gitignore,
@@ -576,17 +1110,37 @@ pub fn human_report(clack: Clack, cwd: &str, plan: &RenderPlan) -> String {
     let lang = plan.lang;
     let mut out = clack.intro("navori render");
     out.push_str(&clack.message(&format!("core: {EMBEDDED_CORE}")));
-    out.push_str(&claude_md_section(
-        clack,
-        &format!("{cwd}/CLAUDE.md"),
-        &plan.claude,
-        plan.applied.is_none(),
-        lang,
-    ));
-    out.extend(engine_files_section(clack, &plan.claude));
-    out.extend(lang_fallback_section(clack, &plan.claude, lang));
+    if let Some(claude) = &plan.claude {
+        out.push_str(&claude_md_section(
+            clack,
+            &format!("{cwd}/CLAUDE.md"),
+            claude,
+            plan.applied.is_none(),
+            lang,
+        ));
+        out.extend(engine_files_section(clack, claude));
+        out.extend(lang_fallback_section(clack, claude, lang));
+    }
     if let Some(backup) = plan.applied.as_ref().and_then(|a| a.backup_path.as_ref()) {
         out.push_str(&clack.message(&format!("{} {backup}", i18n::BACKUP_LABEL)));
+    }
+    // `reportExtraEngines`.
+    for engine in &plan.extra_engines {
+        out.push_str(&clack.message(&format!("engine {}", engine.engine)));
+        for (path, status) in engine.written() {
+            out.push_str(
+                &clack.message(&format!("  {} {path}  ({status})", status_symbol(status))),
+            );
+        }
+        for skip in engine.skipped() {
+            out.push_str(&clack.warn(&format!("  {}: {}", skip.rel_path, skip.reason)));
+        }
+        for warning in engine.warnings() {
+            out.push_str(&clack.warn(&format!("  {warning}")));
+        }
+        if let Some(backup) = &engine.backup_path {
+            out.push_str(&clack.message(&format!("  {} {backup}", i18n::BACKUP_LABEL)));
+        }
     }
     let gitignore_title = i18n::render_gitignore_title(lang);
     for file in [
@@ -625,7 +1179,9 @@ pub fn human_report(clack: Clack, cwd: &str, plan: &RenderPlan) -> String {
             &lines.join("\n"),
         )));
     }
-    out.extend(downgrade_section(clack, &plan.claude, lang));
+    if let Some(claude) = &plan.claude {
+        out.extend(downgrade_section(clack, claude, lang));
+    }
     if let Some(after) = plan.applied.as_ref().and_then(|a| a.budget_crossed) {
         out.push_str(&clack.warn(&i18n::render_doc_budget_crossed(
             lang,
@@ -671,6 +1227,21 @@ fn ignore_json(file: Option<&IgnoreResult>, prettier: bool) -> JsValue {
     object(entries)
 }
 
+/// `skipped.map((s) => ({ path, reason }))`.
+fn skipped_json<'a>(skipped: impl IntoIterator<Item = &'a SkippedFile>) -> JsValue {
+    JsValue::Array(
+        skipped
+            .into_iter()
+            .map(|s| {
+                object(vec![
+                    ("path", JsValue::string(&s.rel_path)),
+                    ("reason", JsValue::string(&s.reason)),
+                ])
+            })
+            .collect(),
+    )
+}
+
 fn nullable(text: Option<&str>) -> JsValue {
     text.map_or(JsValue::Null, JsValue::string)
 }
@@ -678,7 +1249,7 @@ fn nullable(text: Option<&str>) -> JsValue {
 /// `buildRenderJson(result, preview, provenance)` on `cwd`, the value `--json` prints.
 #[must_use]
 pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
-    let claude = &plan.claude;
+    let claude = plan.claude.as_ref();
     let root = object(vec![
         ("filePath", JsValue::string(&format!("{cwd}/CLAUDE.md"))),
         ("changed", JsValue::Bool(plan.claude_changed())),
@@ -686,8 +1257,8 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
             "entries",
             JsValue::Array(
                 claude
-                    .claude_md_entries
-                    .iter()
+                    .into_iter()
+                    .flat_map(|c| &c.claude_md_entries)
                     .map(|(id, status)| {
                         object(vec![
                             ("id", JsValue::string(id)),
@@ -700,8 +1271,9 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         (
             "written",
             JsValue::Array(
-                written(claude)
+                claude
                     .into_iter()
+                    .flat_map(written)
                     .map(|(path, status)| {
                         object(vec![
                             ("path", JsValue::string(path)),
@@ -713,23 +1285,20 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         ),
         (
             "skipped",
-            JsValue::Array(
-                claude
-                    .skipped
-                    .iter()
-                    .map(|s| {
-                        object(vec![
-                            ("path", JsValue::string(&s.rel_path)),
-                            ("reason", JsValue::string(&s.reason)),
-                        ])
-                    })
-                    .collect(),
-            ),
+            skipped_json(claude.map_or(&[][..], |c| c.skipped.as_slice())),
         ),
-        ("unchangedFiles", number(unchanged_engine_files(claude))),
+        (
+            "unchangedFiles",
+            number(claude.map_or(0, unchanged_engine_files)),
+        ),
         (
             "languageFallbacks",
-            strings(claude.language_fallbacks.iter().map(String::as_str)),
+            strings(
+                claude
+                    .into_iter()
+                    .flat_map(|c| &c.language_fallbacks)
+                    .map(String::as_str),
+            ),
         ),
         (
             "backupPath",
@@ -747,10 +1316,41 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
             })
             .collect(),
     );
+    let extra_engines = JsValue::Array(
+        plan.extra_engines
+            .iter()
+            .map(|engine| {
+                object(vec![
+                    ("engine", JsValue::string(&engine.engine)),
+                    (
+                        "written",
+                        JsValue::Array(
+                            engine
+                                .written()
+                                .into_iter()
+                                .map(|(path, status)| {
+                                    object(vec![
+                                        ("path", JsValue::string(path)),
+                                        ("status", JsValue::string(status)),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    ("skipped", skipped_json(engine.skipped())),
+                    (
+                        "warnings",
+                        strings(engine.warnings().iter().map(String::as_str)),
+                    ),
+                    ("backupPath", nullable(engine.backup_path.as_deref())),
+                ])
+            })
+            .collect(),
+    );
     let downgrades = JsValue::Array(
         claude
-            .downgrades
-            .iter()
+            .into_iter()
+            .flat_map(|c| &c.downgrades)
             .map(|d| {
                 object(vec![
                     ("id", JsValue::string(&d.id)),
@@ -782,7 +1382,7 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         ("staleCore", JsValue::Null),
         ("root", root),
         ("workspaces", JsValue::Array(Vec::new())),
-        ("extraEngines", JsValue::Array(Vec::new())),
+        ("extraEngines", extra_engines),
         ("orphanedWorkspaces", JsValue::Array(Vec::new())),
         ("orphanedEngineOutputs", orphaned),
         ("prunedEngineOutputs", JsValue::Array(Vec::new())),

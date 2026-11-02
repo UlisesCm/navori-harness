@@ -243,6 +243,9 @@ fn rust_render(root: &Path, text: &str, floor: Option<&str>) -> Option<Value> {
             preset_hooks: &hooks,
             enabled: &plugins.loaded,
             disabled: &disabled.loaded,
+            extra: &[],
+            classified: &[],
+            excluded: &[],
         },
     )
     .ok()?;

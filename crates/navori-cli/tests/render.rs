@@ -16,7 +16,7 @@ use navori_core::manifest::{Command, Manifest};
 type TestResult = Result<(), Box<dyn Error>>;
 
 const ENTRY: &str = r#"{"schema":2,"commands":[
-    {"path":["render"],"flags":["cwd","dry-run","json","apply","force"],"when":{"engines":["claude"]}}
+    {"path":["render"],"flags":["cwd","dry-run","json","apply","force"],"when":{"engines":["claude","agents-md","cursor","copilot","codex","pi"]}}
 ]}"#;
 
 fn manifest() -> Result<Manifest, Box<dyn Error>> {
@@ -139,11 +139,24 @@ fn the_config_decides_before_any_output() -> TestResult {
         ),
         (
             r#"{"name":"demo","preset":"custom","engines":["claude","codex"]}"#,
-            false,
+            true,
         ),
         (
             r#"{"name":"demo","preset":"custom","engines":["pi"]}"#,
-            false,
+            true,
+        ),
+        // Spec 0059 T19, T20: every engine, alone or beside Claude.
+        (
+            r#"{"name":"demo","preset":"custom","engines":["agents-md","cursor","copilot"]}"#,
+            true,
+        ),
+        (
+            r#"{"name":"demo","preset":"custom","engines":["claude","agents-md"]}"#,
+            true,
+        ),
+        (
+            r#"{"name":"demo","preset":"custom","engines":["agents-md","codex"]}"#,
+            true,
         ),
         (r#"{"name":"demo","preset":"custom","engines":[]}"#, false),
         (
