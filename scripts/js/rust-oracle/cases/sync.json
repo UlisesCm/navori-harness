@@ -94,6 +94,7 @@
     { "id": "pi-foreign:sync-dry-run", "fixture": "pi-foreign", "args": ["sync", "--dry-run"], "native": true },
     { "id": "pi-foreign:sync-json-apply", "fixture": "pi-foreign", "args": ["sync", "--json", "--apply"], "native": true },
     { "id": "pi-mcp:sync-apply", "fixture": "pi-mcp", "args": ["sync", "--apply"], "native": true },
-    { "id": "pi-mcp:sync-json", "fixture": "pi-mcp", "args": ["sync", "--json"], "native": true }
+    { "id": "pi-mcp:sync-json", "fixture": "pi-mcp", "args": ["sync", "--json"], "native": true },
+    { "id": "multi-engine-pi:sync-after-adopt", "fixture": "multi-engine-pi", "files": { ".claude/agents/mine.md": "# Mine\n" }, "setup": [["render", "--apply"], ["adopt", ".claude/agents/mine.md", "--apply"]], "args": ["sync", "--apply"], "native": true }
   ]
 }

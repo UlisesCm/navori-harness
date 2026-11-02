@@ -619,6 +619,54 @@ describe("rust oracle", () => {
     expect(Object.keys(foreign?.files ?? {})).toContain(".pi/extensions/navori.ts");
   });
 
+  // Covers: R62, R63
+  it("render, sync, remove y adopt nativos en multi-engine", () => {
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8")) as {
+      commands: Array<{ path: string[]; when?: { engines?: string[] } }>;
+    };
+    const r62 = ["claude", "agents-md", "cursor", "copilot", "codex", "pi"];
+    for (const name of ["render", "sync", "remove"]) {
+      const entry = manifest.commands.find((c) => c.path.join(" ") === name);
+      expect(entry?.when?.engines, name).toEqual(r62);
+    }
+    // `adopt` touches only `.claude/**/*.md`, so it never had an engine subset
+    expect(manifest.commands.find((c) => c.path.join(" ") === "adopt")?.when).toBeUndefined();
+    const cases = oracle.loadCases();
+    const enginesOf = (c: OracleCase): string[] =>
+      (
+        JSON.parse(
+          c.files?.["navori.config.json"] ??
+            readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+        ) as { engines?: string[] }
+      ).engines ?? ["claude"];
+    for (const name of ["render", "sync", "remove", "adopt"]) {
+      const native = cases.filter((c) => c.args[0] === name && c.native === true);
+      // every engine of R62 on its own, and a fixture with several engines beside Claude
+      for (const engine of r62.filter((e) => e !== "claude"))
+        expect(
+          native.some((c) => enginesOf(c).includes(engine)),
+          `${name} native with ${engine}`,
+        ).toBe(true);
+      expect(
+        native.some((c) => enginesOf(c).includes("claude") && enginesOf(c).length >= 4),
+        `${name} native on a multi-engine fixture`,
+      ).toBe(true);
+    }
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    // sync resolves a Codex file natively, and hands the TS a prose file its apply cannot bind
+    expect(byId.get("codex:sync-accept-new-files")?.native).toBe(true);
+    expect(byId.get("codex:sync-config-edited")?.native).toBe(true);
+    expect(byId.get("sync-delegates:prose-accept-new-files")?.native).toBeUndefined();
+    // the four commands, one after another, on Claude, the prose engines and Pi
+    const chained = byId.get("multi-engine-pi:sync-after-adopt");
+    expect(chained?.native).toBe(true);
+    expect(chained?.setup).toEqual([
+      ["render", "--apply"],
+      ["adopt", ".claude/agents/mine.md", "--apply"],
+    ]);
+    expect(byId.get("multi-engine-pi:remove-yes")?.native).toBe(true);
+  });
+
   it("los casos cubren el repo con contenido de usuario y la superficie del golden", () => {
     const cases = oracle.loadCases();
     const user = cases.find((c) => c.id === "user-content-outside-markers");
