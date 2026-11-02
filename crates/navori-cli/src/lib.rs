@@ -35,6 +35,7 @@ pub mod quality_gate;
 pub mod registry;
 pub mod remove;
 pub mod render;
+pub mod scan;
 pub mod session_start;
 pub mod shadow;
 pub mod spec;
@@ -336,6 +337,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["remove"],
         run: remove::run,
+    },
+    NativeCommand {
+        path: &["scan"],
+        run: scan::run,
     },
 ];
 

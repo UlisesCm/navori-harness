@@ -9,6 +9,7 @@
       "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
+    { "path": ["scan"], "flags": ["cwd", "yes"] },
     {
       "path": ["sync"],
       "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],
