@@ -1,27 +1,17 @@
 //! `navori tools notice` and `navori tools session-context`, native (spec 0059 D34, R56, R59).
 //!
 //! The argv shapes citty reads one way only are native; any other goes to the TS before stdin,
-//! output or a write. The refresh worker is the `navori` of `PATH` with the TS's private flag and
-//! token, detached with stdio ignored: Rust never opens a socket.
+//! output or a write. The refresh worker is [`crate::notices::spawn_worker`]: the TS's, on
+//! `PATH`, until the cutover turns the native notices on (spec 0062 R85).
 
 use std::ffi::OsString;
 use std::io::Write as _;
-use std::os::unix::process::CommandExt as _;
-use std::process::{Command, ExitCode, Stdio};
+use std::process::ExitCode;
 
 use navori_core::tools::{Printed, notice::notice_reserve, notice_command, session_context};
 use navori_core::workspace::registry::Stop;
 
-/// `spawnPrivateWorker(flag, token)` through the `navori` of `PATH`, never waited for.
-pub(crate) fn spawn_worker(flag: &str, token: &str) {
-    let _ = Command::new("navori")
-        .args([flag, token])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn();
-}
+use crate::notices::spawn_worker;
 
 fn emit(printed: &Printed) -> ExitCode {
     let mut stderr = std::io::stderr().lock();

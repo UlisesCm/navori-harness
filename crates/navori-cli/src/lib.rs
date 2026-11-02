@@ -23,6 +23,7 @@ pub mod master_read;
 pub mod master_write;
 pub mod model_advisor;
 pub(crate) mod native_io;
+pub mod notices;
 pub mod parser;
 pub mod plan;
 pub mod plan_gate;
@@ -280,6 +281,11 @@ pub fn run(args: &[OsString]) -> ExitCode {
     if args.first().is_some_and(|arg| arg == "hook") {
         return hook::run(&args[1..]);
     }
+    // `index.ts`'s order: the private workers, then the update notice, then the command.
+    if let Some(code) = notices::worker(args) {
+        return code;
+    }
+    notices::before_command(args);
     let manifest = match Manifest::embedded() {
         Ok(manifest) => manifest,
         Err(error) => {
