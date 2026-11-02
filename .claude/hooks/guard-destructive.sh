@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="4d8a77a4" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="4920342a" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -31,6 +31,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the PII-egress lane (#1445, `_partials/pii-egress*.sh`): hard — personal data leaving the machine cannot be
+#     recalled; it denies through its own function (never `block()`, which prints the command), audit reason
+#     `pii-egress`, and the route is a generic identifier (`navori-agent/1.0`).
 #   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
 #     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
 #     Navori's own files change.
@@ -563,7 +566,7 @@ navori_audit_log() {
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -668,6 +671,7 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/hooks/master-accept-confirm.sh
 .claude/hooks/master-plan-context.sh
 .claude/hooks/model-advisor.sh
+.claude/hooks/pii-egress-guard.sh
 .claude/hooks/plan-gate.sh
 .claude/hooks/pr-publisher-confirm.sh
 .claude/hooks/quality-gate-pre-commit.sh
@@ -1185,6 +1189,259 @@ fi
 # `$skeleton` and the heredoc ceilings (LINE_MAX, HEREDOC_PROBE_MAX): the shared
 # partial, called here so the fail-closed order is unchanged.
 navori_inert_skeleton
+
+# PII-egress lane (#1445): a Bash request to an external host that carries the user's git email
+# or a `NAVORI_PERSONAL_IDS` entry is denied. It lives HERE and not in a hook of its own because
+# spec 0039 R28 forbids adding a hook to the Bash path. It runs BEFORE the fast path below (a
+# `curl` carries none of that path's tokens), behind a fork-free gate, in a subshell (no failure
+# of the lane can disable the rules below), with its own deny path: `block()` prints the
+# command, and this lane never echoes the command or the identifier. Matching, the failure
+# contract and the documented false negatives: `_partials/pii-egress*.sh`.
+# Shared PII-egress core (#1445) — inlined into `guard-destructive` (its Bash lane) and
+# `pii-egress-guard` (WebFetch/WebSearch) at render time (see the include directive in the
+# source scripts + lib/render/hook-includes.ts). DO NOT copy this body back into a hook by
+# hand: two hand-synced copies of a matcher are how scanners drift (#225/#261).
+#
+# The mechanical half of "never send the user's personal data to an external service". An
+# agent once put the user's git email in the `User-Agent` of a `curl` to a third-party API,
+# because the prose rule did not exist yet and a contact address "looked polite".
+#
+# IDENTIFIERS. `git config user.email` and the comma-separated env var `NAVORI_PERSONAL_IDS`
+# (entries shorter than 4 characters are ignored). No identifier resolvable → no verdict.
+# Matching is a case-insensitive literal (`grep -iF`) of each identifier plus its URL-encoded
+# forms (`@`→`%40`, `+`→`%2B`, space→`%20`/`+`).
+#
+# EXTERNAL = any host that is not `localhost`, `*.localhost`, `127/8`, `::1`, `0.0.0.0`,
+# `10/8`, `172.16/12` or `192.168/16`. Mixed hosts → external. `169.254/16` is external.
+#
+# NEVER ECHOES. Neither stderr nor the audit log carries the identifier or the command: the
+# message names the rule and the SOURCE (git user.email / NAVORI_PERSONAL_IDS) and the audit
+# reason is the fixed code `pii-egress`. The caller's own `block()` is NOT used for this
+# reason: `guard-destructive`'s prints the command.
+#
+# FAILURE CONTRACT (owned by the callers, executed through `navori_pii_finish`): the check
+# runs in a subshell; before the caller's network gate matches, any error ALLOWS; after it
+# matches, a status other than the explicit codes below DENIES ("could not verify").
+#
+# Requires, from the caller: the `navori_audit_verdict`/`navori_audit_reason` variables the
+# audit trap reads. Blocking classification (#1117):
+#   - an identifier in a request to an external host: hard — personal data leaving the machine
+#     cannot be recalled; the message names the rule and the source, and the route is a generic identifier.
+#   - a check that could not complete after the gate matched: hard — fail closed, nothing was verified.
+_pii_nl=$'\n'
+
+# 1 when the text holds identifier $1, 0 otherwise; a grep error leaves the
+# subshell (exit 1 → "could not verify").
+_pii_has() {
+  local _rc=0
+  grep -qiF -e "$1" <<<"$2" >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -le 1 ] || exit 1
+  [ "$_rc" -eq 0 ]
+}
+
+# Does the text carry identifier $1 in any of its forms?
+_pii_hits() {
+  local _id="$1" _t="$2" _enc
+  _pii_has "$_id" "$_t" && return 0
+  _enc="${_id//@/%40}"
+  _enc="${_enc//+/%2B}"
+  _enc="${_enc// /%20}"
+  _pii_has "$_enc" "$_t" && return 0
+  _enc="${_id// /+}"
+  _pii_has "$_enc" "$_t" && return 0
+  return 1
+}
+
+# Is host[:port] $1 local? (0 = local)
+_pii_local() {
+  local _h="$1" _hn
+  # Authority only: cut the path/query first, so an `@` in a query is not userinfo.
+  _h="${_h%%/*}"
+  _h="${_h%%\?*}"
+  _h="${_h%%#*}"
+  _h="${_h##*@}"
+  case "$_h" in
+    "" | '[::1]' | '[::1]':*) return 0 ;;
+  esac
+  _hn="${_h%%:*}"
+  case "$_hn" in
+    localhost | *.localhost | 0.0.0.0) return 0 ;;
+    *[!0-9.]*) return 1 ;;
+  esac
+  case "$_hn" in
+    127.* | 10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
+  esac
+  return 1
+}
+
+# Subshell body, last step: resolve the identifiers (at most one fork, only for an external
+# request) and look for them in text $1. Exit 0 no hit · 41 hit on git user.email · 42 hit on
+# NAVORI_PERSONAL_IDS.
+navori_pii_verdict() {
+  local _texts="$1" _ids="" _email _v _line _src
+  _email=$(git config user.email 2>/dev/null || true)
+  [ "${#_email}" -lt 4 ] || _ids="g:${_email}${_pii_nl}"
+  if [ -n "${NAVORI_PERSONAL_IDS:-}" ]; then
+    while IFS= read -r _v; do
+      _v="${_v#"${_v%%[![:space:]]*}"}"
+      _v="${_v%"${_v##*[![:space:]]}"}"
+      [ "${#_v}" -lt 4 ] || _ids="${_ids}e:${_v}${_pii_nl}"
+    done <<<"$(printf '%s' "$NAVORI_PERSONAL_IDS" | tr ',' '\n')"
+  fi
+  [ -n "$_ids" ] || exit 0
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _src="${_line%%:*}"
+    _v="${_line#*:}"
+    if _pii_hits "$_v" "$_texts"; then
+      if [ "$_src" = g ]; then exit 41; fi
+      exit 42
+    fi
+  done <<<"$_ids"
+  exit 0
+}
+
+# Turn the subshell status $1 into the verdict: 0 returns (allow), anything else denies with
+# `exit 2`. Only ASSIGNMENTS before the exit: the caller's trap records the verdict.
+navori_pii_finish() {
+  local _why
+  case "$1" in
+    0) return 0 ;;
+    41) _why="a request to an external host carries a personal identifier (source: the configured user email)." ;;
+    42) _why="a request to an external host carries a personal identifier (source: NAVORI_PERSONAL_IDS)." ;;
+    *) _why="could not verify that this network request is free of personal identifiers; split it, or ask the user to run it." ;;
+  esac
+  echo "[navori] BLOCKED by pii-egress-guard: ${_why}" >&2
+  echo "[navori] Rule: never send the user's personal data to external services. Use a generic identifier instead, e.g. \"User-Agent: navori-agent/1.0\" or example@example.com." >&2
+  navori_audit_verdict="block"
+  navori_audit_reason="pii-egress"
+  exit 2
+}
+# PII-egress Bash lane (#1445) — inlined into `guard-destructive` at render time (see the
+# include directive in the source script + lib/render/hook-includes.ts). It rides inside the
+# destructive guard, not in a hook of its own, because spec 0039 R28 forbids adding a hook to
+# the ordinary Bash path (the per-call latency of every extra process). Matching, identifiers,
+# the never-echo rule and the failure contract live in `pii-egress.sh` (included beside it).
+#
+# "NETWORK REQUEST TO AN EXTERNAL HOST", for Bash: a LIVE segment (heredoc bodies and
+# `-m`/`--body` values are data) whose command is, behind `sudo|env|time|command|exec` and a
+# path prefix, one of `curl wget http https xh xhs`, or an inline `node|bun|deno|python|python3`
+# (`-e|-c|eval`) using `fetch(`, `requests.`, `urllib` or `http.request`. Matching is PER
+# SEGMENT, plus the heredoc bodies of the command when that segment opens a heredoc (the body
+# IS the request body). A `git commit -m "<email>" && curl https://x` is therefore not blocked.
+# A scheme-less segment is external unless one of its words is a local host. A request is also
+# blocked when it READS the email inline (`-A "$(git config user.email)"`).
+#
+# DOCUMENTED FALSE NEGATIVES (a seatbelt against accidental leaks, not a sandbox): `git` (push,
+# commit --author), `gh`, `ssh`, `scp`, `rsync`, MCP tools, `sh -c`, `eval`, obfuscation;
+# scheme-less `nc|ncat|netcat|telnet|xh` (not in the cheap gate); a value the lane cannot see
+# expanded (`$EMAIL`, `$(cat file)`, `-K cfg`, `--data @file`, `-H @file`); `node script.js`,
+# `python3 script.py`, `bun run`, `npx` and a `python3 - <<EOF` (no inline flag); a `;` inside a
+# quoted URL splits the segment. WebFetch/WebSearch are covered by `pii-egress-guard` (Claude).
+#
+# FAILURE CONTRACT. The cheap gate is fork-free and runs on every Bash call; before it matches,
+# nothing runs and any error allows. After it matches, the check runs in a SUBSHELL, so no
+# failure of this lane can end the guard and disable its other rules; a status other than the
+# explicit codes denies ("could not verify"). A command too large to inspect never reaches the
+# lane: the guard's own ceilings block it first.
+#
+# Requires, from the caller: `$cmd`, `$skeleton` (after `navori_inert_skeleton`), the inert
+# partial's `navori_inert_live`/`navori_inert_segments`, and the `pii-egress.sh` partial.
+
+# Is segment $1 an external network request's text? (0 = external)
+_pii_external() {
+  local _seg="$1" _line _found=0 _w
+  local _hre="[A-Za-z][A-Za-z0-9+.-]*://[^/?#\"'[:space:]]*"
+  local _urls
+  _urls=$(printf '%s\n' "$_seg" | grep -oE "$_hre" 2>/dev/null) || [ "$?" -eq 1 ]
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _found=1
+    _pii_local "${_line#*://}" || return 0
+  done <<<"$_urls"
+  [ "$_found" -eq 1 ] && return 1
+  # No scheme: local only when one word is a local host[:port][/path].
+  while IFS= read -r _w; do
+    case "$_w" in "" | -*) continue ;; esac
+    _w="${_w#[\"\']}"
+    _w="${_w%%/*}"
+    _pii_local "$_w" && return 1
+  done <<<"$(printf '%s' "$_seg" | tr -s '[:space:]' '\n')"
+  return 0
+}
+
+# Is segment $1 a network request (see the header)? (0 = yes)
+_pii_is_request() {
+  local _s="$1" _w
+  while :; do
+    _s="${_s#"${_s%%[![:space:]]*}"}"
+    _w="${_s%%[[:space:]]*}"
+    case "$_w" in
+      sudo | env | time | command | exec) _s="${_s#"$_w"}" ;;
+      [A-Za-z_]*=*) _s="${_s#"$_w"}" ;;
+      *) break ;;
+    esac
+  done
+  _w="${_w##*/}"
+  case "$_w" in
+    curl | wget | http | https | xh | xhs) return 0 ;;
+    node | bun | deno | python | python3)
+      case " $_s " in
+        *' -e '* | *' -c '* | *' --eval '* | *' eval '*)
+          case "$_s" in
+            *fetch* | *requests.* | *urllib* | *http.request*) return 0 ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# Subshell body. Exit 0 allow · 41 hit on git user.email · 42 hit on NAVORI_PERSONAL_IDS ·
+# anything else: could not verify.
+navori_pii_bash_check() {
+  set -euo pipefail
+  # Never the guard's `block()`: it prints the command. The ceilings were already enforced
+  # by the caller, so this is unreachable unless the contract changes — then it fails closed.
+  block() { exit 1; }
+  local _texts="" _seg
+  navori_inert_live
+  navori_inert_segments
+  # Per live segment; a heredoc opener widens that segment to the whole command (the body is
+  # the request body).
+  while IFS= read -r _seg; do
+    [ -n "$_seg" ] || continue
+    _pii_is_request "$_seg" || continue
+    _pii_external "$_seg" || continue
+    case "$_seg" in
+      *'<<'*) _texts="${_texts}${cmd}${_pii_nl}" ;;
+      *) _texts="${_texts}${_seg}${_pii_nl}" ;;
+    esac
+    case "$_seg" in
+      *'git config user.email'* | *'git config --get user.email'*) exit 41 ;;
+    esac
+  done <<<"$segments"
+  [ -n "$_texts" ] || exit 0
+  navori_pii_verdict "$_texts"
+}
+
+# The lane. THE CHEAP GATE comes first: pure `case`, no fork. Word-bounded tools (`nc`, `xh`…)
+# are NOT here on purpose: a bare `nc` matches `sync`, `once` and `--since`, and would send
+# ordinary calls through the forks below. A deny exits 2 through `navori_pii_finish`.
+navori_pii_bash_lane() {
+  case "$cmd" in
+    *curl* | *wget* | *'://'* | *'fetch('*) ;;
+    *) return 0 ;;
+  esac
+  local _rc=0
+  set +e
+  ( navori_pii_bash_check )
+  _rc=$?
+  set -e
+  navori_pii_finish "$_rc"
+}
+navori_pii_bash_lane
 
 # ─── Fast path: a command no rule below can possibly match ───────────────────
 #

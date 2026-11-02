@@ -155,6 +155,9 @@ export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
   "role-guard": ["codex"],
   // Same reason, for the engram MCP tools (grants compiled from the Claude `tools:` source).
   "engram-write-guard": ["codex"],
+  // #1445: Claude's WebFetch/WebSearch only. The Bash half rides inside `guard-destructive` on every engine
+  // (spec 0039 R28 forbids a second Bash hook); Codex and Pi have no hook on a web tool.
+  "pii-egress-guard": ["claude"],
 };
 
 /**

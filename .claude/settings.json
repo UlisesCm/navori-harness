@@ -52,6 +52,17 @@
         ]
       },
       {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/pii-egress-guard.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/pii-egress-guard.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
+            "timeout": 10,
+            "statusMessage": "navori: pii-egress-guard"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|NotebookEdit",
         "hooks": [
           {

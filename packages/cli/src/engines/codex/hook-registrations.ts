@@ -201,6 +201,11 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     script: "subagent-no-background",
   },
   {
+    // #1445: the Bash half is a lane inside guard-destructive (spec 0039 R28 forbids a second hook on
+    // the Bash path); Codex's hosted web search has no hook event. Nothing is registered or installed.
+    script: "pii-egress-guard",
+  },
+  {
     // Spec 0041 D11: Codex hooks cannot emit `ask`, so the Codex copy of the
     // script denies instead (deny-as-confirmation, like `comment-draft-confirm`),
     // decided by `$0` inside the script. Never `ask`, never an allow.

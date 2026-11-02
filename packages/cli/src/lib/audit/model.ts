@@ -1081,6 +1081,7 @@ export const HOOK_REASON_CODES = [
   "native-hook",
   "foreign-repo",
   "foreign-gate",
+  "pii-egress",
 ] as const;
 
 /** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */

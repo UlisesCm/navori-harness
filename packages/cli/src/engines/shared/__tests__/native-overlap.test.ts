@@ -99,6 +99,8 @@ it("adds startup observation on the same script with the verified native produce
     ["worktree-reclaim", "SessionStart", null],
     ["stop-verify-reminder", "Stop", "codex"],
     ["subagent-no-background", null, null],
+    // #1445: no registration (the Bash half is a guard-destructive lane), so no trust index moves.
+    ["pii-egress-guard", null, null],
     ["master-accept-confirm", "PreToolUse", null],
     ["master-plan-context", "SessionStart", null],
     ["role-guard", "PreToolUse", null],

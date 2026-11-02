@@ -533,7 +533,10 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     // Spec 0041 D5: `role-guard` is the one hook only Codex ships.
     expect(
       codex.hooks.filter((hook) => hook !== "role-guard" && hook !== "engram-write-guard"),
-    ).toEqual(claude.hooks);
+    ).toEqual(claude.hooks.filter((hook) => hook !== "pii-egress-guard"));
+    // #1445: the web-tool hook is Claude-only; Codex gets the Bash half inside guard-destructive.
+    expect(claude.hooks).toContain("pii-egress-guard");
+    expect(codex.hooks).not.toContain("pii-egress-guard");
     expect(codex.hooks).toContain("engram-write-guard");
     expect(codex.hooks).toContain("role-guard");
     expect(claude.hooks).not.toContain("role-guard");
