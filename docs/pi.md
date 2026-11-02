@@ -65,7 +65,7 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
 | `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
-| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Fails closed: a replaced bash tool or a missing `exit_code` records nothing. |
+| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Delivery-bound criteria (`navori master delivery-slice`) are recorded with their binding and fingerprint v2, as on Claude; `navori master delivery-criterion` recomputes the binding. Fails closed: a replaced bash tool, a missing `exit_code` or an uncontained stage records nothing. |
 | `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
 | `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected after a publisher dispatch. |
 | `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has seven fixed roles and no general-purpose role to confirm. |
@@ -378,6 +378,23 @@ At dispatch the extension snapshots the child's canonical handoff: `impl_<featur
 - `reviewer` runs `navori handoff check <feature> --produced-by reviewer --since <dispatch time>`. The sidecar and verdict must be valid, and the sealed evidence must check with the review begun at or after dispatch.
 
 Any failure, including an unreadable check, returns `isError` with the reason and the child output (fail-closed). `scribe` is not validated at child end; only its `feature` requirement applies.
+
+## Working without children
+
+Some providers reject the child processes `navori_subagent` starts, or bill them differently from the
+interactive session. The failed child then reports the provider's `errorMessage`. Two supported routes:
+
+- **Map the roles** to a provider that accepts child processes with `models.piMap` (for example an API key,
+  or a local model), then run `navori render`.
+- **Run each role in its own interactive Pi session.** The parent session produces; the user opens a
+  second `pi` in the same worktree for the reviewer, which follows `.pi/agents/reviewer.md` and writes its
+  report. Gates that need a separate reviewer (for example `navori master delivery-review`) are operator
+  attestations: the user states that a different session reviewed, with distinct producer and reviewer
+  labels. Navori cannot verify that independence.
+
+Acceptance evidence does not depend on children: the parent's built-in bash records it. Start Pi at the
+root of the checkout that holds the workplan (a worktree included), because evidence is recorded against
+the session's working directory.
 
 ## Limits and headless runs
 

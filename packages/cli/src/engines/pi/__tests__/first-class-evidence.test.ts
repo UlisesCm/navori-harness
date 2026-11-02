@@ -14,14 +14,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
-import { fingerprintTree, readEvidenceLog, validateEvidence } from "../../../lib/plan/evidence.ts";
+import {
+  fingerprintTree,
+  readEvidenceLog,
+  validateEvidence,
+  type DeliveryEvidenceBinding,
+} from "../../../lib/plan/evidence.ts";
 import { resolveStateRoot } from "../../../lib/primitives/state-root.ts";
 
 // The pinned devDependency, not a user install: the probe must never skip silently.
@@ -51,8 +56,11 @@ function load(
 ): { result: ResultHandler | undefined } {
   const modules = new Map<string, unknown>([
     ["node:child_process", { spawn }],
-    ["node:fs", { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync }],
-    ["node:path", { join }],
+    [
+      "node:fs",
+      { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync },
+    ],
+    ["node:path", { join, sep }],
     ["@earendil-works/pi-ai", { Type: new Proxy({}, { get: () => () => ({}) }) }],
     [
       "@earendil-works/pi-coding-agent",
@@ -316,5 +324,109 @@ describe("parent and child evidence", () => {
     execFileSync("ln", ["-s", target, join(cwd, DIR, "workplan_demo.evidence.jsonl")]);
     await load(BUILTIN).result?.(ok(), ctx(cwd));
     expect(readFileSync(target, "utf8")).toBe("");
+  });
+});
+
+const STAGE = "specs/_master/02-demo";
+const HASH = "a".repeat(64);
+const binding = (over: Partial<DeliveryEvidenceBinding> = {}): DeliveryEvidenceBinding => ({
+  policy: "deliveries-content-v1",
+  authorityGeneration: 1,
+  stagePath: STAGE,
+  sourceIdentity: HASH,
+  baselineIdentity: HASH,
+  queueIdentity: HASH,
+  qualifiedId: "P1.A2",
+  criterionIdentity: HASH,
+  ...over,
+});
+
+/** project() whose only index row is delivery-bound (6 fields), with a stage holding its lifecycle files. */
+function deliveryProject(row: { binding?: unknown; stage?: string } = {}): string {
+  const cwd = project();
+  mkdirSync(join(cwd, STAGE), { recursive: true });
+  writeFileSync(join(cwd, STAGE, "state.json"), "{}\n");
+  writeFileSync(join(cwd, STAGE, "STATUS.md"), "# status\n");
+  const escaped = JSON.stringify(COMMAND).slice(1, -1);
+  const value = row.binding ?? binding();
+  writeFileSync(
+    join(cwd, DIR, "acceptance-index"),
+    `${escaped}\tdemo\tA1\t${join(cwd, DIR)}\t${JSON.stringify(value)}\t${row.stage ?? STAGE}\n`,
+  );
+  return cwd;
+}
+
+// Covers: R7
+describe("delivery-bound evidence", () => {
+  // Covers: R7
+  it("records a delivery row with its binding and fp 2, accepted by validateEvidence under that binding", async () => {
+    const cwd = deliveryProject();
+    await load(BUILTIN).result?.(ok(), ctx(cwd));
+    const recorded = lines(cwd);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      fp: 2,
+      deliveryBinding: binding(),
+      feature: "demo",
+      id: "A1",
+    });
+    const expected = fingerprintTree(cwd, binding());
+    expect(recorded[0]?.worktreeTree).toBe(expected.ok ? expected.tree : undefined);
+    // Lifecycle writes after the run (delivery-criterion itself) must not stale the proof.
+    writeFileSync(join(cwd, STAGE, "state.json"), '{"criteria":[]}\n');
+    writeFileSync(join(cwd, STAGE, "STATUS.md"), "# changed\n");
+    const root = resolveStateRoot({ cwd, feature: "demo" });
+    const verdict = (deliveryBinding?: DeliveryEvidenceBinding) =>
+      validateEvidence({
+        root,
+        feature: "demo",
+        id: "A1",
+        command: COMMAND,
+        expected: "passes",
+        deliveryBinding,
+      });
+    expect(verdict(binding())).toMatchObject({ ok: true });
+    expect(verdict(binding({ authorityGeneration: 2 }))).toMatchObject({ ok: false });
+    expect(verdict()).toMatchObject({ ok: false });
+  });
+
+  // Covers: R7
+  it("records nothing for a malformed or uncontained delivery row", async () => {
+    const cases: Array<[string, () => string]> = [
+      [
+        "unknown policy",
+        () => deliveryProject({ binding: binding({ policy: "other" as "deliveries-content-v1" }) }),
+      ],
+      ["binding not an object", () => deliveryProject({ binding: "x" })],
+      ["stage differs from binding", () => deliveryProject({ stage: "specs/_master/03-other" })],
+      [
+        "parent segment",
+        () =>
+          deliveryProject({ binding: binding({ stagePath: "specs/../x" }), stage: "specs/../x" }),
+      ],
+      [
+        "missing state.json",
+        () => {
+          const cwd = deliveryProject();
+          rmSync(join(cwd, STAGE, "state.json"));
+          return cwd;
+        },
+      ],
+      [
+        "symlinked state.json",
+        () => {
+          const cwd = deliveryProject();
+          writeFileSync(join(cwd, "real.json"), "{}\n");
+          rmSync(join(cwd, STAGE, "state.json"));
+          symlinkSync(join(cwd, "real.json"), join(cwd, STAGE, "state.json"));
+          return cwd;
+        },
+      ],
+    ];
+    for (const [label, make] of cases) {
+      const cwd = make();
+      await load(BUILTIN).result?.(ok({ toolCallId: label }), ctx(cwd));
+      expect(lines(cwd), label).toHaveLength(0);
+    }
   });
 });

@@ -47,7 +47,7 @@ Cada fila corresponde a un control de Pi de `ENGINE_CAPABILITIES.pi.controls`. `
 | `handoff-consumer` | enforced | Se verifican las llamadas de `navori_subagent` de `reviewer` que incluyen explícitamente una función. Las llamadas directas al shell y a herramientas omiten este control. |
 | `analytic-write-tools` | advisory | Las listas de herramientas permitidas por rol son capacidades visibles para el modelo, no entornos aislados del sistema operativo, del sistema de archivos ni de la red. Scout y reviewer conservan `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` se proyecta como referencias bajo `.agents/skills/<id>` y solo se escriben cuando Codex no está habilitado. |
-| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash o falta `exit_code`, no registra nada. |
+| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Los criterios ligados a una entrega (`navori master delivery-slice`) se registran con su vínculo y la huella v2, como en Claude; `navori master delivery-criterion` recalcula el vínculo. Falla de forma cerrada: si se reemplaza la herramienta bash, falta `exit_code` o la etapa no está contenida, no registra nada. |
 | `repeat-failure-advice` | advisory | Después de tres fallas idénticas del bash integrado, se agrega una advertencia. Nunca bloquea ni altera el resultado, y no se muestra si falta `exit_code`. |
 | `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
 | `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene siete roles fijos y ningún rol general-purpose que confirmar. |
@@ -241,6 +241,23 @@ Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `i
 - Advertencia de downgrade: una versión anterior de navori ignora `piMap` y revierte los roles Pi a `codexMap`.
 - Un hijo fallido informa `stopReason` y `errorMessage` (o `auto_retry_end.finalError`), más una cola de stderr redactada y acotada. El resultado también incluye el campo aditivo `details.childStop {stopReason, errorMessage?}`. Salida 0 con `stopReason` `error` o `aborted` cuenta como fallo. La redacción es un mínimo, no una garantía.
 - Un rechazo del preflight de reviewer o scribe añade el detalle del fallo del handoff.
+
+## Trabajar sin hijos
+
+Algunos proveedores rechazan los procesos hijos que inicia `navori_subagent`, o los cobran distinto de la
+sesión interactiva. El hijo fallido informa entonces el `errorMessage` del proveedor. Hay dos rutas soportadas:
+
+- **Asignar los roles** con `models.piMap` a un proveedor que acepte procesos hijos (por ejemplo una API key
+  o un modelo local) y correr `navori render`.
+- **Correr cada rol en su propia sesión interactiva de Pi.** La sesión principal produce; el usuario abre un
+  segundo `pi` en el mismo worktree para el revisor, que sigue `.pi/agents/reviewer.md` y escribe su reporte.
+  Los gates que piden un revisor distinto (por ejemplo `navori master delivery-review`) son atestaciones del
+  operador: el usuario declara que revisó otra sesión, con etiquetas distintas de productor y revisor.
+  Navori no puede verificar esa independencia.
+
+La evidencia de aceptación no depende de hijos: la registra el bash integrado de la sesión principal. Abre Pi
+en la raíz del checkout que tiene el workplan (incluido un worktree), porque la evidencia se registra contra
+el directorio de trabajo de la sesión.
 
 ## Límites y ejecuciones sin interfaz
 
