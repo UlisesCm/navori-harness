@@ -61,7 +61,9 @@ interface Replay {
     modes: string[];
     only?: string[];
     shell?: string;
+    shard?: { index: number; count: number };
   };
+  shardCases: <T>(cases: T[], shard: { index: number; count: number } | undefined) => T[];
   caseKey: (c: Case) => string;
   coverageRows: (
     cases: Case[],
@@ -312,6 +314,32 @@ describe("native hook replay transport", () => {
       ["unexpected"],
     ])
       expect(() => replay.parseReplayArgs(args)).toThrow();
+  });
+
+  // Covers: R18
+  it("--shard i/n parte la selección en rebanadas disjuntas que juntas la cubren", () => {
+    expect(replay.parseReplayArgs(["--impl", "rust", "--shard", "2/4"]).shard).toEqual({
+      index: 2,
+      count: 4,
+    });
+    for (const args of [
+      ["--shard", "0/4"],
+      ["--shard", "5/4"],
+      ["--shard", "1"],
+      ["--shard", "1/0"],
+      ["--shard", "a/b"],
+      ["--coverage", "--shard", "1/2"],
+      ["--generate", "raw", "--shard", "1/2"],
+    ])
+      expect(() => replay.parseReplayArgs(args)).toThrow();
+    const corpus = replay.readCorpus();
+    const slices = [1, 2, 3, 4].map((index) => replay.shardCases(corpus, { index, count: 4 }));
+    expect(slices.flat().map(replay.caseKey).sort()).toEqual(corpus.map(replay.caseKey).sort());
+    expect(new Set(slices.flat()).size).toBe(corpus.length);
+    // round-robin: no slice is more than one case larger than another
+    const sizes = slices.map((s) => s.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(replay.shardCases(corpus, undefined)).toBe(corpus);
   });
 
   // Covers: R11
