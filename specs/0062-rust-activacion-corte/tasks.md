@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Tasks
 
-**Estado:** aceptada para desarrollo (Q26–Q29 resueltas; Q24 abierta, bloquea solo E2) · **Base:**
+**Estado:** aceptada para desarrollo (Q26–Q29 resueltas; Q24 y R18 resueltas el 2026-11-02, D51 y D52) · **Base:**
 `migration/rust`. Tres entregas y cuatro PRs: E1 (dos lotes de activación) y E2 contra
 `migration/rust`, E3 contra `dev`. Sale de E4–E6 de la versión anterior de 0060 (correspondencia en
 cada tarea). El LOC es una referencia gruesa.
@@ -67,7 +67,7 @@ Estimated LOC: 3500
 ### M3 — Paquete, sondas y compuertas de corte
 Entregable: un tarball local que instala y responde en cada plataforma con binario, y las
 compuertas del corte (`check:post-cutover`, `cutover:check`) existen.
-- **A3** [observable] — el paquete instala y responde, y las compuertas del corte corren · `npm pack --dry-run --workspace navori && node scripts/js/dist-probe.mjs && bun run check:post-cutover && cd packages/cli && bun run vitest run src/__tests__/dist-launcher.test.ts src/__tests__/cutover-check.test.ts` → exit 0; tiempo de `check:post-cutover` ≤ 300 s
+- **A3** [observable] — el paquete instala y responde, y las compuertas del corte corren · `npm pack --dry-run --workspace navori && node scripts/js/dist-probe.mjs && bun run check:post-cutover && cd packages/cli && bun run vitest run src/__tests__/dist-launcher.test.ts src/__tests__/cutover-check.test.ts` → exit 0; tiempo de `check:post-cutover` dentro del presupuesto de su host (300 s en la máquina de referencia, 600 s en CI; D52)
 - [ ] **T6** (R21, R22) — workflow de release con los cuatro binarios (musl estático en Linux) sin publicar, y paquete `navori` con lanzador JS, `optionalDependencies` por plataforma, `postinstall` que enlaza solo si `--version` coincide y `legacy/` con el `dist/` del último TS publicado verificado por `integrity` (antes T45 y T46 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/dist-launcher.test.ts`::"sin binario corre legacy y sin postinstall corre el binario por Node"
 - [ ] **T7** (R84) — `scripts/js/dist-probe.mjs`: npm, pnpm y bun, con y sin scripts, verifican `navori --version`, un bloqueo de `guard-destructive` y un subcomando de delegación permanente (antes T47 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/dist-probe.test.ts`::"cada gestor responde con el binario, el binario por Node o legacy"
 - [x] **T8** (R18, R20) — `check:post-cutover` cronometrado y `scripts/js/cutover-check.mjs` con el inventario de D41, la lista de delegación permanente de D48 de 0060, ningún hook en `shadow` y R17/R18 cumplidos; mientras la cola larga no termine reporta lo que falta en vez de bloquear el PR (antes T48 y T49 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/cutover-check.test.ts`::"falla con un hook en shadow o un subcomando fuera del manifiesto y de la lista de delegación"

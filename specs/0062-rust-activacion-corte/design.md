@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Design
 
-**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; Q24 sigue abierta) · **Fecha:**
+**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; Q24 y R18 resueltas el 2026-11-02) · **Fecha:**
 2026-10-31 · **Base:** `migration/rust` en `e8859f49` (merge de #1465).
 
 **Alcance del documento:** activación de los 22 hooks, ensayo de distribución y corte. Sale de E4–E6
@@ -59,6 +59,28 @@ Se conserva sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
 `legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
 estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover` cronometrado.
 
+### D51 — Paquetes de plataforma con scope `@navori` (Q24; R21)
+
+- Los cuatro paquetes de plataforma se llaman `@navori/darwin-arm64`, `@navori/darwin-x64`,
+  `@navori/linux-arm64` y `@navori/linux-x64`, y `navori` los declara en `optionalDependencies`.
+- El scope protege los nombres: sin él, cualquiera podría registrar `navori-linux-x64` antes del
+  primer publish. Es el mismo patrón que `@esbuild/*`.
+- Requiere crear la org `navori` en npm (gratuita para paquetes públicos) antes de publicar. E2
+  ensaya sin publicar, así que la org no bloquea E2; bloquea el publish posterior a E3.
+
+### D52 — R18 por host y oráculo de hooks en paralelo (R18; enmienda D17 de 0057)
+
+- **Medición en CI.** Con la composición de D17 y sin `navori-oracle-tests`, que el corte elimina
+  (R24), el gate tarda unos 620 s en `ubuntu-latest` con caché de cargo. El replay de hooks, serial
+  y con un proceso por caso, se lleva unos 400 s.
+- **Paralelo.** `hook-verdict-replay.mjs --shard i/n` replica una rebanada disjunta del corpus
+  (casos por turno, así cada rebanada mezcla todos los hooks) y `check:post-cutover` corre una por
+  núcleo a la vez, cada una con su propio scratch.
+- **Presupuesto por host.** El registro guarda `host`: `ci` con `GITHUB_ACTIONS=true` y
+  `reference` en otro caso. R18 vale 300 s en la máquina de referencia y 600 s en CI, donde sirve
+  de guarda de regresión. Un registro sin `host` se juzga con 300 s. `cutover:check` aplica el
+  presupuesto del host del registro.
+
 ## Failure modes
 
 - **F44 — Un hook activado diverge en uso real.** Mitigación: R80 (vuelta a `shadow` con
@@ -93,7 +115,9 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 | Q28 | (2026-10-31) Corte con delegación permanente de subcomandos raros al TS congelado (D50) |
 | Q29 | (2026-10-31) Política de velocidad de D47 de 0060 en las tres specs abiertas (0059, 0060, 0062) |
 
+| Q24 | (2026-11-02) Paquetes de plataforma con scope `@navori/<os>-<cpu>` y org nueva en npm (D51) |
+| R18 | (2026-11-02) Paralelizar el replay de hooks y medir R18 por host: 300 s en la máquina de referencia y 600 s en CI (D52) |
+
 ## Preguntas (abiertas)
 
-- **Q24 [human] — Scope npm de los paquetes de plataforma.** Pendiente desde la decisión 3 del
-  usuario en 0057. Bloquea solo E2.
+Ninguna.
