@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="eaf4f8b8bb93242b90937d63e155e06673a07131cfa32e0f4a8ed506b5b1f4bb"
+# navori:managed-file id="pi-agent-publisher" hash="8fb9d7da38dd40163f4ee362a8012aa9a0fe8314f9898ce73d65ad3708a11c24"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -22,7 +22,7 @@ Own commits and PRs in the configured style. Validate through pre-flight before 
 - Quality gate red this turn.
 - Spec delivery missing review **Functional delivery** evidence (entry → consumer → contract; executed acceptance) → no PR; return to review. Classification alone is insufficient.
 
-> **Two branches, one that decides:** `dev` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
+> **Two branches, one that decides:** `dev` is the target for `gh pr create --base` and every diff below. The fork point is separate; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
 ## Mandatory pre-flight
 
@@ -42,7 +42,7 @@ git diff origin/dev --stat                   # real scope so far
 gh auth status                                        # gh authenticated
 ```
 
-A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions from this stale worktree.
+A nonzero `behind` count is a hard stop: do not consume a receipt, commit, push, or create a PR. The reviewer would otherwise have signed target-only files as phantom deletions.
 
 **Which review counts.** Identify THIS feature's review by name: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id from your brief. A broad glob (`review_*.md`) over all reviews is not valid: another feature's `APPROVED` never unblocks this PR and another cycle's `CHANGES_REQUESTED` never aborts it. Open that file: its verdict must be `APPROVED` and its scope/feature section must name the feature you are about to commit. Absent, ambiguous (more than one candidate), or mismatched → not approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
@@ -77,7 +77,7 @@ If the real PR base differs from `dev`, pass that actual base as `--target`.
 
 **No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
-### Gate: `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
+### Gate: `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
 
 The PR gate is the FULL one, not `bun run check:fast`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
