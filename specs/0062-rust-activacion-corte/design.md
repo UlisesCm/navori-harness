@@ -92,6 +92,7 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 | Q27 | (2026-10-31) Activación por evidencia mínima (D49): replay, fuzz de 100 000 y 7 días de sombra sin divergencias para hooks con compuerta; solo replay para advisory; sin umbral por clase |
 | Q28 | (2026-10-31) Corte con delegación permanente de subcomandos raros al TS congelado (D50) |
 | Q29 | (2026-10-31) Política de velocidad de D47 de 0060 en las tres specs abiertas (0059, 0060, 0062) |
+| Q30 | (2026-11-02) Partir el PR 1a: las herramientas (T1, T2, T4) entran sin esperar la ventana de sombra, que empezó el 2026-11-02; el lote 1 (T3) y el reporte de sombra de A1 van en 1a′ |
 
 ## Preguntas (abiertas)
 

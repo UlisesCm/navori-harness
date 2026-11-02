@@ -1,7 +1,7 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Tasks
 
 **Estado:** aceptada para desarrollo (Q26–Q29 resueltas; Q24 abierta, bloquea solo E2) · **Base:**
-`migration/rust`. Tres entregas y cuatro PRs: E1 (dos lotes de activación) y E2 contra
+`migration/rust`. Tres entregas y cinco PRs: E1 (herramientas y dos lotes de activación, Q30) y E2 contra
 `migration/rust`, E3 contra `dev`. Sale de E4–E6 de la versión anterior de 0060 (correspondencia en
 cada tarea). El LOC es una referencia gruesa.
 
@@ -9,14 +9,15 @@ cada tarea). El LOC es una referencia gruesa.
 
 | PR | Entrega | Entregable | Se mergea cuando |
 |---|---|---|---|
-| 1a | E1, M1 | Herramientas de activación y el primer lote de hooks en `active` (los que llevan 7 días o más en `shadow` al abrir el PR) | A1 verde, evidencia de R81 adjunta y aprobación del usuario |
+| 1a | E1, M1 | Herramientas de activación (T1, T2, T4), sin activar ningún hook (Q30) | Los tests de A1, el replay `--registered` de A1 y la CI en verde |
+| 1a′ | E1, M1 | El primer lote de hooks en `active` (T3: los que llevan 7 días o más en `shadow` al abrir el PR) | A1 verde, evidencia de R81 adjunta y aprobación del usuario |
 | 1b | E1, M2 | El resto de los hooks en `active` | A2 verde, evidencia de R81 adjunta y aprobación del usuario |
 | 2 | E2 | El paquete instala y responde en macOS y Linux, sin publicar | A3 verde |
 | 3 | E3 | `navori` es el binario Rust en `dev` | A4 verde y aprobación explícita del usuario (R20) |
 
-Estado (2026-11-01): 1a tiene rama (`feat/0062-rust-e1-m1`) con T1, T2 y T4 hechas y `--registered` en el
-replay (el corpus trae los 7 hooks de 0060 E2 y E3 aún sin portar). Falta T3, que espera los 7 días de
-sombra. Cada checkout escribe su propio journal y los hooks de `main` no llevan `--shadow`, así que
+Estado (2026-11-02): 1a (`feat/0062-rust-e1-m1`, #1479) trae T1, T2 y T4 y `--registered` en el
+replay (el corpus trae los 7 hooks de 0060 E2 y E3 aún sin portar); T3 pasó a 1a′ (Q30) y espera
+los 7 días de sombra. Cada checkout escribe su propio journal y los hooks de `main` no llevan `--shadow`, así que
 el tráfico sale de los worktrees de la migración: la ventana corre desde el 2026-11-02 y el reporte
 los suma con `--journals <dir>` (repetible). 2 puede empezar ya, desde
 `migration/rust`. Los PRs se abren terminados, nunca en draft.
@@ -25,8 +26,8 @@ E1 lleva dos PRs a propósito: la ventana de 7 días de R81 es calendario, y esp
 hook de la cola larga la cumpla dejaría parados los que ya la cumplen.
 
 **Precondiciones de entrada (trabajo en paralelo):**
-- **M1 (PR 1a):** empieza ya. T1, T2 y T4 no dependen de ningún hook; el lote 1 son los hooks que
-  ya están en `shadow` con 7 días o más al abrir el PR.
+- **M1 (PRs 1a y 1a′):** empieza ya. T1, T2 y T4 no dependen de ningún hook (1a); el lote 1 (1a′)
+  son los hooks que ya están en `shadow` con 7 días o más al abrir el PR.
 - **M2 (PR 1b):** cada hook de 0060 E2 y E3 (y T13, T14 de 0060 E1) entra cuando cumple 7 días en
   `shadow`; el PR se abre cuando estén todos.
 - **E2 (PR 2):** empieza ya, en paralelo con E1 y con 0060. `cutover-check` puede salir en rojo
