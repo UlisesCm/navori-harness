@@ -523,12 +523,19 @@ describe("rust oracle", () => {
     }
   });
 
-  // Covers: R37, R49
+  // Covers: R37, R49, R63
   it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
     const cells = oracle.antiRollbackCases("0.12.3");
     const levels = oracle.ANTI_ROLLBACK_LEVELS;
     expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
-    expect(oracle.ANTI_ROLLBACK_OPS).toEqual(["inject", "hook", "settings", "remove"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual([
+      "inject",
+      "hook",
+      "settings",
+      "remove",
+      "codex-config",
+      "agents-md",
+    ]);
     const ids = new Set(cells.map((c) => c.id));
     for (const op of oracle.ANTI_ROLLBACK_OPS)
       for (const floor of levels)
@@ -545,9 +552,22 @@ describe("rust oracle", () => {
         const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
         expect(config.plugins.tgrep).toEqual({ enabled: true });
         expect(c.files?.["CLAUDE.md"]).toContain('id="tgrep-search-v2"');
+      } else if (c.id.startsWith("anti-rollback:codex-config:")) {
+        // the Codex config's `#` marker, under a native `sync` (spec 0059 T21)
+        expect(c.fixture).toBe("codex");
+        expect(c.args).toEqual(["sync", "--apply"]);
+        expect(c.native).toBe(true);
+        expect(c.files?.[".codex/config.toml"]).toMatch(
+          /^# navori:managed start id="codex-config-base"/,
+        );
       } else {
         expect(c.args).toEqual(["render", "--apply"]);
         expect(c.mask).toEqual(["provenance"]);
+        if (c.id.startsWith("anti-rollback:agents-md:")) {
+          expect(c.fixture).toBe("prose-engines");
+          expect(c.native).toBe(true);
+          expect(c.files?.["AGENTS.md"]).toContain('id="navori-agents"');
+        }
       }
     }
     // the floor lands in the config, the stamp on the block, and the block hash matches its body
