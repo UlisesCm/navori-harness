@@ -13,7 +13,7 @@ de esta spec). Tres entregas, todas contra `migration/rust`. El LOC es una refer
 | 1a | — | E1 | Mergeado (#1454) | — | — |
 | 1b | Hooks | E1 | T13 y T14 en un solo PR | Mergeado (#1471) | — |
 | 1c | Comandos | E1 | La infraestructura compartida (T17, T18) y el avance de T8 (mapeo de `spec check` a `parts.json`), por Q30. #1466 (T11 parte 2) ya entró | `feat/0060-rust-e1c-comandos`: T17 y T18 cerrados, A6 verde | A6 verde y la CI en verde |
-| 1d | Comandos | E1 | Acotado por Q31: los productores paralelos, `attest` y los flags de evidencia de `handoff check` (T10), `plan acknowledge`, `plan resume` y `classify --diff` (T11) y el grupo `master` (avance de T8) | `feat/0060-rust-e1d-comandos`: T10 y T11 cerrados; de A4, el oráculo (384 casos) y el replay (723) en verde y el fuzz pendiente | A4 verde y la CI en verde |
+| 1d | Comandos | E1 | Acotado por Q31: los productores paralelos, `attest` y los flags de evidencia de `handoff check` (T10), `plan acknowledge`, `plan resume` y `classify --diff` (T11) y el grupo `master` (avance de T8) | `feat/0060-rust-e1d-comandos` (#1477): T10 y T11 cerrados, A4 verde (oráculo 384 casos, replay 723, fuzz 10 000) | A4 verde y la CI en verde |
 | 1e | Comandos | E1 | El resto de E1 (Q31): `master init` y los diez `master delivery-*` (T8) y el inventario T16 | Sin rama; sale de `migration/rust` cuando entre 1d | A3 y A5 completos y la CI en verde |
 | 2 | Hooks | E2 y E3 | T21 y T25: los siete hooks de E2 y E3 en `shadow` | Sin rama; empieza cuando entre 1b | El replay de A7 y A8 de esos hooks y la CI en verde |
 | 3 | Comandos | E2 | T19, T20 y T22 | Sin rama; sale de `migration/rust` cuando entre 1c | A7 verde; entra después del PR 2 (el inventario de R77 exige los hooks en `shadow`) |
