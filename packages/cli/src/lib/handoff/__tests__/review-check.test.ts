@@ -78,4 +78,75 @@ describe("checkReviewHandoff (spec 0048 R7, D7)", () => {
     expect(kinds(cwd, after)).toEqual(["fresh"]);
     expect(kinds(cwd, "not-a-date")).toEqual(["fresh"]);
   });
+
+  describe("target recorded in the begin stamp (#1494)", () => {
+    /** `origin/other` sits at the base commit, `origin/main` one ahead (the base is `origin/<target>`). */
+    function twoTargets(): string {
+      const cwd = repo();
+      const git = (...args: string[]): void => void execFileSync("git", args, { cwd });
+      git("update-ref", "refs/remotes/origin/other", "HEAD");
+      writeFileSync(join(cwd, "b.txt"), "b\n");
+      git("add", ".");
+      git("commit", "-m", "main moves");
+      git("update-ref", "refs/remotes/origin/main", "HEAD");
+      git("checkout", "-b", "feat");
+      writeFileSync(join(cwd, "c.txt"), "c\n");
+      return cwd;
+    }
+    const otherOptions = (cwd: string): EvidenceOptions => ({ ...options(cwd), target: "other" });
+    function reviewAgainstOther(cwd: string): void {
+      const begun = beginReview(otherOptions(cwd));
+      if (begun.status !== "begun") throw new Error(begun.message);
+      writeFileSync(join(cwd, DIR, "review_demo.md"), "# Review\n\nVerdict: APPROVED\n");
+      writeFileSync(
+        join(cwd, DIR, "review_demo.json"),
+        JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
+      );
+      const sealed = sealReview({ ...otherOptions(cwd), nonce: begun.nonce });
+      if (sealed.status === "error") throw new Error(sealed.message);
+    }
+    const post = (cwd: string, targetFromStamp: boolean) =>
+      checkReviewHandoff({
+        cwd,
+        dir: DIR,
+        feature: "demo",
+        evidenceOptions: options(cwd),
+        targetFromStamp,
+      });
+
+    // Covers: R7
+    it("accepts a review sealed against another target when the stamp target is used and bytes are unchanged", () => {
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      expect(post(cwd, true)).toMatchObject({ status: "ok", failures: [] });
+    });
+
+    // Covers: R7
+    it("keeps rejecting that review when the target is explicit or configured", () => {
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      const result = post(cwd, false);
+      expect(result.status).toBe("findings");
+      expect(result.failures.map((f) => f.check)).toEqual(["evidence"]);
+    });
+
+    // Covers: R7
+    it("names the correlation and the field that differs after a content change", () => {
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      writeFileSync(join(cwd, "c.txt"), "changed after the seal\n");
+      const result = post(cwd, true);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.detail).toMatch(/changed-after-review: .*fingerprint/);
+    });
+
+    // Covers: R7
+    it("detail format: base differs when only the target changed", () => {
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      expect(post(cwd, false).failures[0]?.detail).toBe(
+        "review does not match the current independent delivery (changed-after-review: base differs)",
+      );
+    });
+  });
 });

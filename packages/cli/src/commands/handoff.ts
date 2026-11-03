@@ -119,6 +119,7 @@ const checkSubCommand = defineCommand({
               target: args.target,
             }),
             ...(args.since ? { since: args.since } : {}),
+            targetFromStamp: args.target === undefined,
           })
         : checkHandoff({
             cwd,
