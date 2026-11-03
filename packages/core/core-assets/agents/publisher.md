@@ -73,7 +73,7 @@ If the real PR base differs from `{{prTarget}}`, pass that actual base as `--tar
 
 **A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
-### Gate: `{{qualityGate.full}}` green before the PR
+### Gate: `{{gateRun.full}}` green before the PR
 
 The PR gate is the FULL one, not `{{qualityGate.fast}}`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 

@@ -5,7 +5,7 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 
 ## YYYY-MM-DD HH:MM — <agente> — <resumen breve>
 - Cambios: <archivos / áreas tocadas>
-- Quality gate: ✅ {{qualityGate.full}} verde | ❌ <razón>
+- Quality gate: ✅ {{gateRun.full}} verde | ❌ <razón>
 - Notas: <decisiones no obvias, blockers, deuda>
 - Commit / PR: <hash / URL>
 -->

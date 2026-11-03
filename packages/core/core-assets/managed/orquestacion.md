@@ -12,7 +12,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 | answer, investigate, plan, ephemeral probe | yourself |
 
 - One review per PR; later minor fixes get a delta review, not a new cycle.
-- Checks run once on the final diff; rerun only what a later change or failure invalidated. <!-- navori:if-not onCodex -->`{{qualityGate.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->The gate named in "Session closeout"<!-- /navori:if --> green once per PR.
+- Checks run once on the final diff; rerun only what a later change or failure invalidated. <!-- navori:if-not onCodex -->`{{gateRun.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->The gate named in "Session closeout"<!-- /navori:if --> green once per PR.
 - A subagent ban is respected: work directly and say so in the reply.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
