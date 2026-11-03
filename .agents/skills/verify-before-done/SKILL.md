@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="e20c5bb3" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="3a0764bc" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -41,7 +41,7 @@ BEFORE claiming "done / ready / approved" (`implementer`: `done -> impl_<feature
 A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Diff location only orients; it never proves origin. Only the **same command** over the comparable base and the change demonstrates it: runs disagree → introduced; agree → pre-existing; no comparable run → origin not determined. Never `git stash` to measure — it empties the shared tree.
 ## Red flags (STOP)
 
-- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched): `.codex/orchestrator.md` § Anti-broken-telephone.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched).
 
 ## Session close (session owner only)
 
