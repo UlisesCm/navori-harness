@@ -57,6 +57,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       planTiers: false,
       codexIntegration: false,
       masterPlan: false,
+      authoring: false,
       compactAdviceTokens: 175000,
     });
   });

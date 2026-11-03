@@ -109,7 +109,7 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
 | `master <sub>` | Master plan by stages (`init`, `ux`, `mode`, `advance`, `check`, …) and deliveries (`delivery-*`, gated with `--approved-by`). |
 | `adopt` | Brings a harness file you wrote by hand under Navori management (wraps it, does not rewrite it). |
 | `workspace` / `ticket` / `dominio` | Cross-repository config and tickets, plus the durable workspace knowledge base. |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | Local presets, monorepos, restore, and benchmark. |
+| `preset` / `scan` / `backup` / `migrations` | Local presets, monorepos, restore, and migrations. |
 
 → Full command table, presets, and plugins: [`packages/cli/README.md`](./packages/cli/README.md).
 

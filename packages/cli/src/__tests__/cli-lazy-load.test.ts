@@ -37,7 +37,6 @@ const KNOWN_COUPLINGS = new Set([
   "doctor -> render",
   "status -> doctor",
   "status -> render",
-  "bench -> render",
   "workspace -> render",
   "handoff -> receipt",
   "master -> render",

@@ -148,7 +148,10 @@ describe("engram grant parity with Claude", () => {
   it("compiled Codex grants equal the mcp__engram__ entries Claude renders per role", () => {
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-engram-parity-")));
     try {
-      renderClaudeEngine(cwd, config({ engines: ["claude"] }));
+      renderClaudeEngine(
+        cwd,
+        config({ engines: ["claude"], harness: { scribeOwnsMarkdown: true } }),
+      );
       const grants = engramGrantsByRole();
       for (const agent of ROSTER_AGENTS) {
         const file = join(cwd, ".claude/agents", `${agent.id}.md`);

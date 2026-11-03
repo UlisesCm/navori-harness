@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import { isAgentEnabled } from "../shared/harness-assets.ts";
+import { isHookEnabled } from "../shared/harness-plan.ts";
 import { PI_GATE_TIMEOUT_MS } from "./role-tools.ts";
 
 /**
@@ -111,8 +112,7 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     class: "enforced",
     interactive: true,
     timeoutMs: 10_000,
-    // Registration parity with Claude (build-settings.ts): only under harness.masterPlan.
-    when: (config) => Boolean(config.harness?.masterPlan),
+    when: (config) => isHookEnabled(config, "master-accept-confirm"),
   },
   // Spec 0048 T12/R8: a child never backgrounds work (`cmd &`, nohup, setsid, disown). The script
   // keys on `agent_id`, which the bridge sends only in children, so the parent is never in scope.
@@ -160,6 +160,7 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     interactive: false,
     timeoutMs: 10_000,
     skipOnError: true,
+    when: (config) => isHookEnabled(config, "routing-watch"),
   },
   // Spec 0048 R10 (D8): parent session close, 15 s in total (reclaim 12 s, then the audit seal 3 s).
   {
@@ -177,6 +178,7 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     class: "lifecycle",
     interactive: false,
     timeoutMs: 3_000,
+    when: (config) => isHookEnabled(config, "audit-mode-close"),
   },
   // Spec 0048 R11 (D8): advisory (its text is appended, never blocks); opt-in like Claude's Stop hook.
   {

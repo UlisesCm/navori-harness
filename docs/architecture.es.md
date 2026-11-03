@@ -120,7 +120,7 @@ flowchart LR
     RENDER["navori render --apply<br/>escribe outputs"]
     WORK["trabajás en el repo"]
     SYNC["navori sync --interactive<br/>resuelve drift por bloque"]
-    INSPECT["doctor · status · bench<br/>inspección"]
+    INSPECT["doctor · status<br/>inspección"]
 
     INIT --> EDIT --> RENDER --> WORK
     WORK -- "bundle avanza /<br/>editaste a mano = drift" --> SYNC
@@ -132,7 +132,7 @@ flowchart LR
     click EDIT "../packages/cli/src/commands/add.ts" "add / configure"
     click RENDER "../packages/cli/src/commands/render.ts" "render"
     click SYNC "../packages/cli/src/commands/sync.ts" "sync"
-    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
+    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
 ## 4. Plan maestro — etapas numeradas y fases

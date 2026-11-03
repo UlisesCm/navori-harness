@@ -680,17 +680,6 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toContain("Nada que sugerir");
   });
 
-  it("bench reports percentiles over N runs (spec 0003 §3.5.4)", () => {
-    const repo = makeTmpRepo();
-    dirs.push(repo);
-    runSpawned(["init", "--recommended", "--cwd", repo]);
-
-    const r = runSpawned(["bench", "--runs", "3", "--cwd", repo]);
-    expect(r.status).toBe(0);
-    expect(r.combined).toMatch(/p50/);
-    expect(r.combined).toMatch(/p95/);
-  });
-
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -2328,7 +2317,6 @@ describe("CLI e2e — exit-code coverage after the R9 dedupe", () => {
     ["init", "init aborts if navori.config.json already exists"],
     ["add", "add --suggest recommends available external providers when none are enabled (#981)"],
     ["backup", "'backup list --limit abc' errors instead of silently emptying the list"],
-    ["bench", "bench reports percentiles over N runs (spec 0003 §3.5.4)"],
     ["configure", "configure language changes the config field"],
     ["doctor", "doctor exits 2 on hard issues (corrupted settings.json) regardless of --strict"],
     ["migrations", "'migrations list --limit abc' errors instead of silently emptying the list"],

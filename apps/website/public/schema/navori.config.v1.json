@@ -114,10 +114,20 @@
         "verifyOnStop": {
           "default": false,
           "type": "boolean"
+        },
+        "modelAdvisor": {
+          "default": false,
+          "type": "boolean"
+        },
+        "auditMode": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
-        "verifyOnStop"
+        "verifyOnStop",
+        "modelAdvisor",
+        "auditMode"
       ],
       "additionalProperties": false
     },
@@ -252,6 +262,10 @@
           "default": false,
           "type": "boolean"
         },
+        "authoring": {
+          "default": false,
+          "type": "boolean"
+        },
         "compactAdviceTokens": {
           "default": 175000,
           "type": "integer",
@@ -271,6 +285,7 @@
         "planTiers",
         "codexIntegration",
         "masterPlan",
+        "authoring",
         "compactAdviceTokens"
       ],
       "additionalProperties": false

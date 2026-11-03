@@ -123,7 +123,8 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // apague. Un conteo a mano en cinco sitios es justo lo que #703 dejo
     // anotado como deuda; mientras siga a mano, la enumeracion tiene que
     // cerrar con el numero.
-    expect(r.inspected).toBe(56);
+    // #1484: minus 12 opt-in units (2 authoring + 2 plan skills, scribe, 7 hooks) = 44.
+    expect(r.inspected).toBe(44);
   });
 
   describe("bundled stack presets (B4)", () => {

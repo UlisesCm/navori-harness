@@ -36,6 +36,9 @@ const config = NavoriConfigSchema.parse({
   engines: ["claude", "pi"],
   branchBase: "main",
   qualityGate: { fast: "bun test", full: "bun test" },
+  // #1484: the Pi copies of these scripts exist only behind their flags.
+  harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true },
+  hooks: { auditMode: true },
 });
 
 const dirs: string[] = [];

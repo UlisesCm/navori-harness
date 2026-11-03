@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="cf6f8bbe" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="3137f6b4" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -667,8 +667,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/hooks/guard-destructive.sh
 .claude/hooks/implementer-no-markdown.sh
 .claude/hooks/managed-drift-watch.sh
-.claude/hooks/master-accept-confirm.sh
-.claude/hooks/master-plan-context.sh
 .claude/hooks/model-advisor.sh
 .claude/hooks/pii-egress-guard.sh
 .claude/hooks/plan-gate.sh

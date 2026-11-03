@@ -333,7 +333,7 @@ describe("render por workspace — `minimal` no duplica lo de la raíz (spec 004
       SKILL("apps/backend", "debug-failure"),
       `${readFileSync(SKILL("apps/backend", "debug-failure"), "utf-8")}\nMi nota propia.\n`,
     );
-    writeFileSync(SKILL("apps/backend", "plan-simple"), "---\nname: plan-simple\n---\nmía\n");
+    writeFileSync(SKILL("apps/backend", "context-intake"), "---\nname: context-intake\n---\nmía\n");
 
     writeMoonarConfig("minimal");
     const result = runRender(cwd, { dryRun: false });
@@ -346,9 +346,9 @@ describe("render por workspace — `minimal` no duplica lo de la raíz (spec 004
     // …y se conservaron y reportaron las que no son de navori sola.
     const kept = Object.fromEntries(backend.trimmedKept.map((k) => [k.path, k.reason]));
     expect(kept[".claude/skills/debug-failure/SKILL.md"]).toBe("modified");
-    expect(kept[".claude/skills/plan-simple/SKILL.md"]).toBe("foreign");
+    expect(kept[".claude/skills/context-intake/SKILL.md"]).toBe("foreign");
     expect(existsSync(SKILL("apps/backend", "debug-failure"))).toBe(true);
-    expect(existsSync(SKILL("apps/backend", "plan-simple"))).toBe(true);
+    expect(existsSync(SKILL("apps/backend", "context-intake"))).toBe(true);
     // Lo propio de su preset sigue ahí.
     expect(existsSync(SKILL("apps/backend", "medusa-modules"))).toBe(true);
     // `storefront` interpola su gate: la copia difiere de la raíz y se conserva.

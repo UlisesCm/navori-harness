@@ -44,8 +44,8 @@ const FULL_CONFIG = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "x", full: "y" },
-  hooks: { verifyOnStop: true },
-  harness: { planTiers: true, masterPlan: true },
+  hooks: { verifyOnStop: true, modelAdvisor: true, auditMode: true },
+  harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true, authoring: true },
 } as unknown as NavoriConfig;
 
 const CONTROL_HOOKS = Object.fromEntries(

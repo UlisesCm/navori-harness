@@ -5,7 +5,7 @@ import type { LoadedPlugin, PluginHookEntry } from "../../lib/config/plugins.ts"
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
 import { isAgentEnabled } from "../shared/harness-assets.ts";
-import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { isHookEnabled, resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { filterInventory, type FilteredInventory } from "../shared/native-overlap.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { deepMerge } from "./deep-merge.ts";
@@ -317,56 +317,58 @@ export function buildClaudeSettings(
   // session scratch state and prints the documented user-visible systemMessage
   // (on `Stop` that field never continues the turn, unlike `additionalContext`);
   // `/model` remains the user's explicit model/effort selector.
-  settings = deepMerge(settings, {
-    hooks: {
-      SessionStart: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand(
-                "SessionStart",
-                MODEL_ADVISOR_HOOK_DEST,
-                "claude-session-start",
-              ),
-              timeout: 10,
-              statusMessage: "navori: model advisor",
-            },
-          ],
-        },
-      ],
-      PostModelSwitch: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand(
-                "PostModelSwitch",
-                MODEL_ADVISOR_HOOK_DEST,
-                "claude-post-model-switch",
-              ),
-              timeout: 10,
-              statusMessage: "navori: model advisor",
-            },
-          ],
-        },
-      ],
-      // Spec 0039 R27: `Stop` instead of `PreToolUse(.*)`. It costs no hook on any
-      // Bash call, and the notice still arrives, at the end of the first turn.
-      Stop: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand("Stop", MODEL_ADVISOR_HOOK_DEST, "claude-stop"),
-              timeout: 10,
-              statusMessage: "navori: model advisor",
-            },
-          ],
-        },
-      ],
-    },
-  });
+  if (isHookEnabled(config, "model-advisor")) {
+    settings = deepMerge(settings, {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: claudeHookCommand(
+                  "SessionStart",
+                  MODEL_ADVISOR_HOOK_DEST,
+                  "claude-session-start",
+                ),
+                timeout: 10,
+                statusMessage: "navori: model advisor",
+              },
+            ],
+          },
+        ],
+        PostModelSwitch: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: claudeHookCommand(
+                  "PostModelSwitch",
+                  MODEL_ADVISOR_HOOK_DEST,
+                  "claude-post-model-switch",
+                ),
+                timeout: 10,
+                statusMessage: "navori: model advisor",
+              },
+            ],
+          },
+        ],
+        // Spec 0039 R27: `Stop` instead of `PreToolUse(.*)`. It costs no hook on any
+        // Bash call, and the notice still arrives, at the end of the first turn.
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: claudeHookCommand("Stop", MODEL_ADVISOR_HOOK_DEST, "claude-stop"),
+                timeout: 10,
+                statusMessage: "navori: model advisor",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   // Keep dynamic master-plan progress separate from the bounded general
   // SessionStart context. An off flag must not register this hook (R39).
@@ -599,29 +601,31 @@ export function buildClaudeSettings(
   // stops delivering one of them.
   //
   // Advisory by construction (the script has no `exit 2` path).
-  settings = deepMerge(settings, {
-    hooks: {
-      PostToolUse: [
-        {
-          matcher: "Bash|Edit|Write|NotebookEdit|Agent|Task",
-          hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand(
-                "PostToolUse",
-                ROUTING_WATCH_HOOK_DEST,
-                "claude-post-tool-use",
-              ),
-              // 30, not 10: the Bash success lane fingerprints the tree
-              // (spec 0039 D5). Free on the normal path; it only bounds a hang.
-              timeout: 30,
-              statusMessage: "navori: routing check",
-            },
-          ],
-        },
-      ],
-    },
-  });
+  if (isHookEnabled(config, "routing-watch")) {
+    settings = deepMerge(settings, {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Bash|Edit|Write|NotebookEdit|Agent|Task",
+            hooks: [
+              {
+                type: "command",
+                command: claudeHookCommand(
+                  "PostToolUse",
+                  ROUTING_WATCH_HOOK_DEST,
+                  "claude-post-tool-use",
+                ),
+                // 30, not 10: the Bash success lane fingerprints the tree
+                // (spec 0039 D5). Free on the normal path; it only bounds a hang.
+                timeout: 30,
+                statusMessage: "navori: routing check",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   if (config.qualityGate?.fast) {
     settings = deepMerge(settings, {
@@ -678,7 +682,7 @@ export function buildClaudeSettings(
     },
   });
 
-  // Audit-mode hooks. Registered unconditionally but INERT until a session
+  // Audit-mode hooks. Registered only with `hooks.auditMode` or `audit.mode: "always"` (#1484), and INERT until a session
   // opts in by phrase — and even then the trigger only ASKS Claude to confirm
   // with the user; it never activates recording on its own, so a spurious
   // phrase match costs one question and leaves nothing on disk.
@@ -686,29 +690,39 @@ export function buildClaudeSettings(
   // Deliberately confined to UserPromptSubmit + SessionEnd. A PostToolUse hook
   // would fire thousands of times per session; these fire once per typed
   // prompt and once at the end. Both are fail-open: any error exits 0.
+  if (isHookEnabled(config, "audit-mode-trigger")) {
+    settings = deepMerge(settings, {
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: claudeHookCommand("UserPromptSubmit", AUDIT_TRIGGER_HOOK_DEST),
+                timeout: 10,
+                statusMessage: "navori: audit-mode",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
   settings = deepMerge(settings, {
     hooks: {
-      UserPromptSubmit: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand("UserPromptSubmit", AUDIT_TRIGGER_HOOK_DEST),
-              timeout: 10,
-              statusMessage: "navori: audit-mode",
-            },
-          ],
-        },
-      ],
       SessionEnd: [
         {
           hooks: [
-            {
-              type: "command",
-              command: claudeHookCommand("SessionEnd", AUDIT_CLOSE_HOOK_DEST),
-              timeout: 10,
-              statusMessage: "navori: audit-mode close",
-            },
+            ...(isHookEnabled(config, "audit-mode-close")
+              ? [
+                  {
+                    type: "command",
+                    command: claudeHookCommand("SessionEnd", AUDIT_CLOSE_HOOK_DEST),
+                    timeout: 10,
+                    statusMessage: "navori: audit-mode close",
+                  },
+                ]
+              : []),
             // #527: sweep agent worktrees whose work provably survived. It
             // shares this event because the answer only exists at the end —
             // when a subagent stops its PR usually does not exist yet, so

@@ -248,21 +248,6 @@ const es: Record<string, CommandDoc> = {
       "status es la vista al vuelo; doctor es el audit verboso. Comparten la misma lógica de health-check.",
     ],
   },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary:
-      "Mide render sobre N corridas y reporta p50/p95. Para detectar regresiones locales antes de commitear.",
-    usage: "navori bench [--runs <n>]",
-    flags: [{ flag: "--runs <n>", desc: "Número de iteraciones. Default: 20." }],
-    example: [
-      {
-        title: "Benchmark",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida."],
-  },
   codex: {
     id: "codex",
     title: "codex",
@@ -1324,21 +1309,6 @@ const en: Record<string, CommandDoc> = {
       "status is the at-a-glance view; doctor is the verbose audit. They share the same health-check logic.",
       "Shows harness (last changed), the navori version that last changed the harness (harnessVersion). The --json key remains renderedVersion.",
     ],
-  },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary:
-      "Times render over N runs and reports p50/p95. Spots local regressions before you commit.",
-    usage: "navori bench [--runs <n>]",
-    flags: [{ flag: "--runs <n>", desc: "Number of iterations. Default: 20." }],
-    example: [
-      {
-        title: "Benchmark",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["Complements NAVORI_BENCH=1, which instruments the timings of a single run."],
   },
   codex: {
     id: "codex",
@@ -2454,25 +2424,6 @@ const zhCN: Record<string, CommandDoc> = {
       "显示 harness (last changed)，即最后修改 harness 的 navori 版本（harnessVersion）；--json 键仍为 renderedVersion。",
     ],
   },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary: "对 render 执行 N 次计时，报告 p50/p95，在提交前发现本地回归。",
-    usage: "navori bench [--runs <n>]",
-    flags: [
-      {
-        flag: "--runs <n>",
-        desc: "迭代次数，默认 20。",
-      },
-    ],
-    example: [
-      {
-        title: "基准测试",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["补充 NAVORI_BENCH=1 对单次运行的计时。"],
-  },
   codex: {
     id: "codex",
     title: "codex",
@@ -3475,7 +3426,6 @@ export const commandOrder = [
   "scan",
   "doctor",
   "status",
-  "bench",
   "codex",
   "audit",
   "backup",

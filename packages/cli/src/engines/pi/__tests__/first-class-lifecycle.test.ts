@@ -131,6 +131,7 @@ function freshProject(): void {
       engines: ["pi"],
       branchBase: "main",
       qualityGate: { fast: "bun test", full: "bun test" },
+      hooks: { auditMode: true },
     }),
   );
 }
@@ -341,7 +342,7 @@ function gitProject(verifyOnStop = false): { cwd: string; origin: string } {
       engines: ["pi"],
       branchBase: "main",
       qualityGate: { fast: "bun test", full: "bun test" },
-      ...(verifyOnStop ? { hooks: { verifyOnStop: true } } : {}),
+      hooks: { auditMode: true, ...(verifyOnStop ? { verifyOnStop: true } : {}) },
     }),
   );
   writeFileSync(join(cwd, ".gitignore"), ".claude/worktrees/\n.navori/state/\n");

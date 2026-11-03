@@ -108,7 +108,9 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 - Commits follow the repo's convention → MEDIUM if broken.
 - Changes to the manifest/lockfile without a clear reason in the description → HIGH.
+<!-- navori:if authoring -->
 - New or edited skill → apply `author-skill`.
+<!-- /navori:if -->
 
 ## Critical areas
 

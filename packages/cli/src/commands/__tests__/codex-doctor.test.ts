@@ -540,14 +540,15 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     expect(codex.hooks).toContain("engram-write-guard");
     expect(codex.hooks).toContain("role-guard");
     expect(claude.hooks).not.toContain("role-guard");
-    expect(claude.hooks).toContain("master-plan-context");
-    expect(claude.hooks).toContain("master-accept-confirm");
-    expect(codex.hooks).toContain("master-plan-context");
-    expect(codex.hooks).toContain("master-accept-confirm");
+    // #1484: the master-plan hooks are planned only with `harness.masterPlan`.
+    for (const hooks of [claude.hooks, codex.hooks]) {
+      expect(hooks).not.toContain("master-plan-context");
+      expect(hooks).not.toContain("master-accept-confirm");
+    }
     expect(claude.hooks).toContain("guard-destructive");
   });
 
-  it("reports dormant master-plan hooks with masterPlan off and the same assets with it on", () => {
+  it("plans the master-plan hooks only with masterPlan on (#1484)", () => {
     const cwd = tempRepo();
     for (const masterPlan of [false, true]) {
       const { claude, codex } = buildEngineInventory(
@@ -559,10 +560,10 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
       );
       assert.isDefined(claude);
       assert.isDefined(codex);
-      expect(claude.hooks).toContain("master-plan-context");
-      expect(claude.hooks).toContain("master-accept-confirm");
-      expect(codex.hooks).toContain("master-plan-context");
-      expect(codex.hooks).toContain("master-accept-confirm");
+      for (const hooks of [claude.hooks, codex.hooks]) {
+        expect(hooks.includes("master-plan-context")).toBe(masterPlan);
+        expect(hooks.includes("master-accept-confirm")).toBe(masterPlan);
+      }
     }
   });
 

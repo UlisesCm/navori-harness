@@ -296,7 +296,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
   ],
   children: {
     qualityGate: QUALITY_GATE_RULE,
-    hooks: { keys: ["verifyOnStop"] },
+    hooks: { keys: ["verifyOnStop", "modelAdvisor", "auditMode"] },
     audit: { keys: ["mode"] },
     sdd: {
       keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo", "deliveries"],
@@ -316,6 +316,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         "planTiers",
         "codexIntegration",
         "masterPlan",
+        "authoring",
         "compactAdviceTokens",
       ],
     },

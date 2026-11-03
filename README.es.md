@@ -124,7 +124,7 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
 | `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
+| `preset` / `scan` / `backup` / `migrations` | Presets locales, monorepos, restore, migraciones |
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.es.md).
 

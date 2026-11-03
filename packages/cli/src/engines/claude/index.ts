@@ -80,7 +80,13 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
-import { resolveHarnessPlan, type HarnessPlan, type PlannedSkill } from "../shared/harness-plan.ts";
+import {
+  GATED_HOOK_PREDICATES,
+  GATED_WORKFLOW_SKILL_FLAGS,
+  resolveHarnessPlan,
+  type HarnessPlan,
+  type PlannedSkill,
+} from "../shared/harness-plan.ts";
 import {
   OVERLAP_ROWS,
   filterInventory,
@@ -1586,6 +1592,92 @@ export function prepareClaudeEngine(
       warnings,
       claudeMdPath,
     });
+
+    // 8.7f. Units gated behind an opt-in flag (#1484). Claude Code discovers
+    // skills/agents by walking the directory, so a unit whose flag is off must
+    // not linger from a render that had it on. Same registry-driven shape as
+    // §8.7b-d (a static list, never a directory scan), `localSkills` skipped.
+    {
+      const flagsOn: NavoriConfig = {
+        ...config,
+        harness: {
+          ...config.harness,
+          planTiers: true,
+          authoring: true,
+          scribeOwnsMarkdown: true,
+          masterPlan: true,
+        } as NavoriConfig["harness"],
+        hooks: { verifyOnStop: false, ...config.hooks, modelAdvisor: true, auditMode: true },
+      };
+      const pristineFor = (
+        assetPath: string,
+        managedId: string,
+        commentStyle: "html" | "shell",
+      ): { expected: string } => ({
+        expected: renderManagedFile({
+          assetPath,
+          existingContent: null,
+          managedId,
+          meta: CORE_META,
+          config: effectiveConfig(flagsOn),
+          commentStyle,
+          engine: "claude",
+        }).content,
+      });
+      const queue = (candidates: readonly (PendingRemoval | null)[]): void => {
+        for (const removal of candidates) {
+          if (removal && !removals.some((r) => r.path === removal.path)) removals.push(removal);
+        }
+      };
+      const retired = (id: string): { id: string; successor: null } => ({ id, successor: null });
+
+      for (const id of Object.keys(GATED_WORKFLOW_SKILL_FLAGS)) {
+        if (fullHarnessPlan.skills.some((s) => s.id === id) || localSkillIds.has(id)) continue;
+        const pristine = pristineFor(join(coreAssets, "skills", `${id}.md`), id, "html");
+        queue([
+          planFlatSkillRemoval(cwd, id, id, pristine),
+          planDirSkillRemoval(cwd, id, id, pristine),
+        ]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/skills", `${id}.md`), join(cwd, ".claude/skills", id, "SKILL.md")],
+          id,
+          retired(id),
+          pristine,
+        );
+      }
+      for (const id of Object.keys(GATED_HOOK_PREDICATES)) {
+        if (fullHarnessPlan.hooks.some((h) => h.id === id)) continue;
+        const markerId = `${id}-base`;
+        const pristine = pristineFor(join(coreAssets, "hooks", `${id}.sh`), markerId, "shell");
+        queue([planRetiredHookRemoval(cwd, id, markerId, pristine)]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/hooks", `${id}.sh`)],
+          markerId,
+          retired(id),
+          pristine,
+        );
+      }
+      if (!fullHarnessPlan.agents.some((a) => a.id === "scribe")) {
+        const pristine = pristineFor(
+          join(coreAssets, "agents", "scribe.md"),
+          "scribe-base",
+          "html",
+        );
+        queue([planRetiredAgentRemoval(cwd, "scribe", "scribe-base", pristine)]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/agents", "scribe.md")],
+          "scribe-base",
+          retired("scribe"),
+          pristine,
+        );
+      }
+    }
 
     // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
     // every Claude skill as `.claude/skills/<id>/SKILL.md` (the shape Claude Code

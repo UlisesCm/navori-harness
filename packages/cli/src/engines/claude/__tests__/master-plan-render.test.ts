@@ -137,8 +137,9 @@ describe("master-plan managed context (spec 0034 T11)", () => {
 
     renderClaudeEngine(cwd, closed);
     const settings = readFileSync(join(cwd, ".claude/settings.json"), "utf8");
+    // #1484: closing the stage prunes the pristine scripts too.
     for (const script of scripts) {
-      expect(existsSync(join(cwd, `.claude/hooks/${script}.sh`))).toBe(true);
+      expect(existsSync(join(cwd, `.claude/hooks/${script}.sh`))).toBe(false);
       expect(settings).not.toContain(`${script}.sh`);
     }
   });
