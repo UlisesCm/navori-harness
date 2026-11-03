@@ -17,6 +17,7 @@ import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { acrossShells } from "./helpers/shells.ts";
+import { createExecShims, expectLinearScaling } from "./helpers/exec-shims.ts";
 
 /**
  * Behavioral tests for the tgrep search lane (spec 0039 D6).
@@ -328,6 +329,63 @@ describe.runIf(runsBash)("guard-search-routing", () => {
         expect(runGuard(command)).toBe(2);
       });
     }
+  });
+});
+
+// Issue #1491: two `grep` forks per segment start made a 6 KB command that only filters with
+// `| grep` cost ~0.8 s inside guard-destructive. The checks are about SHAPE (fork counts,
+// scaling), never an absolute time.
+describe.runIf(runsBash)("guard-search-routing: long multi-segment commands (#1491)", () => {
+  // Pipe filters plus a non-recursive grep that STARTS a segment: every segment start is a
+  // candidate for the old per-segment checks, none of them blocks.
+  const line = `echo 'navori check' && ls packages | grep "core"; grep -n "x" a.ts; cat a || true\n`;
+  const fixture = fixtures.running;
+
+  function runWith(command: string, env: NodeJS.ProcessEnv = {}): number {
+    const r = spawnSync(resolveBin("bash"), [fixture.hook], {
+      input: JSON.stringify({ tool_input: { command } }),
+      env: { ...envFor(fixture), ...env },
+      cwd: fixture.repo,
+    });
+    return r.status ?? -1;
+  }
+
+  it("forks the same number of grep/awk/sed for 20 and 200 lines", () => {
+    const shims = createExecShims();
+    const shimDir = (shims.env.PATH ?? "").split(":")[0] ?? "";
+    const counts = (lines: number): Record<string, number> => {
+      shims.reset();
+      expect(
+        runWith(line.repeat(lines), { ...shims.env, PATH: `${shimDir}:${fixture.path}` }),
+      ).toBe(0);
+      return shims.counts();
+    };
+    const small = counts(20);
+    const large = counts(200);
+    expect(line.repeat(200).length).toBeLessThan(20_000); // still inspected, not skipped
+    expect(large.grep).toBeGreaterThanOrEqual(1); // the shims really observe execs
+    expect(large).toEqual(small);
+  });
+
+  it("scales linearly: a ~20 KB command costs at most 2.5x a ~10 KB one (median of 3)", () => {
+    expect(line.repeat(230).length).toBeLessThan(20_000);
+    expectLinearScaling(
+      () => runWith(line.repeat(115)),
+      () => runWith(line.repeat(230)),
+    );
+  });
+
+  it("still blocks a recursive search after 200 harmless lines", () => {
+    expect(runWith(`${line.repeat(200)}; grep -rn "foo" src/`)).toBe(2);
+  });
+
+  it("names the first offending segment when several would block", () => {
+    expect(stderrOf(`${line.repeat(20)}; rg foo src && grep -rn foo src/`)).toContain(
+      "rg is recursive by default",
+    );
+    expect(stderrOf(`${line.repeat(20)}; grep -rn foo src/ && rg foo src`)).toContain(
+      "recursive content search through the shell",
+    );
   });
 });
 
