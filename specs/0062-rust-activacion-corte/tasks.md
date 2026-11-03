@@ -5,6 +5,10 @@
 `migration/rust`, E3 contra `dev`. Sale de E4–E6 de la versión anterior de 0060 (correspondencia en
 cada tarea). El LOC es una referencia gruesa.
 
+**Enmienda de alcance (2026-11-02):** lo congelado en `dev` (#1484, #1502) no se porta ni se
+activa; se resuelve por delegación permanente al TS. Ver `requirements.md`. Lo marcado "Fuera de
+alcance (2026-11-02)" se conserva como registro y no se ejecuta.
+
 **PRs**
 
 | PR | Entrega | Entregable | Se mergea cuando |
@@ -65,6 +69,7 @@ hooks que llevan 7 días o más en `shadow` deciden en Rust.
 Entregable: los 22 hooks deciden en Rust en los tres engines.
 - **A2** [observable] — ningún hook queda en `shadow` y el segundo lote tiene su evidencia · `node scripts/js/hook-verdict-replay.mjs --impl rust && node scripts/js/hook-shadow-report.mjs --window 7 && cd packages/cli && bun run vitest run src/__tests__/native-hook-failclosed.test.ts src/__tests__/rust-manifest-check.test.ts` → exit 0; 0 divergencias; 0 hooks en `shadow`
 - [ ] **T5** (R81, R82, R83) — lote 2: la misma evidencia de T3 para los hooks que entraron en `shadow` con 0060 E1 (T13, T14), E2 y E3, su paso a `active` y la matriz de T4 extendida a ellos · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"los 22 hooks active"
+  - Fuera de alcance (2026-11-02, enmienda de `requirements.md`): `audit-mode-trigger` y `audit-mode-close` (replay, fuzz y sombra): no tienen puerto. El lote 2 deja 20 hooks en `active`, no 22; los otros dos quedan en la lista de hooks shell permanentes.
 
 ## E2 — Ensayo de distribución, sin publicar
 Estimated LOC: 3500
@@ -90,4 +95,5 @@ Entregable: `navori` es el binario Rust en `dev`, con el TS congelado como respa
 delegaciones permanentes.
 - **A4** [observable] — el corte cumple R20 y R24 con el gate full verde · `bun run cutover:check && bun run check:post-cutover && cargo test --workspace --locked` → exit 0, con la aprobación del usuario registrada en el PR
 - [ ] **T10** (R24, R20) — PR único a `dev`: re-apunta `rust.yml`, añade release, empaquetado y `legacy/`, dirige la delegación al TS congelado solo para la lista permanente, borra `packages/cli/src` salvo las suites de artefacto y elimina el oráculo TS (antes T51 de 0060) · effect: behavior · test: `packages/cli/src/__tests__/cutover-check.test.ts`::"el árbol de corte delega solo la lista permanente y no conserva la suite TS"
+  - Enmienda (2026-11-02): `PERMANENT_DELEGATION` y `cutover:check` aceptan hooks shell permanentes (R20 enmendado en `requirements.md`), y la lista suma `audit`, `codex`, `master init` y los `master delivery-*`.
 - [ ] **T11** (R85, R21, R22) — avisos encendidos en el binario publicado y release documentado en README § Releases (antes T52 y T53 de 0060) · effect: docs · test: `README.md`::"Releases"
