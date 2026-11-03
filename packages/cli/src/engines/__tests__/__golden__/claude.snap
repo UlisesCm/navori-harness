@@ -6656,6 +6656,9 @@ fi
 # in `~` matching, and shell metacharacters and owned paths are ASCII anyway.
 # A newline inside an open quote stays in the word (multi-line -m "$(cat <<EOF)");
 # outside quotes it ends the segment; an unclosed quote at the end still fails.
+# A "$(...)" opens its own quoting context, as in Bash (#1497): its text stays in
+# the enclosing word, but its quotes and parentheses are tracked apart, so a
+# quote inside it never closes the outer double quote.
 # Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
 # terminator) from the live text, and skipping on that text would hide commands.
 # Paths are lexical against the tool cwd. Command-local directory changes,
@@ -6847,10 +6850,24 @@ navori_copy_dest_safe() {
         }
         escape = 1; continue
       }
+      if (quote == "\042" && c == "$" && substr(line,pos+1,1) == "(") {
+        subq[++sd] = quote; subp[sd] = 0; quote = ""
+        buf = buf "$("; have = 1; pos++; continue
+      }
       if (quote != "") {
         if (c == quote) quote = ""
         else buf = buf c
         have = 1; continue
+      }
+      if (sd > 0) {
+        # A heredoc body is free text (git commit -m "$(cat <<EOF ...)"): fall
+        # back to the outer double quote, the pre-#1497 reading of the word.
+        if (c == "<" && substr(line,pos+1,1) == "<") { quote = subq[1]; sd = 0 }
+        else if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
+        if (c == "(") subp[sd]++
+        else if (c == ")" && subp[sd] > 0) subp[sd]--
+        else if (c == ")") quote = subq[sd--]
+        buf = buf c; have = 1; continue
       }
       if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
       if (substr(line,pos,21) == "${CLAUDE_PROJECT_DIR}") {
@@ -6881,10 +6898,10 @@ navori_copy_dest_safe() {
       buf = buf c; have = 1
     }
     if (escape) escape = 0
-    else if (quote != "") { buf = buf "\n"; have = 1 }
+    else if (quote != "" || sd > 0) { buf = buf "\n"; have = 1 }
     else segment()
   }
-  END { if (quote != "" || escape) bad = 1; segment(); exit (bad ? 2 : 0) }
+  END { if (quote != "" || escape || sd > 0) bad = 1; segment(); exit (bad ? 2 : 0) }
   ' <<EOF
 $live
 EOF
