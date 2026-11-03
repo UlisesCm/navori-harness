@@ -121,7 +121,7 @@ Pay extra attention if the diff touches `{{project.criticalAreas}}`. A finding i
 1. Flat list with severities, ordered CRITICAL → HIGH → MEDIUM. Each line with `file:line`.
 2. If there are no findings: `No findings.`
 3. No summary, praise, or off-checklist suggestions.
-4. If you find a new bug pattern that isn't here, save it (memory / note) for future reviews.
+4. If you find a new bug pattern that isn't here, save it (memory / note).
 
 ## Connection with the harness
 

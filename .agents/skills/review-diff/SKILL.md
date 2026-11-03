@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="b5efe3e7" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="review-diff-base" hash="ead8035b" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `dev`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
@@ -120,7 +120,7 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 1. Flat list with severities, ordered CRITICAL → HIGH → MEDIUM. Each line with `file:line`.
 2. If there are no findings: `No findings.`
 3. No summary, praise, or off-checklist suggestions.
-4. If you find a new bug pattern that isn't here, save it (memory / note) for future reviews.
+4. If you find a new bug pattern that isn't here, save it (memory / note).
 
 ## Connection with the harness
 
