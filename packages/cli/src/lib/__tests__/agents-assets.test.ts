@@ -290,6 +290,10 @@ describe("core agent assets — interpolation placeholders", () => {
     expect(readAgent("publisher")).toContain("--base {{prTarget}}");
   });
 
+  it("publisher never stages a path git ignores (#1496)", () => {
+    expect(readAgent("publisher")).toContain("first drop every path `git check-ignore` prints");
+  });
+
   it("at least one agent references project.criticalAreas", () => {
     const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{project.criticalAreas}}"));
     expect(anyRefs).toBe(true);

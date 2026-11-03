@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="3d07c0a6f1d6aca97f246006078748dac0b53c8214b319ed10ed6634074a7378"
+# navori:managed-file id="pi-agent-publisher" hash="51726ab5e9d0bfb52e495dd7f54408e262bbba89831f29e6616f790c8435c46e"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -86,7 +86,7 @@ Never open the PR with the gate red.
    - Keep the description imperative, ≤70 chars and without a trailing period.
    - Optional body with the WHY if the decision isn't obvious.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
-5. `git add <files>` (prefer explicit over `git add -A`).
+5. `git add <files>` (prefer explicit over `git add -A`); first drop every path `git check-ignore` prints — an ignored path is never staged.
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed. If it failed, stop with `git status` + `git log -1 --stat`; recovery is the orchestrator's or the user's call. Foreign modified files are reported as an observation and never discarded, restored or reverted.
 8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `verify-before-done` does.
