@@ -1254,7 +1254,7 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(agentsMd).toContain("$spec-bootstrap");
+    expect(agentsMd).toContain("`spec-bootstrap`");
     expect(agentsMd).not.toContain("/spec-bootstrap");
   });
 
@@ -1576,5 +1576,5 @@ it("anclas de entrega", () => {
   expect(reviewer).toContain("spec: <spec> E<n> M<n>");
   expect(reviewer).toContain("navori receipt gate");
   expect(agentsMd).toContain("spec: <spec> E<n> M<n>");
-  expect(agentsMd).toContain("deliveries `E<n>`");
+  expect(agentsMd).toContain("**Done = accepted:**");
 });

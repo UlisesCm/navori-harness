@@ -1,4 +1,4 @@
-<!-- navori:managed id="planificacion" hash="0739ed21" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="planificacion" hash="9694c91d" version="0.12.3" source="@navori/core" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -9,7 +9,7 @@ run `navori plan classify <feature>`. The level comes from that command, never j
 | 0 | score ≤ 3, one non-trivial file at most, no floor | encargo opens with `nivel-0: <path>[,<path>] <feature> \| verify: \`<cmd>\` → <expected>` |
 | 1 | everything below level 2 — the default | `plan render` → `plan check` green → user approval; encargo opens with `workplan: <feature>`. Skill `plan-simple` |
 | 2 | score ≥ 8, or a floor: money/credentials/PII, 2+ repos, new dependency, shared contract, migration | `architect` → `auditor` challenge → user picks → your verdict → level-2 workplan. Skill `plan-advanced` |
-| 3 | user accepted a spec | `specs/<feature>/tasks.md`. Skill `spec-bootstrap`. One workplan per delivery (`<spec>-e<n>`, phases = milestones); encargo `spec: <spec> E<n> M<n>` |
+| 3 | user accepted a spec | `specs/<feature>/spec.md` with `navori spec check` green → user approval; encargo `workplan: <feature>`. Skill `spec-bootstrap`. Legacy `tasks.md` specs keep `spec: <spec> E<n> M<n>` |
 
 - **Plan precondition:** no `implementer` dispatch without its level's artifacts green and approved; routing is in the orchestrator block.
 - Level 0 declares its files: `nivel-0: <path>[,<path>] <feature>`, declared like the slug (absolute or `..` paths are denied);
