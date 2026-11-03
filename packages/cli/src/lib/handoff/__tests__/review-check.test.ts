@@ -4,6 +4,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReviewHandoff } from "../review-check.ts";
+import { checkHandoff } from "../check.ts";
+import { reviewTargetFromStamp } from "../../../commands/handoff.ts";
 import { beginReview, sealReview, type EvidenceOptions } from "../review-evidence.ts";
 
 const dirs: string[] = [];
@@ -147,6 +149,32 @@ describe("checkReviewHandoff (spec 0048 R7, D7)", () => {
       expect(post(cwd, false).failures[0]?.detail).toBe(
         "review does not match the current independent delivery (changed-after-review: base differs)",
       );
+    });
+
+    // Covers: R7
+    it("the publisher check does not accept a review sealed against another base", () => {
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      const result = checkHandoff({
+        cwd,
+        dir: DIR,
+        feature: "demo",
+        consumer: "publisher",
+        evidenceOptions: options(cwd),
+      });
+      expect(result.status).toBe("findings");
+      expect(result.failures.some((f) => f.check === "evidence")).toBe(true);
+    });
+
+    // Covers: R7
+    it("--produced-by reviewer with --for or --target never takes the stamp base", () => {
+      expect(reviewTargetFromStamp({})).toBe(true);
+      expect(reviewTargetFromStamp({ for: "publisher" })).toBe(false);
+      expect(reviewTargetFromStamp({ target: "main" })).toBe(false);
+      const cwd = twoTargets();
+      reviewAgainstOther(cwd);
+      const result = post(cwd, reviewTargetFromStamp({ for: "publisher" }));
+      expect(result.failures[0]?.detail).toMatch(/changed-after-review: base differs/);
     });
   });
 });

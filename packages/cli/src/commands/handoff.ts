@@ -27,6 +27,15 @@ function resolveConsumer(value: string | undefined): HandoffConsumer {
   return value === "scribe" || value === "publisher" ? value : "orchestrator";
 }
 
+/**
+ * The stamp base is accepted only for Pi's dispatch post-check, which passes neither
+ * `--target` nor `--for`; any consumer, the publisher included, compares against the
+ * explicit or configured target.
+ */
+export function reviewTargetFromStamp(args: { target?: string; for?: string }): boolean {
+  return args.target === undefined && args.for === undefined;
+}
+
 const producerArgs = {
   feature: { type: "positional" as const, required: true as const, description: "Feature slug" },
   target: { type: "string" as const, description: "Review target branch" },
@@ -119,7 +128,7 @@ const checkSubCommand = defineCommand({
               target: args.target,
             }),
             ...(args.since ? { since: args.since } : {}),
-            targetFromStamp: args.target === undefined,
+            targetFromStamp: reviewTargetFromStamp(args),
           })
         : checkHandoff({
             cwd,
