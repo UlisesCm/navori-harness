@@ -57,7 +57,7 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 当 Pi 自己写入共享文件时（未启用 Codex 和 `agents-md`），它会写入与 Codex 相同的规范内容，并使用 Pi 的术语：
 
 - `AGENTS.md` 包含编排区块、角色目录和计划层级，不包含技能索引（Pi 会原生列出 `.agents/skills`）。它还包含风险路由所读取的 `project.*` 规则，包括关键领域。
-- `.agents/skills` 包含 `master-plan` 和 `context-intake`。
+- `.agents/skills` 包含 `master-plan` 和 `context-intake`。`master-plan-context` hook 仍不会在 Pi 上运行。
 - 委派使用 `navori_subagent`，手动调用技能使用 `/skill:<name>`，技能位于 `.agents/skills/`。
 - 不包含仅属于 Codex 的内容（派发标记、执行检查点、`spawn_agent`）和仅属于 Claude 的内容（`SendMessage`、`AskUserQuestion`、`TaskCreate`）。
 

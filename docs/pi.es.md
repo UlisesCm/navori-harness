@@ -57,7 +57,7 @@ Pi también detecta de forma nativa las skills de proyecto de confianza en `.age
 Cuando Pi escribe él mismo los archivos compartidos (sin Codex ni `agents-md`), escribe la misma doctrina que escribiría Codex, con el vocabulario de Pi:
 
 - `AGENTS.md` lleva el bloque de orquestación, el catálogo de roles y los niveles de plan, sin índice de skills (Pi lista `.agents/skills` de forma nativa). También lleva las reglas de `project.*`, áreas críticas incluidas, que lee el ruteo por riesgo.
-- `.agents/skills` incluye `master-plan` y `context-intake`.
+- `.agents/skills` incluye `master-plan` y `context-intake`. El hook `master-plan-context` sigue sin correr en Pi.
 - La delegación es `navori_subagent`, una skill manual es `/skill:<name>` y las skills viven en `.agents/skills/`.
 - Quedan fuera las líneas solo de Codex (marcadores de despacho, checkpoints de ejecución, `spawn_agent`) y las solo de Claude (`SendMessage`, `AskUserQuestion`, `TaskCreate`).
 

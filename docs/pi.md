@@ -80,7 +80,7 @@ would, in Pi's vocabulary:
 - `AGENTS.md` carries the orchestration block, the role catalog and the plan tiers, with no skills index
   (Pi lists `.agents/skills` natively). It also carries the `project.*` rules, critical areas included,
   that risk routing reads.
-- `.agents/skills` includes `master-plan` and `context-intake`.
+- `.agents/skills` includes `master-plan` and `context-intake`. The `master-plan-context` hook still does not run on Pi.
 - Delegation is `navori_subagent`, a manual skill is `/skill:<name>`, and skills live under `.agents/skills/`.
 - Codex-only lines (dispatch markers, execution checkpoints, `spawn_agent`) and Claude-only ones
   (`SendMessage`, `AskUserQuestion`, `TaskCreate`) are left out.

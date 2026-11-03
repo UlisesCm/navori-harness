@@ -25,7 +25,7 @@ function cfg(engines: string[]) {
     branchBase: "main",
     qualityGate: { fast: "bun test", full: "bun test" },
     harness: { planTiers: true, scribeOwnsMarkdown: true },
-    project: { criticalAreas: ["billing writes"] },
+    project: { criticalAreas: ["billing writes", "edits to CLAUDE.md"] },
   });
 }
 const read = (dir: string, rel: string): string => readFileSync(join(dir, rel), "utf-8");
@@ -47,6 +47,8 @@ describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () 
     expect(agents).toContain("- `implementer` — ");
     expect(agents).toContain("- `scribe` — ");
     expect(agents).toContain("billing writes");
+    // The user's own config text is not run through the Pi adapter.
+    expect(agents).toContain("edits to CLAUDE.md");
     expect(agents).not.toContain("## Available skills");
   });
 
