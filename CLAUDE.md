@@ -98,16 +98,18 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 **The permission mode decides what you CAN do — read it before planning how.** The host sets it, you never change it. `dontAsk` isn't supported today (`Edit`/`Write` aren't pre-approved, so the implement/review cycle can't run). Reference: https://code.claude.com/docs/en/permission-modes
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="sdd" hash="e00db9af" version="0.12.2" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="9e431c3a" version="0.12.3" source="@navori/core" -->
 ## Spec Driven Development (SDD)
 
-**Functional deliveries:** independently usable capabilities AND thresholds; runtime consumers/executable acceptance required. `prCount`≠proof.
+**When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a form field, isolated refactors or copy tweaks go straight in. SDD is a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 
-**When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
+**One page, one vertical slice:** `specs/<feature>/spec.md` — one actor reaches an observable outcome across every layer it needs; behavior, not implementation. `navori spec check` validates it.
 
-**Spec tasks live in `tasks.md`:** do NOT use `TaskCreate` for them (ignore its reminder).
+**Done = accepted:** a human runs the spec's acceptance script on the real surface where the outcome is observable (the deployed app, the built binary — whatever the project ships) and approves it, AND the happy-path E2E passes against that same surface, without mocks. Unit and integration tests are quality, not acceptance; `prCount` ≠ proof.
 
-Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`: propose SDD; it scaffolds once accepted, via prose or `/spec-bootstrap`.
+**The spec's task list is the board:** do NOT mirror it in `TaskCreate` (ignore its reminder).
+
+Templates and rules live in `spec-bootstrap`; the work is routed like any other change, by `navori plan classify` (`planificacion`) and `orquestacion`, not by a fixed agent chain.
 <!-- /navori:managed id="sdd" -->
 
 <!-- navori:managed id="intake-tickets" hash="d3a8e215" version="0.11.3" source="@navori/core" -->

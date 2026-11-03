@@ -748,9 +748,9 @@ const ROWS: readonly ContractRow[] = [
     absent: [...INTAKE_BULLETS, "navori:if"],
   },
   {
-    id: "Claude CLAUDE.md: sdd keeps the trigger and the no-TaskCreate rule, drops Structure/Tracking",
+    id: "Claude CLAUDE.md: sdd keeps the trigger and the no-mirror TaskCreate rule, drops Structure/Tracking",
     file: rendered("claude", "diet", "CLAUDE.md"),
-    tokens: ["When to PROPOSE a spec", "do NOT use `TaskCreate`"],
+    tokens: ["When to PROPOSE a spec", "`TaskCreate` (ignore its reminder)"],
     absent: ["**Structure:**", "Covers: R"],
   },
   {
@@ -765,9 +765,9 @@ const ROWS: readonly ContractRow[] = [
       ["copilot", ".github/copilot-instructions.md"],
     ] as const
   ).map(([engine, file]): ContractRow => ({
-    id: `${engine}: full intake bullets and SDD Structure/Tracking, no pointer, no markers`,
+    id: `${engine}: full intake bullets and SDD one-page spec contract, no pointer, no markers`,
     file: rendered(engine, "diet", file),
-    tokens: [...INTAKE_BULLETS, "**Structure:**", "Covers: R"],
+    tokens: [...INTAKE_BULLETS, "**One page, one vertical slice:**", "**Done = accepted:**"],
     absent: [SKILL_POINTER, "navori:if"],
   })),
 

@@ -676,7 +676,7 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
       harness: { ...CONFIG_FULL.harness, planTiers: true },
     } as NavoriConfig);
     const planificacion = readFileSync(join(cwd, ".claude/context/05-planificacion.md"), "utf-8");
-    expect(planificacion).toContain("`<spec>-e<n>`");
+    expect(planificacion).toContain("`navori spec check`");
     const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
     expect(skill).toContain("## Acceptance script");
     expect(skill).toContain("navori spec check <feature>");
@@ -790,7 +790,7 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     // The Structure/Tracking paragraphs live in `spec-bootstrap` for Claude
     // (#1273); the trigger and the no-TaskCreate rule stay always-on.
     expect(md).toContain("When to PROPOSE a spec");
-    expect(md).toContain("do NOT use `TaskCreate`");
+    expect(md).toContain("`TaskCreate` (ignore its reminder)");
     expect(md).not.toContain("Covers: R");
   });
 

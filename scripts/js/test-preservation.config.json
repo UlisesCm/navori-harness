@@ -172,7 +172,7 @@
       ],
       "literalBaseline": {
         "path": "packages/cli/src/__tests__/fixtures/doctrine-literals.baseline.json",
-        "positive": 100,
+        "positive": 97,
         "negative": 42,
         "equivalenceCase": "cada token afirmado antes de la fusión sigue afirmado"
       },

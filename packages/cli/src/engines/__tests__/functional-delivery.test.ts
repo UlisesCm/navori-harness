@@ -26,11 +26,10 @@ describe("functional delivery evidence across engines", () => {
           join(cwd, engine === "claude" ? "CLAUDE.md" : "AGENTS.md"),
           "utf8",
         );
-        expect(context).toContain("**Functional deliveries:**");
+        expect(context).toContain("**Done = accepted:**");
         expect(context).toContain("prCount");
-        expect(context).toContain("independently usable capabilities");
-        expect(context).toContain("runtime consumers");
-        expect(context).toContain("executable acceptance");
+        expect(context).toContain("without mocks");
+        expect(context).toContain("acceptance script");
         const extension = engine === "claude" ? "md" : "toml";
         const reviewer = readFileSync(join(cwd, `.${engine}/agents/reviewer.${extension}`), "utf8");
         expect(reviewer).toContain("**Functional delivery**");
