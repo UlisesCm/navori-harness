@@ -41,13 +41,6 @@ const HOOKS: { name: string; path: string; event: string; tool: string; extra: o
     tool: "Bash",
     extra: { tool_input: { command: "git status --short" }, tool_response: { stdout: "" } },
   },
-  {
-    name: "role-guard",
-    path: ".codex/hooks/role-guard.sh",
-    event: "PreToolUse",
-    tool: "apply_patch",
-    extra: { tool_input: { command: "*** Begin Patch\n*** End Patch\n" } },
-  },
 ];
 
 let tmp: string;

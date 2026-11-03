@@ -697,8 +697,8 @@ describe("bench scripts", () => {
         selectHooks(registrations, scenario, engine),
       ),
     );
-    // The context consumer iterates only SCENARIOS: its 48 groups (master-accept-confirm is Pi-registered only with masterPlan) stay separate from supplements.
-    expect(original).toHaveLength(48);
+    // The context consumer iterates only SCENARIOS: its 29 groups (master-accept-confirm is Pi-registered only with masterPlan; this repo renders no Codex) stay separate from supplements.
+    expect(original).toHaveLength(29);
     const scenarios = [
       ...Object.keys(hooksModule.SCENARIOS),
       ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),
@@ -746,7 +746,7 @@ describe("bench scripts", () => {
         expect(existsSync(join(state, "bench-session"))).toBe(false);
         expect(readFileSync(join(state, "other-session"), "utf8")).toBe("preserved");
       }
-      for (const engine of ["claude", "codex", "pi"] as const) {
+      for (const engine of ["claude", "pi"] as const) {
         const close = selectHooks(registrations, "SessionEnd", engine).find((reg) =>
           reg.command.includes("audit-mode-close.sh"),
         )!;
@@ -778,12 +778,6 @@ describe("bench scripts", () => {
           writeFileSync(join(repo, "spool-bench-session", "consumed.json"), "{}");
         }
       }
-      const memory = selectHooks(registrations, "Memory", "codex");
-      expect(memory.some((reg) => reg.command.includes("engram-write-guard.sh"))).toBe(true);
-      const payload = JSON.parse(
-        readFileSync(hooksModule.writePayload(sandbox, "Memory", memory[0]!), "utf8"),
-      ) as { tool_name: string };
-      expect(new RegExp(memory[0]!.matcher!).test(payload.tool_name)).toBe(true);
       for (const args of [["--scenario"], ["--scenario", "unknown"]]) {
         const run = spawnSync(
           process.execPath,
