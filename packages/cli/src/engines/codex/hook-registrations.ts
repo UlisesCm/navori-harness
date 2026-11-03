@@ -2,6 +2,7 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { minCodexVersion as minVerifiedCodexVersion } from "../shared/codex-parity.ts";
 import { OVERLAP_ROWS, isNativeOn, type OverlapRow } from "../shared/native-overlap.ts";
+import { isHookEnabled } from "../shared/harness-plan.ts";
 import { pluginScriptCollisions } from "../shared/plugin-scripts.ts";
 import { compareSemver } from "../../lib/primitives/semver.ts";
 
@@ -24,6 +25,11 @@ import { compareSemver } from "../../lib/primitives/semver.ts";
  * `render-codex.test.ts`'s pinned-hash test. Every row added after them is a
  * NEW group that lands `Untrusted` until `navori codex trust` approves it,
  * never renumbers an existing one.
+ *
+ * #1484: `model-advisor` (first SessionStart row), `routing-watch`, and the two
+ * `audit-mode-*` rows now carry a `when`. With the flags off they are absent, so
+ * the rows after them in the same event shift position and need a one-time
+ * re-approval in `/hooks`; turning the flag on restores the old positions.
  */
 export interface CodexHookRegistration {
   /** Codex TOML event name, e.g. "PreToolUse". */
@@ -99,6 +105,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       statusMessage: "navori: model advisor",
       minVersion: "0.129.0",
       args: "codex-session-start",
+      when: (config) => config.hooks?.modelAdvisor === true,
     },
   },
   // Newly registered by spec 0035 Lote A — always AFTER the four above.
@@ -141,6 +148,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 10,
       statusMessage: "navori: routing check",
       minVersion: "0.135.0",
+      when: (config) => isHookEnabled(config, "routing-watch"),
     },
   },
   {
@@ -163,6 +171,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 10,
       statusMessage: "navori: audit-mode",
       minVersion: "0.129.0",
+      when: (config) => isHookEnabled(config, "audit-mode-trigger"),
     },
   },
   {
@@ -172,6 +181,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 3,
       statusMessage: "navori: audit-mode close",
       minVersion: "0.145.0",
+      when: (config) => isHookEnabled(config, "audit-mode-close"),
     },
   },
   {

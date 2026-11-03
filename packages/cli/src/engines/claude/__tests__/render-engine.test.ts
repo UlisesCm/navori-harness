@@ -139,7 +139,6 @@ describe("renderClaudeEngine — first render with full config", () => {
       ".claude/agents/publisher.md",
       ".claude/agents/reviewer.md",
       ".claude/agents/scout.md",
-      ".claude/agents/scribe.md",
     ]);
     const claudeMd = r.written.find((w) => w.path === "CLAUDE.md");
     expect(claudeMd?.status).toBe("created");
@@ -498,7 +497,9 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   hooks (spec 0034) + 1 general-purpose-confirm hook (spec 0039 T35) +
     //   1 Bash outcome watcher (spec 0039 T23) + 1 pii-egress-guard hook (#1445) = 59.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(59);
+    // #1484: minus 12 opt-in units (dominio, author-skill, plan-simple, plan-advanced, scribe,
+    // implementer-no-markdown, model-advisor, routing-watch, audit-mode x2, master-plan hooks x2) = 47.
+    expect(first.inspected).toBe(47);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file, and the
     // `planificacion` and `plan-maestro` context blocks are inspected but not
@@ -512,7 +513,8 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     // hook of spec 0030 + the subagent-no-background hook of #1003 + the
     // architect agent that spec 0032 R33 always renders now + spec 0032's
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow skills).
-    expect(first.written.length).toBe(53);
+    // #1484: 41 with the 12 opt-in units off by default.
+    expect(first.written.length).toBe(41);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -627,7 +629,8 @@ describe("renderClaudeEngine — dry-run", () => {
     // skills, plus the two dormant Claude-only master-plan hooks and the
     // general-purpose-confirm hook (spec 0039 T35) and the Bash outcome
     // watcher (spec 0039 T23) and the pii-egress-guard hook (#1445) (54), minus the retired closeout block (#1455) (53).
-    expect(r.written).toHaveLength(53);
+    // #1484: the 12 opt-in units are not written by default (41).
+    expect(r.written).toHaveLength(41);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

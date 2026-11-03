@@ -109,7 +109,7 @@ Codex 具备**保障能力对等性**：每个 hook、agent、skill 和规则在
 | `master <sub>` | 分阶段总体规划（`init`、`ux`、`mode`、`advance`、`check` 等）和交付（`delivery-*`，须通过 `--approved-by` 门控）。 |
 | `adopt` | 将你手动编写的 harness 文件纳入 Navori 管理（添加管理标记，不重写内容）。 |
 | `workspace` / `ticket` / `dominio` | 管理跨仓库配置和 tickets，以及工作区的持久知识库。 |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | 本地预设、monorepo、恢复和基准测试。 |
+| `preset` / `scan` / `backup` / `migrations` | 本地预设、monorepo、恢复和迁移。 |
 
 → 完整命令表、预设和插件见 [`packages/cli/README.md`](./packages/cli/README.zh-CN.md)。
 

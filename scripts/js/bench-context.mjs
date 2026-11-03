@@ -150,6 +150,8 @@ export function renderNeutralHooks(sandbox) {
   const path = join(sandbox.project, "navori.config.json");
   const config = JSON.parse(readFileSync(path, "utf8"));
   config.audit = { ...config.audit, mode: "opt-in" };
+  // #1484: audit-mode hooks render only behind a flag; keep them in the neutral population.
+  config.hooks = { ...config.hooks, auditMode: true };
   writeFileSync(path, JSON.stringify(config, null, 2));
   const run = spawnSync("node", [DIST, "render", "--apply", "--cwd", sandbox.project], {
     cwd: sandbox.project,

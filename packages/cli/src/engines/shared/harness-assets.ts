@@ -120,6 +120,10 @@ export function isAgentEnabled(
   key: (typeof AGENT_ROLE_KEYS)[number],
 ): boolean {
   if (key === "architect") return true;
+  // #1484: the scribe only has work under the implementer→scribe markdown
+  // contract, so it renders only with `harness.scribeOwnsMarkdown` (and not
+  // when `harness.scribe` is explicitly off).
+  if (key === "scribe" && !config.harness?.scribeOwnsMarkdown) return false;
   const explicit = config.harness?.[key];
   if (explicit !== undefined) return explicit;
   return HARNESS_DEFAULTS[key] ?? true;

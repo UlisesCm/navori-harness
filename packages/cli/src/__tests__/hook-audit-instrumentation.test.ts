@@ -59,7 +59,8 @@ function fullConfig(pluginIds: string[]): NavoriConfig {
     qualityGate: { fast: "pnpm test", full: "pnpm test" },
     // `verifyOnStop` gates `stop-verify-reminder.sh`, which is opt-in and would
     // otherwise never appear in a settings object built from a default config.
-    hooks: { verifyOnStop: true },
+    // #1484: model-advisor and audit-mode are opt-in too.
+    hooks: { verifyOnStop: true, modelAdvisor: true, auditMode: true },
     // `plan-gate.sh` is only registered under `harness.planTiers` (spec 0032).
     harness: { planTiers: true },
     plugins: Object.fromEntries(pluginIds.map((id) => [id, { enabled: true }])),

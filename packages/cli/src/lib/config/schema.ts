@@ -76,6 +76,12 @@ const QualityGateSchema = z.object({
 // hook.
 const HooksSchema = z.object({
   verifyOnStop: z.boolean().default(false),
+  // #1484: opt-in hooks that used to ship unconditionally. Default `false`
+  // (frozen units keep working behind their flag).
+  /** `model-advisor` (SessionStart/PostModelSwitch/Stop advice on Claude and Codex). */
+  modelAdvisor: z.boolean().default(false),
+  /** `audit-mode-*` recorder hooks; `audit.mode: "always"` implies them. */
+  auditMode: z.boolean().default(false),
 });
 
 /**
@@ -274,12 +280,18 @@ const HarnessSchema = z.object({
   codexIntegration: z.boolean().default(false),
   // Spec 0034 (#1050), R37/R39: gates the master-plan flow (`navori master`,
   // the `master-plan`/`context-intake` skills' effects, the `plan-maestro`
-  // managed block and its SessionStart hook). Default `false`: principle 3 of
+  // managed block and its two hooks, `master-plan-context` and
+  // `master-accept-confirm`, which are not written without it, #1484). The two
+  // skills stay ungated: the skill is the consent path to `navori master init`,
+  // which is what sets this flag. Default `false`: principle 3 of
   // design.md — zero behavior change with the flag off, except the three
   // incondicional exceptions the requirements name explicitly (R1, R24, R43)
   // and `doctor`'s scan over `_master/index.json` (D8), none of which read
   // this key.
   masterPlan: z.boolean().default(false),
+  // #1484: gates the `dominio` and `author-skill` skills (authoring surface).
+  // Default `false`; a repo that authors skills/domain notes opts in.
+  authoring: z.boolean().default(false),
   // Spec 0039 (R44): context-token threshold above which `subagent-stop-handoff`
   // advises saving the summary and running /compact or /clear after a
   // `publisher` dispatch. A number, NOT a flag: it is interpolated into the hook

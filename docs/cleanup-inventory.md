@@ -132,7 +132,7 @@ Líneas: fuente (LOC) / en disco en la instalación por defecto (incluye partial
 | `session-start-context` | SessionStart | 632 / 1,182 | 18 | sí | conservar; reducir contenido (§2) | inyecta el contexto |
 | `model-advisor` | SessionStart, PostModelSwitch, Stop | 273 / 504 | 9 | sí | opt-in congelado (decidir) | 3 disparos por sesión; costo no medido |
 | `managed-drift-watch` | PostToolUse Bash\|Edit\|Write\|NotebookEdit | 334 / 844 | 7 | sí | conservar | drift de bloques gestionados; área crítica |
-| `routing-watch` | PostToolUse (4 matchers) | 444 / 1,498 | 11 | sí | opt-in congelado (decidir) | consejo, no bloquea; dispara en cada herramienta |
+| `routing-watch` | PostToolUse (4 matchers) | 444 / 1,498 | 11 | sí | opt-in congelado (decidir) | consejo, no bloquea; dispara en cada herramienta; también alimenta los registros de delegación y el carril bash-outcome |
 | `subagent-stop-handoff` | PostToolUse Agent\|Task | 520 / 1,030 | 14 | sí | conservar | valida el contrato de handoff |
 | `bash-outcome-watch` | PostToolUseFailure Bash | 25 / 1,028 | 3 | sí | conservar | barato |
 | `worktree-reclaim` | SessionEnd | 281 / 791 | 6 | sí | conservar | evita acumular checkouts de agentes (#527) |
@@ -196,15 +196,15 @@ LOC del archivo de comando (`packages/cli/src/commands/`, sin tests). Subcomando
 | `registry` | 5 | 181 | 1 | no | no | opt-in congelado | solo para `render --all` |
 | `doctor` | 0 | 4,749 | 6 | no | no verificado | conservar | diagnóstico; candidato a dividir, no a retirar |
 | `status` | 0 | 204 | 3 | no | no verificado | conservar | resumen de estado |
-| `bench` | 0 | 71 | 1 | no | no | eliminar del binario | herramienta de mantenedor; si hace falta, va a `scripts/` |
+| `bench` | 0 | 71 | 1 | no | no | eliminado (#1484) | herramienta de mantenedor; si hace falta, va a `scripts/` |
 | `workspace` | 9 | 568 | 1 | no | no | opt-in congelado | cross-repo; jey no usa workspace |
 | `ticket` | 6 | 282 | 1 | no | no | opt-in congelado | tickets de workspace |
 | `backup` | 3 | 208 | 1 | no | no verificado | conservar | seguridad: restaurar tras un render |
 | `migrations` | 2 | 184 | 1 | no | no verificado | conservar | seguridad: revertir migraciones de init |
 | `preset` | 1 | 117 | 1 | no | no | conservar | presets locales; barato |
-| `codex` | 5 (incluye `evaluation`, `profile`, `trust`, `approval`, `integration`) | 772 | 1 | no | engine sí; subcomandos no verificados | opt-in congelado | evidencia en vivo y perfiles nativos sin uso verificado |
+| `codex` | 5 (incluye `evaluation`, `profile`, `trust`, `approval`, `integration`) | 772 | 1 | no | engine sí; subcomandos no verificados | congelado (#1484): sin funciones nuevas, sin port a Rust; tests en CI | evidencia en vivo y perfiles nativos sin uso verificado |
 | `dominio` | 6 | 171 | 2 | sí (SessionStart invoca `dominio inject`) | instalado sin uso evidente | opt-in congelado; el hook omite `inject` sin store | base de conocimiento de workspace |
-| `audit` | 0 | 1,568 | 1 | parcial (solo con sesión armada) | sí (17 handoffs `audit_`) | opt-in congelado, junto con audit mode | ver §11 |
+| `audit` | 0 | 1,568 | 1 | parcial (solo con sesión armada) | sí (17 handoffs `audit_`) | opt-in congelado, junto con audit mode | ver §11; sin `hooks.auditMode`, `navori audit --start` / `--arm` deja de grabar en Claude y Codex, sin aviso |
 | `receipt` | 4 (+3 anidados en `review`) | 316 | 2 | no | no | opt-in congelado | gate de milestones |
 | `plan` | 8 | 974 | 3 | solo con `planTiers` | parcial | opt-in congelado | #1467 |
 | `spec` | 2 | 261 | 0 | no | sí (`specs/`) | conservar | `spec check` es barato; alimenta #1467 |

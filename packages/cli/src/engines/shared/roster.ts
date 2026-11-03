@@ -126,8 +126,8 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "quality-attributes",
   "author-skill",
   // Spec 0032 (#1011): the level-1/level-2 workplan procedures. They render
-  // unconditionally (R22 — the gate that ACTIVATES them is `harness.planTiers`,
-  // not their own presence in the index).
+  // only with `harness.planTiers` (#1484 amends R22: they used to render
+  // unconditionally and only the gate was conditional).
   "plan-simple",
   "plan-advanced",
   "master-plan",

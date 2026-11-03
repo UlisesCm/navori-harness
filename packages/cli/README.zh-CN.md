@@ -118,9 +118,7 @@ navori init
 | `tools notice [--ack <pluginId@x.y.z,…>]` | 为启动 hook 发出待处理的外部工具版本提示；`--ack` 将它们标记为已送达。 |
 | `handoff <check\|log-review>` | `check` 在派遣下一个 agent 前验证 implementer 的 handoff（`impl_<feature>.json`）；`log-review <feature>` 验证 `review_<feature>.json`，并将 score >= 50 的 findings 追加到 `findings.jsonl`（`navori handoff check <feature> [--for scribe] [--produced-by reviewer [--since <iso>]] [--dir <path>] [--cwd <checkout>] [--json]`）。 |
 | `plan <sub>` | 分级规划（`harness.planTiers`）：`classify [--files\|--diff]` 衡量任务复杂度和级别；`render`/`update` 保持 Markdown workplan 与 JSON 同步；`check` 验证其 schema 和规则；`gate` 是 `PreToolUse(Agent)` hook，会拒绝没有有效 workplan 的 dispatch。 |
-| `master <sub>` | 分阶段 master plan 引导流程（`init`、`ux`、`mode`、`template`、`check`、`advance`、`status`、`part`、`close`）及其分项交付：`delivery-slice`、`delivery-check`、`delivery-baseline`、`delivery-queue`、`delivery-criterion`、`delivery-review`、`delivery-present`、`delivery-decision`、`delivery-publication`、`delivery-revoke`。用于授权或批准的命令需要 `--approved-by`。 |
-| `bench` | 以 dry-run 模式运行 N 次 `render` 并报告延迟，用于检测本地回归。 |
-| `workspace <sub>` | 管理跨仓库 workspace（`init`、`ls`、`show`、`link`、`add-repo`、`set-default`、`render`、`rename`、`delete`）。 |
+| `master <sub>` | 分阶段 master plan 引导流程（`init`、`ux`、`mode`、`template`、`check`、`advance`、`status`、`part`、`close`）及其分项交付：`delivery-slice`、`delivery-check`、`delivery-baseline`、`delivery-queue`、`delivery-criterion`、`delivery-review`、`delivery-present`、`delivery-decision`、`delivery-publication`、`delivery-revoke`。用于授权或批准的命令需要 `--approved-by`。 || `workspace <sub>` | 管理跨仓库 workspace（`init`、`ls`、`show`、`link`、`add-repo`、`set-default`、`render`、`rename`、`delete`）。 |
 | `ticket <sub>` | 在 workspace 中以文件形式管理 tickets（`new`、`list`、`show`、`archive`、`delete`）。 |
 | `dominio <sub>` | 管理持久的 workspace 知识库（`init`、`list`、`show`、`reindex`、`doctor`、`inject`）。 |
 | `codex <sub>` | Codex 专用命令；目前 `trust` 用于批准 `~/.codex/config.toml` 中的项目 hooks。 |

@@ -28,7 +28,11 @@
   },
   "harness": {
     "scribeOwnsMarkdown": true,
-    "planTiers": true
+    "planTiers": true,
+    "authoring": true
+  },
+  "hooks": {
+    "modelAdvisor": true
   },
   "models": {
     "codexMap": {

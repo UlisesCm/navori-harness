@@ -46,6 +46,10 @@
         {
           "title": "render --workspace falla con mensaje claro cuando el nombre no matchea",
           "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "bench reports percentiles over N runs (spec 0003 §3.5.4)",
+          "reason": "#1484: the `bench` subcommand was removed; NAVORI_BENCH and the bench:* scripts stay"
         }
       ]
     },

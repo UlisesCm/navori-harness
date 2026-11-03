@@ -108,11 +108,110 @@ describe("resolveHarnessPlan — comment-draft-confirm (spec 0026 E1)", () => {
 });
 
 // Covers: R20, R21
+describe("resolveHarnessPlan — opt-in gates (#1484)", () => {
+  const ids = (harness: Record<string, boolean>, hooks?: Record<string, boolean>) => {
+    const plan = resolveHarnessPlan(
+      NavoriConfigSchema.parse({
+        name: "gates",
+        engines: ["claude"],
+        preset: "custom",
+        harness,
+        ...(hooks ? { hooks } : {}),
+      }),
+      "/core",
+      null,
+      { engine: "claude" },
+    );
+    return {
+      skills: plan.skills.map((s) => s.id),
+      agents: plan.agents.map((a) => a.id),
+      hooks: plan.hooks.map((h) => h.id),
+    };
+  };
+
+  it("omits every gated unit by default; master-plan and context-intake stay", () => {
+    const { skills, agents, hooks } = ids({});
+    for (const id of ["plan-simple", "plan-advanced", "dominio", "author-skill"]) {
+      expect(skills).not.toContain(id);
+    }
+    expect(skills).toContain("master-plan");
+    expect(skills).toContain("context-intake");
+    expect(agents).not.toContain("scribe");
+    for (const id of [
+      "implementer-no-markdown",
+      "routing-watch",
+      "model-advisor",
+      "audit-mode-trigger",
+      "audit-mode-close",
+      "master-plan-context",
+      "master-accept-confirm",
+    ]) {
+      expect(hooks).not.toContain(id);
+    }
+  });
+
+  it("restores each unit with its own flag", () => {
+    expect(ids({ planTiers: true }).skills).toEqual(
+      expect.arrayContaining(["plan-simple", "plan-advanced"]),
+    );
+    expect(ids({ planTiers: true }).hooks).toContain("routing-watch");
+    expect(ids({ authoring: true }).skills).toEqual(
+      expect.arrayContaining(["dominio", "author-skill"]),
+    );
+    const owns = ids({ scribeOwnsMarkdown: true });
+    expect(owns.agents).toContain("scribe");
+    expect(owns.hooks).toContain("implementer-no-markdown");
+    expect(ids({ scribeOwnsMarkdown: true, scribe: false }).agents).not.toContain("scribe");
+    expect(ids({ masterPlan: true }).hooks).toEqual(
+      expect.arrayContaining(["master-plan-context", "master-accept-confirm"]),
+    );
+    expect(ids({}, { modelAdvisor: true }).hooks).toContain("model-advisor");
+    expect(ids({}, { auditMode: true }).hooks).toEqual(
+      expect.arrayContaining(["audit-mode-trigger", "audit-mode-close"]),
+    );
+  });
+
+  it("audit.mode always implies the audit hooks; codexIntegration keeps model-advisor on Codex only", () => {
+    const always = resolveHarnessPlan(
+      NavoriConfigSchema.parse({
+        name: "gates",
+        engines: ["claude"],
+        preset: "custom",
+        audit: { mode: "always" },
+      }),
+      "/core",
+      null,
+      { engine: "claude" },
+    );
+    expect(always.hooks.map((h) => h.id)).toEqual(
+      expect.arrayContaining(["audit-mode-trigger", "audit-mode-close"]),
+    );
+    const integration = NavoriConfigSchema.parse({
+      name: "gates",
+      engines: ["codex"],
+      preset: "custom",
+      harness: { codexIntegration: true },
+    });
+    const idsOn = (engine: string) =>
+      resolveHarnessPlan(integration, "/core", null, { engine }).hooks.map((h) => h.id);
+    expect(idsOn("codex")).toContain("model-advisor");
+    expect(idsOn("claude")).not.toContain("model-advisor");
+  });
+});
+
+// Covers: R20, R21
 describe("resolveHarnessPlan — per-engine scope (spec 0041 D11)", () => {
   const scoped = ["master-plan", "context-intake"];
   const scopedHooks = ["master-plan-context", "master-accept-confirm"];
+  // #1484: the master-plan hooks are planned only with `harness.masterPlan`.
+  const masterConfig = NavoriConfigSchema.parse({
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+    harness: { masterPlan: true },
+  });
   const idsFor = (engine?: string) => {
-    const plan = resolveHarnessPlan(config, "/core", null, { engine });
+    const plan = resolveHarnessPlan(masterConfig, "/core", null, { engine });
     return { skills: plan.skills.map((s) => s.id), hooks: plan.hooks.map((h) => h.id) };
   };
 

@@ -103,6 +103,49 @@ export interface HarnessPlan {
   hooks: PlannedHook[];
 }
 
+/**
+ * #1484: workflow skills behind an opt-in flag. `master-plan` and
+ * `context-intake` stay ungated on purpose: the skill is the consent path to
+ * `navori master init`, which is what sets `harness.masterPlan`.
+ */
+export const GATED_WORKFLOW_SKILL_FLAGS: Readonly<Record<string, "planTiers" | "authoring">> = {
+  "plan-simple": "planTiers",
+  "plan-advanced": "planTiers",
+  dominio: "authoring",
+  "author-skill": "authoring",
+};
+
+/**
+ * #1484: hooks written (and registered) only behind an opt-in. Every engine
+ * reads the same predicates: the plan decides the file, the registrations
+ * (`build-settings`, Codex rows, Pi bindings) reuse them for their wiring.
+ * `routing-watch` rides `planTiers` because plan acceptance (`cumplido`)
+ * needs its evidence; it also serves delegation records and the bash-outcome lane.
+ */
+export const GATED_HOOK_PREDICATES: Readonly<
+  Record<string, (config: NavoriConfig, engine?: string) => boolean>
+> = {
+  "implementer-no-markdown": (c) => c.harness?.scribeOwnsMarkdown === true,
+  "master-plan-context": (c) => c.harness?.masterPlan === true,
+  "master-accept-confirm": (c) => c.harness?.masterPlan === true,
+  "routing-watch": (c) => c.harness?.planTiers === true,
+  // Codex also keeps the script for its `harness.codexIntegration` PreToolUse row.
+  "model-advisor": (c, engine) =>
+    c.hooks?.modelAdvisor === true || (engine === "codex" && c.harness?.codexIntegration === true),
+  "audit-mode-trigger": (c) => c.hooks?.auditMode === true || c.audit?.mode === "always",
+  "audit-mode-close": (c) => c.hooks?.auditMode === true || c.audit?.mode === "always",
+};
+
+/** Whether hook `id` is written for `config` (ungated hooks always are). */
+export function isHookEnabled(config: NavoriConfig, id: string, engine?: string): boolean {
+  return GATED_HOOK_PREDICATES[id]?.(config, engine) ?? true;
+}
+
+function isWorkflowSkillEnabled(config: NavoriConfig, id: string): boolean {
+  const flag = GATED_WORKFLOW_SKILL_FLAGS[id];
+  return flag === undefined || config.harness?.[flag] === true;
+}
+
 export function resolveHarnessPlan(
   config: NavoriConfig,
   coreAssets: string,
@@ -143,8 +186,10 @@ export function resolveHarnessPlan(
     config.sdd?.enabled === false
       ? WORKFLOW_SKILLS.filter((id) => id !== "spec-bootstrap")
       : WORKFLOW_SKILLS;
-  const workflowSkills = enabledWorkflowSkills.filter((id) =>
-    inEngineScope(WORKFLOW_SKILL_ENGINES[id], options.engine),
+  const workflowSkills = enabledWorkflowSkills.filter(
+    (id) =>
+      inEngineScope(WORKFLOW_SKILL_ENGINES[id], options.engine) &&
+      isWorkflowSkillEnabled(config, id),
   );
   const skills: PlannedSkill[] = [
     ...CORE_SKILLS.map((id) => ({
@@ -359,8 +404,10 @@ export function resolveHarnessPlan(
   return {
     agents,
     skills,
-    hooks: hooks.map((hook) =>
-      MAIN_THREAD_ONLY_HOOKS.has(hook.id) ? { ...hook, mainThreadOnly: true as const } : hook,
-    ),
+    hooks: hooks
+      .filter((hook) => isHookEnabled(config, hook.id, options.engine))
+      .map((hook) =>
+        MAIN_THREAD_ONLY_HOOKS.has(hook.id) ? { ...hook, mainThreadOnly: true as const } : hook,
+      ),
   };
 }

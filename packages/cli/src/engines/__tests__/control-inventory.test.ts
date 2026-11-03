@@ -284,8 +284,9 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     const settings = readClaudeSettings(cwd);
     expect(claudeAnyHookNames(settings, "plan-gate.sh")).toBe(false);
     expect(claudeAnyHookNames(settings, "implementer-no-markdown.sh")).toBe(false);
+    // #1484: the master-plan hooks are not even written without the flag.
     for (const script of ["master-plan-context.sh", "master-accept-confirm.sh"]) {
-      expect(existsSync(join(cwd, `.claude/hooks/${script}`))).toBe(true);
+      expect(existsSync(join(cwd, `.claude/hooks/${script}`))).toBe(false);
       expect(claudeAnyHookNames(settings, script)).toBe(false);
     }
   });

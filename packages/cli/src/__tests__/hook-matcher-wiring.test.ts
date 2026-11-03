@@ -80,7 +80,9 @@ const MINIMAL_CONFIG = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "pnpm lint" },
-  harness: { scribeOwnsMarkdown: true },
+  // #1484: routing-watch, model-advisor and audit-mode are opt-in; they stay in this file's scope.
+  harness: { scribeOwnsMarkdown: true, planTiers: true },
+  hooks: { modelAdvisor: true, auditMode: true },
 } as unknown as NavoriConfig;
 
 /**
@@ -126,6 +128,10 @@ const KNOWN_WIRING_DEFECTS = new Map<string, string>();
  * says why in its own terms.
  */
 const CLAIMLESS_HOOKS = new Map<string, string>([
+  [
+    "plan-gate.sh",
+    "su matcher `Agent` es el claim: el script solo decide sobre `tool_input.subagent_type` del despacho; entra al alcance de este archivo porque `routing-watch` exige `harness.planTiers` (#1484)",
+  ],
   [
     "general-purpose-confirm.sh",
     "decide por `tool_input.subagent_type`, no por la herramienta: su registración `PreToolUse(Agent)` es el claim completo (spec 0039 R40) y no lleva `if`: `Agent(<name>)` no matchea por nombre en 2.1.287, así que el script filtra `subagent_type`",

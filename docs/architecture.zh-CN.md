@@ -94,7 +94,7 @@ flowchart LR
     RENDER["navori render --apply<br/>写入输出"]
     WORK["在仓库中工作"]
     SYNC["navori sync --interactive<br/>按区块解决 drift"]
-    INSPECT["doctor · status · bench<br/>检查"]
+    INSPECT["doctor · status<br/>检查"]
 
     INIT --> EDIT --> RENDER --> WORK
     WORK -- "bundle 更新 /<br/>手动修改 = drift" --> SYNC
@@ -106,7 +106,7 @@ flowchart LR
     click EDIT "../packages/cli/src/commands/add.ts" "add / configure"
     click RENDER "../packages/cli/src/commands/render.ts" "render"
     click SYNC "../packages/cli/src/commands/sync.ts" "sync"
-    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
+    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
 ## 4. Master plan — 编号阶段与 phase
