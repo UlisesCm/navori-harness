@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="2a63a75b" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="f946bfb1" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -2934,9 +2934,9 @@ fi
 # in `~` matching, and shell metacharacters and owned paths are ASCII anyway.
 # A newline inside an open quote stays in the word (multi-line -m "$(cat <<EOF)");
 # outside quotes it ends the segment; an unclosed quote at the end still fails.
-# A "$(...)" opens its own quoting context, as in Bash (#1497): its text stays in
-# the enclosing word, but its quotes and parentheses are tracked apart, so a
-# quote inside it never closes the outer double quote.
+# A "$(...)" opens its own quoting context, as in Bash (#1497): a quote inside it
+# never closes the outer double quote, and its commands are checked as segments
+# of their own while the enclosing word is kept for its command.
 # Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
 # terminator) from the live text, and skipping on that text would hide commands.
 # Paths are lexical against the tool cwd. Command-local directory changes,
@@ -3094,6 +3094,18 @@ navori_copy_dest_safe() {
   }
   function word() { if (have) tok[++nt] = buf; buf = ""; have = 0 }
   function segment() { word(); check(); nt = 0 }
+  # "$(...)" inside double quotes: park the outer word and its tokens, check the
+  # commands of the substitution as segments of their own, then resume the word.
+  function enter(text,    i) {
+    sd++; subp[sd] = 0; sbuf[sd] = text; snt[sd] = nt
+    for (i = 1; i <= nt; i++) stok[sd,i] = tok[i]
+    buf = ""; have = 0; nt = 0
+  }
+  function leave(    i) {
+    nt = snt[sd]
+    for (i = 1; i <= nt; i++) tok[i] = stok[sd,i]
+    buf = sbuf[sd]; have = 1; sd--
+  }
   BEGIN {
     root = ENVIRON["NV_COPY_ROOT"]
     if (root == "") root = ENVIRON["PWD"]
@@ -3128,9 +3140,11 @@ navori_copy_dest_safe() {
         }
         escape = 1; continue
       }
+      if (quote == "\042" && substr(line,pos,32) == "$(git rev-parse --show-toplevel)") {
+        buf = buf substr(line,pos,32); have = 1; pos += 31; continue
+      }
       if (quote == "\042" && c == "$" && substr(line,pos+1,1) == "(") {
-        subq[++sd] = quote; subp[sd] = 0; quote = ""
-        buf = buf "$("; have = 1; pos++; continue
+        enter(buf "$("); quote = ""; pos++; continue
       }
       if (quote != "") {
         if (c == quote) quote = ""
@@ -3138,14 +3152,15 @@ navori_copy_dest_safe() {
         have = 1; continue
       }
       if (sd > 0) {
-        # A heredoc body is free text (git commit -m "$(cat <<EOF ...)"): fall
-        # back to the outer double quote, the pre-#1497 reading of the word.
-        if (c == "<" && substr(line,pos+1,1) == "<") { quote = subq[1]; sd = 0 }
-        else if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
+        # A heredoc body is free text (git commit -m "$(cat <<EOF ...)"): back
+        # to the outer double quote, the pre-#1497 reading of the word.
+        if (c == "<" && substr(line,pos+1,1) == "<") {
+          segment(); while (sd > 0) leave()
+          quote = "\042"; buf = buf c; have = 1; continue
+        }
         if (c == "(") subp[sd]++
         else if (c == ")" && subp[sd] > 0) subp[sd]--
-        else if (c == ")") quote = subq[sd--]
-        buf = buf c; have = 1; continue
+        else if (c == ")") { segment(); leave(); quote = "\042"; buf = buf c; have = 1; continue }
       }
       if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
       if (substr(line,pos,21) == "${CLAUDE_PROJECT_DIR}") {
@@ -3166,7 +3181,7 @@ navori_copy_dest_safe() {
           rc = substr(line,pos,1)
           if (rq != "") { if (rc == rq) rq = ""; continue }
           if (rc == "\047" || rc == "\042") { rq = rc; continue }
-          if (rc ~ /[ \t;&|]/) break
+          if (rc ~ /[ \t;&|]/ || (sd > 0 && rc == ")")) break
         }
         if (rq != "") bad = 1
         pos--; continue
@@ -3176,7 +3191,7 @@ navori_copy_dest_safe() {
       buf = buf c; have = 1
     }
     if (escape) escape = 0
-    else if (quote != "" || sd > 0) { buf = buf "\n"; have = 1 }
+    else if (quote != "") { buf = buf "\n"; have = 1 }
     else segment()
   }
   END { if (quote != "" || escape || sd > 0) bad = 1; segment(); exit (bad ? 2 : 0) }
