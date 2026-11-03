@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="7061ec8c" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="ac85710f" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -24,7 +24,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `bun run check:fast` / `navori gate full` green | Full command run this turn, exit 0 | "ran it before" |
+| `bun run check:fast` / `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green | Full command run this turn, exit 0 | "ran it before" |
 | Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `dev` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |

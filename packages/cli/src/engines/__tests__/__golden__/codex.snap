@@ -868,7 +868,7 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `navori gate full` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `pnpm test && pnpm lint` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR
@@ -1424,7 +1424,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `pnpm lint` / `navori gate full` green | Full command run this turn, exit 0 | "ran it before" |
+| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before" |
 | Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
