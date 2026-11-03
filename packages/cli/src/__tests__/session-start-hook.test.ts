@@ -160,7 +160,7 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         join(root, "navori.config.json"),
         JSON.stringify({
           ...config,
-          ...(warnings ? {} : { qualityGate: { fast: "true", full: "true" } }),
+          qualityGate: { fast: "true", full: "true", ...(warnings ? { fulll: "true" } : {}) },
           language: "es",
           plugins: { engram: { enabled: true } },
         }),
@@ -204,7 +204,7 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         encoding: "utf8",
       });
       expect(notice.status, notice.stderr).toBe(0);
-      if (warnings) expect(notice.stderr).toContain("qualityGate.affected");
+      if (warnings) expect(notice.stderr).toContain("qualityGate.fulll");
       expect(notice.stdout).toContain("ack=engram@3.2.1");
       const body = notice.stdout.slice(notice.stdout.indexOf("\n") + 1, -1);
       const source = expandHookIncludes(
@@ -242,7 +242,7 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         hookSpecificOutput: { additionalContext: string };
       };
       expect(output.hookSpecificOutput.additionalContext).toContain(body);
-      expect(run.stdout).not.toContain("qualityGate.affected");
+      expect(run.stdout).not.toContain("qualityGate.fulll");
       expect(readFileSync(log, "utf8")).toBe(`tools session-context --notice-reserve ${bytes}\n`);
       expect(acknowledged()).toBe(true);
       expect(readdirSync(diagnostics)).toEqual(["caller-owned"]);
