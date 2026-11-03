@@ -377,8 +377,11 @@ describe("publisher — the pre-flight measures the tree it was triggered by", (
   it("states the gate command once — everything else says 'the full gate' (#1264)", () => {
     // Eight copies of the same ~290 B command text were a per-dispatch cost with
     // no information. The Gate section owns the literal; other places refer to it.
-    expect(pilot.split("{{qualityGate.full}}").length - 1).toBe(1);
-    expect(region("### Gate:", /^#{2,3} /m)).toContain("{{qualityGate.full}}");
+    // The asset names it by the `{{gateRun.full}}` runner (heading + the one pre-flight
+    // use), never by the expanded `{{qualityGate.full}}` chain.
+    expect(pilot.split("{{qualityGate.full}}").length - 1).toBe(0);
+    expect(pilot.split("{{gateRun.full}}").length - 1).toBe(2);
+    expect(region("### Gate:", /^#{2,3} /m)).toContain("{{gateRun.full}}");
   });
 
   it("the exception does not roll its own listing — there is nothing to count", () => {

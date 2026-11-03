@@ -356,7 +356,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.
-- Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
+- Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `navori gate full`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
 - Keep runs quiet; verbose output only to diagnose a failure. Record this turn's gate command, exit code, and summary before reporting green.
 
 ## Restraint (YAGNI)
@@ -754,7 +754,7 @@ If the real PR base differs from `main`, pass that actual base as `--target`.
 
 **A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
-### Gate: `pnpm test && pnpm lint` green before the PR
+### Gate: `navori gate full` green before the PR
 
 The PR gate is the FULL one, not `pnpm lint`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
@@ -1472,7 +1472,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`auth, per
 | answer, investigate, plan, ephemeral probe | yourself |
 
 - One review per PR; later minor fixes get a delta review, not a new cycle.
-- Checks run once on the final diff; rerun only what a later change or failure invalidated. `pnpm test && pnpm lint` green once per PR.
+- Checks run once on the final diff; rerun only what a later change or failure invalidated. `navori gate full` green once per PR.
 - A subagent ban is respected: work directly and say so in the reply.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `pnpm lint` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
@@ -22085,7 +22085,7 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `pnpm test && pnpm lint` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `navori gate full` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR
@@ -22641,7 +22641,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN 
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before" |
+| `pnpm lint` / `navori gate full` green | Full command run this turn, exit 0 | "ran it before" |
 | Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
 | Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |

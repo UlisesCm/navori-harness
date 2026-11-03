@@ -7,7 +7,7 @@ effort: low
 maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="441f16d0" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="4c36b19d" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
@@ -71,7 +71,7 @@ If the real PR base differs from `dev`, pass that actual base as `--target`.
 
 **A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
-### Gate: `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
+### Gate: `navori gate full` green before the PR
 
 The PR gate is the FULL one, not `bun run check:fast`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 

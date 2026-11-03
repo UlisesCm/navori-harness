@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="974901638ba6387120cb3bae6b5392d52accf579592f80e0af74afe905f31b3c"
+# navori:managed-file id="pi-agent-publisher" hash="a56875874f5f8146c059f625982ae8bdf1aaafeebd92ca7153429d5ad0afb7e1"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -67,7 +67,7 @@ If the real PR base differs from `dev`, pass that actual base as `--target`.
 
 **A PR needs one of two things.** Either an `APPROVED` `review_<feature>.md` over this same content — mandatory when the change hits a critical area or is level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change (the orchestrator's route table, or an explicit subagent ban), the full gate green in pre-flight plus one line in the PR body stating the route and level. A critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
 
-### Gate: `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
+### Gate: `navori gate full` green before the PR
 
 The PR gate is the FULL one, not `bun run check:fast`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="f81fb226" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="a9314fd0" version="0.12.3" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
 You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
@@ -13,7 +13,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | answer, investigate, plan, ephemeral probe | yourself |
 
 - One review per PR; later minor fixes get a delta review, not a new cycle.
-- Checks run once on the final diff; rerun only what a later change or failure invalidated. `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` green once per PR.
+- Checks run once on the final diff; rerun only what a later change or failure invalidated. `navori gate full` green once per PR.
 - A subagent ban is respected: work directly and say so in the reply.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 - Before dispatching `scribe`, run the same check and require `"status":"ok"`.

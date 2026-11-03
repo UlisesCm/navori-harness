@@ -387,8 +387,8 @@ describe("checklists with a single owner (T15)", () => {
   it("review-diff and reviewer require the same gate", () => {
     const reviewDiff = read("skills/review-diff.md");
     const reviewer = read("agents/reviewer.md");
-    expect(reviewDiff).toContain("{{qualityGate.full}}");
-    expect(reviewer).toContain("{{qualityGate.full}}");
+    expect(reviewDiff).toContain("{{gateRun.full}}");
+    expect(reviewer).toContain("{{gateRun.full}}");
   });
 
   // Covers: R33

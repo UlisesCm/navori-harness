@@ -95,7 +95,7 @@ describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => 
   it("interpolates the repo's config, so no placeholder reaches the agent", () => {
     renderClaudeEngine(cwd, CONFIG);
     const file = contextFile("orquestacion");
-    expect(file).toContain("pnpm test");
+    expect(file).toContain("navori gate full");
     expect(file).not.toMatch(/\{\{[^}]+\}\}/);
   });
 

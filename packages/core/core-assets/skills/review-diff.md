@@ -101,7 +101,7 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `{{qualityGate.full}}` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `{{gateRun.full}}` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR
