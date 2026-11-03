@@ -215,7 +215,7 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     const pending = rt.run(controller.signal);
     const assertion = expect(pending).resolves.toMatchObject({
       isError: true,
-      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+      details: { outcome: "failed", failure: expect.stringContaining("cancelled by the parent") },
     });
     controller.abort();
     controller.abort();
@@ -240,7 +240,7 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     const pending = rt.run();
     const assertion = expect(pending).resolves.toMatchObject({
       isError: true,
-      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+      details: { outcome: "failed", failure: expect.stringContaining("timed out after 10 min") },
     });
     await vi.advanceTimersByTimeAsync(599_999);
     expect(rt.groupKills).toEqual([]);

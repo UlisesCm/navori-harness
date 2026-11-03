@@ -138,6 +138,8 @@ function settle(child: ChildStub, answer = "done"): void {
 }
 
 const dirs: string[] = [];
+/** A secret-shaped token `redactSecrets` must hide from a child's stderr tail. */
+const FAKE_TOKEN = "sk-abcdefghijklmnopqrstuvwxyz";
 function freshDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "navori-pi-subagent-"));
   dirs.push(dir);
@@ -332,9 +334,7 @@ describe("Pi extension executable policy", () => {
       child.emit("close", null);
       await expect(pending).resolves.toMatchObject({
         isError: true,
-        content: [
-          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
-        ],
+        content: [{ text: expect.stringContaining("Pi child cancelled by the parent") }],
         details: { outcome: "failed" },
       });
       expect(vi.getTimerCount()).toBe(0);
@@ -354,14 +354,21 @@ describe("Pi extension executable policy", () => {
       const child = runtime.calls[0]!.child;
       await vi.advanceTimersByTimeAsync(600_000);
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+      // #1498: the role deadline names itself and keeps the child's redacted stderr tail.
+      child.stderr.write(`provider stalled token=${FAKE_TOKEN}\n`);
       child.emit("close", null);
-      await expect(pending).resolves.toMatchObject({
+      const timedOut = await pending;
+      expect(timedOut).toMatchObject({
         isError: true,
         content: [
-          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
+          { text: expect.stringContaining("Pi child timed out after 10 min (scout role timeout)") },
         ],
-        details: { outcome: "failed" },
+        details: {
+          outcome: "failed",
+          failure: expect.stringContaining("Child stderr (tail, redacted):"),
+        },
       });
+      expect(JSON.stringify(timedOut)).not.toContain(FAKE_TOKEN);
       // The SIGKILL escalation outlives the leader's close, then releases itself.
       await vi.advanceTimersByTimeAsync(5_000);
       expect(vi.getTimerCount()).toBe(0);

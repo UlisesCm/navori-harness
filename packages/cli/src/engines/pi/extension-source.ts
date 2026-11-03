@@ -630,6 +630,8 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     });
     let parseError: unknown;
     let stopping = false;
+    // Why the parent stopped the child (#1498): the role deadline and a parent abort need different fixes.
+    let stopCause: "timeout" | "abort" | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     // Kill the whole process group so descendants of the leader are cleaned up too.
     const kill = (signal: NodeJS.Signals): void => {
@@ -638,21 +640,22 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
         else child.kill(signal);
       } catch { /* Process or group already exited. */ }
     };
-    const stop = (): void => {
+    const stop = (cause?: "timeout" | "abort"): void => {
       if (stopping) return;
       stopping = true;
+      stopCause = cause;
       kill("SIGTERM");
       // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
-    const timeout = setTimeout(stop, ROLE_TIMEOUT_MS[role.name]);
-    const abort = (): void => stop();
+    const timeout = setTimeout(() => stop("timeout"), ROLE_TIMEOUT_MS[role.name]);
+    const abort = (): void => stop("abort");
     const release = (): void => {
       clearTimeout(timeout);
       parentSignal.removeEventListener("abort", abort);
     };
     parentSignal.addEventListener("abort", abort, { once: true });
-    if (parentSignal.aborted) stop();
+    if (parentSignal.aborted) stop("abort");
     child.stdout.on("data", (chunk: Buffer) => {
       if (stopping) return;
       try { parser.feed(chunk); } catch (cause) { parseError = cause; stop(); }
@@ -669,6 +672,9 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     child.on("close", (code: number | null) => {
       release();
       if (parseError) fail(parseError instanceof Error ? parseError.message : "Invalid Pi child JSONL event");
+      else if (stopCause === "timeout") {
+        fail("Pi child timed out after " + Math.round(ROLE_TIMEOUT_MS[role.name] / 60_000) + " min (" + role.name + " role timeout)");
+      } else if (stopCause === "abort") fail("Pi child cancelled by the parent");
       else if (stopping) fail("Pi child cancelled, timed out, or exceeded output limit");
       else if (code !== 0) {
         const provider = model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
