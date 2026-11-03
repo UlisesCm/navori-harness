@@ -7,41 +7,45 @@ dos lotes) y E2 abren su PR contra `migration/rust`; E3 (el corte) es el único 
 
 **Origen.** El inventario de limpieza de `dev` (`docs/cleanup-inventory.md`), las decisiones del
 2026-11-02 en #1484 y #1502 congelan partes de navori: siguen en TS detrás de su flag, sin funciones
-nuevas y sin puerto a Rust. La enmienda de alcance de 0060 saca de la cola `audit`, `bench`,
-`codex`, `master init`, los `master delivery-*` y los hooks `audit-mode-trigger` y
-`audit-mode-close`. Esta enmienda ajusta la activación y el corte a esa salida. No reescribe la
-spec: en `tasks.md` lo que sale queda marcado "Fuera de alcance (2026-11-02)" y se conserva.
+nuevas y sin puerto a Rust. La enmienda de alcance de 0060 saca de la cola `master` completo,
+`audit`, `bench`, `codex`, `workspace`, `ticket` y `registry`, y los hooks `master-plan-context`,
+`master-accept-confirm`, `audit-mode-trigger`, `audit-mode-close` y `stop-verify-reminder`. Esta
+enmienda ajusta la activación y el corte a esa salida y a las decisiones del usuario en #1503. No
+reescribe la spec: en `tasks.md` lo que sale queda marcado "Fuera de alcance (2026-11-02)" y se
+conserva.
+
+**Motores del corte.** Claude y Pi. Codex queda por delegación al TS y no bloquea el corte: su
+render nativo (0059 E2) se queda como está, sin trabajo nuevo, y un camino de Codex sin paridad
+delega (D48). R81 y R82 se exigen solo en Claude y Pi; en Codex los hooks corren su cuerpo shell.
 
 **Qué sale.**
-- **Activación (E1).** Los hooks que se activan pasan de 22 a 20: los dos de audit mode no tienen
-  implementación nativa. Su replay, su fuzz y su ventana de sombra en T5 quedan fuera de alcance.
+- **Activación (E1).** Los hooks que se activan pasan de 22 a 15. No se activan los cinco hooks
+  congelados, ni `role-guard` y `engram-write-guard`, que solo se registran en Codex. Su replay,
+  su fuzz y su ventana de sombra en T3 y T5 quedan fuera de alcance.
 - **Delegación permanente (R20, R22, R24; D50).** La lista de `scripts/js/rust-areas.mjs` deja de
-  estar vacía: suma `audit`, `codex`, `master init` y los `master delivery-*`, con el motivo
+  estar vacía: suma `master`, `audit`, `codex`, `workspace`, `ticket` y `registry`, con el motivo
   "congelado en dev (#1484)". El TS congelado de `legacy/` los atiende como a cualquier delegación
   permanente.
 
-**Hooks congelados sin puerto (enmienda de R20).** R20 se lee "todo hook o bloque de `core-assets`
-y de los plugins en el manifiesto **o en la lista de hooks shell permanentes** de
-`rust-areas.mjs`". Un hook de esa lista corre su cuerpo shell en todos los engines, como hoy sin
-binario (D53), y los subcomandos que invoca van al TS congelado por R72 de 0060 y D50. Hoy la lista
-son los dos hooks de audit mode. Extender `PERMANENT_DELEGATION` y `cutover:check` a hooks es parte
-de T10.
+**Hooks shell permanentes (enmienda de R20).** R20 se lee "todo hook o bloque de `core-assets` y de
+los plugins en el manifiesto **o en la lista de hooks shell permanentes** de `rust-areas.mjs`, y
+ningún hook en `shadow` en los motores del corte". Un hook de esa lista corre su cuerpo shell en
+todos los engines, como hoy sin binario (D53), y los subcomandos que invoca van al TS congelado por
+R72 de 0060 y D50. La lista son los cinco hooks congelados, más `role-guard` y `engram-write-guard`
+en Codex. Al retomar la migración, el código Rust de `master-plan-context` y `master-accept-confirm`
+sale del manifiesto y del binario (enmienda de 0060). Extender `PERMANENT_DELEGATION` y
+`cutover:check` a hooks y a motores es parte de T10.
 
-**Pendiente del usuario, no aplicado aquí.**
-- Lo ya portado que quedó congelado (`master-plan-context`, `master-accept-confirm`,
-  `implementer-no-markdown`, `model-advisor` y lo nativo de `master`): conservarlo y activarlo con
-  la evidencia que ya tiene, o retirarlo del binario. Si se retira, la activación baja a 16 hooks y
-  esas entradas pasan a la lista de delegación permanente.
-- Si Codex y Pi siguen como motores soportados (#1484, pendientes). Mientras no se decida, la
-  activación y el corte los cubren como hasta ahora.
+**Pendiente.** Si el código Rust ya portado de `role-guard` y `engram-write-guard` se conserva sin
+activar o se retira del binario.
 
 **Estimado restante** (LOC; referencia gruesa).
 
 | Entrega | Estimado original | Restante antes | Restante después |
 |---|---|---|---|
-| E1 | 3 000 | ≈1 000 (T3, T5; 22 hooks) | ≈1 000 (20 hooks) |
+| E1 | 3 000 | ≈1 000 (T3, T5; 22 hooks en tres motores) | ≈800 (15 hooks en Claude y Pi) |
 | E2 | 3 500 | 0 (T6–T9 hechas) | 0 |
-| E3 | 2 000 | ≈2 000 | ≈2 100 (más la lista de hooks shell permanentes) |
+| E3 | 2 000 | ≈2 000 | ≈2 200 (más hooks shell permanentes y motores del corte en `cutover:check`) |
 
 ## Contexto
 
