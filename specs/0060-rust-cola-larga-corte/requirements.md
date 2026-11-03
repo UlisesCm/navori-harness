@@ -26,17 +26,19 @@ salvo `bench`.
 
 - Un hook que sale no entra al manifiesto: corre su cuerpo shell y los `navori` que invoca van al
   TS por R72. 0062 enmienda R20 para aceptarlo.
-- **Código Rust ya portado de lo que sale.** `master` (`navori-cli/src/master*.rs`,
-  `navori-core/src/master/`), sus dos hooks y `navori-core/src/workspace/registry.rs` se retiran
-  del binario cuando se retome la migración; no se borran en esta enmienda. Hasta entonces nada los
-  mantiene en paridad. El `registry` de #1473 no debe entrar al manifiesto.
+- **Código Rust ya portado que sale del binario.** `master` (`navori-cli/src/master*.rs`,
+  `navori-core/src/master/`) y sus dos hooks, `role-guard` y `engram-write-guard`
+  (`navori-hooks/src/hooks/role_guard/`, `engram_write_guard/`; solo Codex, que no cubre el corte)
+  y `navori-core/src/workspace/registry.rs` salen del manifiesto y del binario cuando se retome la
+  migración; no se borran en esta enmienda. Hasta entonces nada los mantiene en paridad. #1473 sigue
+  abierto mientras la migración esté en pausa; al retomarla se le quita `registry` antes de
+  mergearlo.
 - **Se conservan** `implementer-no-markdown` y `model-advisor` (0059), ya portados.
 - **Siguen en la cola** `plan`, `plan-gate` y `routing-watch` (`harness.planTiers` sigue vivo,
   #1487) y `receipt` (depende de #1492).
 
 **Efectos sobre los requisitos.**
-- R70 y R71 aplican a 10 hooks, no a 15. `role-guard` y `engram-write-guard` (solo Codex) ya están
-  portados; su activación la decide 0062.
+- R70 y R71 aplican a 8 hooks, no a 15: salen los cinco congelados y los dos de solo Codex.
 - R73 y R77: lo que sale entra en la lista de delegación permanente de `scripts/js/rust-areas.mjs`
   con el motivo "congelado en dev (#1484)", y el test de inventario por área lo acepta igual que el
   manifiesto. Escribir esas entradas es parte de T16, T22 y T29.
@@ -54,9 +56,9 @@ de lo pendiente / LOC TS de toda la entrega, medido en `migration/rust` (`9b402a
 | E3 | 25 000 | 25 000 (#1473 abierto, ≈1 000) | ≈16 500 (sin `codex`, `workspace`, `ticket` ni `registry`) |
 | Total | 63 000 | ≈49 000 | ≈18 500 |
 
-Hooks por portar: 7 de 15 antes; 4 de 10 después (`bash-outcome-watch`, `routing-watch`,
-`managed-drift-watch`, `worktree-reclaim`). La retirada del código Rust de `master` y `registry`
-(≈9 000 LOC) es poda y no suma al estimado.
+Hooks por portar: 7 de 15 antes; 4 de 8 después (`bash-outcome-watch`, `routing-watch`,
+`managed-drift-watch`, `worktree-reclaim`). Retirar el código Rust de `master`, `role-guard`,
+`engram-write-guard` y `registry` (≈9 800 LOC) es poda y no suma al estimado.
 
 **Reestructuración (decisiones del usuario, 2026-10-31; Q26–Q29 en `design.md`).** La fase 4 se
 parte en dos: esta spec se queda con la cola larga (E1–E3) y `specs/0062-rust-activacion-corte/`
