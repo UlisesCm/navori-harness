@@ -90,7 +90,7 @@ function seedRepo(
       `export const COMPUTED_BLOCKS_WITHOUT_BUDGET = ${JSON.stringify(COMPUTED_BLOCKS_WITHOUT_BUDGET)} as const;`,
       `export const MANAGED_ASSET_PATHSPECS: readonly string[] = ${JSON.stringify(MANAGED_ASSET_PATHSPECS)};`,
       "export function countWords(body: string): number {",
-      "  const trimmed = body.trim();",
+      '  const trimmed = body.replace(/<!--\\s*\\/?navori:[\\s\\S]*?-->/g, " ").trim();',
       '  return trimmed === "" ? 0 : trimmed.split(/\\s+/).length;',
       "}",
       // #919 — mirrored inline rather than re-imported from the real module:
@@ -402,6 +402,12 @@ describe("doc-budgets module (#917)", () => {
     );
     expect(Object.keys(DOC_BUDGETS).length).toBeGreaterThan(20);
     expect(countWords("alpha beta gamma")).toBe(3);
+    // #1520: render markers are not prose; other HTML comments still count.
+    const open = '<!-- navori:managed id="x" hash="1" -->';
+    const close = '<!-- /navori:managed id="x" -->';
+    const inline = "alpha <!-- navori:if-not onPi -->beta<!-- /navori:if-not -->";
+    expect(countWords(`${open}\n${inline}\ngamma\n${close}`)).toBe(3);
+    expect(countWords("<!-- a comment --> alpha")).toBe(5);
   });
 
   it("names the computed blocks it deliberately leaves unbudgeted", () => {
