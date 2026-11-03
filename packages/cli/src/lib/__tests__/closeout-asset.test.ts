@@ -4,72 +4,64 @@ import { resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
- * Content guard (#398): the session-closeout asset must not mandate an
- * unconditional re-run of the full quality gate. The authoritative green run
- * of a cycle is the reviewer's Pass-2 (R2) or the pilot's pre-flight (R1);
- * between the PR and the closeout only `progress/*.md` files change, which no
- * gate step evaluates. Step 1 must offer the evidence-reuse alternative —
- * same criterion the pilot applies ("trust it, don't re-run", #362).
+ * Content guard (#398, #601, #1455): the session close lives in
+ * `verify-before-done` (§ Session close), no longer in a SessionStart block.
+ * It must not mandate an unconditional re-run of the full quality gate — the
+ * authoritative green run of a cycle is the reviewer's Pass-2 or the pilot's
+ * pre-flight, and between the PR and the close only `progress/*.md` change —
+ * and it must park the repo on the base branch, SAFELY.
  */
 
-const ASSET_PATH = resolve(getCoreRoot(), "core-assets", "managed", "cierre-sesion.md");
+const core = resolve(getCoreRoot(), "core-assets");
+const SKILL_PATH = resolve(core, "skills", "verify-before-done.md");
 
-function readCloseoutStep1(): string {
-  expect(existsSync(ASSET_PATH), `closeout asset missing: ${ASSET_PATH}`).toBe(true);
-  const raw = readFileSync(ASSET_PATH, "utf-8");
-  const step1 = raw.split("\n").find((line) => line.startsWith("1. **Quality gate**"));
-  expect(step1, "closeout step 1 (**Quality gate**) not found").toBeDefined();
-  return step1 as string;
-}
-
-describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", () => {
-  const step1 = readCloseoutStep1();
-
-  // #1272: step 1 runs the full gate through `{{gateRun.full}}` (the runner when
-  // it earns its allow rule, the literal `{{qualityGate.full}}` otherwise).
-  it("interpolates {{gateRun.full}} in step 1", () => {
-    expect(step1).toContain("{{gateRun.full}}");
+describe("the closeout block left the SessionStart channel (#1455)", () => {
+  it("no managed cierre-sesion asset ships", () => {
+    expect(existsSync(resolve(core, "managed", "cierre-sesion.md"))).toBe(false);
   });
 
+  it("the skill is the session owner's, not a subagent's", () => {
+    const raw = readFileSync(SKILL_PATH, "utf-8");
+    expect(raw).toMatch(/## Session close \(session owner only\)/);
+    expect(raw).toMatch(/A subagent's `done -> <file>` closes no session/);
+  });
+
+  it("an always-on block points at it", () => {
+    const orquestacion = readFileSync(resolve(core, "managed", "orquestacion.md"), "utf-8");
+    expect(orquestacion).toContain("verify-before-done");
+    expect(orquestacion).toContain("Session close");
+  });
+});
+
+describe("Session close — quality-gate step reuses cycle evidence (#398)", () => {
+  const raw = readFileSync(SKILL_PATH, "utf-8");
+  const step1 = raw.split("\n").find((line) => line.startsWith("1. **Gate**"));
+  const row = raw.split("\n").find((line) => line.includes("--include-consumed"));
+
   // Covers: R6, R8
-  it("gates evidence reuse on a fresh receipt check in the same step as the gate", () => {
-    // R8 retired the "cite this cycle's green run" clause: the closeout no
-    // longer relies on human judgment about which prior run still applies.
-    // It now runs `navori receipt check --include-consumed` and reuses the
-    // evidence only when the receipt reports "fresh":true; any other result
-    // falls back to running {{gateRun.full}} again in this same step.
-    expect(step1).toContain("navori receipt check");
-    expect(step1).toContain("--include-consumed");
-    expect(step1).toContain('"fresh":true');
-    expect(step1).toMatch(/"fresh":true[\s\S]*\{\{gateRun\.full\}\}/);
+  it("gates evidence reuse on a fresh receipt check, else reruns the gate", () => {
+    expect(step1, "Session close step 1 (**Gate**) not found").toBeDefined();
+    expect(step1).toMatch(/cite a fresh receipt, else rerun the full gate/);
+    expect(row, "the receipt-check row is missing").toBeDefined();
+    expect(row).toContain("navori receipt check");
+    expect(row).toContain('"fresh":true');
   });
 
   it("does not mandate an unconditional run (old wording)", () => {
-    // Pre-#398 wording: "confirm it passes (or document debt ..." — a re-run
-    // with no alternative. "confirm it passes" may stay only if the reuse
-    // clause follows it.
     expect(step1).not.toMatch(/confirm it passes \(or document debt/);
   });
 });
 
 /**
- * Content guard (#601): the closeout must park the repo on the base branch,
- * synced — and it must do it SAFELY. The doctrine exists because every cycle
- * leaves its feature branch and the repo drifts into starting new work from
- * stale bases; the guards exist because a parking step that switches branches
- * under a dirty tree or a parallel session destroys work. Both halves are
- * load-bearing, so both are pinned.
+ * Content guard (#601): park on the base branch, synced — and SAFELY. Both
+ * halves are load-bearing, so both are pinned.
  */
-describe("cierre-sesion.md — park on base (#601)", () => {
-  const raw = readFileSync(ASSET_PATH, "utf-8");
-  const step6 = raw.split("\n").findIndex((line) => line.startsWith("6. **Park on base**"));
-  const block = raw
-    .split("\n")
-    .slice(step6, step6 + 8)
-    .join("\n");
+describe("Session close — park on base (#601)", () => {
+  const raw = readFileSync(SKILL_PATH, "utf-8");
+  const block = raw.split("\n").find((line) => line.startsWith("5. **Park on base**")) ?? "";
 
   it("has the parking step, interpolating the config's base branch", () => {
-    expect(step6, "closeout step 6 (**Park on base**) not found").toBeGreaterThan(-1);
+    expect(block, "Session close step 5 (**Park on base**) not found").not.toBe("");
     expect(block).toContain("{{branchBase}}");
   });
 
@@ -83,6 +75,11 @@ describe("cierre-sesion.md — park on base (#601)", () => {
 
   it("refuses to switch on a dirty tree or over a possibly-live parallel session", () => {
     expect(block).toMatch(/clean working tree/);
-    expect(block).toMatch(/another session may be alive/);
+    expect(block).toMatch(/another session that may be alive/);
+  });
+
+  it("keeps the timing rule and its no-PR exception that the orchestrator relies on", () => {
+    expect(raw).toMatch(/inside the work PR before it opens, never a `progress\/`-only PR/);
+    expect(raw).toMatch(/no work PR → `progress\/` alone/);
   });
 });

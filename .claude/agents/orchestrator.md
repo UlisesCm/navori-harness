@@ -7,7 +7,7 @@ effort: medium
 maxWords: 3365
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="d26012b3" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="08bf821a" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -128,7 +128,7 @@ Expected files:
 
 When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
-1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
+1. **Before** invoking `publisher`: apply `verify-before-done`'s Session close History + Clear current steps now — that commit must land inside this PR, per its timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
 3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `dev`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 4. Return to the user only the PR URL + title.

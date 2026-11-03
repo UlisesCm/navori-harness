@@ -235,7 +235,19 @@ const ORCHESTRATOR_CONTEXT_ORDER: Readonly<Record<string, number>> = {
   orquestacion: 10,
   "agentes-disponibles": 20,
   "arranque-sesion": 30,
-  "cierre-sesion": 40,
+};
+
+/**
+ * Context files of blocks that no longer ship, by marker id → bare filenames
+ * under `.claude/context/`. Render only visits ids still in the plan, so a
+ * dropped block's file would otherwise linger in every onboarded repo and keep
+ * reaching the SessionStart hook's glob. Removal uses the same criterion and
+ * backup channel as `blocks.exclude` (marker id match, not newer-stamped).
+ * The list is never aged out: it runs on every render.
+ * `cierre-sesion` (#1455): its doctrine now lives in `verify-before-done`.
+ */
+const RETIRED_CONTEXT_FILES: Readonly<Record<string, readonly string[]>> = {
+  "cierre-sesion": ["40-cierre-sesion.md", "cierre-sesion.md"],
 };
 
 /** `orquestacion` → `10-orquestacion.md`; unknown ids → `90-<id>.md`. Zero-padded
@@ -679,6 +691,15 @@ export function prepareClaudeEngine(
       pending,
       skipped,
     );
+  }
+
+  if (!trimmedHarness) {
+    for (const [id, names] of Object.entries(RETIRED_CONTEXT_FILES)) {
+      for (const name of names) {
+        const path = join(cwd, ORCHESTRATOR_CONTEXT_DIR, name);
+        if (existsSync(path) && isRemovableNavoriFile(path, id)) removals.push({ path });
+      }
+    }
   }
 
   // 1b. Skills index — retired from the Claude render (#1273): the main session

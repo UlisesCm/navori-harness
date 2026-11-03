@@ -81,7 +81,6 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
   "packages/core/core-assets/managed/arranque-sesion.md": 209, // 190 → 10.0%
-  "packages/core/core-assets/managed/cierre-sesion.md": 494, // 449 → 10.0%
   "packages/core/core-assets/managed/code-discovery-routing.md": 160,
   "packages/core/core-assets/managed/codex-cross-review.md": 180,
   "packages/core/core-assets/managed/formato-respuesta.md": 150,

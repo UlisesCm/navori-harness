@@ -138,16 +138,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     // session, it is handed a scoped task inside one.
     audience: "orchestrator",
   },
-  {
-    id: "cierre-sesion",
-    relPath: "core-assets/managed/cierre-sesion.md",
-    baseLanguage: "en",
-    rootOnly: true,
-    // Orchestrator-only (#572). The session's ceremonies: the gate, the history entry, clearing
-    // `current.md`. The block itself says they belong to the agent that OWNS the
-    // session; a subagent closing with `done -> <file>` is not ending one.
-    audience: "orchestrator",
-  },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
   // defaults to true (SDD is core to navori's identity) unless a config sets it
   // to false. Renders the EARS + R<n>↔test convention that SddSchema declared
@@ -193,7 +183,7 @@ export const CORE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.map((a) => 
  * Deliberately a SMALL whitelist — only the two protocol blocks that actually
  * compete with a repo's OWN harness (its own orchestration / SDD). Everything
  * else — identity (`idioma-rol`, `formato-respuesta`), the session protocol
- * (`arranque-sesion`, `cierre-sesion`), `tipado-fuerte`, and above all the
+ * (`arranque-sesion`), `tipado-fuerte`, and above all the
  * `operaciones-seguras` safety contract — is NOT excludable and always renders.
  * `blocks.exclude` entries outside this set are ignored by the render; `doctor`
  * flags them (a known-but-not-excludable id, or an unknown id → typo). Preset

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="a9314fd0" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="5ffaca5b" version="0.12.3" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
 You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
@@ -12,9 +12,10 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, ephemeral probe | yourself |
 
-- One review per PR; later minor fixes get a delta review, not a new cycle.
+- One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a later change or failure invalidated. `navori gate full` green once per PR.
-- A subagent ban is respected: work directly and say so in the reply.
+- At close, apply `verify-before-done`'s Session close.
+- Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 - Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 - **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md

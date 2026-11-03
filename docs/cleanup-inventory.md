@@ -74,7 +74,7 @@ Tamaño: fuente / render. Las cifras de render difieren de la fuente porque se a
 | `orquestacion` | `.claude/context/10` | 1,188 / 6,144 caracteres | siempre | 29 | sí | conservar; recortar a 4.5–5 k caracteres | decide cuándo delegar; #1455 opción 2 |
 | `agentes-disponibles` | `.claude/context/20` | computado / 1,606 caracteres | agentes habilitados | 10 | sí | conservar | catálogo barato |
 | `arranque-sesion` | `.claude/context/30` | 190 / 1,318 caracteres | siempre | 5 | sí | conservar; fundir en `orquestacion` o recortar | no cabe hoy (§2); #1455 opción 3 |
-| `cierre-sesion` | `.claude/context/40` | 467 / 3,089 caracteres | siempre | 12 | sí | conservar fuera del canal SessionStart | #1455 opción 1; ya es puntero |
+| `cierre-sesion` | `.claude/context/40` | 467 / 3,089 caracteres | siempre | 12 | sí | hecho: bloque retirado, fuera del canal SessionStart | #1455 opción 1; doctrina en `verify-before-done` (Cierre de sesión) |
 | `planificacion` | `.claude/context/05` | 403 / 2,752 caracteres | `harness.planTiers` (default false) | 7 | no | opt-in congelado | doctrina de niveles de plan; #1467 |
 | `plan-maestro` | `.claude/context/07` | 82 / 614 caracteres | `harness.masterPlan` (default false) | 2 | sí | opt-in congelado | #1470 |
 | `codex-cross-review` | sub-bloque de `orchestrator.md` | 139 / — | solo engine `codex` | 0 | sí | conservar | ya es condicional |
@@ -274,7 +274,7 @@ Decisión pendiente, fuera del total:
 
 Contexto residente:
 
-- `cierre-sesion` (3,089 caracteres) sale del canal de arranque. Hoy ya es puntero, así que no libera espacio.
+- `cierre-sesion` (3,089 caracteres) sale del canal de arranque. Hecho: bloque retirado; su doctrina vive en `verify-before-done` (Cierre de sesión). Hoy ya era puntero, así que no libera espacio.
 - Para que `arranque-sesion` entre hay que recortar ≈1,070 caracteres de `orquestacion` o `agentes-disponibles`, o fundir `arranque-sesion` en `orquestacion`. La medición no confirma el margen de ~300 caracteres de #1455.
 
 Sin cambio: `CLAUDE.md`, `.claude/context/` (12,157 caracteres), permisos, engines `claude`, `codex` y `pi`, plugin `engram`, y los gates de CI.
