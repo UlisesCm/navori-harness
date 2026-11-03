@@ -74,6 +74,17 @@ Pi also natively discovers trusted project skills in `.agents/skills/`. When Pi 
 selected, Codex owns the shared destinations and Pi does not duplicate them. Claude and Codex hook
 scripts are not copied or run by Pi.
 
+When Pi writes the shared files itself (no Codex, no `agents-md`), it writes the same doctrine Codex
+would, in Pi's vocabulary:
+
+- `AGENTS.md` carries the orchestration block, the role catalog and the plan tiers, with no skills index
+  (Pi lists `.agents/skills` natively). It also carries the `project.*` rules, critical areas included,
+  that risk routing reads.
+- `.agents/skills` includes `master-plan` and `context-intake`.
+- Delegation is `navori_subagent`, a manual skill is `/skill:<name>`, and skills live under `.agents/skills/`.
+- Codex-only lines (dispatch markers, execution checkpoints, `spawn_agent`) and Claude-only ones
+  (`SendMessage`, `AskUserQuestion`, `TaskCreate`) are left out.
+
 ## Runtime admissions
 
 Each row is one child runtime capability from `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. `admitted`

@@ -170,6 +170,8 @@ export interface ProseRenderSpec {
   includeOrchestration?: boolean;
   /** Full engines may retain plugin protocol blocks they can back with MCP. */
   includePluginBlocks?: boolean;
+  /** Omit the "Available skills" index (the engine lists `.agents/skills` natively). */
+  omitSkillsIndex?: boolean;
   /** Appends engine-owned sub-blocks (e.g. plugin extensions) to the harness body before it is injected. */
   extendBody?: (body: string) => string;
   /** Engine id (`"agents-md"`, `"cursor"`, `"copilot"`): required so a prose file never renders the Claude-only `onClaude` branch by default. */
@@ -198,6 +200,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
     includeOrchestration: spec.includeOrchestration,
     includePluginBlocks: spec.includePluginBlocks,
     engine: spec.engine,
+    omitSkillsIndex: spec.omitSkillsIndex,
   });
   const body = spec.extendBody ? spec.extendBody(harnessBody) : harnessBody;
 

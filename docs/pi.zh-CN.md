@@ -54,6 +54,13 @@ navori render --apply
 
 Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同时选择 Pi 和 Codex，共享目标位置由 Codex 管理，Pi 不会重复写入。Pi 不会复制或运行 Claude 与 Codex 的 hook 脚本。
 
+当 Pi 自己写入共享文件时（未启用 Codex 和 `agents-md`），它会写入与 Codex 相同的规范内容，并使用 Pi 的术语：
+
+- `AGENTS.md` 包含编排区块、角色目录和计划层级，不包含技能索引（Pi 会原生列出 `.agents/skills`）。它还包含风险路由所读取的 `project.*` 规则，包括关键领域。
+- `.agents/skills` 包含 `master-plan` 和 `context-intake`。
+- 委派使用 `navori_subagent`，手动调用技能使用 `/skill:<name>`，技能位于 `.agents/skills/`。
+- 不包含仅属于 Codex 的内容（派发标记、执行检查点、`spawn_agent`）和仅属于 Claude 的内容（`SendMessage`、`AskUserQuestion`、`TaskCreate`）。
+
 ## 运行时准入项
 
 每一行对应 `ENGINE_CAPABILITIES.pi.runtimeAdmissions` 中的一项子进程运行时能力。`admitted` 表示已在 Pi 1.4.0 上验证；`deferred` 表示当前不可用。

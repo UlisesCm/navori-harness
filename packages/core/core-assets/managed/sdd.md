@@ -6,6 +6,6 @@
 
 **Done = accepted:** a human runs the spec's acceptance script on the real surface where the outcome is observable (the deployed app, the built binary — whatever the project ships) and approves it, AND the happy-path E2E passes against that same surface, without mocks. Unit and integration tests are quality, not acceptance; `prCount` ≠ proof.
 
-**The spec's task list is the board:** do NOT mirror it in <!-- navori:if-not onCodex -->`TaskCreate` (ignore its reminder)<!-- /navori:if-not --><!-- navori:if onCodex -->a separate task list<!-- /navori:if -->.
+**The spec's task list is the board:** do NOT mirror it in <!-- navori:if onClaude -->`TaskCreate` (ignore its reminder)<!-- /navori:if --><!-- navori:if-not onClaude -->a separate task list<!-- /navori:if-not -->.
 
 Templates and rules live in `spec-bootstrap`; the work is routed like any other change, by `navori plan classify` (`planificacion`) and `orquestacion`, not by a fixed agent chain.

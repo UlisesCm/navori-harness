@@ -142,14 +142,14 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
  * and `native-overlap` tests pin the ids against `ENGINES`.
  */
 export const WORKFLOW_SKILL_ENGINES: Readonly<Record<string, readonly string[]>> = {
-  "master-plan": ["claude", "codex"],
-  "context-intake": ["claude", "codex"],
+  "master-plan": ["claude", "codex", "pi"],
+  "context-intake": ["claude", "codex", "pi"],
 };
 
 /** Hooks scoped to a subset of engines; same contract as {@link WORKFLOW_SKILL_ENGINES}. */
 export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
   "master-plan-context": ["claude", "codex"],
-  // Pi has no master-plan skills, but `navori master …` runs in its bash: the confirmation applies (spec 0048 R5).
+  // Pi has no master-plan context hook, but `navori master …` runs in its bash: the confirmation applies (spec 0048 R5).
   "master-accept-confirm": ["claude", "codex", "pi"],
   // Spec 0041 D5: Claude restricts roles with `tools:`; only Codex needs the guard.
   "role-guard": ["codex"],

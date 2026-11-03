@@ -222,7 +222,8 @@ describe("Pi subagent resources", () => {
     writeFileSync(path, readFileSync(path, "utf8") + "user note\n");
     const changed = NavoriConfigSchema.parse({ ...config, harness: { scout: false } });
     const result = renderPiEngine(dir, changed);
-    expect(result.written).toEqual([]);
+    // AGENTS.md is the shared marker lane, outside the vetoed whole-file generation (#1512).
+    expect(result.written.filter((w) => w.path.startsWith(".pi/"))).toEqual([]);
     expect(result.warnings).toContain(
       "Pi generation was not committed because at least one owned destination collides or was edited.",
     );
