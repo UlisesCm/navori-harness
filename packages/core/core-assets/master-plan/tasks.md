@@ -1,5 +1,7 @@
 # Plantilla de tasks.md de una parte (`harness.masterPlan`, R35)
 
+Solo para partes heredadas; una parte nueva usa `spec.md` (`spec-bootstrap`).
+
 Organiza el trabajo por entregas, cada una con milestones, criterios de aceptación y tareas. Cada tarea declara archivos exactos, interfaces, archivo patrón, lista cerrada de lectura, versiones fijas de librerías, comando y resultado esperado, pruebas nombradas y fuera de alcance; no escribas cuerpos de funciones en las tareas.
 
 ## E1 — <título de la entrega>
