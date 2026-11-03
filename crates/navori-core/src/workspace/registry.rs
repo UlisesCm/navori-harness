@@ -32,6 +32,25 @@ pub struct Workspace {
     pub language: Option<String>,
     /// `repos[].path`, in order.
     pub repo_paths: Vec<String>,
+    /// `repos[].name`, aligned with [`Self::repo_paths`].
+    pub repo_names: Vec<String>,
+    /// The rest of `defaults` (`language` is [`Self::language`]).
+    pub defaults: Defaults,
+}
+
+/// `defaults` of a workspace manifest, the fields `scanWorkspaceDrift` compares.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Defaults {
+    /// `defaults.branchBase`.
+    pub branch_base: Option<String>,
+    /// `defaults.prTarget`.
+    pub pr_target: Option<String>,
+    /// `defaults.commits`.
+    pub commits: Option<String>,
+    /// `defaults.engines`.
+    pub engines: Option<Vec<String>>,
+    /// `defaults.plugins` as `(id, enabled)`, in `Object.entries` order.
+    pub plugins: Vec<(String, bool)>,
 }
 
 fn kebab(text: &str) -> bool {
@@ -160,54 +179,70 @@ fn optional_string(
 static TICKETS_DIR: std::sync::LazyLock<Option<Regex>> =
     std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_\-./]*$").ok());
 
-fn defaults_valid(value: Option<&JsValue>) -> Result<Result<Option<String>, ()>, Stop> {
+/// `defaults` validated: `Err(())` when zod rejects it, else its language and the rest.
+type ValidDefaults = Result<(Option<String>, Defaults), ()>;
+
+fn defaults_valid(value: Option<&JsValue>) -> Result<ValidDefaults, Stop> {
     let object = match value {
-        None | Some(JsValue::Undefined) => return Ok(Ok(None)),
+        None | Some(JsValue::Undefined) => return Ok(Ok((None, Defaults::default()))),
         Some(JsValue::Object(object)) => object,
         Some(_) => return Ok(Err(())),
     };
     let any = |_: &str| true;
-    for key in ["branchBase", "prTarget"] {
-        if optional_string(object, key, any)?.is_err() {
-            return Ok(Err(()));
-        }
-    }
-    let commits = |v: &str| matches!(v, "conventional" | "conventional-es" | "free");
-    if optional_string(object, "commits", commits)?.is_err() {
+    let Ok(branch_base) = optional_string(object, "branchBase", any)? else {
         return Ok(Err(()));
-    }
+    };
+    let Ok(pr_target) = optional_string(object, "prTarget", any)? else {
+        return Ok(Err(()));
+    };
+    let commits = |v: &str| matches!(v, "conventional" | "conventional-es" | "free");
+    let Ok(commits) = optional_string(object, "commits", commits)? else {
+        return Ok(Err(()));
+    };
     let Ok(language) = optional_string(object, "language", |v| matches!(v, "es" | "en"))? else {
         return Ok(Err(()));
     };
-    match object.get("engines") {
-        None | Some(JsValue::Undefined) => {}
+    let engines = match object.get("engines") {
+        None | Some(JsValue::Undefined) => None,
         Some(JsValue::Array(items)) => {
+            let mut engines = Vec::new();
             for item in items {
-                if string(item)?.is_none() {
+                let Some(engine) = string(item)? else {
                     return Ok(Err(()));
-                }
+                };
+                engines.push(engine);
             }
+            Some(engines)
         }
         Some(_) => return Ok(Err(())),
-    }
+    };
+    let mut plugins = Vec::new();
     match object.get("plugins") {
         None | Some(JsValue::Undefined) => {}
-        Some(JsValue::Object(plugins)) => {
-            for (key, plugin) in plugins.entries() {
-                if key.to_rust().is_none() {
+        Some(JsValue::Object(entries)) => {
+            for (key, plugin) in entries.ordered() {
+                let Some(key) = key.to_rust() else {
                     return Err(Stop::Delegate("lone surrogate in workspace"));
-                }
+                };
                 let JsValue::Object(plugin) = plugin else {
                     return Ok(Err(()));
                 };
-                if !matches!(plugin.get("enabled"), Some(JsValue::Bool(_))) {
+                let Some(JsValue::Bool(enabled)) = plugin.get("enabled") else {
                     return Ok(Err(()));
-                }
+                };
+                plugins.push((key, *enabled));
             }
         }
         Some(_) => return Ok(Err(())),
     }
-    Ok(Ok(language))
+    let defaults = Defaults {
+        branch_base,
+        pr_target,
+        commits,
+        engines,
+        plugins,
+    };
+    Ok(Ok((language, defaults)))
 }
 
 /// `WorkspaceConfigSchema.safeParse(parsed)`: `Ok(None)` when zod rejects it.
@@ -235,10 +270,11 @@ pub fn validate(value: &JsValue) -> Result<Option<Workspace>, Stop> {
     if optional_string(object, "ticketsDir", tickets)?.is_err() {
         return Ok(None);
     }
-    let Ok(language) = defaults_valid(object.get("defaults"))? else {
+    let Ok((language, defaults)) = defaults_valid(object.get("defaults"))? else {
         return Ok(None);
     };
     let mut repo_paths = Vec::new();
+    let mut repo_names = Vec::new();
     match object.get("repos") {
         None | Some(JsValue::Undefined) => {}
         Some(JsValue::Array(repos)) => {
@@ -246,10 +282,10 @@ pub fn validate(value: &JsValue) -> Result<Option<Workspace>, Stop> {
                 let JsValue::Object(repo) = repo else {
                     return Ok(None);
                 };
-                match repo.get("name").map(string).transpose()?.flatten() {
-                    Some(name) if kebab(&name) => {}
+                let name = match repo.get("name").map(string).transpose()?.flatten() {
+                    Some(name) if kebab(&name) => name,
                     _ => return Ok(None),
-                }
+                };
                 let path = match repo.get("path").map(string).transpose()?.flatten() {
                     Some(path) if !path.is_empty() => path,
                     _ => return Ok(None),
@@ -260,6 +296,7 @@ pub fn validate(value: &JsValue) -> Result<Option<Workspace>, Stop> {
                     }
                 }
                 repo_paths.push(path);
+                repo_names.push(name);
             }
         }
         Some(_) => return Ok(None),
@@ -267,6 +304,8 @@ pub fn validate(value: &JsValue) -> Result<Option<Workspace>, Stop> {
     Ok(Some(Workspace {
         language,
         repo_paths,
+        repo_names,
+        defaults,
     }))
 }
 

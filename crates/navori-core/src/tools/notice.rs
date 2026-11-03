@@ -22,7 +22,7 @@ use super::cache::{
 use crate::atomic::{random_uuid, write_file_atomic};
 use crate::config::Config;
 use crate::js_json::{JsObject, JsValue};
-use crate::process::{self, Env};
+use crate::process::{self, Env, has_binary};
 use crate::render::context::Lang;
 use crate::render::plugins::{PluginLoadError, load_plugin};
 use crate::semver;
@@ -86,7 +86,10 @@ pub struct Plugins(BTreeMap<String, Option<JsValue>>);
 impl Plugins {
     /// `loadPlugin(id).manifest.externalTool`, `None` when the TS's `loadPlugin` would throw
     /// `PluginNotFoundError`.
-    fn tool(&mut self, id: &str) -> Result<Option<JsValue>, Stop> {
+    ///
+    /// # Errors
+    /// [`Stop::Delegate`] for a manifest only the TS loads.
+    pub fn tool(&mut self, id: &str) -> Result<Option<JsValue>, Stop> {
         if let Some(tool) = self.0.get(id) {
             return Ok(tool.clone());
         }
@@ -100,7 +103,10 @@ impl Plugins {
     }
 
     /// `watched(pluginId)`.
-    fn watched(&mut self, id: &str) -> Result<Option<Release>, Stop> {
+    ///
+    /// # Errors
+    /// [`Stop::Delegate`] for a manifest only the TS loads or a `latestRelease` outside the model.
+    pub fn watched(&mut self, id: &str) -> Result<Option<Release>, Stop> {
         let valid = id
             .bytes()
             .next()
@@ -134,7 +140,8 @@ fn state_dir(env: &Env) -> Result<PathBuf, Stop> {
 }
 
 /// Enabled plugin ids of the config, in `Object.entries` order.
-fn enabled(config: &Config) -> Vec<String> {
+#[must_use]
+pub fn enabled(config: &Config) -> Vec<String> {
     let Some(JsValue::Object(plugins)) = member(&config.data, "plugins") else {
         return Vec::new();
     };
@@ -270,9 +277,51 @@ fn read_latest(
     now: f64,
     plugins: &mut Plugins,
 ) -> Result<BTreeMap<String, Latest>, Stop> {
+    Ok(read_latest_entries(dir, now, plugins)?
+        .into_iter()
+        .collect())
+}
+
+/// A fresh cached latest release of a watched tool, as `doctor` reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedLatest {
+    /// The plugin id.
+    pub plugin_id: String,
+    /// The latest stable `x.y.z`; `None` when the release was `unparseable`.
+    pub version: Option<String>,
+    /// The manifest's `latestRelease` the entry matches.
+    pub release: Release,
+}
+
+/// `readLatest(Date.now())` in the `Map`'s insertion order.
+///
+/// # Errors
+/// [`Stop::Delegate`] for a manifest or state the port does not read; [`Stop::Throw`] for an
+/// unusable `HOME`.
+pub fn cached_latest(env: &Env, plugins: &mut Plugins) -> Result<Vec<CachedLatest>, Stop> {
+    let dir = state_dir(env)?;
+    let mut out = Vec::new();
+    for (plugin_id, latest) in read_latest_entries(&dir, now_ms(), plugins)? {
+        if let Some(release) = plugins.watched(&plugin_id)? {
+            out.push(CachedLatest {
+                plugin_id,
+                version: latest.version,
+                release,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// [`read_latest`]'s entries in `Object.entries` order.
+fn read_latest_entries(
+    dir: &Path,
+    now: f64,
+    plugins: &mut Plugins,
+) -> Result<Vec<(String, Latest)>, Stop> {
     let state = read_state(&dir.join("latest.json"))?;
     let tools = record(state.as_ref().and_then(|s| member(s, "tools")));
-    let mut out = BTreeMap::new();
+    let mut out = Vec::new();
     for (id, raw) in tools.ordered() {
         let id = id
             .to_rust()
@@ -300,7 +349,7 @@ fn read_latest(
             }
             _ => continue,
         };
-        out.insert(id, entry);
+        out.push((id, entry));
     }
     Ok(out)
 }
@@ -321,27 +370,6 @@ pub fn meets_notify_level(installed: &str, latest: &str, notify: &str) -> bool {
         return b.minor > a.minor;
     }
     notify == "patch" && b.patch > a.patch
-}
-
-/// `hasBinary(name)`: an executable regular file along `PATH`, empty entries skipped. The mode
-/// bits stand in for `access(X_OK)`, which also weighs the file's owner.
-fn has_binary(env: &Env, cwd: &Path, name: &str) -> bool {
-    use std::os::unix::fs::PermissionsExt as _;
-    let Some(path) = env
-        .iter()
-        .rev()
-        .find(|(key, _)| key == "PATH")
-        .map(|(_, v)| v)
-    else {
-        return false;
-    };
-    path.to_string_lossy()
-        .split(':')
-        .filter(|dir| !dir.is_empty())
-        .any(|dir| {
-            std::fs::metadata(cwd.join(dir).join(name))
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-        })
 }
 
 /// `probeEnabledToolVersions(config, wants, { budgetMs: 1500 })` for the tools with a fresh `ok`
