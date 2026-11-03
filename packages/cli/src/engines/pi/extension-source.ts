@@ -241,6 +241,20 @@ function handoffPath(cwd: string, role: Role, feature: string): string {
   try { scribeOwnsMarkdown = controls(cwd).scribeOwnsMarkdown; } catch { /* missing or invalid manifest: default (off) */ }
   return join(cwd, HANDOFF_DIR, "impl_" + feature + (scribeOwnsMarkdown ? ".json" : ".md"));
 }
+/** Repo-relative handoff paths a child is validated against (reviewer: the sidecar and its review, both required). */
+function handoffTargets(cwd: string, role: Role, feature: string): string[] {
+  if (role === "reviewer") return [HANDOFF_DIR + "/review_" + feature + ".json", HANDOFF_DIR + "/review_" + feature + ".md"];
+  return [HANDOFF_DIR + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
+}
+/** Fresh same-role handoffs under another name (hint only; never makes the check pass). */
+function strayHandoffs(cwd: string, snap: HandoffSnapshot, expected: string): string {
+  try {
+    const prefix = snap.role === "reviewer" ? "review_" : "impl_";
+    const found = readdirSync(join(cwd, HANDOFF_DIR)).filter((name) => name.startsWith(prefix) && name !== expected
+      && statSync(join(cwd, HANDOFF_DIR, name)).mtimeMs >= snap.dispatchedAt).slice(0, 3);
+    return found.length ? "; found " + found.join(", ").replace(/[\u0000-\u001f\u007f]/g, " ") + " instead (expected " + expected + ")" : "";
+  } catch { return ""; }
+}
 function readHandoffFile(path: string): HandoffFile {
   if (!existsSync(path)) return null;
   return { mtimeMs: statSync(path).mtimeMs, content: readFileSync(path, "utf8") };
@@ -258,10 +272,12 @@ function snapshotHandoff(cwd: string, role: Role, feature: string): HandoffSnaps
 async function verifyHandoff(cwd: string, snap: HandoffSnapshot, signal: AbortSignal): Promise<string | undefined> {
   const { role, feature } = snap;
   try {
-    const now = readHandoffFile(handoffPath(cwd, role, feature));
-    if (!now) return "the " + role + " handoff for " + feature + " was not written";
+    const canonical = handoffPath(cwd, role, feature);
+    const expectedName = canonical.split(/[\\/]/).pop() ?? "";
+    const now = readHandoffFile(canonical);
+    if (!now) return "the " + role + " handoff for " + feature + " was not written" + strayHandoffs(cwd, snap, expectedName);
     if (snap.file && now.mtimeMs === snap.file.mtimeMs && now.content === snap.file.content) {
-      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch";
+      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch" + strayHandoffs(cwd, snap, expectedName);
     }
     const args = ["handoff", "check", feature, "--cwd", cwd, "--dir", HANDOFF_DIR, "--json"];
     if (role === "reviewer") args.push("--produced-by", "reviewer", "--since", new Date(Math.floor(snap.dispatchedAt / 1000) * 1000).toISOString().replace(".000Z", "Z"));
@@ -1304,7 +1320,11 @@ export default function (pi: ExtensionAPI): void {
           ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
         const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";
         const agentId = "pi-" + params.role + "-" + _id;
-        const result = await runChild(ctx.cwd, spec, model, params.task, signal, parentSession, agentId);
+        const childTask = snapshot
+          ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, snapshot.role, snapshot.feature).join(" and ")
+            + " — this exact path is validated when you finish; do not derive another name."
+          : params.task;
+        const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
         const details = { ...identity, truncated: result.truncated, ...(result.stop ? { childStop: result.stop } : {}),
           ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
