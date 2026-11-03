@@ -567,7 +567,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
-| 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
+| 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per `verify-before-done` Session close. |
 
 ## Phase 2 fan-out
 
@@ -1251,55 +1251,45 @@ metadata:
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-No run THIS TURN, no claim. "Should work" and "previous run was green" are inference.
+No run THIS TURN, no claim. "Should work", "previous run was green", "trivial" and "the subagent said done" are inference.
 
 ## Gate function
 
-BEFORE claiming "done / ready / approved": IDENTIFY the proving command → RUN it this turn → READ output, exit code, failures → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH evidence).
+BEFORE claiming "done / ready / approved" (`implementer`: `done -> impl_<feature>.md`): IDENTIFY the proving command → RUN it this turn → READ output, exit code, failures → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH evidence, naming any sub-claim you COULD NOT verify).
+
 ## Table: claim → required output → not sufficient
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before" |
+| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0; at session close, `navori receipt check --feature <feature> --include-consumed --json` with `"status":"ok"` and `"fresh":true` | "ran it before" |
 | Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
-| Zero new errors vs baseline | Classify per **Failure attribution** below, demonstrated over `main` | Diff location alone |
-| UI validated in the browser (only if asked) | Observed state via the repo's browser tool | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits, we can create it" |
-| Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0 | "should still be green" |
-| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span | The exit code (`sed -i` exits 0 on no match) |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (`navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits" |
+| A shell edit landed (`sed -i`, `>`) | Re-read the changed span | The exit code |
 | Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |
 | Active `dist` lock | Identify the owner, wait. Only a verified-dead owner's lock may be reclaimed | Deleting the lock, killing another session's process |
 | Full gate red | Fix with focal tests; rerun the full gate once the fix set is stable. Mandatory before sign/ship | Rerunning after every edit |
 | Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) |
-| Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground | Backgrounding — a subagent is never re-woken |
+| Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground | Backgrounding |
 
 ## Failure attribution
 
-A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only main` only orients; it never proves origin.
-
-Only the **same command**, run over the comparable base and the change, demonstrates a state: runs disagree → introduced; agree → pre-existing; no comparable run → origin not determined.
-
-Never `git stash` to measure it — it empties the shared tree. Never exempts a red gate.
-
+A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Diff location only orients; it never proves origin. Only the **same command** over the comparable base and the change demonstrates it: runs disagree → introduced; agree → pre-existing; no comparable run → origin not determined. Never `git stash` to measure — it empties the shared tree.
 ## Red flags (STOP)
 
-- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED`, without a fresh `pnpm lint` run and a full diff read.
-- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined in `.claude/agents/orchestrator.md` § Anti-broken-telephone, never a full re-read of a validated diff.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched): `.claude/agents/orchestrator.md` § Anti-broken-telephone.
 
-## Rationalization prevention
+## Session close (session owner only)
 
-| Excuse | Reality |
-|---|---|
-| "Confident" / "passed 10 min ago" / "trivial" / "the subagent said done" | None exempts verification. Re-run. |
+A subagent's `done -> <file>` closes no session. Owner, before closing:
 
-## When invoked
+1. **Gate**: cite a fresh receipt, else rerun the full gate or record the debt.
+2. **History**: `progress/history.md` entry `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status; one redaction for every destination (memory included).
+3. **Clear** `progress/current.md` to `idle` or the next step; drop scratch files and commented-out code.
+4. **Commit** inside the work PR before it opens, never a `progress/`-only PR; no work PR → `progress/` alone.
+5. **Park on base** once pushed: `git switch main`, `git pull --ff-only`. Never delete the feature branch. Skip, saying so, with an unclean working tree, unpushed commits, or another session that may be alive.
 
-`implementer` before `done -> impl_<feature>.md`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
-
-## Closing
-
-State the claim, the fresh evidence, and any sub-claim you COULD NOT verify.
+**Lean close**: one user task AND no critical area → skip step 2 when nothing was committed. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit.
 <!-- /navori:managed id="verify-before-done-base" -->
 
 ## Project-specific checks
@@ -2005,7 +1995,7 @@ Never open the PR with the gate red.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed. If it failed, stop with `git status` + `git log -1 --stat`; recovery is the orchestrator's or the user's call. Foreign modified files are reported as an observation and never discarded, restored or reverted.
-8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
+8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `verify-before-done` does.
 
 ## Commit-only mode
 
@@ -16673,23 +16663,6 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 
 **Audit mode on request**: if the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as the FIRST action of that turn — before loading skills or starting any pipeline — and confirm the log path it prints. The phrase never activates anything by itself (by design); the command is the only switch. If the injected context already says audit-mode is ACTIVE (armed via `navori audit --arm` — which also applies to a RUNNING session on its next message), it is running — do not start it again, and never tell the user to close and reopen the session for this.
-
-## Session closeout
-
-Before closing the session:
-
-1. **Quality gate**: run `navori receipt check --feature <feature> --include-consumed --json`. `"status":"ok"` and `"fresh":true` → cite the receipt as evidence, no re-run needed. Any other result → run navori gate full again (or document debt in `progress/current.md`).
-2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
-3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step. It holds only current state and next step (≤ ~4000 bytes); checkpoints and narrative go to `progress/history.md` (step 2). Agent commits growing it past ~8000 bytes are blocked.
-4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Commit**: atomic, in the configured style (`conventional-es`), landing inside the work PR before it opens — never a `progress/`-only PR; `history.md` can't cite it. No work PR → commit `progress/` alone.
-6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
-   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `follow-up-prs`.
-   - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
-   - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
-   - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
-
-**Lean close** — the conditions are verifiable, so this is not a judgment call: the session covered **one** user task and touched no critical area (`auth, permissions, payments, data integrity`). Both hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
 
 ## Spec Driven Development (SDD)
 

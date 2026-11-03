@@ -826,7 +826,6 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     // Managed blocks: prose contracts, no host dependency.
     ...igualUnits("managed-block", [
       "arranque-sesion",
-      "cierre-sesion",
       "code-discovery-routing",
       "codex-cross-review",
       "formato-respuesta",

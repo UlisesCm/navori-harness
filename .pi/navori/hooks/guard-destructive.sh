@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="5872ff47" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="4a41cac5" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -826,7 +826,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/context/10-orquestacion.md
 .claude/context/20-agentes-disponibles.md
 .claude/context/30-arranque-sesion.md
-.claude/context/40-cierre-sesion.md
 .claude/hooks/audit-mode-close.sh
 .claude/hooks/audit-mode-trigger.sh
 .claude/hooks/bash-outcome-watch.sh

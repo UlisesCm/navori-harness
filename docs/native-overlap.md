@@ -58,7 +58,6 @@ Las columnas de paridad Codex salen de `CODEX_PARITY` (`packages/cli/src/engines
 | hook | `engram-write-guard` | complementa | unsupported | emit | — | — | equivalente | Codex-only PreToolUse(mcp__engram__ \| mcp__plugin_engram_engram__): a subagent may call only the engram tools Claude grants its role in `tools:` (auditor reads + mem_save; implementer/reviewer/scout reads; architect/publisher/scribe none); the main thread is never blocked; Claude restricts with `tools:`, so the hook is not rendered there. A `default` or unknown child gets only mem_search and mem_get_observation (deliberate hardening, Claude's general-purpose inherits all). Registered after plan-gate to keep every published trust index: toggling `harness.planTiers` or `harness.masterPlan` shifts this row's index and needs one re-approval in /hooks; until approved it does not run. Not smoked on its own, so not enforcing | — | — | — |
 | hook | `stop-verify-reminder` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | managed-block | `arranque-sesion` | complementa | emit | emit | — | — | igual | — | — | — | — |
-| managed-block | `cierre-sesion` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | managed-block | `code-discovery-routing` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | managed-block | `codex-cross-review` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | managed-block | `formato-respuesta` | complementa | emit | emit | — | — | igual | — | — | — | — |

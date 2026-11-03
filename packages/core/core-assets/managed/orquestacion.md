@@ -11,9 +11,10 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, ephemeral probe | yourself |
 
-- One review per PR; later minor fixes get a delta review, not a new cycle.
-- Checks run once on the final diff; rerun only what a later change or failure invalidated. <!-- navori:if-not onCodex -->`{{gateRun.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->The gate named in "Session closeout"<!-- /navori:if --> green once per PR.
-- A subagent ban is respected: work directly and say so in the reply.
+- One review per PR; minor fixes, a delta review.
+- Checks run once on the final diff; rerun only what a later change or failure invalidated. <!-- navori:if-not onCodex -->`{{gateRun.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->`{{qualityGate.full}}`<!-- /navori:if --> green once per PR.
+- At close, apply `verify-before-done`'s Session close.
+- Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 <!-- /navori:if --><!-- navori:if scribeOwnsMarkdown -->- **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md

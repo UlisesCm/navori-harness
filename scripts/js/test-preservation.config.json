@@ -2,6 +2,19 @@
   "baseRef": "origin/dev",
   "files": [
     {
+      "path": "packages/cli/src/lib/__tests__/core-templates.test.ts",
+      "removedCases": [
+        {
+          "title": "references the gateRun.full placeholder",
+          "reason": "The cierre-sesion managed block was retired (#1455); its gate step now lives in verify-before-done, which uses the plain gate placeholders."
+        },
+        {
+          "title": "does not wrap the qualityGate placeholder in backticks",
+          "reason": "The cierre-sesion managed block was retired (#1455); the asset that carried this placeholder no longer exists."
+        }
+      ]
+    },
+    {
       "path": "packages/cli/src/lib/master/__tests__/slice.test.ts"
     },
     {
