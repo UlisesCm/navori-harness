@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
+import { checkOnePageSpec } from "../spec/onepage.ts";
 import { PartsSchema, type Part } from "./schema.ts";
 import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
 
@@ -160,6 +161,50 @@ export function validatePartSpec(
   return failures;
 }
 
+/**
+ * Validate a part linked to a one-page `spec.md`: structure via `checkOnePageSpec`, and every own
+ * criterion cited either as `P<n>.A<m>` or as a bare whole-word `A<m>`. Errors block; `warning:`
+ * entries are informational (callers filter them).
+ */
+export function validateOnePagePartSpec(
+  part: Part,
+  allParts: readonly Part[],
+  text: string,
+): string[] {
+  const failures: string[] = [];
+  for (const finding of checkOnePageSpec(text).findings) {
+    const line = `spec.md: [${finding.rule}] ${finding.message}`;
+    failures.push(finding.severity === "error" ? line : `warning: ${line}`);
+  }
+  const known = new Set(allParts.flatMap((p) => p.acceptance.map((a) => `${p.id}.${a.id}`)));
+  const ownIds = new Set(part.acceptance.map((a) => a.id));
+  const cited = new Set<string>();
+  for (const id of new Set(text.match(CRITERION) ?? [])) {
+    if (!known.has(id)) failures.push(`spec.md cites nonexistent criterion ${id}`);
+    else if (id.startsWith(`${part.id}.`)) cited.add(id.slice(part.id.length + 1));
+    else failures.push(`warning: spec.md cites criterion from another part ${id}`);
+  }
+  // Qualified tokens are removed first so `P2.A1` never counts as a bare `A1`.
+  const bare = new Set(text.replace(CRITERION, " ").match(/\bA\d+\b/g) ?? []);
+  for (const id of bare) {
+    if (ownIds.has(id)) cited.add(id);
+    else failures.push(`warning: spec.md mentions ${id}, which is not a criterion of ${part.id}`);
+  }
+  for (const id of ownIds)
+    if (!cited.has(id)) failures.push(`criterion ${part.id}.${id} is not cited in spec.md`);
+  return failures;
+}
+
+/** Read `path` only when its real location stays inside `dir` (symlink containment). */
+function readContained(path: string, dir: string): string | null {
+  try {
+    const real = realpathSync(path);
+    return real.startsWith(`${realpathSync(dir)}${sep}`) ? readFileSync(real, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
 function checkPartFiles(
   cwd: string,
   spec: string,
@@ -168,6 +213,12 @@ function checkPartFiles(
   language: Lang,
   options: PartCheckOptions,
 ): string[] {
+  const onePage = join(spec, "spec.md");
+  if (existsSync(onePage)) {
+    const text = readContained(onePage, spec);
+    if (text === null) return [`spec.md is outside the spec directory: ${onePage}`];
+    return validateOnePagePartSpec(part, allParts, text);
+  }
   const paths = ["tasks.md", "design.md", "requirements.md"].map((name) => join(spec, name));
   const missing = paths.filter((path) => !existsSync(path));
   if (missing.length) return missing.map((path) => `missing ${path}`);

@@ -436,6 +436,54 @@ describe("master status", () => {
     expect(readMasterStatus(cwd).blockers).toContain("P1.A1: sin evidencia");
   });
 
+  // Covers: R31, R40
+  it("derives a part linked to a one-page spec.md from criterion evidence alone", () => {
+    const approval = { kind: "approval", approvedBy: "user", date: "2026-01-01" };
+    const criteria = (evidences: unknown[]) =>
+      evidences.map((evidence, i) => ({
+        id: `A${i + 1}`,
+        description: "Works",
+        method: "manual",
+        manual: { check: "review", how: "inspect" },
+        evidence,
+      }));
+    const write = (parts: unknown[]): void =>
+      writeFileSync(
+        join(cwd, "specs/_master/01-mvp/parts.json"),
+        JSON.stringify({ version: 1, parts }),
+      );
+    const onePage = join(cwd, "specs/one");
+    const legacy = join(cwd, "specs/legacy");
+    mkdirSync(onePage, { recursive: true });
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(join(onePage, "spec.md"), "# One page\n");
+    writeFileSync(join(legacy, "tasks.md"), "- [ ] open\n");
+    const link = (id: string, spec: string, evidences: unknown[]) => ({
+      ...part("pendiente"),
+      id,
+      spec,
+      acceptance: criteria(evidences),
+    });
+    const effectiveOf = (evidences: unknown[]) => {
+      write([link("P1", "specs/one", evidences), link("P2", "specs/legacy", evidences)]);
+      return readMasterStatus(cwd).parts.map((p) => [p.effective, p.tasksDone, p.tasksTotal]);
+    };
+    // Legacy behavior is unchanged: an open task with missing evidence reads parcial.
+    expect(effectiveOf([null, null])).toEqual([
+      ["pendiente", 0, 0],
+      ["parcial", 0, 1],
+    ]);
+    expect(effectiveOf([approval, null])).toEqual([
+      ["parcial", 0, 0],
+      ["parcial", 0, 1],
+    ]);
+    // Legacy part stays pendiente (its task is open); the one-page part closes on evidence.
+    expect(effectiveOf([approval, approval])).toEqual([
+      ["hecho", 0, 0],
+      ["pendiente", 0, 1],
+    ]);
+  });
+
   // Covers: R31, R54
   it("renders a stable master-parts hash", () => {
     const parts = JSON.parse(
