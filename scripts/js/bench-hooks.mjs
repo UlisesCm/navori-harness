@@ -71,6 +71,20 @@ export const SUPPLEMENTAL_SCENARIOS = {
     events: ["PostToolUseFailure"],
     tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
   },
+  // Long multi-segment Bash commands (#1481), report only: they live outside SCENARIOS, so neither
+  // the BASH_BUDGET_MS check (reads `Bash`) nor bench-context (iterates SCENARIOS) sees them.
+  ...Object.fromEntries(
+    ["6k", "40k"].flatMap((size) =>
+      ["grep", "nogrep"].map((filter) => [
+        `BashLong${size}${filter === "grep" ? "Grep" : "NoGrep"}`,
+        {
+          payload: `bash-long-${size}-${filter}.json`,
+          events: ["PreToolUse", "PostToolUse"],
+          tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
+        },
+      ]),
+    ),
+  ),
   SessionEnd: { events: ["SessionEnd"] },
   Memory: {
     events: ["PreToolUse"],
@@ -303,7 +317,9 @@ export function createSandbox(sourceRoot = REPO_ROOT, { requireDist = false } = 
   const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-bench-hooks-")));
   const project = join(root, "project");
   mkdirSync(project, { recursive: true });
-  for (const tree of [".claude/hooks", ".codex/hooks", ".pi/navori"]) {
+  // `scripts/` holds what guard-destructive sources (guard-search-routing); without it the guard
+  // skips that pass and the bench under-reports it (`.pi/navori` already carries its own copy).
+  for (const tree of [".claude/hooks", ".claude/scripts", ".codex/hooks", ".codex/scripts", ".pi/navori"]) {
     if (existsSync(join(sourceRoot, tree))) cpSync(join(sourceRoot, tree), join(project, tree), { recursive: true });
   }
   if (existsSync(join(sourceRoot, "navori.config.json"))) {
@@ -613,7 +629,7 @@ function summarize(paths) {
  * @returns {string}
  */
 export function writePayload(sandbox, scenario, reg) {
-  const spec = SCENARIOS[scenario];
+  const spec = SCENARIOS[scenario] ?? SUPPLEMENTAL_SCENARIOS[scenario];
   const payloadPath = join(
     sandbox.root,
     `${reg.engine}-${scenario}-${reg.event}.json`,
@@ -651,7 +667,7 @@ export function writePayload(sandbox, scenario, reg) {
       tool_input: { url: "https://example.com/", prompt: "benchmark fixture" },
     },
   }[scenario];
-  if (supplemental) {
+  if (supplemental && !spec.payload) {
     writeFileSync(payloadPath, JSON.stringify(supplemental) + "\n");
     return payloadPath;
   }
@@ -730,10 +746,10 @@ function main(argv) {
                 scenarioEnvironment(sandbox, scenario, reg, audit),
               ),
             );
-            const supplemental = Object.hasOwn(
-              SUPPLEMENTAL_SCENARIOS,
-              scenario,
-            );
+            // Payload-file scenarios (long Bash) are plain timing reports: no outcome capture.
+            const supplemental =
+              Object.hasOwn(SUPPLEMENTAL_SCENARIOS, scenario) &&
+              !SUPPLEMENTAL_SCENARIOS[scenario].payload;
             const counted = countOnce(
               reg.command,
               payloadPath,

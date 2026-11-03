@@ -72,7 +72,10 @@ cmd="${cmd//"$navori_subst"/$navori_semi}"
 # removing the backslash here would split the segment (spec 0052 R36). The cost
 # is asking on `echo "navori master close"`, the safe direction. A word split by
 # quotes (`navo"ri`) is deliberate obfuscation this hook does not claim to catch.
-cmd="${cmd//[\"\']/}"
+# `tr`, not `${cmd//[\"\']/}`: bash 3.2's class substitution is superlinear (44 s
+# on 6.5 KB). `$(…)` trims trailing newlines, harmless: the next step splits on
+# newlines and an empty segment never matches.
+cmd=$(printf '%s' "$cmd" | LC_ALL=C tr -d "\"'")
 is_scan_trigger "$cmd" || exit 0
 
 approval_description="a manual criterion"

@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../../lib/render/hook-includes.ts";
 import { acrossShells, type HookShell } from "../../../lib/__tests__/helpers/shells.ts";
+import { createExecShims, expectLinearScaling } from "../../../lib/__tests__/helpers/exec-shims.ts";
 
 /** Backslash continuation and quote-stripping of `sh -c`/`eval` payloads are parsed by the shell (#391). */
 const CONTINUATION_SENSITIVE =
@@ -336,6 +337,65 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   it("emits the fixed reason without jq or node", () => {
     expectAsk(payload("navori master part P2 --accept A3 --approved-by user"), {
       PATH: "/usr/bin:/bin",
+    });
+  });
+
+  // Issue #1481: bash 3.2's `${var//[class]/}` is superlinear (6.5 KB took 44 s, over Pi's 10 s
+  // hook timeout) and a `grep` fork per segment made the cost scale with the segment count. The
+  // checks below are about SHAPE (fork counts, scaling), never an absolute time.
+  describe("long multi-segment commands containing navori and master (issue #1481)", () => {
+    // Several `&&`/`|`/`;` per line: realistic long commands have many segments.
+    const line = `echo 'navori master check' && ls /Users/x/navori-harness/packages | grep "core"; cat a || true\n`;
+    const heredoc = `cat <<'EOF'\n${"navori master line with 'quotes' and \"more\"\n".repeat(400)}EOF\n`;
+    const trigger = "navori master part P2 --accept A3 --approved-by user";
+    const hookRun = (command: string, env?: NodeJS.ProcessEnv): HookRun =>
+      runHook("bash", payload(command), env);
+
+    // Covers: R62
+    it("forks the same constant number of grep/awk/tr/sed for 20 and 200 lines", () => {
+      const shims = createExecShims();
+      const counts = (lines: number): Record<string, number> => {
+        shims.reset();
+        const result = hookRun(line.repeat(lines), shims.env);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+        return shims.counts();
+      };
+      const small = counts(20);
+      const large = counts(200);
+      expect(large).toEqual(small);
+      // The segment scan is ONE grep over the whole stream, not one per segment.
+      expect(large.grep).toBeGreaterThanOrEqual(1); // the shims really observe execs
+      expect(large.grep).toBeLessThanOrEqual(2);
+    });
+
+    // Covers: R62
+    it("scales linearly: a 20 KB command costs at most 2.5x a 10 KB one (median of 3)", () => {
+      expectLinearScaling(
+        () => hookRun(line.repeat(105)),
+        () => hookRun(line.repeat(210)),
+      );
+    });
+
+    // Covers: R62
+    it("stays silent on a 40 KB command without a trigger", () => {
+      const filler = line.repeat(440);
+      expect(filler.length).toBeGreaterThan(40_000);
+      const result = hookRun(filler);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe("");
+    });
+
+    // Covers: R62
+    it("still asks when the same 40 KB command ends with a real trigger", () => {
+      const result = hookRun(`${line.repeat(440)}${trigger}`);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+    });
+
+    // Covers: R62
+    it("asks on a trigger after a ~400-line heredoc body", () => {
+      const result = hookRun(`${heredoc}${trigger}\n`);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
     });
   });
 });

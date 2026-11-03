@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "5432ecfe5d48f963fde3f1340f60e14cb27b245fa4dfda4a6b3ec07befc4c125"
+    "hash": "efa4fb2504ffa5a58cc5c779991da45d1bb1d155d692bc3dfab4ad6b8c0b3a4e"
   },
   "schemaVersion": 2,
   "agents": [
@@ -59,18 +59,6 @@
     {
       "script": "comment-draft-confirm",
       "path": ".pi/navori/hooks/comment-draft-confirm.sh",
-      "on": "tool_call",
-      "tools": [
-        "bash"
-      ],
-      "scope": "all",
-      "class": "enforced",
-      "interactive": true,
-      "timeoutMs": 10000
-    },
-    {
-      "script": "master-accept-confirm",
-      "path": ".pi/navori/hooks/master-accept-confirm.sh",
       "on": "tool_call",
       "tools": [
         "bash"
@@ -170,7 +158,6 @@
     ".pi/navori/hooks/guard-destructive.sh",
     ".pi/navori/hooks/implementer-no-markdown.sh",
     ".pi/navori/hooks/managed-drift-watch.sh",
-    ".pi/navori/hooks/master-accept-confirm.sh",
     ".pi/navori/hooks/pr-publisher-confirm.sh",
     ".pi/navori/hooks/quality-gate-pre-commit.sh",
     ".pi/navori/hooks/routing-watch.sh",

@@ -111,6 +111,8 @@ export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
     class: "enforced",
     interactive: true,
     timeoutMs: 10_000,
+    // Registration parity with Claude (build-settings.ts): only under harness.masterPlan.
+    when: (config) => Boolean(config.harness?.masterPlan),
   },
   // Spec 0048 T12/R8: a child never backgrounds work (`cmd &`, nohup, setsid, disown). The script
   // keys on `agent_id`, which the bridge sends only in children, so the parent is never in scope.
