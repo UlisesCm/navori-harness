@@ -27,7 +27,7 @@ assert.ok(registry, "CLI command registry must be independently readable");
 const commands = [...registry.matchAll(/^\s*([a-z][\w-]*)\s*:/gm)].map((match) => match[1]!);
 assert.equal(
   commands.length,
-  29,
+  28,
   "Update the expected inventory intentionally when adding commands",
 );
 const topics = ["", "quickstart", "deep-dive", "releases", ...commands.map((id) => "docs/" + id)];

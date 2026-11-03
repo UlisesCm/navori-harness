@@ -63,7 +63,7 @@
   <!-- stats: full width, below the terminal so nothing overlaps -->
   <g transform="translate(80, 502)" font-family="ui-monospace, monospace" font-size="21"
      fill="#64748b">
-    <text x="0" y="0">29 commands</text><circle cx="154" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="0" y="0">28 commands</text><circle cx="154" cy="-6" r="2.5" fill="#a78bfa"/>
     <text x="186" y="0">13 presets</text><circle cx="340" cy="-6" r="2.5" fill="#a78bfa"/>
     <text x="372" y="0">5 plugins</text><circle cx="526" cy="-6" r="2.5" fill="#a78bfa"/>
     <text x="558" y="0">6 engines</text>
