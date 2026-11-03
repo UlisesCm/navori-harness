@@ -254,7 +254,9 @@ export function migrateRetiredConfigKeys(
   return { config, renamed, dropped, decisions, removed };
 }
 
-const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full", "scoped", "nativeHooks"] };
+const QUALITY_GATE_RULE: ConfigObjectRule = {
+  keys: ["fast", "full", "scoped", "affected", "docs", "nativeHooks"],
+};
 
 /**
  * Raw-config key map used for advisory typo diagnostics.
