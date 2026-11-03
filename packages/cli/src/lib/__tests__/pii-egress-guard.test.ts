@@ -193,6 +193,19 @@ describe("pii-egress-guard — blocks an identifier sent to an external host (#1
     );
   });
 
+  it("covers scheme-less httpie as a whole word (#1489)", () => {
+    for (const cmd of [
+      `http POST api.example.com User-Agent:${EMAIL}`,
+      `xh api.example.com email=${EMAIL}`,
+      `cd /tmp && https api.example.com email=${EMAIL}`,
+      `echo ok;xhs api.example.com email=${EMAIL}`,
+      `/usr/local/bin/http api.example.com email=${EMAIL}`,
+      `http --download api.example.com email=${EMAIL} -o /tmp/out`,
+    ]) {
+      expectBlocked(bash(cmd), "the configured user email");
+    }
+  });
+
   it("blocks an inline interpreter request", () => {
     expectBlocked(
       bash(`node -e "fetch('https://x.example.com/?u=${EMAIL}')"`),
@@ -292,8 +305,13 @@ describe("pii-egress-guard — allows everything else (#1445)", () => {
     expectAllowed(web("WebFetch", { url: `http://localhost:3000/?u=${EMAIL}` }));
   });
 
+  it("allows scheme-less httpie with a generic identifier (#1489)", () => {
+    expectAllowed(bash(`http POST api.example.com User-Agent:${GENERIC}`));
+  });
+
   it("allows ordinary Bash with network-looking words", () => {
     expectAllowed(bash(`git log --since=1d && bun run sync`));
+    expectAllowed(bash(`echo ${EMAIL} > notes/httpx-xhttp.txt && ls ~/http-project`));
     expectAllowed(bash(`ls ~/curl-project`));
     expectAllowed(bash(`echo "see https://example.com/docs"`));
   });
