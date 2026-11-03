@@ -3,6 +3,58 @@
 **Estado:** aceptada; reestructurada el 2026-10-31 · **Fecha:** 2026-10-28 · **Base:** `migration/rust`
 en `b0b64ddd` (#1442). Sus tres entregas abren su PR contra `migration/rust`.
 
+## Enmienda de alcance (2026-11-02): lo congelado en `dev` sale de la cola
+
+**Origen.** El inventario de limpieza de `dev` (`docs/cleanup-inventory.md`), las decisiones del
+2026-11-02 en #1484 y #1502 congelan partes de navori. Una parte congelada sigue funcionando en TS
+detrás de su flag, no recibe funciones nuevas y no se porta a Rust. Esta enmienda aplica esa regla a
+la cola larga. No reescribe la spec: en `tasks.md`, las tareas y los oráculos de paridad de lo que
+sale quedan marcados "Fuera de alcance (2026-11-02)" y se conservan. La tabla de D40 (`design.md`)
+se lee con estas salidas.
+
+**Qué sale y cómo se resuelve.**
+
+| Elemento | Entrega | Por qué | Resolución |
+|---|---|---|---|
+| `audit` (todos sus subcomandos y flags) y `lib/audit` | E2 (T19) | audit mode congelado (#1484, decisión 3; `hooks.auditMode` en #1502) | delegación permanente al TS (D48) |
+| `audit-mode-trigger`, `audit-mode-close` | E2 (T21) | igual | sin puerto: corre su cuerpo shell y su `navori audit` va al TS por R72 |
+| `bench` | E2 (T20) | #1502 lo retira del binario | sale del inventario al integrar `dev`; no se porta ni se delega |
+| `codex` (`evaluation`, `profile`, `approval`, `integration`, `trust`) | E3 (T28) | subcomandos congelados (#1484, decisión 5) | delegación permanente; la rama Codex de `pr-publisher-confirm` ya llama `navori codex approval request` por R72 |
+| `master init` y los diez `master delivery-*` | E1 (T8, PR 1e) | master plan congelado hasta su rediseño (#1484) | delegación permanente |
+
+**Qué no cambia.**
+- Lo ya nativo que quedó congelado (lo portado de `master`; `master-plan-context`,
+  `master-accept-confirm`, `implementer-no-markdown` y, de 0059, `model-advisor`, en `shadow`)
+  se queda como está hasta que el usuario decida si se conserva sin más trabajo de paridad o se
+  retira del binario.
+- `plan`, `plan-gate` y `routing-watch` no se congelaron: #1502 condiciona `routing-watch` a
+  `harness.planTiers`, que sigue vivo en `dev` (#1487).
+- `stop-verify-reminder`, `receipt`, `workspace`, `ticket` y `registry` figuran como "opt-in
+  congelado" solo en las propuestas del inventario, sin decisión: siguen en la cola.
+
+**Efectos sobre los requisitos.**
+- R70 y R71 aplican a 13 hooks, no a 15.
+- R73 y R77: lo que sale entra en la lista de delegación permanente de `scripts/js/rust-areas.mjs`
+  con el motivo "congelado en dev (#1484)", y el test de inventario por área lo acepta igual que el
+  manifiesto. Escribir esas entradas es parte de T16, T22 y T29.
+- Las delegaciones que hoy dependen de una sesión de auditoría en el entorno (por ejemplo
+  `master advance` o `handoff log-review`) quedan permanentes: el escritor de eventos de
+  `lib/audit/cli-event.ts` no se porta.
+- Los dos hooks de audit mode no entran al manifiesto; 0062 enmienda R20 para aceptarlos.
+
+**Estimado restante** (LOC Rust; referencia gruesa). Restante = estimado de la entrega × LOC TS
+de lo pendiente / LOC TS de toda la entrega, medido en `migration/rust` (`9b402ac91`).
+
+| Entrega | Estimado original | Restante antes | Restante después |
+|---|---|---|---|
+| E1 | 16 000 | ≈2 000 (`master init`, `delivery-*`, T16) | ≈200 (T16) |
+| E2 | 22 000 | 22 000 | ≈2 000 (`gate`, `receipt`, `tools`, 3 hooks, T22) |
+| E3 | 25 000 | 25 000 (#1473 abierto, ≈1 000) | ≈19 000 (sin `codex`, ≈5 700) |
+| Total | 63 000 | ≈49 000 | ≈21 000 |
+
+Hooks por portar: 7 de 15 antes; 5 de 13 después (`bash-outcome-watch`, `routing-watch`,
+`stop-verify-reminder`, `managed-drift-watch`, `worktree-reclaim`).
+
 **Reestructuración (decisiones del usuario, 2026-10-31; Q26–Q29 en `design.md`).** La fase 4 se
 parte en dos: esta spec se queda con la cola larga (E1–E3) y `specs/0062-rust-activacion-corte/`
 toma la activación, la distribución y el corte, con R18, R20–R22, R24 y R79–R85, que salen de este
