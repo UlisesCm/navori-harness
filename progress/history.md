@@ -1,5 +1,14 @@
 # History
 
+## 2026-11-02 21:55 Claude — Hooks de Pi lineales en bash 3.2 y fricciones de despacho de subagentes (#1490, #1501, #1504)
+
+- #1490 (Closes #1481, mergeado): `master-accept-confirm` quita comillas con `tr` y `navori_count_triggers` divide segmentos con un solo `awk` y un solo `grep -cE`. Un comando de 40 KB pasa de >70 s a 0.28 s; 6.5 KB de 17.8 s a 0.08 s. En Pi, `master-accept-confirm` se registra solo con `harness.masterPlan`, como en Claude. Tests de forma (procesos que no crecen con los segmentos) y escenarios largos en `bench:hooks`, cuyo sandbox ahora copia `.claude/scripts`. Equivalencia: 0 diferencias en 2060 casos (awk) y en 3025 aleatorios + 3510 positivos (conteo completo), en bash 3.2 y zsh. El prefiltro de `guard-search-routing` se midió y se quitó por no dar ganancia; el costo real va en #1491.
+- Diagnóstico con logs reales de Pi (paraguas #1493): 113 de 390 despachos con error (29 %). Issues: #1494 base de revisión, #1495 sub-slug del handoff, #1496 publisher en el padre, #1497 falso positivo de guard-destructive con una comilla doble dentro de `$(grep …)`, #1498 mensaje por causa y stderr del hijo. `audit.mode: "always"` cuesta ~17 s de espera por sesión de Pi.
+- #1501 (Closes #1494, mergeado): sin `--target` ni `--for`, el post-check del reviewer compara contra el target del sello de inicio de la revisión; el publisher y cualquier `--for` siguen estrictos. El detalle nombra la correlación y el campo que difiere.
+- #1504 (Closes #1495, abierto): el despacho le pasa al hijo la ruta exacta del handoff, y el error nombra los handoffs encontrados con otro nombre.
+
+Gate full: en verde para #1501 (10520 pasan) y #1504 (10565 pasan), uno a la vez, sin otro gate en la máquina.
+
 ## 2026-11-02 11:20 Claude — spec-bootstrap genera una spec.md de una página (PR #1483)
 
 Primer PR de cuatro para llevar a navori las reglas de slices de jey (`specs/_master/02-mvp-slices/MASTER.md`, auditoría del 01-mvp). `spec-bootstrap` reemplaza requirements/design/tasks, EARS y `// Covers: R<n>` por una sola `spec.md` (≤1,200 palabras, siete secciones fijas, guion ≤10 pasos, ≤8 tareas); la skill baja de 1,108 a 567 palabras (maxWords 906 → 568). `navori spec check` valida `spec.md` con `lib/spec/onepage.ts` (errores estructurales; avisos por estados faltantes y por versión/ruta/firma en tareas); `classify` la trata como un PR. La gramática E/M/A/T de `tasks.md` queda como compatibilidad de lectura. Sobre jey, `spec check 02-mvp-s01-cuenta-correo` da ok con 3 avisos.
