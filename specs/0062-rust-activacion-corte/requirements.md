@@ -32,12 +32,10 @@ los plugins en el manifiesto **o en la lista de hooks shell permanentes** de `ru
 ningún hook en `shadow` en los motores del corte". Un hook de esa lista corre su cuerpo shell en
 todos los engines, como hoy sin binario (D53), y los subcomandos que invoca van al TS congelado por
 R72 de 0060 y D50. La lista son los cinco hooks congelados, más `role-guard` y `engram-write-guard`
-en Codex. Al retomar la migración, el código Rust de `master-plan-context` y `master-accept-confirm`
-sale del manifiesto y del binario (enmienda de 0060). Extender `PERMANENT_DELEGATION` y
+en Codex. Al retomar la migración, el código Rust de esos cuatro ya portados
+(`master-plan-context`, `master-accept-confirm`, `role-guard` y `engram-write-guard`) sale del
+manifiesto y del binario junto con `master` (enmienda de 0060). Extender `PERMANENT_DELEGATION` y
 `cutover:check` a hooks y a motores es parte de T10.
-
-**Pendiente.** Si el código Rust ya portado de `role-guard` y `engram-write-guard` se conserva sin
-activar o se retira del binario.
 
 **Estimado restante** (LOC; referencia gruesa).
 
