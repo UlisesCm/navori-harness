@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="576474572e1c916d4dea14b23120f6610bda004a016ffc20d56aa9b8575b5766"
+# navori:managed-file id="pi-agent-implementer" hash="4c5ba79970babfd4dbe8b1f7a6dc221fe8eb3b22b2a6697a89771cd11cbd82de"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
 tools: ["read","grep","find","ls","bash","edit","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
@@ -42,7 +42,7 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 - **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.
 - **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
-- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
+- **Spec acceptance** (only if the feature has `specs/<feature>/spec.md`, see `spec-bootstrap`): make its acceptance script executable and deliver the happy-path E2E against the real surface, without mocks; one spec.md is one PR. Legacy `tasks.md` specs keep `// Covers: R<n>` per requirement.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.
 - Iterate with area tests only. Run step 4's fast gate at the end, not each iteration; never run full `navori gate full`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.

@@ -59,7 +59,7 @@ The test DB is brought up/migrated/seeded before and torn down after (`test:db:*
 1. **Factories, not inline fixtures.** Centralize test data construction in factories (`test-factories`) and the session in helpers (`test-auth`); don't repeat `session`/`data` objects in every file.
 2. **A single reusable context mock.** The `context` mock (with `sudo().db`) lives in a shared helper, not re-invented per test.
 3. **Access tested across the 3 layers + null session.** It's the most sensitive code; each layer and the no-session case have their test.
-4. **SDD traceability.** In SDD-scope features, each `R<n>` is covered by ≥1 test that references it in its name or a `// Covers: R<n>` comment.
+4. **Spec acceptance.** With a `spec.md`, its acceptance script runs as the happy-path e2e against a real Keystone instance, without mocks (legacy `tasks.md`: `// Covers: R<n>`).
 5. **Don't generate tests unless asked** (if the project defines it that way); when asked, they go to the right level (unit for logic, integration for contract).
 
 ## Vitest gotchas (v4.x)
@@ -72,5 +72,5 @@ The test DB is brought up/migrated/seeded before and torn down after (`test:db:*
 
 - New or touched hooks/access have unit tests (including the null session).
 - Test data comes from factories; the context comes from the shared mock.
-- If it's SDD-scope, each `R<n>` is traceable to a test.
+- With a `spec.md`, the happy-path e2e runs its acceptance script.
 - `{{qualityGate.fast}}` green (Docker tests run with the full gate).

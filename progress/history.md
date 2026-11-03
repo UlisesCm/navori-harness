@@ -1,5 +1,12 @@
 # History
 
+## 2026-11-03 13:00 Claude — PR 2 y PR 3 de slices verticales, guard-search-routing en una pasada y claves de config
+
+- #1505 (PR 2, mergeado): bloque SDD de una página y fila 3 de planificación con `spec.md` → `workplan: <feature>`; las specs con `tasks.md` conservan `spec: <spec> E<n> M<n>`.
+- #1507 (PR 3, mergeado): las partes heredadas de master-plan aceptan una `spec.md` de una página; master sigue congelado.
+- #1508 (Closes #1491, mergeado): guard-search-routing evalúa los inicios de segmento en una sola pasada.
+- #1510 (mergeado): el diagnóstico de claves reconoce `qualityGate.affected` y `qualityGate.docs`. Los avisos de claves desconocidas venían de un navori global viejo en PATH.
+
 ## 2026-11-02 23:40 Pi — 0060 E3: scan y status nativos, doctor 3a/3b en core y Q32 (#1473)
 
 T23 en `feat/0060-rust-e3-comandos`: `scan` nativo (8e73d3cc9; `--yes` escribe por writeConfig, delega el interactivo y Python) y `status` nativo (d4edb2211; veredicto de salud, drift, distribución y render pendiente; 24 casos nativos con señuelo, delega native hooks, monorepo, `.codex/` y settings ilegible). `doctor` partido en 3a–3d según el mapa del scout; 3a (ebe6706c7) y 3b (b0b63daa1) entran como módulos de navori-core con tests, sin cablear. Q32 (6e21d1f21): #1473 se mergea al cerrar M8 sin esperar el PR 2 ni M9, que pasa a un PR 4b. Título y descripción de #1473 actualizados; todo con push.
