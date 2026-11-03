@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="f946bfb1" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="f61411c3" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1847,8 +1847,7 @@ navori_strip_heredoc_bodies() {
 }
 
 # Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
-# global `navori_trigger_hits`. A second argument (1 = "any" in older callers)
-# is ignored: counting all hits costs the same single grep. The single home of the segment normalisation, shared with
+# global `navori_trigger_hits`. The single home of the segment normalisation, shared with
 # navori_commit_landing so the two can never disagree about what a segment is.
 navori_count_triggers() {
   local input="$1" segment
@@ -1935,7 +1934,7 @@ is_scan_trigger() {
   # the pair travels together; when unset the fast path disarms and the loop
   # runs exactly as before (fail-open to the SLOW path, never to a skip).
   has_trigger_token "$1" || return 1
-  navori_count_triggers "$1" 1
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -gt 0 ]
 }
 # Shared worktree resolver — inlined into each gate hook at render time (see the
@@ -2334,7 +2333,7 @@ navori_commit_landing() {
   local cd_dir="" found=0 more=1 cdcount=0 nl=$'\n' tab=$'\t'
   navori_landing="ambiguous"; navori_landing_root=""
 
-  navori_count_triggers "$1" 0
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -ge 1 ] || return 0
 
   navori_strip_heredoc_bodies "$1"

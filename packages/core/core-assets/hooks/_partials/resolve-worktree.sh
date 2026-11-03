@@ -394,7 +394,7 @@ navori_commit_landing() {
   local cd_dir="" found=0 more=1 cdcount=0 nl=$'\n' tab=$'\t'
   navori_landing="ambiguous"; navori_landing_root=""
 
-  navori_count_triggers "$1" 0
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -ge 1 ] || return 0
 
   navori_strip_heredoc_bodies "$1"
