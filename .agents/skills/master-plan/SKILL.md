@@ -7,7 +7,7 @@ metadata:
   maxWords: 2957
 ---
 
-<!-- navori:managed id="master-plan" hash="ceacd28f" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="f8899787" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
@@ -67,11 +67,11 @@ Antes de cerrar cada plan, `MASTER.md` y cada spec de parte comprueba: nada impl
 
 ## Spec de una parte
 
-Cuando una parte arranque, crea su spec con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada tarea debe declarar archivos exactos, interfaces, archivo patrón, lista cerrada de lectura, versiones fijas de librerías, comando y resultado esperado, pruebas nombradas y fuera de alcance; no escribas cuerpos de funciones en las tareas. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y aparecer en al menos un `R<n>`; cada requisito que cite un criterio debe apuntar a uno existente. Corre `navori master check --part P<n>`.
+Cuando una parte arranque, crea su `spec.md` de una página con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y citarse en la `spec.md` como `P<n>.A<m>` o `A<m>`, normalmente en su guion de aceptación. Una parte heredada con `tasks.md` conserva las reglas de su plantilla `tasks.md` y la cita de cada criterio en un `R<n>`. Corre `navori master check --part P<n>`.
 
 ### Part-spec: entregas funcionales
 
-En una spec de proyecto con entregas, cada `E<n>` del `tasks.md` de la parte debe declarar su entrega usando la identidad exacta del `E<n>` en `parts.json`. Clasificar la spec con `navori spec classify` antes de dividirla por entregas según `sdd.deliveries`. Con entregas activas, `navori spec check` valida que cada `E<n>` del `tasks.md` mapea a una entrega existente de `parts.json`. Sin entregas, se ignora este mapeo y la spec sigue el flujo clásico de un PR por spec.
+Con entregas, una `spec.md` pertenece a la entrega `deliveryId` de su parte en `parts.json`. Solo en specs heredadas con `tasks.md`, cada `E<n>` usa la identidad exacta del `E<n>` en `parts.json`: clasifícala con `navori spec classify` antes de dividirla según `sdd.deliveries`, y `navori spec check` valida el mapeo. Sin entregas, la spec sigue el flujo clásico de un PR por spec.
 
 ## Issues de GitHub
 

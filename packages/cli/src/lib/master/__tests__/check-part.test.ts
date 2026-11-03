@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PartsSchema } from "../schema.ts";
-import { validatePartSpec } from "../check-part.ts";
+import { validateOnePagePartSpec, validatePartSpec } from "../check-part.ts";
 
 const cwd = process.cwd();
 const parts = PartsSchema.parse({
@@ -168,5 +168,83 @@ describe("part spec rigor", () => {
         "criterion P1.A1 is not cited by any R<n>",
       ]);
     });
+  });
+});
+
+describe("one-page spec.md part check", () => {
+  const manual = { method: "manual", manual: { check: "c", how: "h" } } as const;
+  const twoParts = PartsSchema.parse({
+    version: 1,
+    parts: [
+      {
+        id: "P1",
+        title: "One",
+        objective: "Ship",
+        acceptance: [
+          { id: "A1", description: "Manual", ...manual },
+          {
+            id: "A2",
+            description: "Cmd",
+            method: "comando",
+            command: { run: "true", expected: "exit 0" },
+          },
+        ],
+      },
+      {
+        id: "P2",
+        title: "Two",
+        objective: "Ship",
+        acceptance: [{ id: "A1", description: "Manual", ...manual }],
+      },
+    ],
+  }).parts;
+  const base = readFileSync(new URL("./fixtures/jey-02-mvp-s01-spec.md", import.meta.url), "utf8");
+  const noCitations = base.replace(/\bA[12]\b/g, "uno");
+  const check = (text: string): string[] => validateOnePagePartSpec(twoParts[0]!, twoParts, text);
+  const blocking = (text: string): string[] => check(text).filter((f) => !f.startsWith("warning:"));
+
+  // Covers: R35
+  it("accepts the real jey spec citing bare A1 and A2", () => {
+    expect(blocking(base)).toEqual([]);
+  });
+
+  // Covers: R35
+  it("accepts qualified citations", () => {
+    expect(blocking(`${noCitations}\nCubre P1.A1 y P1.A2.\n`)).toEqual([]);
+  });
+
+  // Covers: R35
+  it("rejects an uncited own criterion", () => {
+    expect(blocking(`${noCitations}\nSolo A1.\n`)).toEqual([
+      "criterion P1.A2 is not cited in spec.md",
+    ]);
+  });
+
+  // Covers: R35
+  it("does not count another part's qualified citation as a bare one", () => {
+    expect(blocking(`${noCitations}\nA2. P2.A1.\n`)).toEqual([
+      "criterion P1.A1 is not cited in spec.md",
+    ]);
+    expect(check(`${noCitations}\nA1 A2 P2.A1\n`)).toContain(
+      "warning: spec.md cites criterion from another part P2.A1",
+    );
+  });
+
+  // Covers: R35
+  it("rejects a nonexistent qualified criterion", () => {
+    expect(blocking(`${base}\nP1.A9\n`)).toContain("spec.md cites nonexistent criterion P1.A9");
+  });
+
+  // Covers: R35
+  it("only warns about a bare unknown A9", () => {
+    const failures = check(`${base}\nA9\n`);
+    expect(failures.filter((f) => !f.startsWith("warning:"))).toEqual([]);
+    expect(failures.some((f) => f.startsWith("warning:") && f.includes("A9"))).toBe(true);
+  });
+
+  // Covers: R35
+  it("blocks on a one-page structural error", () => {
+    const broken = base.replace(/^## Fuera de alcance[\s\S]*$/m, "");
+    expect(blocking(broken).some((f) => f.startsWith("spec.md: [missing-section]"))).toBe(true);
   });
 });
