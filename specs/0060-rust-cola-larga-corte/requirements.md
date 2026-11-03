@@ -3,6 +3,63 @@
 **Estado:** aceptada; reestructurada el 2026-10-31 · **Fecha:** 2026-10-28 · **Base:** `migration/rust`
 en `b0b64ddd` (#1442). Sus tres entregas abren su PR contra `migration/rust`.
 
+## Enmienda de alcance (2026-11-02): lo congelado en `dev` sale de la cola
+
+**Origen.** El inventario de limpieza de `dev` (`docs/cleanup-inventory.md`), las decisiones del
+2026-11-02 en #1484 y #1502 congelan partes de navori. Una parte congelada sigue funcionando en TS
+detrás de su flag, no recibe funciones nuevas y no se porta a Rust. Esta enmienda aplica esa regla a
+la cola larga, con las decisiones del usuario en #1503. No reescribe la spec: en `tasks.md`, las
+tareas y los oráculos de paridad de lo que sale quedan marcados "Fuera de alcance (2026-11-02)" y se
+conservan. La tabla de D40 (`design.md`) se lee con estas salidas.
+
+**Qué sale y cómo se resuelve.** Todo lo que sale va a la delegación permanente al TS (R72 y D48),
+salvo `bench`.
+
+| Elemento | Entrega | Por qué |
+|---|---|---|
+| `master` completo (lo nativo incluido) y `master-plan-context`, `master-accept-confirm` | E1 (T8, T9) | master plan congelado hasta su rediseño (#1484) |
+| `audit` (todos sus subcomandos y flags), `audit-mode-trigger`, `audit-mode-close` | E2 (T19, T21) | audit mode congelado (#1484, decisión 3; `hooks.auditMode` en #1502) |
+| `stop-verify-reminder` | E2 (T21) | congelado por el usuario (#1503) |
+| `bench` | E2 (T20) | #1502 lo retira del binario: no se porta ni se delega |
+| `codex` (sus cinco subcomandos) | E3 (T28) | subcomandos congelados (#1484, decisión 5); Codex no bloquea el corte (#1503) |
+| `workspace`, `ticket`, `registry` | E3 (T28) | congelados por el usuario (#1503) |
+
+- Un hook que sale no entra al manifiesto: corre su cuerpo shell y los `navori` que invoca van al
+  TS por R72. 0062 enmienda R20 para aceptarlo.
+- **Código Rust ya portado que sale del binario.** `master` (`navori-cli/src/master*.rs`,
+  `navori-core/src/master/`) y sus dos hooks, `role-guard` y `engram-write-guard`
+  (`navori-hooks/src/hooks/role_guard/`, `engram_write_guard/`; solo Codex, que no cubre el corte)
+  y `navori-core/src/workspace/registry.rs` salen del manifiesto y del binario cuando se retome la
+  migración; no se borran en esta enmienda. Hasta entonces nada los mantiene en paridad. #1473 sigue
+  abierto mientras la migración esté en pausa; al retomarla se le quita `registry` antes de
+  mergearlo.
+- **Se conservan** `implementer-no-markdown` y `model-advisor` (0059), ya portados.
+- **Siguen en la cola** `plan`, `plan-gate` y `routing-watch` (`harness.planTiers` sigue vivo,
+  #1487) y `receipt` (depende de #1492).
+
+**Efectos sobre los requisitos.**
+- R70 y R71 aplican a 8 hooks, no a 15: salen los cinco congelados y los dos de solo Codex.
+- R73 y R77: lo que sale entra en la lista de delegación permanente de `scripts/js/rust-areas.mjs`
+  con el motivo "congelado en dev (#1484)", y el test de inventario por área lo acepta igual que el
+  manifiesto. Escribir esas entradas es parte de T16, T22 y T29.
+- Las delegaciones que hoy dependen de una sesión de auditoría en el entorno (por ejemplo
+  `handoff log-review`) quedan permanentes: el escritor de eventos de `lib/audit/cli-event.ts` no
+  se porta.
+
+**Estimado restante** (LOC Rust; referencia gruesa). Restante = estimado de la entrega × LOC TS
+de lo pendiente / LOC TS de toda la entrega, medido en `migration/rust` (`9b402ac91`).
+
+| Entrega | Estimado original | Restante antes | Restante después |
+|---|---|---|---|
+| E1 | 16 000 | ≈2 000 (`master init`, `delivery-*`, T16) | ≈200 (T16) |
+| E2 | 22 000 | 22 000 | ≈1 800 (`gate`, `receipt`, `tools`, 2 hooks, T22) |
+| E3 | 25 000 | 25 000 (#1473 abierto, ≈1 000) | ≈16 500 (sin `codex`, `workspace`, `ticket` ni `registry`) |
+| Total | 63 000 | ≈49 000 | ≈18 500 |
+
+Hooks por portar: 7 de 15 antes; 4 de 8 después (`bash-outcome-watch`, `routing-watch`,
+`managed-drift-watch`, `worktree-reclaim`). Retirar el código Rust de `master`, `role-guard`,
+`engram-write-guard` y `registry` (≈9 800 LOC) es poda y no suma al estimado.
+
 **Reestructuración (decisiones del usuario, 2026-10-31; Q26–Q29 en `design.md`).** La fase 4 se
 parte en dos: esta spec se queda con la cola larga (E1–E3) y `specs/0062-rust-activacion-corte/`
 toma la activación, la distribución y el corte, con R18, R20–R22, R24 y R79–R85, que salen de este
