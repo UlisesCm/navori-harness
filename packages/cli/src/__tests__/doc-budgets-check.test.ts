@@ -17,7 +17,6 @@ import {
   COMPUTED_BLOCK_FORMULAS,
   DOC_BUDGETS,
   MANAGED_ASSET_PATHSPECS,
-  MARKER_PAIR_WORDS,
   PROSE_WRAPPER_CEILINGS,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   computedBlockCeiling,
@@ -449,14 +448,13 @@ describe("doc-budgets module (#917)", () => {
   it("maps every ceiling onto the block id that renders it", () => {
     const byId = managedBlockCeilings();
     expect(byId["operaciones-seguras"]).toBe(
-      DOC_BUDGETS["packages/core/core-assets/managed/operaciones-seguras.md"]! + MARKER_PAIR_WORDS,
+      DOC_BUDGETS["packages/core/core-assets/managed/operaciones-seguras.md"],
     );
     expect(byId["tgrep-search-v2"]).toBe(
-      DOC_BUDGETS["packages/plugins/tgrep/managed/tgrep-search-v2.md"]! + MARKER_PAIR_WORDS,
+      DOC_BUDGETS["packages/plugins/tgrep/managed/tgrep-search-v2.md"],
     );
     expect(byId["stack-vite-react-ts-mantine"]).toBe(
-      DOC_BUDGETS["packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md"]! +
-        MARKER_PAIR_WORDS,
+      DOC_BUDGETS["packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md"],
     );
     // `CLAUDE.md` is a FILE ceiling, not a block: it must not leak in as an id.
     expect(byId["CLAUDE.md"]).toBeUndefined();
@@ -544,11 +542,10 @@ describe("doc-budgets module (#917)", () => {
   /**
    * `navori-agents` — the id BOTH `codex` and `agents-md` stamp around the
    * whole prose body — is the one block id in `managedBlockCeilings()` with no
-   * source asset path behind it. Confirms it merges in as-is (no
-   * `MARKER_PAIR_WORDS`, unlike every path-derived entry): the number is
-   * measured on the RENDERED file, markers already included.
+   * source asset path behind it. Confirms it merges in as-is: the number is
+   * measured on the RENDERED file.
    */
-  it("merges PROSE_WRAPPER_CEILINGS into managedBlockCeilings without the marker-pair addend", () => {
+  it("merges PROSE_WRAPPER_CEILINGS into managedBlockCeilings as-is", () => {
     const byId = managedBlockCeilings();
     expect(byId["navori-agents"]).toBe(PROSE_WRAPPER_CEILINGS["navori-agents"]);
   });
