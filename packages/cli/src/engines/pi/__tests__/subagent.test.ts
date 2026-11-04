@@ -710,6 +710,27 @@ describe("Pi child failure diagnostics", () => {
     expect(tail.length).toBeLessThan(900);
   });
 
+  // Covers: R7 (#1498): the tail reaches the parent without terminal control sequences.
+  it("strips ANSI, C0/C1 control and bidi override characters from the stderr tail", async () => {
+    const result = await runScout(
+      [assistant({ stopReason: "error", errorMessage: "boom" }), settled],
+      { stderr: "\u001b[31mred\u001b[0m bell\u0007 csi\u009b2J bidi‮evil⁦x⁩\r\nlast line\n" },
+    );
+    const text = result.content[0]!.text;
+    const tail = text.slice(text.indexOf("Child stderr (tail, redacted):\n"));
+    expect(tail).toContain("red bell csi2J bidievilx\nlast line");
+    const unsafe = [...tail].filter((char) => {
+      const code = char.charCodeAt(0);
+      return (
+        (code < 0x20 && char !== "\n" && char !== "\t") ||
+        (code >= 0x7f && code <= 0x9f) ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069)
+      );
+    });
+    expect(unsafe).toEqual([]);
+  });
+
   // Covers: R7
   it("names the real provider in the non-zero exit hint", async () => {
     const result = await runScout([], { code: 2, model: "anthropic/claude-sonnet-5-5" });

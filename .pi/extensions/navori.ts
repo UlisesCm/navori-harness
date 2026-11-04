@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="1fd6d2dfa2be07f051cd0e0bf76721ad62f035a263d9b44d9149587b416a1f34"
+// navori:managed-file id="pi-extension" hash="6bb57d83e8d1947ab09c87a6f9103baefe92cb04216f8b99ca615f64400d052e"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -425,9 +425,10 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
     tools: tools as string[], instructions: match[2].trim() };
 }
 
-/** Child-supplied text made safe to show: ANSI and control characters stripped, secrets redacted BEFORE slicing, at most 20 lines / 800 chars (the end for a stderr tail). */
+/** Child-supplied text made safe to show: ANSI, C0/C1 control and bidi override characters stripped, secrets redacted BEFORE slicing, at most 20 lines / 800 chars (the end for a stderr tail). */
 function childDiagnostic(raw: string, fromEnd: boolean): string {
-  const clean = redactSecrets(raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ""));
+  const clean = redactSecrets(raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ""));
   const lines = clean.split("\n");
   const text = (fromEnd ? lines.slice(-20) : lines.slice(0, 20)).join("\n").trim();
   return fromEnd ? text.slice(-800) : text.slice(0, 800);
