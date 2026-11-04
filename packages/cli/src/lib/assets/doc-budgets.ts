@@ -166,21 +166,6 @@ export const MANAGED_ASSET_PATHSPECS: readonly string[] = [
 ];
 
 /**
- * Words the marker PAIR adds to a block once rendered, on top of its source
- * asset. The ceilings above are measured on the source `.md`, which carries no
- * markers; a rendered block carries both.
- *
- * Measured, not estimated — the overhead is a constant because `openMarker`
- * always writes the same four attributes: this repo's `CLAUDE.md` renders
- * `tipado-fuerte` at 51 words against a 40-word source, `operaciones-seguras`
- * at 297 against 286, `idioma-rol` at 138 against 127 and
- * `code-discovery-routing` at 162 against 151. Four blocks, `+11` every time.
- * Without it every rendered block reads ~11 words over its ceiling and the
- * report is nothing but false positives.
- */
-export const MARKER_PAIR_WORDS = 11;
-
-/**
  * Characters the SessionStart hook will deliver before it degrades a section to
  * a one-line pointer (`NAVORI_CTX_BUDGET`,
  * `packages/core/core-assets/hooks/session-start-context.sh`).
@@ -354,7 +339,7 @@ export interface ComputedBlockFormula {
  * - `contexto-proyecto` — the priciest row is `migrationRow`, 42 (es) / 43 (en)
  *   words with one-word arguments (`i18n.ts`, `blocks.projectContext`), so `k`
  *   is that worst case plus room for the user's own words. Base is heading (4)
- *   + intro (12) + marker pair (11). `bonum-dashboard` renders 9 rows / 335
+ *   + intro (12) + the marker pair (11, uncounted since #1520). `bonum-dashboard` renders 9 rows / 335
  *   words against a 435 ceiling — the case the user ruled LEGITIMATE, so the
  *   formula must not flag it.
  * - `agentes-disponibles` — 6 rows / 210 words in this repo, priciest row 37
@@ -423,17 +408,15 @@ export const PROSE_WRAPPER_CEILINGS: Readonly<Record<string, number>> = {
  * `operaciones-seguras`) and `stack-<preset>` for a preset's `stack.md`, which
  * is how every `presets/*.json` declares it.
  *
- * `MARKER_PAIR_WORDS` is added only to the `DOC_BUDGETS` half: those ceilings
- * are measured on source assets that carry no markers. `PROSE_WRAPPER_CEILINGS`
- * is measured directly on the RENDERED file, markers included, so it is merged
- * as-is.
+ * A source ceiling applies to its rendered block unchanged: `countWords` skips
+ * the navori markers the render adds (#1520).
  */
 export function managedBlockCeilings(): Record<string, number> {
   const out: Record<string, number> = { ...PROSE_WRAPPER_CEILINGS };
   for (const [path, ceiling] of Object.entries(DOC_BUDGETS)) {
     const preset = PRESET_STACK_RE.exec(path);
     const id = preset ? `stack-${preset[1]}` : MANAGED_ASSET_RE.exec(path)?.[1];
-    if (id) out[id] = ceiling + MARKER_PAIR_WORDS;
+    if (id) out[id] = ceiling;
   }
   return out;
 }
