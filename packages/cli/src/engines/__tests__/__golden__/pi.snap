@@ -169,7 +169,7 @@ unblocks it, and don't invent a fix in the diff.
 **5 · Turn each finding into an encargo:** one line per `CHANGES_REQUESTED` or unanswered
 comment — `file:line`, what it asks, and the smallest change that covers it. **Implement
 nothing here**: the user picks what gets attacked. **A reply to the comment is `publisher`'s
-job** — hand it the thread and the text; this skill never posts one.
+job** (on Pi, this session following `.pi/agents/publisher.md`) — hand it the thread and the text; this skill never posts one.
 
 ## Hard rules
 
@@ -451,7 +451,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
-| 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per `verify-before-done` Session close. |
+| 6 · Publish | `publisher` agent — on Pi, this session following `.pi/agents/publisher.md` | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per `verify-before-done` Session close. |
 
 ## Phase 2 fan-out
 
@@ -1792,7 +1792,7 @@ report; don't try to fix it yourself.
 # navori:managed-file id="pi-agent-publisher" hash="<HASH>"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
-tools: ["read","grep","find","ls","bash"]
+tools: []
 ---
 # Publisher Agent
 
@@ -2893,10 +2893,12 @@ const isVerifiedPiRuntime = piRuntimeChecks.verified;
 const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect" | "publisher";
+type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect";
+const ROLE_SCHEMA = Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect")]);
+const SUBAGENT_DESCRIPTION = "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, or architect child in this trusted project. Publishing (commit, push, PR) is not a child: this session runs it following .pi/agents/publisher.md.";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
+const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   scout: new Set(["read","grep","find","ls","write","navori_mem_search","navori_mem_get_observation"]),
   implementer: new Set(["read","grep","find","ls","bash","edit","write","navori_mem_search","navori_mem_get_observation"]),
@@ -2904,10 +2906,9 @@ const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
   auditor: new Set(["read","grep","find","ls","bash","write","navori_mem_search","navori_mem_get_observation"]),
   architect: new Set(["read","grep","find","ls","bash","write"]),
-  publisher: new Set(["read","grep","find","ls","bash"]),
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
-const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -4556,8 +4557,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
+    description: SUBAGENT_DESCRIPTION,
+    parameters: Type.Object({ role: ROLE_SCHEMA,
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);
@@ -4615,14 +4616,13 @@ export default function (pi: ExtensionAPI): void {
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "c7efa4a21f1bdfe7cf869cf67bc95e14fd1122320b27dad3ba7a8cc2e59aaa08"
+    "hash": "c9913302e597de614d4e14d9c179bf9d207d2fc7131006edffd5103792d7cd25"
   },
   "schemaVersion": 2,
   "agents": [
     "architect",
     "auditor",
     "implementer",
-    "publisher",
     "reviewer",
     "scout"
   ],
@@ -14602,18 +14602,19 @@ Route by `navori plan classify <feature>` (level) and critical areas (`auth, per
 | Change | Route |
 |---|---|
 | level 0, no critical area | direct: inspect the diff, run the focused check |
-| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff once before the PR |
-| critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
-| answer, investigate, plan, ephemeral probe | yourself |
+| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff before the PR |
+| critical area or level ≥ 2 | `implementer` → independent `reviewer` |
+| answer, investigate, plan, probe | yourself |
 
 - One review per PR; minor fixes, a delta review.
-- Checks run once on the final diff; rerun only what a later change or failure invalidated. `navori gate full` green once per PR.
-- At close, apply `verify-before-done`'s Session close.
+- Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
+- At close: `verify-before-done`'s Session close.
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
+- On Pi, you publish, following `.pi/agents/publisher.md`.
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `pnpm lint` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 - Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
-- Independent sub-tasks: ALL `navori_subagent` calls in ONE turn; synthesis is never delegated.
+- Independent sub-tasks: ALL `navori_subagent` calls in ONE turn; you synthesize.
 - Without nested dispatch, run `scout` before `architect`.
 
 | Signal | Mechanism |

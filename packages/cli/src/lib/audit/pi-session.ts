@@ -25,13 +25,14 @@ import {
   retainAuditFact,
 } from "./model.ts";
 import { attachHookEvents } from "./parse.ts";
-import { PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
+import { PI_PARENT_ROLES, PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
 import { closedAgentResult, PiCompactionTracker } from "./engine-observations.ts";
 import { classifyPiExtensionDenial, type PiExtensionControl } from "../../engines/pi/denials.ts";
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
-const ROLES: ReadonlySet<string> = new Set(PI_ROLE_NAMES);
+// Parent roles too: sessions recorded before #1496 dispatched publisher as a child.
+const ROLES: ReadonlySet<string> = new Set([...PI_ROLE_NAMES, ...PI_PARENT_ROLES]);
 const MAX_DIRS = 5_000;
 const MAX_CHILDREN = 1_000;
 const TOKEN_KEYS = ["input", "output", "cacheRead", "cacheCreation", "thinking"] as const;

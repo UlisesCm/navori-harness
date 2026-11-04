@@ -1,8 +1,8 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="70736dffb47ce33f512adadec4b200ff4355c4f142ca6e36fafc762f485bad35"
+# navori:managed-file id="pi-agent-publisher" hash="6a94f4a44d3f9d6d9063347c839263d62c417df655785b9ee182a2da80886907"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
-tools: ["read","grep","find","ls","bash"]
+tools: []
 ---
 # Publisher Agent
 

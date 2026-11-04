@@ -123,6 +123,14 @@ describe("engine benchmark", () => {
     expect(report.result).toBe("inconclusive");
     expect(JSON.stringify(report)).not.toContain("PRIVATE_ROLE");
   });
+  // Covers: R1 (0053)
+  it("classifies a historical Pi publisher dispatch as publisher, not unknown (#1496)", (): void => {
+    const data = sources();
+    data[1]!.agents.push(agent({ agentType: "publisher", piOutcome: "completed" }));
+    const report = benchmarkByEngine(data, evidence);
+    expect(report.engines[1]?.dispatches.publisher.completed).toBe(1);
+    expect(report.engines[1]?.dispatches.unknown.completed).toBe(0);
+  });
   // Covers: R1, R2 (0053)
   it("keeps missing commit provenance distinct from zero commits without gates", (): void => {
     const report = benchmarkByEngine(sources(), { ...evidence, unavailableCommitSessions: ["pi"] });
