@@ -1,6 +1,6 @@
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference, not a subagent.<!-- /navori:if-not -->
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference, not a subagent.<!-- /navori:if-not -->
 
 Route by `navori plan classify <feature>` (level) and critical areas (`{{project.criticalAreas}}`):
 

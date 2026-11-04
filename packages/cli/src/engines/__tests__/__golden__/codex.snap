@@ -15486,7 +15486,7 @@ prefix_rule(
 
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `spawn_agent(orchestrator)`**. `.codex/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `spawn_agent(orchestrator)`**. `.codex/orchestrator.md` is a depth reference, not a subagent.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`auth, permissions, payments, data integrity`):
 

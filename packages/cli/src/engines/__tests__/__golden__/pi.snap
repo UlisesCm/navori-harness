@@ -14590,7 +14590,7 @@ exit 0
 
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `navori_subagent(role: orchestrator)`**.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `navori_subagent(role: orchestrator)`**.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`auth, permissions, payments, data integrity`):
 
