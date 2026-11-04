@@ -67,8 +67,8 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
 | `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Delivery-bound criteria (`navori master delivery-slice`) are recorded with their binding and fingerprint v2, as on Claude; `navori master delivery-criterion` recomputes the binding. Fails closed: a replaced bash tool, a missing `exit_code` or an uncontained stage records nothing. |
 | `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
-| `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected after a publisher dispatch. |
-| `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has seven fixed roles and no general-purpose role to confirm. |
+| `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected; Pi publishes in the parent, with no publisher dispatch. |
+| `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has six fixed roles and no general-purpose role to confirm. |
 
 Pi also natively discovers trusted project skills in `.agents/skills/`. When Pi and Codex are both
 selected, Codex owns the shared destinations and Pi does not duplicate them. Claude and Codex hook
@@ -206,7 +206,7 @@ Per unit, the states in [Parity inventory](#parity-inventory) are:
 | MCP server | `advisory` | Render warns when the server is missing or disabled in Pi's MCP config. |
 | MCP plugin skill on a child role | `advisory` | The prose names the read-only `navori_*` tools the role holds. A ceiling the model sees, not isolation: `bash` still reaches the CLIs, and the codegraph index can be stale. |
 
-| Skill on a role Pi does not render (for example `publisher`) | `unsupported` | Pending the role work in spec 0048 R14 and M11. |
+| Skill on a role Pi does not render (for example `scribe` without `harness.scribeOwnsMarkdown`) | `unsupported` | No role file exists, so the skill prose is not rendered. |
 | tgrep guard script and `tgrep-search-lane` hook extension | `enforced` (seatbelt) | The script is installed under `.pi/navori/scripts/`. The lane runs inside the Pi guard copy (`.pi/navori/hooks/guard-destructive.sh`) through the bridge. It covers grep/rg only and fails open when tgrep, its server or the index is unavailable. |
 
 Render warns when a plugin's MCP server is missing or disabled in Pi's native MCP config. Navori never writes
@@ -253,8 +253,8 @@ symlinks. Then:
 - A marker quoted mid-line, or an open marker with no close, is not a block. A file that is not a regular
   file, or is over 4 MiB, is blocked when it matches a mixed-file path.
 - Foreign `.pi/agents/*.md` files stay editable through `edit`. Known gap: the shell lane names all seven
-  Navori role files (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, `publisher`), a
-  superset, so a user file with one of those names is blocked from shell writes until Navori renders that role.
+  Navori role files (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, and `publisher`,
+  rendered for the parent, not as a child), a superset, so a user file with one of those names is blocked from shell writes until Navori renders that role.
 
 **Drift advisory (`managed-drift-watch`).** After a bash, edit or write call, the watcher checks the managed
 blocks under the Pi roots, including `.pi/navori/`. It keeps its own baseline in
@@ -286,8 +286,7 @@ call in the parent and in a child. A gate whose runner is missing blocks in a ch
 parent with UI it asks instead. The script exists only when `qualityGate.fast` is set. The progress-file
 size ratchet (`progress/current.md`) also applies on push, not only on commit. Role deadlines must outlive
 the gate: every role with `bash` has a deadline of at least gate + 10 min (20 min). The per-role deadlines
-are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `publisher`
-40 min, `scribe`, `reviewer`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
+are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `scribe`, `reviewer`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
 
 **Publishing confirmations.** These scripts ask before any publishing operation, and the ask shows the body:
 
@@ -309,8 +308,8 @@ them, bound to the exact call.
   command is relayed to the parent (see [Approval relay](#approval-relay)). The typed
   confirmation works in the TUI and in RPC mode (which provides a real UI context). In headless/print mode,
   with no interactive UI, the call is refused.
-- The `publisher` is admitted and is subject to all of the rules above: its publishing operations are
-  refused in the child, relayed to the parent, and confirmed there.
+- Publishing runs in the parent, which follows `.pi/agents/publisher.md`; `gh pr create` gets the parent's
+  confirmation. A child's `gh pr create` is still refused and relayed to the parent.
 
 **Confirmation dialog (deny-first).** The parent shows a typed-input dialog (`ctx.ui.input`) titled "Navori
 approval required" with the exact command, its reasons, and the instruction to type `yes, run it`. Only that
@@ -352,7 +351,7 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 - `scribe`: `read, grep, find, ls, bash, edit, write`; admitted only when `harness.scribeOwnsMarkdown` is on, and then the implementer requires the `scribe` role to be enabled
 - `auditor`: `read, grep, find, ls, bash, write`
 - `architect`: `read, grep, find, ls, bash, write`; cannot dispatch nested subagents on Pi (`navori:if-not onPi`)
-- `publisher`: `read, grep, find, ls, bash`; its git commit and push run the quality gate, and its publishing operations need the parent's confirmation (see [Guards](#guards))
+- `publisher`: not dispatchable; rendered with `tools: []` for the parent session to follow (see [Guards](#guards)). Known risk: on Pi it loses its tool limit; "does not edit code" is a text rule, mitigated by the commit/push gate and the managed-file block
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are
@@ -433,7 +432,7 @@ registers three read-only tools inside a child instead, only for roles that hold
 | `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout, implementer, reviewer, auditor |
 | `navori_mem_get_observation` | same engram server | scout, implementer, reviewer, auditor |
 
-The scribe and the publisher get none. No role gets `mem_save` or any other write tool: grants are the roles'
+The scribe gets none; the publisher runs in the parent, so it needs no grants. No role gets `mem_save` or any other write tool: grants are the roles'
 Claude grants (core agent `tools:` plus the enabled plugin's `skills[].mcpTools`) intersected with a closed
 read-only table, and only for an enabled plugin. The names carry the `navori_` prefix so they never collide
 with the native `mem_*` tools of a user-installed `gentle-engram` package (`engram setup pi`).

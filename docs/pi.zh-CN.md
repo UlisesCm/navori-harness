@@ -49,8 +49,8 @@ navori render --apply
 | `local-skill-discovery` | enforced | `project.localSkills` 会投影为 `.agents/skills/<id>` 下的指针；仅在未启用 Codex 时写入。 |
 | `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。绑定到交付的验收标准（`navori master delivery-slice`）会连同其绑定和 v2 指纹一起记录，与 Claude 相同；`navori master delivery-criterion` 会重新计算该绑定。此机制会关闭失败：若 bash 工具被替换、缺少 `exit_code` 或阶段目录不受包含，则不会记录任何内容。 |
 | `repeat-failure-advice` | advisory | 内置 bash 连续出现三次相同失败后，会附加一条建议。它不会阻止操作或更改结果；缺少 `exit_code` 时也不会显示。 |
-| `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此 publisher 派发后不会注入上下文大小建议。 |
-| `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有七个固定角色，没有可确认的 general-purpose 角色。 |
+| `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此不会注入上下文大小建议；Pi 在父会话中发布，没有 publisher 派发。 |
+| `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有六个固定角色，没有可确认的 general-purpose 角色。 |
 
 Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同时选择 Pi 和 Codex，共享目标位置由 Codex 管理，Pi 不会重复写入。Pi 不会复制或运行 Claude 与 Codex 的 hook 脚本。
 
@@ -156,7 +156,7 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 | MCP 服务器 | `advisory` | 如果 Pi 的 MCP 配置中缺少服务器或服务器已禁用，渲染时会发出警告。 |
 | 子角色上的 MCP 插件技能 | `advisory` | 说明文本使用该角色持有的只读 `navori_*` 工具。这是模型可见的上限，不是隔离：`bash` 仍可访问这些 CLI，codegraph 索引也可能已过期。 |
 
-| Pi 不会渲染其技能的角色（例如 `publisher`） | `unsupported` | 等待 spec 0048 的 R14 和 M11 中的角色工作完成。 |
+| Pi 不会渲染其技能的角色（例如未启用 `harness.scribeOwnsMarkdown` 时的 `scribe`） | `unsupported` | 不存在角色文件，因此不会渲染该技能文本。 |
 | tgrep 防护脚本和 `tgrep-search-lane` hook 扩展 | `enforced`（安全带） | 脚本安装在 `.pi/navori/scripts/` 下。该通道通过桥接在 Pi 防护副本（`.pi/navori/hooks/guard-destructive.sh`）中运行。它仅涵盖 grep/rg；tgrep、其服务器或索引不可用时会开放失败。 |
 
 如果插件的 MCP 服务器在 Pi 原生 MCP 配置中缺失或已禁用，渲染时会发出警告。Navori 绝不会写入 Pi 的 MCP 配置。
@@ -176,7 +176,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - 它会阻止访问控制平面，以及 `.pi/navori.json` 中每个 `ownedPaths` 条目，包括尚不存在的目标路径。
 - 对于混合文件（`AGENTS.md`、`CLAUDE.md`、skills、`.claude/`、`.codex/`、`.cursor/rules/`、Copilot 指令），只有符合真实标记语法的内容才会被识别为受管理区块：开始和结束标记具有相同的 id，两者都位于第 0 列，且都在代码围栏之外。如果文件包含受管理区块，则会阻止 `write`。如果 `oldText` 落在受管理区块内，或编辑请求的形状不受该通道识别，则会阻止 `edit`。区块外的文本（包括用户区段）仍可编辑。
 - 在行中间引用的标记，或没有结束标记的开始标记，都不算区块。若匹配混合文件路径，但目标不是常规文件或大小超过 4 MiB，则会阻止操作。
-- 外部 `.pi/agents/*.md` 文件仍可通过 `edit` 编辑。已知缺口：shell 通道会列出 Navori 的全部七个角色文件（`scout`、`implementer`、`reviewer`、`scribe`、`auditor`、`architect`、`publisher`），范围更广；因此，在 Navori 渲染相应角色之前，shell 写入会阻止名称与其中之一相同的用户文件。
+- 外部 `.pi/agents/*.md` 文件仍可通过 `edit` 编辑。已知缺口：shell 通道会列出 Navori 的全部七个角色文件（`scout`、`implementer`、`reviewer`、`scribe`、`auditor`、`architect` 和 `publisher`，后者为父会话渲染，而非子会话），范围更广；因此，在 Navori 渲染相应角色之前，shell 写入会阻止名称与其中之一相同的用户文件。
 
 **漂移提示（`managed-drift-watch`）。** 每次 bash、edit 或 write 调用之后，监视器都会检查 Pi 根目录下的受管理区块，包括 `.pi/navori/`。它会在 `.navori/state/hooks/managed-drift-stamp-pi` 中保存自己的基线，因此不会读取并发 Claude 会话将看到的报告。漂移会作为工具结果中的警告显示，不会阻止操作。
 
@@ -192,7 +192,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 **检查顺序（`tool_call`）。** 对每次调用，扩展依次执行：(1) 阻止 `powershell` 调用；(2) 读取 manifest；若无法读取或版本不是 v2，则阻止 `bash`、`edit` 和 `write`；(3) `edit` 或 `write` 进入受管理文件通道；(4) 运行桥接脚本，若 `enforced` 脚本阻止操作，则停止调用；(5) 针对 `--approved-by` 声明以及每个 `ask` 判定结果，一并请求一次确认。确认绑定到用户看到的确切输入；输入发生变化时会拒绝操作。
 
-**提交和推送门禁（`quality-gate-pre-commit`）。** Pi 没有原生 git hooks，因此 Pi 副本会同时对 `git commit` 和 `git push` 实施门禁。它会运行 `qualityGate.fast`，截止时间为 600 s。门禁失败时会在父会话和子会话中阻止调用。找不到门禁运行器时，会在子会话或没有 UI 的情况下阻止调用；在有 UI 的父会话中则会询问。只有设置了 `qualityGate.fast` 才会存在该脚本。进度文件大小限制（`progress/current.md`）也适用于 push，不仅适用于 commit。角色截止时间必须长于门禁时间：每个带有 `bash` 的角色，其截止时间至少为门禁 + 10 min（20 min）。各角色的截止时间由 `packages/cli/src/engines/pi/role-tools.ts` 中的 `PI_ROLE_TIMEOUT_MS` 定义：`implementer` 为 30 min，`publisher` 为 40 min，`scribe`、`reviewer`、`auditor` 和 `architect` 各为 20 min。`scout` 没有 `bash`，保持 10 min。
+**提交和推送门禁（`quality-gate-pre-commit`）。** Pi 没有原生 git hooks，因此 Pi 副本会同时对 `git commit` 和 `git push` 实施门禁。它会运行 `qualityGate.fast`，截止时间为 600 s。门禁失败时会在父会话和子会话中阻止调用。找不到门禁运行器时，会在子会话或没有 UI 的情况下阻止调用；在有 UI 的父会话中则会询问。只有设置了 `qualityGate.fast` 才会存在该脚本。进度文件大小限制（`progress/current.md`）也适用于 push，不仅适用于 commit。角色截止时间必须长于门禁时间：每个带有 `bash` 的角色，其截止时间至少为门禁 + 10 min（20 min）。各角色的截止时间由 `packages/cli/src/engines/pi/role-tools.ts` 中的 `PI_ROLE_TIMEOUT_MS` 定义：`implementer` 为 30 min，`scribe`、`reviewer`、`auditor` 和 `architect` 各为 20 min。`scout` 没有 `bash`，保持 10 min。
 
 **发布确认。** 在任何发布操作前，这些脚本都会询问，并在询问中显示正文：
 
@@ -205,7 +205,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 - 阻止始终优先于询问：先运行 `enforced` 脚本，因此最终会被阻止的调用不会提交给用户确认。
 - 确认在父会话中进行。子会话（设置了 `NAVORI_PI_CHILD_DEPTH`）会被拒绝，并将确切命令中继给父会话（见[审批中继](#审批中继)）。在 TUI 和 RPC 模式（提供真实 UI 上下文）中，可以通过输入文本完成确认。在 headless/print 模式下，没有交互式 UI，调用会被拒绝。
-- `publisher` 已获准使用并受上述所有规则约束：其发布操作会在子会话中被拒绝、中继给父会话，并在那里确认。
+- 发布在父会话中运行，父会话遵循 `.pi/agents/publisher.md`；`gh pr create` 使用父会话的确认。子会话的 `gh pr create` 仍会被拒绝并中继给父会话。
 
 **确认对话框（先拒绝）。** 父会话会显示一个文本输入对话框（`ctx.ui.input`），标题为 "Navori approval required"，其中包含确切命令、原因以及输入 `yes, run it` 的提示。只有输入完全匹配的文本（去掉前后空白后）才会批准。空 Enter、Escape、任何其他文本、超时或对话框故障都会拒绝调用。这里不使用选择器，因此不会有预先高亮的选项。确认之后，扩展会重新检查代码仓库状态和正文摘要；其中任何一项发生变化，都会拒绝调用并重新请求批准。
 
@@ -227,7 +227,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 - `scribe`：`read, grep, find, ls, bash, edit, write`；仅在启用 `harness.scribeOwnsMarkdown` 时获准使用，此时 implementer 也必须启用 `scribe` 角色
 - `auditor`：`read, grep, find, ls, bash, write`
 - `architect`：`read, grep, find, ls, bash, write`；在 Pi 上无法派发嵌套子代理（`navori:if-not onPi`）
-- `publisher`：`read, grep, find, ls, bash`；其 git commit 和 push 都会运行质量门禁，发布操作需要父会话确认（见[防护规则](#防护规则)）
+- `publisher`：不可派发；以 `tools: []` 渲染，供父会话遵循（见[防护规则](#防护规则)）。已知风险：在 Pi 上它失去工具限制；“不编辑代码”只是文本规则，由 commit/push 门禁和托管文件阻止机制缓解
 
 该工具要求提供 `role` 和非空的 `task`；`feature` 可选，但 reviewer 必须显式提供 Navori feature slug 以进行交接检查；`implementer`、`reviewer` 和 `scribe` 都必须提供 `feature`。角色指令和描述都会保留。角色模型来自 `models.piMap`（opus/sonnet/haiku 对应 `provider/id`，例如 `anthropic/claude-sonnet-5-5`、`ollama/llama3`）；没有条目的档位会继承所选 Pi 模型。Pi 不读取 `models.codexMap`。每个角色都有明确的 Pi 工具列表；缺少映射或映射未知时会失败时关闭，而不是启用默认工具。子进程不会获得 MCP 授权（见 `child-mcp-grants`）。
 
@@ -287,7 +287,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 | `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout、implementer、reviewer、auditor |
 | `navori_mem_get_observation` | 同一个 engram 服务器 | scout、implementer、reviewer、auditor |
 
-scribe 和 publisher 不获得任何工具。任何角色都不会获得 `mem_save` 或其他写入工具：授权取自各角色在 Claude 中的授权（核心代理的 `tools:` 加上已启用插件的 `skills[].mcpTools`），再与封闭的只读表求交集，并且仅在插件已启用时生效。工具名带 `navori_` 前缀，以免与用户安装的 `gentle-engram` 包（`engram setup pi`）的原生 `mem_*` 工具冲突。
+scribe 不获得任何工具；publisher 在父会话中运行，因此不需要授权。任何角色都不会获得 `mem_save` 或其他写入工具：授权取自各角色在 Claude 中的授权（核心代理的 `tools:` 加上已启用插件的 `skills[].mcpTools`），再与封闭的只读表求交集，并且仅在插件已启用时生效。工具名带 `navori_` 前缀，以免与用户安装的 `gentle-engram` 包（`engram setup pi`）的原生 `mem_*` 工具冲突。
 
 工作方式：扩展在首次调用时按需启动各服务器，使用固定的参数列表（模型文本绝不会进入其中）和过滤后的环境，通过 stdio 使用 MCP，在请求到达服务器之前拒绝封闭列表之外的任何工具，按字节限制输出，并在会话关闭时停止服务器。缺少 `codegraph` 或 `engram` 可执行文件，或缺少 codegraph 索引，都会得到明确的工具错误，角色会改用 `read`/`grep`/`find` 继续。这些工具只在子进程中注册，从不在父会话中注册，也没有仅限 Pi 的开关：禁用对应插件即可移除。
 
