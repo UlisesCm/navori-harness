@@ -10,6 +10,7 @@ import {
   writeFileSync,
   realpathSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
@@ -1148,5 +1149,52 @@ describe("sign --gate-ran docs (spec 0054 R21, D6)", () => {
     expect(docs(options).exitCode).toBe(1);
     rmSync(join(options.cwd, options.dir, "receipt.txt"));
     expect(docs(options).result.error).toContain("no receipt");
+  });
+});
+
+describe("sign --gate-ran ci (#1492)", () => {
+  function reviewed(): ReceiptOptions {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    return options;
+  }
+
+  it("is refused without qualityGate.ci and writes no receipt", () => {
+    const options = reviewed();
+    const refused = signReceipt({ ...options, gateRan: "ci" });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.result.error).toContain("qualityGate.ci is not declared");
+    expect(checkReceipt(options).result.error).toBe("receipt is absent");
+  });
+
+  it("signs the ci sentinel; check reports gateKind ci and never fresh", () => {
+    const options = reviewed();
+    const signed = signReceipt({ ...options, gateRan: "ci", ciDeclared: true });
+    expect(signed.result.gateKind).toBe("ci");
+    const checked = checkReceipt(options);
+    expect(checked.result).toMatchObject({
+      status: "ok",
+      fresh: false,
+      stale: ["gate"],
+      gateKind: "ci",
+    });
+  });
+
+  it("an older reader sees a non-sha256 gate= value: stale, so it runs the local gate", () => {
+    const options = reviewed();
+    signReceipt({ ...options, gateRan: "ci", ciDeclared: true });
+    const text = readFileSync(join(options.cwd, options.dir, "receipt.txt"), "utf8");
+    expect(text.split("\n")[0]).toMatch(/ gate=ci inputs=[0-9a-f]{64}$/);
+    // Old logic: fresh only when gate equals the sha256 of the full command.
+    expect(text.includes(`gate=${createHash("sha256").update(options.gate).digest("hex")}`)).toBe(
+      false,
+    );
+  });
+
+  it("--gate-ran docs cannot extend a ci receipt", () => {
+    const options = reviewed();
+    signReceipt({ ...options, gateRan: "ci", ciDeclared: true });
+    const refused = signReceipt({ ...options, gateRan: "docs", docsGate: "docs-gate" });
+    expect(refused.exitCode).toBe(1);
   });
 });

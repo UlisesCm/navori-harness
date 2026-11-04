@@ -52,6 +52,23 @@ function safeGateChain(): z.ZodString {
     .refine(isSafeGateChain, "must be a plain command chain (`<pm> …` / `cd <dir>` joined by &&)");
 }
 
+/**
+ * `qualityGate.ci` (#1492): what `navori receipt ci` trusts instead of the local full gate.
+ * `workflow`/`jobs` name the full-suite run and its required jobs; `untrustedPaths` and a
+ * changed `qualityGate` force the local gate; `hookPaths` + `hooksCommand` keep shell hooks local.
+ */
+const QualityGateCiSchema = z
+  .object({
+    workflow: z.string().min(1),
+    jobs: z.array(z.string().min(1)).min(1),
+    /** Label the publisher adds at `gh pr create` so the opening run is the full suite. */
+    label: z.string().min(1).optional(),
+    untrustedPaths: z.array(z.string().min(1)),
+    hookPaths: z.array(z.string().min(1)),
+    hooksCommand: safeGateChain(),
+  })
+  .strict();
+
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
   full: z.string().min(1),
@@ -66,6 +83,8 @@ const QualityGateSchema = z.object({
   /** Declares that the project's native git pre-commit already runs `fast`, so
    * the `quality-gate-pre-commit` hook skips only its gate step (spec 0045 R1-R3). */
   nativeHooks: z.boolean().optional(),
+  /** CI evidence for `receipt sign --gate-ran ci` (#1492). */
+  ci: QualityGateCiSchema.optional(),
 });
 
 // Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —

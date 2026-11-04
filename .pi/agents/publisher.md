@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="355844384e2d142d0d8628eaaa44bce723973fee50e8f0a596fd0b6112f16fc0"
+# navori:managed-file id="pi-agent-publisher" hash="70736dffb47ce33f512adadec4b200ff4355c4f142ca6e36fafc762f485bad35"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -61,6 +61,7 @@ Continue only on `"status":"ok"`, and read the rest of the JSON by this table:
 | `"status":"findings"` with `drift[]` not empty (`kind`: `changed`, `missing`, `reappeared`) | `drift[].blob` is the approved blob: `git diff <blob-sha> <file>` shows the change (`git cat-file -p <blob-sha>` prints the approved content). An explained post-review edit goes to the `reviewer` for a **delta re-sign**; unexplained drift goes to a full re-review. |
 | `"status":"ok"`, `"fresh":true`, `"gateKind":"full"` | Gate evidence is trusted: do not re-run the gate (see Gate below). |
 | `"status":"ok"` with `"fresh":false` (`stale[]` lists `format`, `gate` or `inputs`), or `"gateKind":null` | No trustworthy gate evidence: you run the gate yourself (see Gate below). |
+| `"status":"ok"`, `"gateKind":"ci"` | No local gate: CI verifies the full suite once the draft PR exists (PR flow step 5). |
 | `"gateKind":"scoped"` | Commit-only mode below, whatever `fresh` says. |
 
 If the real PR base differs from `dev`, pass that actual base as `--target`.
@@ -73,6 +74,7 @@ The PR gate is the FULL one, not `bun run check:fast`. Which steps sit where is 
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`; never rerun a gate the cache already covers (`navori gate` answers `PASS (cached …)`). The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Any duplication or security scan beyond the quality gate is the repo's own tooling and only runs if the repo wired it in — don't assume a net that may not be there.
 - **`"fresh":false`:** no trustworthy evidence — YOU run `navori gate full` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
+- **`"gateKind":"ci"`:** the gate moves from before the commit to before the PR is marked ready, as step 5 says.
 - **Direct change (no review):** no review evidence — run it yourself.
 
 Never open the PR with the gate red.
@@ -148,6 +150,8 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
    ```
 
    Always pass `--base dev` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
+
+   **`"gateKind":"ci"` only:** add `--draft` and, when `qualityGate.ci.label` is declared, `--label <label>` (a label added later starts no run). Right after creating it run `navori receipt ci --feature <feature> --pr <N> --target dev --dir .navori/state/handoffs --json` (waits up to 20 min for a pending run). `"status":"ok"` → `gh pr ready <N>` and add `CI run <runId> attempt <runAttempt>` to the PR body. `"refused"` (`untrusted[]`, or `hooks.exitCode` non-zero) → run the full gate green before `gh pr ready`, or report the hooks failure. `"no-evidence"` (read `reason`) or `"error"` → leave it draft and report; never mark it ready.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 

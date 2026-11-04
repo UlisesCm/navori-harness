@@ -211,7 +211,7 @@
         "--help"
       ],
       "status": 0,
-      "stdout": "Sign or check the reviewed content receipt (navori receipt v0.12.3)\n\nUSAGE navori receipt sign|gate|review|check\n\nCOMMANDS\n\n  sign  Write a receipt for the current publish set  \n  gate  Decide whether a milestone's or workplan phase's review cycle needs the scoped or the full gate\n  review  Producer evidence for review_<feature>.json: begin before the diff, seal after  \n  check  Check the current publish set against a receipt  \n\nUse navori receipt <command> --help for more information about a command.\n\n",
+      "stdout": "Sign or check the reviewed content receipt (navori receipt v0.12.3)\n\nUSAGE navori receipt sign|ci|gate|review|check\n\nCOMMANDS\n\n  sign  Write a receipt for the current publish set  \n  ci  Verify the full-suite CI run on HEAD before marking the PR ready  \n  gate  Decide whether a milestone's or workplan phase's review cycle needs the scoped or the full gate\n  review  Producer evidence for review_<feature>.json: begin before the diff, seal after  \n  check  Check the current publish set against a receipt  \n\nUse navori receipt <command> --help for more information about a command.\n\n",
       "stderr": ""
     },
     {

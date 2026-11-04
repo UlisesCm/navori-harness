@@ -21,7 +21,23 @@
     "affected": "bun run test:affected",
     "docs": "bun run check:links && bun run check:doc-budgets && cd packages/cli && bun run test src/lib/__tests__/direction-doc.test.ts src/__tests__/direction-claude-first.test.ts src/__tests__/command-docs-inventory.test.ts",
     "nativeHooks": true,
-    "full": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage"
+    "full": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage",
+    "ci": {
+      "workflow": ".github/workflows/ci.yml",
+      "jobs": ["checks", "test (1)", "test (2)", "test (3)", "test (4)", "test-merge"],
+      "label": "full",
+      "untrustedPaths": [
+        ".github/**",
+        "packages/cli/scripts/test-affected.mjs",
+        "packages/cli/src/__tests__/repo-config-gate.test.ts",
+        "package.json"
+      ],
+      "hookPaths": [
+        "packages/core/core-assets/hooks/**",
+        "packages/plugins/*/scripts/**"
+      ],
+      "hooksCommand": "cd packages/cli && bun run test:hooks"
+    }
   },
   "audit": {
     "mode": "always"

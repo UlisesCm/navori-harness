@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="bae95a585331ba640c1ac8af2834e6463756b62c9ffd487178e94541e9094315"
+# navori:managed-file id="pi-agent-reviewer" hash="155ceb316ac90c3dda50d8c08f153e4dab42529020399bdc05da7fa4390ee08d"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
@@ -82,6 +82,7 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `bun r
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `bun run check:scoped` plus the assigned `A<n>` commands. Do NOT run the full gate. |
+| `APPROVED`, `qualityGate.ci`, workplan PR | `bun run check:scoped`; sign `--gate-ran ci`. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 navori gate full
@@ -92,7 +93,7 @@ The full gate runs only on the round about to sign `APPROVED`; it may answer fro
 If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` instead. Read only the verdict.
 
 
-Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. Run `navori gate full` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
+Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `navori gate full` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
 
 
 **Partial verdict:**
@@ -102,7 +103,7 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `full` means it ran over the signed bytes; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json
