@@ -1,15 +1,15 @@
-<!-- navori:managed id="orquestacion" hash="e4924d31" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="d8db17b3" version="0.12.3" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: decompose, coordinate, synthesize; **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`):
 
 | Change | Route |
 |---|---|
 | level 0, no critical area | direct: inspect the diff, run the focused check |
-| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff before the PR |
-| critical area or level ≥ 2 | `implementer` → independent `reviewer` |
+| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff once before the PR |
+| critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
 - One review per PR; minor fixes, a delta review.

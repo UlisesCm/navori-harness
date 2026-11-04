@@ -666,21 +666,28 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
     // prose engines' SDD block.
     expect(claudeMd).not.toContain("batches of 1-3");
     // orquestacion and planificacion render as context files, not inline in CLAUDE.md.
-    const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
-    expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
-    expect(orquestacion).toContain("navori receipt gate");
-    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>`");
+    // #1525: the deliveries cycle and the plan-approval rule are planTiers doctrine.
+    const orquestacionOff = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionOff).not.toContain("spec: <spec> E<n> M<n>");
+    expect(orquestacionOff).not.toContain("without plan approval");
     // planificacion only renders behind `harness.planTiers`.
     renderClaudeEngine(cwd, {
       ...CONFIG_FULL,
       harness: { ...CONFIG_FULL.harness, planTiers: true },
     } as NavoriConfig);
+    const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
+    expect(orquestacion).toContain("navori receipt gate");
+    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>`");
+    expect(orquestacion).toContain("without plan approval");
     const planificacion = readFileSync(join(cwd, ".claude/context/05-planificacion.md"), "utf-8");
     expect(planificacion).toContain("`navori spec check`");
     const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
     expect(skill).toContain("## Acceptance script");
     expect(skill).toContain("navori spec check <feature>");
     expect(skill).not.toContain("batches of 1-3");
+    // #1525: same "done" wording as the SDD block.
+    expect(skill).toContain("where the outcome is observable");
   });
 
   // Covers: R16, R17, R26

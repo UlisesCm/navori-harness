@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { conditionOrchestration } from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Sanity checks for the agent assets shipped with @navori/core.
@@ -438,7 +440,19 @@ describe("architect never issues a verdict nor decomposes and stays under 700 wo
 
   // Covers: R36, R37
   it("can dispatch scout and scribe through a parenthesised Agent entry", () => {
-    expect(parsed.frontmatter.tools).toContain("Agent(scout, scribe)");
+    const toolsWith = (scribeOwnsMarkdown: boolean): string | undefined => {
+      const config = NavoriConfigSchema.parse({
+        name: "architect-tools",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { scribeOwnsMarkdown },
+      });
+      return parseAsset(conditionOrchestration(raw, config)).frontmatter.tools;
+    };
+    expect(toolsWith(true)).toContain("Agent(scout, scribe)");
+    // #1525: scribe is not installed without harness.scribeOwnsMarkdown.
+    expect(toolsWith(false)).toContain("Agent(scout)");
+    expect(toolsWith(false)).not.toContain("scribe");
   });
 
   it("declares a maxWords ceiling of 700", () => {

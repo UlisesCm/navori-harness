@@ -1,14 +1,14 @@
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference, not a subagent.<!-- /navori:if-not -->
+You are the main agent and **embody** the orchestrator: decompose, coordinate, synthesize; **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference, not a subagent.<!-- /navori:if-not -->
 
 Route by `navori plan classify <feature>` (level) and critical areas (`{{project.criticalAreas}}`):
 
 | Change | Route |
 |---|---|
 | level 0, no critical area | direct: inspect the diff, run the focused check |
-| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff before the PR |
-| critical area or level ≥ 2 | `implementer` → independent `reviewer` |
+| level 1, no critical area | direct, or `implementer` at scale (4+ files, parallel work); review the whole diff once before the PR |
+| critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
 - One review per PR; minor fixes, a delta review.
@@ -19,8 +19,8 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 <!-- /navori:if --><!-- navori:if scribeOwnsMarkdown --><!-- navori:if-not onPi -->- **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
 <!-- /navori:if-not --><!-- /navori:if --><!-- navori:if onPi -->- On Pi, you publish, following `.pi/agents/publisher.md`.
-<!-- /navori:if -->- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `{{qualityGate.fast}}` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
-- Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
+<!-- /navori:if --><!-- navori:if planTiers -->- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `{{qualityGate.fast}}` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
+<!-- /navori:if -->- Parallel implementers or deliveries need disjoint files (deliveries: own PRs).<!-- navori:if planTiers --> No `implementer` dispatch without plan approval (`planificacion`).<!-- /navori:if -->
 - Independent sub-tasks: ALL `Agent` calls in ONE turn<!-- navori:if-not onPi --> (Claude serializes by default)<!-- /navori:if-not -->; you synthesize.<!-- navori:if-not onPi --> At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs do not prove a cap.<!-- /navori:if-not -->
 - Without nested dispatch, run `scout` before `architect`.
 <!-- navori:if onCodex -->- **Codex execution checkpoints:** before investigation, resume or status, apply `.claude/agents/orchestrator.md`'s bounded execution protocol. Preserve approved scope and required gates.
