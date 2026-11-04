@@ -1,18 +1,18 @@
 ---
 name: master-plan
-description: Use when the user explicitly asks to start or resume a project master plan, invokes `$master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
+description: Use when the user explicitly asks to start or resume a project master plan, invokes `/skill:master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
   # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870. Sube a 2957: sección de subcomandos que mutan (0052 T56), medidas 2816 * 1.05 => 2957.
   maxWords: 2957
 ---
 
-<!-- navori:managed id="master-plan" hash="f8899787" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="3caddaf1" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
 
-Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `$master-plan` o responde a una oferta previa de R38 con una confirmación clara: “sí, continúa” o una variante que no cambia su sentido (“sí”, “dale”, “continúa”). Una respuesta con condiciones, dudas o un pedido distinto no confirma: respóndela primero. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
+Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `/skill:master-plan` o responde a una oferta previa de R38 con una confirmación clara: “sí, continúa” o una variante que no cambia su sentido (“sí”, “dale”, “continúa”). Una respuesta con condiciones, dudas o un pedido distinto no confirma: respóndela primero. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
 
 ## Precondición
 

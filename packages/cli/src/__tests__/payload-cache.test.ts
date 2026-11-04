@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
 const ASSETS = join(ROOT, "packages/core/core-assets/hooks");
 const PARTIAL = join(ASSETS, "_partials/extract-cmd.sh");
-const TREES = [".claude/hooks", ".codex/hooks", ".pi/navori/hooks"] as const;
+const TREES = [".claude/hooks", ".pi/navori/hooks"] as const;
 const SHELLS = ["bash", "zsh"] as const;
 const FIELDS = "tool_name tool_input.command cwd session_id tool_input.flag";
 const temps: string[] = [];

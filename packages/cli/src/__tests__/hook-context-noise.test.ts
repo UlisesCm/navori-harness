@@ -28,7 +28,7 @@ describe("neutral context measurement", () => {
       expect(
         JSON.parse(readFileSync(join(sandbox.project, "navori.config.json"), "utf8")),
       ).toMatchObject({ audit: { mode: "opt-in" } });
-      for (const engine of ["claude", "codex"]) {
+      for (const engine of ["claude"]) {
         const hook = join(sandbox.project, `.${engine}/hooks/audit-mode-trigger.sh`);
         expect(readFileSync(hook, "utf8")).toContain("audit_mode='opt-in'");
         const run = spawnSync("bash", [hook], {

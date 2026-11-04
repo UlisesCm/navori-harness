@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="0498a757" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="a81104b0" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -792,7 +792,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .agents/skills/citty/SKILL.md
 .agents/skills/clack/SKILL.md
 .agents/skills/context-intake/SKILL.md
-.agents/skills/context-intake/agents/openai.yaml
 .agents/skills/debug-failure/SKILL.md
 .agents/skills/dominio/SKILL.md
 .agents/skills/follow-up-prs/SKILL.md
@@ -868,34 +867,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/skills/verify-before-done/SKILL.md
 .claude/skills/vitest/SKILL.md
 .claude/skills/zod-validation/SKILL.md
-.codex/agents/architect.toml
-.codex/agents/auditor.toml
-.codex/agents/implementer.toml
-.codex/agents/publisher.toml
-.codex/agents/reviewer.toml
-.codex/agents/scout.toml
-.codex/agents/scribe.toml
-.codex/config.toml
-.codex/hooks/audit-mode-close.sh
-.codex/hooks/audit-mode-trigger.sh
-.codex/hooks/comment-draft-confirm.sh
-.codex/hooks/engram-write-guard.sh
-.codex/hooks/general-purpose-confirm.sh
-.codex/hooks/guard-destructive.sh
-.codex/hooks/implementer-no-markdown.sh
-.codex/hooks/managed-drift-watch.sh
-.codex/hooks/model-advisor.sh
-.codex/hooks/plan-gate.sh
-.codex/hooks/pr-publisher-confirm.sh
-.codex/hooks/quality-gate-pre-commit.sh
-.codex/hooks/role-guard.sh
-.codex/hooks/routing-watch.sh
-.codex/hooks/session-start-context.sh
-.codex/hooks/subagent-stop-handoff.sh
-.codex/hooks/worktree-reclaim.sh
-.codex/orchestrator.md
-.codex/rules/navori.rules
-.codex/scripts/guard-search-routing.sh
 .mcp.json
 .pi/agents/architect.md
 .pi/agents/auditor.md

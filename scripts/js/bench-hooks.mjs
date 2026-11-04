@@ -518,9 +518,11 @@ export function isComparable(loadavgBefore, cpus) {
  */
 export function readRegistrations(sourceRoot = REPO_ROOT) {
   const piBindings = join(sourceRoot, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
+  // A checkout without Codex in `engines` has no `.codex/` tree: it registers no Codex hooks.
+  const codexConfig = join(sourceRoot, ".codex", "config.toml");
   return [
     ...parseClaudeRegistrations(JSON.parse(readFileSync(join(sourceRoot, ".claude", "settings.json"), "utf8"))),
-    ...parseCodexRegistrations(readFileSync(join(sourceRoot, ".codex", "config.toml"), "utf8")),
+    ...(existsSync(codexConfig) ? parseCodexRegistrations(readFileSync(codexConfig, "utf8")) : []),
     ...parsePiRegistrations(readFileSync(piBindings, "utf8"), (script) =>
       existsSync(join(sourceRoot, ".pi", "navori", "hooks", `${script}.sh`)),
     ),

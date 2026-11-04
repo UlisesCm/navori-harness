@@ -393,7 +393,6 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
   const scoped = interpolate("{{navori.scopedGate}}", repoConfig);
   const renders = {
     claude: readFileSync(resolve(ROOT, ".claude/agents/reviewer.md"), "utf-8"),
-    codex: readFileSync(resolve(ROOT, ".codex/agents/reviewer.toml"), "utf-8"),
   };
 
   for (const [engine, text] of Object.entries(renders)) {

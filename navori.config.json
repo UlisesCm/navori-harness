@@ -5,7 +5,6 @@
   "harnessVersion": "0.12.3",
   "engines": [
     "claude",
-    "codex",
     "pi"
   ],
   "preset": "custom",
@@ -51,9 +50,6 @@
     "modelAdvisor": true
   },
   "models": {
-    "codexMap": {
-      "sonnet": "gpt-6.1-sol"
-    },
     "piMap": {},
     "orchestrator": "opus",
     "implementer": "sonnet",

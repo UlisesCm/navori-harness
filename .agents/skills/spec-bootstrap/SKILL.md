@@ -8,12 +8,12 @@ metadata:
   maxWordsComposed: 668
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="6607f97f" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="56d5a269" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of a one-page spec
 
 ## Before scaffolding — blocking precondition
 
-Do not write anything under `specs` unless the user has explicitly accepted starting a spec in THIS thread — either by running `$spec-bootstrap` directly, or by accepting a proposal you made. No acceptance yet? Propose it and wait for the answer; never scaffold speculatively.
+Do not write anything under `specs` unless the user has explicitly accepted starting a spec in THIS thread — either by running `/skill:spec-bootstrap` directly, or by accepting a proposal you made. No acceptance yet? Propose it and wait for the answer; never scaffold speculatively.
 
 ## When to use this skill
 
