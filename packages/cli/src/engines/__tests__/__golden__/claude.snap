@@ -42,11 +42,11 @@ Via `Agent` you may dispatch `scout`; plan-gate and Agent hooks fire inside you 
 
 ## Protocol
 
-1. Read `CLAUDE.md` from disk only if not injected.
+1. Read `CLAUDE.md` from disk only if your host did not inject it.
 2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions).
-4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
-5. **Level 3 only**: write step 4's content to `specs/<feature>/design.md` instead.
+4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options`, `Recommendation`, and `Durable knowledge` naming the proposed destination (CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
+5. **Level 3 only**: write step 4's content to `specs/<feature>/design.md`, beside the `spec-bootstrap` spec, instead.
 6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
 ## Hard rules
@@ -1437,7 +1437,7 @@ Never return the report's content in chat. The orchestrator reads it from disk.
 <!-- navori:managed id="orquestacion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: decompose, coordinate, synthesize; **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`auth, permissions, payments, data integrity`):
 
@@ -1454,7 +1454,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`auth, per
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 - Parallel implementers or deliveries need disjoint files (deliveries: own PRs).
-- Independent sub-tasks: ALL `Agent` calls in ONE turn (Claude serializes by default); you synthesize. At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs do not prove a cap.
+- Independent sub-tasks: ALL `Agent` calls in ONE turn (Claude serializes by default); you synthesize. At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs prove no cap.
 - Without nested dispatch, run `scout` before `architect`.
 
 | Signal | Mechanism |
