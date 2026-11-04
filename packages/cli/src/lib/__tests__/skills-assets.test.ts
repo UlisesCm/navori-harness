@@ -395,6 +395,11 @@ describe("plan skills — spec 0052 doctrine", () => {
     expect(text).toContain("update `level` and `classification` in the workplan");
   });
 
+  // #1524: master-plan is the only source of the literal approval word.
+  it("spec-bootstrap no fija una palabra de aprobación literal", () => {
+    expect(body("spec-bootstrap")).not.toMatch(/answers\s+["“]Approved["”]/);
+  });
+
   // Covers: R39
   it("spec-bootstrap documenta el workplan de nivel 3 y el encargo `workplan: <feature>`", () => {
     const text = body("spec-bootstrap");

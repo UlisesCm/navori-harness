@@ -8,7 +8,7 @@ metadata:
   maxWordsComposed: 668
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="730ce710" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="0548f6e4" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of a one-page spec
 
 ## Before scaffolding — blocking precondition
@@ -26,7 +26,7 @@ Produces `specs/<feature>/spec.md` — one file, one vertical slice, one deliver
 ## Rules
 
 - **Vertical.** One actor reaches an observable outcome end to end, crossing every layer it needs: data and migrations, API, screens, environment, test data. No model-only, API-only or UI-only spec.
-- **Done = accepted.** A human runs the acceptance script on the deployed environment and answers "Approved", AND the happy-path E2E passes against real services. Unit and integration tests are quality, not acceptance.
+- **Done = accepted.** A human runs the acceptance script on the deployed environment and approves it, AND the happy-path E2E passes against real services. Unit and integration tests are quality, not acceptance.
 - **Behavior, not implementation.** No library versions, file paths or function signatures; the implementer decides. At most 1,200 words.
 - **Cross-cutting ships inside.** Seed data, empty and error states, error reporting, new env vars or native modules are declared in the spec and delivered with the slice.
 
