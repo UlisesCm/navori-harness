@@ -4885,7 +4885,7 @@ navori_pii_finish() {
 #
 # DOCUMENTED FALSE NEGATIVES (a seatbelt against accidental leaks, not a sandbox): `git` (push,
 # commit --author), `gh`, `ssh`, `scp`, `rsync`, MCP tools, `sh -c`, `eval`, obfuscation;
-# scheme-less `nc|ncat|netcat|telnet|xh` (not in the cheap gate); a value the lane cannot see
+# scheme-less `nc|ncat|netcat|telnet` (not in the cheap gate); a value the lane cannot see
 # expanded (`$EMAIL`, `$(cat file)`, `-K cfg`, `--data @file`, `-H @file`); `node script.js`,
 # `python3 script.py`, `bun run`, `npx` and a `python3 - <<EOF` (no inline flag); a `;` inside a
 # quoted URL splits the segment. WebFetch/WebSearch are covered by `pii-egress-guard` (Claude).
@@ -4916,6 +4916,8 @@ _pii_external() {
     case "$_w" in "" | -*) continue ;; esac
     _w="${_w#[\"\']}"
     _w="${_w%%/*}"
+    # A path (`/usr/bin/http`, `-o /tmp/x`) has no host; empty is local only after a scheme.
+    [ -n "$_w" ] || continue
     _pii_local "$_w" && return 1
   done <<<"$(printf '%s' "$_seg" | tr -s '[:space:]' '\n')"
   return 0
@@ -4977,12 +4979,15 @@ navori_pii_bash_check() {
   navori_pii_verdict "$_texts"
 }
 
-# The lane. THE CHEAP GATE comes first: pure `case`, no fork. Word-bounded tools (`nc`, `xh`…)
-# are NOT here on purpose: a bare `nc` matches `sync`, `once` and `--since`, and would send
-# ordinary calls through the forks below. A deny exits 2 through `navori_pii_finish`.
+# The lane. THE CHEAP GATE comes first: pure `case`, no fork. HTTPie (`http https xh xhs`)
+# matches only as a whole word (#1489): after the start, a blank, one of ``; & | ( ` ``, or a path `/`,
+# and before a blank. A bare `nc` stays out: it matches `sync`, `once` and `--since`, and would
+# send ordinary calls through the forks below. A deny exits 2 through `navori_pii_finish`.
 navori_pii_bash_lane() {
-  case "$cmd" in
+  case " $cmd" in
     *curl* | *wget* | *'://'* | *'fetch('*) ;;
+    *[[:space:]';&|(`/']http[[:space:]]* | *[[:space:]';&|(`/']https[[:space:]]*) ;;
+    *[[:space:]';&|(`/']xh[[:space:]]* | *[[:space:]';&|(`/']xhs[[:space:]]*) ;;
     *) return 0 ;;
   esac
   local _rc=0
