@@ -51,6 +51,9 @@ export { countWords } from "./skill-meta.ts";
  * +5% is what put seven files one single word away from a red gate between
  * #908 and #955; +10% is the margin that makes an ordinary prose PR survive
  * without a budget PR behind it.
+ *
+ * #1520 cut, downward only: once the markers stopped counting, every ceiling
+ * with slack became `ceil(measured × 1.05)`. A later raise follows the ×1.10 rule.
  */
 export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #955 — recalibrated at ×1.10 (2200 → 10.0%). Lower than the previous
@@ -59,7 +62,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #1273 — the always-on file dropped the skills index, the gh cheat-sheet and
   // the intake / SDD-Structure prose for Claude: 2198 → 1618 words measured
   // (11,963 B, under the 12,000 B target); ceil(1618 × 1.10) = 1780.
-  "CLAUDE.md": 1780,
+  "CLAUDE.md": 1665, // 1585 → ×1.05 (#1520: markers no longer counted)
   // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
   // above, it is a RENDERED file, not a source asset, so it matches no
   // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
@@ -76,27 +79,27 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #1273: Codex dropped `gh-protocol` (3805 → 3698 words measured); the old
   // ceiling had also drifted slack. ceil(3698 × 1.10) = 4068.
   // #1331: Codex dispatch sessionId + residuals (3877 measured → ceil(3877 × 1.05) = 4071).
-  "AGENTS.md": 4120, // 3916 → 5.2%; +39 words: level-0 `verify:` clause, scribe only on non-empty markdownRequests, A<n> from the main thread (0054 R28-R32); the blocks were already minimal
+  "AGENTS.md": 3152, // 3001 → ×1.05 (#1520: markers no longer counted)
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
-  "packages/core/core-assets/managed/arranque-sesion.md": 209, // 190 → 10.0%
-  "packages/core/core-assets/managed/code-discovery-routing.md": 160,
-  "packages/core/core-assets/managed/codex-cross-review.md": 180,
+  "packages/core/core-assets/managed/arranque-sesion.md": 200, // 190 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/code-discovery-routing.md": 159, // 151 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/codex-cross-review.md": 146, // 139 → ×1.05 (#1520: markers no longer counted)
   "packages/core/core-assets/managed/formato-respuesta.md": 150,
-  "packages/core/core-assets/managed/idioma-rol.md": 140,
+  "packages/core/core-assets/managed/idioma-rol.md": 134, // 127 → ×1.05 (#1520: markers no longer counted)
   // #1273: the source carries both forms (Claude pointer + full text for the
   // prose engines), so it measures more than any single render (268 measured).
-  "packages/core/core-assets/managed/intake-tickets.md": 295, // 268 → 10.1%
-  "packages/core/core-assets/managed/operaciones-seguras.md": 310,
+  "packages/core/core-assets/managed/intake-tickets.md": 272, // 259 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/operaciones-seguras.md": 304, // 289 → ×1.05 (#1520: markers no longer counted)
   // 1058 words → 5.1% headroom. The extra prose is Codex-only (`navori:if onCodex`
   // alternatives); Claude's startup context is unchanged. Spec 0044 T10: the
   // per-milestone cycle bullet; same floor recovered (1102 measured → 1161).
   // Spec 0052 E1 M15 (R41): Codex note names the denying gate and one-at-a-time dispatch
   // (1124 measured → ceil(1124 × 1.05) = 1181).
   // #1331: Codex dispatch sessionId + residuals (1169 measured → ceil(1169 × 1.05) = 1228).
-  "packages/core/core-assets/managed/orquestacion.md": 1250, // 1188 → 5.2%; +19 words: scribe only on non-empty markdownRequests, A<n> from the main thread (0054 R30-R32)
-  "packages/core/core-assets/managed/plan-maestro.md": 90,
+  "packages/core/core-assets/managed/orquestacion.md": 554, // 527 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/plan-maestro.md": 87, // 82 → ×1.05 (#1520: markers no longer counted)
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition
   // `harness.planTiers`. Calibrated like every other entry here (measured ×
@@ -117,28 +120,28 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // grammar replaces "batches of 1-3"; same floor recovered (219 measured → 231).
   // #1273: Structure/Tracking sit in an `if-not onClaude` span and Claude gets
   // its own one-line tracking rule, so the source grows (243 measured → 268).
-  "packages/core/core-assets/managed/sdd.md": 268, // 243 → 10.3%
-  "packages/core/core-assets/managed/tipado-fuerte.md": 50,
+  "packages/core/core-assets/managed/sdd.md": 208, // 198 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/tipado-fuerte.md": 42, // 40 → ×1.05 (#1520: markers no longer counted)
 
   // Plugin managed blocks (#917). Measured / ceiling → headroom.
-  "packages/plugins/acli/managed/acli-protocol.md": 80, // 70 → 14.3%
-  "packages/plugins/codegraph/managed/codegraph-search-v2.md": 105, // 91 → 15.4%
-  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 115, // 104 → 10.6%
+  "packages/plugins/acli/managed/acli-protocol.md": 74, // 70 → ×1.05 (#1520: markers no longer counted)
+  "packages/plugins/codegraph/managed/codegraph-search-v2.md": 89, // 84 → ×1.05 (#1520: markers no longer counted)
+  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 110, // 104 → ×1.05 (#1520: markers no longer counted)
 
   // Preset `stack.md` blocks (#917). One renders per consumer, picked by preset.
-  "packages/core/core-assets/presets/astro/managed/stack.md": 60, // 53 → 13.2%
-  "packages/core/core-assets/presets/background-worker/managed/stack.md": 285, // 256 → 11.3%
-  "packages/core/core-assets/presets/bun-keystone/managed/stack.md": 255, // 229 → 11.4%
-  "packages/core/core-assets/presets/express/managed/stack.md": 160, // 145 → 10.3%
-  "packages/core/core-assets/presets/express-mongoose/managed/stack.md": 175, // 155 → 12.9%
-  "packages/core/core-assets/presets/fastapi-python/managed/stack.md": 165, // 150 → 10%
-  "packages/core/core-assets/presets/medusa/managed/stack.md": 70, // 63 → 11.1%
-  "packages/core/core-assets/presets/monorepo-turbopnpm/managed/stack.md": 220, // 200 → 10.0%
-  "packages/core/core-assets/presets/nestjs/managed/stack.md": 72, // 64 → 12.5%
-  "packages/core/core-assets/presets/nextjs/managed/stack.md": 78, // 69 → 13.0%
-  "packages/core/core-assets/presets/react-native-expo/managed/stack.md": 88, // 78 → 12.8%
-  "packages/core/core-assets/presets/vite-react-ts/managed/stack.md": 232, // 210 → 10.5%
-  "packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md": 126, // 114 → 10.5%
+  "packages/core/core-assets/presets/astro/managed/stack.md": 56, // 53 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/background-worker/managed/stack.md": 269, // 256 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/bun-keystone/managed/stack.md": 241, // 229 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/express/managed/stack.md": 153, // 145 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/express-mongoose/managed/stack.md": 163, // 155 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/fastapi-python/managed/stack.md": 155, // 147 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/medusa/managed/stack.md": 67, // 63 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/monorepo-turbopnpm/managed/stack.md": 210, // 200 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/nestjs/managed/stack.md": 68, // 64 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/nextjs/managed/stack.md": 73, // 69 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/react-native-expo/managed/stack.md": 82, // 78 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/vite-react-ts/managed/stack.md": 221, // 210 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md": 120, // 114 → ×1.05 (#1520: markers no longer counted)
 };
 
 /**
@@ -398,7 +401,8 @@ const MANAGED_ASSET_RE = /\/managed\/([^/]+)\.md$/;
  */
 export const PROSE_WRAPPER_CEILINGS: Readonly<Record<string, number>> = {
   // #1273: re-measured at 3686 words after `gh-protocol` left Codex; ceil(3686 × 1.10).
-  "navori-agents": 4055,
+  // #1520: markers no longer counted; re-measured at 2992 words, ceil(2992 × 1.05).
+  "navori-agents": 3142,
 };
 
 /**

@@ -99,12 +99,12 @@ describe("scanDocBudget (#917)", () => {
     expect(lines.some((l) => l.includes(".claude/context/"))).toBe(true);
   });
 
-  // `tipado-fuerte` ships a 50-word source ceiling; the rendered markers are not words (#1520).
+  // `tipado-fuerte` ships a 42-word source ceiling; the rendered markers are not words (#1520).
   it("reports a file inside its budget with no violation", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
     const report = scanDocBudget(cwd, config())!;
-    expect(report.ceiling).toBe(50);
+    expect(report.ceiling).toBe(42);
     expect(report.overBy).toBe(0);
     expect(report.blocks.map((b) => [b.id, b.kind, b.over])).toEqual([
       ["tipado-fuerte", "static", false],
