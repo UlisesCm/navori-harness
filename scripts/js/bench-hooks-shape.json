@@ -1,0 +1,115 @@
+{
+  "scenario": "Bash",
+  "audit": "root",
+  "regenerate": "bun run bench:hooks --report-only --runs 1 --scenario Bash --write-shape",
+  "engines": {
+    "claude": {
+      "PreToolUse": {
+        "hooks": 6,
+        "execs": {
+          "jq": 3,
+          "node": 0,
+          "perl": 0,
+          "git": 0,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      },
+      "PostToolUse": {
+        "hooks": 2,
+        "execs": {
+          "jq": 2,
+          "node": 0,
+          "perl": 0,
+          "git": 1,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      }
+    },
+    "codex": {
+      "PreToolUse": {
+        "hooks": 5,
+        "execs": {
+          "jq": 3,
+          "node": 0,
+          "perl": 0,
+          "git": 8,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      },
+      "PostToolUse": {
+        "hooks": 2,
+        "execs": {
+          "jq": 2,
+          "node": 1,
+          "perl": 0,
+          "git": 5,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      }
+    },
+    "pi": {
+      "PreToolUse": {
+        "hooks": 6,
+        "execs": {
+          "jq": 3,
+          "node": 0,
+          "perl": 0,
+          "git": 0,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      },
+      "PostToolUse": {
+        "hooks": 2,
+        "execs": {
+          "jq": 2,
+          "node": 0,
+          "perl": 0,
+          "git": 1,
+          "navori": 0,
+          "date": 0,
+          "sed": 0,
+          "grep": 0,
+          "tr": 0,
+          "head": 0,
+          "tail": 0,
+          "basename": 0
+        }
+      }
+    }
+  }
+}
