@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 3284
+maxWords: 3281
 ---
 
 # Reviewer Agent
@@ -90,12 +90,12 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `{{nav
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `{{navori.scopedGate}}` plus the assigned `A<n>` commands. Do NOT run the full gate. |
-| About to sign `APPROVED`, `qualityGate.ci` declared, workplan PR | `{{navori.scopedGate}}`; sign `--gate-ran ci`: the publisher's `navori receipt ci` proves the full suite in CI before the PR is ready. |
+| About to sign `APPROVED`, `qualityGate.ci`, workplan PR | `{{navori.scopedGate}}`; sign `--gate-ran ci`: CI runs the full gate. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 {{gateRun.full}}
 ```
-The full gate runs only on the round about to sign `APPROVED`; it may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.
+It may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.
 <!-- navori:if planTiers -->
 `navori plan classify <feature> --diff` publishes `reviewDepth`: `light` → Pre-pass plus the sections the diff touches; `full` or absent → every section.
 <!-- /navori:if -->
@@ -108,7 +108,7 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 Start `{{gateRun.full}}` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.
 <!-- /navori:if -->
 <!-- navori:if-not onCodex -->
-Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. Run `{{gateRun.full}}` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
+Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `{{gateRun.full}}` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
 <!-- /navori:if-not -->
 
 
@@ -119,7 +119,7 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; `--gate-ran ci` only per the table's CI row; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `full` means it ran over the signed bytes; `ci` only per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json

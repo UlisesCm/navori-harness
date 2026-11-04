@@ -284,6 +284,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "gh pr review",
     "a prefix rule cannot distinguish the body-carrying -c/-a/-r shape the comment-draft-confirm hook gates from a bodyless --approve/--request-changes, which the hook does not intercept — pre-approving the prefix would silently grant a zero-confirmation PR approval (spec 0026 T18)",
   ],
+  [
+    "gh pr ready",
+    "takes a PR out of draft — the step the CI evidence (`navori receipt ci`) gates; the prompt keeps the user as the last confirmation before reviewers see it",
+  ],
   ["gh auth login", "interactive credential flow — the prose addresses the human, not the agent"],
   [
     "git worktree remove",

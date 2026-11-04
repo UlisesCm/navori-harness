@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="9ed7e8e15ffa0218d94624b7bacda3bfd0fecfa30621c978e036d9d2eb7fe187"
+# navori:managed-file id="pi-agent-publisher" hash="70736dffb47ce33f512adadec4b200ff4355c4f142ca6e36fafc762f485bad35"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -151,7 +151,7 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
 
    Always pass `--base dev` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
-   **`"gateKind":"ci"` only:** add `--draft` and, when `qualityGate.ci.label` is declared, `--label <label>` (a label added later starts no run). Right after creating it run `navori receipt ci --feature <feature> --pr <N> --target dev --dir .navori/state/handoffs --json` (waits up to 20 min for a pending run). `"status":"ok"` → `gh pr ready <N>` and add `CI run <runId> attempt <runAttempt>` to the PR body. `"refused"` (`untrusted[]`, or `hooks.exitCode` non-zero) → run `navori gate full` green before `gh pr ready`, or report the hooks failure. `"no-evidence"` (read `reason`) or `"error"` → leave it draft and report; never mark it ready.
+   **`"gateKind":"ci"` only:** add `--draft` and, when `qualityGate.ci.label` is declared, `--label <label>` (a label added later starts no run). Right after creating it run `navori receipt ci --feature <feature> --pr <N> --target dev --dir .navori/state/handoffs --json` (waits up to 20 min for a pending run). `"status":"ok"` → `gh pr ready <N>` and add `CI run <runId> attempt <runAttempt>` to the PR body. `"refused"` (`untrusted[]`, or `hooks.exitCode` non-zero) → run the full gate green before `gh pr ready`, or report the hooks failure. `"no-evidence"` (read `reason`) or `"error"` → leave it draft and report; never mark it ready.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 

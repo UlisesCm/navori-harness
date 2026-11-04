@@ -7,7 +7,7 @@ effort: low
 maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="f0f321b7" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="9013c16b" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
@@ -155,7 +155,7 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
 
    Always pass `--base dev` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
-   **`"gateKind":"ci"` only:** add `--draft` and, when `qualityGate.ci.label` is declared, `--label <label>` (a label added later starts no run). Right after creating it run `navori receipt ci --feature <feature> --pr <N> --target dev --dir .navori/state/handoffs --json` (waits up to 20 min for a pending run). `"status":"ok"` → `gh pr ready <N>` and add `CI run <runId> attempt <runAttempt>` to the PR body. `"refused"` (`untrusted[]`, or `hooks.exitCode` non-zero) → run `navori gate full` green before `gh pr ready`, or report the hooks failure. `"no-evidence"` (read `reason`) or `"error"` → leave it draft and report; never mark it ready.
+   **`"gateKind":"ci"` only:** add `--draft` and, when `qualityGate.ci.label` is declared, `--label <label>` (a label added later starts no run). Right after creating it run `navori receipt ci --feature <feature> --pr <N> --target dev --dir .navori/state/handoffs --json` (waits up to 20 min for a pending run). `"status":"ok"` → `gh pr ready <N>` and add `CI run <runId> attempt <runAttempt>` to the PR body. `"refused"` (`untrusted[]`, or `hooks.exitCode` non-zero) → run the full gate green before `gh pr ready`, or report the hooks failure. `"no-evidence"` (read `reason`) or `"error"` → leave it draft and report; never mark it ready.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
