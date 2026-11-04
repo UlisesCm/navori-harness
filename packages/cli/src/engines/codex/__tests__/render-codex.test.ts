@@ -1575,6 +1575,9 @@ it("anclas de entrega", () => {
   expect(publisher.indexOf("mode: commit-only")).toBeLessThan(publisher.indexOf("## PR flow"));
   expect(reviewer).toContain("spec: <spec> E<n> M<n>");
   expect(reviewer).toContain("navori receipt gate");
-  expect(agentsMd).toContain("spec: <spec> E<n> M<n>");
+  // #1525: the orchestrator's deliveries cycle is planTiers doctrine.
+  expect(agentsMd).not.toContain("spec: <spec> E<n> M<n>");
   expect(agentsMd).toContain("**Done = accepted:**");
+  renderCodexEngine(cwd, config({ harness: { planTiers: true } }));
+  expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toContain("spec: <spec> E<n> M<n>");
 });

@@ -66,7 +66,7 @@ Antes de cerrar cada plan, `MASTER.md` y cada spec de parte comprueba: nada impl
 
 ## Spec de una parte
 
-Cuando una parte arranque, crea su `spec.md` de una página con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y citarse en la `spec.md` como `P<n>.A<m>` o `A<m>`, normalmente en su guion de aceptación. Una parte heredada con `tasks.md` conserva las reglas de su plantilla `tasks.md` y la cita de cada criterio en un `R<n>`. Corre `navori master check --part P<n>`.
+Cuando una parte arranque, crea su `spec.md` de una página con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y citarse en la `spec.md` como `P<n>.A<m>` o `A<m>`, normalmente en su guion de aceptación. Una parte heredada con `tasks.md` cita cada criterio en un `R<n>`. Corre `navori master check --part P<n>`.
 
 ### Part-spec: entregas funcionales
 

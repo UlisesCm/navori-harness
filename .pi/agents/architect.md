@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-architect" hash="10096fb0c985a3581a39425ca7e2d1e7474264f8336d7d7ca5923f60a3aac267"
+# navori:managed-file id="pi-agent-architect" hash="83b034ab25338f4ace02afb1ffec394ffb7852f4263b06254790d0e8fb35cb79"
 name: "architect"
 description: "Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership, contract, migration, hard-to-reverse decision), a level-2 workplan, or a spec's design.md. Not for verdicts, decomposition, or user questions. Use when the architectural row fires, `classify` returns level 2, or a spec is scaffolded."
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore"]
@@ -32,8 +32,8 @@ Use URLs de documentación oficial for expiring facts and include the fecha de c
 1. Read `CLAUDE.md` from disk only if your host did not inject it.
 2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions).
-4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
-5. **Level 3 only**: instead of step 4, write `specs/<feature>/design.md` using `spec-bootstrap`'s template.
+4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options`, `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
+5. **Level 3 only**: write step 4's content to `specs/<feature>/design.md`, beside the `spec-bootstrap` spec, instead.
 6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
 ## Hard rules
