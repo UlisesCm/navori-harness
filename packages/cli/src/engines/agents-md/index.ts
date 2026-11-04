@@ -36,6 +36,8 @@ export function renderAgentsMdEngine(
     /** Engine whose `onX` conditions the prose resolves; defaults to `agents-md`. */
     engine?: string;
     extendBody?: (body: string) => string;
+    /** Pi only: its vocabulary adapter, applied before interpolation. */
+    transform?: (text: string) => string;
   } = {},
 ): AgentsMdEngineResult {
   return renderProseFile({
@@ -52,5 +54,6 @@ export function renderAgentsMdEngine(
     includeOrchestration: options.includeOrchestration,
     omitSkillsIndex: options.omitSkillsIndex,
     extendBody: options.extendBody,
+    transform: options.transform,
   });
 }

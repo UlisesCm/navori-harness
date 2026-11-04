@@ -93,6 +93,8 @@ export function buildHarnessProse(
     engine: string;
     /** Omit the "Available skills" index (Codex lists `.agents/skills` natively). */
     omitSkillsIndex?: boolean;
+    /** Rewrites asset text before interpolation (see `computeRenderPlan`). */
+    transform?: (text: string) => string;
   },
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
@@ -101,6 +103,7 @@ export function buildHarnessProse(
   const plan = computeRenderPlan("", config, repoRoot, {
     omitRootOnly: isWorkspace,
     engine: options.engine,
+    transform: options.transform,
   });
   // Keep core rule blocks + the active preset's stack block (its source is the
   // preset id). Plugin-contributed blocks (engram, etc.) are Claude-specific and
@@ -174,6 +177,8 @@ export interface ProseRenderSpec {
   omitSkillsIndex?: boolean;
   /** Appends engine-owned sub-blocks (e.g. plugin extensions) to the harness body before it is injected. */
   extendBody?: (body: string) => string;
+  /** Rewrites navori's asset text before interpolation; `project.*` values stay verbatim. */
+  transform?: (text: string) => string;
   /** Engine id (`"agents-md"`, `"cursor"`, `"copilot"`): required so a prose file never renders the Claude-only `onClaude` branch by default. */
   engine: string;
 }
@@ -201,6 +206,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
     includePluginBlocks: spec.includePluginBlocks,
     engine: spec.engine,
     omitSkillsIndex: spec.omitSkillsIndex,
+    transform: spec.transform,
   });
   const body = spec.extendBody ? spec.extendBody(harnessBody) : harnessBody;
 

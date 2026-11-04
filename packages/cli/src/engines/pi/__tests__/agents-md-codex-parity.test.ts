@@ -47,8 +47,10 @@ describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () 
     expect(agents).toContain("- `implementer` — ");
     expect(agents).toContain("- `scribe` — ");
     expect(agents).toContain("billing writes");
-    // The user's own config text is not run through the Pi adapter.
-    expect(agents).toContain("edits to CLAUDE.md");
+    // The user's own config text is not run through the Pi adapter, including where it is
+    // interpolated into navori's prose (the risk-routing line), not only the appended block.
+    expect(agents).toContain("(`billing writes, edits to CLAUDE.md`)");
+    expect(agents).not.toContain("edits to AGENTS.md");
     expect(agents).not.toContain("## Available skills");
   });
 

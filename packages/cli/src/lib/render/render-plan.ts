@@ -467,12 +467,18 @@ export function computeRenderPlan(
     omitRootOnly?: boolean;
     /** Engine being rendered for; forwarded to `conditionOrchestration` (default `"claude"`). */
     engine?: string;
+    /**
+     * Rewrites navori's asset text before `{{...}}` interpolation, so config values
+     * (`project.*`) reach the output verbatim — same order as `renderManagedFile`.
+     */
+    transform?: (text: string) => string;
   } = {},
 ): RenderPlan {
   // Fill in render-only derived values (prTarget, project.typedLanguage) so
   // managed-block conditions resolve the same whether called from the engine
   // or from sync. Idempotent.
   const config = effectiveConfig(inputConfig);
+  const transform = options.transform ?? ((text: string): string => text);
   const skipIds = options.skipIds ?? new Set<string>();
   // forceIds: blocks the user chose "accept new" for in sync --interactive —
   // overwrite even though they were hand-edited.
@@ -551,7 +557,7 @@ export function computeRenderPlan(
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const rawContent = readFileSync(resolved.path, "utf-8");
     const conditionedContent = conditionOrchestration(rawContent, config, options.engine);
-    const content = interpolate(conditionedContent, config);
+    const content = interpolate(transform(conditionedContent), config);
     if (asset.audience === "orchestrator") {
       // Not part of the always-on file. Stripping it from `working` is what
       // migrates a repo rendered by an earlier navori: the block leaves
@@ -633,7 +639,7 @@ export function computeRenderPlan(
         if (skipIds.has(extra.id)) continue;
         const absPath = resolve(loaded.assetRoot, extra.relPath);
         const rawContent = readFileSync(absPath, "utf-8");
-        const content = interpolate(rawContent, config);
+        const content = interpolate(transform(rawContent), config);
         const result = injectManagedSection(
           working,
           extra.id,
@@ -759,7 +765,7 @@ export function computeRenderPlan(
       for (const entry of plugin.managedAssets) {
         if (skipIds.has(entry.id)) continue;
         const rawContent = readFileSync(entry.absPath, "utf-8");
-        const content = interpolate(rawContent, config);
+        const content = interpolate(transform(rawContent), config);
         const result = injectManagedSection(
           working,
           entry.id,

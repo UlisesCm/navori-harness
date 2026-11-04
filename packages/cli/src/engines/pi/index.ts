@@ -706,13 +706,12 @@ export function preparePiEngine(
         includeOrchestration: true,
         includePluginBlocks: true,
         omitSkillsIndex: true,
-        // The adapter rewrites navori's own prose only; `project.*` values are the user's
-        // config text and are appended verbatim.
+        // The adapter rewrites navori's asset text before interpolation, so the user's
+        // `project.*` values (e.g. critical areas in the routing line) stay verbatim.
+        transform: adaptHarnessTextForPi,
         extendBody: (body) =>
           extendWithOrchestratorBlocks(
-            [adaptHarnessTextForPi(body), projectContext, catalog]
-              .filter((part) => part !== null)
-              .join("\n"),
+            [body, projectContext, catalog].filter((part) => part !== null).join("\n"),
             plugins,
             config,
           ),
