@@ -138,27 +138,53 @@ describe("doctor --json — warning-level checks", () => {
     return dir;
   }
 
+  /**
+   * Instant stand-ins for the host CLIs doctor probes with `--version` (up to 5 s each): the
+   * enabled codegraph's pin check, plus the navori/claude/codex provenance and engram. No
+   * assertion reads them, so the host's real binaries only added load-sensitive wall time (#1485).
+   * codegraph prints its pinned version so the pin stays in agreement; the same `du` idea below.
+   */
+  function hostProbeStubs(): Record<string, string> {
+    const shim = mkdtempSync(join(tmpdir(), "navori-probe-shim-"));
+    dirs.push(shim);
+    const stubs: Record<string, string> = {
+      codegraph: "1.6.0",
+      navori: "0.0.0",
+      claude: "0.0.0",
+      codex: "0.0.0",
+      engram: "0.0.0",
+    };
+    for (const [name, version] of Object.entries(stubs)) {
+      const bin = join(shim, name);
+      writeFileSync(bin, `#!/bin/sh\necho ${version}\n`, "utf-8");
+      chmodSync(bin, 0o755);
+    }
+    return { PATH: `${shim}:${process.env.PATH ?? ""}` };
+  }
+
   function seedEnabledCodegraphRepo(): {
     repo: string;
     configPath: string;
     config: Record<string, unknown>;
+    env: Record<string, string>;
   } {
+    const env = hostProbeStubs();
     const repo = seedRepo();
-    expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
+    expect(runCli(["init", "--recommended", "--cwd", repo], env).status).toBe(0);
     const configPath = join(repo, "navori.config.json");
-    expect(doctorJson(repo).codegraphDefaultPolicy).toBeNull();
+    expect(doctorJson(repo, env).codegraphDefaultPolicy).toBeNull();
     const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
     config.plugins = { codegraph: { enabled: true } };
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
-    return { repo, configPath, config };
+    expect(runCli(["render", "--apply", "--cwd", repo], env).status).toBe(0);
+    return { repo, configPath, config, env };
   }
 
   // Covers: R34, R35
   it("reports enabled codegraph as information without changing config", () => {
-    const { repo, configPath } = seedEnabledCodegraphRepo();
+    const { repo, configPath, env } = seedEnabledCodegraphRepo();
     const before = readFileSync(configPath, "utf-8");
-    const report = doctorJson(repo);
+    const report = doctorJson(repo, env);
     expect(report.codegraphDefaultPolicy).toEqual({
       verdict: "quitar-del-default",
       evidence: "docs/research/codegraph-costo-neto.md",
@@ -168,26 +194,26 @@ describe("doctor --json — warning-level checks", () => {
 
   // Covers: R34, R35
   it("explains enabled codegraph in both languages without changing strict health", () => {
-    const { repo, configPath, config } = seedEnabledCodegraphRepo();
-    const human = runCli(["doctor", "--cwd", repo]);
+    const { repo, configPath, config, env } = seedEnabledCodegraphRepo();
+    const human = runCli(["doctor", "--cwd", repo], env);
     expect(human.stdout + human.stderr).toContain("docs/research/codegraph-costo-neto.md");
-    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
+    expect(runCli(["doctor", "--strict", "--cwd", repo], env).status).toBe(0);
     config.language = "en";
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    const english = runCli(["doctor", "--cwd", repo]);
+    const english = runCli(["doctor", "--cwd", repo], env);
     expect(english.stdout + english.stderr).toContain("Codegraph is no longer enabled");
-  }, 20_000);
+  });
 
   // Covers: R34, R35
   it("stops reporting codegraph when the plugin is disabled", () => {
-    const { repo, configPath, config } = seedEnabledCodegraphRepo();
-    const report = doctorJson(repo);
+    const { repo, configPath, config, env } = seedEnabledCodegraphRepo();
+    const report = doctorJson(repo, env);
     config.language = "es";
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    expect(doctorJson(repo).codegraphDefaultPolicy).toEqual(report.codegraphDefaultPolicy);
+    expect(doctorJson(repo, env).codegraphDefaultPolicy).toEqual(report.codegraphDefaultPolicy);
     config.plugins = { codegraph: { enabled: false } };
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    expect(doctorJson(repo).codegraphDefaultPolicy).toBeNull();
+    expect(doctorJson(repo, env).codegraphDefaultPolicy).toBeNull();
   });
 
   it("gateReadiness: a declared gate whose binary is not on PATH (#368)", () => {

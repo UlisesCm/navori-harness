@@ -6,7 +6,12 @@ import { join, resolve } from "node:path";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../../lib/render/hook-includes.ts";
 import { acrossShells, type HookShell } from "../../../lib/__tests__/helpers/shells.ts";
-import { createExecShims, expectLinearScaling } from "../../../lib/__tests__/helpers/exec-shims.ts";
+import {
+  createExecShims,
+  expectLinearTrace,
+  traceShape,
+  type TraceShape,
+} from "../../../lib/__tests__/helpers/exec-shims.ts";
 
 /** Backslash continuation and quote-stripping of `sh -c`/`eval` payloads are parsed by the shell (#391). */
 const CONTINUATION_SENSITIVE =
@@ -370,11 +375,18 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
     });
 
     // Covers: R62
-    it("scales linearly: a 20 KB command costs at most 2.5x a 10 KB one (median of 3)", () => {
-      expectLinearScaling(
-        () => hookRun(line.repeat(105)),
-        () => hookRun(line.repeat(210)),
-      );
+    it("scales linearly: a 20 KB command traces at most 2.5x the work of a 10 KB one", () => {
+      // The xtrace of a run is the work bash did, so its growth is the scaling on any load.
+      const traceOf = (lines: number): TraceShape => {
+        const cwd = mkdtempSync(join(tmpdir(), "navori-master-accept-"));
+        mkdirSync(join(cwd, ".claude"), { recursive: true });
+        return traceShape({
+          script: hookPath,
+          input: JSON.stringify(payload(line.repeat(lines))),
+          env: { ...process.env, CLAUDE_PROJECT_DIR: cwd },
+        });
+      };
+      expectLinearTrace(traceOf(105), traceOf(210));
     });
 
     // Covers: R62

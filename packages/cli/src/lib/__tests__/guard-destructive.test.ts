@@ -340,11 +340,15 @@ echo exit=$?; git status --porcelain; git log -1 --stat --format='%H%n%s'`;
       "cp x /tmp/x >> /tmp/log",
       "cp x /tmp/x &>/tmp/log",
     ];
-    beforeAll(() =>
-      primeGuard(
-        ownedGuard,
-        [...denied, ...allowed].map((cmd) => ({ cmd, env })),
-      ),
+    // Same hang detector as every other primer in this file: without it the 10 s default
+    // hookTimeout skipped the ~100 cases below under load (#1485).
+    beforeAll(
+      () =>
+        primeGuard(
+          ownedGuard,
+          [...denied, ...allowed].map((cmd) => ({ cmd, env })),
+        ),
+      PRIME_TIMEOUT_MS,
     );
     // Covers: R8
     it.each(denied)("blocks owned mutation: %s", (command: string) => {
