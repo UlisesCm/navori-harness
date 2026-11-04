@@ -613,7 +613,7 @@ async function scriptCall(
   relayed: Array<Record<string, unknown>> = [],
 ): Promise<{ block?: boolean; reason?: string } | undefined> {
   const handlers = loadScripts({
-    env: child ? { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" } : {},
+    env: child ? { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" } : {},
     send: (message, callback) => {
       relayed.push(message);
       callback(null);

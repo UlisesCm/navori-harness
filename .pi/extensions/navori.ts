@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="6bb57d83e8d1947ab09c87a6f9103baefe92cb04216f8b99ca615f64400d052e"
+// navori:managed-file id="pi-extension" hash="479d7111b75764d2611c379b28359f2b1cafc0af4197aa7e34a0515f8cdb81b4"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -36,10 +36,12 @@ const isVerifiedPiRuntime = piRuntimeChecks.verified;
 const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect" | "publisher";
+type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect";
+const ROLE_SCHEMA = Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect")]);
+const SUBAGENT_DESCRIPTION = "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, or architect child in this trusted project. Publishing (commit, push, PR) is not a child: this session runs it following .pi/agents/publisher.md.";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
+const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   scout: new Set(["read","grep","find","ls","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
   implementer: new Set(["read","grep","find","ls","bash","edit","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
@@ -47,10 +49,9 @@ const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
   auditor: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
   architect: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore"]),
-  publisher: new Set(["read","grep","find","ls","bash"]),
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
-const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -1699,8 +1700,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
+    description: SUBAGENT_DESCRIPTION,
+    parameters: Type.Object({ role: ROLE_SCHEMA,
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);

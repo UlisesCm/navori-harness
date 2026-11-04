@@ -1,11 +1,14 @@
-import { PI_ROLE_NAMES, type PiRoleName } from "../../engines/pi/role-tools.ts";
+import { PI_PARENT_ROLES, PI_ROLE_NAMES } from "../../engines/pi/role-tools.ts";
 import { PI_HOOK_BINDINGS } from "../../engines/pi/hook-bindings.ts";
 import { PI_EXTENSION_DENIALS } from "../../engines/pi/denials.ts";
 import { correlateGateExecutions, type HookEvent, type SessionAudit } from "./model.ts";
 import type { PublicationEvidence } from "./publications.ts";
 
 export type BenchmarkEngine = "claude" | "pi";
-const dispatchRoles = [...PI_ROLE_NAMES, "unknown"] as const;
+// Parent roles too: sessions recorded before #1496 dispatched publisher as a child.
+const dispatchRoles = [...PI_ROLE_NAMES, ...PI_PARENT_ROLES, "unknown"] as const;
+type DispatchRole = (typeof dispatchRoles)[number];
+const knownRoles: readonly string[] = [...PI_ROLE_NAMES, ...PI_PARENT_ROLES];
 type Availability = { state: "observed" } | { state: "unavailable"; reason: string };
 export interface EngineMetrics {
   engine: BenchmarkEngine;
@@ -101,8 +104,8 @@ function metrics(
       // Pi cards without K2 are not confirmed dispatches.
       if (engine === "pi" && !run.piOutcome) continue;
       const outcome = engine === "pi" ? run.piOutcome : run.nativeOutcome;
-      const role = PI_ROLE_NAMES.includes(run.agentType as PiRoleName)
-        ? (run.agentType as PiRoleName)
+      const role: DispatchRole = knownRoles.includes(run.agentType)
+        ? (run.agentType as DispatchRole)
         : "unknown";
       result.dispatches[role][outcome ?? "unknown"]++;
       if (run.agentType === "implementer") {

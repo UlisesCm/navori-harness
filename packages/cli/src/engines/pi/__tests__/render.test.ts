@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
-import { renderNonClaudeEngines } from "../../../commands/render.ts";
+import { renderNonClaudeEngines, runRender } from "../../../commands/render.ts";
 import { commitWrites } from "../../shared/execute-plan.ts";
 import { renderPiEngine } from "../index.ts";
 import { ownsPiManifest, serializePiManifest } from "../owned-file.ts";
@@ -54,6 +54,32 @@ describe("Pi render base", () => {
       expect(reviewer).toContain(`--target ${target} --dir .navori/state/handoffs --json`);
       expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);
       expect(existsSync(join(cwd, ".pi/agents/publisher.md"))).toBe(true);
+    },
+  );
+
+  // #1496: publisher is a parent role; a generated copy is navori's to prune, a user's is kept.
+  it.each([true, false])(
+    "render --prune with Pi off deletes a generated publisher.md, keeps a user one: generated=%s",
+    (generated: boolean): void => {
+      const cwd = freshDir();
+      writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config, null, 2));
+      renderPiEngine(cwd, config);
+      const path = join(cwd, ".pi/agents/publisher.md");
+      expect(readFileSync(path, "utf-8")).toContain("\ntools: []\n");
+      if (!generated) writeFileSync(path, "# my own publisher\n");
+      writeFileSync(
+        join(cwd, "navori.config.json"),
+        JSON.stringify({ ...config, engines: ["cursor"] }, null, 2),
+      );
+      const result = runRender(cwd, { dryRun: false, prune: true });
+      expect(result.ok).toBe(true);
+      expect(existsSync(path)).toBe(!generated);
+      expect(result.prunedEngineOutputs ?? []).toEqual(
+        generated
+          ? expect.arrayContaining([".pi/agents/publisher.md"])
+          : expect.not.arrayContaining([".pi/agents/publisher.md"]),
+      );
+      if (!generated) expect(readFileSync(path, "utf-8")).toBe("# my own publisher\n");
     },
   );
 

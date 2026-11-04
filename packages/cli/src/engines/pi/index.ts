@@ -73,7 +73,7 @@ import {
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
-import { PI_ROLE_TOOLS, type PiRoleName } from "./role-tools.ts";
+import { isPiChildRole, isPiParentRole } from "./role-tools.ts";
 import {
   PI_KNOWLEDGE_READONLY,
   piKnowledgeGrants,
@@ -83,7 +83,8 @@ import {
 } from "./knowledge-tools.ts";
 import { mcpPluginIds, mcpServerDiagnostics } from "./mcp-diagnosis.ts";
 
-const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
+/** Whether Pi renders `.pi/agents/<id>.md` for this role: a dispatchable child or a parent role. */
+const isPiRenderedRole = (id: string): boolean => isPiChildRole(id) || isPiParentRole(id);
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
@@ -254,9 +255,10 @@ function mcpRoleDiagnostics(
     if (!plugin.manifest.mcpServer) continue;
     for (const skill of plugin.manifest.skills ?? []) {
       const role = skill.injectInto?.match(/^\.claude\/agents\/([a-z0-9-]+)\.md$/)?.[1];
-      if (role === undefined || !roleIds.has(role)) continue;
+      // A parent role runs in the parent session, where MCP is available.
+      if (role === undefined || !roleIds.has(role) || !isPiChildRole(role)) continue;
       const covered = (PI_KNOWLEDGE_READONLY[plugin.manifest.id] ?? []).map(piKnowledgeToolName);
-      if (covered.some((name) => grants[role as PiRoleName]?.includes(name))) continue;
+      if (covered.some((name) => grants[role]?.includes(name))) continue;
       const tools = deriveMcpTools(plugin, skill.mcpTools).join(", ");
       out.push(
         `Pi role ${role} needs MCP tools from plugin ${plugin.manifest.id} (${tools}) but is unavailable for them in children: ` +
@@ -292,7 +294,7 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
       ? ownsPiManifest(content)
       : rel === EXTENSION
         ? ownsPiSource(content)
-        : agent !== undefined && Object.hasOwn(ROLE_TOOLS, agent) && ownsPiAgent(content, agent);
+        : agent !== undefined && isPiRenderedRole(agent) && ownsPiAgent(content, agent);
   if (owned) return "ours";
   const claimsNavori =
     content.includes('navori:managed-file id="pi-') ||
@@ -375,11 +377,11 @@ export function preparePiEngine(
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
   const admitted = (id: string): boolean =>
-    Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
+    isPiRenderedRole(id) && (id !== "scribe" || scribeOwnsMarkdown);
   const roles = plan.agents.filter((agent) => admitted(agent.id));
   warnings.push(
     ...plan.agents
-      .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
+      .filter((agent) => !isPiRenderedRole(agent.id))
       .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`),
   );
   if (!config.engines.includes("codex")) {
@@ -413,7 +415,8 @@ export function preparePiEngine(
   const permissions = collectShellPermissionRules(config, ctx.plugins);
   const serialized = serializePiManifest({
     schemaVersion: PI_MANIFEST_SCHEMA,
-    agents: roles.map((r) => r.id),
+    // Parent roles are rendered but never dispatchable, so the manifest does not list them.
+    agents: roles.filter((r) => isPiChildRole(r.id)).map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
@@ -458,7 +461,7 @@ export function preparePiEngine(
       name: agent.id,
       description,
       ...(model ? { model } : {}),
-      tools: piRoleTools(agent.id as PiRoleName, knowledgeGrants),
+      tools: isPiChildRole(agent.id) ? piRoleTools(agent.id, knowledgeGrants) : [],
       instructions:
         prefixKnowledgeNames(instructions, agent.id, knowledgeGrants) +
         rolePluginProse(agent.id, plugins, config, knowledgeGrants),
@@ -550,11 +553,7 @@ export function preparePiEngine(
   const removals: CollectedPlan["removals"] = [];
   if (existsSync(agentDir)) {
     for (const name of readdirSync(agentDir)) {
-      if (
-        !name.endsWith(".md") ||
-        desiredAgents.has(name) ||
-        !Object.hasOwn(ROLE_TOOLS, name.slice(0, -3))
-      )
+      if (!name.endsWith(".md") || desiredAgents.has(name) || !isPiRenderedRole(name.slice(0, -3)))
         continue;
       const path = join(agentDir, name);
       if (

@@ -30,6 +30,25 @@ function renderKnowledgeSource(): string {
 }
 
 /**
+ * The child `Role` union plus the `navori_subagent` role schema and description, all derived from
+ * `PI_ROLE_NAMES` and folded into the EXISTING `type Role` interpolation (the bundler pins the
+ * expression count). Parent roles (`PI_PARENT_ROLES`) are absent: Pi's schema validation refuses
+ * them. No trailing semicolon: the template supplies it.
+ */
+function renderRoleSource(): string {
+  const names = PI_ROLE_NAMES.map((role) => JSON.stringify(role));
+  const listed = `${PI_ROLE_NAMES.slice(0, -1).join(", ")}, or ${PI_ROLE_NAMES.at(-1)}`;
+  const description =
+    `Run a bounded Navori ${listed} child in this trusted project. ` +
+    "Publishing (commit, push, PR) is not a child: this session runs it following .pi/agents/publisher.md.";
+  return [
+    names.join(" | "),
+    `const ROLE_SCHEMA = Type.Union([${names.map((name) => `Type.Literal(${name})`).join(", ")}])`,
+    `const SUBAGENT_DESCRIPTION = ${JSON.stringify(description)}`,
+  ].join(";\n");
+}
+
+/**
  * Self-contained project extension; no import may point back into Navori's CLI checkout.
  * `mcpPluginIds` are the enabled plugins declaring an MCP server (spec 0048 D14): the parent
  * re-checks them at `session_start`. The default (none) renders the check inert.
@@ -58,7 +77,7 @@ const MCP_PLUGIN_IDS: readonly string[] = ${JSON.stringify(mcpPluginIds)};
 const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates) + ";\nconst redactSecrets = " + serializeAnonymousFunction(redactSecrets) + ";\n" + renderKnowledgeSource()};
 ${renderPiRuntimeVersionSource()}
 
-type Role = ${PI_ROLE_NAMES.map((role) => JSON.stringify(role)).join(" | ")};
+type Role = ${renderRoleSource()};
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
 const ROLES = new Set<Role>(${JSON.stringify(PI_ROLE_NAMES)});
@@ -1308,8 +1327,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
+    description: SUBAGENT_DESCRIPTION,
+    parameters: Type.Object({ role: ROLE_SCHEMA,
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);

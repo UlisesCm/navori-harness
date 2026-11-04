@@ -26,7 +26,7 @@ import { load as loadExtension } from "./fixtures/load-extension.ts";
 import { rolePluginProse } from "../plugin-projection.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
-import { piKnowledgeGrants } from "../knowledge-tools.ts";
+import { piKnowledgeGrants, piRoleTools } from "../knowledge-tools.ts";
 
 interface Tool {
   execute: (
@@ -551,7 +551,9 @@ describe("Pi plugin projection", () => {
     expect(JSON.stringify(piKnowledgeGrants(both))).not.toContain("mem_save");
     // A role outside the grant has no knowledge tool in its Pi tool list.
     expect(piKnowledgeGrants(both).scribe).toBeUndefined();
-    expect(piKnowledgeGrants(both).publisher).toBeUndefined();
+    // Publisher is a parent role (#1496): no grant and no tool list.
+    expect(piKnowledgeGrants(both)).not.toHaveProperty("publisher");
+    expect(piRoleTools("publisher", piKnowledgeGrants(both))).toEqual([]);
   });
 
   // Covers: R12

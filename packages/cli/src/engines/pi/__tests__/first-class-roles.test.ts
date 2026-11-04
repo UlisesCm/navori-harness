@@ -30,7 +30,7 @@ afterAll(() => {
 });
 
 type Role = "scout" | "implementer" | "reviewer" | "scribe";
-type AnalyticRole = "auditor" | "architect" | "publisher";
+type AnalyticRole = "auditor" | "architect";
 interface Model {
   provider: string;
   id: string;
@@ -389,7 +389,6 @@ describe("Pi first-class roles", () => {
     const wanted: Record<AnalyticRole, string> = {
       auditor: "read,grep,find,ls,bash,write",
       architect: "read,grep,find,ls,bash,write",
-      publisher: "read,grep,find,ls,bash",
     };
     const rt = load();
     for (const role of ["auditor", "architect"] as const) {
@@ -413,17 +412,33 @@ describe("Pi first-class roles", () => {
   });
 
   // Covers: R14
-  it("publisher is dispatchable now that its publishing is gated", async () => {
+  it("publisher is a parent role: rendered without tools, never dispatched (#1496)", async () => {
     const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
     const rt = load();
-    for (const role of ["publisher", "auditor", "architect"] as const) {
+    await expect(run(rt, dir, "publisher")).rejects.toThrow(/Unsupported Navori Pi role/);
+    expect(rt.children).toEqual([]);
+    for (const role of ["auditor", "architect"] as const) {
       expect((await dispatch(rt, dir, role)).details.role).toBe(role);
     }
-    expect(flag(rt.children[0]!.args, "--tools")).toBe("read,grep,find,ls,bash");
+    // The parent follows the rendered instructions; the manifest does not list it as a child.
+    expect(readFileSync(join(dir, ".pi/agents/publisher.md"), "utf8")).toContain("\ntools: []\n");
+    const manifest = JSON.parse(readFileSync(join(dir, ".pi/navori.json"), "utf8")) as {
+      agents: string[];
+      ownedPaths: string[];
+    };
+    expect(manifest.agents).not.toContain("publisher");
+    expect(manifest.ownedPaths).toContain(".pi/agents/publisher.md");
+    // The navori_subagent schema and description offer only child roles.
+    expect(PI_EXTENSION_SOURCE).toContain("role: ROLE_SCHEMA,");
+    const union = /const ROLE_SCHEMA = Type\.Union\(\[(.+)\]\)/.exec(PI_EXTENSION_SOURCE)?.[1];
+    expect(union).toBe(PI_ROLE_NAMES.map((role) => `Type.Literal("${role}")`).join(", "));
+    expect(PI_EXTENSION_SOURCE).toContain(
+      "Publishing (commit, push, PR) is not a child: this session runs it following .pi/agents/publisher.md.",
+    );
   });
 
   // Covers: R4, R5, R6, R14
-  it("publisher gh pr create relays to the parent and never runs in the child", async () => {
+  it("a child's gh pr create relays to the parent and never runs in the child", async () => {
     const dir = mkdtempSync(join(tmpdir(), "navori-pi-publisher-"));
     dirs.push(dir);
     repoTplMaster.copyInto(dir);
@@ -440,7 +455,7 @@ describe("Pi first-class roles", () => {
     writeFileSync(join(dir, "pr-body.txt"), "Body of the pull request");
     const sent: Array<Record<string, unknown>> = [];
     const handlers = loadWithScripts({
-      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" },
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
       send: (message, callback) => {
         sent.push(message);
         callback(null);
@@ -484,7 +499,8 @@ describe("Pi first-class roles", () => {
   // Covers: R14
   it("per-role deadlines outlive the gate for commit and push roles", () => {
     expect(Object.keys(PI_ROLE_TIMEOUT_MS).sort()).toEqual([...PI_ROLE_NAMES].sort());
-    for (const role of ["implementer", "publisher"] as const) {
+    expect(Object.keys(PI_ROLE_TIMEOUT_MS)).not.toContain("publisher");
+    for (const role of ["implementer"] as const) {
       expect(PI_ROLE_TIMEOUT_MS[role]).toBeGreaterThanOrEqual(PI_GATE_TIMEOUT_MS + 600_000);
     }
   });
