@@ -66,6 +66,8 @@ There are two levels:
 - **`check:assets:ci`** (in `EXEMPT_FROM_LOCAL_GATE`): it is the same check as `check:assets` with `--strict`. Strict mode depends on tags that CI intentionally provides and a fresh clone does not have, so the local gate would fail for an environmental reason rather than a code issue.
 - **`check:assets`** (in `EXEMPT_FROM_CI`): CI runs its stricter superset, `check:assets:ci`.
 
+A green CI run with the `full` label can stand in for the local full gate (#1492): the reviewer signs `--gate-ran ci`, the publisher opens a draft PR and marks it ready only when `navori receipt ci` verifies that run on the exact HEAD. Paths in `qualityGate.ci.untrustedPaths` and any `qualityGate` change still need the local gate; shell hook changes need the local `hooksCommand`.
+
 For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are enough; the full suite is not needed.
 **"Doc-only" means repo documentation, not assets.** A `.md` file under `packages/core/core-assets/` or `packages/plugins/*/` is a source for the rendered harness, so it triggers steps 2 and 3 (the mirror and golden snapshot) regardless of its extension.
 

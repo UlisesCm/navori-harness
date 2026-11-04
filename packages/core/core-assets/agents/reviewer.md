@@ -90,6 +90,7 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `{{nav
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `{{navori.scopedGate}}` plus the assigned `A<n>` commands. Do NOT run the full gate. |
+| About to sign `APPROVED`, `qualityGate.ci` declared, workplan PR | `{{navori.scopedGate}}`; sign `--gate-ran ci`: the publisher's `navori receipt ci` proves the full suite in CI before the PR is ready. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 {{gateRun.full}}
@@ -118,7 +119,7 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; `--gate-ran ci` only per the table's CI row; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json

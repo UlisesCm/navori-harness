@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="bae95a585331ba640c1ac8af2834e6463756b62c9ffd487178e94541e9094315"
+# navori:managed-file id="pi-agent-reviewer" hash="8fc5289c58b0be14883b46ef459a4c2a2c837e2969576c44cddf7cb3cc63bb50"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
@@ -82,6 +82,7 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `bun r
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `bun run check:scoped` plus the assigned `A<n>` commands. Do NOT run the full gate. |
+| About to sign `APPROVED`, `qualityGate.ci` declared, workplan PR | `bun run check:scoped`; sign `--gate-ran ci`: the publisher's `navori receipt ci` proves the full suite in CI before the PR is ready. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 navori gate full
@@ -102,7 +103,7 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `--gate-ran full` means the full gate ran over the signed bytes, since signing needs it; `--gate-ran ci` only per the table's CI row; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json
