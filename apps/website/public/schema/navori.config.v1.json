@@ -100,6 +100,53 @@
         },
         "nativeHooks": {
           "type": "boolean"
+        },
+        "ci": {
+          "type": "object",
+          "properties": {
+            "workflow": {
+              "type": "string",
+              "minLength": 1
+            },
+            "jobs": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "untrustedPaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hookPaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hooksCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "workflow",
+            "jobs",
+            "untrustedPaths",
+            "hookPaths",
+            "hooksCommand"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -758,6 +805,53 @@
                   },
                   "nativeHooks": {
                     "type": "boolean"
+                  },
+                  "ci": {
+                    "type": "object",
+                    "properties": {
+                      "workflow": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "jobs": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "untrustedPaths": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "hookPaths": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "hooksCommand": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "workflow",
+                      "jobs",
+                      "untrustedPaths",
+                      "hookPaths",
+                      "hooksCommand"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [

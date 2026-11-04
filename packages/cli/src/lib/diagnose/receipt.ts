@@ -35,7 +35,7 @@ export interface ReceiptResult {
   /** True only when `check` read `receipt.consumed.txt` via `includeConsumed`. */
   consumed: boolean;
   /** `sign`: the kind written; `check`: read from the header. `null` for a receipt older than v2 or on error. */
-  gateKind: "full" | "scoped" | null;
+  gateKind: "full" | "scoped" | "ci" | null;
   error: string | null;
 }
 export interface ReceiptOptions {
@@ -54,9 +54,11 @@ export interface ReceiptOptions {
    * delta of Markdown under `specs/` or `docs/` over a current `full` receipt
    * after `qualityGate.docs` (spec 0054 R21, D6); the CLI refuses anything else.
    */
-  gateRan?: "scoped" | "full" | "docs";
+  gateRan?: "scoped" | "full" | "docs" | "ci";
   /** The resolved `qualityGate.docs`; `--gate-ran docs` is refused when unset. */
   docsGate?: string;
+  /** `qualityGate.ci` is declared; `--gate-ran ci` is refused otherwise (#1492). */
+  ciDeclared?: boolean;
   /**
    * Audit observation (spec 0042 T9b). Absent unless an exact audit context
    * exists, so a command outside one computes no identity at all. It only
@@ -108,6 +110,8 @@ export interface EvidenceIdentity {
 
 /** Header `gate=` value of a receipt signed after a scoped cycle; never a sha256, so `check` reads it stale. */
 const SCOPED_GATE = "scoped";
+/** Header `gate=` value of a receipt whose full gate is the CI run (`receipt ci`); never a sha256, so an older reader reads it stale and falls back to the local gate. */
+const CI_GATE = "ci";
 
 function sha256(input: string | Buffer): string {
   return createHash("sha256").update(input).digest("hex");
@@ -326,13 +330,21 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
         `this cycle needs qualityGate.full (${options.gateDecision?.reason ?? "no-spec-flags"}), but --gate-ran scoped was declared\nWHY:   a scoped receipt cannot stand in for the full gate\nFIX:   run qualityGate.full and sign again with --gate-ran full (or without the spec flags)`,
       );
     }
+    if (options.gateRan === "ci" && !options.ciDeclared) {
+      throw new Error(
+        "--gate-ran ci refused: qualityGate.ci is not declared in navori.config.json\nWHY:   without it there is no CI run to verify\nFIX:   run qualityGate.full and sign again with --gate-ran full",
+      );
+    }
     const scoped = options.gateRan === "scoped";
     const state = inspect(options);
     const identity = evidenceIdentity(options.cwd, options.gate);
     const signed =
       options.gateRan === "docs"
         ? docsResignHeader(root, options, state, identity)
-        : { gate: scoped ? SCOPED_GATE : identity.gate, inputs: identity.inputs };
+        : {
+            gate: scoped ? SCOPED_GATE : options.gateRan === "ci" ? CI_GATE : identity.gate,
+            inputs: identity.inputs,
+          };
     const lines = [
       `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${signed.gate} inputs=${signed.inputs}`,
     ];
@@ -360,7 +372,7 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
       options.observer.inputs = identity.inputs;
     }
     const result = success(options, state);
-    result.gateKind = scoped ? "scoped" : "full";
+    result.gateKind = scoped ? "scoped" : options.gateRan === "ci" ? "ci" : "full";
     return { exitCode: 0, result };
   } catch (cause: unknown) {
     return {
@@ -474,7 +486,7 @@ function docsResignHeader(
   if (header.feature !== options.feature) refuse("the receipt belongs to another feature");
   if (header.version !== 2 || header.gate === null || header.inputs === null)
     refuse("the receipt predates v2");
-  if (header.gate === SCOPED_GATE || header.gate !== identity.gate)
+  if (header.gate === SCOPED_GATE || header.gate === CI_GATE || header.gate !== identity.gate)
     refuse("the receipt was not signed after the current full gate");
   if (header.inputs !== identity.inputs) refuse("the lockfiles changed since the receipt");
   if (header.base !== state.targetSha) refuse("the base moved since the receipt");
@@ -525,7 +537,14 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
     result.stale = stale;
     result.fresh = stale.length === 0;
     result.consumed = consumed;
-    result.gateKind = header.version !== 2 ? null : header.gate === SCOPED_GATE ? "scoped" : "full";
+    result.gateKind =
+      header.version !== 2
+        ? null
+        : header.gate === SCOPED_GATE
+          ? "scoped"
+          : header.gate === CI_GATE
+            ? "ci"
+            : "full";
     if (uncovered.length || drift.length) result.status = "findings";
     return { exitCode: result.status === "ok" ? 0 : 2, result };
   } catch (cause: unknown) {

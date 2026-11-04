@@ -255,7 +255,12 @@ export function migrateRetiredConfigKeys(
 }
 
 const QUALITY_GATE_RULE: ConfigObjectRule = {
-  keys: ["fast", "full", "scoped", "affected", "docs", "nativeHooks"],
+  keys: ["fast", "full", "scoped", "affected", "docs", "nativeHooks", "ci"],
+  children: {
+    ci: {
+      keys: ["workflow", "jobs", "label", "untrustedPaths", "hookPaths", "hooksCommand"],
+    },
+  },
 };
 
 /**

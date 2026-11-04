@@ -7,6 +7,12 @@ import {
   type ReceiptOptions,
 } from "../lib/diagnose/receipt.ts";
 import { readConfig } from "../lib/config/config.ts";
+import {
+  DEFAULT_CI_WAIT_MS,
+  formatCi,
+  verifyReceiptCi,
+  type CiResult,
+} from "../lib/diagnose/receipt-ci.ts";
 import { resolve } from "node:path";
 import { hasAuditTarget } from "../lib/audit/cli-event.ts";
 import { contentIdentity } from "../lib/primitives/content-identity.ts";
@@ -41,13 +47,14 @@ export function resolveReceiptOptions(args: {
     dir: root.dir,
     gate: config.qualityGate?.full ?? "",
     docsGate: config.qualityGate?.docs,
+    ciDeclared: config.qualityGate?.ci !== undefined,
     includeConsumed: args.includeConsumed,
   };
 }
 /** Scoped-sign flags: a spec milestone, or a workplan phase (spec 0045 D7). */
 type SignScope =
-  | { spec: string; milestone: string; gateRan: "scoped" | "full" | "docs" }
-  | { spec?: undefined; phase?: string; gateRan: "scoped" | "full" | "docs" };
+  | { spec: string; milestone: string; gateRan: "scoped" | "full" | "docs" | "ci" }
+  | { spec?: undefined; phase?: string; gateRan: "scoped" | "full" | "docs" | "ci" };
 
 /**
  * Validates the scoped `sign` flags: `--spec --milestone --gate-ran` (spec),
@@ -67,8 +74,11 @@ function signSpecFlags(
         ? "--gate-ran is required, and --spec and --milestone must be given together"
         : args.spec && args.phase
           ? "--phase applies to workplans, not to --spec"
-          : args.gateRan !== "scoped" && args.gateRan !== "full" && args.gateRan !== "docs"
-            ? `--gate-ran must be "scoped", "full" or "docs", got "${args.gateRan}"`
+          : args.gateRan !== "scoped" &&
+              args.gateRan !== "full" &&
+              args.gateRan !== "docs" &&
+              args.gateRan !== "ci"
+            ? `--gate-ran must be "scoped", "full", "docs" or "ci", got "${args.gateRan}"`
             : undefined;
   if (problem || !args.gateRan) {
     process.stderr.write(
@@ -77,7 +87,7 @@ function signSpecFlags(
     process.exitCode = 1;
     return "invalid";
   }
-  const gateRan = args.gateRan as "scoped" | "full" | "docs";
+  const gateRan = args.gateRan as "scoped" | "full" | "docs" | "ci";
   return args.spec && args.milestone
     ? { spec: args.spec, milestone: args.milestone, gateRan }
     : { phase: args.phase, gateRan };
@@ -158,6 +168,46 @@ export function executeReceipt(
   );
   if (receipt.exitCode !== 0) process.exitCode = receipt.exitCode;
   if (options.observer) emitReceiptOutcome(options, action, receipt.result);
+}
+
+/** `receipt ci`: verifies the full-suite CI run on HEAD so the publisher may mark the PR ready (#1492). */
+export async function executeReceiptCi(args: {
+  feature: string;
+  pr: string;
+  target?: string;
+  dir?: string;
+  cwd?: string;
+  json?: boolean;
+  wait?: string;
+}): Promise<void> {
+  let out: { exitCode: number; result: CiResult };
+  try {
+    const receipt = resolveReceiptOptions({ ...args, includeConsumed: true });
+    const ci = readConfig(resolve(receipt.cwd, "navori.config.json")).qualityGate?.ci;
+    const pr = Number(args.pr);
+    const wait = args.wait === undefined ? DEFAULT_CI_WAIT_MS / 1000 : Number(args.wait);
+    if (!ci) throw new Error("qualityGate.ci is not declared in navori.config.json");
+    if (!Number.isInteger(pr) || pr <= 0)
+      throw new Error(`--pr must be a PR number, got "${args.pr}"`);
+    if (!Number.isFinite(wait) || wait < 0) throw new Error("--wait must be seconds >= 0");
+    out = await verifyReceiptCi({ receipt, ci, pr, waitMs: wait * 1000 });
+  } catch (error) {
+    out = {
+      exitCode: 1,
+      result: {
+        status: "error",
+        reason: error instanceof Error ? error.message : String(error),
+        runId: null,
+        runAttempt: null,
+        headSha: null,
+        jobs: [],
+        untrusted: [],
+        hooks: { paths: [], ran: false, exitCode: null },
+      },
+    };
+  }
+  process.stdout.write(`${args.json ? JSON.stringify(out.result) : formatCi(out.result)}\n`);
+  if (out.exitCode !== 0) process.exitCode = out.exitCode;
 }
 
 /** `review begin|seal`: producer evidence for `review_<feature>.json` (spec 0042 D5). */
@@ -242,6 +292,21 @@ export const receiptCommand = defineCommand({
         },
       },
       run: ({ args }) => executeReceipt("sign", { ...args, gateRan: args["gate-ran"] }),
+    }),
+    ci: defineCommand({
+      meta: {
+        name: "ci",
+        description: "Verify the full-suite CI run on HEAD before marking the PR ready",
+      },
+      args: {
+        ...shared,
+        pr: { type: "string" as const, required: true as const, description: "PR number" },
+        wait: {
+          type: "string" as const,
+          description: "Seconds to wait for a pending run (default 1200)",
+        },
+      },
+      run: ({ args }) => executeReceiptCi(args),
     }),
     gate: defineCommand({
       meta: {
