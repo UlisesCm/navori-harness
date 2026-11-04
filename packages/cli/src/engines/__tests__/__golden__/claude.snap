@@ -1437,7 +1437,7 @@ Never return the report's content in chat. The orchestrator reads it from disk.
 <!-- navori:managed id="orquestacion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`auth, permissions, payments, data integrity`):
 

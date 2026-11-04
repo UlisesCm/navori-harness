@@ -1,7 +1,7 @@
-<!-- navori:managed id="orquestacion" hash="5ffaca5b" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="9c713219" version="0.12.3" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, you coordinate, you synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`):
 

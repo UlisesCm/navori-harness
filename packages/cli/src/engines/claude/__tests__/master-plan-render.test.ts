@@ -98,12 +98,12 @@ describe("master-plan canonical prose rendering", () => {
       const expectedNotice = canonical
         .slice(canonical.indexOf("## Aviso de inicio"), canonical.indexOf("## Mensaje de fase"))
         .replace(
-          /<!-- navori:if-not onCodex -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+          /<!-- navori:if onClaude -->([\s\S]*?)<!-- \/navori:if -->/g,
           engine === "claude" ? "$1" : "",
         )
         .replace(
-          /<!-- navori:if onCodex -->([\s\S]*?)<!-- \/navori:if -->/g,
-          engine === "codex" ? "$1" : "",
+          /<!-- navori:if-not onClaude -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+          engine === "claude" ? "" : "$1",
         );
       expect(expectedNotice).toContain("Solo para la primera etapa");
       expect(expectedNotice).not.toContain("<!-- navori:if");

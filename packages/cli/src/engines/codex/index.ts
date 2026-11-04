@@ -41,7 +41,7 @@ import {
   type HoistedSkill,
   type WorkspaceHarness,
 } from "../shared/workspace-skills.ts";
-import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
+import { buildAgentsIndexBlock, compactAgentDescription } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 import { buildEngramPolicyShell } from "../shared/engram-grant-policy.ts";
 import { buildRolePolicyShell } from "../shared/role-policy.ts";
@@ -1272,16 +1272,7 @@ function adaptOrchestratorPlaybookForCodex(content: string, config: NavoriConfig
     );
 }
 
-/**
- * One short clause per agent for the root roster: the "Use ..." trigger
- * sentence cut at its first comma (the full text stays in `.codex/agents/<id>.toml`).
- * Falls back to the first sentence when the description has no trigger.
- */
-export function compactAgentDescription(description: string): string {
-  const trigger = description.match(/(?:^|\. )(Use [^.]*)/)?.[1];
-  const clause = trigger ?? description.split(/\. /)[0] ?? description;
-  return (clause.split(",")[0] ?? clause).replace(/\.$/, "").trim();
-}
+export { compactAgentDescription };
 
 function buildAgentsMdRequest(
   ctx: AdapterCtx,

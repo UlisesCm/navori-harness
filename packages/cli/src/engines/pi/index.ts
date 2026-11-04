@@ -22,6 +22,9 @@ import {
 import { OwnedPathInventory } from "../shared/owned-path-inventory.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { buildAgentsIndexBlock, compactAgentDescription } from "../shared/agents-index.ts";
+import { buildContextoProyectoBody } from "../shared/project-context.ts";
+import { adaptHarnessTextForPi } from "./compat.ts";
 import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { PI_MAP_MIGRATION_WARNING, piMapMigrationPending } from "../../lib/diagnose/pi-health.ts";
@@ -122,6 +125,7 @@ function buildAdapter(
             destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
             managedId: skill.managedId,
             commentStyle: "html",
+            transform: adaptHarnessTextForPi,
           },
     // Spec 0048 D1: the shared script, copied to `.pi/navori/hooks/<id>.sh`, only for rows of the
     // binding table: one table decides what is installed, what the bridge runs and the manifest.
@@ -678,10 +682,39 @@ export function preparePiEngine(
       // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
       // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
       // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
+      // Same AGENTS.md doctrine Codex writes when it owns the file (#1512): the orchestration
+      // block, the agent catalog and no skills index (Pi lists `.agents/skills` natively),
+      // in Pi's vocabulary, plus the project rules risk routing reads (critical areas).
+      const catalog = buildAgentsIndexBlock(
+        lang,
+        roles.map((agent) => ({
+          id: agent.id,
+          description: compactAgentDescription(
+            interpolate(
+              parseAsset(readFileSync(agent.assetPath, "utf-8"), "html").frontmatter.description ??
+                agent.id,
+              config,
+            ),
+          ),
+        })),
+        { withIntro: false },
+      );
+      const projectContext = buildContextoProyectoBody(config, lang);
       const context = renderAgentsMdEngine(cwd, config, {
         ...options,
+        engine: "pi",
+        includeOrchestration: true,
         includePluginBlocks: true,
-        extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
+        omitSkillsIndex: true,
+        // The adapter rewrites navori's asset text before interpolation, so the user's
+        // `project.*` values (e.g. critical areas in the routing line) stay verbatim.
+        transform: adaptHarnessTextForPi,
+        extendBody: (body) =>
+          extendWithOrchestratorBlocks(
+            [body, projectContext, catalog].filter((part) => part !== null).join("\n"),
+            plugins,
+            config,
+          ),
       });
       return {
         written: [...result.written, ...context.written],

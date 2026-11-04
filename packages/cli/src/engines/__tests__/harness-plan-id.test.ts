@@ -222,9 +222,10 @@ describe("resolveHarnessPlan — per-engine scope (spec 0041 D11)", () => {
   });
 
   // Covers: R5
-  it("plans only the master-accept confirmation for pi: its bash runs `navori master`", () => {
+  it("plans the master skills for pi but only the master-accept confirmation hook", () => {
     const { skills, hooks } = idsFor("pi");
-    for (const id of scoped) expect(skills).not.toContain(id);
+    // #1512: Pi writes `.agents/skills` itself once Codex is off, master skills included.
+    for (const id of scoped) expect(skills).toContain(id);
     expect(hooks).not.toContain("master-plan-context");
     expect(hooks).toContain("master-accept-confirm");
   });

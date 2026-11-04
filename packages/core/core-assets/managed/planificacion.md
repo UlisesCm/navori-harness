@@ -14,12 +14,12 @@ run `navori plan classify <feature>`. The level comes from that command, never j
 - Level 0 declares its files: `nivel-0: <path>[,<path>] <feature>`, declared like the slug (absolute or `..` paths are denied);
   `verify:` names the command that proves it and its expected result (no `verify:`, no dispatch);
   the gate checks only the declared path, never the real diff; a feature with a workplan opens with `workplan: <feature>`.
-- Tell the user the level, score and breakdown in ≤ 4 lines. The user may raise the level; refuse
-  to lower it when a floor applies, naming it.
-- Both engines retain the applicable user approval in the tier flow above.
+- Tell the user the level, score and breakdown in ≤ 4 lines. The user may raise it; refuse
+  lowering when a floor applies, naming it.
+- Every engine keeps the user approval above.
 - Claude Code plan-gate hook denies nonconforming implementer dispatch (missing opening line/green plan).
-- Codex: the plan-gate denies; one implementer at a time per session (two or more fresh `dispatch_<f>.json` stamped with the same `sessionId` deny; other sessions' markers are ignored); name a listed role on every analysis spawn.
-- The level rises with evidence: replan when `plan check`/`update` compute a higher level, and
+<!-- navori:if-not onPi -->- Codex: the plan-gate denies; one implementer at a time per session (two or more fresh `dispatch_<f>.json` stamped with the same `sessionId` deny; other sessions' markers are ignored); name a listed role on every analysis spawn.
+<!-- /navori:if-not -->- The level rises with evidence: replan when `plan check`/`update` compute a higher one;
   say so in one line.
 - Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, who alone authorizes another round with `navori plan escalation-reset`.
 - Record progress with `navori plan update` as each sub-task closes; raise a change outside

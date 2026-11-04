@@ -74,5 +74,5 @@ A level-3 workplan named `<feature>`; encargos open with `workplan: <feature>`.
 ## Hard rules
 
 - **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole.
-- **Tracking lives in `spec.md`'s Tasks, not in <!-- navori:if-not onCodex -->`TaskCreate`<!-- /navori:if-not --><!-- navori:if onCodex -->a parallel task list<!-- /navori:if -->.** Duplicating it makes the board drift from the spec<!-- navori:if-not onCodex -->; ignore the TaskList reminder in SDD sessions<!-- /navori:if-not -->.
+- **Tracking lives in `spec.md`'s Tasks, not in <!-- navori:if onClaude -->`TaskCreate`<!-- /navori:if --><!-- navori:if-not onClaude -->a parallel task list<!-- /navori:if-not -->.** Duplicating it makes the board drift from the spec<!-- navori:if onClaude -->; ignore the TaskList reminder in SDD sessions<!-- /navori:if -->.
 - **Self-review before closing:** can a human run every step without reading code? does every state appear? does every task end in something the script observes?

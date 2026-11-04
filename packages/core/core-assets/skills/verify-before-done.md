@@ -32,7 +32,7 @@ BEFORE claiming "done / ready / approved" (`implementer`: `done -> impl_<feature
 | Suites, builds or coverage in the same checkout | One at a time: parallel runs fight over `dist` and shared artifacts. Worktrees with their own `dist` may run together | Parallel runs |
 | Active `dist` lock | Identify the owner, wait. Only a verified-dead owner's lock may be reclaimed | Deleting the lock, killing another session's process |
 | Full gate red | Fix with focal tests; rerun the full gate once the fix set is stable. Mandatory before sign/ship | Rerunning after every edit |
-| Gate outlives Bash timeout, main session | <!-- navori:if-not onCodex -->`run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first<!-- /navori:if-not --><!-- navori:if onCodex -->run the chained steps one by one in the foreground<!-- /navori:if --> | Polling (`pgrep`, `ps \| grep`) |
+| Gate outlives Bash timeout, main session | <!-- navori:if onClaude -->`run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first<!-- /navori:if --><!-- navori:if-not onClaude -->run the chained steps one by one in the foreground<!-- /navori:if-not --> | Polling (`pgrep`, `ps \| grep`) |
 | Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground | Backgrounding |
 
 ## Failure attribution
@@ -40,7 +40,7 @@ BEFORE claiming "done / ready / approved" (`implementer`: `done -> impl_<feature
 A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Diff location only orients; it never proves origin. Only the **same command** over the comparable base and the change demonstrates it: runs disagree → introduced; agree → pre-existing; no comparable run → origin not determined. Never `git stash` to measure — it empties the shared tree.
 ## Red flags (STOP)
 
-- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched): `.claude/agents/orchestrator.md` § Anti-broken-telephone.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched)<!-- navori:if-not onPi -->: `.claude/agents/orchestrator.md` § Anti-broken-telephone<!-- /navori:if-not -->.
 
 ## Session close (session owner only)
 
