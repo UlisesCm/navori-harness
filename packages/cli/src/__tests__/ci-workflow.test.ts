@@ -74,6 +74,8 @@ describe("ci workflow", () => {
     expect(tests).toContain("github.event_name == 'push'");
     expect(tests).toContain("github.base_ref == 'main'");
     expect(tests).toContain("needs.plan.outputs.full == 'true'");
+    // A `full` label forces the full suite on a PR to dev (#1492).
+    expect(tests).toContain("contains(github.event.pull_request.labels.*.name, 'full')");
     expect(tests).toContain("!cancelled()");
     expect(tests).toContain("fail-fast: false");
     expect(tests).toContain("shard: [1, 2, 3, 4]");
