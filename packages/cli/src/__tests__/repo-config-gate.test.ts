@@ -505,7 +505,11 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(shards).toContain("needs: [plan]");
     expect(shards).toContain("!cancelled()");
     expect(shards).toContain("github.event_name == 'push' || github.base_ref == 'main'");
-    expect(shards).toContain("needs.plan.result == 'success' && needs.plan.outputs.full == 'true'");
+    expect(shards).toContain(
+      "needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||",
+    );
+    // A `full` label forces the full suite on a PR to dev (#1492).
+    expect(shards).toContain("contains(github.event.pull_request.labels.*.name, 'full')");
     const plan = jobBody("plan");
     expect(plan).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
     expect(plan).toContain("full: ${{ steps.plan.outputs.full }}");

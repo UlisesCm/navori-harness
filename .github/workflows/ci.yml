@@ -166,7 +166,8 @@ jobs:
     needs: [plan]
     if: >-
       ${{ !cancelled() && (github.event_name == 'push' || github.base_ref == 'main' ||
-          (needs.plan.result == 'success' && needs.plan.outputs.full == 'true')) }}
+          (needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||
+          contains(github.event.pull_request.labels.*.name, 'full')))) }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
