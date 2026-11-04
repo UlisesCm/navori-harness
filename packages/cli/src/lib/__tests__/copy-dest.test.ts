@@ -114,4 +114,39 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       }
     }
   });
+
+  // #1497: a quote inside "$(...)" belongs to the substitution, not to the outer word.
+  it("tracks quotes inside a double-quoted command substitution", () => {
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      [`echo "$(grep '"' p)"`, 0],
+      [`echo "$(grep '"' p)"; true`, 0],
+      [`echo "$(grep '"')"; ls`, 0],
+      [`echo "$f: $(grep -o '"modelId":"[^"]*"' $p | sort -u)"`, 0],
+      [`echo "$( (grep '"' p) )"; ls`, 0],
+      [`echo "$(echo "$(grep '"' p)")"; ls`, 0],
+      [`echo "$(grep '"' p)"; cp a CLAUDE.md`, 2],
+      [`echo "$(grep '(' p)"; cp a CLAUDE.md`, 2],
+      [`echo "$(grep '"' p)" && mv CLAUDE.md x`, 2],
+      [`echo "a $(printf '%s' "$(grep '"' x)") b"; mv CLAUDE.md /tmp/a`, 2],
+      [`echo "$(grep '"' p"`, 2],
+      // Commands inside the substitution are checked too.
+      [`echo "$(grep '"' p; cp a CLAUDE.md)"`, 2],
+      [`echo "$(grep '"' p; mv CLAUDE.md /tmp/x)"`, 2],
+      [`echo "$(grep '"' p)" "$(cp a CLAUDE.md)"`, 2],
+      [`echo "$(cp a CLAUDE.md)"`, 2],
+      [`cp "$(echo src)" CLAUDE.md`, 2],
+      [`cp "$(grep -l '"' p)" CLAUDE.md`, 2],
+      ["git commit -m \"$(cat <<'EOF'\nfix: don't break (scope\nEOF\n)\"", 0],
+      ["git commit -m \"$(cat <<'EOF'\nfix: x\nEOF\n)\" && cp a CLAUDE.md", 2],
+    ];
+    for (const [command, expected] of cases) {
+      const result = spawnSync("bash", ["-c", script], {
+        env: { ...process.env, NAVORI_TEST_ROOT: "/repo", NAVORI_TEST_COMMAND: command },
+        encoding: "utf8",
+        timeout: 5_000,
+      });
+      expect(result.error, command).toBeUndefined();
+      expect(result.status, `${JSON.stringify(command)} ${result.stderr}`).toBe(expected);
+    }
+  });
 });
