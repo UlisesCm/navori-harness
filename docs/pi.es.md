@@ -266,6 +266,28 @@ La evidencia de aceptación no depende de hijos: la registra el bash integrado d
 en la raíz del checkout que tiene el workplan (incluido un worktree), porque la evidencia se registra contra
 el directorio de trabajo de la sesión.
 
+## Sesiones en paralelo
+
+Los hijos corren en el checkout de la sesión padre; `navori_subagent` no puede apuntarlos a otro (#1543). Dos
+sesiones en un mismo checkout comparten su rama, su `.navori/state/` (workplans, handoffs, recibos) y su caché
+de gates, y un cambio de rama en una mueve a la otra. Regla: **una sesión, un worktree, desde el inicio.**
+
+- Crea el worktree antes de iniciar la sesión y abre Pi en su raíz:
+
+  ```sh
+  git worktree add -b <rama> .claude/worktrees/<nombre> origin/<base>
+  cd .claude/worktrees/<nombre> && bun install && pi
+  ```
+
+  Los hijos, handoffs, recibos y gates de esa sesión quedan todos en ese worktree: `.navori/state/` es por
+  checkout, y `navori receipt check|ci` correlaciona una revisión con el checkout donde corre.
+- Deja el checkout principal para revisar y mergear; no inicies ahí una sesión de trabajo.
+- `worktree-reclaim` borra un worktree solo cuando está limpio, empujado y con su PR mergeada (ver
+  [Ciclo de vida de la sesión](#ciclo-de-vida-de-la-sesión)); la siguiente tarea empieza en uno nuevo.
+- Un `navori` global enlazado al `packages/cli/dist` de un checkout (como en el repo de navori) corre ese
+  build desde todos los worktrees. Reconstrúyelo después de cada pull de `<base>` en ese checkout:
+  `bun run --filter navori build`.
+
 ## Límites y ejecuciones sin interfaz
 
 - Los hijos están limitados a un nivel, tres procesos concurrentes y diez minutos cada uno.

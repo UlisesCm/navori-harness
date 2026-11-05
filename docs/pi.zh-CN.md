@@ -267,6 +267,27 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 验收证据不依赖子进程：由主会话的内置 bash 记录。请在包含 workplan 的检出根目录（包括 worktree）启动 Pi，
 因为证据是相对会话的工作目录记录的。
 
+## 并行会话
+
+子进程在父会话的检出中运行；`navori_subagent` 无法把它们指向另一个检出（#1543）。同一检出中的两个会话会共享
+其分支、`.navori/state/`（workplan、handoff、receipt）和关卡缓存，其中一个切换分支也会移动另一个。规则：
+**一个会话，一个 worktree，从一开始就如此。**
+
+- 在启动会话之前创建 worktree，并在其根目录启动 Pi：
+
+  ```sh
+  git worktree add -b <branch> .claude/worktrees/<name> origin/<base>
+  cd .claude/worktrees/<name> && bun install && pi
+  ```
+
+  该会话的子进程、handoff、receipt 和关卡都会落在这个 worktree 中：`.navori/state/` 按检出区分，
+  `navori receipt check|ci` 会把审查与其运行所在的检出关联起来。
+- 主检出留作审查和合并之用；不要在那里启动工作会话。
+- `worktree-reclaim` 只会删除干净、已推送且其 PR 已合并的 worktree（见[会话生命周期](#会话生命周期)）；
+  下一项任务从新的 worktree 开始。
+- 链接到某个检出 `packages/cli/dist` 的全局 `navori`（如 navori 自身的仓库）会在所有 worktree 中运行该构建。
+  在该检出每次 pull `<base>` 之后重新构建：`bun run --filter navori build`。
+
 ## 限制与无头运行
 
 - 子进程最多嵌套一层，最多并发运行三个，且每个子进程限时十分钟。
