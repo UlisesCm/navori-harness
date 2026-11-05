@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import type { NavoriConfig } from "../config/schema.ts";
+import { renderHandoff } from "../handoff/render.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
 /**
@@ -200,5 +201,54 @@ describe("subagent-stop-handoff partial lane", () => {
       }).text,
     ).toBeUndefined();
     expect(run({ transcript: "", payload, mode: "codex" }).text).toBeUndefined();
+  });
+});
+
+describe("subagent-stop-handoff scribe status line", () => {
+  const implJson = {
+    feature: "demo",
+    status: "DONE",
+    worktree: "/tmp/wt",
+    branch: "fix/demo",
+    commits: [],
+    filesTouched: ["a.ts"],
+    verification: { command: "bun check", exitCode: 0, summary: "ok" },
+    markdownRequests: [],
+    blockers: [],
+  };
+
+  function seed(): string {
+    const handoffs = join(dir, ".navori/state/handoffs");
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    mkdirSync(handoffs, { recursive: true });
+    writeFileSync(
+      join(dir, "navori.config.json"),
+      JSON.stringify({
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { scribeOwnsMarkdown: true },
+      }),
+    );
+    writeFileSync(join(handoffs, "impl_demo.json"), JSON.stringify(implJson));
+    return handoffs;
+  }
+
+  // Covers: #1554
+  it("does not flag the handoff written by the real `handoff render`", () => {
+    const handoffs = seed();
+    expect(renderHandoff({ cwd: dir, feature: "demo" }).status).toBe("ok");
+    expect(readFileSync(join(handoffs, "impl_demo.md"), "utf-8")).toContain("- Status: DONE");
+    const result = run({ transcript: "", subagentType: "scribe" });
+    expect(result.text ?? "").not.toContain("incompletos");
+    expect(result.text ?? "").not.toContain("sin línea 'Status:'");
+  });
+
+  // Covers: #1554
+  it("still flags a scribe handoff with no status line", () => {
+    const handoffs = seed();
+    writeFileSync(join(handoffs, "impl_demo.md"), "# Implementation handoff\n\nNo state here.\n");
+    const result = run({ transcript: "", subagentType: "scribe" });
+    expect(result.text).toContain("sin línea 'Status:'");
   });
 });

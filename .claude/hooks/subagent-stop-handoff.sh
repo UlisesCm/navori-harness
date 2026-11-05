@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="dbf3bb67" version="0.12.3" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="3d22bab6" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
@@ -837,12 +837,13 @@ navori_check_impl_json() {
   esac
 }
 
-# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had.
+# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had. The
+# optional `- ` prefix accepts the list item `navori handoff render` writes (#1554).
 navori_check_impl_md() {
   f="$1"
   if is_blank "$f"; then
     note "$f vacío"
-  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
+  elif ! grep -qiE '^([-*][[:space:]]+)?\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
     note "$f sin línea 'Status:'"
   fi
 }
