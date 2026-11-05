@@ -15,7 +15,7 @@ Respaldada el 2026-11-03 en el checkout principal (gitignored, fechas preservada
 - `.navori/state/archive-wt-rust-0060-e3/rust-shadow/`: 7 ledgers, 2,629 líneas, solo engine `pi`, 2026-11-02 08:57–11:03. Copia; el original sigue en el worktree `0060-e3` (#1473).
 - `.navori/state/archive-wt-rust-0062-e1/rust-shadow/`: 2 ledgers, 8 líneas (4 invocaciones), las únicas de engine `claude`, sin divergencias. `guard-destructive` es del 2026-11-01, antes de que empezara la ventana (Q30), y `master-accept-confirm` salió del plan en #1503. El worktree `0062-e1` se borró.
 
-Issues abiertos sin dueño: #1485, #1489, #1492. #1491 cerrado por #1508. Cerrados a mano el 2026-11-03: #1494 (#1501), #1495 (#1504), #1455 (#1499).
+Issues abiertos sin dueño: #1489, #1492. #1485 resuelto por #1539 (incluye la baseline de bench-hooks sin jq) y #1540 (zsh parity con stderr traducido, `timeOnce` con coma decimal), ambos mergeados. #1541 (bash 5.3: `cd ""` falla en quality-gate-pre-commit) en curso en `fix/bash53-cd-vacio`; #1542 (audit y session-start-hook dependen del umask y de `/usr/bin` del host) abierto. #1491 cerrado por #1508. Cerrados a mano el 2026-11-03: #1494 (#1501), #1495 (#1504), #1455 (#1499).
 
 ## 0060 E3 — PR #1473: EN PAUSA (migración a Rust pausada por el usuario, 2026-11-02)
 
