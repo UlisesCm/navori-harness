@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="673e5c35" version="0.12.3" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="25994c79" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -1669,11 +1669,12 @@ if [ "$run_needed" = 1 ]; then
   # tree that did not hold the diff).
   # `nv_project_dir` stays as a fallback for the no-git case (spec 0035 D2:
   # $CLAUDE_PROJECT_DIR under Claude, the payload cwd's git toplevel under
-  # Codex); when nothing resolves the substitution is empty and `cd ""` is a
-  # no-op, so behavior outside a repo is unchanged.
+  # Codex); when nothing resolves it defaults to `.` so the hook stays in its
+  # cwd. Never `cd ""`: bash <=5.2 and zsh treat it as a no-op, but bash 5.3
+  # fails with `cd: null directory` and would block every no-git run (#1541).
   gate_root=$(navori_worktree)
-  cd "${gate_root:-${nv_project_dir:-}}" || {
-    navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
+  cd "${gate_root:-${nv_project_dir:-.}}" || {
+    navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-.}}'; el gate no corrio"
     exit 2
   }
   # Session-state ratchet (#1263): see the `progress-ratchet` partial for the rule,
