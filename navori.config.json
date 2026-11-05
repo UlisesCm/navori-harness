@@ -28,6 +28,10 @@
       "untrustedPaths": [
         ".github/**",
         "packages/cli/scripts/test-affected.mjs",
+        "packages/cli/scripts/run-test-coverage.mjs",
+        "packages/cli/scripts/check-coverage-floor.mjs",
+        "packages/cli/vitest.*.ts",
+        "packages/cli/package.json",
         "packages/cli/src/__tests__/repo-config-gate.test.ts",
         "package.json"
       ],
