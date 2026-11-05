@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -403,10 +404,15 @@ describe("delivery producer-time provenance", () => {
   });
 });
 
-/** Disposable claims are operator-attested fixture data, not host-authenticated review or CLI-run QA. */
-function technicalFixture(configure?: (parts: DeliveryParts, cwd: string) => void): ReturnType<
-  typeof authorized
-> & {
+/**
+ * Disposable claims are operator-attested fixture data, not host-authenticated review or CLI-run QA.
+ * `origin: false` skips the self-referential `origin` remote: the receipt then diffs against the
+ * local `main` (the same commit) without a `git fetch` per receipt.
+ */
+function technicalFixture(
+  configure?: (parts: DeliveryParts, cwd: string) => void,
+  { origin = true }: { origin?: boolean } = {},
+): ReturnType<typeof authorized> & {
   dir: string;
   plan: Workplan;
   envelope: ReturnType<typeof DeliveryReviewEnvelopeSchema.parse>;
@@ -440,7 +446,7 @@ function technicalFixture(configure?: (parts: DeliveryParts, cwd: string) => voi
     ["add", "-A"],
     ["commit", "-qm", "fixture base"],
     ["branch", "main"],
-    ["remote", "add", "origin", cwd],
+    ...(origin ? [["remote", "add", "origin", cwd]] : []),
   ])
     execFileSync("git", args, { cwd });
   const dir = join(cwd, ".navori/state/handoffs");
@@ -573,7 +579,9 @@ function rerunTechnicalFixture(
 }
 
 /** Create two delivery generations of content without inventing historical dispatch. */
-function twoDeliveryFixture(): ReturnType<typeof technicalFixture> {
+function twoDeliveryFixture(
+  options: { origin?: boolean } = {},
+): ReturnType<typeof technicalFixture> {
   return technicalFixture((doc) => {
     doc.parts.push({
       ...doc.parts[0]!,
@@ -584,7 +592,7 @@ function twoDeliveryFixture(): ReturnType<typeof technicalFixture> {
       dependsOn: ["P1"],
     });
     doc.deliveries.push({ ...doc.deliveries[0]!, id: "E2", partIds: ["P2"], dependsOn: ["E1"] });
-  });
+  }, options);
 }
 
 // ~20 git-backed lifecycle calls per test: 6-8s unloaded, over the 15s global timeout under load.
@@ -781,79 +789,105 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
     expect(parts.parts[0]!.foundation).toBe(true);
   });
 
-  // Covers: R7, R8, R9
-  it("E2 code changes stale E1; explicit current E1 refresh is required before dependency-first forward readiness", () => {
-    const { cwd, dir } = twoDeliveryFixture();
-    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
-    const presented = presentDelivery(cwd, "E1");
-    decideDelivery(cwd, "E1", presented.identity, "accepted", "user");
-    authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation");
-    const p2 = deliverySliceProjection(cwd, "P2");
-    savePlan(cwd, {
-      ...p2,
-      solution: { path: "reviewed-design.txt", verdict: "READY" },
-      phases: [{ name: "build", acceptance: ["A1"] }],
-      risks: [{ risk: "whole-tree drift", rollback: "stop" }],
+  /**
+   * E1 accepted and E2 authorized: the ~150-spawn prefix the next three tests share, built ONCE
+   * (#1485). Evidence, receipts and the review store absolute paths, so each test restores the
+   * snapshot to the SAME directory instead of copying it elsewhere.
+   */
+  describe("after E1 is accepted and E2 authorized", () => {
+    let prefix: {
+      cwd: string;
+      dir: string;
+      snapshot: string;
+      current: ReturnType<typeof captureDeliveryReview>;
+      presented: ReturnType<typeof presentDelivery>;
+    };
+    beforeAll(() => {
+      vi.stubEnv("CODEX_THREAD_ID", undefined);
+      try {
+        const { cwd, dir } = twoDeliveryFixture({ origin: false });
+        const current = captureDeliveryReview(
+          cwd,
+          "P1",
+          "technical-report.txt",
+          "technical-envelope.json",
+          "user",
+        );
+        const presented = presentDelivery(cwd, "E1");
+        decideDelivery(cwd, "E1", presented.identity, "accepted", "user");
+        authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation");
+        const snapshot = mkdtempSync(join(tmpdir(), "navori-d3-slice-prefix-"));
+        cpSync(cwd, snapshot, { recursive: true, verbatimSymlinks: true });
+        prefix = { cwd, dir, snapshot, current, presented };
+      } finally {
+        vi.unstubAllEnvs();
+      }
+      // The prefix moved out of a 60 s test into this hook: same hang detector, not a raised one.
+    }, 60_000);
+    afterAll(() => rmSync(prefix.snapshot, { recursive: true, force: true }));
+    /** Put the shared prefix back at its original path; returns that path's context. */
+    function restorePrefix(): typeof prefix {
+      rmSync(prefix.cwd, { recursive: true, force: true });
+      cpSync(prefix.snapshot, prefix.cwd, { recursive: true, verbatimSymlinks: true });
+      return prefix;
+    }
+
+    // Covers: R7, R8, R9
+    it("E2 code changes stale E1; explicit current E1 refresh is required before dependency-first forward readiness", () => {
+      const { cwd, dir } = restorePrefix();
+      const p2 = deliverySliceProjection(cwd, "P2");
+      savePlan(cwd, {
+        ...p2,
+        solution: { path: "reviewed-design.txt", verdict: "READY" },
+        phases: [{ name: "build", acceptance: ["A1"] }],
+        risks: [{ risk: "whole-tree drift", rollback: "stop" }],
+      });
+      expect(
+        checkWorkplan(JSON.parse(readFileSync(join(dir, `workplan_${p2.feature}.json`), "utf8")), {
+          cwd,
+        }).ok,
+      ).toBe(true);
+      writeFileSync(join(cwd, "next-code.ts"), "export const next = true;\n");
+      expect(() => effectiveDeliveryPart(cwd, "P1")).toThrow(/stale/);
+      expect(() => deliverySliceProjection(cwd, "P2")).toThrow(/stale/);
+      expect(deliveryLifecycle(cwd).deliveries[0]!.decision).toBeNull();
+      authorizeDeliveryQueue(cwd, "E1", ["P1"], "user", "continuation");
+      prepareDeliverySlice(cwd, "P1", true, "user");
+      expect(buildAcceptanceIndex([dir])).toContain("delivery-demo-p1");
+      expect(buildAcceptanceIndex([dir])).not.toContain("delivery-demo-p2");
+      expect(() => authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation")).toThrow(
+        /stale/,
+      );
+      expect(() => presentDelivery(cwd, "E1")).toThrow(/stale/);
     });
-    expect(
-      checkWorkplan(JSON.parse(readFileSync(join(dir, `workplan_${p2.feature}.json`), "utf8")), {
-        cwd,
-      }).ok,
-    ).toBe(true);
-    writeFileSync(join(cwd, "next-code.ts"), "export const next = true;\n");
-    expect(() => effectiveDeliveryPart(cwd, "P1")).toThrow(/stale/);
-    expect(() => deliverySliceProjection(cwd, "P2")).toThrow(/stale/);
-    expect(deliveryLifecycle(cwd).deliveries[0]!.decision).toBeNull();
-    authorizeDeliveryQueue(cwd, "E1", ["P1"], "user", "continuation");
-    prepareDeliverySlice(cwd, "P1", true, "user");
-    expect(buildAcceptanceIndex([dir])).toContain("delivery-demo-p1");
-    expect(buildAcceptanceIndex([dir])).not.toContain("delivery-demo-p2");
-    expect(() => authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation")).toThrow(
-      /stale/,
-    );
-    expect(() => presentDelivery(cwd, "E1")).toThrow(/stale/);
+
+    // Covers: R7, R8, R9
+    it("reverifies current E1 after E2 code changes and rejects its stale presentation", () => {
+      const { cwd, presented } = restorePrefix();
+      writeFileSync(join(cwd, "next-code.ts"), "export const next = true;\n");
+      authorizeDeliveryQueue(cwd, "E1", ["P1"], "user", "continuation");
+      prepareDeliverySlice(cwd, "P1", true, "user");
+      const rerun = rerunTechnicalFixture(cwd, "P1");
+      expect(effectiveDeliveryPart(cwd, "P1").identity).toBe(rerun.identity);
+      expect(() => decideDelivery(cwd, "E1", presented.identity, "accepted", "user")).toThrow();
+      const updated = presentDelivery(cwd, "E1");
+      expect(updated.identity).not.toBe(presented.identity);
+      decideDelivery(cwd, "E1", updated.identity, "accepted", "user");
+    });
+
+    // Covers: R7, R8, R9
+    it("settles current E2 without changing E1 proof on the same code fingerprint", () => {
+      const { cwd, current, presented } = restorePrefix();
+      const next = rerunTechnicalFixture(cwd, "P2");
+      expect(effectiveDeliveryPart(cwd, "P1").identity).toBe(current.identity);
+      expect(effectiveDeliveryPart(cwd, "P2").identity).toBe(next.identity);
+      const nextPresentation = presentDelivery(cwd, "E2");
+      expect(() => decideDelivery(cwd, "E2", presented.identity, "accepted", "user")).toThrow();
+      decideDelivery(cwd, "E2", nextPresentation.identity, "accepted", "user");
+      expect(deliveryLifecycle(cwd).blockers).toEqual([]);
+      expect(deliveryLifecycle(cwd).pendingPublication).toEqual(["E1", "E2"]);
+    });
   });
-
-  // Covers: R7, R8, R9
-  it("reverifies current E1 after E2 code changes and rejects its stale presentation", () => {
-    const { cwd } = twoDeliveryFixture();
-    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
-    const presented = presentDelivery(cwd, "E1");
-    decideDelivery(cwd, "E1", presented.identity, "accepted", "user");
-    authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation");
-    writeFileSync(join(cwd, "next-code.ts"), "export const next = true;\n");
-    authorizeDeliveryQueue(cwd, "E1", ["P1"], "user", "continuation");
-    prepareDeliverySlice(cwd, "P1", true, "user");
-    const rerun = rerunTechnicalFixture(cwd, "P1");
-    expect(effectiveDeliveryPart(cwd, "P1").identity).toBe(rerun.identity);
-    expect(() => decideDelivery(cwd, "E1", presented.identity, "accepted", "user")).toThrow();
-    const updated = presentDelivery(cwd, "E1");
-    expect(updated.identity).not.toBe(presented.identity);
-    decideDelivery(cwd, "E1", updated.identity, "accepted", "user");
-  }, 30_000);
-
-  // Covers: R7, R8, R9
-  it("settles current E2 without changing E1 proof on the same code fingerprint", () => {
-    const { cwd } = twoDeliveryFixture();
-    const current = captureDeliveryReview(
-      cwd,
-      "P1",
-      "technical-report.txt",
-      "technical-envelope.json",
-      "user",
-    );
-    const presented = presentDelivery(cwd, "E1");
-    decideDelivery(cwd, "E1", presented.identity, "accepted", "user");
-    authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation");
-    const next = rerunTechnicalFixture(cwd, "P2");
-    expect(effectiveDeliveryPart(cwd, "P1").identity).toBe(current.identity);
-    expect(effectiveDeliveryPart(cwd, "P2").identity).toBe(next.identity);
-    const nextPresentation = presentDelivery(cwd, "E2");
-    expect(() => decideDelivery(cwd, "E2", presented.identity, "accepted", "user")).toThrow();
-    decideDelivery(cwd, "E2", nextPresentation.identity, "accepted", "user");
-    expect(deliveryLifecycle(cwd).blockers).toEqual([]);
-    expect(deliveryLifecycle(cwd).pendingPublication).toEqual(["E1", "E2"]);
-  }, 30_000);
   // Covers: R7, R8, R9
   it("requires consent and actual receipt, retains historical provenance, and keeps final QA distinct", () => {
     const { cwd, stage, plan } = technicalFixture();

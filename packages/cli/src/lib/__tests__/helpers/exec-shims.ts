@@ -48,32 +48,69 @@ export function createExecShims(): ExecShims {
   };
 }
 
-function medianMs(run: () => void, runs = 3): number {
-  const samples: number[] = [];
-  for (let i = 0; i < runs; i++) {
-    const start = performance.now();
-    run();
-    samples.push(performance.now() - start);
-  }
-  return samples.sort((a, b) => a - b)[Math.floor(runs / 2)] ?? 0;
-}
-
 /** Ratio bound for 2N vs N: linear is ~2.0 (less with fixed startup), quadratic is ~4. */
 export const MAX_DOUBLING_RATIO = 2.5;
-/** Under this base time process startup dominates and a ratio is noise. */
-const NOISE_FLOOR_MS = 30;
-/** Absolute ceiling for 2N when the base is under the noise floor. */
-const ABSOLUTE_FLOOR_MS = 250;
+
+/** The shell work one hook run did, read from its xtrace: deterministic on any machine load. */
+export interface TraceShape {
+  /** Exit status of the traced run. */
+  readonly status: number;
+  /** `+`-prefixed xtrace lines: one per simple command bash executed. */
+  readonly lines: number;
+  /** Total xtrace bytes: every expanded word and assignment, so an O(n) copy per step shows. */
+  readonly bytes: number;
+}
+
+export interface TraceRun {
+  readonly script: string;
+  readonly input: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly cwd?: string;
+  /** The bash binary; defaults to `bash` on PATH. */
+  readonly bash?: string;
+}
 
 /**
- * Asserts a hook scales linearly: the median of three runs on a 2N-byte command is at most
- * {@link MAX_DOUBLING_RATIO} times the median on N bytes. A base under {@link NOISE_FLOOR_MS} is
- * compared against an absolute floor instead, so startup noise cannot flake it.
+ * Runs `bash -x <script>` and measures its trace. xtrace is inherited by functions, subshells,
+ * command substitutions and sourced files, so it covers the whole composition. The trace goes to
+ * stderr (portable to bash 3.2, which lacks `BASH_XTRACEFD`), so measure only allow-path runs, whose
+ * stderr carries nothing else. Work inside a forked program (`sed`, `awk`) or inside a builtin's
+ * own expansion is invisible here; fork counts ({@link createExecShims}) cover the former.
  */
-export function expectLinearScaling(runSmall: () => void, runLarge: () => void): void {
-  runSmall(); // warm the page cache and PATH lookups
-  const small = medianMs(runSmall);
-  const large = medianMs(runLarge);
-  if (small <= NOISE_FLOOR_MS) expect(large).toBeLessThan(ABSOLUTE_FLOOR_MS);
-  else expect(large / small).toBeLessThanOrEqual(MAX_DOUBLING_RATIO);
+export function traceShape(run: TraceRun): TraceShape {
+  const result = spawnSync(run.bash ?? "bash", ["-x", run.script], {
+    input: run.input,
+    encoding: "utf-8",
+    env: run.env,
+    cwd: run.cwd,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  const trace = result.stderr ?? "";
+  return {
+    status: result.status ?? -1,
+    lines: trace.split("\n").filter((l) => l.startsWith("+")).length,
+    bytes: Buffer.byteLength(trace),
+  };
+}
+
+/** Doubling ratios of 2N vs N, per trace dimension. */
+export function traceRatios(
+  small: TraceShape,
+  large: TraceShape,
+): { lines: number; bytes: number } {
+  return { lines: large.lines / small.lines, bytes: large.bytes / small.bytes };
+}
+
+/**
+ * Asserts a hook scales linearly by SHAPE, not wall time: on a 2N-sized input both the executed
+ * command count and the trace bytes stay within {@link MAX_DOUBLING_RATIO} of the N-sized run.
+ * Both runs must succeed and produce a trace, so the ratio is never vacuous.
+ */
+export function expectLinearTrace(small: TraceShape, large: TraceShape): void {
+  expect(small.status).toBe(0);
+  expect(large.status).toBe(0);
+  expect(small.lines).toBeGreaterThan(0);
+  const ratios = traceRatios(small, large);
+  expect(ratios.lines).toBeLessThanOrEqual(MAX_DOUBLING_RATIO);
+  expect(ratios.bytes).toBeLessThanOrEqual(MAX_DOUBLING_RATIO);
 }

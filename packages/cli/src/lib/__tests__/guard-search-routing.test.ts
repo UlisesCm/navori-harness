@@ -17,7 +17,14 @@ import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { acrossShells } from "./helpers/shells.ts";
-import { createExecShims, expectLinearScaling } from "./helpers/exec-shims.ts";
+import {
+  createExecShims,
+  expectLinearTrace,
+  MAX_DOUBLING_RATIO,
+  traceRatios,
+  traceShape,
+  type TraceShape,
+} from "./helpers/exec-shims.ts";
 
 /**
  * Behavioral tests for the tgrep search lane (spec 0039 D6).
@@ -367,12 +374,39 @@ describe.runIf(runsBash)("guard-search-routing: long multi-segment commands (#14
     expect(large).toEqual(small);
   });
 
-  it("scales linearly: a ~20 KB command costs at most 2.5x a ~10 KB one (median of 3)", () => {
+  // The trace of a run is the work bash did, so its growth is the scaling, on any machine load.
+  const traceOf = (lines: number, target: Fixture = fixture): TraceShape =>
+    traceShape({
+      script: target.hook,
+      bash: resolveBin("bash"),
+      input: JSON.stringify({ tool_input: { command: line.repeat(lines) } }),
+      env: envFor(target),
+      cwd: target.repo,
+    });
+
+  it("scales linearly: a ~20 KB command traces at most 2.5x the work of a ~10 KB one", () => {
     expect(line.repeat(230).length).toBeLessThan(20_000);
-    expectLinearScaling(
-      () => runWith(line.repeat(115)),
-      () => runWith(line.repeat(230)),
+    expectLinearTrace(traceOf(115), traceOf(230));
+  });
+
+  it("the trace ratio catches a quadratic lane (mutation smoke)", () => {
+    // Same lane, plus a per-segment string append: each step copies everything before it.
+    const original = readFileSync(join(pluginRoot, "scripts/guard-search-routing.sh"), "utf-8");
+    const anchor = "    printf '%s\\n' \"$seg\"\n";
+    expect(original).toContain(anchor);
+    const quadratic = buildFixture(
+      "running",
+      original.replace(anchor, `    navori_acc="\${navori_acc:-}$seg"\n${anchor}`),
     );
+    try {
+      const small = traceOf(115, quadratic);
+      const large = traceOf(230, quadratic);
+      expect(small.status).toBe(0);
+      expect(large.status).toBe(0);
+      expect(traceRatios(small, large).bytes).toBeGreaterThan(MAX_DOUBLING_RATIO);
+    } finally {
+      rmSync(quadratic.repo, { recursive: true, force: true });
+    }
   });
 
   it("still blocks a recursive search after 200 harmless lines", () => {

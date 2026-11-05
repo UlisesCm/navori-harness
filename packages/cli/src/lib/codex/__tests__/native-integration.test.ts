@@ -1141,7 +1141,13 @@ describe("fixed live profile owner boundaries, no inference", () => {
     "refuses %s before a native turn and acknowledges its owned process exit",
     async (mode: string) => {
       const trace = await liveOwnerFixture(mode);
+      // The 5 s exit fallback in closeAcknowledged must never win a load race (#1485): with only
+      // setTimeout/clearTimeout faked, the owned child's real exit is what settles cleanup. The
+      // afterEach restores real timers.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const result = await runNativeProfileProbe(cwd);
+      vi.useRealTimers();
+      expect(result.pending).not.toContain("owned-process-exit-unacknowledged");
       expect(result).toMatchObject({
         status: "pending",
         consumed: true,

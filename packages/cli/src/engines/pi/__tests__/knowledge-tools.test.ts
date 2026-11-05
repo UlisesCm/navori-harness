@@ -7,7 +7,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ import {
   createKnowledgeClient,
   type KnowledgeClient,
   type KnowledgeServerSpec,
+  type KnowledgeSpawn,
 } from "../knowledge-client.ts";
 import {
   PI_KNOWLEDGE_SERVERS,
@@ -126,9 +128,10 @@ function client(
   spec: KnowledgeServerSpec,
   maxBytes = 65_536,
   env: Record<string, string> = {},
+  spawnServer: KnowledgeSpawn = spawn,
 ): KnowledgeClient {
   const created = serializedFactory(
-    spawn,
+    spawnServer,
     { fake: spec },
     { PATH: process.env.PATH, SECRET_TOKEN: "s3cret", ...env },
     maxBytes,
@@ -237,18 +240,32 @@ describe("knowledge client (serialized form against a fake MCP server)", () => {
   // Covers: A1
   it("a server that never answers initialize times out, is killed, and a later call respawns up to the limit", async () => {
     const dir = scratch();
-    const subject = client(fake(dir, "noinit", { initTimeoutMs: 200 }));
+    // The children come from the client's own spawn, not from the server's log: under load the
+    // 200 ms init deadline can kill the server before it writes its `start` line, and a missing
+    // pid read as 0 made `process.kill(0, 0)` (the whole process group) never throw (#1485).
+    const spawned: ChildProcess[] = [];
+    const recording: KnowledgeSpawn = (command, args, options) => {
+      const proc = spawn(command, [...args], options);
+      spawned.push(proc);
+      return proc;
+    };
+    // Settles on the child's real exit; no clock decides it.
+    const exited = async (proc: ChildProcess | undefined): Promise<void> => {
+      expect(proc).toBeDefined();
+      if (proc === undefined || proc.exitCode !== null || proc.signalCode !== null) return;
+      await once(proc, "exit");
+    };
+    const subject = client(fake(dir, "noinit", { initTimeoutMs: 200 }), 65_536, {}, recording);
     const first = await subject.call("fake", "echo_tool", {}, dir);
     expect(first.isError).toBe(true);
     expect(first.text).toContain("timed out");
-    const pidOf = (n: number): number =>
-      (events(dir).filter((e) => e.event === "start")[n]?.pid as number | undefined) ?? 0;
-    await vi.waitFor(() => expect(() => process.kill(pidOf(0), 0)).toThrow());
+    expect(spawned).toHaveLength(1);
+    await exited(spawned[0]);
     expect((await subject.call("fake", "echo_tool", {}, dir)).isError).toBe(true);
     const third = await subject.call("fake", "echo_tool", {}, dir);
     expect(third.text).toContain("failed repeatedly");
-    expect(events(dir).filter((e) => e.event === "start")).toHaveLength(2);
-    await vi.waitFor(() => expect(() => process.kill(pidOf(1), 0)).toThrow());
+    expect(spawned).toHaveLength(2);
+    await exited(spawned[1]);
   });
 
   // Covers: A1
