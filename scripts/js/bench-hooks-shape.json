@@ -2,6 +2,9 @@
   "scenario": "Bash",
   "audit": "root",
   "regenerate": "bun run bench:hooks --report-only --runs 1 --scenario Bash --write-shape",
+  "host": {
+    "jq": true
+  },
   "engines": {
     "claude": {
       "PreToolUse": {

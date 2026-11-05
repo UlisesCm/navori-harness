@@ -237,6 +237,27 @@ export function sumByEvent(measurements) {
 export const SHAPE_ENGINES = ["claude", "codex", "pi"];
 
 /**
+ * Hooks parse JSON with jq and fall back to node when jq is not on PATH, one node exec per jq
+ * exec. Their counts depend on the host, so they are compared only when the host matches the
+ * baseline's.
+ */
+export const JSON_PARSERS = ["jq", "node"];
+
+/**
+ * @typedef {{ jq: boolean }} HostProfile programs on PATH that change which execs the hooks make
+ */
+
+/**
+ * The host facts the shape depends on, read from `path` like the sandbox shims are.
+ *
+ * @param {string} [path]
+ * @returns {HostProfile}
+ */
+export function hostProfile(path = process.env.PATH ?? "") {
+  return { jq: resolveProgram("jq", path) !== null };
+}
+
+/**
  * R27 shape of a Bash call without an active audit (`audit === "root"`): per engine and hook
  * event, how many hooks ran and how many execs of each counted program they made in total.
  *
@@ -258,15 +279,24 @@ export function shapeOf(measurements) {
 /**
  * R27 gate: fails only when a count grows against the baseline. A hook event absent from the
  * baseline counts from zero. An engine the run did not measure, or one the baseline does not
- * carry yet, is listed in `unchecked` instead of guessed.
+ * carry yet, is listed in `unchecked` instead of guessed. So are the JSON_PARSERS counts when
+ * the host's jq differs from the baseline's; hook counts and the other programs stay gated.
  *
  * @param {Shape} shape
  * @param {Shape} baseline
+ * @param {{ baselineHost?: HostProfile, host?: HostProfile }} [hosts] both known, or no host check
  * @returns {{ ok: boolean, violations: string[], unchecked: string[] }}
  */
-export function evaluateShape(shape, baseline) {
+export function evaluateShape(shape, baseline, { baselineHost, host } = {}) {
   const violations = [];
   const unchecked = [];
+  const parsersDiffer = baselineHost !== undefined && host !== undefined && baselineHost.jq !== host.jq;
+  if (parsersDiffer) {
+    const where = (/** @type {boolean} */ on) => (on ? "with jq" : "without jq");
+    unchecked.push(
+      `${JSON_PARSERS.join("/")} execs: the baseline was written ${where(baselineHost.jq)}, this host runs ${where(host.jq)} (hooks fall back to node)`,
+    );
+  }
   for (const engine of new Set([...SHAPE_ENGINES, ...Object.keys(baseline)])) {
     if (!shape[engine]) unchecked.push(`${engine}: not measured in this run (no Bash registrations in the checkout)`);
   }
@@ -281,6 +311,7 @@ export function evaluateShape(shape, baseline) {
       if (row.hooks > expected.hooks)
         violations.push(`${engine} Bash ${event}: ${row.hooks} hooks > ${expected.hooks} in the baseline`);
       for (const [program, n] of Object.entries(row.execs)) {
+        if (parsersDiffer && JSON_PARSERS.includes(program)) continue;
         const allowed = expected.execs[program] ?? 0;
         if (n > allowed) violations.push(`${engine} Bash ${event}: ${n} ${program} execs > ${allowed} in the baseline`);
       }
@@ -312,6 +343,18 @@ export function mergeShape(baseline, shape) {
 export function readShapeBaseline(path = SHAPE_BASELINE) {
   if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, "utf8")).engines ?? {};
+}
+
+/**
+ * Host profile the baseline was written on; `undefined` when the file or the field is missing.
+ *
+ * @param {string} [path]
+ * @returns {HostProfile | undefined}
+ */
+export function readShapeHost(path = SHAPE_BASELINE) {
+  if (!existsSync(path)) return undefined;
+  const host = JSON.parse(readFileSync(path, "utf8")).host;
+  return typeof host?.jq === "boolean" ? { jq: host.jq } : undefined;
 }
 
 const PI_EVENTS = {
@@ -876,7 +919,8 @@ function main(argv) {
   // R27 keeps its scenario: a Bash call with the audit root present but no active log.
   const shape = shapeOf(measurements);
   const baseline = readShapeBaseline();
-  const verdict = evaluateShape(shape, baseline);
+  const host = hostProfile();
+  const verdict = evaluateShape(shape, baseline, { baselineHost: readShapeHost(), host });
   const cpus = availableParallelism();
   const result = {
     generatedAt: new Date().toISOString(),
@@ -922,7 +966,7 @@ function main(argv) {
     const engines = mergeShape(baseline, shape);
     writeFileSync(
       SHAPE_BASELINE,
-      `${JSON.stringify({ scenario: "Bash", audit: "root", regenerate: "bun run bench:hooks --report-only --runs 1 --scenario Bash --write-shape", engines }, null, 2)}\n`,
+      `${JSON.stringify({ scenario: "Bash", audit: "root", regenerate: "bun run bench:hooks --report-only --runs 1 --scenario Bash --write-shape", host, engines }, null, 2)}\n`,
     );
     process.stdout.write(`bench:hooks shape baseline written: ${SHAPE_BASELINE}\n`);
     return 0;

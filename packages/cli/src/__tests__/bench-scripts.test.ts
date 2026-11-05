@@ -117,9 +117,11 @@ interface BenchHooks {
   evaluateShape: (
     shape: Shape,
     baseline: Shape,
+    hosts?: { baselineHost?: { jq: boolean }; host?: { jq: boolean } },
   ) => { ok: boolean; violations: string[]; unchecked: string[] };
   mergeShape: (baseline: Shape, shape: Shape) => Shape;
   readShapeBaseline: (path?: string) => Shape;
+  readShapeHost: (path?: string) => { jq: boolean } | undefined;
   median: (values: number[]) => number;
   parseClaudeRegistrations: (settings: unknown) => Registration[];
   parseCodexRegistrations: (toml: string) => Registration[];
@@ -140,6 +142,7 @@ const {
   evaluateShape,
   mergeShape,
   readShapeBaseline,
+  readShapeHost,
   shapeOf,
   isComparable: hooksComparable,
   median,
@@ -625,6 +628,30 @@ describe("bench scripts", () => {
       "codex Bash PostToolUseFailure: 1 hooks > 0 in the baseline",
     ]);
 
+    // A host without jq swaps each jq exec for a node exec: those counts go unchecked, named,
+    // while hook counts and the other programs stay gated.
+    const noJq = structuredClone(shape);
+    noJq.codex!.PreToolUse!.execs = { jq: 0, node: 3, git: 0 };
+    expect(evaluateShape(noJq, baseline).ok).toBe(false);
+    const hosts = { baselineHost: { jq: true }, host: { jq: false } };
+    const swapped = evaluateShape(noJq, baseline, hosts);
+    expect(swapped.ok).toBe(true);
+    expect(swapped.unchecked).toContainEqual(
+      expect.stringContaining(
+        "jq/node execs: the baseline was written with jq, this host runs without jq",
+      ),
+    );
+    noJq.codex!.PreToolUse!.execs.git = 1;
+    noJq.codex!.PostToolUse!.hooks = 2;
+    expect(evaluateShape(noJq, baseline, hosts).violations).toEqual([
+      "codex Bash PreToolUse: 1 git execs > 0 in the baseline",
+      "codex Bash PostToolUse: 2 hooks > 1 in the baseline",
+    ]);
+    // The same host keeps jq and node gated.
+    expect(
+      evaluateShape(moreExecs, baseline, { baselineHost: { jq: true }, host: { jq: true } }).ok,
+    ).toBe(false);
+
     // An engine with no baseline row is reported as unchecked, not failed.
     const fresh = evaluateShape(shape, {});
     expect(fresh.ok).toBe(true);
@@ -641,6 +668,8 @@ describe("bench scripts", () => {
     const committed = readShapeBaseline();
     expect(Object.keys(committed)).toEqual(expect.arrayContaining(["claude", "pi"]));
     expect(readShapeBaseline(join(tmpdir(), "navori-no-such-shape.json"))).toEqual({});
+    expect(readShapeHost()).toEqual({ jq: expect.any(Boolean) });
+    expect(readShapeHost(join(tmpdir(), "navori-no-such-shape.json"))).toBeUndefined();
   });
 
   // Covers: R1
