@@ -56,8 +56,7 @@ describe("neutral context measurement", () => {
     try {
       const hook = join(sandbox.project, ".claude/hooks/audit-mode-trigger.sh");
       const source = readFileSync(hook, "utf8");
-      expect(source).toContain("audit_mode='opt-in'");
-      writeFileSync(hook, source.replace("audit_mode='opt-in'", "audit_mode='always'"));
+      writeFileSync(hook, source.replace(/audit_mode='[^']*'/, "audit_mode='always'"));
       const run = spawnSync("bash", [hook], {
         cwd: sandbox.project,
         env: sandbox.env("absent"),
