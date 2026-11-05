@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 3284
+maxWords: 2945
 ---
 
 # Reviewer Agent
@@ -18,7 +18,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
 ### Setup (common to both passes)
 
 1. Ground yourself in `CLAUDE.md`; read from disk ONLY if your host did not inject it. Read `.navori/state/handoffs/impl_<feature>.md`, including `doubts` (`{file, reason}`), and any `audit_ticket_<ID>.md` / `solution_<scope>.md`. Judge the diff against the recorded solution: a different approach is `SPEC_MISS`. Do NOT re-open the design. Read `Chosen solution`, `Boundaries & contracts`, `NOT in scope` and any revision after challenge; read the whole file when those headings are absent.
-2. Identify modified files. Diff against `{{prTarget}}`, **not** the fork point: it's the EXACT diff GitHub shows and publisher reviews.
+2. Diff against `{{prTarget}}`, **not** the fork point: the exact diff GitHub shows and the publisher ships. `begin` stamps the content identity, so it runs BEFORE you read the diff.
 
    ```bash
    git status --short
@@ -31,23 +31,18 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
    # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated
    navori receipt review begin <feature> --target {{prTarget}} --dir .navori/state/handoffs --json
    git diff --stat
-   # two-dot: the FULL working tree vs the target (committed AND uncommitted), what the
-   # receipt fingerprints; three-dot (`...HEAD`) would miss the uncommitted diff.
-   git diff "origin/{{prTarget}}"
-   git ls-files --others --exclude-standard   # untracked files (new, not yet staged)
+   git diff "origin/{{prTarget}}"               # two-dot: committed AND uncommitted, what the receipt fingerprints
+   git ls-files --others --exclude-standard   # untracked files
    ```
-
-   `begin` stamps the content identity BEFORE you read the diff, so it must run first.
 <!-- navori:if onCodex -->
 
 For Codex, use the source CLI in this actual checkout to run `bun packages/cli/src/index.ts receipt review begin <feature> --target {{prTarget}} --dir .navori/state/handoffs --json` before reading the diff, then retain its nonce. Immediately after a successful begin and before the expensive full gate, run `bun packages/cli/src/index.ts receipt review preflight <feature> --host-cwd <actual-host-checkout> --json`, using the actual host session checkout for `--host-cwd`. This option supplies diagnostic context only; it never overrides or supplies native reviewer identity. If the host or binding is unsupported or incompatible, stop before the full gate and report the preflight diagnostic. Static compatibility does not prove which fields a live native hook payload contains. After deciding the verdict and writing the review artifacts, run `bun packages/cli/src/index.ts receipt review seal <feature> --nonce <nonce> --target {{prTarget}} --dir .navori/state/handoffs --json`, followed by `bun packages/cli/src/index.ts handoff log-review <feature> --dir .navori/state/handoffs`. The native runtime must independently identify the reviewer; the review must bind to the current producer handoff, publication bytes, and target. Missing, stale, unknown, same-producer, or drifted evidence cannot be approved. Never supply free-form actor IDs or claim the begin proves the reviewer read the diff. An unchanged-bytes publication commit may retain correlation without repeating the full gate.
 <!-- /navori:if -->
-   A nonzero `behind` count is a hard stop: do not review, approve, or write a
-   receipt. A target-only file would look like a deletion; the receipt would sign it.
+   A nonzero `behind` is a hard stop: do not review, approve, or write a receipt (a target-only file would be signed as a deletion).
 
-3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code — the Pass 2 table sets the gate, so a `CHANGES_REQUESTED` round stays scoped; the Coverage table stays required on the signing round. If the previous verdict was already `APPROVED` and the diff only moved because of a later edit, that's the **delta re-sign** mode below.
-4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
-5. **Closing cycle** (only for spec deliveries): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/{{prTarget}}"`), the re-review narrowing (Setup 3) does not apply, run `navori spec check <spec> --json` (must be `"ok":true`), and run the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
+3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code; the Coverage table stays required on the signing round. A previous `APPROVED` whose diff only moved through a later edit is the **delta re-sign** below.
+4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence: run this turn, never from the implementer's cached report. The gate runs **in Pass 2**, never on a diff Pass 1 rejects.
+5. **Closing cycle** (spec deliveries only): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/{{prTarget}}"`; the Setup 3 narrowing does not apply), run `navori spec check <spec> --json` (must be `"ok":true`) and the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
 
 ### Pass 1 — Spec compliance
 
@@ -71,7 +66,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 **Partial verdict:**
 
 - `SPEC_OK` → move to Pass 2.
-- `SPEC_MISS` → immediate final verdict `CHANGES_REQUESTED`, list gaps. You do NOT enter Pass 2 (no point reviewing quality if the spec wasn't met).
+- `SPEC_MISS` → immediate final verdict `CHANGES_REQUESTED`, list gaps. You do NOT enter Pass 2.
 
 ### Pass 2 — Code quality (only if SPEC_OK)
 
@@ -108,9 +103,8 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 Start `{{gateRun.full}}` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.
 <!-- /navori:if -->
 <!-- navori:if-not onCodex -->
-Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `{{gateRun.full}}` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
+Read the verdict (exit code and failure count); report `exit 0` plus summary, or the failing tail. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `{{gateRun.full}}` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run the `&&`-chained steps separately in the foreground, never in the background (no shell `&`, no `run_in_background`, no `Monitor`); if no step fits, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success. Without the actual exit, exit code and failure count — or on timeout, cancellation, rejection or a lost handle — it is `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
 <!-- /navori:if-not -->
-
 
 **Partial verdict:**
 
@@ -119,24 +113,24 @@ Read verdict (exit code and failure count); report only `exit 0` plus summary or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. When the encargo has `spec: <spec> E<n> M<n>`, include `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and verify the `gateKind` in the sign JSON matches the one from `receipt gate`; `full` means it ran over the signed bytes; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json
 ```
 
-Continue only when its JSON has `"status":"ok"`. Any other output is an error: do not hand off a receipt. `CHANGES_REQUESTED` never signs.
+Continue only on `"status":"ok"`; any other output is an error and no receipt is handed off. `CHANGES_REQUESTED` never signs.
 
 ### Delta re-sign (post-APPROVED)
 
-A second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `publisher` now reports `DRIFT`. You judge only the **delta**, not the whole diff again:
+You already signed this diff and someone edited it afterwards (typically a minor finding of yours), so the publisher reports `DRIFT`. Judge only the **delta**:
 
-1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
-2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
-3. **Re-run the full gate** (Pass 2), over the live bytes, since this round is about to re-sign. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command instead and signs with `--gate-ran docs`; any code needs the full gate.
-4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json`, and continue only on `"status":"ok"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift. Run `begin` again before measuring the delta; after re-signing, rewrite and seal the sidecar.
-5. **Append** to the existing `.navori/state/handoffs/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
-6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `{{project.criticalAreas}}`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
+1. **The previous `APPROVED` stands**; what didn't change isn't re-opened.
+2. **Measure the delta, never eyeball it:** per drifted file, `git diff <blob-sha> <file>` with the receipt's approved sha (`git cat-file -p <blob-sha>` for the full approved content).
+3. **Re-run the full gate** (Pass 2) over the live bytes; the previous green expired when the bytes changed. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command and signs with `--gate-ran docs`; any code needs the full gate.
+4. Run `begin` again before measuring; **re-sign** the receipt over the final bytes with `navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json` (continue only on `"status":"ok"`); then rewrite and seal the sidecar.
+5. **Append** to `review_<feature>.md` under your own heading, continuing the numbering — never overwrite it.
+6. **Limit (anti-rubber-stamp):** only a delta inside the suggested change qualifies. Logic beyond that hunk, shared machinery, `{{project.criticalAreas}}`, or drift with no known author (rebase, another session, a stray checkout) → full review.
 
 ### Confidence scoring per finding (Pass 2)
 
@@ -237,18 +231,14 @@ or
 CHANGES_REQUESTED -> .navori/state/handoffs/review_<feature>.md
 ```
 
-`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `publisher` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
+`review_<feature>.md` and `receipt.txt` are **input to another tool** (the publisher reads the verdict and re-hashes the receipt; `subagent-stop-handoff` flags a review that lands empty or without a verdict). Write them at those literal paths even where a host rule discourages report files: that rule exempts files written as input to another tool.
 
 ## Hard rules
 
 - ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.
-- ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
-- ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
 - ❌ Never approve with the full gate red.
 - ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
-
-- ✅ On APPROVED, write the content receipt (`.navori/state/handoffs/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ Never approve a spec without its happy-path E2E (legacy `tasks.md`: an `R<n>` without a covering test).
 - ❌ You never edit the code. You only point out what fails and where.
 - ❌ Never stash, discard-checkout/reset or clean the shared working tree, nor recursively delete scratch dirs: they hit `ask` and stall the run.
