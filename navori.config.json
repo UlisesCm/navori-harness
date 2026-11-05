@@ -43,7 +43,7 @@
     }
   },
   "audit": {
-    "mode": "always"
+    "mode": "opt-in"
   },
   "harness": {
     "scribeOwnsMarkdown": true,
@@ -51,7 +51,8 @@
     "authoring": true
   },
   "hooks": {
-    "modelAdvisor": true
+    "modelAdvisor": true,
+    "auditMode": true
   },
   "models": {
     "piMap": {},

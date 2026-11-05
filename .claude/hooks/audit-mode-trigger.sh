@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-trigger-base" hash="aaac987e" version="0.12.3" source="@navori/core"
+# navori:managed start id="audit-mode-trigger-base" hash="32c4d6ed" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode prompt recorder (UserPromptSubmit)
 #
@@ -418,7 +418,7 @@ fi
 # the branch is never taken again, and in `opt-in` repos the string compare costs
 # nothing. Failure to start is silent and leaves the session unrecorded, exactly
 # as if the mode were off — a recorder may never be the reason a prompt fails.
-audit_mode='always'
+audit_mode='opt-in'
 if [ ! -f "$log_file" ] && [ "$audit_mode" = "always" ] && command -v navori >/dev/null 2>&1; then
   if navori audit --start "$session_id" --cwd "$cwd" --host "$nv_engine" >/dev/null 2>&1; then
     # Same reasoning as the armed branch: a UserPromptSubmit hook's stdout is
