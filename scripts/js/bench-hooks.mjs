@@ -390,6 +390,8 @@ export function createSandbox(sourceRoot = REPO_ROOT, { requireDist = false } = 
  * @returns {{ wallMs: number, cpuMs: number, exitCode: number | null }}
  */
 function timeOnce(command, payloadPath, cwd, env) {
+  // LC_ALL would override LC_NUMERIC below, so its value drops to LANG (lowest precedence).
+  const { LC_ALL, ...rest } = env;
   const run = spawnSync(
     "bash",
     [
@@ -398,7 +400,14 @@ function timeOnce(command, payloadPath, cwd, env) {
     ],
     {
       cwd,
-      env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
+      // LC_NUMERIC=C: under a comma-decimal locale (es_ES) `time` prints `0,012`, which the regex below rejects.
+      env: {
+        ...rest,
+        ...(LC_ALL ? { LANG: LC_ALL } : {}),
+        LC_NUMERIC: "C",
+        BENCH_CMD: command,
+        BENCH_PAYLOAD: payloadPath,
+      },
       encoding: "utf8",
     },
   );
