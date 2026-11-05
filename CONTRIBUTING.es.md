@@ -229,8 +229,8 @@ arrancó, así que dos sesiones en un mismo checkout comparten su rama y su esta
 mueve a la otra (#1543).
 
 ```sh
-git worktree add -b <rama> .claude/worktrees/<nombre> origin/dev
-cd .claude/worktrees/<nombre> && bun install && claude   # o: pi
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # o: pi
 ```
 
 - El checkout principal es para revisar y mergear, no para una sesión de trabajo.

@@ -275,8 +275,8 @@ de gates, y un cambio de rama en una mueve a la otra. Regla: **una sesión, un w
 - Crea el worktree antes de iniciar la sesión y abre Pi en su raíz:
 
   ```sh
-  git worktree add -b <rama> .claude/worktrees/<nombre> origin/<base>
-  cd .claude/worktrees/<nombre> && bun install && pi
+  git worktree add -b <branch> .claude/worktrees/<name> origin/<base>
+  cd .claude/worktrees/<name> && bun install && pi
   ```
 
   Los hijos, handoffs, recibos y gates de esa sesión quedan todos en ese worktree: `.navori/state/` es por
