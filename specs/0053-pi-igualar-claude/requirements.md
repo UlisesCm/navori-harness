@@ -1,7 +1,7 @@
 # Pi: igualar los resultados de Claude — Requirements
 
-**Estado:** scaffold aceptado por el usuario el 2026-10-14. Abrir la spec no autoriza workplans de entrega,
-implementación ni publicación.
+**Estado:** cerrada el 2026-11-04 sin T16 (corrida en vivo de Pi), por decisión del usuario. Lo entregado está en
+`tasks.md`; los problemas de Pi siguen por el diagnóstico de logs de #1493. Scaffold aceptado el 2026-10-14.
 **Base:** `origin/dev`. Pi pinneado en `@earendil-works/pi-coding-agent` 1.1.0; última publicada 1.2.0
 (2026-10-12).
 

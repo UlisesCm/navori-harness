@@ -1,7 +1,9 @@
 # Pi: igualar los resultados de Claude — Tasks
 
-**Estado:** M5 implementado en #1361; M6 y M7 siguen pendientes. Las casillas de los demás milestones
-conservan su alcance propio; el cierre de M5 no publica los candidatos locales de M1, M2 o M4.
+**Estado:** cerrada el 2026-11-04 sin T16, por decisión del usuario (#1361). M5 (#1376, #1378, #1381) y M6
+(#1387) están integrados. De M7, #1395 integró el driver y el fixture vivos y una corrida parcial solo de Claude
+(`evals.md`); T16 no se hace, y T15 y T17 quedan sin marcar porque sus pruebas nombradas no existen. M1–M4
+quedan sin marcar: este cierre no los da por entregados. Hallazgos de la corrida en #1533, #1534 y #1535.
 
 Reglas de ejecución:
 
@@ -173,7 +175,7 @@ Estimated LOC: 3200
       fijas; exige `NAVORI_LIVE_BENCH=1`, nunca corre en CI · effect: tests · test:
       `lib/audit/__tests__/engine-benchmark.test.ts`::"la salida del fixture sin credenciales es inconclusive y
       no pass"
-- [ ] **T16** (R2) — corrida en vivo en Claude y Pi con el mismo modelo disponible por engine; tabla, versión
+- [ ] **T16** (R2) — *(no se hace: spec cerrada el 2026-11-04)* corrida en vivo en Claude y Pi con el mismo modelo disponible por engine; tabla, versión
       de Pi, modelos, resultados invertidos y limitaciones (n = 1, aprobación correlacionada distinta de revisor
       independiente) en `evals.md` · effect: docs · test: `specs/0053-pi-igualar-claude/evals.md`::"Corrida en
       vivo"
