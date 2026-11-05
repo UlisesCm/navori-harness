@@ -593,12 +593,17 @@ describe("session-start context hook — tool update notice (#1244)", () => {
 
   it("does not call navori at all without node or jq (nothing could emit it)", () => {
     // PATH made of symlinks to every system tool EXCEPT node, jq and navori.
+    // With a merged /usr (/bin -> usr/bin) each name is listed twice, and a dangling
+    // host symlink fails `existsSync`, so the farm tracks the names it already linked.
     const farm = join(bin, "farm");
     mkdirSync(farm);
+    const linked = new Set<string>();
     for (const root of ["/usr/bin", "/bin"])
       for (const name of readdirSync(root))
-        if (!["node", "jq", "navori"].includes(name) && !existsSync(join(farm, name)))
+        if (!["node", "jq", "navori"].includes(name) && !linked.has(name)) {
+          linked.add(name);
           symlinkSync(join(root, name), join(farm, name));
+        }
     const r = emit({ ...stub(OUTPUT), PATH: `${bin}:${farm}` });
     expect(r.ctx).toBe("");
     expect(r.calls).toEqual([]);
