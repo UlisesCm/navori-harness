@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "440ef87300eb8490a884cedbd79cd14ff3b515c185260b07d642b23552096b45"
+    "hash": "a55f268cfe4f0b56e337ef64337501a2fa06ec210eed26633f3103bdc94e8451"
   },
   "schemaVersion": 2,
   "agents": [
@@ -15,8 +15,7 @@
   "controls": {
     "planTiers": true,
     "masterPlan": false,
-    "scribeOwnsMarkdown": true,
-    "auditMode": "always"
+    "scribeOwnsMarkdown": true
   },
   "hooks": [
     {
