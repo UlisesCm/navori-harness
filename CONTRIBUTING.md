@@ -90,6 +90,24 @@ For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are en
 - **`NAVORI_TEST_WORKERS`** (a positive integer) sets Vitest's worker count. Without it, the count is
   `min(CPUs - 1, 4, file-descriptor budget)`.
 
+## Parallel sessions
+
+One session, one worktree, from the start, on Claude Code and Pi alike. A session's subagents, hooks,
+`.navori/state/` (workplans, handoffs, receipts) and gates resolve to the checkout the session started in,
+so two sessions sharing a checkout share its branch and state, and a branch switch in one moves the other
+(#1543).
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # or: pi
+```
+
+- The main checkout is for reviewing and merging, not for a working session.
+- The global `navori` is linked to the main checkout's `packages/cli/dist`, so every worktree runs that
+  build. After each pull of `dev` there, rebuild it: `bun run --filter navori build`.
+- `worktree-reclaim` removes a worktree once it is clean, pushed and its PR is merged; the next task starts
+  in a new one. Pi specifics: [docs/pi.md](docs/pi.md#parallel-sessions).
+
 ## Prose budget: what is capped and what is only reported
 
 All prose navori sends lives in each session's resident context, so it grows cumulatively: each session that learns something adds it, and nothing prunes it. There are **two startup surfaces**, deliberately treated differently.

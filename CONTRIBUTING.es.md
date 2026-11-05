@@ -221,6 +221,25 @@ o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara l
 - **`NAVORI_TEST_WORKERS`** (entero positivo) fija los workers de Vitest. Sin él, el número es
   `min(CPUs - 1, 4, presupuesto de file descriptors)`.
 
+## Sesiones en paralelo
+
+Una sesión, un worktree, desde el inicio, igual en Claude Code que en Pi. Los subagentes, hooks,
+`.navori/state/` (workplans, handoffs, recibos) y gates de una sesión se resuelven en el checkout donde
+arrancó, así que dos sesiones en un mismo checkout comparten su rama y su estado, y un cambio de rama en una
+mueve a la otra (#1543).
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # o: pi
+```
+
+- El checkout principal es para revisar y mergear, no para una sesión de trabajo.
+- El `navori` global está enlazado al `packages/cli/dist` del checkout principal, así que todos los
+  worktrees corren ese build. Después de cada pull de `dev` ahí, reconstrúyelo:
+  `bun run --filter navori build`.
+- `worktree-reclaim` borra un worktree cuando está limpio, empujado y con su PR mergeada; la siguiente tarea
+  empieza en uno nuevo. Lo propio de Pi: [docs/pi.es.md](docs/pi.es.md#sesiones-en-paralelo).
+
 ## Presupuesto de prosa: qué se capea y qué solo se reporta
 
 Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por
