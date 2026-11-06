@@ -1,7 +1,8 @@
 ---
-# navori:managed-file id="pi-agent-auditor" hash="77926b2836febb06bfcec2639854f7f4d4bbe8f02de0494ea6852b1a79c7dae7"
+# navori:managed-file id="pi-agent-auditor" hash="f4ac0e085f924c46e25f3c9018cbd36940abeaa17f127c0a4efb573388478a1f"
 name: "auditor"
 description: "Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design."
+model: "anthropic/claude-sonnet-5-5"
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
 ---
 # Auditor Agent

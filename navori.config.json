@@ -55,7 +55,7 @@
     "auditMode": true
   },
   "models": {
-    "piMap": {},
+    "piMap": { "sonnet": "anthropic/claude-sonnet-5-5" },
     "orchestrator": "opus",
     "implementer": "sonnet",
     "reviewer": "opus",

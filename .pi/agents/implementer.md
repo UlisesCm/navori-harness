@@ -1,7 +1,8 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="3793fcc4f31ce6d9c93035929491e0c899fe4dcd4ca14562b1da7b96e1989f75"
+# navori:managed-file id="pi-agent-implementer" hash="aa579d2752709cedbe568da99b1aa9ef869ee9b21090a485a5d937e084b1d66e"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
+model: "anthropic/claude-sonnet-5-5"
 tools: ["read","grep","find","ls","bash","edit","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
 ---
 # Implementer Agent
