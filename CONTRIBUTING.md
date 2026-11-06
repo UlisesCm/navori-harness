@@ -105,6 +105,21 @@ cd .claude/worktrees/<name> && bun install && claude   # or: pi
 - The main checkout is for reviewing and merging, not for a working session.
 - The global `navori` is linked to the main checkout's `packages/cli/dist`, so every worktree runs that
   build. After each pull of `dev` there, rebuild it: `bun run --filter navori build`.
+- Render from a worktree with that worktree's own compiled CLI, never the global `navori`: the global one
+  renders the main checkout's assets over the branch's. `bun run render:apply` at the worktree root builds
+  this worktree's CLI and renders with it; after that build, run any other command as
+  `node packages/cli/dist/index.js <command>`.
+- An independent reviewer on Opus from Pi: `navori_subagent` takes the reviewer model from
+  `navori.config.json`. Run Claude Code's reviewer from the worktree instead, with the brief in a file written
+  with the Write tool. In `-p` mode nobody can approve a prompt, so grant the commands it needs; file rules
+  must be `Edit(...)`, since `Write(...)` does not match file permission checks:
+
+  ```sh
+  claude -p --agent reviewer --model opus \
+    --allowedTools "Bash(node packages/cli/dist/index.js:*)" "Bash(cd packages/cli && bunx vitest:*)" \
+      "Bash(git:*)" "Bash(gh api:*)" "Edit(.navori/state/handoffs/**)" \
+    -- "$(cat <brief file>)"
+  ```
 - `worktree-reclaim` removes a worktree once it is clean, pushed and its PR is merged; the next task starts
   in a new one. Pi specifics: [docs/pi.md](docs/pi.md#parallel-sessions).
 
