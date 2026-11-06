@@ -264,7 +264,9 @@ sesión interactiva. El hijo fallido informa entonces el `errorMessage` del prov
 
 La evidencia de aceptación no depende de hijos: la registra el bash integrado de la sesión principal. Abre Pi
 en la raíz del checkout que tiene el workplan (incluido un worktree), porque la evidencia se registra contra
-el directorio de trabajo de la sesión.
+el directorio de trabajo de la sesión. Desde una sesión en el checkout principal, un criterio de un worktree
+enlazado solo cuenta si se corre como `cd <raíz absoluta del worktree> && <comando exacto>` (ver
+[Sesiones en paralelo](#sesiones-en-paralelo)).
 
 ## Sesiones en paralelo
 
@@ -282,6 +284,12 @@ de gates, y un cambio de rama en una mueve a la otra. Regla: **una sesión, un w
   Los hijos, handoffs, recibos y gates de esa sesión quedan todos en ese worktree: `.navori/state/` es por
   checkout, y `navori receipt check|ci` correlaciona una revisión con el checkout donde corre.
 - Deja el checkout principal para revisar y mergear; no inicies ahí una sesión de trabajo.
+- Si una sesión del checkout principal trabaja en un worktree enlazado bajo `.claude/worktrees/` (#1575),
+  `navori_subagent` revisa el plan gate y los handoffs en el checkout que tiene el estado de la feature: el de
+  la propia sesión si lo tiene; si no, el único worktree enlazado que lo tenga. Si son dos, bloquea el
+  despacho. Los hijos siguen arrancando en el checkout principal y reciben la ruta absoluta del handoff.
+  Corre los criterios de aceptación como `cd <raíz absoluta del worktree> && <comando exacto>`: con
+  cualquier otra forma no se registra evidencia.
 - `worktree-reclaim` borra un worktree solo cuando está limpio, empujado y con su PR mergeada (ver
   [Ciclo de vida de la sesión](#ciclo-de-vida-de-la-sesión)); la siguiente tarea empieza en uno nuevo.
 - Un `navori` global enlazado al `packages/cli/dist` de un checkout (como en el repo de navori) corre ese
