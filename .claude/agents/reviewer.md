@@ -4,10 +4,10 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: sonnet
 effort: low
-maxWords: 2945
+maxWords: 2940
 ---
 
-<!-- navori:managed id="reviewer-base" hash="eb0b5659" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="e679733c" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 Review; **approve or reject**, never edit code.
@@ -101,7 +101,7 @@ Read the verdict (exit code and failure count); report `exit 0` plus summary, or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
+Only after `APPROVED` and the sealed sidecar (below), run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json
@@ -116,7 +116,7 @@ You already signed this diff and someone edited it afterwards (typically a minor
 1. **The previous `APPROVED` stands**; what didn't change isn't re-opened.
 2. **Measure the delta, never eyeball it:** per drifted file, `git diff <blob-sha> <file>` with the receipt's approved sha (`git cat-file -p <blob-sha>` for the full approved content).
 3. **Re-run the full gate** (Pass 2) over the live bytes; the previous green expired when the bytes changed. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command and signs with `--gate-ran docs`; any code needs the full gate.
-4. Run `begin` again before measuring; **re-sign** the receipt over the final bytes with `navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json` (continue only on `"status":"ok"`); then rewrite and seal the sidecar.
+4. Run `begin` again before measuring; rewrite and seal the sidecar; then **re-sign** the receipt over the final bytes with `navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json` (continue only on `"status":"ok"`).
 5. **Append** to `review_<feature>.md` under your own heading, continuing the numbering — never overwrite it.
 6. **Limit (anti-rubber-stamp):** only a delta inside the suggested change qualifies. Logic beyond that hunk, shared machinery, `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, or drift with no known author (rebase, another session, a stray checkout) → full review.
 
@@ -203,7 +203,7 @@ navori receipt review seal <feature> --nonce <nonce> --target dev --dir .navori/
 navori handoff log-review <feature> --dir .navori/state/handoffs
 ```
 
-`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict; it only leaves the review uncorrelated.
+`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict, but `sign` refuses the uncorrelated review: no receipt.
 
 ## Chat reply
 
