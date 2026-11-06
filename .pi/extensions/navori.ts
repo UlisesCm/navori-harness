@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="1cfada3e979d7136a6ae9a2bb50960edab4db532b0f4149f7d1bd507a10ea960"
+// navori:managed-file id="pi-extension" hash="f4141535e10b1bf349a9648f58c4ac03dfff521ec0fa5effe0d2a38cb2f5e2a1"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -241,7 +241,7 @@ function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: stri
  */
 const REVIEWER_CONTRACT = "Navori review evidence, every round whatever this task says: run \x60navori receipt review begin\x60 "
   + "before reading the diff, write both review files, then \x60seal\x60 and \x60log-review\x60. These are review artifacts, "
-  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow the task and your verdict.";
+  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow your verdict and the gate table.";
 /** True when the checkout's neutral state already names the feature (workplan or handoff). */
 function holdsFeature(checkout: string, feature: string): boolean {
   return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
