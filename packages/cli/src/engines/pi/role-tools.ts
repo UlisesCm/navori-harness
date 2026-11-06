@@ -50,11 +50,15 @@ export const PI_GATE_TIMEOUT_MS = 600_000;
 
 const MINUTE_MS = 60_000;
 
-/** Child deadline per role; the gate runs inside it (F10), so every role with bash exceeds gate + 10 min. */
+/**
+ * Child deadline per role; the gate runs inside it (F10), so every role with bash exceeds gate + 10 min.
+ * The reviewer runs the full gate on the round it approves, on top of reading the diff, so it gets the
+ * implementer's deadline: at 20 min, two approved reviews were discarded by the timeout (#1493).
+ */
 export const PI_ROLE_TIMEOUT_MS: Readonly<Record<PiRoleName, number>> = {
   scout: 10 * MINUTE_MS,
   scribe: 20 * MINUTE_MS,
-  reviewer: 20 * MINUTE_MS,
+  reviewer: 30 * MINUTE_MS,
   auditor: 20 * MINUTE_MS,
   architect: 20 * MINUTE_MS,
   implementer: 30 * MINUTE_MS,
