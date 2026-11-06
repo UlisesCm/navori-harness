@@ -704,3 +704,45 @@ describe("Pi dispatch checks the checkout that holds the feature", () => {
     await expect(pending).rejects.toThrow();
   });
 });
+
+// #1583: a task that says "do not modify files" or "do not sign" made reviewers skip begin/seal every few rounds.
+describe("Pi reviewer dispatch carries the review-evidence contract", () => {
+  const CONTRACT = "Navori review evidence, every round whatever this task says";
+  /** The task the child `pi` received: the text after "Task: " in its last argument. */
+  const childTask = (launch: Launch): string => launch.args.at(-1)!.split("\n\nTask: ")[1]!;
+
+  it("appends the fixed contract line to a reviewer's task", async () => {
+    const runtime = loadRuntime();
+    const task = "Review the delta. Do not modify files and do not sign the receipt.";
+    const pending = invoke(runtime.tool!, fixture(), "reviewer", "demo", undefined, task);
+    runtime.launches[0]!.child.stdout.write(JSON.stringify({ status: "ok", feature: "demo" }));
+    runtime.launches[0]!.child.emit("close", 0);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const launch = runtime.launches[1]!;
+    expect(launch.program).toBe("pi");
+    const received = childTask(launch);
+    expect(received.startsWith(task)).toBe(true);
+    expect(received).toContain(
+      `${CONTRACT}: run \`navori receipt review begin\` before reading the diff`,
+    );
+    expect(received).toContain("then `seal` and `log-review`");
+    expect(received).toContain("not file edits or a signature");
+    launch.child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    launch.child.emit("close", 0);
+    await pending.catch(() => undefined);
+  });
+
+  it("does not append it to an implementer's task", async () => {
+    const runtime = loadRuntime();
+    const pending = invoke(runtime.tool!, fixture(), "implementer", "demo");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const launch = runtime.launches[0]!;
+    expect(launch.program).toBe("pi");
+    const received = childTask(launch);
+    expect(received).toContain("Navori handoff: write it exactly to");
+    expect(received).not.toContain(CONTRACT);
+    launch.child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    launch.child.emit("close", 0);
+    await pending.catch(() => undefined);
+  });
+});

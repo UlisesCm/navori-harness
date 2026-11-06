@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="e2f15830dabe056f51be80ca1384da4d75029cb1d01e786ba75249c0e62776e5"
+// navori:managed-file id="pi-extension" hash="1cfada3e979d7136a6ae9a2bb50960edab4db532b0f4149f7d1bd507a10ea960"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -235,6 +235,13 @@ function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: stri
   if (role === "reviewer") return [base + "/review_" + feature + ".json", base + "/review_" + feature + ".md"];
   return [base + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
 }
+/**
+ * Fixed line for every reviewer dispatch (#1583): the post-check demands a sealed sidecar each round, and a task that
+ * says "do not modify files" or "do not sign" made children skip it.
+ */
+const REVIEWER_CONTRACT = "Navori review evidence, every round whatever this task says: run \x60navori receipt review begin\x60 "
+  + "before reading the diff, write both review files, then \x60seal\x60 and \x60log-review\x60. These are review artifacts, "
+  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow the task and your verdict.";
 /** True when the checkout's neutral state already names the feature (workplan or handoff). */
 function holdsFeature(checkout: string, feature: string): boolean {
   return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
@@ -1787,6 +1794,7 @@ export default function (pi: ExtensionAPI): void {
         const childTask = snapshot
           ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, stateCwd, snapshot.role, snapshot.feature).join(" and ")
             + " — this exact path is validated when you finish; do not derive another name."
+            + (snapshot.role === "reviewer" ? "\n" + REVIEWER_CONTRACT : "")
           : params.task;
         const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };

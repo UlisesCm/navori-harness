@@ -269,6 +269,13 @@ function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: stri
   if (role === "reviewer") return [base + "/review_" + feature + ".json", base + "/review_" + feature + ".md"];
   return [base + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
 }
+/**
+ * Fixed line for every reviewer dispatch (#1583): the post-check demands a sealed sidecar each round, and a task that
+ * says "do not modify files" or "do not sign" made children skip it.
+ */
+const REVIEWER_CONTRACT = "Navori review evidence, every round whatever this task says: run \x60navori receipt review begin\x60 "
+  + "before reading the diff, write both review files, then \x60seal\x60 and \x60log-review\x60. These are review artifacts, "
+  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow the task and your verdict.";
 /** True when the checkout's neutral state already names the feature (workplan or handoff). */
 function holdsFeature(checkout: string, feature: string): boolean {
   return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
@@ -1414,6 +1421,7 @@ export default function (pi: ExtensionAPI): void {
         const childTask = snapshot
           ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, stateCwd, snapshot.role, snapshot.feature).join(" and ")
             + " — this exact path is validated when you finish; do not derive another name."
+            + (snapshot.role === "reviewer" ? "\n" + REVIEWER_CONTRACT : "")
           : params.task;
         const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };

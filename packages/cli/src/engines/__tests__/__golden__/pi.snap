@@ -2016,7 +2016,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
      printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before reviewing.\n' "$behind" >&2
      exit 1
    fi
-   # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated
+   # keep the nonce; mandatory every round, whatever the encargo says
    navori receipt review begin <feature> --target main --dir .navori/state/handoffs --json
    git diff --stat
    git diff "origin/main"               # two-dot: committed AND uncommitted, what the receipt fingerprints
@@ -2185,7 +2185,7 @@ navori receipt review seal <feature> --nonce <nonce> --target main --dir .navori
 navori handoff log-review <feature> --dir .navori/state/handoffs
 ```
 
-`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict, but `sign` refuses the uncorrelated review: no receipt.
+`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. `begin`/`seal`/`log-review` are mandatory every round (neither edits nor signing; no encargo waives them). Failed: report the verdict; `sign` refuses it.
 
 ## Chat reply
 
@@ -2975,6 +2975,13 @@ function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: stri
   if (role === "reviewer") return [base + "/review_" + feature + ".json", base + "/review_" + feature + ".md"];
   return [base + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
 }
+/**
+ * Fixed line for every reviewer dispatch (#1583): the post-check demands a sealed sidecar each round, and a task that
+ * says "do not modify files" or "do not sign" made children skip it.
+ */
+const REVIEWER_CONTRACT = "Navori review evidence, every round whatever this task says: run \x60navori receipt review begin\x60 "
+  + "before reading the diff, write both review files, then \x60seal\x60 and \x60log-review\x60. These are review artifacts, "
+  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow the task and your verdict.";
 /** True when the checkout's neutral state already names the feature (workplan or handoff). */
 function holdsFeature(checkout: string, feature: string): boolean {
   return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
@@ -4527,6 +4534,7 @@ export default function (pi: ExtensionAPI): void {
         const childTask = snapshot
           ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, stateCwd, snapshot.role, snapshot.feature).join(" and ")
             + " — this exact path is validated when you finish; do not derive another name."
+            + (snapshot.role === "reviewer" ? "\n" + REVIEWER_CONTRACT : "")
           : params.task;
         const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
