@@ -190,3 +190,10 @@ export function isWorkplanDraft(raw: unknown): boolean {
     return false;
   }
 }
+
+/** The declared `classification.signals` of a `plan classify` draft, or
+ * `undefined` when `raw` is not a draft (#1571). */
+export function workplanDraftSignals(raw: unknown): string[] | undefined {
+  if (!isWorkplanDraft(raw)) return undefined;
+  return parseDraftShape(raw as Record<string, unknown>).signals;
+}

@@ -26,10 +26,15 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
-import { classify, matchesCriticalPaths, normalizeRepoPath } from "./classify.ts";
+import {
+  classify,
+  declaredFlagsFromSignals,
+  matchesCriticalPaths,
+  normalizeRepoPath,
+} from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
 import { parseExpected } from "./expected.ts";
-import type { Workplan } from "./schema.ts";
+import { workplanDraftSignals, type Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import { locateSpecDir } from "../spec/locate.ts";
 import { NON_IMPLEMENTER_ROLES } from "../../engines/shared/roster.ts";
@@ -586,7 +591,8 @@ function evaluateNivel0(
   } catch (cause: unknown) {
     return deny(cause instanceof Error ? cause.message : "unsafe state root");
   }
-  if (existsSync(stateArtifactPath(root, `workplan_${feature}.json`))) {
+  const draftSignals = readDraftSignals(stateArtifactPath(root, `workplan_${feature}.json`));
+  if (draftSignals === null) {
     return deny(
       `feature "${feature}" already has a workplan — open with \`workplan: ${feature}\`, not nivel-0.`,
     );
@@ -614,6 +620,7 @@ function evaluateNivel0(
     files,
     criticalPaths: config.project?.criticalPaths,
     localSkillIds: config.project?.localSkills,
+    ...declaredFlagsFromSignals(draftSignals ?? []),
   });
   if (result.level !== 0) {
     return deny(
@@ -631,6 +638,23 @@ function evaluateNivel0(
     );
   } catch (cause: unknown) {
     return deny(cause instanceof Error ? cause.message : "unsafe rejection history");
+  }
+}
+
+/**
+ * Reads the workplan file at `path` for the `nivel-0:` check (#1571):
+ * `undefined` when there is none, the declared signals of a `plan classify`
+ * draft, or `null` for anything else — a full workplan, or a file that can't
+ * be read or parsed — so a broken file keeps blocking `nivel-0:`
+ * (conservative) and a draft's declared floors still reach `classify`.
+ */
+function readDraftSignals(path: string): string[] | null | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    const raw: unknown = JSON.parse(readPlanSnapshot(path).content ?? "");
+    return workplanDraftSignals(raw) ?? null;
+  } catch {
+    return null;
   }
 }
 
