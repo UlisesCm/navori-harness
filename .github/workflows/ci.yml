@@ -13,7 +13,7 @@ on:
 # Cancel a PR's in-flight run when a newer commit is pushed — no point burning
 # minutes on a superseded SHA. `main` pushes get a per-SHA group so releases
 # never cancel each other. Any label other than `full` gets a per-run group: its
-# run skips every job, so it must not cancel the PR's real run.
+# run repeats only `checks`, so it must not cancel the PR's real run.
 concurrency:
   group: >-
     ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}${{
@@ -22,8 +22,8 @@ concurrency:
 
 jobs:
   checks:
-    # Only the `full` label starts work; see the concurrency note above.
-    if: github.event.action != 'labeled' || github.event.label.name == 'full'
+    # No label filter (#1562): a run whose `checks` read skipped would count as a
+    # pass for a required check. Every label run repeats it for real.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
