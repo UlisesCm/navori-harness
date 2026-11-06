@@ -98,6 +98,9 @@ cd .claude/worktrees/<name> && bun install && claude   # 或：pi
 - 主检出用于审查和合并，而不是工作会话。
 - 全局 `navori` 链接到主检出的 `packages/cli/dist`，因此每个 worktree 都运行该构建。每次在那里 pull `dev`
   之后都要重新构建：`bun run --filter navori build`。
+- 在 worktree 中渲染时，要用该 worktree 自己编译的 CLI，绝不要用全局 `navori`：全局的会把主检出的 assets 渲染到分支之上。
+  在 worktree 根目录运行 `bun run render:apply`，它会构建该 worktree 的 CLI 并用它渲染；构建之后，其他命令都以
+  `node packages/cli/dist/index.js <命令>` 运行。
 - `worktree-reclaim` 会在 worktree 干净、已推送且其 PR 已合并后将其删除；下一项任务从新的 worktree 开始。
   Pi 的细节：[docs/pi.zh-CN.md](docs/pi.zh-CN.md#并行会话)。
 

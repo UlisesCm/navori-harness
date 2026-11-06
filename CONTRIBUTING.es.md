@@ -237,6 +237,10 @@ cd .claude/worktrees/<name> && bun install && claude   # o: pi
 - El `navori` global está enlazado al `packages/cli/dist` del checkout principal, así que todos los
   worktrees corren ese build. Después de cada pull de `dev` ahí, reconstrúyelo:
   `bun run --filter navori build`.
+- Renderiza desde un worktree con el CLI compilado de ese mismo worktree, nunca con el `navori` global: el
+  global renderiza los assets del checkout principal encima de los de la rama. `bun run render:apply` en la
+  raíz del worktree compila el CLI de ese worktree y renderiza con él; después de ese build, corre cualquier
+  otro comando como `node packages/cli/dist/index.js <comando>`.
 - `worktree-reclaim` borra un worktree cuando está limpio, empujado y con su PR mergeada; la siguiente tarea
   empieza en uno nuevo. Lo propio de Pi: [docs/pi.es.md](docs/pi.es.md#sesiones-en-paralelo).
 
