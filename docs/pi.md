@@ -286,7 +286,7 @@ call in the parent and in a child. A gate whose runner is missing blocks in a ch
 parent with UI it asks instead. The script exists only when `qualityGate.fast` is set. The progress-file
 size ratchet (`progress/current.md`) also applies on push, not only on commit. Role deadlines must outlive
 the gate: every role with `bash` has a deadline of at least gate + 10 min (20 min). The per-role deadlines
-are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `scribe`, `reviewer`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
+are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` and `reviewer` 30 min each (the reviewer runs the full gate on the round it approves), `scribe`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
 
 **Publishing confirmations.** These scripts ask before any publishing operation, and the ask shows the body:
 

@@ -504,4 +504,9 @@ describe("Pi first-class roles", () => {
       expect(PI_ROLE_TIMEOUT_MS[role]).toBeGreaterThanOrEqual(PI_GATE_TIMEOUT_MS + 600_000);
     }
   });
+
+  // #1493: the reviewer runs the full gate on the round it approves, like the implementer's cycle.
+  it("the reviewer's deadline matches the implementer's", () => {
+    expect(PI_ROLE_TIMEOUT_MS.reviewer).toBe(PI_ROLE_TIMEOUT_MS.implementer);
+  });
 });

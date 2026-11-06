@@ -192,7 +192,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 **检查顺序（`tool_call`）。** 对每次调用，扩展依次执行：(1) 阻止 `powershell` 调用；(2) 读取 manifest；若无法读取或版本不是 v2，则阻止 `bash`、`edit` 和 `write`；(3) `edit` 或 `write` 进入受管理文件通道；(4) 运行桥接脚本，若 `enforced` 脚本阻止操作，则停止调用；(5) 针对 `--approved-by` 声明以及每个 `ask` 判定结果，一并请求一次确认。确认绑定到用户看到的确切输入；输入发生变化时会拒绝操作。
 
-**提交和推送门禁（`quality-gate-pre-commit`）。** Pi 没有原生 git hooks，因此 Pi 副本会同时对 `git commit` 和 `git push` 实施门禁。它会运行 `qualityGate.fast`，截止时间为 600 s。门禁失败时会在父会话和子会话中阻止调用。找不到门禁运行器时，会在子会话或没有 UI 的情况下阻止调用；在有 UI 的父会话中则会询问。只有设置了 `qualityGate.fast` 才会存在该脚本。进度文件大小限制（`progress/current.md`）也适用于 push，不仅适用于 commit。角色截止时间必须长于门禁时间：每个带有 `bash` 的角色，其截止时间至少为门禁 + 10 min（20 min）。各角色的截止时间由 `packages/cli/src/engines/pi/role-tools.ts` 中的 `PI_ROLE_TIMEOUT_MS` 定义：`implementer` 为 30 min，`scribe`、`reviewer`、`auditor` 和 `architect` 各为 20 min。`scout` 没有 `bash`，保持 10 min。
+**提交和推送门禁（`quality-gate-pre-commit`）。** Pi 没有原生 git hooks，因此 Pi 副本会同时对 `git commit` 和 `git push` 实施门禁。它会运行 `qualityGate.fast`，截止时间为 600 s。门禁失败时会在父会话和子会话中阻止调用。找不到门禁运行器时，会在子会话或没有 UI 的情况下阻止调用；在有 UI 的父会话中则会询问。只有设置了 `qualityGate.fast` 才会存在该脚本。进度文件大小限制（`progress/current.md`）也适用于 push，不仅适用于 commit。角色截止时间必须长于门禁时间：每个带有 `bash` 的角色，其截止时间至少为门禁 + 10 min（20 min）。各角色的截止时间由 `packages/cli/src/engines/pi/role-tools.ts` 中的 `PI_ROLE_TIMEOUT_MS` 定义：`implementer` 和 `reviewer` 各为 30 min（reviewer 会在其批准的那一轮运行完整门禁），`scribe`、`auditor` 和 `architect` 各为 20 min。`scout` 没有 `bash`，保持 10 min。
 
 **发布确认。** 在任何发布操作前，这些脚本都会询问，并在询问中显示正文：
 
