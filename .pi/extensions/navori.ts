@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="479426c62d8827dd3cfc5e14959154941ee8bd6f6eb542c3954b0f08d143e4df"
+// navori:managed-file id="pi-extension" hash="e2f15830dabe056f51be80ca1384da4d75029cb1d01e786ba75249c0e62776e5"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -51,7 +51,7 @@ const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   architect: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore"]),
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
-const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000};
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1800000,"auditor":1200000,"architect":1200000,"implementer":1800000};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
