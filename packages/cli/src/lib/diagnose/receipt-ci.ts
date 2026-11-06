@@ -140,6 +140,27 @@ interface JobRecord {
   conclusion: string | null;
 }
 
+/**
+ * Conclusion of a required job; `null` = missing. GitHub reports a matrix whose `if` skipped it
+ * once, unexpanded (`test`, not `test (1)`), so a missing `<base> (…)` takes `skipped` from a
+ * skipped `<base>` job. Any other conclusion of `<base>` leaves it missing.
+ */
+function conclusionOf(found: readonly JobRecord[], name: string): string | null {
+  const job = found.find((record) => record.name === name);
+  if (job) return job.conclusion;
+  const base = /^(.+) \(.*\)$/.exec(name)?.[1];
+  const matrix = found.find((record) => record.name === base);
+  return matrix?.conclusion === "skipped" ? "skipped" : null;
+}
+
+/** A run that skipped some required job and failed none ran no tests: it is no verdict either way. */
+function ranNoTests(jobs: CiResult["jobs"]): boolean {
+  return (
+    jobs.some((job) => job.conclusion === "skipped") &&
+    jobs.every((job) => job.conclusion === "success" || job.conclusion === "skipped")
+  );
+}
+
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -257,6 +278,30 @@ export async function verifyReceiptCi(
       );
   }
 
+  /** Required jobs of one run attempt, cached across polls; a string is the `gh` failure. */
+  const judged = new Map<string, CiResult["jobs"]>();
+  const jobsOf = (run: WorkflowRun): CiResult["jobs"] | string => {
+    const key = `${run.id}/${run.run_attempt}`;
+    const cached = judged.get(key);
+    if (cached) return cached;
+    const listed = exec(
+      "gh",
+      [
+        "api",
+        `repos/{owner}/{repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
+      ],
+      cwd,
+    );
+    if (listed.status !== 0) return ghUnavailable(listed);
+    const found = (parseJson(listed.stdout) as { jobs?: JobRecord[] } | undefined)?.jobs ?? [];
+    const jobs = ci.jobs.map((name) => ({
+      name,
+      conclusion: conclusionOf(found, name),
+    }));
+    judged.set(key, jobs);
+    return jobs;
+  };
+
   const deadline = deps.now() + options.waitMs;
   const endpoint = `repos/{owner}/{repo}/actions/workflows/${basename(ci.workflow)}/runs?head_sha=${headSha}&event=pull_request&per_page=100`;
   for (;;) {
@@ -267,28 +312,36 @@ export async function verifyReceiptCi(
       []
     )
       .filter((run) => run.head_sha === headSha)
-      .sort((a, b) => b.id - a.id || b.run_attempt - a.run_attempt);
-    const run = runs[0];
+      .sort((a, b) => b.id - a.id || b.run_attempt - a.run_attempt)
+      // Only the highest attempt of each run counts: a superseded green attempt is no evidence.
+      .filter((run, index, sorted) => index === 0 || sorted[index - 1]!.id !== run.id);
+
+    // A later run on the same SHA may skip the tests (a non-`full` label, #1564). A run whose
+    // required jobs all succeeded or were skipped, with at least one skipped, ran no tests and
+    // is passed over. The newest of the rest decides: red or cancelled is no evidence even
+    // over an older green run, and a pending one is awaited because it may still run the tests.
+    let decisive: WorkflowRun | undefined;
+    for (const run of runs) {
+      if (run.status === "completed" && run.conclusion !== "cancelled") {
+        const jobs = jobsOf(run);
+        if (typeof jobs === "string") return finish("no-evidence", jobs);
+        if (ranNoTests(jobs)) continue;
+      }
+      decisive = run;
+      break;
+    }
+
+    // Every run skipped the tests: the newest one gives the reason.
+    const run = decisive ?? runs[0];
     if (run?.status === "completed") {
       result.runId = run.id;
       result.runAttempt = run.run_attempt;
       if (run.conclusion === "cancelled")
         return finish("no-evidence", "the CI run was cancelled or superseded");
-      const jobsRun = exec(
-        "gh",
-        [
-          "api",
-          `repos/{owner}/{repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
-        ],
-        cwd,
-      );
-      if (jobsRun.status !== 0) return finish("no-evidence", ghUnavailable(jobsRun));
-      const found = (parseJson(jobsRun.stdout) as { jobs?: JobRecord[] } | undefined)?.jobs ?? [];
-      result.jobs = ci.jobs.map((name) => ({
-        name,
-        conclusion: found.find((job) => job.name === name)?.conclusion ?? null,
-      }));
-      const bad = result.jobs.filter((job) => job.conclusion !== "success");
+      const jobs = jobsOf(run);
+      if (typeof jobs === "string") return finish("no-evidence", jobs);
+      result.jobs = jobs;
+      const bad = jobs.filter((job) => job.conclusion !== "success");
       if (bad.length > 0)
         return finish(
           "no-evidence",
