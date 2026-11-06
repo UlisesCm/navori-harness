@@ -260,7 +260,7 @@ describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => 
   });
 
   // Covers: R22
-  it.each(["implementer", "reviewer", "auditor"])(
+  it.each(["implementer", "reviewer", "auditor", "scout"])(
     "%s maxWords is its measured count times 1.05",
     (id) => {
       const parsed = parseAsset(readAgent(id));
