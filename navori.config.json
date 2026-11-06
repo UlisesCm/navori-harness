@@ -58,8 +58,8 @@
     "piMap": {},
     "orchestrator": "opus",
     "implementer": "sonnet",
-    "reviewer": "sonnet",
-    "scout": "haiku",
+    "reviewer": "opus",
+    "scout": "sonnet",
     "auditor": "sonnet",
     "publisher": "haiku",
     "scribe": "haiku"
