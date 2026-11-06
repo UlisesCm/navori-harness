@@ -42,6 +42,8 @@ interface Scenario {
   hooks?: ExecResult;
   runs?: Array<Record<string, unknown>> | ExecResult;
   jobs?: Array<{ name: string; conclusion: string | null }>;
+  /** Jobs keyed by `<id>/<attempt>` or by `<id>`; runs not listed fall back to `jobs`. */
+  jobsByRun?: Record<string, Array<{ name: string; conclusion: string | null }>>;
   receipt?: Partial<ReceiptResult>;
   receiptExit?: number;
 }
@@ -56,6 +58,15 @@ const run = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
 });
 const green = (): Array<{ name: string; conclusion: string | null }> =>
   CI.jobs.map((name) => ({ name, conclusion: "success" }));
+/**
+ * Jobs of a run whose `if` skipped the tests, as GitHub reports it (run 42148871569): the
+ * skipped matrix shows once as `test`, never as `test (1)`.
+ */
+const skippedTests = (checks = "success"): Array<{ name: string; conclusion: string | null }> => [
+  { name: "checks", conclusion: checks },
+  { name: "test", conclusion: "skipped" },
+  { name: "test-merge", conclusion: "skipped" },
+];
 const config = (qualityGate: unknown): ExecResult => json({ qualityGate });
 
 /** Builds a fake `Exec` from a scenario and records every call. */
@@ -81,7 +92,11 @@ function harness(s: Scenario = {}): {
                 baseRefName: "dev",
               },
             );
-      if (line.includes("/jobs")) return json({ jobs: s.jobs ?? green() });
+      if (line.includes("/jobs")) {
+        const [, id, attempt] = /\/runs\/(\d+)\/attempts\/(\d+)\//.exec(line) ?? [];
+        const byRun = s.jobsByRun?.[`${id}/${attempt}`] ?? s.jobsByRun?.[`${id}`];
+        return json({ jobs: byRun ?? s.jobs ?? green() });
+      }
       return Array.isArray(s.runs) || s.runs === undefined
         ? json({ workflow_runs: s.runs ?? [run()] })
         : s.runs;
@@ -234,6 +249,86 @@ describe("verifyReceiptCi", () => {
     });
     expect(result.runAttempt).toBe(2);
     expect(result.status).toBe("no-evidence");
+  });
+
+  it("a superseded green attempt is not evidence even when the latest one skipped the tests", async () => {
+    const { result } = await verify({
+      runs: [run({ run_attempt: 1 }), run({ run_attempt: 2 })],
+      jobsByRun: { "10/2": skippedTests() },
+    });
+    expect(result).toMatchObject({ status: "no-evidence", runId: 10, runAttempt: 2 });
+    expect(result.reason).toContain("test (1)=skipped");
+  });
+
+  it("a newer run that skipped the tests does not hide an older green run (#1564)", async () => {
+    const { exitCode, result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11 })],
+      jobsByRun: { 11: skippedTests() },
+    });
+    expect(exitCode).toBe(0);
+    expect(result).toMatchObject({ status: "ok", runId: 10, runAttempt: 1 });
+    expect(result.jobs.every((job) => job.conclusion === "success")).toBe(true);
+  });
+
+  it("a newer red run wins over an older green run on the same HEAD", async () => {
+    const { exitCode, result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11, conclusion: "failure" })],
+      jobsByRun: { 11: CI.jobs.map((name) => ({ name, conclusion: "failure" })) },
+    });
+    expect(exitCode).toBe(2);
+    expect(result).toMatchObject({ status: "no-evidence", runId: 11 });
+    expect(result.reason).toContain("checks=failure");
+  });
+
+  it("a skipped run with a failed required job is not passed over", async () => {
+    const { result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11, conclusion: "failure" })],
+      jobsByRun: { 11: skippedTests("failure") },
+    });
+    expect(result).toMatchObject({ status: "no-evidence", runId: 11 });
+    expect(result.reason).toContain("checks=failure");
+  });
+
+  it("an unexpanded matrix job that did not skip leaves its entries missing", async () => {
+    const { result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11, conclusion: "failure" })],
+      jobsByRun: {
+        11: [
+          { name: "checks", conclusion: "success" },
+          { name: "test", conclusion: "failure" },
+          { name: "test-merge", conclusion: "skipped" },
+        ],
+      },
+    });
+    expect(result).toMatchObject({ status: "no-evidence", runId: 11 });
+    expect(result.reason).toContain("test (1)=missing");
+  });
+
+  it("a newer cancelled run wins over an older green run", async () => {
+    const { result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11, conclusion: "cancelled" })],
+    });
+    expect(result).toMatchObject({ status: "no-evidence", runId: 11 });
+    expect(result.reason).toContain("cancelled");
+  });
+
+  it("a newer pending run is awaited, not skipped for an older green run", async () => {
+    const { result, clock } = await verify(
+      { runs: [run({ id: 10 }), run({ id: 11, status: "in_progress", conclusion: null })] },
+      3000,
+    );
+    expect(result).toMatchObject({ status: "no-evidence" });
+    expect(result.reason).toContain("pending");
+    expect(clock.t).toBe(3000);
+  });
+
+  it("when every run skipped the tests, the newest one gives the reason", async () => {
+    const { result } = await verify({
+      runs: [run({ id: 10 }), run({ id: 11 })],
+      jobs: skippedTests(),
+    });
+    expect(result).toMatchObject({ status: "no-evidence", runId: 11 });
+    expect(result.reason).toContain("test (1)=skipped");
   });
 
   it("ignores runs of another SHA", async () => {
