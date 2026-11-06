@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="69b1d62c" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="7ded4b07" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -2650,6 +2650,7 @@ if [ "$nv_engine" = pi ]; then
 fi
 managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+${managed_pi})"
 managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
+unparsed_quoting_msg="could not parse the quoting of this command, so it cannot rule out a write to a navori-managed file. To write a file (handoff, notes) use the Write/Edit tool; for a managed file, edit its source asset and run navori render --apply"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
 # the target would land in a segment of its own. Reading the unsplit copy is
@@ -2747,6 +2748,10 @@ fi
 # of their own while the enclosing word is kept for its command.
 # Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
 # terminator) from the live text, and skipping on that text would hide commands.
+# Exit 2: a confirmed owned destination (or an unsupported copy form). Exit 3: the
+# quoting could not be parsed (open quote, dangling escape, open "$(", unterminated
+# redirect operand), so a write cannot be ruled out; the verdict is the same block,
+# only the caller's message differs (#1557). Exit 2 wins when both hold.
 # Paths are lexical against the tool cwd. Command-local directory changes,
 # dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
 navori_copy_dest_safe() {
@@ -2991,7 +2996,7 @@ navori_copy_dest_safe() {
           if (rc == "\047" || rc == "\042") { rq = rc; continue }
           if (rc ~ /[ \t;&|]/ || (sd > 0 && rc == ")")) break
         }
-        if (rq != "") bad = 1
+        if (rq != "") qbad = 1
         pos--; continue
       }
       if (c ~ /[;&|(){}]/) { segment(); continue }
@@ -3002,13 +3007,21 @@ navori_copy_dest_safe() {
     else if (quote != "") { buf = buf "\n"; have = 1 }
     else segment()
   }
-  END { if (quote != "" || escape || sd > 0) bad = 1; segment(); exit (bad ? 2 : 0) }
+  END { if (quote != "" || escape || sd > 0) qbad = 1; segment(); exit (bad ? 2 : qbad ? 3 : 0) }
   ' <<EOF
 $live
 EOF
 }
-if [ "$nv_owned_paths" != "-" ] && ! navori_copy_dest_safe; then
-  block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
+if [ "$nv_owned_paths" != "-" ]; then
+  nv_cd_rc=0
+  navori_copy_dest_safe || nv_cd_rc=$?
+  if [ "$nv_cd_rc" = 3 ]; then
+    # Same verdict, honest reason: the quoting was unparseable (#1557), not a confirmed rewrite.
+    # The route differs too: agents follow the route line, and render is only right for managed files.
+    block "$unparsed_quoting_msg" managed-rewrite "Write/Edit tool (or edit the asset + navori render --apply if it is a managed file)"
+  elif [ "$nv_cd_rc" != 0 ]; then
+    block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
+  fi
 fi
 
 # 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only

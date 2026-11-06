@@ -11,6 +11,10 @@
 # of their own while the enclosing word is kept for its command.
 # Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
 # terminator) from the live text, and skipping on that text would hide commands.
+# Exit 2: a confirmed owned destination (or an unsupported copy form). Exit 3: the
+# quoting could not be parsed (open quote, dangling escape, open "$(", unterminated
+# redirect operand), so a write cannot be ruled out; the verdict is the same block,
+# only the caller's message differs (#1557). Exit 2 wins when both hold.
 # Paths are lexical against the tool cwd. Command-local directory changes,
 # dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
 navori_copy_dest_safe() {
@@ -255,7 +259,7 @@ navori_copy_dest_safe() {
           if (rc == "\047" || rc == "\042") { rq = rc; continue }
           if (rc ~ /[ \t;&|]/ || (sd > 0 && rc == ")")) break
         }
-        if (rq != "") bad = 1
+        if (rq != "") qbad = 1
         pos--; continue
       }
       if (c ~ /[;&|(){}]/) { segment(); continue }
@@ -266,7 +270,7 @@ navori_copy_dest_safe() {
     else if (quote != "") { buf = buf "\n"; have = 1 }
     else segment()
   }
-  END { if (quote != "" || escape || sd > 0) bad = 1; segment(); exit (bad ? 2 : 0) }
+  END { if (quote != "" || escape || sd > 0) qbad = 1; segment(); exit (bad ? 2 : qbad ? 3 : 0) }
   ' <<EOF
 $live
 EOF
