@@ -74,6 +74,7 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       ["sudo -u me bash <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
       ["cat <<'EOF' | sh\ncp source CLAUDE.md\nEOF", 2],
       ["python3 - <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
+      ["python3 - <<'EOF'\nx = 1\nEOF\ncp source CLAUDE.md", 2],
       ["cat <<EOF\n$(cp source CLAUDE.md)\nEOF", 2],
       ["cat <<< 'cp source CLAUDE.md'", 0],
       // `<<` as an arithmetic shift must never swallow the next line.
@@ -90,8 +91,8 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       ["echo ${x:1 << 2}\n2}\ncp source CLAUDE.md", 2],
       ["cat <<'EOF'\ncp source CLAUDE.md", 2],
       ["echo '<<EOF'\ncp source CLAUDE.md", 2],
-      ["echo 'unclosed", 2],
-      ['echo "unclosed\nstill open', 2],
+      ["echo 'unclosed", 3],
+      ['echo "unclosed\nstill open', 3],
       ["cp source \\\nCLAUDE.md", 2],
     ];
     for (const [command, expected] of cases) {
@@ -128,7 +129,7 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       [`echo "$(grep '(' p)"; cp a CLAUDE.md`, 2],
       [`echo "$(grep '"' p)" && mv CLAUDE.md x`, 2],
       [`echo "a $(printf '%s' "$(grep '"' x)") b"; mv CLAUDE.md /tmp/a`, 2],
-      [`echo "$(grep '"' p"`, 2],
+      [`echo "$(grep '"' p"`, 3],
       // Commands inside the substitution are checked too.
       [`echo "$(grep '"' p; cp a CLAUDE.md)"`, 2],
       [`echo "$(grep '"' p; mv CLAUDE.md /tmp/x)"`, 2],
