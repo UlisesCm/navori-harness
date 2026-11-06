@@ -326,8 +326,10 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
     requireCurrentReview(root, options);
     if (options.observer) options.observer.before = sampleIdentity(options.observer);
     if (options.gateRan === "scoped" && options.gateDecision?.gateKind !== "scoped") {
+      const reason = options.gateDecision?.reason ?? "no-spec-flags";
+      const noWorkplan = reason === "workplan-missing" || reason === "workplan-draft";
       throw new Error(
-        `this cycle needs qualityGate.full (${options.gateDecision?.reason ?? "no-spec-flags"}), but --gate-ran scoped was declared\nWHY:   a scoped receipt cannot stand in for the full gate\nFIX:   run qualityGate.full and sign again with --gate-ran full (or without the spec flags)`,
+        `this cycle needs qualityGate.full (${reason}), but --gate-ran scoped was declared\nWHY:   a scoped receipt cannot stand in for the full gate\nFIX:   ${noWorkplan ? "write the workplan with the plan-simple skill; without it the gate is full. Otherwise run qualityGate.full and sign again with --gate-ran full" : "run qualityGate.full and sign again with --gate-ran full (or without the spec flags)"}`,
       );
     }
     if (options.gateRan === "ci" && !options.ciDeclared) {

@@ -39,7 +39,12 @@ import { withPlanStateLock } from "../lib/plan/update-lock.ts";
 import { LockTimeoutError } from "../lib/primitives/lockfile.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
-import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
+import {
+  parseDraftShape,
+  WorkplanSchema,
+  type ProgressStatus,
+  type Workplan,
+} from "../lib/plan/schema.ts";
 import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { parseExpected } from "../lib/plan/expected.ts";
@@ -104,33 +109,13 @@ function readDraftClassifyContext(path: string): DraftClassifyContext | undefine
   if (typeof raw !== "object" || raw === null) {
     throw new Error(`draft workplan ${path} is not a JSON object`);
   }
-  const record = raw as Record<string, unknown>;
-  const rawFiles = record.files;
-  const files: string[] = [];
-  if (rawFiles !== undefined) {
-    if (!Array.isArray(rawFiles)) {
-      throw new Error(`draft workplan ${path}: "files" must be an array`);
-    }
-    for (const entry of rawFiles) {
-      if (
-        typeof entry !== "object" ||
-        entry === null ||
-        typeof (entry as { path?: unknown }).path !== "string"
-      ) {
-        throw new Error(`draft workplan ${path}: every "files" entry needs a string "path"`);
-      }
-      files.push((entry as { path: string }).path);
-    }
+  try {
+    return parseDraftShape(raw as Record<string, unknown>);
+  } catch (cause: unknown) {
+    throw new Error(
+      `draft workplan ${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
   }
-  const rawSignals = (record.classification as { signals?: unknown } | undefined)?.signals;
-  const signals: string[] = [];
-  if (rawSignals !== undefined) {
-    if (!Array.isArray(rawSignals) || rawSignals.some((s) => typeof s !== "string")) {
-      throw new Error(`draft workplan ${path}: "classification.signals" must be a string array`);
-    }
-    signals.push(...(rawSignals as string[]));
-  }
-  return { files, signals };
 }
 
 function readWorkplan(path: string): Workplan {

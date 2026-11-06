@@ -1025,6 +1025,22 @@ describe("gateKind", () => {
       executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
       expect(process.exitCode).toBe(1);
       expect(checkReceipt(options).result.error).toBe("receipt is absent");
+      // #1547: a draft workplan is refused with the way to write it
+      writeFileSync(file, JSON.stringify({ feature: options.feature, files: [{ path: "a.ts" }] }));
+      process.exitCode = 0;
+      out.mockClear();
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(1);
+      expect(out.mock.calls.join("")).toContain("workplan-draft");
+      expect(out.mock.calls.join("")).toContain("plan-simple");
+      // so is a missing one
+      rmSync(file);
+      process.exitCode = 0;
+      out.mockClear();
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(1);
+      expect(out.mock.calls.join("")).toContain("workplan-missing");
+      expect(out.mock.calls.join("")).toContain("plan-simple");
       // scoped decision signs scoped
       writeFileSync(file, JSON.stringify(plan));
       process.exitCode = 0;
