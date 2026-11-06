@@ -2,6 +2,15 @@
   "baseRef": "origin/dev",
   "files": [
     {
+      "path": "packages/cli/src/__tests__/ci-workflow.test.ts",
+      "removedCases": [
+        {
+          "title": "a full label added after opening starts the suite and other labels start nothing (#1551)",
+          "reason": "Renamed by #1562: a run for another label now repeats checks instead of skipping it, so the title says other labels only repeat checks."
+        }
+      ]
+    },
+    {
       "path": "packages/cli/src/lib/__tests__/core-templates.test.ts",
       "removedCases": [
         {

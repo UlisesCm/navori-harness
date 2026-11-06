@@ -471,10 +471,8 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     const checks = ciChecks("checks");
     expect([...fast].filter((c) => !checks.has(c) && !EXEMPT_FROM_CI.has(c))).toEqual([]);
     expect([...checks].some((c) => c.startsWith("test"))).toBe(false);
-    // Its only condition skips labels other than `full` (#1551); no branch filter.
-    expect([...jobBody("checks").matchAll(/^ {4}if: (.+)$/gm)].map((m) => m[1])).toEqual([
-      "github.event.action != 'labeled' || github.event.label.name == 'full'",
-    ]);
+    // No branch or label filter: every run, label runs included, runs it (#1562).
+    expect(jobBody("checks")).not.toMatch(/^ {4}if:/m);
     expect(jobBody("checks")).not.toMatch(/^\s*run: .*\b(?:test|vitest)\b/m);
   });
 
