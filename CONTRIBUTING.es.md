@@ -241,18 +241,6 @@ cd .claude/worktrees/<name> && bun install && claude   # o: pi
   global renderiza los assets del checkout principal encima de los de la rama. `bun run render:apply` en la
   raíz del worktree compila el CLI de ese worktree y renderiza con él; después de ese build, corre cualquier
   otro comando como `node packages/cli/dist/index.js <comando>`.
-- Un reviewer independiente con Opus desde Pi: `navori_subagent` toma el modelo del reviewer de
-  `navori.config.json`. En su lugar, corre el reviewer de Claude Code desde el worktree, con el encargo en un
-  archivo escrito con la herramienta Write. En modo `-p` nadie puede aprobar un permiso, así que concede los
-  comandos que necesita; las reglas de archivos van con `Edit(...)`, porque `Write(...)` no aplica a las
-  comprobaciones de permisos de archivos:
-
-  ```sh
-  claude -p --agent reviewer --model opus \
-    --allowedTools "Bash(node packages/cli/dist/index.js:*)" "Bash(cd packages/cli && bunx vitest:*)" \
-      "Bash(git:*)" "Bash(gh api:*)" "Edit(.navori/state/handoffs/**)" \
-    -- "$(cat <archivo del encargo>)"
-  ```
 - `worktree-reclaim` borra un worktree cuando está limpio, empujado y con su PR mergeada; la siguiente tarea
   empieza en uno nuevo. Lo propio de Pi: [docs/pi.es.md](docs/pi.es.md#sesiones-en-paralelo).
 
