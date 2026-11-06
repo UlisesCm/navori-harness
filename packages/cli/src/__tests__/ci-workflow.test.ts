@@ -19,6 +19,9 @@ function job(name: string): string {
   return rest.slice(0, end === -1 ? undefined : end).join("\n");
 }
 
+/** Lets only the `full` label start work on a `labeled` event (#1551). */
+const LABEL_FILTER = "github.event.action != 'labeled' || github.event.label.name == 'full'";
+
 const stepRuns = (body: string): string[] =>
   [...body.matchAll(/^ {8}run: (.+)$/gm)].map((m) => (m[1] as string).trim());
 
@@ -55,7 +58,8 @@ describe("ci workflow", () => {
   // Covers: R18 R23
   it("quality corre hacia dev y main y compila una vez", () => {
     const checks = job("checks");
-    expect(checks).not.toMatch(/^ {4}if:/m);
+    // No branch filter: the only condition is the label filter (#1551).
+    expect([...checks.matchAll(/^ {4}if: (.+)$/gm)].map((m) => m[1])).toEqual([LABEL_FILTER]);
     const runs = stepRuns(checks);
     expect(runs.filter((r) => /ensure-dist|\bbuild\b/.test(r) && !r.includes("website"))).toEqual([
       "bun run ensure-dist",
@@ -94,5 +98,18 @@ describe("ci workflow", () => {
     expect(affected).toContain("check-test-budget.mjs --report");
     expect(job("plan")).toContain("--plan-json");
     expect(job("plan")).toContain("fetch-depth: 0");
+  });
+
+  it("a full label added after opening starts the suite and other labels start nothing (#1551)", () => {
+    // Listing `types` replaces the defaults, so all three must stay next to `labeled`.
+    expect(workflow).toContain("types: [opened, synchronize, reopened, labeled]");
+    for (const name of ["checks", "plan", "test", "semgrep"]) {
+      expect(job(name)).toContain(LABEL_FILTER);
+    }
+    // A run for another label skips every job; its own group keeps it from cancelling the real run.
+    expect(workflow).toContain(
+      "github.event.action == 'labeled' && github.event.label.name != 'full' && format('-{0}', github.run_id)",
+    );
+    expect(workflow).toContain("cancel-in-progress: true");
   });
 });

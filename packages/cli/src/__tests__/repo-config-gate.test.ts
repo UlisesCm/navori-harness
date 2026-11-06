@@ -471,7 +471,10 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     const checks = ciChecks("checks");
     expect([...fast].filter((c) => !checks.has(c) && !EXEMPT_FROM_CI.has(c))).toEqual([]);
     expect([...checks].some((c) => c.startsWith("test"))).toBe(false);
-    expect(jobBody("checks")).not.toMatch(/^ {4}if:/m);
+    // Its only condition skips labels other than `full` (#1551); no branch filter.
+    expect([...jobBody("checks").matchAll(/^ {4}if: (.+)$/gm)].map((m) => m[1])).toEqual([
+      "github.event.action != 'labeled' || github.event.label.name == 'full'",
+    ]);
     expect(jobBody("checks")).not.toMatch(/^\s*run: .*\b(?:test|vitest)\b/m);
   });
 
@@ -500,7 +503,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     const workflow = readFileSync(CI_WORKFLOW, "utf-8");
     expect(workflow).toContain("branches: [main, dev]");
     expect(workflow).toMatch(/^  pull_request:/m);
-    expect(jobBody("checks")).not.toMatch(/^ {4}(?:if|needs):/m);
+    expect(jobBody("checks")).not.toMatch(/^ {4}needs:/m);
     const shards = jobBody("test");
     expect(shards).toContain("needs: [plan]");
     expect(shards).toContain("!cancelled()");

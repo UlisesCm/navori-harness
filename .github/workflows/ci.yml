@@ -5,17 +5,25 @@ name: CI
 on:
   push:
     branches: [main, dev]
+  # `labeled` lets a `full` label added after the PR opened start the suite
+  # (#1551); listing `types` replaces the defaults, so they are repeated here.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 # Cancel a PR's in-flight run when a newer commit is pushed — no point burning
 # minutes on a superseded SHA. `main` pushes get a per-SHA group so releases
-# never cancel each other.
+# never cancel each other. Any label other than `full` gets a per-run group: its
+# run skips every job, so it must not cancel the PR's real run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: >-
+    ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'full' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   checks:
+    # Only the `full` label starts work; see the concurrency note above.
+    if: github.event.action != 'labeled' || github.event.label.name == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,7 +148,7 @@ jobs:
         run: bun run check:tests-preserved
 
   plan:
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && (github.event.action != 'labeled' || github.event.label.name == 'full')
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.plan.outputs.full }}
@@ -165,7 +173,8 @@ jobs:
   test:
     needs: [plan]
     if: >-
-      ${{ !cancelled() && (github.event_name == 'push' || github.base_ref == 'main' ||
+      ${{ !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'full') &&
+          (github.event_name == 'push' || github.base_ref == 'main' ||
           (needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||
           contains(github.event.pull_request.labels.*.name, 'full')))) }}
     runs-on: ubuntu-latest
@@ -267,7 +276,7 @@ jobs:
   # ones stay debt. No `|| true`: exit 1 (new findings) and exit >1 (broken
   # scanner) both fail the job, so a scan that could not run never reads green.
   semgrep:
-    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    if: (github.ref == 'refs/heads/main' || github.base_ref == 'main') && (github.event.action != 'labeled' || github.event.label.name == 'full')
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
