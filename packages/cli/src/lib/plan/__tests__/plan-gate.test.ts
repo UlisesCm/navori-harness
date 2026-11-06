@@ -541,6 +541,48 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
     expect(result.reason).toContain("not confirmed by classify");
   });
 
+  // #1571: a `plan classify` draft is not a workplan; a full or broken file still is.
+  it("nivel-0 passes with a classify draft, denied with a full workplan or unparsable file", () => {
+    writeConfig(true);
+    const open = () =>
+      evaluatePlanGate(payload("implementer", `nivel-0: README.md demo ${VERIFY}\nfix it`));
+    const draftPath = join(progressDir(), "workplan_demo.json");
+    mkdirSync(progressDir(), { recursive: true });
+
+    writeFileSync(
+      draftPath,
+      JSON.stringify({
+        feature: "demo",
+        files: [{ path: "README.md" }],
+        classification: { signals: [] },
+      }),
+    );
+    expect(open().decision).toBe("allow");
+
+    // A draft's declared floor still reaches classify, so nivel-0 is denied.
+    writeFileSync(
+      draftPath,
+      JSON.stringify({
+        feature: "demo",
+        files: [{ path: "README.md" }],
+        classification: { signals: ["floor:data-schema-migration"] },
+      }),
+    );
+    let result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("not confirmed by classify");
+
+    writeWorkplan("demo", VALID_LEVEL1);
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("already has a workplan");
+
+    writeFileSync(draftPath, "{ not json");
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("already has a workplan");
+  });
+
   // Covers: R28
   it("nivel-0 con y sin verify", () => {
     writeConfig(true);

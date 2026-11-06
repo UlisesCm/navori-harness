@@ -41,6 +41,7 @@ import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
 import {
   parseDraftShape,
+  workplanDraftSignals,
   WorkplanSchema,
   type ProgressStatus,
   type Workplan,
@@ -135,6 +136,20 @@ function readWorkplanOrExit(path: string): Workplan | undefined {
     process.exitCode = 1;
     return undefined;
   }
+}
+
+/** The declared signals of a `plan classify` draft at `path` (#1571), or
+ * `undefined` when the file is absent, unreadable, or not a draft — the
+ * caller then treats it as a full workplan and validates it as one. */
+function readDraftSignals(path: string): string[] | undefined {
+  if (!existsSync(path)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+  return workplanDraftSignals(raw);
 }
 
 /** Default `--diff` base: `origin/<prTarget>` of the repo's config, or
@@ -433,11 +448,15 @@ function classifyDiff(
 ): void {
   const cwd = root.cwd;
   // No workplan (a `nivel-0:` delivery) is classified as declared level 0 with
-  // no declared signals (0045 D9); an invalid one still fails.
-  const hasWorkplan = existsSync(jsonPath(root, feature));
-  const plan = hasWorkplan ? readWorkplanOrExit(jsonPath(root, feature)) : undefined;
+  // no declared signals (0045 D9); a `plan classify` draft counts as no
+  // workplan but keeps its declared signals (#1571); an invalid one still fails.
+  const path = jsonPath(root, feature);
+  const draftSignals = readDraftSignals(path);
+  const hasWorkplan = existsSync(path) && draftSignals === undefined;
+  const plan = hasWorkplan ? readWorkplanOrExit(path) : undefined;
   if (hasWorkplan && !plan) return;
   const declaredLevel = plan?.level ?? 0;
+  const declaredSignals = plan?.classification.signals ?? draftSignals;
 
   let files: string[];
   try {
@@ -454,7 +473,7 @@ function classifyDiff(
     files,
     criticalPaths: project.criticalPaths,
     localSkillIds: project.localSkillIds,
-    ...(plan ? declaredFlagsFromSignals(plan.classification.signals) : {}),
+    ...(declaredSignals ? declaredFlagsFromSignals(declaredSignals) : {}),
   };
   const result = classify(input);
   const exceedsDeclared = result.level > declaredLevel;
