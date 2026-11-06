@@ -619,3 +619,88 @@ describe("Pi control mappings", () => {
     }
   });
 });
+
+/** Makes `cwd` a git repo and adds `.claude/worktrees/<name>` as a linked worktree; returns its physical path. */
+function linkWorktree(cwd: string, name: string): string {
+  const git = (...args: string[]): void => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (result.status !== 0) throw new Error(result.stderr);
+  };
+  if (!nodeFs.existsSync(join(cwd, ".git"))) {
+    git("init", "-q", "-b", "main");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  }
+  git("worktree", "add", "-q", "-b", name, `.claude/worktrees/${name}`);
+  return join(nodeFs.realpathSync(cwd), ".claude/worktrees", name);
+}
+
+/** Writes a feature artifact into a checkout's neutral state dir. */
+function holdState(checkout: string, name: string): void {
+  mkdirSync(join(checkout, ".navori/state/handoffs"), { recursive: true });
+  writeFileSync(join(checkout, ".navori/state/handoffs", name), "{}\n");
+}
+
+// #1575: Pi runs every tool from the session root; the feature's state may live in a linked worktree.
+describe("Pi dispatch checks the checkout that holds the feature", () => {
+  it("gates an implementer against the linked worktree that holds the workplan", async () => {
+    const cwd = fixture({ planTiers: true });
+    const worktree = linkWorktree(cwd, "wt");
+    holdState(worktree, "workplan_demo.json");
+    const runtime = loadRuntime();
+    const pending = invoke(runtime.tool!, cwd, "implementer", "demo");
+    const launch = runtime.launches[0]!;
+    expect(launch).toMatchObject({ program: "navori", args: ["plan", "gate"] });
+    expect(JSON.parse(launch.input).cwd).toBe(worktree);
+    launch.child.emit("close", 2);
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("checks a reviewer's handoff in the linked worktree that holds it", async () => {
+    const cwd = fixture();
+    const worktree = linkWorktree(cwd, "wt");
+    holdState(worktree, "impl_demo.md");
+    const runtime = loadRuntime();
+    const pending = invoke(runtime.tool!, cwd, "reviewer", "demo");
+    const args = runtime.launches[0]!.args;
+    expect(args.slice(0, 3)).toEqual(["handoff", "check", "demo"]);
+    expect(args[args.indexOf("--cwd") + 1]).toBe(worktree);
+    runtime.launches[0]!.child.emit("close", 2);
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("keeps the session checkout when it holds the feature itself", async () => {
+    const cwd = fixture({ planTiers: true });
+    holdState(linkWorktree(cwd, "wt"), "workplan_demo.json");
+    holdState(cwd, "workplan_demo.json");
+    const runtime = loadRuntime();
+    const pending = invoke(runtime.tool!, cwd, "implementer", "demo");
+    expect(JSON.parse(runtime.launches[0]!.input).cwd).toBe(cwd);
+    runtime.launches[0]!.child.emit("close", 2);
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("fails closed when two linked worktrees hold the feature", async () => {
+    const cwd = fixture({ planTiers: true });
+    holdState(linkWorktree(cwd, "one"), "workplan_demo.json");
+    holdState(linkWorktree(cwd, "two"), "workplan_demo.json");
+    const runtime = loadRuntime();
+    await expect(invoke(runtime.tool!, cwd, "implementer", "demo")).rejects.toThrow(
+      "has state in 2 linked worktrees",
+    );
+    expect(runtime.launches).toHaveLength(0);
+  });
+
+  it("ignores a directory under .claude/worktrees that git does not link to this repository", async () => {
+    const cwd = fixture({ planTiers: true });
+    linkWorktree(cwd, "wt");
+    const fake = join(cwd, ".claude/worktrees/fake");
+    mkdirSync(fake, { recursive: true });
+    writeFileSync(join(fake, ".git"), `gitdir: ${join(cwd, ".git/worktrees/wt")}\n`);
+    holdState(fake, "workplan_demo.json");
+    const runtime = loadRuntime();
+    const pending = invoke(runtime.tool!, cwd, "implementer", "demo");
+    expect(JSON.parse(runtime.launches[0]!.input).cwd).toBe(cwd);
+    runtime.launches[0]!.child.emit("close", 2);
+    await expect(pending).rejects.toThrow();
+  });
+});

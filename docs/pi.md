@@ -404,7 +404,9 @@ interactive session. The failed child then reports the provider's `errorMessage`
 
 Acceptance evidence does not depend on children: the parent's built-in bash records it. Start Pi at the
 root of the checkout that holds the workplan (a worktree included), because evidence is recorded against
-the session's working directory.
+the session's working directory. From a session at the main checkout, a criterion of a linked worktree
+counts only when run as `cd <absolute worktree root> && <exact command>` (see
+[Parallel sessions](#parallel-sessions)).
 
 ## Parallel sessions
 
@@ -422,6 +424,12 @@ gate cache, and a branch switch in one moves the other. Rule: **one session, one
   The session's children, handoffs, receipts and gates then all resolve to that worktree: `.navori/state/`
   is per checkout, and `navori receipt check|ci` correlates a review with the checkout it runs in.
 - Keep the main checkout for reviewing and merging; do not start a working session there.
+- If a session at the main checkout does work in a linked worktree under `.claude/worktrees/` (#1575),
+  `navori_subagent` checks the plan gate and handoffs in the checkout that holds the feature's state: the
+  session's own checkout when it has it, otherwise the one linked worktree that does; two such worktrees
+  block the dispatch. Children still start at the main checkout and get the absolute handoff path. Run
+  acceptance criteria as `cd <absolute worktree root> && <exact command>`: any other shape records no
+  evidence.
 - `worktree-reclaim` removes a worktree only when it is clean, pushed and its PR is merged (see
   [Session lifecycle](#session-lifecycle)); the next task starts in a new one.
 - A global `navori` linked to a checkout's `packages/cli/dist` (as in navori's own repo) runs that build

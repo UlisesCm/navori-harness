@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
@@ -58,9 +59,17 @@ function load(
     ["node:child_process", { spawn }],
     [
       "node:fs",
-      { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync },
+      {
+        appendFileSync,
+        existsSync,
+        lstatSync,
+        readdirSync,
+        readFileSync,
+        readlinkSync,
+        realpathSync,
+      },
     ],
-    ["node:path", { join, sep }],
+    ["node:path", { dirname, join, sep }],
     ["@earendil-works/pi-ai", { Type: new Proxy({}, { get: () => () => ({}) }) }],
     [
       "@earendil-works/pi-coding-agent",
@@ -288,6 +297,44 @@ describe("parent and child evidence", () => {
     await Promise.all([result?.(ok(), ctx(cwd)), result?.(ok(), ctx(cwd))]);
     await result?.(ok(), ctx(cwd));
     expect(lines(cwd)).toHaveLength(1);
+  });
+
+  // #1575: Pi's bash keeps no cd, so a session at the root runs a worktree's criterion as `cd <worktree> && <cmd>`.
+  it("records a `cd <linked worktree> && <criterion>` run in that worktree, accepted there", async () => {
+    const cwd = project();
+    execFileSync("git", ["worktree", "add", "-q", "-b", "wt", ".claude/worktrees/wt"], { cwd });
+    const worktree = join(cwd, ".claude/worktrees/wt");
+    mkdirSync(join(worktree, DIR), { recursive: true });
+    const escaped = JSON.stringify(COMMAND).slice(1, -1);
+    writeFileSync(
+      join(worktree, DIR, "acceptance-index"),
+      `${escaped}\tdemo\tA1\t${join(worktree, DIR)}\n`,
+    );
+    rmSync(join(cwd, DIR, "acceptance-index"));
+    const { result } = load(BUILTIN);
+    await result?.(ok({ input: { command: `cd ${worktree} && ${COMMAND}` } }), ctx(cwd));
+    expect(lines(worktree)).toHaveLength(1);
+    expect(lines(worktree)[0]).toMatchObject({ command: COMMAND, tree: worktree, cwd: worktree });
+    expect(existsSync(join(cwd, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
+    const root = resolveStateRoot({ cwd: worktree, feature: "demo" });
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("records nothing for a cd into a directory that is not a linked worktree of this repo", async () => {
+    const cwd = project();
+    const other = project();
+    const { result } = load(BUILTIN);
+    for (const [id, command] of [
+      ["plain", `cd ${other} && ${COMMAND}`],
+      ["quoted", `cd "${cwd}" && ${COMMAND}`],
+      ["relative", `cd . && ${COMMAND}`],
+    ] as const) {
+      await result?.(ok({ toolCallId: id, input: { command } }), ctx(cwd));
+    }
+    expect(existsSync(join(cwd, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
+    expect(existsSync(join(other, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
   });
 
   // Covers: R7

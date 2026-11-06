@@ -2918,10 +2918,10 @@ function planDenial(stderr: string, feature: string | undefined): string {
   return PI_EXTENSION_DENIALS.planBlocked.prefix + ". The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
 }
 
-async function checkDispatch(cwd: string, role: Role, task: string,
+async function checkDispatch(cwd: string, stateCwd: string, role: Role, task: string,
     feature: string | undefined, signal: AbortSignal, sessionId: string): Promise<void> {
   if (role === "implementer" && controls(cwd).planTiers) {
-    const payload = JSON.stringify({ cwd, ...(sessionId ? { session_id: sessionId } : {}),
+    const payload = JSON.stringify({ cwd: stateCwd, ...(sessionId ? { session_id: sessionId } : {}),
       tool_input: { agent_type: role, message: task } });
     let result;
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
@@ -2942,7 +2942,7 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
-      "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
+      "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", stateCwd, "--dir", ".navori/state/handoffs", "--json"],
       "", signal); }
     catch { throw new Error(PI_EXTENSION_DENIALS.handoffUnavailable.prefix + role + " blocked"); }
     let parsed: unknown;
@@ -2966,10 +2966,53 @@ function handoffPath(cwd: string, role: Role, feature: string): string {
   try { scribeOwnsMarkdown = controls(cwd).scribeOwnsMarkdown; } catch { /* missing or invalid manifest: default (off) */ }
   return join(cwd, HANDOFF_DIR, "impl_" + feature + (scribeOwnsMarkdown ? ".json" : ".md"));
 }
-/** Repo-relative handoff paths a child is validated against (reviewer: the sidecar and its review, both required). */
-function handoffTargets(cwd: string, role: Role, feature: string): string[] {
-  if (role === "reviewer") return [HANDOFF_DIR + "/review_" + feature + ".json", HANDOFF_DIR + "/review_" + feature + ".md"];
-  return [HANDOFF_DIR + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
+/**
+ * Handoff paths a child is validated against (reviewer: the sidecar and its review, both required): repo-relative in
+ * the session checkout, absolute when the feature lives in a linked worktree (the child still starts at the root).
+ */
+function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: string): string[] {
+  const base = stateCwd === cwd ? HANDOFF_DIR : join(stateCwd, HANDOFF_DIR);
+  if (role === "reviewer") return [base + "/review_" + feature + ".json", base + "/review_" + feature + ".md"];
+  return [base + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
+}
+/** True when the checkout's neutral state already names the feature (workplan or handoff). */
+function holdsFeature(checkout: string, feature: string): boolean {
+  return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
+    "review_" + feature + ".json", "review_" + feature + ".md"].some((name) => existsSync(join(checkout, HANDOFF_DIR, name)));
+}
+/**
+ * Linked worktrees under .claude/worktrees that git itself ties to this checkout's repository, proven by the two-way
+ * link it keeps: the worktree's .git file names <root>/.git/worktrees/<id>, whose gitdir names that .git file back.
+ * Physical paths only and no process spawned; anything that does not prove itself is left out.
+ */
+function linkedWorktrees(cwd: string): string[] {
+  const root = realPath(cwd);
+  if (!root || !existsSync(join(root, ".claude/worktrees"))) return [];
+  let names: string[];
+  try { names = readdirSync(join(root, ".claude/worktrees")); } catch { return []; }
+  return names.map((name) => join(root, ".claude/worktrees", name)).filter((path) => {
+    try {
+      if (realPath(path) !== path) return false;
+      const admin = /^gitdir: (\/[^\n]+)\n?$/.exec(readFileSync(join(path, ".git"), "utf8"))?.[1];
+      if (!admin || dirname(admin) !== join(root, ".git", "worktrees") || realPath(admin) !== admin) return false;
+      return readFileSync(join(admin, "gitdir"), "utf8").trim() === join(path, ".git");
+    } catch { return false; }
+  });
+}
+/**
+ * Checkout whose state the gate and handoff checks read for a feature (#1575). Pi runs every tool from the session
+ * root, so an orchestrator working in a linked worktree would otherwise be checked against the root's state. The
+ * session checkout wins when it holds the feature; otherwise the one linked worktree that does. Two such worktrees
+ * fail closed. The CLI keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
+ */
+function featureCheckout(cwd: string, feature: string): string {
+  if (holdsFeature(cwd, feature)) return cwd;
+  const owners = linkedWorktrees(cwd).filter((path) => holdsFeature(path, feature));
+  if (owners.length > 1) {
+    throw new Error("Navori: feature " + feature + " has state in " + owners.length + " linked worktrees ("
+      + owners.join(", ") + "); keep it in one, or start the session in the one that owns it");
+  }
+  return owners[0] ?? cwd;
 }
 /** Fresh same-role handoffs under another name (hint only; never makes the check pass). */
 function strayHandoffs(cwd: string, snap: HandoffSnapshot, expected: string): string {
@@ -3595,19 +3638,38 @@ function matchingCriteria(cwd: string, command: string): CriterionHit[] {
   return hits;
 }
 
+/**
+ * "cd <worktree> && <criterion>" (#1575): Pi's bash keeps no cd, so this is how a session anchored at the root runs a
+ * criterion inside a linked worktree. The path must be plain (no quoting or expansion) and exactly the root of a
+ * worktree that proves itself (linkedWorktrees); the rest must still equal the criterion. Anything else is no evidence.
+ */
+function worktreeCommand(cwd: string, command: string): { tree: string; command: string } | undefined {
+  const match = /^cd (\/[^\s'"$\x60*?~\\;&|<>(){}[\]]+) && ([^\n]+)$/.exec(command);
+  if (!match || !linkedWorktrees(cwd).includes(match[1])) return undefined;
+  return { tree: match[1], command: match[2] };
+}
+
 /** Append one evidence line per pending criterion matched by a verified, exact bash success. Never runs the command. */
 async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
   if (!isVerifiedBashSuccess(pi, event)) return;
-  const command = event.input.command;
   const sessionId = piSessionId(ctx);
   const callKey = sessionId + "\0" + event.toolCallId;
   if (seenCalls.has(callKey)) return;
-  const hits = matchingCriteria(ctx.cwd, command);
+  let command = event.input.command;
+  let runCwd = ctx.cwd;
+  let hits = matchingCriteria(ctx.cwd, command);
+  if (!hits.length && command.startsWith("cd /")) {
+    const inner = worktreeCommand(ctx.cwd, command);
+    if (!inner) return;
+    hits = matchingCriteria(inner.tree, inner.command);
+    command = inner.command;
+    runCwd = inner.tree;
+  }
   if (!hits.length) return;
   seenCalls.add(callKey);
   if (seenCalls.size > MAX_SEEN_CALLS) seenCalls.delete(seenCalls.values().next().value as string);
-  const tree = (await git(ctx.cwd, ["rev-parse", "--show-toplevel"]))?.trim();
-  if (!tree || /[\u0000-\u001f]/.test(ctx.cwd + tree)) return;
+  const tree = (await git(runCwd, ["rev-parse", "--show-toplevel"]))?.trim();
+  if (!tree || /[\u0000-\u001f]/.test(runCwd + tree)) return;
   const head = (await git(tree, ["rev-parse", "HEAD"]))?.trim() ?? "";
   const headTree = (await git(tree, ["rev-parse", "HEAD^{tree}"]))?.trim() ?? "";
   const plain = hits.some((hit) => !hit.binding) ? await fingerprintTree(tree) : undefined;
@@ -3624,7 +3686,7 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
       if (hit.stage !== undefined && !excludes) continue;
       const worktreeTree = excludes ? await fingerprintTree(tree, excludes) : plain;
       if (!worktreeTree) continue;
-      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree,
+      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: runCwd, head, worktreeTree,
         ...(excludes ? { fp: 2 } : {}), dirty: worktreeTree !== headTree,
         ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}),
         ...(hit.binding ? { deliveryBinding: hit.binding } : {}) };
@@ -4454,13 +4516,16 @@ export default function (pi: ExtensionAPI): void {
       const model = resolveModel(spec, ctx);
       active++;
       try {
-        if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal, piSessionId(ctx));
+        // #1575: the checkout that holds the feature's state, so a session at the root can work in a linked worktree.
+        const stateCwd = params.role !== "scout" && params.feature && /^[a-z0-9][a-z0-9_-]*$/.test(params.feature)
+          ? featureCheckout(ctx.cwd, params.feature) : ctx.cwd;
+        if (params.role !== "scout") await checkDispatch(ctx.cwd, stateCwd, params.role, params.task, params.feature, signal, piSessionId(ctx));
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
-          ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
+          ? snapshotHandoff(stateCwd, params.role, params.feature) : undefined;
         const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";
         const agentId = "pi-" + params.role + "-" + _id;
         const childTask = snapshot
-          ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, snapshot.role, snapshot.feature).join(" and ")
+          ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, stateCwd, snapshot.role, snapshot.feature).join(" and ")
             + " — this exact path is validated when you finish; do not derive another name."
           : params.task;
         const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
@@ -4478,7 +4543,7 @@ export default function (pi: ExtensionAPI): void {
             + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
         }
         if (snapshot) {
-          const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
+          const failure = await verifyHandoff(stateCwd, snapshot, signal);
           if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) + (result.stderrNote ?? "") }],
             details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }

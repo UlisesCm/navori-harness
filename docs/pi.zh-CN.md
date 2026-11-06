@@ -265,7 +265,8 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
   属于操作者声明：由用户声明是另一个会话进行了审查，并使用不同的产出者与审查者标签。Navori 无法验证这种独立性。
 
 验收证据不依赖子进程：由主会话的内置 bash 记录。请在包含 workplan 的检出根目录（包括 worktree）启动 Pi，
-因为证据是相对会话的工作目录记录的。
+因为证据是相对会话的工作目录记录的。在主检出启动的会话中，链接 worktree 的验收标准只有以
+`cd <worktree 绝对根路径> && <完全相同的命令>` 运行时才计入（见[并行会话](#并行会话)）。
 
 ## 并行会话
 
@@ -283,6 +284,10 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
   该会话的子进程、handoff、receipt 和关卡都会落在这个 worktree 中：`.navori/state/` 按检出区分，
   `navori receipt check|ci` 会把审查与其运行所在的检出关联起来。
 - 主检出留作审查和合并之用；不要在那里启动工作会话。
+- 如果主检出中的会话在 `.claude/worktrees/` 下的链接 worktree 中工作（#1575），`navori_subagent` 会在持有该
+  feature 状态的检出中检查 plan gate 和 handoff：会话自身的检出有该状态时用它，否则用唯一持有该状态的链接
+  worktree；有两个时阻止分派。子进程仍从主检出启动，并获得 handoff 的绝对路径。请以
+  `cd <worktree 绝对根路径> && <完全相同的命令>` 运行验收标准；其他形式都不会记录证据。
 - `worktree-reclaim` 只会删除干净、已推送且其 PR 已合并的 worktree（见[会话生命周期](#会话生命周期)）；
   下一项任务从新的 worktree 开始。
 - 链接到某个检出 `packages/cli/dist` 的全局 `navori`（如 navori 自身的仓库）会在所有 worktree 中运行该构建。
