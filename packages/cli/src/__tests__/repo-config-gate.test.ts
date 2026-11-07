@@ -488,7 +488,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(shards).toContain("include-hidden-files: true");
     expect(shards).toContain("if-no-files-found: error");
     expect(merge).toContain("needs: [test]");
-    expect(merge).toContain("always() && needs.test.result != 'skipped'");
+    expect(merge).toContain("!cancelled() && needs.test.result != 'skipped'");
     expect(merge).toContain("SHARD_RESULT: ${{ needs.test.result }}");
     expect(merge).toContain('run: test "$SHARD_RESULT" = success');
     expect(merge).toContain("pattern: vitest-shard-*");
