@@ -7,7 +7,7 @@ effort: low
 maxWords: 2940
 ---
 
-<!-- navori:managed id="reviewer-base" hash="e679733c" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="a8a73282" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 Review; **approve or reject**, never edit code.
@@ -29,7 +29,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
      printf 'ABORT: branch is %s commit(s) behind origin/dev; integrate the target before reviewing.\n' "$behind" >&2
      exit 1
    fi
-   # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated
+   # keep the nonce; mandatory every round, whatever the task says
    navori receipt review begin <feature> --target dev --dir .navori/state/handoffs --json
    git diff --stat
    git diff "origin/dev"               # two-dot: committed AND uncommitted, what the receipt fingerprints
@@ -203,7 +203,7 @@ navori receipt review seal <feature> --nonce <nonce> --target dev --dir .navori/
 navori handoff log-review <feature> --dir .navori/state/handoffs
 ```
 
-`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict, but `sign` refuses the uncorrelated review: no receipt.
+`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. `begin`/`seal`/`log-review` are mandatory every round (neither edits nor signing; no task waives them). Failed: report the verdict; `sign` refuses it.
 
 ## Chat reply
 

@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="efd8fd59f2691e8b72a3d9fd635b5d2fbf0ab94c2131dab92affc80fb6e1438f"
+# navori:managed-file id="pi-agent-reviewer" hash="4d2e082a4e2d112a780ee8b1507903bf4a99a0f67881e7477a1a0b46aefd7597"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
@@ -25,7 +25,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
      printf 'ABORT: branch is %s commit(s) behind origin/dev; integrate the target before reviewing.\n' "$behind" >&2
      exit 1
    fi
-   # keep the nonce; a failure here never blocks the review, it only leaves it uncorrelated
+   # keep the nonce; mandatory every round, whatever the task says
    navori receipt review begin <feature> --target dev --dir .navori/state/handoffs --json
    git diff --stat
    git diff "origin/dev"               # two-dot: committed AND uncommitted, what the receipt fingerprints
@@ -199,7 +199,7 @@ navori receipt review seal <feature> --nonce <nonce> --target dev --dir .navori/
 navori handoff log-review <feature> --dir .navori/state/handoffs
 ```
 
-`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. A failed `begin`/`seal`/`log-review` never blocks the verdict, but `sign` refuses the uncorrelated review: no receipt.
+`seal` exit 2 = content changed during review: restart from `begin`; never report that verdict as the final diff's. Never edit the sidecar after `seal`. `begin`/`seal`/`log-review` are mandatory every round (neither edits nor signing; no task waives them). Failed: report the verdict; `sign` refuses it.
 
 ## Chat reply
 
