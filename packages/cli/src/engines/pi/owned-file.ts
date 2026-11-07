@@ -25,6 +25,8 @@ interface PiManifestBase {
     scribeOwnsMarkdown: boolean;
     /** Optional (pi-audit-mode): present only when audit.mode is "always". */
     auditMode?: "always";
+    /** Optional (#1579): present only when harness.sessionState is false. */
+    sessionState?: false;
   };
 }
 
@@ -301,8 +303,11 @@ export function ownsPiManifest(content: string): boolean {
       const keys = Object.keys(raw).sort().join(",");
       if (
         (keys !== "masterPlan,planTiers,scribeOwnsMarkdown" &&
-          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown") ||
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown" &&
+          keys !== "masterPlan,planTiers,scribeOwnsMarkdown,sessionState" &&
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown,sessionState") ||
         (raw.auditMode !== undefined && raw.auditMode !== "always") ||
+        (raw.sessionState !== undefined && raw.sessionState !== false) ||
         typeof raw.planTiers !== "boolean" ||
         typeof raw.masterPlan !== "boolean" ||
         typeof raw.scribeOwnsMarkdown !== "boolean"
@@ -313,6 +318,7 @@ export function ownsPiManifest(content: string): boolean {
         masterPlan: raw.masterPlan,
         scribeOwnsMarkdown: raw.scribeOwnsMarkdown,
         ...(raw.auditMode === "always" ? { auditMode: "always" as const } : {}),
+        ...(raw.sessionState === false ? { sessionState: false as const } : {}),
       };
     }
     const common = { agents: record.agents, ...(controls ? { controls } : {}) };

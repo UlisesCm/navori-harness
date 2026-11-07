@@ -113,6 +113,8 @@ These run only in the parent session; children do nothing. All failures are sile
 
 **Audit-mode start.** On `session_start` (`startup` or `new`) and on a user `before_agent_start`, the parent consumes a pending `navori audit --arm` (untagged or `--host pi`) and starts its audit log. With `audit.mode: always` (emitted as the optional `controls.auditMode` in `.pi/navori.json` after `navori render`), the log starts on the first user prompt instead. The model gets a one-time notice. Children never start a log. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first.
 
+**Session state off.** With `harness.sessionState: false`, `navori render` emits the optional `controls.sessionState: false` in `.pi/navori.json` (the field is omitted when the key is on), and Pi skips injecting `progress/` at startup. An older CLI treats a manifest carrying that field as foreign and won't write Pi resources; turning the key back on removes the field.
+
 ## Hook bridge
 
 The trusted extension runs the shared Navori hook scripts through a bridge. The contract:

@@ -8,6 +8,7 @@ import {
   mkdirSync,
   statSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
@@ -324,6 +325,27 @@ describe("renderClaudeEngine — progress bootstrap (E2)", () => {
     writeFileSync(join(cwd, "progress/current.md"), "# MY CUSTOM CURRENT\n", "utf-8");
     renderClaudeEngine(cwd, CONFIG_FULL);
     expect(readFileSync(join(cwd, "progress/current.md"), "utf-8")).toBe("# MY CUSTOM CURRENT\n");
+  });
+
+  it("creates no progress files with harness.sessionState false, and renders a parseable hook", () => {
+    const off = { ...CONFIG_FULL, harness: { sessionState: false } } as unknown as NavoriConfig;
+    const result = renderClaudeEngine(cwd, off);
+    expect(existsSync(join(cwd, "progress"))).toBe(false);
+    expect(result.written.some((w) => w.path.startsWith("progress/"))).toBe(false);
+    const hook = readFileSync(join(cwd, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain('for f in ""; do');
+    expect(hook).not.toContain("<not configured");
+    expect(
+      spawnSync("bash", ["-n", join(cwd, ".claude/hooks/session-start-context.sh")]).status,
+    ).toBe(0);
+  });
+
+  it("renders the pre-change progress loop in the hook when the key is absent", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const hook = readFileSync(join(cwd, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain(
+      'for f in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do',
+    );
   });
 
   it("respects custom progress paths from config.progress", () => {

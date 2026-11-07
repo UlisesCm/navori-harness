@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { conditioned } from "./helpers/conditioned-asset.ts";
 
 /**
  * #401 — the memory ceremony is paid once, not two or three times.
@@ -37,7 +38,8 @@ const packages = resolve(here, "..", "..", "..", "..");
 const coreAssets = resolve(packages, "core", "core-assets");
 const engram = resolve(packages, "plugins", "engram");
 
-const readCore = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
+const readCore = (rel: string): string =>
+  conditioned(readFileSync(resolve(coreAssets, rel), "utf-8"));
 const readEngram = (rel: string): string => readFileSync(resolve(engram, rel), "utf-8");
 
 /** The single line of a block that carries `needle`, asserted to exist. */
@@ -103,6 +105,14 @@ describe("session close — one redaction serves every destination (#401)", () =
     const step2 = lineWith(closeout, "2. **History**", "verify-before-done.md");
     expect(step2).not.toMatch(/mem_/);
     expect(step2).toMatch(/\(memory included\)/i);
+    // With harness.sessionState off (#1579) the step is a memory summary, still tool-neutral.
+    const raw = readFileSync(resolve(coreAssets, "skills/verify-before-done.md"), "utf-8");
+    const off = lineWith(
+      conditioned(raw, { sessionState: false }),
+      "2. **Summary**",
+      "verify-before-done.md (sessionState off)",
+    );
+    expect(off).not.toMatch(/mem_|history\.md|progress\//);
   });
 
   it("the memory protocol reuses that same text instead of re-writing it", () => {

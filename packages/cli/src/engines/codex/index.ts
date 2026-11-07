@@ -178,8 +178,9 @@ function codexSkillRequest(
 
 /** The body a plugin skill contributes as a sub-block of `.agents/skills/<id>/SKILL.md`. */
 function codexSubBlockBody(skill: LoadedPlugin["skillAssets"][number], config: NavoriConfig) {
+  const raw = stripFrontmatter(readFileSync(skill.absPath, "utf-8"));
   return adaptHarnessTextForCodex(
-    interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), config, {
+    interpolate(conditionOrchestration(raw, config, "codex"), config, {
       extraVars: pluginExtraVars(config),
     }),
     config,
@@ -1312,9 +1313,17 @@ function buildAgentsMdRequest(
     for (const skill of plugin.skillAssets) {
       if (skill.injectInto !== ".claude/agents/orchestrator.md") continue;
       const subBlock = adaptHarnessTextForCodex(
-        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), ctx.config, {
-          extraVars: pluginExtraVars(ctx.config),
-        }),
+        interpolate(
+          conditionOrchestration(
+            stripFrontmatter(readFileSync(skill.absPath, "utf-8")),
+            ctx.config,
+            "codex",
+          ),
+          ctx.config,
+          {
+            extraVars: pluginExtraVars(ctx.config),
+          },
+        ),
         ctx.config,
       );
       body = injectManagedSection(

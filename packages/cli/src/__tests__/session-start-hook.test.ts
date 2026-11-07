@@ -16,6 +16,7 @@ import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { shellSingleQuote } from "../lib/primitives/shell-escape.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../lib/assets/doc-budgets.ts";
+import { sessionStartVars } from "../lib/__tests__/helpers/session-start-vars.ts";
 import { shellSensitive } from "../lib/__tests__/helpers/shells.ts";
 
 const ROOT = resolve(import.meta.dirname, "../../../..");
@@ -211,7 +212,9 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         readFileSync(join(getCoreRoot(), "core-assets/hooks/session-start-context.sh"), "utf8"),
       )
         .replace("{{shq:branchBase}}", shellSingleQuote("dev"))
-        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES));
+        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES))
+        .replace("{{navori.progressFiles}}", sessionStartVars().progressFiles)
+        .replace("{{navori.compactSummaryTail}}", sessionStartVars().compactSummaryTail);
       writeFileSync(join(root, "hook.sh"), source);
       return { bin, log, body, env };
     }

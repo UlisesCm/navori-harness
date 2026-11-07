@@ -968,8 +968,10 @@ export function prepareClaudeEngine(
   // 5. progress/ bootstrap (one-shot, never overwritten). Not under `root`: that
   // workspace holds its context file and nothing else, and the root keeps the
   // session state (spec 0043 R4).
-  if (!rootScope) inspected += 2;
-  if (!rootScope)
+  // `harness.sessionState: false` (#1579) opts the repo out of the progress/ files.
+  const sessionState = config.harness?.sessionState !== false;
+  if (!rootScope && sessionState) inspected += 2;
+  if (!rootScope && sessionState)
     applyBootstrapPlan(
       planBootstrapFile({
         cwd,
@@ -980,7 +982,7 @@ export function prepareClaudeEngine(
       cwd,
       pending,
     );
-  if (!rootScope)
+  if (!rootScope && sessionState)
     applyBootstrapPlan(
       planBootstrapFile({
         cwd,

@@ -7,7 +7,7 @@ effort: medium
 maxWords: 3365
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="5264b55b" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="ab6d7a17" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -20,7 +20,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
 2. The catalog of subagents is the managed block whose id is `agentes-disponibles`, delivered at session start. Locate it by the id, never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it. Skills: the host's native listing.
-3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
+3. Recover the previous session's state from memory, not a repo file.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.navori/state/handoffs/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
 
@@ -121,9 +121,9 @@ Expected files:
 - `.navori/state/handoffs/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
 - `.navori/state/handoffs/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `workplan_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `workplan_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in memory, not a repo file and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in memory along with the next step.
 
-**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`. Versioned `progress/current.md` and `progress/history.md` are exempt.
+**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`.
 
 ## Closing the cycle: create the PR
 
@@ -179,14 +179,14 @@ Apply Code discovery routing from the project instructions. Use the available `c
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
 
-<!-- navori:managed id="engram-orchestrator-extension" hash="35efaabd" version="0.11.3" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="744ec1a3" version="0.12.3" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
 - Before decomposing: `mem_search` the ticket's keywords with `response_format: "compact"`; `mem_get_observation` for the full body. Read a prior decision before dispatching the `implementer`.
 - After each decision: `mem_save` with a descriptive `title`, a stable `topic_key`, and `type` from `decision, architecture, bugfix, pattern, config, discovery`. If a memory contradicts the code, fix it with `mem_update`.
 - **`mem_save` fails with `multiple active runtime sessions match the current project and directory`**: upstream bug, not your content. Use the CLI: `engram save "<title>" "<content>" --project <project> --type <type> --topic <topic_key>`.
-- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos).
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`.
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
 - **Auto Memory vs. engram**: Auto Memory holds personal preferences; engram holds durable knowledge. Never write the same fact to both.

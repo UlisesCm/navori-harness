@@ -11,7 +11,7 @@ metadata:
   maxWordsComposed: 1049
 ---
 
-<!-- navori:managed id="resolve-ticket" hash="ea207b84" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="resolve-ticket" hash="c826b7d2" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # resolve-ticket — 6-phase pipeline
 
 ## Pipeline
@@ -20,7 +20,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; route by risk. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
+| 1 · Triage | you: `mem_search`, `git status/log` | Trivial → skip the deeper phases; route by risk. Never two tickets in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict, or level 2 → skill `plan-advanced`. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it, then `scribe` when `markdownRequests` is non-empty | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill; the encargo opens with `workplan: <feature>`. Produces `impl_<feature>.json` with fresh evidence (R2); scribe renders `impl_<feature>.md` and applies `markdownRequests` (R5, R7). Accepted level-3 work may opt into the parallel lifecycle only under the currently supported native Codex 0.162.1 contract; serial is default. Both producers finish before serial render/checks and independent review. Corrections and accepted next milestones need fresh claims and an explicit successor run after both predecessor terminal records; see the canonical guide at https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md. **Gate: `bun run check:fast` green in the turn.** No evidence → back here. |
@@ -46,12 +46,12 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
   `formato-respuesta.md` before asking approval; no-work verdicts close with evidence, without approval.
 - **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
-- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
+- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
 - **A tracker comment is opt-in, per cycle, on request** — `publisher` drafts and posts it only when the user asks; the pipeline never assumes one is wanted.
 
 ## Before declaring done
 
 - A cycle that proceeded ends with a PR via `publisher` and its URL to the user.
 - A cycle closed at phase 2 ends with its verdict + evidence and no PR.
-- Either way, `progress/current.md` at `idle`.
+- Either way, the outcome saved to memory.
 <!-- /navori:managed id="resolve-ticket" -->

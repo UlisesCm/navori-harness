@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="3a0764bc" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="72f9d98f" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -48,12 +48,12 @@ A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or 
 A subagent's `done -> <file>` closes no session. Owner, before closing:
 
 1. **Gate**: cite a fresh receipt, else rerun the full gate or record the debt.
-2. **History**: `progress/history.md` entry `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status; one redaction for every destination (memory included).
-3. **Clear** `progress/current.md` to `idle` or the next step; drop scratch files and commented-out code.
-4. **Commit** inside the work PR before it opens, never a `progress/`-only PR; no work PR → `progress/` alone.
+2. **Summary**: session summary in memory: changes + gate status.
+3. **Clear**: drop scratch files and commented-out code.
+4. **Commit** inside the work PR before it opens.
 5. **Park on base** once pushed: `git switch dev`, `git pull --ff-only`. Never delete the feature branch. Skip, saying so, with an unclean working tree, unpushed commits, or another session that may be alive.
 
-**Lean close**: one user task AND no critical area → skip step 2 when nothing was committed. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit.
+**Lean close**: one user task AND no critical area → skip step 2 when nothing was committed. It never exempts the quality gate, nor the summary whenever there WAS a commit.
 <!-- /navori:managed id="verify-before-done-base" -->
 
 ## Project-specific checks

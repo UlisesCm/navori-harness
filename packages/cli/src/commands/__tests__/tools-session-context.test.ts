@@ -16,6 +16,7 @@ import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { shellSingleQuote } from "../../lib/primitives/shell-escape.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../../lib/assets/doc-budgets.ts";
+import { sessionStartVars } from "../../lib/__tests__/helpers/session-start-vars.ts";
 import { shellSensitive, type HookShell } from "../../lib/__tests__/helpers/shells.ts";
 import {
   SESSION_CONTEXT_BEGIN,
@@ -123,7 +124,9 @@ describe.each(
       join(dir, "hook.sh"),
       expandHookIncludes(readFileSync(HOOK_SRC, "utf-8"))
         .replace("{{shq:branchBase}}", shellSingleQuote("main"))
-        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES)),
+        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES))
+        .replace("{{navori.progressFiles}}", sessionStartVars().progressFiles)
+        .replace("{{navori.compactSummaryTail}}", sessionStartVars().compactSummaryTail),
       { mode: 0o755 },
     );
   });

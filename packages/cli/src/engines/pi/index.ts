@@ -423,6 +423,8 @@ export function preparePiEngine(
       scribeOwnsMarkdown,
       // Optional: emitted only for a non-default audit.mode so unset configs keep a byte-identical manifest.
       ...(config.audit?.mode === "always" ? { auditMode: "always" as const } : {}),
+      // Optional: emitted only when `harness.sessionState` is false (#1579), same byte-identity rule.
+      ...(config.harness?.sessionState === false ? { sessionState: false as const } : {}),
     },
     hooks,
     // Whole-file destinations only; AGENTS.md and skills mix user text with managed blocks (marker lane).

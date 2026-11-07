@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="f4141535e10b1bf349a9648f58c4ac03dfff521ec0fa5effe0d2a38cb2f5e2a1"
+// navori:managed-file id="pi-extension" hash="27b959b75f1ee926f07cd83531257d90e19a791aa50c5b69a00cfbe7fc46abbc"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -990,7 +990,8 @@ async function injectContext(pi: ContextHost, ctx: ContextCtx): Promise<void> {
   const log = (await git(tree, ["log", "--oneline", "-15"]))?.trim();
   if (log) sections.push({ text: "Recent commits (subjects are written by whoever committed them):\n" + fence(log),
     pointer: "[navori] recent commits did not fit the startup context; run git log --oneline -15." });
-  for (const rel of PROGRESS_FILES) {
+  const withProgress = sessionStateOn(tree);
+  for (const rel of withProgress ? PROGRESS_FILES : []) {
     let body = "";
     try {
       if (lstatSync(join(tree, rel)).isSymbolicLink()) continue;
@@ -999,7 +1000,7 @@ async function injectContext(pi: ContextHost, ctx: ContextCtx): Promise<void> {
     if (body) { sections.push({ text: "Previous-session state (" + rel + "):\n" + fence(body),
       pointer: "[navori] " + rel + " did not fit the startup context; read it before continuing." }); break; }
   }
-  const lines = ["Navori session context (startup snapshot; use git and the progress file for current state).", "Branch: " + branch];
+  const lines = ["Navori session context (startup snapshot; use git" + (withProgress ? " and the progress file" : "") + " for current state).", "Branch: " + branch];
   let used = Buffer.byteLength(lines.join("\n"));
   for (const section of sections) {
     const fits = used + Buffer.byteLength(section.text) + 1 <= CONTEXT_BUDGET;
@@ -1532,6 +1533,14 @@ function auditArmPending(root: string): boolean {
   try {
     return readdirSync(root, { withFileTypes: true }).some((entry) => entry.isDirectory() && existsSync(join(root, entry.name, ".armed")));
   } catch { return false; }
+}
+
+/** Session state is on unless the manifest carries controls.sessionState === false; a missing, unreadable or invalid manifest means on. */
+function sessionStateOn(cwd: string): boolean {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
+    return !(isRecord(manifest) && isRecord(manifest.controls) && manifest.controls.sessionState === false);
+  } catch { return true; }
 }
 
 /** Optional controls.auditMode === "always" in the manifest; a missing, unreadable or invalid manifest means off. */
