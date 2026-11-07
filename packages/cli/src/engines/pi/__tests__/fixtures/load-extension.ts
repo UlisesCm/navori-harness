@@ -48,6 +48,8 @@ export function load(
         ...process.env,
         NAVORI_PI_CHILD_DEPTH: "",
         NAVORI_PI_CHILD_ROLE: "",
+        NAVORI_PI_CHILD_ID: "",
+        NAVORI_PI_PARENT_SESSION: "",
         ...options.env,
       }),
       platform: process.platform,

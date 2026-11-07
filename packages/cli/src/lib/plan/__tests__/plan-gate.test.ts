@@ -1575,6 +1575,7 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     "NAVORI_AUDIT_SESSION_ID",
     "CODEX_SESSION_ID",
     "CODEX_THREAD_ID",
+    "NAVORI_AUDIT_AGENT_ID",
   ];
   let saved: Record<string, string | undefined>;
   let auditRoot: string;

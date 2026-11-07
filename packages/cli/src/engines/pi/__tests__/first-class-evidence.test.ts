@@ -84,7 +84,14 @@ function load(
     exports,
     require: (id: string): unknown => modules.get(id),
     process: {
-      env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "", NAVORI_PI_CHILD_ROLE: "", ...env },
+      env: {
+        ...process.env,
+        NAVORI_PI_CHILD_DEPTH: "",
+        NAVORI_PI_CHILD_ROLE: "",
+        NAVORI_PI_CHILD_ID: "",
+        NAVORI_PI_PARENT_SESSION: "",
+        ...env,
+      },
       platform: process.platform,
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
