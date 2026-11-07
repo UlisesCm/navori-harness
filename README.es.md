@@ -60,15 +60,12 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 1.1.0 y probada 1.4.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
+- **Engine adapters** — Claude Code (`.claude/`) y Codex, congelado (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 1.1.0 y probada 1.4.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
 
-Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
-ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
-`codexMode` adicional.
-
-Codex recibe **paridad de garantías**: cada hook, agente, skill y regla tiene en Codex un
-equivalente o un límite documentado ([`docs/native-overlap.md`](./docs/native-overlap.md);
-verificación en vivo en [`docs/research/codex-paridad-verificacion.md`](./docs/research/codex-paridad-verificacion.md)).
+Codex está **congelado**: el motor sigue en el CLI como opt-in, sin cambios ni funciones
+nuevas, y su paridad de garantías ya no se mantiene. Para Claude junto a Codex y otras
+herramientas usa `["claude", "agents-md"]`; no hace falta un `codexMode` adicional. El último
+mapeo de paridad está en [`docs/native-overlap.md`](./docs/native-overlap.md).
 
 - Tras `navori render --apply` con Codex, corre `navori codex trust` para aprobar los hooks. Repítelo cuando cambien (por ejemplo, al activar `masterPlan` o tgrep) y en cada worktree; `navori doctor` avisa por ruta.
 - Requiere Codex ≥ 0.160.0; `doctor` avisa si la versión es menor.
