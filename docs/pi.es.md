@@ -88,6 +88,8 @@ Esto se ejecuta únicamente en la sesión padre; los hijos no hacen nada. Todas 
 
 **Inicio de audit-mode.** En `session_start` (`startup` o `new`) y en `before_agent_start` del usuario, el padre consume un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) e inicia su registro de auditoría. Con `audit.mode: always` (se emite como `controls.auditMode` opcional en `.pi/navori.json` tras `navori render`), el registro se inicia en el primer prompt del usuario. El modelo recibe un aviso único. Los hijos nunca inician un registro. Un arm sin etiqueta es del repo completo, así que una sesión Claude o Codex concurrente puede consumirlo antes.
 
+**Estado de sesión desactivado.** Con `harness.sessionState: false`, `navori render` emite el `controls.sessionState: false` opcional en `.pi/navori.json` (el campo se omite cuando la clave está activa) y Pi no inyecta `progress/` al inicio. Una CLI anterior considera ajeno un manifiesto con ese campo y se rehúsa a escribir recursos de Pi; volver a activar la clave elimina el campo.
+
 ## Puente de hooks
 
 La extensión de confianza ejecuta mediante un puente los scripts compartidos de hooks de Navori. El contrato es el siguiente:

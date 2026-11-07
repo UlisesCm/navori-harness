@@ -108,6 +108,36 @@ describe("findReferencingRepos", () => {
     expect(refs).toHaveLength(1);
   });
 
+  it("skips a repo whose config sets harness.sessionState to false (#1579)", () => {
+    const off = makeRepo("session-off");
+    writeFileSync(
+      join(off, "navori.config.json"),
+      JSON.stringify({
+        name: "session-off",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { sessionState: false },
+      }),
+      "utf-8",
+    );
+    writeCurrent(off, "progress", "current.md", "ticket: TICK-6\n");
+    const on = makeRepo("session-on");
+    writeFileSync(
+      join(on, "navori.config.json"),
+      JSON.stringify({
+        name: "session-on",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { sessionState: true },
+      }),
+      "utf-8",
+    );
+    writeCurrent(on, "progress", "current.md", "ticket: TICK-6\n");
+
+    const refs = findReferencingRepos([off, on], "TICK-6");
+    expect(refs.map((r) => r.path)).toEqual([on]);
+  });
+
   it("skips repos whose current file does not exist or does not match", () => {
     const missing = makeRepo("missing");
     const noMatch = makeRepo("no-match");

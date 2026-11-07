@@ -311,6 +311,10 @@ const HarnessSchema = z.object({
   // #1484: gates the `dominio` and `author-skill` skills (authoring surface).
   // Default `false`; a repo that authors skills/domain notes opts in.
   authoring: z.boolean().default(false),
+  // #1579: `false` turns off the per-repo `progress/` session state (bootstrap,
+  // startup injection, doctrine asking to update it); engram carries continuity.
+  // Default `true`: an absent key renders byte for byte as before.
+  sessionState: z.boolean().default(true),
   // Spec 0039 (R44): context-token threshold above which `subagent-stop-handoff`
   // advises saving the summary and running /compact or /clear after a
   // `publisher` dispatch. A number, NOT a flag: it is interpolated into the hook

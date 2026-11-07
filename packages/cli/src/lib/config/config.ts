@@ -328,6 +328,7 @@ export const CONFIG_KEY_RULE: ConfigObjectRule = {
         "codexIntegration",
         "masterPlan",
         "authoring",
+        "sessionState",
         "compactAdviceTokens",
       ],
     },

@@ -754,6 +754,20 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(before);
   });
 
+  it("conditions the orchestrator plugin sub-block in AGENTS.md on harness.sessionState (#1579)", () => {
+    const agentsMd = (harness: Record<string, unknown>): string => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ harness }));
+      return readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    };
+    const absent = agentsMd({});
+    expect(absent).toContain("history.md");
+    const off = agentsMd({ sessionState: false });
+    expect(off).toContain('id="engram-orchestrator-extension"');
+    expect(off).not.toContain("history.md");
+    for (const out of [absent, off]) expect(out).not.toContain("navori:if");
+  });
+
   it("points the workspace config.toml hook command at the workspace's own hooks (#279)", () => {
     // In a monorepo the hooks are written per workspace (apps/backend/.codex/hooks),
     // but `git rev-parse --show-toplevel` resolves to the repo root. The command must

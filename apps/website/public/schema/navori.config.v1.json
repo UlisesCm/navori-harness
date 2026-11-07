@@ -313,6 +313,10 @@
           "default": false,
           "type": "boolean"
         },
+        "sessionState": {
+          "default": true,
+          "type": "boolean"
+        },
         "compactAdviceTokens": {
           "default": 175000,
           "type": "integer",
@@ -333,6 +337,7 @@
         "codexIntegration",
         "masterPlan",
         "authoring",
+        "sessionState",
         "compactAdviceTokens"
       ],
       "additionalProperties": false

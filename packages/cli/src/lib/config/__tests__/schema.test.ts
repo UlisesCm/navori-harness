@@ -58,6 +58,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       codexIntegration: false,
       masterPlan: false,
       authoring: false,
+      sessionState: true,
       compactAdviceTokens: 175000,
     });
   });

@@ -47,12 +47,12 @@ A failure is **introduced (demonstrated)**, **pre-existing (demonstrated)**, or 
 A subagent's `done -> <file>` closes no session. Owner, before closing:
 
 1. **Gate**: cite a fresh receipt, else rerun the full gate or record the debt.
-2. **History**: `progress/history.md` entry `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status; one redaction for every destination (memory included).
-3. **Clear** `progress/current.md` to `idle` or the next step; drop scratch files and commented-out code.
-4. **Commit** inside the work PR before it opens, never a `progress/`-only PR; no work PR → `progress/` alone.
+2. **<!-- navori:if sessionState -->History<!-- /navori:if --><!-- navori:if-not sessionState -->Summary<!-- /navori:if-not -->**: <!-- navori:if sessionState -->`progress/history.md` entry `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status; one redaction for every destination (memory included).<!-- /navori:if --><!-- navori:if-not sessionState -->session summary in memory: changes + gate status.<!-- /navori:if-not -->
+3. **Clear**<!-- navori:if sessionState --> `progress/current.md` to `idle` or the next step; drop<!-- /navori:if --><!-- navori:if-not sessionState -->: drop<!-- /navori:if-not --> scratch files and commented-out code.
+4. **Commit** inside the work PR before it opens<!-- navori:if sessionState -->, never a `progress/`-only PR; no work PR → `progress/` alone<!-- /navori:if -->.
 5. **Park on base** once pushed: `git switch {{branchBase}}`, `git pull --ff-only`. Never delete the feature branch. Skip, saying so, with an unclean working tree, unpushed commits, or another session that may be alive.
 
-**Lean close**: one user task AND no critical area → skip step 2 when nothing was committed. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit.
+**Lean close**: one user task AND no critical area → skip step 2 when nothing was committed. It never exempts the quality gate, nor the <!-- navori:if sessionState -->`history.md` entry<!-- /navori:if --><!-- navori:if-not sessionState -->summary<!-- /navori:if-not --> whenever there WAS a commit.
 
 <!-- navori:user-section -->
 ## Project-specific checks

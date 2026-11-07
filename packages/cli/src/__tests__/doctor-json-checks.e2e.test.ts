@@ -309,6 +309,31 @@ describe("doctor --json — warning-level checks", () => {
     });
   });
 
+  it("progress/: no row when harness.sessionState is false (#1579)", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+    rmSync(join(repo, "progress"), { recursive: true, force: true });
+    const env = hostProbeStubs();
+    const checks = (): Record<string, unknown> =>
+      (doctorJson(repo, env) as unknown as { checks: Record<string, unknown> }).checks;
+
+    // Key absent: today's row, a ✗ for the missing directory.
+    expect(checks().progressDirExists).toBe(false);
+
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    const harness = (config.harness ?? {}) as Record<string, unknown>;
+    writeFileSync(
+      configPath,
+      JSON.stringify({ ...config, harness: { ...harness, sessionState: false } }),
+      "utf-8",
+    );
+    expect(checks()).not.toHaveProperty("progressDirExists");
+    const human = runCli(["doctor", "--cwd", repo], env);
+    expect(human.stdout).toContain(".claude/");
+    expect(human.stdout).not.toMatch(/^\s+\S+ progress\/$/m);
+  });
+
   it("nestedWorktrees: an eslint repo with an installed nested worktree (#522)", () => {
     const repo = seedRepo();
     runCli(["init", "--recommended", "--cwd", repo]);

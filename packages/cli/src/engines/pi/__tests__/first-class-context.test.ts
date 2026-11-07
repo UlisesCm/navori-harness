@@ -281,6 +281,51 @@ describe("Pi operational context on session_start", () => {
     expect(sent).toHaveLength(3);
   });
 
+  // #1579: only an explicit controls.sessionState === false skips the progress file; every other manifest state keeps it.
+  it.each([
+    ["a missing manifest", undefined, true],
+    [
+      "an old manifest without sessionState",
+      { controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown: false } },
+      true,
+    ],
+    ["an invalid manifest", "{ not json", true],
+    ["a manifest without controls", {}, true],
+    [
+      "a manifest with sessionState false",
+      {
+        controls: {
+          planTiers: false,
+          masterPlan: false,
+          scribeOwnsMarkdown: false,
+          sessionState: false,
+        },
+      },
+      false,
+    ],
+  ])("injects the progress file for %s: %s", async (_name, manifest, shows) => {
+    const cwd = repo();
+    if (manifest !== undefined) {
+      mkdirSync(join(cwd, ".pi"));
+      writeFileSync(
+        join(cwd, ".pi/navori.json"),
+        typeof manifest === "string" ? manifest : JSON.stringify(manifest),
+      );
+    }
+    const { handlers, sent } = loadExtension();
+    await handlers.get("session_start")!(
+      { type: "session_start", reason: "startup" },
+      sessionCtx(cwd, []),
+    );
+    expect(sent).toHaveLength(1);
+    // The git log section ships in every state.
+    expect(sent[0]!.content).toContain("first commit");
+    expect(sent[0]!.content.includes("Next step: ship T11")).toBe(shows);
+    expect(sent[0]!.content.includes("use git and the progress file for current state")).toBe(
+      shows,
+    );
+  });
+
   // Covers: R13
   it("bounds the snapshot, fences untrusted data and fails open", async () => {
     const cwd = repo();

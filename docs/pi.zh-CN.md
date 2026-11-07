@@ -88,6 +88,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 
 **audit-mode 启动。** 在 `session_start`（`startup` 或 `new`）以及用户的 `before_agent_start` 时，父会话会消费待处理的 `navori audit --arm`（无标签或 `--host pi`）并启动其审计日志。若设置 `audit.mode: always`（`navori render` 之后会在 `.pi/navori.json` 中生成可选的 `controls.auditMode`），则改为在用户第一次提示时启动日志。模型会收到一次性通知。子会话从不启动日志。无标签的 arm 作用于整个仓库，因此并发的 Claude 或 Codex 会话可能先将其消费。
 
+**关闭会话状态。** 设置 `harness.sessionState: false` 时，`navori render` 会在 `.pi/navori.json` 中生成可选的 `controls.sessionState: false`（该键开启时省略此字段），Pi 在启动时不再注入 `progress/`。旧版 CLI 会将带有该字段的 manifest 视为外来格式，并拒绝写入 Pi 资源；重新开启该键即可移除此字段。
+
 ## Hook 桥接
 
 受信任的扩展通过桥接运行共享的 Navori hook 脚本。契约如下：

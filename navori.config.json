@@ -48,7 +48,8 @@
   "harness": {
     "scribeOwnsMarkdown": true,
     "planTiers": true,
-    "authoring": true
+    "authoring": true,
+    "sessionState": false
   },
   "hooks": {
     "modelAdvisor": true,

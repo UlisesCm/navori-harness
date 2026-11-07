@@ -108,7 +108,8 @@ export function piInstalledPluginScripts(
 
 /** The body a plugin skill contributes, interpolated like every other engine. */
 function subBlockBody(skill: LoadedPlugin["skillAssets"][number], config: NavoriConfig): string {
-  return interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), config, {
+  const raw = stripFrontmatter(readFileSync(skill.absPath, "utf-8"));
+  return interpolate(conditionOrchestration(raw, config, "pi"), config, {
     extraVars: pluginExtraVars(config),
   });
 }

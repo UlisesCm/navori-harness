@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { conditioned } from "./helpers/conditioned-asset.ts";
 
 /**
  * #378 — ceremony proportional to risk, with the exemption bound to the DIFF.
@@ -36,7 +37,8 @@ const coreAssets = resolve(packages, "core", "core-assets");
 const engram = resolve(packages, "plugins", "engram");
 
 const readEngram = (rel: string): string => readFileSync(resolve(engram, rel), "utf-8");
-const readCore = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
+const readCore = (rel: string): string =>
+  conditioned(readFileSync(resolve(coreAssets, rel), "utf-8"));
 
 /** The lean close paragraph of verify-before-done's Session close, which owns the conditions. */
 const expressLane = (): string => {

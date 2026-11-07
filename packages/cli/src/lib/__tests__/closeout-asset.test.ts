@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { conditioned } from "./helpers/conditioned-asset.ts";
 
 /**
  * Content guard (#398, #601, #1455): the session close lives in
@@ -57,7 +58,7 @@ describe("Session close — quality-gate step reuses cycle evidence (#398)", () 
  * halves are load-bearing, so both are pinned.
  */
 describe("Session close — park on base (#601)", () => {
-  const raw = readFileSync(SKILL_PATH, "utf-8");
+  const raw = conditioned(readFileSync(SKILL_PATH, "utf-8"));
   const block = raw.split("\n").find((line) => line.startsWith("5. **Park on base**")) ?? "";
 
   it("has the parking step, interpolating the config's base branch", () => {
