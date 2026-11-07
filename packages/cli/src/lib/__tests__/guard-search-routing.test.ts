@@ -337,6 +337,40 @@ describe.runIf(runsBash)("guard-search-routing", () => {
       });
     }
   });
+
+  describe("a newline outside quotes starts a command (#1509)", () => {
+    const blocked = [
+      "true\ngrep -rn foo src/",
+      "true\n\ngrep -rn foo src/",
+      "cd x\nrg foo",
+      "echo a &&\ngrep -rn foo src/",
+      "echo a &&\n# c\ngrep -rn foo src/",
+      'echo "a \\" b"\ngrep -rn foo src/',
+    ];
+    for (const command of blocked) {
+      it(`blocks ${JSON.stringify(command)}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+
+    const allowed = [
+      'git commit -m "titulo\n\ngrep -rn foo src/ en el cuerpo"',
+      "git commit -m 'titulo\n\ngrep -rn foo src/ en el cuerpo'",
+      "ls |\ngrep -r foo",
+      "cat a.txt |\n  grep -rn x",
+      "ls |&\ngrep -r foo",
+      "ls |\n# c\ngrep -r foo",
+      'echo "a \\" b"\ngrep -n x f.ts',
+      "# grep -rn foo src/\necho ok",
+      "true\ngrep -n x f.ts",
+      "python3 - <<PY\ngrep -rn foo src/\nPY",
+    ];
+    for (const command of allowed) {
+      it(`allows ${JSON.stringify(command)}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+  });
 });
 
 // Issue #1491: two `grep` forks per segment start made a 6 KB command that only filters with

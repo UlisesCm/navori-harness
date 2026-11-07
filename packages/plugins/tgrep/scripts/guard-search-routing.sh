@@ -42,26 +42,42 @@ if [ "${#cmd}" -gt 20000 ]; then exit 0; fi
 # SEGMENTS. Each rule only matches WITHIN one segment, and a segment carries
 # whether it starts a command (`@C@` or the first line) or continues a pipe
 # (`@P@`). `||` is rewritten before `|`; separators inside quotes are data.
+# A newline outside quotes ALSO starts a command (#1509), like `;`, unless the
+# line ended inside quotes (the newline is data) or on a pipe/`&&`/`||`/`;`
+# (the next line continues the same segment). Quote state persists across lines.
 segments=$(printf '%s' "$cmd" \
   | sed -e ':a' -e '$!N' -e 's/\\\n/ /' -e 'ta' -e 'P' -e 'D' \
   | awk '
+    BEGIN { inq = ""; pend = 0 }   # inq: "", "\047" (single) or "\042" (double)
     {
       line = $0
+      # A comment-only line is neither a command nor the end of one: a pipe or
+      # `&&` left open above it still continues on the next line.
+      if (inq == "" && line ~ /^[ \t]*#/) next
       out = ""
-      inq = ""      # "", "\047" (single) or "\042" (double)
+      if (NR > 1) {
+        if (inq != "" || pend) out = " "
+        else { out = "\n@C@"; pend = 0 }
+      }
       n = length(line)
       for (i = 1; i <= n; i++) {
         c = substr(line, i, 1)
         if (inq == "") {
-          if (c == "\047" || c == "\042") { inq = c; out = out c; continue }
+          if (c == "\047" || c == "\042") { inq = c; pend = 0; out = out c; continue }
           # `||` before `|`, or the first pipe of a `||` starts a bogus segment.
-          if (c == "|" && substr(line, i + 1, 1) == "|") { out = out "\n@C@"; i++; continue }
-          if (c == "&" && substr(line, i + 1, 1) == "&") { out = out "\n@C@"; i++; continue }
-          if (c == ";") { out = out "\n@C@"; continue }
-          if (c == "|") { out = out "\n@P@"; continue }
+          if (c == "|" && substr(line, i + 1, 1) == "|") { out = out "\n@C@"; pend = 1; i++; continue }
+          if (c == "&" && substr(line, i + 1, 1) == "&") { out = out "\n@C@"; pend = 1; i++; continue }
+          if (c == ";") { out = out "\n@C@"; pend = 1; continue }
+          # `|&` pipes stderr too: the `&` belongs to the pipe, not to the next word.
+          if (c == "|") { if (substr(line, i + 1, 1) == "&") i++; out = out "\n@P@"; pend = 1; continue }
+          if (c != " " && c != "\t") pend = 0
           out = out c
           continue
         }
+        pend = 0
+        # In double quotes a backslash escapes the next character, so `"a \" b"`
+        # keeps its parity now that quote state outlives the line.
+        if (inq == "\042" && c == "\\") { out = out c substr(line, i + 1, 1); i++; continue }
         # Inside a quoted span every separator is DATA. The span ends only on
         # its own quote character, which is what keeps `"a ; b"` whole while
         # `'"'"'a'"'"' ; b` still splits.
