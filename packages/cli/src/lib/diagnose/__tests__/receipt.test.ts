@@ -568,6 +568,7 @@ describe("receipt-outcome observation", () => {
     "NAVORI_AUDIT_SESSION_ID",
     "CODEX_SESSION_ID",
     "CODEX_THREAD_ID",
+    "NAVORI_AUDIT_AGENT_ID",
   ];
   beforeEach(() => {
     for (const key of KEYS) saved[key] = process.env[key];
