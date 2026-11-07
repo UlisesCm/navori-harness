@@ -7,7 +7,7 @@ effort: low
 maxWords: 2940
 ---
 
-<!-- navori:managed id="reviewer-base" hash="a8a73282" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="43c024d7" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 Review; **approve or reject**, never edit code.
@@ -81,8 +81,8 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `bun r
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `bun run check:scoped` plus the assigned `A<n>` commands. Do NOT run the full gate. |
-| `APPROVED`, `qualityGate.ci`, workplan PR | `bun run check:scoped`; sign `--gate-ran ci`. |
-| About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
+| About to sign `APPROVED` (delta re-sign too), `qualityGate.ci` declared | `bun run check:scoped`; sign `--gate-ran ci`. |
+| Same, no `qualityGate.ci` | The full gate, over the bytes you sign: |
 ```bash
 navori gate full
 ```
@@ -115,8 +115,8 @@ You already signed this diff and someone edited it afterwards (typically a minor
 
 1. **The previous `APPROVED` stands**; what didn't change isn't re-opened.
 2. **Measure the delta, never eyeball it:** per drifted file, `git diff <blob-sha> <file>` with the receipt's approved sha (`git cat-file -p <blob-sha>` for the full approved content).
-3. **Re-run the full gate** (Pass 2) over the live bytes; the previous green expired when the bytes changed. A delta of only specs/docs Markdown, with `qualityGate.docs` set, runs that command and signs with `--gate-ran docs`; any code needs the full gate.
-4. Run `begin` again before measuring; rewrite and seal the sidecar; then **re-sign** the receipt over the final bytes with `navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json` (continue only on `"status":"ok"`).
+3. **Re-run the table's `APPROVED` gate** (Pass 2) over the live bytes. A delta of only specs/docs Markdown over a full receipt, with `qualityGate.docs` set, runs that command instead (`--gate-ran docs`).
+4. Run `begin` again before measuring; rewrite and seal the sidecar; then **re-sign** over the final bytes with `navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json` plus step 3's `--gate-ran` (`ci`; none after the full gate); continue only on `"status":"ok"`.
 5. **Append** to `review_<feature>.md` under your own heading, continuing the numbering — never overwrite it.
 6. **Limit (anti-rubber-stamp):** only a delta inside the suggested change qualifies. Logic beyond that hunk, shared machinery, `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, or drift with no known author (rebase, another session, a stray checkout) → full review.
 
@@ -165,7 +165,7 @@ An unanswered doubt, or one concluded `issue`, follows the normal severity and s
 ### Quality gate (run this turn)
 | Check | Status | Evidence |
 |---|---|---|
-| Gate (Pass 2 table: scoped on `CHANGES_REQUESTED`, full on `APPROVED`) | [x] / [ ] | <output or exit code from this turn> |
+| Gate (Pass 2 table: scoped on `CHANGES_REQUESTED`, full or `ci` on `APPROVED`) | [x] / [ ] | <output or exit code from this turn> |
 | Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/dev` that demonstrates it, this turn> |
 
 ### Conventions (CLAUDE.md + orchestrator's Project rules)

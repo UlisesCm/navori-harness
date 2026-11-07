@@ -416,10 +416,17 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
 
       // Covers: R9
       it("ties the full gate to the round that signs APPROVED, incl. delta re-sign", () => {
-        expect(text).toContain(
-          "| About to sign `APPROVED` (including delta re-sign) | The full gate",
-        );
+        expect(text).toContain("| Same, no `qualityGate.ci` | The full gate");
         expect(text).toContain("The full gate runs only on the round about to sign `APPROVED`");
+      });
+
+      // Covers: #1544 — with qualityGate.ci a delta re-sign also signs `--gate-ran ci`
+      it("picks the CI row for any APPROVED signature, delta re-sign included", () => {
+        expect(text).toContain(
+          `| About to sign \`APPROVED\` (delta re-sign too), \`qualityGate.ci\` declared | \`${scoped}\`; sign \`--gate-ran ci\`.`,
+        );
+        expect(text).toContain("plus step 3's `--gate-ran` (`ci`; none after the full gate)");
+        expect(text).not.toContain("workplan PR |");
       });
 
       // Covers: R8, R24
