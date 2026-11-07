@@ -6,15 +6,13 @@ Multi-agent harness + SDD scaffolder for Claude Code (and other AI engines).
 
 `navori` lleva tu setup de Claude Code (agentes, skills, hooks, CLAUDE.md, AGENTS.md) a múltiples repos con un solo comando — sin perder customización local, sin sobrescribir lo que ya tenías.
 
-También renderiza un harness Codex completo: `AGENTS.md`, skills en
-`.agents/skills/`, agentes y hooks en `.codex/`, y MCP project-local.
+Codex está congelado: el CLI todavía renderiza su harness como opt-in (`AGENTS.md`, skills en
+`.agents/skills/`, agentes y hooks en `.codex/`, y MCP project-local), sin cambios ni
+funciones nuevas.
 
 ## Perfiles de engines
 
 ```jsonc
-// Paridad completa para ambos proveedores
-{ "engines": ["claude", "codex"] }
-
 // Claude completo + guía AGENTS.md ligera para Codex y otras herramientas
 { "engines": ["claude", "agents-md"] }
 
@@ -25,7 +23,7 @@ También renderiza un harness Codex completo: `AGENTS.md`, skills en
 { "engines": ["pi"] }
 ```
 
-`codex` ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
+Si aún activas el motor `codex`, que está congelado, ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
 `agents-md`. Si ambos aparecen en un config, el adapter Codex toma precedencia
 para evitar bloques duplicados.
 

@@ -6,15 +6,12 @@
 
 `navori` 只需一条命令，就能将你的 Claude Code 配置（agents、skills、hooks、`CLAUDE.md` 和 `AGENTS.md`）带到多个仓库，同时保留本地自定义内容和已有工作。
 
-它还会渲染完整的 Codex harness：`AGENTS.md`、位于
-`.agents/skills/` 的 skills、位于 `.codex/` 的 agents 和 hooks，以及项目级 MCP 配置。
+Codex 已冻结：CLI 仍可作为需显式启用的选项渲染其 harness（`AGENTS.md`、位于
+`.agents/skills/` 的 skills、位于 `.codex/` 的 agents 和 hooks，以及项目级 MCP 配置），不再变更，也不再增加新功能。
 
 ## 引擎配置方案
 
 ```jsonc
-// Paridad completa para ambos proveedores
-{ "engines": ["claude", "codex"] }
-
 // Claude completo + guía AGENTS.md ligera para Codex y otras herramientas
 { "engines": ["claude", "agents-md"] }
 
@@ -24,7 +21,7 @@
 // Solo Pi (opt-in; ver docs/pi.md)
 { "engines": ["pi"] }
 ```
-`codex` 已包含并管理 `AGENTS.md`，无需再与 `agents-md` 组合。如果配置中同时包含两者，Codex adapter 会优先处理，以避免区块重复。
+如果仍启用已冻结的 `codex` 引擎，它已包含并管理 `AGENTS.md`，无需再与 `agents-md` 组合。如果配置中同时包含两者，Codex adapter 会优先处理，以避免区块重复。
 
 ## 安装
 
