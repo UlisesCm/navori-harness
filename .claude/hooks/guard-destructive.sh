@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="7ded4b07" version="0.12.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="631e92fb" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -561,12 +561,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -3250,7 +3250,7 @@ if [ "$nv_copy_only" = 1 ] && [ -z "$navori_pi_ask" ]; then
 fi
 # navori:managed end id="guard-destructive-base"
 
-# navori:managed start id="tgrep-search-lane" hash="dcd394f0" version="0.11.3" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-search-lane" hash="8cdb352a" version="0.12.3" source="@navori/plugin-tgrep"
 # Blocking classification (#1117):
 #   - content search that should go through the index (exit 42 -> exit 2): hard — the remedy
 #     (`tgrep search`) is printed on stderr. Missing tgrep or no index fails open (exit 43): advisory.
@@ -3270,7 +3270,7 @@ case "$cmd" in
     fi
     if [ "$navori_search_rc" -eq 43 ]; then
       navori_audit_verdict="fail-open"
-      navori_audit_reason="search index unavailable"
+      navori_audit_reason="search-index-unavailable"
     fi
     ;;
 esac

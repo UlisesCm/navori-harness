@@ -455,6 +455,7 @@ const METADATA_VERDICTS = new Set([
   "compact-advice",
   "gate-started",
   "gate-killed",
+  "fail-open",
   "approved",
   "changes-requested",
   "ok",
