@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 2940
+maxWords: 2925
 ---
 
 # Reviewer Agent
@@ -42,7 +42,7 @@ For Codex, use the source CLI in this actual checkout to run `bun packages/cli/s
 
 3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code; the Coverage table stays required on the signing round. A previous `APPROVED` whose diff only moved through a later edit is the **delta re-sign** below.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence: run this turn, never from the implementer's cached report. The gate runs **in Pass 2**, never on a diff Pass 1 rejects.
-5. **Closing cycle** (spec deliveries only): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/{{prTarget}}"`; the Setup 3 narrowing does not apply), run `navori spec check <spec> --json` (must be `"ok":true`) and the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
+5. **Closing cycle** (spec deliveries only): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/{{prTarget}}"`; the Setup 3 narrowing does not apply), run `navori spec check <spec> --json` (must be `"ok":true`) and the full gate (Pass 2) over those bytes, even with `qualityGate.ci`. The receipt is then the publisher's reusable verdict.
 
 ### Pass 1 — Spec compliance
 
@@ -85,8 +85,8 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `{{nav
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `{{navori.scopedGate}}` plus the assigned `A<n>` commands. Do NOT run the full gate. |
-| About to sign `APPROVED` (delta re-sign too), `qualityGate.ci` declared | `{{navori.scopedGate}}`; sign `--gate-ran ci`. |
-| Same, no `qualityGate.ci` | The full gate, over the bytes you sign: |
+| About to sign `APPROVED` (delta re-sign too), `qualityGate.ci` declared, not a closing milestone | `{{navori.scopedGate}}`; sign `--gate-ran ci`. |
+| Same, no `qualityGate.ci`, or a closing milestone | The full gate, over the bytes you sign: |
 ```bash
 {{gateRun.full}}
 ```
@@ -100,7 +100,7 @@ If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — l
 <!-- navori:if onCodex -->
 Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. The publisher reuses fresh evidence for the final diff. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal.
 
-Start `{{gateRun.full}}` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.
+Start `{{gateRun.full}}` once with the available execution tool, in the foreground, without shell `&` or detached/background execution. Retain the exact returned continuation handle and, if it yields while running, continue polling that same handle as the same reviewer until the process reports its actual final exit status, exit code, and failure count. For `exec_command`, continue only its exact returned `session_id` via `write_stdin` with empty `chars`; for a yielded tool-native cell, use only its matching cell handle and native wait. A yield is neither a timeout nor success. Do not detach, share, transfer, restart or replay the gate. Without the process's actual final exit, exit code, and failure count, the review is incomplete: report `BLOCKED` and write no receipt. An actual timeout, cancellation, rejection, or lost handle also leaves it `BLOCKED` with no receipt. A nonzero final exit or gate failures follow the existing `QUALITY_MISS` path.
 <!-- /navori:if -->
 <!-- navori:if-not onCodex -->
 Read the verdict (exit code and failure count); report `exit 0` plus summary, or the failing tail. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `{{gateRun.full}}` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run the `&&`-chained steps separately in the foreground, never in the background (no shell `&`, no `run_in_background`, no `Monitor`); if no step fits, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success. Without the actual exit, exit code and failure count — or on timeout, cancellation, rejection or a lost handle — it is `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
@@ -113,7 +113,7 @@ Read the verdict (exit code and failure count); report `exit 0` plus summary, or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Only after `APPROVED` and the sealed sidecar (below), run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
+Only after `APPROVED` and the sealed sidecar (below), run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table, never on a closing milestone; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target {{prTarget}} --dir .navori/state/handoffs --json
