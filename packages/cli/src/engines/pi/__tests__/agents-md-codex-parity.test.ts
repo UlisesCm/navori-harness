@@ -18,14 +18,14 @@ function freshDir(): string {
   dirs.push(dir);
   return dir;
 }
-function cfg(engines: string[]) {
+function cfg(engines: string[], harness: Record<string, boolean> = {}) {
   return NavoriConfigSchema.parse({
     name: "pi-agents-md",
     preset: "custom",
     engines,
     branchBase: "main",
     qualityGate: { fast: "bun test", full: "bun test" },
-    harness: { planTiers: true, scribeOwnsMarkdown: true },
+    harness: { planTiers: true, scribeOwnsMarkdown: true, ...harness },
     project: { criticalAreas: ["billing writes", "edits to CLAUDE.md"] },
   });
 }
@@ -61,6 +61,14 @@ describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () 
     expect(agents).not.toContain("## Available skills");
     const manifest = JSON.parse(read(dir, ".pi/navori.json")) as { ownedPaths: string[] };
     expect(manifest.ownedPaths).toContain(".pi/navori/orchestrator.md");
+  });
+
+  it("moves the master-plan block to the parent-only file when masterPlan is on", () => {
+    const dir = freshDir();
+    renderPiEngine(dir, cfg(["claude", "pi"], { masterPlan: true }));
+
+    expect(read(dir, ".pi/navori/orchestrator.md")).toContain("## Master plan");
+    expect(read(dir, "AGENTS.md")).not.toContain("## Master plan");
   });
 
   it("drops every Codex-only line and every Claude path Pi cannot read", () => {
