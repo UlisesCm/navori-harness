@@ -139,6 +139,19 @@ describe("master-plan managed context (spec 0034 T11)", () => {
     expect(existsSync(file)).toBe(false);
   });
 
+  // Covers: R20
+  it("renders the publisher's slice marks and WIP stop only with masterPlan", () => {
+    const publisher = (harness: { masterPlan?: boolean }): string => {
+      const cwd = freshDir();
+      renderClaudeEngine(cwd, { ...base, harness } as unknown as NavoriConfig);
+      return readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf8");
+    };
+    const on = publisher({ masterPlan: true });
+    expect(on).toContain("navori master check --incoming HEAD");
+    expect(on).toContain("`Slice: S<n>`");
+    expect(publisher({})).not.toContain("master check --incoming");
+  });
+
   // Covers: R37, R39
   it("delivers plan-maestro inline with planTiers and masterPlan both enabled", () => {
     const cwd = freshDir();

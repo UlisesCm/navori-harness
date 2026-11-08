@@ -403,14 +403,24 @@ const checkSubCommand = defineCommand({
     fit: { type: "boolean", description: "Count D9 fit criteria without making a decision" },
     json: { type: "boolean", description: "Print machine-readable result for --fit" },
     incoming: { type: "string", description: "v2: WIP gate for the slices this ref brings" },
-    base: { type: "string", description: "v2: base branch of --incoming (default: target branch)" },
+    base: { type: "string", description: "v2: PR target branch; required with --incoming" },
+    branch: { type: "string", description: "v2: PR branch; slice/S<n>-… counts as a mark" },
+    title: { type: "string", description: "v2: PR title; its [S<n>] marks count" },
     fetch: { type: "boolean", default: true, description: "v2: fetch the plan branches first" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    if (hasPlan(cwd)) {
-      emit(runPlanCheck(cwd, { incoming: args.incoming, base: args.base, fetch: args.fetch }));
+    if (hasPlan(cwd) || args.incoming) {
+      emit(
+        runPlanCheck(cwd, {
+          incoming: args.incoming,
+          base: args.base,
+          branch: args.branch,
+          title: args.title,
+          fetch: args.fetch,
+        }),
+      );
       return;
     }
     try {

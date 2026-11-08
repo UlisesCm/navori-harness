@@ -49,12 +49,35 @@ export const LogEntrySchema = z.object({
 });
 export type LogEntry = z.infer<typeof LogEntrySchema>;
 
+const planFile = (specsDir: string): string => join(specsDir, "_plan", "PLAN.md");
+
 export function planPath(cwd: string): string {
   const configFile = join(cwd, "navori.config.json");
   const specsDir = existsSync(configFile)
     ? (readConfig(configFile).sdd?.specsDir ?? "specs")
     : "specs";
-  return join(cwd, specsDir, "_plan", "PLAN.md");
+  return join(cwd, planFile(specsDir));
+}
+
+/**
+ * PLAN.md as committed at `ref`, `null` when the file is absent there. The path
+ * comes from the `navori.config.json` at `ref` too: the working tree's config
+ * is as PR-controlled as its PLAN.md. `ref` was already resolved by `remoteRef`,
+ * so a failed `git show` means the path is absent there.
+ */
+export function readPlanAt(cwd: string, ref: string): Plan | null {
+  let specsDir = "specs";
+  const config = git(cwd, ["show", `${ref}:navori.config.json`]);
+  if (config !== null) {
+    try {
+      const dir = (JSON.parse(config) as { sdd?: { specsDir?: unknown } }).sdd?.specsDir;
+      if (typeof dir === "string" && dir !== "") specsDir = dir;
+    } catch {
+      throw new PlanStateError(`navori.config.json de ${ref} no es JSON válido`);
+    }
+  }
+  const text = git(cwd, ["show", `${ref}:${planFile(specsDir).split("\\").join("/")}`]);
+  return text === null ? null : parsePlan(text);
 }
 
 export function readPlan(cwd: string): Plan {
@@ -159,6 +182,8 @@ export interface ReadOptions {
   fetch?: boolean | "required";
   /** Verdicts to use instead of the log refs (`accept` validates against the merged log). */
   log?: LogEntry[];
+  /** Plan to derive the state from instead of the working tree's (`check --incoming` passes the base's). */
+  plan?: Plan;
 }
 
 /** Marks outside a shallow history would vanish and turn the WIP green, so refuse it. */
@@ -171,7 +196,7 @@ function assertFullHistory(cwd: string): void {
 }
 
 export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState {
-  const plan = readPlan(cwd);
+  const plan = options.plan ?? readPlan(cwd);
   const { acceptance } = plan;
   const warnings: string[] = [];
   if (options.fetch) {
@@ -256,33 +281,61 @@ export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState
 
 export interface IncomingResult {
   ok: boolean;
-  /** Slices marked in the commits `ref` brings over `base`. */
+  /** Slices the PR brings: marked commits over the base, its branch name and its title. */
   incoming: string[];
   /** Incoming slices that do not count yet. */
   newSlices: string[];
   counted: string[];
   limit: number;
+  /** Base branch the plan was read from. */
+  base: string;
+  /** `origin/<base>` has no PLAN.md: there is no WIP to apply. */
+  noPlan?: boolean;
+  /** The branch is `slice/<id>-…` but the title lacks `[<id>]`. */
+  titleMissing?: string;
 }
 
 /**
- * WIP gate of a PR (spec 0063): fails when the marked commits `ref` brings add
- * a new slice and the count would pass the limit. Unmarked commits never fail.
+ * WIP gate of a PR (spec 0063): fails when the slices the PR brings add a new
+ * one and the count would pass the limit. The plan is read from `origin/<base>`,
+ * never from the working tree (a PR checkout controls its own PLAN.md). The
+ * branch name and the title count as marks (a squash merge keeps only the
+ * title, a merge commit the branch). Unmarked work never fails.
  */
 export function checkIncoming(
   cwd: string,
   ref: string,
-  base?: string,
-  options: ReadOptions = {},
+  base: string,
+  options: ReadOptions & { branch?: string; title?: string } = {},
 ): IncomingResult {
-  const state = readPlanState(cwd, options);
-  const baseRef = remoteRef(cwd, base ?? state.acceptance.target);
-  const incoming = [...marksIn(cwd, [`${baseRef}..${ref}`])].sort();
+  const baseName = base;
+  if (options.fetch) {
+    const fetched = git(cwd, ["fetch", "--quiet", "origin", baseName], 30_000);
+    if (fetched === null && options.fetch === "required")
+      throw new PlanStateError(`fetch de origin falló: no pude traer ${baseName}`);
+  }
+  const baseRef = remoteRef(cwd, baseName);
+  const plan = readPlanAt(cwd, baseRef);
+  const empty = { incoming: [], newSlices: [], counted: [], limit: 0, base: baseName };
+  if (!plan) return { ...empty, ok: true, noPlan: true };
+  const sliceBranch = /^slice\/(S\d+)-/i.exec(options.branch ?? "")?.[1]?.toUpperCase();
+  const titleMarks = marksOf(options.title ?? "");
+  const limit = plan.acceptance.wip;
+  if (sliceBranch && options.title !== undefined && !titleMarks.includes(sliceBranch))
+    return { ...empty, ok: false, limit, titleMissing: sliceBranch };
+  const state = readPlanState(cwd, { ...options, plan });
+  const incoming = [
+    ...new Set([
+      ...marksIn(cwd, [`${baseRef}..${ref}`]),
+      ...titleMarks,
+      ...(sliceBranch ? [sliceBranch] : []),
+    ]),
+  ].sort();
   const newSlices = incoming.filter(
     (id) =>
       !state.counted.includes(id) &&
       !state.slices.some((s) => s.id === id && s.state === "aceptado"),
   );
-  const limit = state.acceptance.wip;
   const ok = newSlices.length === 0 || state.counted.length + newSlices.length <= limit;
-  return { ok, incoming, newSlices, counted: state.counted, limit };
+  return { ok, incoming, newSlices, counted: state.counted, limit, base: baseName };
 }

@@ -72,13 +72,15 @@ beforeEach(() => {
   git(repo, "init", "-q", "-b", "main");
   git(repo, "remote", "add", "origin", origin);
   git(repo, "commit", "-q", "--allow-empty", "-m", "init");
+  mkdirSync(join(repo, "specs", "_plan"), { recursive: true });
+  writeFileSync(join(repo, "specs", "_plan", "PLAN.md"), PLAN());
+  git(repo, "add", "specs");
+  git(repo, "commit", "-q", "-m", "plan");
   git(repo, "push", "-q", "origin", "main");
   for (const b of ["qa", "dev"]) {
     git(repo, "branch", "-f", b, "main");
     git(repo, "push", "-q", "origin", b);
   }
-  mkdirSync(join(repo, "specs", "_plan"), { recursive: true });
-  writeFileSync(join(repo, "specs", "_plan", "PLAN.md"), PLAN());
 });
 afterEach(cleanupTempDirs);
 
@@ -267,12 +269,12 @@ describe("checkIncoming", () => {
     commitOn("slice/S2-historial", "feat: historial\n\nSlice: S2", "dev");
     commitOn("feat/s2", "feat: historial\n\nSlice: S2", "dev");
     commitOn("fix/typo", "fix: typo", "dev");
-    expect(checkIncoming(repo, "origin/slice/S2-historial")).toMatchObject({
+    expect(checkIncoming(repo, "origin/slice/S2-historial", "dev")).toMatchObject({
       ok: false,
       newSlices: ["S2"],
     });
-    expect(checkIncoming(repo, "origin/feat/s2").ok).toBe(false);
-    expect(checkIncoming(repo, "origin/fix/typo")).toMatchObject({ ok: true, incoming: [] });
+    expect(checkIncoming(repo, "origin/feat/s2", "dev").ok).toBe(false);
+    expect(checkIncoming(repo, "origin/fix/typo", "dev")).toMatchObject({ ok: true, incoming: [] });
   });
 
   it("lets a promotion or a fix of an already counted slice through", () => {
@@ -280,16 +282,93 @@ describe("checkIncoming", () => {
     mergeInto("dev", "slice/S2-historial", "[S2] historial (#2)");
     expect(checkIncoming(repo, "origin/dev", "qa")).toMatchObject({ ok: true, newSlices: [] });
     commitOn("slice/S2-fix", "fix: historial\n\nSlice: S2", "dev");
-    expect(checkIncoming(repo, "origin/slice/S2-fix").ok).toBe(true);
+    expect(checkIncoming(repo, "origin/slice/S2-fix", "dev").ok).toBe(true);
   });
 
   it("blocks a PR that brings two new slices at once", () => {
     commitOn("multi", "[S1] registro", "dev");
     git(repo, "commit", "-q", "--allow-empty", "-m", "[S2] historial");
     git(repo, "push", "-q", "-f", "origin", "multi");
-    expect(checkIncoming(repo, "origin/multi")).toMatchObject({
+    expect(checkIncoming(repo, "origin/multi", "dev")).toMatchObject({
       ok: false,
       newSlices: ["S1", "S2"],
     });
+  });
+});
+
+describe("checkIncoming reads the plan of the base", () => {
+  const withS1Counted = (): void => {
+    commitOn("slice/S1-registro", "[S1] registro");
+    mergeInto("qa", "slice/S1-registro", "[S1] registro (#1)");
+  };
+
+  it("ignores a PR that raises WIP in its own PLAN.md", () => {
+    withS1Counted();
+    commitOn("slice/S2-historial", "[S2] historial", "dev");
+    writeFileSync(
+      join(repo, "specs", "_plan", "PLAN.md"),
+      PLAN().replace("- Rama destino: dev\n", "- Rama destino: dev\n- WIP: 5\n"),
+    );
+    git(repo, "commit", "-q", "-am", "plan: WIP 5");
+    expect(checkIncoming(repo, "HEAD", "dev")).toMatchObject({
+      ok: false,
+      newSlices: ["S2"],
+      limit: 1,
+    });
+  });
+
+  it("finds the base plan through the base's config, not the PR's", () => {
+    withS1Counted();
+    commitOn("slice/S2-historial", "[S2] historial", "dev");
+    writeFileSync(
+      join(repo, "navori.config.json"),
+      JSON.stringify({ sdd: { specsDir: "elsewhere" } }),
+    );
+    git(repo, "add", "navori.config.json");
+    git(repo, "commit", "-q", "-m", "chore: mueve specsDir");
+    expect(checkIncoming(repo, "HEAD", "dev")).toMatchObject({ ok: false, newSlices: ["S2"] });
+  });
+
+  it("passes with a notice when origin/<base> has no PLAN.md, even without one on disk", () => {
+    commitOn("bare", "chore: sin plan", "dev");
+    git(repo, "rm", "-q", "-r", "specs");
+    git(repo, "commit", "-q", "-m", "chore: quita el plan");
+    git(repo, "push", "-q", "-f", "origin", "bare");
+    expect(checkIncoming(repo, "HEAD", "bare")).toMatchObject({ ok: true, noPlan: true });
+    expect(checkIncoming(repo, "HEAD", "bare", { fetch: "required" }).ok).toBe(true);
+  });
+
+  it("counts a slice by branch or title and lets unmarked work through (scenario 8)", () => {
+    withS1Counted();
+    commitOn("slice/S4-x", "feat: sin marca", "dev");
+    expect(checkIncoming(repo, "HEAD", "dev", { branch: "slice/S4-x" })).toMatchObject({
+      ok: false,
+      incoming: ["S4"],
+    });
+    commitOn("feat/s4", "feat: x\n\nSlice: S4", "dev");
+    expect(checkIncoming(repo, "HEAD", "dev").ok).toBe(false);
+    commitOn("fix/typo", "fix: typo", "dev");
+    expect(
+      checkIncoming(repo, "HEAD", "dev", { branch: "fix/typo", title: "fix: typo" }),
+    ).toMatchObject({ ok: true, incoming: [] });
+    expect(checkIncoming(repo, "HEAD", "dev", { title: "feat: x [S2]" })).toMatchObject({
+      ok: false,
+      newSlices: ["S2"],
+    });
+  });
+
+  it("requires [S<n>] in the title of a slice branch", () => {
+    withS1Counted();
+    commitOn("slice/S4-x", "feat: sin marca", "dev");
+    const branch = "slice/S4-x";
+    expect(checkIncoming(repo, "HEAD", "dev", { branch, title: "feat: x" })).toMatchObject({
+      ok: false,
+      titleMissing: "S4",
+    });
+    expect(checkIncoming(repo, "HEAD", "dev", { branch, title: "[S4] x" })).toMatchObject({
+      ok: false,
+      newSlices: ["S4"],
+    });
+    expect(checkIncoming(repo, "HEAD", "dev", { branch }).titleMissing).toBeUndefined();
   });
 });
