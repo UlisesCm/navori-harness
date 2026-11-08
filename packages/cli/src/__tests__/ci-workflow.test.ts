@@ -67,6 +67,11 @@ describe("ci workflow", () => {
     expect(runs.indexOf("bun run ensure-dist")).toBeLessThan(runs.indexOf("bun run check:render"));
     expect(checks).not.toContain("test:coverage");
     expect(checks).toContain("check:tests-preserved");
+    // A PR to dev compares against the event's base SHA, not the live tip of origin/dev (#1566).
+    expect(checks).toContain(
+      "PR_BASE_SHA: ${{ github.base_ref == 'dev' && github.event.pull_request.base.sha || '' }}",
+    );
+    expect(checks).toContain('bun run check:tests-preserved ${PR_BASE_SHA:+--base "$PR_BASE_SHA"}');
     expect(checks).toContain("check:assets:ci");
     expect(checks).toContain("@navori/website build");
     expect(job("semgrep")).toContain("base_ref == 'main'");
@@ -94,7 +99,7 @@ describe("ci workflow", () => {
     const affected = job("affected");
     expect(affected).toContain("base_ref == 'dev'");
     expect(affected).toContain("needs.plan.outputs.full == 'false'");
-    expect(affected).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(affected).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
     expect(affected).toContain("check-test-budget.mjs --report");
     expect(job("plan")).toContain("--plan-json");
     expect(job("plan")).toContain("fetch-depth: 0");

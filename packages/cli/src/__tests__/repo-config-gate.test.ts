@@ -514,7 +514,9 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     const plan = jobBody("plan");
     expect(plan).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
     expect(plan).toContain("full: ${{ steps.plan.outputs.full }}");
-    expect(plan).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    // The diff base is fixed at the event: a merge to dev mid-run must not change the plan (#1566).
+    expect(plan).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
+    expect(plan).not.toContain("origin/${{ github.base_ref }}");
     expect(plan).toContain("node packages/cli/scripts/test-affected.mjs --plan-json");
     const affected = jobBody("affected");
     expect(affected).toContain("needs: [plan]");
@@ -522,7 +524,8 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(affected).toContain(
       "needs.plan.result == 'success' && needs.plan.outputs.full == 'false'",
     );
-    expect(affected).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(affected).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
+    expect(affected).not.toContain("origin/${{ github.base_ref }}");
     expect(affected).toMatch(/^\s*run: node packages\/cli\/scripts\/test-affected\.mjs$/m);
     expect(affected).toContain(
       'check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"',
