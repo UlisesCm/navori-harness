@@ -96,7 +96,10 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    engine agrega solo lo suyo (Spec 0064).
 3. **Source of truth = `navori.config.json` checked-in** — `render` reconstruye desde ahí.
    *Por qué*: reproducibilidad total; sin estado oculto. Todo engine que se renderiza aparece en
-   `engines`, `agents-md` incluido; no hay engines implícitos (Spec 0064).
+   `engines`, `agents-md` incluido; el único engine implícito es el fallback a `claude` que ya
+   existe cuando ningún valor de `engines` es válido. Solo `engines` decide la forma: con
+   `agents-md`, `CLAUDE.md` importa `AGENTS.md`; sin él, o con `codex`, queda la forma previa y
+   render lo avisa (Spec 0064).
 4. **Modelo híbrido de sync con marcadores** — `<!-- navori:managed ... -->` se sincroniza;
    todo lo de afuera es del usuario e intocable. `hash` detecta drift de contenido; `version`
    es la versión de navori que cambió por última vez el contenido del bloque (no la que lo
@@ -104,8 +107,11 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    `harnessVersion` en `navori.config.json` es el registro a nivel repo de la última versión que
    aplicó un cambio real, y sostiene el anti-rollback (#1262). *Por qué*: regenerar idempotente sin
    pisar trabajo manual ni ensuciar el diff. Un bloque que se muda a otro archivo sale del
-   anterior solo si está intacto; si fue editado a mano se queda (`retired-kept`) y el render lo
-   avisa (Spec 0064).
+   anterior solo si está intacto; si fue editado a mano se queda (`retired-kept`), y render y
+   doctor lo avisan sin quedar verdes. Sin `pi`, `AGENTS.md` omite ese id: es la única salida que
+   depende de otro archivo y no de la config. Un bloque mudado deja un marcador vacío para que un
+   CLI viejo no lo reinyecte, y doctor reporta un bloque duplicado en `AGENTS.md` y `CLAUDE.md`
+   (Spec 0064).
 5. **Render preview por default** — `render` no toca disco; `--apply` escribe, con backup previo
    y escritura atómica (fsync). *Por qué*: nunca sorprender al usuario con cambios en disco.
 6. **Plugins como bundles** — cada plugin trae hasta piezas opcionales (settings fragment,
