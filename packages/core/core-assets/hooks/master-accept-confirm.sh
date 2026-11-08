@@ -7,6 +7,10 @@
 # This is deliberately an interruption, not a parser for the command. The CLI
 # validates the complete flag contract; this hook keeps the human in the loop
 # for the one form that claims their manual review.
+#
+# Spec 0063: `master accept|reject` records the QA verdict in the acceptance log
+# (branch navori/acceptance), whoever invokes the CLI (navori, npx, `node …/index.js`),
+# and any mention of that branch (a push, an update-ref) asks too.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
@@ -60,7 +64,10 @@ DELIVERY_REVIEW_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-(review|deci
 DELIVERY_CRITERION_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-criterion([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
 DELIVERY_REFRESH_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-slice([[:space:]]|\$).*--refresh([[:space:]=]|\$)"
 RESET_RE="${NAVORI}[[:space:]]+plan[[:space:]]+escalation-reset([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE}|${RESET_RE})"
+# Any invoker: `master` just needs the boundary before it (`echo masterpiece` does not match).
+ACCEPT_RE="master[[:space:]]+(accept|reject)([[:space:];&|)<>]|\$)"
+LOG_RE='[^[:space:]]*navori/acceptance'
+TRIGGER_RE=".*${BOUND}(${ACCEPT_RE}|${LOG_RE}|${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE}|${RESET_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
@@ -80,6 +87,8 @@ is_scan_trigger "$cmd" || exit 0
 
 approval_description="a manual criterion"
 case "$cmd" in
+  *"master accept"*|*"master reject"*) approval_description="the QA verdict on these slices or decisions, written to navori/acceptance" ;;
+  *navori/acceptance*) approval_description="a direct change to the acceptance log (navori/acceptance)" ;;
   *delivery-review*) approval_description="this exact technical snapshot: you inspected the bound report, attest that the named reviewer was separate from the producer, and observed the stated full QA command succeed. The CLI checks content and the current receipt; it does not authenticate reviewer identity or execute QA" ;;
   *delivery-decision*) approval_description="the explicit client decision on this exact presented delivery or reasoned disposition of its current scope" ;;
   *delivery-publication*) approval_description="the release or deploy reference for this exact accepted delivery; this records publication, it does not deploy" ;;

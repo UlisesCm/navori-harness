@@ -17,6 +17,8 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
+import { resolveLang } from "../lib/i18n.ts";
+import { recordVerdicts } from "../lib/masterplan/accept.ts";
 import {
   type CommandOutput,
   hasPlan,
@@ -453,6 +455,63 @@ const checkSubCommand = defineCommand({
   },
 });
 
+/** `accept` / `reject` of a v2 plan: the user's QA verdict on slices or decisions. */
+function verdictSubCommand(verdict: "accepted" | "rejected") {
+  const name = verdict === "accepted" ? "accept" : "reject";
+  return defineCommand({
+    meta: {
+      name,
+      description: `v2: record the user's ${name} verdict in navori/acceptance`,
+    },
+    args: {
+      ids: {
+        type: "positional",
+        required: false,
+        description: "S<n> slices or D<n> decisions",
+      },
+      evidence: {
+        type: "string",
+        description: "accept: external evidence URL (http/https)",
+      },
+      notes: {
+        type: "string",
+        description: "reject: open task (repeatable, required)",
+      },
+      "approved-by": { type: "string", description: "must be user" },
+      fetch: {
+        type: "boolean",
+        default: true,
+        description: "fetch the plan branches first",
+      },
+      cwd: { type: "string", description: "Repo root" },
+    },
+    run({ args, rawArgs }) {
+      const cwd = resolve(args.cwd ?? process.cwd());
+      if (!hasPlan(cwd)) {
+        const stderr = `[navori] ${name} requiere specs/_plan/PLAN.md (plan maestro v2)\n`;
+        emit({ stdout: "", stderr, code: 1 });
+        return;
+      }
+      const configFile = join(cwd, "navori.config.json");
+      // citty keeps only the last value of a repeated flag: read every --notes from rawArgs.
+      const notes = rawArgs.flatMap((a, i) =>
+        a === "--notes" ? [rawArgs[i + 1] ?? ""] : a.startsWith("--notes=") ? [a.slice(8)] : [],
+      );
+      emit(
+        recordVerdicts(cwd, {
+          verdict,
+          ids: args._.map(String),
+          evidence: args.evidence,
+          notes,
+          approvedBy: args["approved-by"],
+          fetch: args.fetch,
+          lang: resolveLang(existsSync(configFile) ? readConfig(configFile).language : undefined),
+        }),
+      );
+    },
+  });
+}
+
 const statusSubCommand = defineCommand({
   meta: { name: "status", description: "Show or regenerate derived master-plan status" },
   args: {
@@ -829,6 +888,8 @@ export const masterCommand = defineCommand({
     template: templateSubCommand,
     check: checkSubCommand,
     advance: advanceSubCommand,
+    accept: verdictSubCommand("accepted"),
+    reject: verdictSubCommand("rejected"),
     status: statusSubCommand,
     part: partSubCommand,
     close: closeSubCommand,

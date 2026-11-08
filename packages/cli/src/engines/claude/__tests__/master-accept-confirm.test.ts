@@ -87,6 +87,37 @@ function expectAsk(
 }
 
 describe.runIf(runsBash)("master-accept-confirm.sh", () => {
+  // Covers: spec 0063 — the QA verdict asks with any invoker, and so does touching its log.
+  it.each([
+    "navori master accept S1 --approved-by user",
+    "node /x/packages/cli/dist/index.js master accept S1 --approved-by user",
+    "npx navori master reject S2 --notes a --approved-by user",
+  ])("asks for the acceptance verdict: %s", (command: string) => {
+    expectAsk(
+      payload(command),
+      undefined,
+      "the QA verdict on these slices or decisions, written to navori/acceptance",
+    );
+  });
+
+  it.each(["git push origin navori/acceptance", "git update-ref refs/heads/navori/acceptance abc"])(
+    "asks before a direct change to the acceptance log: %s",
+    (command: string) => {
+      expectAsk(
+        payload(command),
+        undefined,
+        "a direct change to the acceptance log (navori/acceptance)",
+      );
+    },
+  );
+
+  it.each(["navori master status", "navori master check --incoming x", "echo masterpiece"])(
+    "stays silent on a read-only command: %s",
+    (command: string) => {
+      expect(run(payload(command)).stdout).toBe("");
+    },
+  );
+
   // Covers: R58, R62
   it.each([
     "navori master delivery-review --part P1 --report report.txt --envelope review.json --approved-by user",
@@ -492,6 +523,15 @@ describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
     expect(decision).toBe("deny");
     if (command.includes("delivery-"))
       expect(result.stdout).toContain("the delivery baseline or bounded queue");
+  });
+
+  it("denies a verdict on the Codex copy", () => {
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload("navori master accept S1 --approved-by user")),
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
   });
 
   it.each(["git status", "navori master delivery-check"])(

@@ -61,11 +61,31 @@ export function readPlan(cwd: string): Plan {
   return parsePlan(readFileSync(planPath(cwd), "utf8"));
 }
 
-function git(cwd: string, args: string[], timeout = 15_000): string | null {
+export interface GitResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+/** Runs git in `cwd` without the repo-redirecting env vars a hook may leak. */
+export function gitRun(cwd: string, args: string[], timeout = 15_000, input?: string): GitResult {
   const env = { ...process.env };
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) delete env[key];
-  const r = spawnSync("git", args, { cwd, env, encoding: "utf8", timeout, maxBuffer: 64 << 20 });
-  return r.status === 0 ? r.stdout : null;
+  const r = spawnSync("git", args, {
+    cwd,
+    env,
+    input,
+    encoding: "utf8",
+    timeout,
+    maxBuffer: 64 << 20,
+  });
+  return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/** stdout of a successful git command, `null` when it fails. */
+export function git(cwd: string, args: string[], timeout = 15_000): string | null {
+  const r = gitRun(cwd, args, timeout);
+  return r.ok ? r.stdout : null;
 }
 
 /** Slice IDs a commit message carries: `Slice: S<n>`, `[S<n>]` or `slice/S<n>-` in the subject. */
@@ -112,15 +132,18 @@ function remoteRef(cwd: string, branch: string): string {
 const isAncestor = (cwd: string, sha: string, ref: string): boolean =>
   sha !== "" && git(cwd, ["merge-base", "--is-ancestor", sha, ref]) !== null;
 
+/** Parses the lines of an `acceptance.jsonl`. */
+export function parseLog(lines: string[]): LogEntry[] {
+  return lines
+    .filter((line) => line.trim() !== "")
+    .map((line) => LogEntrySchema.parse(JSON.parse(line)));
+}
+
 /** Log entries: the local branch (unpublished verdicts included), else the remote one. */
 export function readLog(cwd: string): LogEntry[] {
   for (const ref of [LOG_BRANCH, `origin/${LOG_BRANCH}`]) {
     const text = git(cwd, ["show", `${ref}:${LOG_FILE}`]);
-    if (text === null) continue;
-    return text
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map((line) => LogEntrySchema.parse(JSON.parse(line)));
+    if (text !== null) return parseLog(text.split("\n"));
   }
   return [];
 }
@@ -134,6 +157,8 @@ function fetchPlanBranches(cwd: string, acceptance: PlanAcceptance): string | nu
 export interface ReadOptions {
   /** `true`: fetch and warn when offline; `"required"`: a failed fetch fails closed (`check`). */
   fetch?: boolean | "required";
+  /** Verdicts to use instead of the log refs (`accept` validates against the merged log). */
+  log?: LogEntry[];
 }
 
 /** Marks outside a shallow history would vanish and turn the WIP green, so refuse it. */
@@ -171,7 +196,7 @@ export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState
     if (isAncestor(cwd, slice.commit, targetRef)) inTarget.add(slice.id);
   }
 
-  const log = readLog(cwd);
+  const log = options.log ?? readLog(cwd);
   const last = new Map<string, LogEntry>();
   const notes = new Map<string, string[]>();
   for (const entry of log) {
@@ -180,13 +205,24 @@ export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState
     else notes.set(entry.id, [...(notes.get(entry.id) ?? []), ...(entry.notes ?? [])]);
   }
   const accepted = (id: string): boolean => last.get(id)?.verdict === "accepted";
+  // A rejection stays in force until a marked commit of the slice reaches the
+  // acceptance branch after it. A verdict commit that is unknown or no longer
+  // an ancestor (rewritten branch) keeps it in force: the range would be wrong.
+  const reworked = (id: string, since: string): boolean => {
+    if (isAncestor(cwd, since, accRef)) return marksIn(cwd, [`${since}..${accRef}`]).has(id);
+    warnings.push(
+      `${id}: el commit del rechazo no está en ${accRef}; el rechazo sigue vigente (recházalo de nuevo)`,
+    );
+    return false;
+  };
 
   const slices = plan.slices.map((slice): SliceStatus => {
     const verdict = last.get(slice.id);
     const integrated = inAcc.has(slice.id);
     let state: SliceState = "pendiente";
     if (accepted(slice.id)) state = "aceptado";
-    else if (integrated && verdict?.verdict !== "rejected") state = "integrado";
+    else if (integrated && (verdict?.verdict !== "rejected" || reworked(slice.id, verdict.commit)))
+      state = "integrado";
     else if (integrated || inTarget.has(slice.id) || anywhere.has(slice.id)) state = "en curso";
     const days = Math.floor((Date.now() / 1000 - (anywhere.get(slice.id) ?? Infinity)) / 86_400);
     if (!integrated && days > MAX_DAYS)

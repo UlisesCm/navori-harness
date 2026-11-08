@@ -113,7 +113,7 @@ describe("readPlanState", () => {
 
   it("applies the latest verdict of the log, with rejection notes and approved decisions", () => {
     const head = commitOn("qa", "[S1] registro", "qa");
-    commitOn("qa", "[S2] historial", "qa");
+    const s2 = commitOn("qa", "[S2] historial", "qa");
     commitOn("qa", "fix: retrabajo\n\nSlice: S1", "qa");
     writeLog([
       {
@@ -130,7 +130,7 @@ describe("readPlanState", () => {
         verdict: "rejected",
         at: "2026-11-07",
         env: "qa",
-        commit: head,
+        commit: s2,
         by: "user",
         notes: ["a"],
       },
@@ -139,7 +139,7 @@ describe("readPlanState", () => {
         verdict: "rejected",
         at: "2026-11-08",
         env: "qa",
-        commit: head,
+        commit: s2,
         by: "user",
         notes: ["b"],
       },
@@ -163,6 +163,33 @@ describe("readPlanState", () => {
       { id: "D2", text: "Sin SMS", approved: false },
     ]);
     expect(state.warnings.join("\n")).toMatch(/S1.*después de aceptar/);
+  });
+
+  it("puts a rejected slice back to integrado once its rework reaches qa, keeping the notes", () => {
+    const s2 = commitOn("qa", "[S2] historial", "qa");
+    const rejection = (commit: string) => ({
+      id: "S2",
+      verdict: "rejected",
+      at: "2026-11-07",
+      env: "qa",
+      commit,
+      by: "user",
+      notes: ["a"],
+    });
+    writeLog([rejection(s2)]);
+    commitOn("qa", "fix: otro slice\n\nSlice: S1", "qa");
+    expect(stateOf("S2")).toMatchObject({ state: "en curso", notes: ["a"] });
+
+    commitOn("qa", "fix: retrabajo\n\nSlice: S2", "qa");
+    expect(stateOf("S2")).toMatchObject({ state: "integrado", notes: ["a"] });
+
+    // A verdict commit unknown to this repo, or off a rewritten qa, keeps the rejection in force.
+    writeLog([rejection("0".repeat(40))]);
+    expect(stateOf("S2")?.state).toBe("en curso");
+    writeLog([rejection(commitOn("old-qa", "qa reescrita"))]);
+    const state = readPlanState(repo);
+    expect(state.slices.find((s) => s.id === "S2")?.state).toBe("en curso");
+    expect(state.warnings.join("\n")).toMatch(/S2: el commit del rechazo no está/);
   });
 
   it("warns when a slice takes more than 3 days to integrate", () => {
