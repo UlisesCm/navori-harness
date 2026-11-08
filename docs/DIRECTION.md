@@ -94,8 +94,14 @@ Today both are opt-in plugins again, with routing
    configuration without duplication.
 2. **Multi-engine from day one** — the core is engine-agnostic even when only some engines
    are rendered. *Why*: adding a provider should not require rewriting the pipeline.
+   Engines may build on the `agents-md` base layer: `AGENTS.md` carries the doctrine every
+   engine shares, and each engine adds only what is its own (Spec 0064).
 3. **Source of truth = checked-in `navori.config.json`** — `render` rebuilds from this file.
-   *Why*: complete reproducibility without hidden state.
+   *Why*: complete reproducibility without hidden state. Every rendered engine is listed in
+   `engines`, including `agents-md`; the only implicit engine is the existing fallback to `claude`
+   when no value in `engines` is valid. `engines` alone decides the shape: with `agents-md`,
+   `CLAUDE.md` imports `AGENTS.md`; without it, or with `codex`, the previous shape stays and render
+   warns (Spec 0064).
 4. **Hybrid sync model with markers** — `<!-- navori:managed ... -->` syncs;
    Everything outside the markers belongs to the user and remains untouched. `hash` detects
    content drift; `version` records the Navori version that last changed the block's content
@@ -104,6 +110,11 @@ Today both are opt-in plugins again, with routing
    `harnessVersion` in `navori.config.json` is the repo-level record of the latest version that
    applied a real change and supports anti-rollback (#1262). *Why*: regenerate idempotently
    without overwriting manual work or adding noise to the diff.
+   When a block moves to another file, it leaves the old one only if it is intact; a
+   hand-edited block stays where it is (`retired-kept`), and render and doctor report it without
+   turning green. Without `pi`, `AGENTS.md` omits that id: the only output that depends on another
+   file rather than on the config. A moved block leaves an empty marker so an older CLI does not
+   reinject it, and doctor reports a block duplicated in `AGENTS.md` and `CLAUDE.md` (Spec 0064).
 5. **Render preview by default** — `render` does not write to disk; `--apply` writes atomically
    (with fsync) after creating a backup. *Why*: never surprise the user with changes on disk.
 6. **Plugins as bundles** — each plugin comes with optional pieces (settings fragment,
