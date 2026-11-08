@@ -85,6 +85,22 @@ export function ownsPiSource(content: string): boolean {
   }
 }
 
+/** Header of the whole-file orchestrator doctrine; the extension strips it before injecting the body. */
+export const PI_ORCHESTRATOR_HEADER =
+  /^<!-- navori:managed-file id="pi-orchestrator" hash="([a-f0-9]{64})" -->\n/;
+
+/** Serialize the orchestrator doctrine Pi injects into the parent process only. */
+export function serializePiOrchestrator(markdown: string): string {
+  const body = markdown.trim() + "\n";
+  return `<!-- navori:managed-file id="pi-orchestrator" hash="${digest(body)}" -->\n${body}`;
+}
+
+/** Refuse to replace an orchestrator file changed since the last render. */
+export function ownsPiOrchestrator(content: string): boolean {
+  const match = PI_ORCHESTRATOR_HEADER.exec(content);
+  return match !== null && match[1] === digest(content.slice(match[0].length));
+}
+
 /** Serialize one agent with a YAML-comment ownership marker. */
 export function serializePiAgent(input: {
   name: string;

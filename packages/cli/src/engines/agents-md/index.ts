@@ -31,6 +31,8 @@ export function renderAgentsMdEngine(
     extendBody?: (body: string) => string;
     /** Pi only: its vocabulary adapter, applied before interpolation. */
     transform?: (text: string) => string;
+    /** Pi only: rule assets it carries in its own file instead of this one. */
+    omitAssetIds?: ReadonlySet<string>;
   } = {},
 ): AgentsMdEngineResult {
   return renderProseFile({
@@ -48,5 +50,6 @@ export function renderAgentsMdEngine(
     omitSkillsIndex: options.omitSkillsIndex,
     extendBody: options.extendBody,
     transform: options.transform,
+    omitAssetIds: options.omitAssetIds,
   });
 }

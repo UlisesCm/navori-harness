@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,9 +7,10 @@ import { renderCodexEngine } from "../../codex/index.ts";
 import { renderPiEngine } from "../index.ts";
 
 /**
- * #1512: without Codex, Pi writes the AGENTS.md and `.agents/skills` doctrine Codex wrote
- * for it (orchestration, agent catalog, plan tiers), in Pi's vocabulary, plus the project
- * rules risk routing reads. Codex-only lines stay out.
+ * #1512 + spec 0064: without Codex, Pi writes the AGENTS.md and `.agents/skills` doctrine Codex
+ * wrote for it, in Pi's vocabulary, plus the project rules risk routing reads. The orchestrator
+ * layer (orchestration, plan tiers, session start, agent catalog) moves to the parent-only
+ * `.pi/navori/orchestrator.md`. Codex-only lines stay out of both.
  */
 const dirs: string[] = [];
 function freshDir(): string {
@@ -35,29 +36,37 @@ afterEach(() => {
 });
 
 describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () => {
-  it("carries orchestration, the agent catalog and the critical areas in Pi's vocabulary", () => {
+  it("splits the orchestrator layer into the parent-only file and keeps the project context", () => {
     const dir = freshDir();
     renderPiEngine(dir, cfg(["claude", "pi"]));
     const agents = read(dir, "AGENTS.md");
+    const orchestrator = read(dir, ".pi/navori/orchestrator.md");
 
-    expect(agents).toContain("## Role: orchestrator (route by risk)");
-    expect(agents).toContain("`navori_subagent(role: orchestrator)`");
-    expect(agents).toContain("`navori_subagent` calls");
-    expect(agents).toContain("## Planning tiers");
-    expect(agents).toContain("- `implementer` — ");
-    expect(agents).toContain("- `scribe` — ");
+    for (const layer of [
+      "## Role: orchestrator (route by risk)",
+      "## Planning tiers",
+      "`navori_subagent(role: orchestrator)`",
+      "- `implementer` — ",
+      "- `scribe` — ",
+    ]) {
+      expect(agents, layer).not.toContain(layer);
+      expect(orchestrator, layer).toContain(layer);
+    }
+    expect(orchestrator).toContain("`navori_subagent` calls");
+    expect(orchestrator).toContain("(`billing writes, edits to CLAUDE.md`)");
+    expect(orchestrator).not.toContain("edits to AGENTS.md");
+    // The project context and the workflow stay in AGENTS.md, with the user's config text verbatim.
     expect(agents).toContain("billing writes");
-    // The user's own config text is not run through the Pi adapter, including where it is
-    // interpolated into navori's prose (the risk-routing line), not only the appended block.
-    expect(agents).toContain("(`billing writes, edits to CLAUDE.md`)");
-    expect(agents).not.toContain("edits to AGENTS.md");
+    expect(agents).toContain("## Workflow");
     expect(agents).not.toContain("## Available skills");
+    const manifest = JSON.parse(read(dir, ".pi/navori.json")) as { ownedPaths: string[] };
+    expect(manifest.ownedPaths).toContain(".pi/navori/orchestrator.md");
   });
 
   it("drops every Codex-only line and every Claude path Pi cannot read", () => {
     const dir = freshDir();
     renderPiEngine(dir, cfg(["claude", "pi"]));
-    const agents = read(dir, "AGENTS.md");
+    const agents = `${read(dir, "AGENTS.md")}\n${read(dir, ".pi/navori/orchestrator.md")}`;
 
     for (const codexOnly of [
       "spawn_agent",
@@ -102,5 +111,24 @@ describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () 
     expect(result.written.map((w) => w.path)).not.toContain("AGENTS.md");
     expect(read(dir, "AGENTS.md")).toBe(before);
     expect(before).toContain("spawn_agent");
+    // Codex owns the layer: Pi writes no orchestrator file and does not list it as owned.
+    expect(existsSync(join(dir, ".pi/navori/orchestrator.md"))).toBe(false);
+    const manifest = JSON.parse(read(dir, ".pi/navori.json")) as { ownedPaths: string[] };
+    expect(manifest.ownedPaths).not.toContain(".pi/navori/orchestrator.md");
+  });
+
+  it("retires Pi's own orchestrator file when Codex takes over AGENTS.md, and keeps a foreign one", () => {
+    const dir = freshDir();
+    renderPiEngine(dir, cfg(["claude", "pi"]));
+    const file = join(dir, ".pi/navori/orchestrator.md");
+    expect(existsSync(file)).toBe(true);
+    renderPiEngine(dir, cfg(["claude", "codex", "pi"]));
+    expect(existsSync(file)).toBe(false);
+
+    const foreign = freshDir();
+    mkdirSync(join(foreign, ".pi/navori"), { recursive: true });
+    writeFileSync(join(foreign, ".pi/navori/orchestrator.md"), "mine\n");
+    renderPiEngine(foreign, cfg(["claude", "codex", "pi"]));
+    expect(readFileSync(join(foreign, ".pi/navori/orchestrator.md"), "utf-8")).toBe("mine\n");
   });
 });
