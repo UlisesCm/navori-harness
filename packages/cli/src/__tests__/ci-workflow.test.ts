@@ -86,7 +86,9 @@ describe("ci workflow", () => {
     expect(tests).toContain("--shard ${{ matrix.shard }}/4");
     expect(tests).toContain("if-no-files-found: error");
     const merge = job("test-merge");
-    expect(merge).toContain("always() && needs.test.result != 'skipped'");
+    // A run cancelled by concurrency skips the merge; a failed shard still fails it (#1600).
+    expect(merge).toContain("!cancelled() && needs.test.result != 'skipped'");
+    expect(merge).not.toContain("always()");
     expect(merge).toContain('test "$SHARD_RESULT" = success');
     expect(merge).toContain("--merge .vitest-reports --shards 4");
     expect(merge).toContain("vitest-merged.json");

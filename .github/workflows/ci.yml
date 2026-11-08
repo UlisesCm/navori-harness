@@ -212,7 +212,11 @@ jobs:
 
   test-merge:
     needs: [test]
-    if: ${{ always() && needs.test.result != 'skipped' }}
+    # `!cancelled()` instead of an unconditional run: a run cancelled by concurrency (e.g. the
+    # `full` label superseding the opening run) skips the merge instead of
+    # failing it on `SHARD_RESULT: cancelled` (#1600). A failed shard still
+    # runs it, and the first step fails.
+    if: ${{ !cancelled() && needs.test.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard to succeed
