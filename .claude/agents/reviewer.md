@@ -4,10 +4,10 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: opus
 effort: low
-maxWords: 2940
+maxWords: 2925
 ---
 
-<!-- navori:managed id="reviewer-base" hash="43c024d7" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="996c5c97" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 Review; **approve or reject**, never edit code.
@@ -40,7 +40,7 @@ Before Setup, set `reviewTarget` once to the explicitly approved PR base, else `
 
 3. **Re-review** (a previous `review_<feature>.md` exists): From round 2 on read the prior `review_<feature>.md` (are its issues resolved?) and the delta in `impl_<feature>.md`; re-open `solution_<scope>.md` only on a prior `SPEC_MISS` or design finding, or when the delta touches files outside the prior diff. Don't re-review unchanged code; the Coverage table stays required on the signing round. A previous `APPROVED` whose diff only moved through a later edit is the **delta re-sign** below.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence: run this turn, never from the implementer's cached report. The gate runs **in Pass 2**, never on a diff Pass 1 rejects.
-5. **Closing cycle** (spec deliveries only): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/dev"`; the Setup 3 narrowing does not apply), run `navori spec check <spec> --json` (must be `"ok":true`) and the full gate (Pass 2) over those bytes. The receipt is then the publisher's reusable verdict.
+5. **Closing cycle** (spec deliveries only): when the encargo reads `spec: <spec> E<n> M<n>` and this is a delivery's closing milestone, read the whole delivery diff (`git diff "origin/dev"`; the Setup 3 narrowing does not apply), run `navori spec check <spec> --json` (must be `"ok":true`) and the full gate (Pass 2) over those bytes, even with `qualityGate.ci`. The receipt is then the publisher's reusable verdict.
 
 ### Pass 1 — Spec compliance
 
@@ -81,8 +81,8 @@ If the result contains `"gateKind":"scoped"` (non-closing milestone), run `bun r
 | Round outcome | Gate evidence |
 |---|---|
 | Ends in `CHANGES_REQUESTED` (any issue ≥80) | `bun run check:scoped` plus the assigned `A<n>` commands. Do NOT run the full gate. |
-| About to sign `APPROVED` (delta re-sign too), `qualityGate.ci` declared | `bun run check:scoped`; sign `--gate-ran ci`. |
-| Same, no `qualityGate.ci` | The full gate, over the bytes you sign: |
+| About to sign `APPROVED` (delta re-sign too), `qualityGate.ci` declared, not a closing milestone | `bun run check:scoped`; sign `--gate-ran ci`. |
+| Same, no `qualityGate.ci`, or a closing milestone | The full gate, over the bytes you sign: |
 ```bash
 navori gate full
 ```
@@ -101,7 +101,7 @@ Read the verdict (exit code and failure count); report `exit 0` plus summary, or
 
 ### Content receipt (write ONLY on APPROVED)
 
-Only after `APPROVED` and the sealed sidecar (below), run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
+Only after `APPROVED` and the sealed sidecar (below), run the command below with the feature id from the implementer handoff. With `spec: <spec> E<n> M<n>`, add `--spec <spec> --milestone M<n> --gate-ran scoped|full` (what actually ran) and check that the sign JSON's `gateKind` matches `receipt gate`'s; `ci` per the table, never on a closing milestone; if absent (old binary), run the full gate and sign without flags. It owns the publish set and the receipt format; do not reproduce either in shell.
 
 ```bash
 navori receipt sign --feature <feature> --target dev --dir .navori/state/handoffs --json
