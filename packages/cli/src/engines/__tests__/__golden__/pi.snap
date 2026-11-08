@@ -3010,7 +3010,8 @@ function linkedWorktrees(cwd: string): string[] {
  * Checkout whose state the gate and handoff checks read for a feature (#1575). Pi runs every tool from the session
  * root, so an orchestrator working in a linked worktree would otherwise be checked against the root's state. The
  * session checkout is used when only it holds the feature, and the one linked worktree when only that one does. The
- * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
+ * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI
+ * keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
  */
 function featureCheckout(cwd: string, feature: string): string {
   const owners = linkedWorktrees(cwd).filter((path) => holdsFeature(path, feature));

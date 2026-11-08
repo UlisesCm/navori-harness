@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="ebf8c922a35839ced38cb1c8866f8d1349f61162ccbbe584afbf6a5851d8e095"
+// navori:managed-file id="pi-extension" hash="65ca1727e85160cccfe7fd2dd5b4a8b6f353f44577f1a6612638cb79c6f074b2"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -270,7 +270,8 @@ function linkedWorktrees(cwd: string): string[] {
  * Checkout whose state the gate and handoff checks read for a feature (#1575). Pi runs every tool from the session
  * root, so an orchestrator working in a linked worktree would otherwise be checked against the root's state. The
  * session checkout is used when only it holds the feature, and the one linked worktree when only that one does. The
- * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
+ * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI
+ * keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
  */
 function featureCheckout(cwd: string, feature: string): string {
   const owners = linkedWorktrees(cwd).filter((path) => holdsFeature(path, feature));
