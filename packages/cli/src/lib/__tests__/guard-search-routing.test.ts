@@ -5,12 +5,14 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { basename, resolve, join } from "node:path";
+import { isHookReason } from "../audit/model.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { injectManagedSection } from "../render/marker.ts";
 import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
@@ -526,6 +528,49 @@ describe.runIf(runsBash)("guard-search-routing: D6 composition", () => {
 
     it("without an index, the search is allowed", () => {
       expect(runGuard('grep -rn "foo" src/', fixtures["no-index"])).toBe(0);
+    });
+
+    // #1533: the fail-open used to be recorded as verdict "unknown" / reason "unspecified".
+    it("records the fail-open as verdict fail-open, reason search-index-unavailable", () => {
+      const f = fixtures["no-index"];
+      const auditRoot = mkdtempSync(join(tmpdir(), "navori-search-audit-"));
+      const repoName = basename(f.repo);
+      mkdirSync(join(auditRoot, repoName, "spool-s1"), { recursive: true });
+      writeFileSync(join(auditRoot, repoName, "session-s1.log"), "{}\n");
+      try {
+        const payload = JSON.stringify({
+          tool_input: { command: 'grep -R "foo" src/' },
+          session_id: "s1",
+          cwd: f.repo,
+          hook_event_name: "PreToolUse",
+        });
+        acrossShells((shell) => {
+          const spool = join(auditRoot, repoName, "spool-s1");
+          for (const name of readdirSync(spool)) rmSync(join(spool, name));
+          const r = spawnSync(resolveBin(shell), [f.hook], {
+            input: payload,
+            env: { ...envFor(f), NAVORI_AUDITS_ROOT: auditRoot },
+            cwd: f.repo,
+          });
+          expect(r.status).toBe(0);
+          const events = readdirSync(spool).map(
+            (name): Record<string, unknown> =>
+              (
+                JSON.parse(readFileSync(join(spool, name), "utf-8")) as {
+                  metadata: Record<string, unknown>;
+                }
+              ).metadata,
+          );
+          const event = events.find((e) => e.name === "guard-destructive");
+          expect(event).toMatchObject({
+            verdict: "fail-open",
+            reason: "search-index-unavailable",
+          });
+          expect(isHookReason(event?.reason)).toBe(true);
+        });
+      } finally {
+        rmSync(auditRoot, { recursive: true, force: true });
+      }
     });
 
     it("runs `tgrep status` only on the branch that blocks", () => {

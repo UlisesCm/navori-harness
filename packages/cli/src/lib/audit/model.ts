@@ -317,6 +317,7 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
         "compact-advice",
         "gate-started",
         "gate-killed",
+        "fail-open",
         "unknown",
       ].includes(String(record.verdict)) ||
       (record.kind !== undefined && !["hard", "ask", "advisory"].includes(String(record.kind))) ||
@@ -1082,6 +1083,7 @@ export const HOOK_REASON_CODES = [
   "foreign-repo",
   "foreign-gate",
   "pii-egress",
+  "search-index-unavailable",
 ] as const;
 
 /** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */
