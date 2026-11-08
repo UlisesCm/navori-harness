@@ -1,15 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { listFiles, makeSandboxDirs, navoriAuthored } from "./prune-fixtures.ts";
 
 /**
  * #312: outputs left behind by an engine removed from config.engines[] (a stale
@@ -30,40 +22,20 @@ const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { runCommand } = await import("citty");
-const { writeConfig } = await import("../../lib/config/config.ts");
+const { writeConfig, readConfig, effectiveConfig } = await import("../../lib/config/config.ts");
+const { parseAsset } = await import("../../engines/claude/parse-asset.ts");
+const { interpolate } = await import("../../lib/render/interpolate.ts");
 const { runRender, renderCommand } = await import("../render.ts");
 const { injectManagedSection } = await import("../../lib/render/marker.ts");
-const { readCliVersion } = await import("../../lib/render/bundled-assets.ts");
+const { readCliVersion, getCoreRoot } = await import("../../lib/render/bundled-assets.ts");
 
 let cwd: string;
 
-/** A file exactly as an engine would have rendered it: managed marker, current
- *  version, navori as the source. The only shape the prune may delete. */
-const navoriAuthored = (id: string, body: string): string =>
-  injectManagedSection("", id, `${body}\n`, {
-    version: readCliVersion(),
-    source: "@navori/core",
-  }).output;
-
 const AGENTS_MD = navoriAuthored("agentes-disponibles", "rendered by navori");
-const CODEX_TOML = navoriAuthored("codex-config", 'sandbox_mode = "read-only"');
-
-/** Every file under `dir`, as `dir`-relative paths, sorted — the assertion shape
- *  from `backup-proportional.test.ts:93`: it fails on a MISSING file and on an
- *  extra one, which `existsSync` per path never does. */
-function listFiles(dir: string, root = dir): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listFiles(full, root));
-    else if (entry.isFile()) out.push(relative(root, full));
-  }
-  return out.sort();
-}
+const CODEX_TOML = navoriAuthored("codex-config", 'sandbox_mode = "read-only"', "shell");
 
 beforeEach(() => {
-  home.dir = mkdtempSync(join(tmpdir(), "navori-home-"));
-  cwd = mkdtempSync(join(tmpdir(), "navori-render-prune-"));
+  ({ home: home.dir, cwd } = makeSandboxDirs("render-prune"));
   writeConfig(join(cwd, "navori.config.json"), {
     name: "demo",
     engines: ["claude"],
@@ -388,5 +360,414 @@ describe("render --json publishes what the prune SPARED, not only what it delete
     const payload = JSON.parse(lines.at(-1) as string) as PrunePayload;
     expect(payload.prunedEngineOutputs).toEqual([".codex/config.toml"]);
     expect(payload.keptEngineOutputs).toEqual([{ path: "AGENTS.md", reason: "foreign" }]);
+  });
+});
+
+/**
+ * #1604: removing an engine removes its managed BLOCKS, not the user's text. The
+ * files here are rendered by the real engines (so the scaffold is the one navori
+ * writes, not a copy of it in the test), then the engine is disabled and pruned.
+ */
+describe("runRender --prune — user text outside the blocks survives (#1604)", () => {
+  const NOTES = "\n## Mis notas\nTexto propio del usuario.\n";
+
+  /** Render with `engines`, then narrow the config to `remaining` (the prune's trigger). */
+  function renderThenDisable(engines: string[], remaining: string[]): void {
+    rmSync(join(cwd, "AGENTS.md"), { force: true });
+    rmSync(join(cwd, ".codex"), { recursive: true, force: true });
+    writeConfig(join(cwd, "navori.config.json"), { name: "demo", engines, preset: "custom" });
+    runRender(cwd, { dryRun: false });
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: remaining,
+      preset: "custom",
+    });
+  }
+
+  /** Prune and check the file stayed, minus every managed block, with a backup of the original. */
+  function expectStripped(rel: string, userText: string): void {
+    const original = readFileSync(join(cwd, rel), "utf-8");
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    const after = readFileSync(join(cwd, rel), "utf-8");
+    expect(after).not.toContain("navori:managed");
+    expect(after).toContain(userText);
+    expect(result.strippedEngineOutputs).toContain(rel);
+    expect(result.prunedEngineOutputs).not.toContain(rel);
+    expect(readFileSync(join(result.prunedBackupPath as string, rel), "utf-8")).toBe(original);
+  }
+
+  it.each([
+    ["AGENTS.md (agents-md scaffold)", ["claude", "agents-md"], ["claude"], "AGENTS.md"],
+    ["AGENTS.md (codex scaffold)", ["claude", "codex"], ["claude"], "AGENTS.md"],
+    [
+      ".github/copilot-instructions.md",
+      ["claude", "copilot"],
+      ["claude"],
+      ".github/copilot-instructions.md",
+    ],
+    ["CLAUDE.md", ["claude", "agents-md"], ["agents-md"], "CLAUDE.md"],
+  ])("%s: kept with its blocks stripped and the text intact", (_name, engines, remaining, rel) => {
+    renderThenDisable(engines, remaining);
+    expect(readFileSync(join(cwd, rel), "utf-8")).toContain("navori:managed");
+    writeFileSync(join(cwd, rel), `${readFileSync(join(cwd, rel), "utf-8")}${NOTES}`);
+
+    expectStripped(rel, "## Mis notas\nTexto propio del usuario.\n");
+  });
+
+  it("keeps everything outside the blocks byte-for-byte", () => {
+    const mine = `# Mi proyecto\n\nuna linea\n\n${NOTES.trimStart()}`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${AGENTS_MD}${mine}`);
+
+    runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(mine);
+  });
+
+  it("a pristine scaffold (nothing of the user's) is still deleted whole", () => {
+    renderThenDisable(["claude", "agents-md"], ["claude"]);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    expect(result.prunedEngineOutputs).toContain("AGENTS.md");
+    expect(result.strippedEngineOutputs).toEqual([]);
+  });
+
+  it("only whitespace and blank lines outside the blocks is not user text: deleted", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), `\n  \n${AGENTS_MD}\n\n\t\n   \n`);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    expect(result.prunedEngineOutputs).toContain("AGENTS.md");
+    expect(result.strippedEngineOutputs).toEqual([]);
+  });
+
+  it("a single user line outside the blocks is enough to keep the file", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), `${AGENTS_MD}\nsolo una linea mia\n`);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe("\nsolo una linea mia\n");
+    expect(result.strippedEngineOutputs).toEqual(["AGENTS.md"]);
+    expect(result.prunedEngineOutputs).not.toContain("AGENTS.md");
+  });
+
+  it("a skill file with only navori's frontmatter around its block is still deleted", () => {
+    mkdirSync(join(cwd, ".agents/skills/demo"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".agents/skills/demo/SKILL.md"),
+      `---\nname: demo\ndescription: demo skill\n---\n\n${navoriAuthored("demo", "body")}`,
+    );
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(existsSync(join(cwd, ".agents/skills/demo/SKILL.md"))).toBe(false);
+    expect(result.prunedEngineOutputs).toContain(".agents/skills/demo/SKILL.md");
+    expect(result.strippedEngineOutputs).not.toContain(".agents/skills/demo/SKILL.md");
+  });
+
+  // The exemptions below belong to ONE file kind each: outside it, the same bytes
+  // are the user's and must keep the file.
+  it.each([
+    ["AGENTS.md", "claude"],
+    ["CLAUDE.md", "agents-md"],
+    [".github/copilot-instructions.md", "claude"],
+  ])("%s: the user's own frontmatter outside the blocks keeps the file", (rel, enabled) => {
+    mkdirSync(join(cwd, ".github"), { recursive: true });
+    // The engine that writes the file must be the disabled one, so it is an orphan.
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: [enabled],
+      preset: "custom",
+    });
+    const mine = "---\ntitle: mio\n---\n";
+    writeFileSync(join(cwd, rel), `${mine}${AGENTS_MD}`);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, rel), "utf-8")).toBe(mine);
+    expect(result.strippedEngineOutputs).toContain(rel);
+  });
+
+  it("a user line in .codex/config.toml keeps it, even one shaped like a shebang", () => {
+    writeFileSync(join(cwd, ".codex/config.toml"), `#!/usr/bin/env mine\n${CODEX_TOML}`);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).toBe("#!/usr/bin/env mine\n");
+    expect(result.strippedEngineOutputs).toContain(".codex/config.toml");
+  });
+
+  describe("extension zones are matched EXACTLY against the bundled assets", () => {
+    /** The zone a bundled asset seeds after its user-section marker, as render writes it. */
+    const seededZone = (asset: string, marker: string): string => {
+      const text = readFileSync(join(getCoreRoot(), "core-assets", asset), "utf-8");
+      return `\n${text.slice(text.indexOf(marker) + marker.length).replace(/^\n/, "")}`;
+    };
+    const HOOK_ZONE = (): string =>
+      seededZone("hooks/guard-destructive.sh", "# navori:user-section");
+    const AGENT_ZONE = (): string =>
+      seededZone("agents/scout.md", "<!-- navori:user-section -->").replace(
+        /\{\{[^}]*\}\}/g,
+        "legacy/, vendor/",
+      );
+
+    beforeEach(() => {
+      mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
+      mkdirSync(join(cwd, ".claude/agents"), { recursive: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines: ["agents-md"],
+        preset: "custom",
+      });
+    });
+
+    it("a hook / agent holding only the seeded zone is deleted", () => {
+      writeFileSync(
+        join(cwd, ".claude/hooks/a.sh"),
+        `${navoriAuthored("a", "#!/usr/bin/env bash", "shell")}${HOOK_ZONE()}`,
+      );
+      writeFileSync(
+        join(cwd, ".claude/agents/a.md"),
+        `---\nname: a\n---\n${navoriAuthored("a", "body")}${AGENT_ZONE()}`,
+      );
+
+      const result = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(existsSync(join(cwd, ".claude/hooks/a.sh"))).toBe(false);
+      expect(existsSync(join(cwd, ".claude/agents/a.md"))).toBe(false);
+      expect(result.strippedEngineOutputs).toEqual([]);
+    });
+
+    it("a hook with one comment line of the user's is kept", () => {
+      const mine = `${HOOK_ZONE()}# my guard\n`;
+      writeFileSync(
+        join(cwd, ".claude/hooks/b.sh"),
+        `${navoriAuthored("b", "#!/usr/bin/env bash", "shell")}${mine}`,
+      );
+
+      const result = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(result.strippedEngineOutputs).toEqual([".claude/hooks/b.sh"]);
+      expect(readFileSync(join(cwd, ".claude/hooks/b.sh"), "utf-8")).toBe(mine);
+    });
+
+    it("a hook with a command of the user's is kept", () => {
+      const mine = `${HOOK_ZONE()}echo mine\n`;
+      writeFileSync(
+        join(cwd, ".claude/hooks/c.sh"),
+        `${navoriAuthored("c", "#!/usr/bin/env bash", "shell")}${mine}`,
+      );
+
+      runRender(cwd, { dryRun: false, prune: true });
+
+      expect(readFileSync(join(cwd, ".claude/hooks/c.sh"), "utf-8")).toBe(mine);
+    });
+
+    it("an agent whose seeded comment was edited is kept", () => {
+      const edited = AGENT_ZONE().replace("add here", "I wrote here");
+      expect(edited).not.toBe(AGENT_ZONE());
+      writeFileSync(
+        join(cwd, ".claude/agents/b.md"),
+        `---\nname: b\n---\n${navoriAuthored("b", "body")}${edited}`,
+      );
+
+      const result = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(result.strippedEngineOutputs).toEqual([".claude/agents/b.md"]);
+      expect(readFileSync(join(cwd, ".claude/agents/b.md"), "utf-8")).toBe(
+        `---\nname: b\n---\n${edited}`,
+      );
+    });
+  });
+
+  describe("a `{{var}}` line of a seeded zone is compared literally, never as a pattern", () => {
+    // Every bundled zone that interpolates a project value.
+    const WITH_VARS: ReadonlyArray<[string, string]> = [
+      ["agents/orchestrator.md", ".claude/agents/orchestrator.md"],
+      ["agents/auditor.md", ".claude/agents/auditor.md"],
+      ["agents/reviewer.md", ".claude/agents/reviewer.md"],
+      ["agents/implementer.md", ".claude/agents/implementer.md"],
+      ["skills/review-diff.md", ".claude/skills/review-diff.md"],
+      ["skills/verify-before-done.md", ".claude/skills/verify-before-done.md"],
+    ];
+    const FILLED = { criticalAreas: ["auth", "billing"], legacyPaths: ["old/", "vendor/"] };
+
+    /** Config on disk with the engine that writes the files disabled (so they are orphans). */
+    const configure = (project?: typeof FILLED): void => {
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines: ["agents-md"],
+        preset: "custom",
+        ...(project ? { project } : {}),
+      });
+    };
+    /** The zone template an asset seeds, rendered as the engines do with `project`. */
+    const zoneOf = (asset: string, project?: Partial<typeof FILLED>): string => {
+      const { userTemplate } = parseAsset(
+        readFileSync(join(getCoreRoot(), "core-assets", asset), "utf-8"),
+        "html",
+      );
+      const cfg = effectiveConfig(readConfig(join(cwd, "navori.config.json")));
+      return interpolate(
+        userTemplate as string,
+        {
+          ...cfg,
+          project: { ...cfg.project, ...project },
+        } as typeof cfg,
+      );
+    };
+    const place = (rel: string, zone: string): void => {
+      mkdirSync(join(cwd, rel, ".."), { recursive: true });
+      writeFileSync(join(cwd, rel), `---\nname: x\n---\n${navoriAuthored("x", "body")}\n${zone}`);
+    };
+
+    it.each(WITH_VARS)("%s: text appended to a var line keeps the file", (asset, rel) => {
+      configure(FILLED);
+      const template = parseAsset(
+        readFileSync(join(getCoreRoot(), "core-assets", asset), "utf-8"),
+        "html",
+      ).userTemplate as string;
+      const at = template.split("\n").findIndex((line) => line.includes("{{"));
+      const lines = zoneOf(asset).split("\n");
+      lines[at] = `${lines[at]} MINE`;
+      place(rel, lines.join("\n"));
+
+      const result = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(result.strippedEngineOutputs).toContain(rel);
+      expect(readFileSync(join(cwd, rel), "utf-8")).toContain(" MINE");
+      expect(readFileSync(join(cwd, rel), "utf-8")).not.toContain("navori:managed");
+    });
+
+    it.each(WITH_VARS)(
+      "%s: the untouched zone is deleted, current or init-time render",
+      (asset, rel) => {
+        // 1. Rendered with the config as it stands now.
+        configure(FILLED);
+        place(rel, zoneOf(asset));
+        expect(runRender(cwd, { dryRun: false, prune: true }).prunedEngineOutputs).toContain(rel);
+        expect(existsSync(join(cwd, rel))).toBe(false);
+
+        // 2. Rendered at init (nothing declared), the user filled the values in later.
+        place(rel, zoneOf(asset, { criticalAreas: undefined, legacyPaths: undefined }));
+        expect(runRender(cwd, { dryRun: false, prune: true }).prunedEngineOutputs).toContain(rel);
+        expect(existsSync(join(cwd, rel))).toBe(false);
+      },
+    );
+  });
+
+  describe("round trip: what the engines render is deleted when the engine is disabled", () => {
+    const only = (engines: string[], project?: Record<string, unknown>): void =>
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines,
+        preset: "custom",
+        ...(project ? { project } : {}),
+      } as Parameters<typeof writeConfig>[1]);
+
+    it.each([
+      ["current config", undefined],
+      ["init-time render, criticalAreas declared afterwards", { criticalAreas: ["auth"] }],
+    ])("claude, %s", (_name, later) => {
+      only(["claude"]);
+      runRender(cwd, { dryRun: false });
+      expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(true);
+      only(["agents-md"], later);
+
+      const result = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(result.strippedEngineOutputs).toEqual([]);
+      for (const rel of [
+        ".claude/agents/orchestrator.md",
+        ".claude/agents/reviewer.md",
+        ".claude/hooks/guard-destructive.sh",
+        "CLAUDE.md",
+      ]) {
+        expect(existsSync(join(cwd, rel))).toBe(false);
+      }
+    });
+
+    it("cursor: deleted as rendered, kept stripped with a user `globs` in its frontmatter", () => {
+      only(["claude", "cursor"]);
+      runRender(cwd, { dryRun: false });
+      const rule = join(cwd, ".cursor/rules/navori.mdc");
+      const rendered = readFileSync(rule, "utf-8");
+      only(["claude"]);
+      writeFileSync(
+        rule,
+        rendered.replace("alwaysApply: true", "alwaysApply: true\nglobs: src/**"),
+      );
+
+      const kept = runRender(cwd, { dryRun: false, prune: true });
+
+      expect(kept.strippedEngineOutputs).toContain(".cursor/rules/navori.mdc");
+      expect(readFileSync(rule, "utf-8")).toContain("globs: src/**");
+      expect(readFileSync(rule, "utf-8")).not.toContain("navori:managed");
+
+      writeFileSync(rule, rendered);
+      const gone = runRender(cwd, { dryRun: false, prune: true });
+      expect(gone.prunedEngineOutputs).toContain(".cursor/rules/navori.mdc");
+      expect(existsSync(rule)).toBe(false);
+    });
+  });
+
+  it("an orphaned Codex agents/openai.yaml (shell markers) is removed", () => {
+    mkdirSync(join(cwd, ".agents/skills/x/agents"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".agents/skills/x/agents/openai.yaml"),
+      navoriAuthored("x-openai-policy", "policy:\n  allow_implicit_invocation: false", "shell"),
+    );
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(existsSync(join(cwd, ".agents/skills/x/agents/openai.yaml"))).toBe(false);
+    expect(result.prunedEngineOutputs).toContain(".agents/skills/x/agents/openai.yaml");
+  });
+
+  it("a file with an extension no engine writes markers into is kept whole", () => {
+    mkdirSync(join(cwd, ".agents/skills/x"), { recursive: true });
+    writeFileSync(join(cwd, ".agents/skills/x/notes.txt"), navoriAuthored("n", "body"));
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(existsSync(join(cwd, ".agents/skills/x/notes.txt"))).toBe(true);
+    expect(result.keptEngineOutputs).toContainEqual({
+      path: ".agents/skills/x/notes.txt",
+      reason: "modified",
+    });
+  });
+
+  it("another engine's scaffold line is the user's text in this file", () => {
+    // `# Copilot instructions` is Copilot's title, not AGENTS.md's.
+    writeFileSync(join(cwd, "AGENTS.md"), `${AGENTS_MD}\n# Copilot instructions\n`);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe("\n# Copilot instructions\n");
+    expect(result.strippedEngineOutputs).toContain("AGENTS.md");
+  });
+
+  it("CRLF files leave no stray carriage return where a block was", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), `${AGENTS_MD.trimEnd()}\r\nmio\r\n`);
+
+    runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe("mio\r\n");
+  });
+
+  it("a marker that does not pair cleanly keeps the whole file, reported as modified", () => {
+    const unclosed = `<!-- navori:managed id="x" hash="abc" version="${readCliVersion()}" -->\nmio\n`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${AGENTS_MD}${unclosed}`);
+    const original = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(original);
+    expect(result.keptEngineOutputs).toContainEqual({ path: "AGENTS.md", reason: "modified" });
+    expect(result.strippedEngineOutputs).not.toContain("AGENTS.md");
+    expect(result.prunedEngineOutputs).not.toContain("AGENTS.md");
   });
 });

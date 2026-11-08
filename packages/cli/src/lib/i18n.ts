@@ -683,6 +683,9 @@ interface RenderCmdStrings {
   prunedEngineOutputs: (count: number, list: string) => string;
   /** Same list, before anything is deleted: `--prune` without `--apply` (#521). */
   prunePreviewEngineOutputs: (count: number, list: string) => string;
+  /** Files kept with only the managed blocks removed — the user's text survives (#1604). */
+  prunedStrippedOutputs: (count: number, list: string) => string;
+  prunePreviewStrippedOutputs: (count: number, list: string) => string;
   keptEngineOutputs: (count: number, list: string) => string;
   /** The spared half of that same preview plan (#521). */
   keptEngineOutputsPreview: (count: number, list: string) => string;
@@ -1830,6 +1833,12 @@ const CMD_ES: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Borré archivos huérfanos de engines desactivados (${count}) — solo los que escribió ` +
       `navori (llevan su marcador), respaldados antes de borrar:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Quité los bloques de navori de ${count} archivo(s) de engines desactivados y conservé ` +
+      `tu texto — el archivo sigue ahí, respaldado antes de reescribirlo:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `Con --apply quitaría los bloques de navori de ${count} archivo(s) de engines ` +
+      `desactivados y conservaría tu texto, con respaldo previo. Este preview no tocó nada:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `Con --apply borraría ${count} archivo(s) huérfanos de engines desactivados — solo los ` +
       `que escribió navori (llevan su marcador), y los respalda antes de borrar. Este preview ` +
@@ -3225,6 +3234,12 @@ const CMD_EN: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Deleted orphaned files from disabled engines (${count}) — only the ones navori wrote ` +
       `(they carry its marker), backed up before deletion:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Removed navori's blocks from ${count} file(s) of disabled engines and kept your text — ` +
+      `the file stays, backed up before it was rewritten:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `With --apply this would remove navori's blocks from ${count} file(s) of disabled engines ` +
+      `and keep your text, backed up first. This preview touched nothing:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `With --apply this would delete ${count} orphaned file(s) from disabled engines — only ` +
       `the ones navori wrote (they carry its marker), backed up before deletion. This preview ` +

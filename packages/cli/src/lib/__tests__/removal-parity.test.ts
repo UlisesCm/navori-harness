@@ -390,7 +390,9 @@ describe("the inventory of delete paths is complete (#496)", () => {
     // ── The three that judge a file the USER may own: shared criterion. ──
     "commands/render.ts":
       "route B — planOrphanRemoval → isRemovableNavoriFile, file by file; its `keepRule` " +
-      "applies retiredAssetKeepReason to retired plugin scripts first",
+      "applies retiredAssetKeepReason to retired plugin scripts first. #1604: a file that also " +
+      "holds the user's text outside the blocks is NOT deleted — plan.strip rewrites it " +
+      "(writeFileAtomic, backed up first) without its managed blocks",
     "engines/shared/execute-plan.ts":
       "route A — collectOrphans → isRemovableNavoriFile; a scan's optional `keep` rule " +
       "(the Codex .codex/scripts scan: retiredAssetKeepReason) runs first",
@@ -413,7 +415,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "navoriAuthorship answers `ours` under requirePristine (+ normalize) and every block " +
       "hash verifies; anything else is kept and reported",
     "lib/render/removable.ts":
-      "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty)",
+      "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty), plus " +
+      "stripManagedBlocks (#1604: the rewrite path — cuts only the managed blocks, keeps the rest)",
 
     // ── Paths that are navori's OWN, not the user's content. ──
     "lib/primitives/atomic.ts": "removes the `.tmp` file it just wrote, when the rename fails",
@@ -538,7 +541,17 @@ describe("an orphaned DIRECTORY is emptied of navori's files only", () => {
       preset: "custom",
     });
     mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
-    writeFileSync(join(cwd, ".codex/config.toml"), FIXTURES.navori);
+    // `.toml` files carry shell-style markers, as the Codex engine writes them.
+    writeFileSync(
+      join(cwd, ".codex/config.toml"),
+      injectManagedSection(
+        "",
+        "parity",
+        "managed body\n",
+        { version: readCliVersion(), source: "@navori/core" },
+        "shell",
+      ).output,
+    );
     writeFileSync(join(cwd, ".codex/agents/mio.toml"), FIXTURES.foreign);
     // A symlink is the user's, whatever it points at — never followed out of the
     // tree, never removed, even when its TARGET carries navori's marker.
