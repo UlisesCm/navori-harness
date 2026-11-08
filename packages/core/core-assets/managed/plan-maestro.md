@@ -1,3 +1,3 @@
 ## Master plan — explicit request only
 
-Do not start, advance, close, or open a master-plan stage on your own initiative. Act only when the user explicitly asks. When asked, map the requested work to its `P<n>` part in the active stage, treat that part as level 3, and follow the "Spec de una parte" procedure in the `master-plan` skill. Run `navori master status` before closing the session to regenerate `STATUS.md`. Do not force work outside the master plan into a part.
+Do not create, advance or change a master plan on your own initiative: act only when the user explicitly asks, then follow the `master-plan` skill. The plan is `{{sdd.specsDir}}/_plan/PLAN.md` and slice state is derived from git — read it with `navori master status`, never from a file you keep. Never run `navori master accept` or `reject`: only the user records a verdict. Work outside the plan (fixes, chores, hotfixes) needs no slice.

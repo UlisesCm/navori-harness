@@ -21,7 +21,7 @@ it("smoke integrated: first stage, close, second stage, conversion and full deli
   const json = (path: string): Record<string, unknown> =>
     JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
   expect(JSON.parse(master("status", "--json"))).toMatchObject({ stage: null, lastClosed: null });
-  master("init", "first");
+  master("init", "first", "--workflow", "legacy");
   master("mode", "template");
   const first = join(cwd, "specs/_master/01-first");
   // Seed authored plan output; transitions and dispositions still use the real CLI.
@@ -66,7 +66,7 @@ it("smoke integrated: first stage, close, second stage, conversion and full deli
   expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
   master("close");
   expect(json(join(first, "state.json"))).toMatchObject({ outcome: "entregada" });
-  master("init", "second");
+  master("init", "second", "--workflow", "legacy");
   const second = join(cwd, "specs/_master/02-second");
   expect(json(join(second, "state.json"))).toMatchObject({ mode: "en-curso" });
   expect(cli(cwd, "master", "mode", "template").code).toBe(1);

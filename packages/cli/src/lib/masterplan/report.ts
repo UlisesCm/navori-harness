@@ -4,11 +4,13 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_LANG, tc, type Lang } from "../i18n.ts";
 import { checkPlan } from "./plan.ts";
 import {
   PlanStateError,
   checkIncoming,
   planPath,
+  readPlan,
   readPlanState,
   type PlanState,
   type SliceStatus,
@@ -25,6 +27,9 @@ export interface StatusOptions {
   qa?: boolean;
   json?: boolean;
   fetch?: boolean;
+  /** One line of local state (no fetch) for the SessionStart hook. */
+  line?: boolean;
+  lang?: Lang;
 }
 
 export interface CheckOptions {
@@ -78,8 +83,31 @@ export function guarded(fn: () => CommandOutput): CommandOutput {
   }
 }
 
+/** Max slice ids named in the line, so it stays far under the hook's 600-char budget. */
+const LINE_IDS = 6;
+
+/** The single local-state line: slice counts by state plus open rejection tasks. */
+function planLine(cwd: string, lang: Lang): string {
+  const tr = tc(lang).master;
+  if (readPlan(cwd).slices.length === 0) return tr.lineEmpty;
+  const { slices } = readPlanState(cwd, { fetch: false });
+  const counts = new Map<string, number>();
+  for (const s of slices) counts.set(s.state, (counts.get(s.state) ?? 0) + 1);
+  const open = slices.filter((s) => s.notes.length > 0);
+  const ids = open.slice(0, LINE_IDS).map((s) => s.id);
+  const tasks = open.length
+    ? tr.lineTasks(
+        open.reduce((n, s) => n + s.notes.length, 0),
+        ids.join(", ") + (open.length > LINE_IDS ? ", …" : ""),
+      )
+    : "";
+  return tr.line([...counts].map(([state, n]) => `${n} ${state}`).join(" · "), tasks);
+}
+
 export function runPlanStatus(cwd: string, options: StatusOptions): CommandOutput {
   return guarded(() => {
+    if (options.line)
+      return { stdout: `${planLine(cwd, options.lang ?? DEFAULT_LANG)}\n`, stderr: "", code: 0 };
     const state = readPlanState(cwd, { fetch: options.fetch });
     const warnings = state.warnings.map((w) => `aviso: ${w}\n`);
     if (options.json)

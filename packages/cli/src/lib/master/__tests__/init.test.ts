@@ -531,7 +531,7 @@ describe("runMasterInit — slug reuse (R22)", () => {
 describe("navori master init — context guidance", () => {
   it("prints the repo-relative raw/ path when the phase is context", async () => {
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    await master("init", "mvp");
+    await master("init", "mvp", "--workflow", "legacy");
     const out = write.mock.calls.map((c) => String(c[0])).join("");
     write.mockRestore();
     expect(out).toContain("specs/_master/01-mvp/context/raw/");

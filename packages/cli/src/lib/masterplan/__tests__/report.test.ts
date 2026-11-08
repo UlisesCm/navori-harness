@@ -70,6 +70,36 @@ describe("runPlanStatus", () => {
     expect(out.stderr).toMatch(/S2 sin guion/);
   });
 
+  it("--line is one local line with the counts, open rejection tasks and no fetch", () => {
+    git(repo, "remote", "set-url", "origin", join(repo, "no-such-remote"));
+    const out = runPlanStatus(repo, { line: true, fetch: true });
+    expect(out.code).toBe(0);
+    expect(out.stderr).toBe("");
+    expect(out.stdout).toMatch(/^Plan maestro — estado local, sin fetch: 2 integrado\. Detalle/);
+    expect(out.stdout.trim()).not.toContain("\n");
+    expect(runPlanStatus(repo, { line: true, lang: "en" }).stdout).toMatch(/^Master plan — local/);
+  });
+
+  it("--line counts rejection notes as tasks and handles an empty index", () => {
+    const mark = (n: number): void => {
+      git(repo, "checkout", "-q", "--orphan", "navori/acceptance");
+      writeFileSync(
+        join(repo, "acceptance.jsonl"),
+        `${JSON.stringify({ id: "S2", verdict: "rejected", at: "2026-01-01T00:00:00Z", env: "qa", commit: git(repo, "rev-parse", "qa").trim(), by: "user", notes: Array.from({ length: n }, (_, i) => `n${i}`) })}\n`,
+      );
+      git(repo, "add", "acceptance.jsonl");
+      git(repo, "commit", "-q", "-m", "log");
+      git(repo, "checkout", "-q", "qa");
+    };
+    mark(2);
+    const out = runPlanStatus(repo, { line: true });
+    expect(out.stdout).toMatch(
+      /1 integrado · 1 en curso; 2 tarea\(s\) abierta\(s\) de rechazo \(S2\)/,
+    );
+    writeFileSync(join(repo, "specs", "_plan", "PLAN.md"), "# Plan: x\n\n## Slices\n\n");
+    expect(runPlanStatus(repo, { line: true }).stdout).toMatch(/sin fetch: índice vacío/);
+  });
+
   it("prints JSON and the detail of one slice", () => {
     expect(JSON.parse(runPlanStatus(repo, { json: true }).stdout).counted).toEqual(["S1", "S2"]);
     expect(runPlanStatus(repo, { id: "S9" }).code).toBe(1);

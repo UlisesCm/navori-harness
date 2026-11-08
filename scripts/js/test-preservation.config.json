@@ -166,6 +166,173 @@
           "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
         }
       ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/skills-assets.test.ts",
+      "removedCases": [
+        {
+          "title": "is a model-invoked reference skill with an explicit word budget",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "covers sdd.enabled false, confirmation variants and declares why it exceeds the cap",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "puts the explicit-request lock first and does not treat SessionStart as consent",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "checks prerequisites and announces the complete first-run workflow before init",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "routes active, new, and blocked stages without reopening an active one",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "opens stages after confirmation, registering only the first-stage choice and inheriting later mode",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "enforces per-phase checks, delegated plans, deferred scope, and evidence-based synthesis",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "requires rigorous plans and maps each part criterion into its spec",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "creates only confirmed GitHub issues and records acceptance evidence",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "asks for delivery, resolves unfinished parts, then closes, converts, or abandons",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R1",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R2",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R5",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R6",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R7",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R16",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R17",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R18",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R19",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R20",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R25",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R26",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R27",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R28",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R51",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R56",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/workflow-compatibility.test.ts",
+      "removedCases": [
+        {
+          "title": "makes the canonical skill consume architectContext from status JSON without the stale name",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "inherits en-curso from init for stages >= 2 without calling mode, preserving first-stage consent",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "routes default legacy and deliveries explicitly after readonly status using supported commands",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "el skill indica check --part P<n>, commit antes de --accept, template parts, status tras marcar tareas y evidenceBlockers antes de cerrar",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "master-plan lista los subcomandos que mutan, la apertura deliveries y delivery-revoke",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R5",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R6",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R14",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R17",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "token": "R46",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/commands/__tests__/master-first-use.test.ts",
+      "removedCases": [
+        {
+          "title": "extracts forms that the scenario runs at least once",
+          "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        }
+      ]
     }
   ],
   "merges": [

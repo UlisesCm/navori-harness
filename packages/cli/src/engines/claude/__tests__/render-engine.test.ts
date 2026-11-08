@@ -1111,16 +1111,12 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
   });
 
   // Covers: R21, R23
-  it("master-plan clasifica specs: the skill cites classify, delivery rules and the E<n> id", () => {
+  it("master-plan skill is the v2 flow: PLAN.md index, spec check and user-only verdicts", () => {
     renderClaudeEngine(cwd, { ...CONFIG_FULL, harness: { masterPlan: true } } as NavoriConfig);
     const skill = readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf-8");
-    // Every spec of a part is classified, then split with the delivery rules.
-    expect(skill).toContain("navori spec classify");
-    expect(skill).toContain("sdd.deliveries");
-    // `E<n>` is the PR unit and shares its id with `parts.json`; `spec check` validates it.
-    expect(skill).toContain("E<n>");
-    expect(skill).toContain("parts.json");
     expect(skill).toContain("navori spec check");
+    expect(skill).toContain("navori master check");
+    expect(skill).toContain("--approved-by user");
   });
 
   // Covers: R21, R23

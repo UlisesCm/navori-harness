@@ -13,7 +13,6 @@ import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { renderCodexEngine } from "../../codex/index.ts";
 import { simulateContextDelivery } from "../../../lib/assets/doc-budgets.ts";
-import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { readConfig, writeConfig, type NavoriConfig } from "../../../lib/config/config.ts";
 
 const base = {
@@ -72,48 +71,9 @@ describe("master-plan canonical prose rendering", () => {
       expect(withUserProse).toBe(`${fresh}${userProse}`);
       render();
       expect(readFileSync(path, "utf8")).toBe(withUserProse);
-      expect(withUserProse.match(/contextForArchitects/g)).toBeNull();
-      expect(withUserProse).toContain("incluye `architectContext` de `status --json`");
-      expect(withUserProse).toContain("El campo `architectContext` es la fuente de estas rutas");
-      expect(withUserProse).toContain(
-        "En `architectContext`, conserva explícitamente la lista de etapas",
-      );
-
-      // Canonical tests own semantics; this checks full paragraph fidelity,
-      // including first-stage consent, through each engine's conditional expansion.
-      const canonical = readFileSync(
-        join(getCoreRoot(), "core-assets/skills/master-plan.md"),
-        "utf8",
-      );
-      const route = canonical.slice(
-        canonical.indexOf("## Ruteo de etapa"),
-        canonical.indexOf("## Aviso de inicio"),
-      );
-      expect(
-        withUserProse.slice(
-          withUserProse.indexOf("## Ruteo de etapa"),
-          withUserProse.indexOf("## Aviso de inicio"),
-        ),
-      ).toBe(route);
-      const expectedNotice = canonical
-        .slice(canonical.indexOf("## Aviso de inicio"), canonical.indexOf("## Mensaje de fase"))
-        .replace(
-          /<!-- navori:if onClaude -->([\s\S]*?)<!-- \/navori:if -->/g,
-          engine === "claude" ? "$1" : "",
-        )
-        .replace(
-          /<!-- navori:if-not onClaude -->([\s\S]*?)<!-- \/navori:if-not -->/g,
-          engine === "claude" ? "" : "$1",
-        );
-      expect(expectedNotice).toContain("Solo para la primera etapa");
-      expect(expectedNotice).not.toContain("<!-- navori:if");
-      const renderedNotice = withUserProse.slice(
-        withUserProse.indexOf("## Aviso de inicio"),
-        withUserProse.indexOf("## Mensaje de fase"),
-      );
-      expect(renderedNotice).toBe(expectedNotice);
-      const laterInstruction = renderedNotice.match(/En etapas posteriores[^.]*\./)?.[0];
-      expect(laterInstruction).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
+      // The rendered skill is the v2 flow, with the engine's tool names resolved.
+      expect(withUserProse).toContain("navori master init <slug>");
+      expect(withUserProse).not.toContain("<!-- navori:if");
     },
   );
 });

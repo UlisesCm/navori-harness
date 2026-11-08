@@ -17,7 +17,8 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
-import { resolveLang } from "../lib/i18n.ts";
+import { resolveLang, tc } from "../lib/i18n.ts";
+import { runPlanInit } from "../lib/masterplan/init.ts";
 import { recordVerdicts } from "../lib/masterplan/accept.ts";
 import {
   type CommandOutput,
@@ -94,8 +95,21 @@ function rejectMutationStage(stage: string | undefined): void {
     );
 }
 
+/** A v1 stage is open: `init` keeps resuming it instead of creating a v2 plan. */
+function hasActiveV1Stage(cwd: string): boolean {
+  try {
+    const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
+    return activeStage(readMasterIndex(cwd, specsDir)) !== null;
+  } catch {
+    return false;
+  }
+}
+
 const initSubCommand = defineCommand({
-  meta: { name: "init", description: "Open, or complete, the active master-plan stage (R3, R5)" },
+  meta: {
+    name: "init",
+    description: "Create the master plan (PLAN.md); --workflow legacy|deliveries opens a v1 stage",
+  },
   args: {
     slug: {
       type: "positional",
@@ -110,6 +124,17 @@ const initSubCommand = defineCommand({
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
+    if (!args.workflow) {
+      if (!hasActiveV1Stage(cwd)) {
+        emit(runPlanInit(cwd, args.slug || undefined));
+        return;
+      }
+      const configFile = join(cwd, "navori.config.json");
+      const lang = resolveLang(
+        existsSync(configFile) ? readConfig(configFile).language : undefined,
+      );
+      process.stderr.write(`[navori] ${tc(lang).master.initLegacyActive}\n`);
+    }
     try {
       if (args.workflow && args.workflow !== "legacy" && args.workflow !== "deliveries")
         throw new MasterInitError(
@@ -525,7 +550,17 @@ const statusSubCommand = defineCommand({
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     if (hasPlan(cwd)) {
-      emit(runPlanStatus(cwd, { id: args.id, qa: args.qa, json: args.json, fetch: args.fetch }));
+      const configFile = join(cwd, "navori.config.json");
+      emit(
+        runPlanStatus(cwd, {
+          id: args.id,
+          qa: args.qa,
+          json: args.json,
+          fetch: args.fetch && !args.line,
+          line: args.line,
+          lang: resolveLang(existsSync(configFile) ? readConfig(configFile).language : undefined),
+        }),
+      );
       return;
     }
     try {

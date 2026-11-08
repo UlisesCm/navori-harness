@@ -288,7 +288,6 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "gh pr ready",
     "takes a PR out of draft — the step the CI evidence (`navori receipt ci`) gates; the prompt keeps the user as the last confirmation before reviewers see it",
   ],
-  ["gh auth login", "interactive credential flow — the prose addresses the human, not the agent"],
   [
     "git worktree remove",
     "deletes a full checkout; the orchestrator block orders asking the user first, so the prompt IS the intended gate",
@@ -336,16 +335,8 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
   ],
   [
-    "navori master delivery-check",
-    "read-only preparation check; this opt-in deliveries route retains its existing prompt rather than granting global pre-approval through a documentation change",
-  ],
-  [
-    "navori master delivery-slice",
-    "writes the authorized part's workplan projection; refresh can reset pending criteria and requires explicit user approval, so the write keeps its prompt",
-  ],
-  [
-    "navori master delivery-present",
-    "writes a technically reviewed presentation identity and review phase; this state mutation keeps its prompt and never records client acceptance",
+    "navori master accept",
+    "the master-plan skill names the command the user runs to record a verdict; only the user accepts, and the master-accept-confirm hook asks on purpose (spec 0063)",
   ],
   [
     "navori gate",
