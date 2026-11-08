@@ -288,8 +288,8 @@ de gates, y un cambio de rama en una mueve a la otra. Regla: **una sesión, un w
 - Deja el checkout principal para revisar y mergear; no inicies ahí una sesión de trabajo.
 - Si una sesión del checkout principal trabaja en un worktree enlazado bajo `.claude/worktrees/` (#1575),
   `navori_subagent` revisa el plan gate y los handoffs en el checkout que tiene el estado de la feature: el de
-  la propia sesión si lo tiene; si no, el único worktree enlazado que lo tenga. Si son dos, bloquea el
-  despacho. Los hijos siguen arrancando en el checkout principal y reciben la ruta absoluta del handoff.
+  la propia sesión si solo ella lo tiene, o el único worktree enlazado que lo tenga. Si lo tienen el checkout
+  de la sesión y un worktree, o dos worktrees, bloquea el despacho y el mensaje dice qué copia sobra. Los hijos siguen arrancando en el checkout principal y reciben la ruta absoluta del handoff.
   Corre los criterios de aceptación como `cd <raíz absoluta del worktree> && <comando exacto>`: con
   cualquier otra forma no se registra evidencia.
 - `worktree-reclaim` borra un worktree solo cuando está limpio, empujado y con su PR mergeada (ver

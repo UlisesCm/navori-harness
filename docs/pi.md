@@ -428,8 +428,8 @@ gate cache, and a branch switch in one moves the other. Rule: **one session, one
 - Keep the main checkout for reviewing and merging; do not start a working session there.
 - If a session at the main checkout does work in a linked worktree under `.claude/worktrees/` (#1575),
   `navori_subagent` checks the plan gate and handoffs in the checkout that holds the feature's state: the
-  session's own checkout when it has it, otherwise the one linked worktree that does; two such worktrees
-  block the dispatch. Children still start at the main checkout and get the absolute handoff path. Run
+  session's own checkout when only it has it, or the one linked worktree that does. The session checkout
+  plus a worktree, or two worktrees, block the dispatch, and the message says which copy is extra. Children still start at the main checkout and get the absolute handoff path. Run
   acceptance criteria as `cd <absolute worktree root> && <exact command>`: any other shape records no
   evidence.
 - `worktree-reclaim` removes a worktree only when it is clean, pushed and its PR is merged (see
