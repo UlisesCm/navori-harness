@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="27b959b75f1ee926f07cd83531257d90e19a791aa50c5b69a00cfbe7fc46abbc"
+// navori:managed-file id="pi-extension" hash="ebf8c922a35839ced38cb1c8866f8d1349f61162ccbbe584afbf6a5851d8e095"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -269,12 +269,18 @@ function linkedWorktrees(cwd: string): string[] {
 /**
  * Checkout whose state the gate and handoff checks read for a feature (#1575). Pi runs every tool from the session
  * root, so an orchestrator working in a linked worktree would otherwise be checked against the root's state. The
- * session checkout wins when it holds the feature; otherwise the one linked worktree that does. Two such worktrees
- * fail closed. The CLI keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
+ * session checkout is used when only it holds the feature, and the one linked worktree when only that one does. The
+ * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
  */
 function featureCheckout(cwd: string, feature: string): string {
-  if (holdsFeature(cwd, feature)) return cwd;
   const owners = linkedWorktrees(cwd).filter((path) => holdsFeature(path, feature));
+  if (holdsFeature(cwd, feature)) {
+    if (owners.length) {
+      throw new Error("Navori: feature " + feature + " has state in the session checkout and in linked worktree "
+        + owners.join(", ") + "; the session checkout's copy is extra: archive it, or start the session in the worktree");
+    }
+    return cwd;
+  }
   if (owners.length > 1) {
     throw new Error("Navori: feature " + feature + " has state in " + owners.length + " linked worktrees ("
       + owners.join(", ") + "); keep it in one, or start the session in the one that owns it");
