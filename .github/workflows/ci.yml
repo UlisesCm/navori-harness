@@ -143,9 +143,12 @@ jobs:
       # Spec 0055 R21 — a test case may not disappear unannounced: every `*.test.ts` changed or
       # deleted against the merge-base with `origin/dev` keeps its cases and `// Covers:` tokens,
       # or declares the removal (with a reason) in `scripts/js/test-preservation.config.json`.
-      # On a push to `dev` the merge-base is HEAD, so the step is trivial there.
+      # On a push to `dev` the merge-base is HEAD, so the step is trivial there. A PR to `dev`
+      # compares against the event's base SHA, not the live tip of `origin/dev` (#1566).
       - name: Test cases are preserved or their removal is declared
-        run: bun run check:tests-preserved
+        env:
+          PR_BASE_SHA: ${{ github.base_ref == 'dev' && github.event.pull_request.base.sha || '' }}
+        run: bun run check:tests-preserved ${PR_BASE_SHA:+--base "$PR_BASE_SHA"}
 
   plan:
     if: github.event_name == 'pull_request' && github.base_ref == 'dev' && (github.event.action != 'labeled' || github.event.label.name == 'full')
@@ -165,7 +168,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - id: plan
         env:
-          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           node packages/cli/scripts/test-affected.mjs --plan-json > "$RUNNER_TEMP/affected-plan.json"
           node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (typeof p.full !== "boolean") throw Error("invalid plan"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "full=" + p.full + "\n")' "$RUNNER_TEMP/affected-plan.json"
@@ -267,7 +270,7 @@ jobs:
         run: bun run ensure-dist
       - name: Affected subset
         env:
-          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
           NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-affected.json
         run: node packages/cli/scripts/test-affected.mjs
       - name: Affected time budget
