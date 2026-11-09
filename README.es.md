@@ -220,12 +220,26 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
 # 421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
 4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3. Va en
    `dev`, por PR a `dev` como cualquier ticket.
-5. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
+5. Antes del PR `dev` → `main`, revisa la punta de `dev` en un clon desechable bajo tu home:
+   `render --apply` no reporta cambios, `navori gate full` sale en verde y semgrep corre con los
+   argumentos del CI. El CI solo corre semgrep en PRs y pushes a `main`, así que los PRs a `dev`
+   nunca ven sus hallazgos; en 0.12.4 aparecieron recién en el PR a `main` (#1612, arreglado en #1613).
+
+```bash
+   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" semgrep/semgrep \
+     semgrep scan --config p/default --error --metrics=off \
+     --baseline-commit "$(git merge-base HEAD origin/main)"
+```
+
+   Usa un clon, no tu árbol de trabajo: el modo baseline saca la base y restaura los archivos, lo
+   que cambia su mtime (y, sin `--user`, los deja como de root). Docker instalado como snap no puede
+   montar `/tmp`.
+6. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
    siguiente release no arrastra historia reescrita. Tras el merge, `dev` queda por detrás del merge
    commit: avánzalo a `main` (fast-forward) para que ambas ramas coincidan.
-6. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
+7. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
    `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre el HEAD de
-   ese push (el merge commit del paso 5, que contiene el commit `chore(release)`) si no existe ya.
+   ese push (el merge commit del paso 6, que contiene el commit `chore(release)`) si no existe ya.
    Es idempotente, así que re-correrlo no hace nada.
 
    Está automatizado porque el paso se saltó en **0.8.4 y en 0.8.5**, y el segundo fue
@@ -234,10 +248,11 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
    lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
    que ya va en 0.8.4, y no falla nada.
 
-   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`.
+   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 6> && git push origin vX.Y.Z`.
    Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
    como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-7. `npm publish` desde `packages/cli`.
+8. En `main`, tras el merge, `npm publish` desde `packages/cli` (antes `npm login`; `prepack`
+   construye `dist/`). Compruébalo con `npm view navori version`.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en
