@@ -24,7 +24,21 @@
       ]
     },
     {
-      "path": "packages/cli/src/lib/master/__tests__/slice.test.ts"
+      "path": "packages/cli/src/lib/master/__tests__/slice.test.ts",
+      "removedCases": [
+        {
+          "title": "rejects stale source at the dispatch gate, even with level-2 artifacts",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "uses explicit CLI checkout for projection and stale plan validation",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "captures at index production and retains proof across only its lifecycle write",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
     },
     {
       "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts"
@@ -331,6 +345,274 @@
         {
           "title": "extracts forms that the scenario runs at least once",
           "reason": "spec 0063 T3: la doctrina v1 de la skill se reemplazó"
+        },
+        {
+          "title": "recovers CLI init with a persisted legacy flag and missing engine artifacts",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "reports ok:false as nonzero without success guidance, then repairs on retry",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "init without --workflow resumes an active v1 stage and warns instead of creating PLAN.md",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "walks status -> init -> mode -> check/advance -> part --accept -> status -> close",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "records the ux decision, abandons, and converts in their own repos",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "records advance (block), part --accept and close",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "tras part --state, --spec, --issue y --accept no hay drift de STATUS.md",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "con cierre iniciado part, advance y ux piden reanudar con close sin escribir",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "fallo de regeneración tras --accept conserva parts.json y el evento master-part-accept y dice Repare con navori master status",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "writes nothing without a session id (fail-open)",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R1",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "token": "R2",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "token": "R7",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "token": "R8",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "token": "R21",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/commands/__tests__/master-delivery.test.ts",
+      "removedCases": [
+        {
+          "title": "smoke integrated: first stage, close, second stage, conversion and full deliveries lifecycle",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "keeps explicit empty references invalid under the real strict schema",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "does not infer operator consent when approved-by is omitted",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "passes delivery-revoke consent through and refuses it when omitted",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "passes delivery-review artifacts and consent to the technical capture",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "passes delivery-present the delivery id only",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "passes delivery-criterion approval only when the operator supplies it",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "passes delivery-publication its attested reference and rejects a merge kind",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "rejects an unknown delivery-queue transition before any authorization",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "does not turn a general implementation request into baseline or queue authority",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "delivery-criterion sin workplan nombra la ruta relativa sin ENOENT ni ruta absoluta",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R15",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "token": "R35",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/engines/claude/__tests__/master-accept-confirm.test.ts",
+      "removedCases": [
+        {
+          "title": "asks for delivery baseline and bounded queue approvals",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "ignores --accept of a test criterion (--command … --result …)",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "ignores --accept of a comando criterion",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "asks on navori master part P2 --accept A3 --approved-by user (main thread)",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "asks on chained cd x && navori master part … --approved-by user",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "asks on chained true; navori master part … --approved-by user",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "asks on subshell (navori master part … --approved-by user)",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "asks on command substitution $(navori master part … --approved-by user)",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/checks.test.ts",
+      "removedCases": [
+        {
+          "title": "the existing CLI handler reports the durable phase and status-only repair",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "cannot set mode once past the context phase",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/close.test.ts",
+      "removedCases": [
+        {
+          "title": "records the choice in phase ux and regenerates STATUS.md in the same operation",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "re-choosing in phase ux overwrites the decision",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "rejects outside phase ux (including executing) without writing",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/delivery-checks.test.ts",
+      "removedCases": [
+        {
+          "title": "maps a spec to its deliveries with their git targets, read-only",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "returns null for specs outside master-plan deliveries mode",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R22",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/init.test.ts",
+      "removedCases": [
+        {
+          "title": "prints the repo-relative raw/ path when the phase is context",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "registers the mode for the first stage while phase is context",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "registers desde-cero for the first stage",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "names all three modes in the invalid-mode error",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/plan/__tests__/acceptance-index.test.ts",
+      "removedCases": [
+        {
+          "title": "captures qualified delivery authority before the hook runs, not during acceptance",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "projects a delivery slice once per plan, however many criteria it binds",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/spec/__tests__/check.test.ts",
+      "removedCases": [
+        {
+          "title": "still checks requirement coverage, unreadable requirements and master mappings",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "flags an E<n> that parts.json does not declare for the part",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "warns when the delivery target differs from prTarget, and stays silent otherwise",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "leaves specs outside master-plan unchanged",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        }
+      ],
+      "removedCovers": [
+        {
+          "token": "R22",
+          "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
         }
       ]
     }

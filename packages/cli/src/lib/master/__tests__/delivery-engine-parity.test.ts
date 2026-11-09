@@ -69,39 +69,31 @@ function hookPayload(engine: Engine, cwd: string, command: string): string {
 }
 
 const approvals: readonly string[] = [
-  "npx --yes navori@latest master delivery-baseline --approved-by=user",
-  "/opt/bin/navori master delivery-queue --parts P1 --approved-by user --delivery E1",
-  "true && bunx navori master delivery-baseline --approved-by 'user'",
-  "(pnpm dlx navori master delivery-queue --delivery E1 --parts P1 --approved-by=user)",
-  "answer=$(./node_modules/.bin/navori master delivery-baseline --approved-by user)",
-  "navori master delivery-check; pnpm exec navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
+  "npx --yes navori@latest master accept S1 --approved-by=user",
+  "/opt/bin/navori master reject S2 --notes a --approved-by user",
+  "true && bunx navori master accept S1 --approved-by 'user'",
+  "(pnpm dlx navori master reject S2 --notes a --approved-by=user)",
+  "answer=$(./node_modules/.bin/navori master accept S1 --approved-by user)",
+  "navori master status; pnpm exec navori master accept S1 D2 --approved-by user",
+];
+
+const nonApprovals: readonly string[] = [
+  // Spec 0063 T6: the v1 write forms are refused by the CLI, so no adapter asks on them.
   "navori master part P1 --accept A1 --approved-by user",
   "navori master close --abandon --reason fixture",
+  "navori master delivery-baseline --approved-by user",
+  "navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
   "navori master delivery-review --part P1 --report report.txt --envelope review.json --approved-by user",
-  "echo ready && pnpm exec navori master delivery-review --part P1 --approved-by=user",
   "navori master delivery-decision --delivery E1 --identity fixture --decision accepted --approved-by user",
-  "navori master delivery-decision --delivery E1 --identity fixture --decision declined --reason fixture --approved-by user",
-  "navori master delivery-decision --delivery E1 --identity fixture --decision deferred --reason fixture --approved-by user",
-  "navori master delivery-decision --delivery E1 --identity fixture --decision discarded --reason fixture --approved-by user",
   "bunx navori master delivery-publication --delivery E1 --kind release --reference v1 --approved-by user",
   "navori master delivery-revoke --approved-by user",
   "navori master delivery-criterion --part P1 --criterion A2 --approved-by=user",
   "navori master delivery-slice --part P1 --refresh --approved-by user",
-];
-
-const nonApprovals: readonly string[] = [
-  "navori master delivery-queue --delivery E1 --parts P1; echo --approved-by user",
-  "navori master delivery-check && echo --approved-by=user",
-  "/opt/bin/not-navori master delivery-baseline --approved-by user",
-  "navori master delivery-baseline-preview --approved-by user",
-  "navori master part P1 --accept A1 --command 'bun test' --result pass",
+  "navori master status && echo --approved-by=user",
+  "navori master accept-preview --approved-by user",
   "navori plan check feature && navori master status --json",
   "navori master delivery-present --delivery E1",
-  "navori master delivery-slice --part P1",
-  "navori master delivery-criterion --part P1 --criterion A1",
-  "navori master delivery-criterion --part P1 --criterion A1; echo --approved-by user",
-  "navori master delivery-review-preview --part P1 --approved-by user",
-  "navori master delivery-slice --part P1; echo --refresh",
+  "navori master delivery-check && echo --approved-by=user",
 ];
 
 // These are installed-script fixtures, not host-hook live probes or user attestations.

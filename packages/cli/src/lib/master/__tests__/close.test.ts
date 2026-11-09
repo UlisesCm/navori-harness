@@ -19,7 +19,7 @@ import { checkClosedStage } from "../checks.ts";
 import { readConfig } from "../../config/config.ts";
 import { runRender } from "../../../commands/render.ts";
 import { changeMasterPart } from "../part.ts";
-import { runMasterAdvance, runMasterCheck } from "../checks.ts";
+import { runMasterAdvance } from "../checks.ts";
 import { readMasterStatus, renderStatusMd, writeMasterStatus } from "../status.ts";
 import { masterCommand } from "../../../commands/master.ts";
 import { runCommand } from "citty";
@@ -424,7 +424,7 @@ describe("master close", () => {
       /disabled|no active|closed/,
     );
     expect(() => runMasterAdvance(cwd)).toThrow(/no hay etapa activa/);
-    expect((await invoke(["mode", "en-curso"])).error).toContain("no active stage");
+    expect((await invoke(["mode", "en-curso"])).error).toContain("navori master migrate");
     for (const command of [
       ["part", "P1", "--state", "hecho", "--stage", "01-mvp"],
       ["advance", "--stage", "01-mvp"],
@@ -538,7 +538,7 @@ describe("close --reason without --abandon/--convert", () => {
     expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/--reason/);
     const cli = await invoke(["close", "--reason", "x"]);
     expect(cli.exitCode).toBe(1);
-    expect(cli.error).toContain("--reason");
+    expect(cli.error).toContain("navori master migrate");
     expect(listStageFiles()).toEqual(before);
     expect(read("state.json")).toBe(state);
     expect(readFileSync(join(root(), "index.json"), "utf8")).toBe(indexBefore);
@@ -615,31 +615,14 @@ describe("late abandon without parts", () => {
 });
 
 describe("navori master ux", () => {
-  it("records the choice in phase ux and regenerates STATUS.md in the same operation", async () => {
-    seed("ux");
-    const result = await invoke(["ux", "none"]);
-    expect(result.exitCode).toBeUndefined();
-    expect(JSON.parse(read("state.json")).ux).toBe("none");
-    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd), "es"));
-    expect(read("STATUS.md")).toContain("UX: none");
-    expect(
-      runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
-    ).toEqual([]);
-  });
-
-  it("re-choosing in phase ux overwrites the decision", async () => {
-    seed("ux", "hecho", "none");
-    await invoke(["ux", "md"]);
-    expect(JSON.parse(read("state.json")).ux).toBe("md");
-  });
-
-  it("rejects outside phase ux (including executing) without writing", async () => {
-    for (const phase of ["mastered", "executing"]) {
+  // Spec 0063 T6: the v1 flow is read-only, so `ux` is refused in every phase and writes nothing.
+  it("refuses to record the choice in any phase without writing", async () => {
+    for (const phase of ["ux", "mastered", "executing"]) {
       seed(phase);
       const before = read("state.json");
       const result = await invoke(["ux", "md"]);
       expect(result.exitCode).toBe(1);
-      expect(result.error).toContain("phase 'ux'");
+      expect(result.error).toContain("navori master migrate");
       expect(read("state.json")).toBe(before);
       expect(existsSync(join(stage(), "STATUS.md"))).toBe(false);
     }

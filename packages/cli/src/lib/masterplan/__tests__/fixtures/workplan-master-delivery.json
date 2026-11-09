@@ -1,0 +1,43 @@
+{
+  "feature": "delivery-demo-slices-p1",
+  "level": 2,
+  "classification": {
+    "score": 2,
+    "level": 2,
+    "signals": ["root-dirs:5(+2)", "floor:shared-contract"]
+  },
+  "objective": "Un usuario de ejemplo completa el flujo de demostración sin ayuda.",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "El camino feliz pasa de punta a punta",
+      "command": "bun run test:e2e -- tests/e2e/demo-flow.spec.ts",
+      "expected": "Todas las pruebas passed, 0 failed"
+    }
+  ],
+  "outOfScope": ["Flujo alterno de ejemplo (P2)", "Otro flujo de ejemplo (P3)"],
+  "files": [
+    { "path": "Flujo de demostración de punta a punta", "new": false },
+    { "path": "Mensajes de ejemplo en dos idiomas", "new": false },
+    { "path": "Estados de error y sin conexión", "new": false },
+    { "path": "Reglas transversales: quality gate, contrato y accesibilidad", "new": false }
+  ],
+  "progress": {},
+  "decisions": [],
+  "source": {
+    "kind": "master-delivery",
+    "stageSlug": "demo-slices",
+    "deliveryId": "E1",
+    "partId": "P1",
+    "baselineIdentity": "1111111111111111111111111111111111111111111111111111111111111111",
+    "queueIdentity": "2222222222222222222222222222222222222222222222222222222222222222",
+    "authorityGeneration": 7,
+    "contractDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "sourceDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "designDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "masterDigest": "6666666666666666666666666666666666666666666666666666666666666666",
+    "criterionMap": {
+      "A1": "P1.A2"
+    }
+  }
+}

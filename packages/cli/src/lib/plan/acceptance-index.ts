@@ -17,8 +17,6 @@ import {
 } from "../primitives/state-root.ts";
 import { WorkplanSchema } from "./schema.ts";
 import { parseExpected } from "./expected.ts";
-import { deliveryCriterionCapture } from "../master/delivery.ts";
-import { resolveStateRoot } from "../primitives/state-root.ts";
 
 /** Where the hook looks (`$CLAUDE_PROJECT_DIR/.navori/state/handoffs`). */
 const NEUTRAL_DIR = ".navori/state/handoffs";
@@ -39,27 +37,9 @@ function linesForDir(dir: string): { lines: string[]; comparisons: string[] } {
     if (!/^workplan_.+\.json$/.test(name)) continue;
     try {
       const plan = WorkplanSchema.parse(JSON.parse(readFileSync(resolve(dir, name), "utf8")));
-      // Projection runs once per plan; a stale slice throws here and contributes no line.
-      const capture =
-        plan.source &&
-        plan.acceptance.some((criterion) => plan.progress[criterion.id] !== "cumplido")
-          ? deliveryCriterionCapture(
-              resolveStateRoot({ cwd: dir, feature: plan.feature, dir }).cwd,
-              plan.source,
-            )
-          : undefined;
       for (const criterion of plan.acceptance) {
         if (plan.progress[criterion.id] === "cumplido") continue;
-        const binding = capture?.(criterion.id, criterion.command);
-        if (binding) {
-          lines.push(
-            `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
-          );
-        } else {
-          lines.push(
-            `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`,
-          );
-        }
+        lines.push(`${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`);
         const spec = parseExpected(criterion.expected);
         if (spec.kind !== "free")
           comparisons.push(
@@ -68,8 +48,8 @@ function linesForDir(dir: string): { lines: string[]; comparisons: string[] } {
               feature: plan.feature,
               id: criterion.id,
               dir,
-              binding: binding ?? null,
-              stage: binding?.stagePath ?? "",
+              binding: null,
+              stage: "",
               expected: criterion.expected,
               spec,
             }) + "\n",

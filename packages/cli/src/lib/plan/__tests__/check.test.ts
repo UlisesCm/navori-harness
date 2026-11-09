@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkWorkplan, formatCheckResult } from "../check.ts";
-import type { Workplan } from "../schema.ts";
+import { WorkplanSchema, type Workplan } from "../schema.ts";
 
 const validLevel1: Workplan = {
   feature: "demo",
@@ -276,5 +276,24 @@ describe("checkWorkplan — R15 rules shared with the gate", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Spec 0063 T6: a v1 delivery workplan still parses but is no longer actionable.
+  it("parses a real v1 delivery workplan and fails with the migrate message", (): void => {
+    const raw: unknown = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../../masterplan/__tests__/fixtures/workplan-master-delivery.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(WorkplanSchema.safeParse(raw).success).toBe(true);
+    const result = checkWorkplan(raw, { feature: "delivery-demo-slices-p1" });
+    expect(result.ok).toBe(false);
+    expect(result.findings.map((f) => f.rule)).toContain("delivery-v1-workplan");
+    expect(formatCheckResult(result)).toContain("workplan de entrega v1");
+    expect(formatCheckResult(result)).toContain("corre navori master migrate");
   });
 });
