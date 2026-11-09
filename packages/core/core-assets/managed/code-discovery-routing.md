@@ -2,8 +2,8 @@
 
 Choose by the missing information, not by keywords or a fixed tool sequence.
 - Enough current evidence in this context: do not search.
-- Known file and a bounded local change: Read/Edit directly. Knowing a path does not answer relationship or impact questions.
-- Filename/path patterns: Glob.
+- Known file and a bounded local change: read/edit directly. Knowing a path does not answer relationship or impact questions.
+- Filename/path patterns: globbing.
 - Behavior, definitions, architecture, relationships or impact: structural discovery.
 - Strings, regex, comments, configuration or literal occurrences: textual discovery.
 - Use the enabled provider below; otherwise use scoped native search and reading.

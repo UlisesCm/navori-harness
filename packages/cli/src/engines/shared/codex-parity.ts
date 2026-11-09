@@ -838,6 +838,14 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "sdd",
       "tipado-fuerte",
     ]),
+    // Spec 0064: the Claude-only appendix is never written to Codex's AGENTS.md.
+    [
+      codexParityKey("managed-block", "claude-apendice"),
+      equivalente(
+        "not rendered on Codex: the neutral blocks it was split from carry the shared text",
+        "the Claude permission, tool and path specifics have no Codex counterpart",
+      ),
+    ],
     // Bundled plugins; the script-level gaps live on their plugin-script rows.
     ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "tgrep"]),
     [

@@ -4,7 +4,7 @@
   "description": "Textual code discovery through the tgrep CLI",
   "version": "0.0.1",
   "managed": [
-    { "id": "tgrep-search-v2", "file": "managed/tgrep-search-v2.md" }
+    { "id": "tgrep-search-v2", "file": "managed/tgrep-search-v2.md", "layer": "shared" }
   ],
   "externalTool": {
     "name": "tgrep",

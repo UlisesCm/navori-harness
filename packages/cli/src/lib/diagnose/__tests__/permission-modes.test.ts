@@ -120,7 +120,7 @@ describe("the harness names all six modes (#579, relocated by #813)", () => {
     "core",
     "core-assets",
     "managed",
-    "operaciones-seguras.md",
+    "claude-apendice.md",
   );
   const asset = readFileSync(ASSET, "utf-8");
 
