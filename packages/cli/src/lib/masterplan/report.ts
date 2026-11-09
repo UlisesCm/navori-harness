@@ -62,14 +62,14 @@ function header(state: PlanState): string {
   return `aceptación en ${env}${url ? ` (${url})` : ""}, rama ${branch} · destino ${target} · WIP ${state.counted.length}/${wip}${counted}`;
 }
 
-const fail = (message: string): CommandOutput => ({
+export const fail = (message: string): CommandOutput => ({
   stdout: "",
   stderr: `[navori] ${message}\n`,
   code: 1,
 });
 
 /** Runs `fn`, turning a fail-closed git error into exit 1. */
-function guarded(fn: () => CommandOutput): CommandOutput {
+export function guarded(fn: () => CommandOutput): CommandOutput {
   try {
     return fn();
   } catch (cause) {

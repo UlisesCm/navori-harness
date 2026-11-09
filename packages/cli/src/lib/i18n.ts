@@ -1748,6 +1748,20 @@ interface CmdStrings {
   adopt: AdoptCmdStrings;
   preset: PresetCmdStrings;
   codex: CodexCmdStrings;
+  master: MasterCmdStrings;
+}
+
+/** Spec 0063 T2 — `navori master accept|reject` (master plan v2). */
+interface MasterCmdStrings {
+  verdict: (
+    id: string,
+    accepted: boolean,
+    date: string,
+    commit: string,
+    detail: { evidence?: string; notes?: number },
+  ) => string;
+  published: (branch: string) => string;
+  unpublished: (reason: string) => string;
 }
 
 /** Spec 0035 T9 — `navori codex trust`. */
@@ -3169,6 +3183,13 @@ const CMD_ES: CmdStrings = {
     verificationFoundUntrusted: (n) =>
       `Codex reporta ${n} hook(s) de navori aún sin aprobar tras la escritura.`,
   },
+  master: {
+    verdict: (id, accepted, date, commit, { evidence, notes }) =>
+      `${id} ${accepted ? "aceptado" : "rechazado"} ${date} ${commit}` +
+      (evidence ? ` · evidencia ${evidence}` : notes ? ` · ${notes} nota(s)` : ""),
+    published: (branch) => `publicado en origin/${branch}`,
+    unpublished: (reason) => `sin publicar: ${reason}`,
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -4557,6 +4578,13 @@ const CMD_EN: CmdStrings = {
     verificationOk: "Codex confirms every navori hook is now approved.",
     verificationFoundUntrusted: (n) =>
       `Codex reports ${n} navori hook(s) still unapproved after the write.`,
+  },
+  master: {
+    verdict: (id, accepted, date, commit, { evidence, notes }) =>
+      `${id} ${accepted ? "accepted" : "rejected"} ${date} ${commit}` +
+      (evidence ? ` · evidence ${evidence}` : notes ? ` · ${notes} note(s)` : ""),
+    published: (branch) => `published to origin/${branch}`,
+    unpublished: (reason) => `not published: ${reason}`,
   },
 };
 
