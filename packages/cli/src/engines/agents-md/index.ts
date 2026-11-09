@@ -1,5 +1,6 @@
 import { type NavoriConfig } from "../../lib/config/config.ts";
 import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { AGENTS_MD_HEADER, AGENTS_MD_USER_SECTION } from "../../lib/render/scaffold.ts";
 
 /**
  * AGENTS.md engine adapter. Emits a single `AGENTS.md` at the repo root — the
@@ -12,14 +13,6 @@ import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness
 export type AgentsMdEngineResult = ProseEngineResult;
 
 const MANAGED_ID = "navori-agents";
-
-/** Title the first render seeds before the managed block. */
-const HEADER = "# AGENTS.md\n";
-/** User-owned section appended once, the first time AGENTS.md is created. */
-const USER_SECTION =
-  "\n<!-- navori:user-section -->\n" +
-  "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n";
 
 export function renderAgentsMdEngine(
   cwd: string,
@@ -46,8 +39,8 @@ export function renderAgentsMdEngine(
     destRelPath: "AGENTS.md",
     managedId: MANAGED_ID,
     engine: options.engine ?? "agents-md",
-    header: HEADER,
-    userSection: USER_SECTION,
+    header: AGENTS_MD_HEADER,
+    userSection: AGENTS_MD_USER_SECTION,
     dryRun: options.dryRun,
     repoRoot: options.repoRoot,
     includePluginBlocks: options.includePluginBlocks,

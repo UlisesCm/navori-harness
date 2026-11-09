@@ -1,5 +1,6 @@
 import { type NavoriConfig } from "../../lib/config/config.ts";
 import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { COPILOT_HEADER, COPILOT_USER_SECTION } from "../../lib/render/scaffold.ts";
 
 /**
  * GitHub Copilot engine adapter. Emits a single `.github/copilot-instructions.md`
@@ -14,14 +15,6 @@ export type CopilotEngineResult = ProseEngineResult;
 
 const MANAGED_ID = "navori-copilot";
 
-/** Title the first render seeds before the managed block. */
-const HEADER = "# Copilot instructions\n";
-/** User-owned section appended once, the first time the file is created. */
-const USER_SECTION =
-  "\n<!-- navori:user-section -->\n" +
-  "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n";
-
 export function renderCopilotEngine(
   cwd: string,
   inputConfig: NavoriConfig,
@@ -33,8 +26,8 @@ export function renderCopilotEngine(
     destRelPath: ".github/copilot-instructions.md",
     managedId: MANAGED_ID,
     engine: "copilot",
-    header: HEADER,
-    userSection: USER_SECTION,
+    header: COPILOT_HEADER,
+    userSection: COPILOT_USER_SECTION,
     dryRun: options.dryRun,
     repoRoot: options.repoRoot,
   });
