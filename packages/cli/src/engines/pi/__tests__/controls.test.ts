@@ -536,6 +536,7 @@ describe("Pi control mappings", () => {
     expect(event.systemPromptOptions.sections).toEqual({
       keep: "x",
       "navori-master-plan": "Plan maestro — etapa activa",
+      "navori-orchestrator": expect.stringContaining("navori_subagent"),
     });
     const child = loadWithScripts({
       env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
