@@ -324,6 +324,9 @@ afterEach(async () => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
+/** The hook chain has no wall-clock cap here, so only this bound applies; under 180 busy loops on one core each such test takes ~90 s (#1623). */
+const STARVED_TIMEOUT_MS = 240_000;
+
 /** Real subprocess/stdio fixture exercises the fixed owner and production hook without native inference or real credentials. */
 async function liveOwnerFixture(
   mode = "valid",
@@ -467,10 +470,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  for(const [index,role]of roles.entries()){
    const call='call-'+phase+'-'+index,child='child-'+phase+'-'+index;
    const input={agent_type:role,message:'PROFILE_PROBE_OK',...(v2?{fork_turns:'none'}:{})};
-   const hook=cp.spawnSync('/bin/bash',[path.join(process.cwd(),'.codex/hooks/model-advisor.sh'),'codex-pretool-profile'],{input:JSON.stringify({cwd:process.cwd(),session_id:'native-main',tool_use_id:call,tool_name:v2?'collaborationspawn_agent':'spawn_agent',tool_input:input}),encoding:'utf8',timeout:12000,env:process.env});
+   const hook=cp.spawnSync('/bin/bash',[path.join(process.cwd(),'.codex/hooks/model-advisor.sh'),'codex-pretool-profile'],{input:JSON.stringify({cwd:process.cwd(),session_id:'native-main',tool_use_id:call,tool_name:v2?'collaborationspawn_agent':'spawn_agent',tool_input:input}),encoding:'utf8',env:process.env});
    let wire;try{wire=JSON.parse(hook.stdout);}catch{wire={};}
    const output=wire.hookSpecificOutput;
-   if(output?.permissionDecision!=='allow'){emit({method:'turn/completed',params:{threadId:'native-main',turn:{status:'failed'}}});return;}
+   if(output?.permissionDecision!=='allow'){fs.appendFileSync(trace,JSON.stringify({hookDenied:output?.permissionDecisionReason??null})+String.fromCharCode(10));emit({method:'turn/completed',params:{threadId:'native-main',turn:{status:'failed'}}});return;}
    emit({method:'hook/completed',params:{threadId:'native-main',turnId:mode==='v2-hook-turn'?'foreign-turn':'turn-'+phase,run:{id:'hook-'+call,source:'project',sourcePath:mode==='source'?'/foreign/config.toml':path.join(process.cwd(),'.codex/config.toml'),eventName:'preToolUse',handlerType:'command',executionMode:'sync',status:'completed',entries:output.additionalContext?[{kind:'context',text:output.additionalContext}]:[]}}});
    const updated=output.updatedInput;
    const text=fs.readFileSync(path.join(process.cwd(),'.codex/agents',role+'.toml'),'utf8');
@@ -522,27 +525,64 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   );
   vi.stubEnv("PATH", `${commands}${delimiter}${process.env.PATH}`);
   vi.stubEnv("CODEX_HOME", auth);
+  // Virtual clock only for the processes this fixture starts (supervisor: node; CLI: bun or node);
+  // the vitest worker already started, and afterEach unstubs both.
+  const clock = new URL("fixtures/virtual-clock.mjs", import.meta.url).href;
+  const withFlag = (current: string | undefined, flag: string): string =>
+    [current, `${flag} ${clock}`].filter(Boolean).join(" ");
+  vi.stubEnv("NODE_OPTIONS", withFlag(process.env.NODE_OPTIONS, "--import"));
+  vi.stubEnv("BUN_OPTIONS", withFlag(process.env.BUN_OPTIONS, "--preload"));
+  vi.stubEnv("NAVORI_VCLOCK_LOG", join(cwd, "vclock.log"));
   return trace;
 }
 
 describe("fixed live profile owner boundaries, no inference", () => {
   // Covers: R12, R13, R14, R16, R18
-  it("rejects repeated authenticated roles despite matching dispatch, candidate and hook counts", async () => {
-    await liveOwnerFixture("repeated-role");
-    const result = await runNativeProfileProbe(cwd);
-    expect(result).toMatchObject({
-      status: "pending",
-      principalTurnRequests: 1,
-      children: [],
-      refresh: "pending",
-      pending: ["native-profile-selection-or-hook-call-unverified"],
-    });
-    expect(result.diagnostics[0]).toMatchObject({
-      spawns: { attempted: 2, completed: 2, recognizedRoleReports: 2 },
-      hooks: { validContexts: 2 },
-      joinedCandidates: 2,
-    });
-  }, 20000);
+  it(
+    "rejects repeated authenticated roles despite matching dispatch, candidate and hook counts",
+    async () => {
+      await liveOwnerFixture("repeated-role");
+      const result = await runNativeProfileProbe(cwd);
+      expect(result).toMatchObject({
+        status: "pending",
+        principalTurnRequests: 1,
+        children: [],
+        refresh: "pending",
+        pending: ["native-profile-selection-or-hook-call-unverified"],
+      });
+      expect(result.diagnostics[0]).toMatchObject({
+        spawns: { attempted: 2, completed: 2, recognizedRoleReports: 2 },
+        hooks: { validContexts: 2 },
+        joinedCandidates: 2,
+      });
+    },
+    STARVED_TIMEOUT_MS,
+  );
+  // The virtual clock freezes the caps in the other tests; here each cap's own clock expires.
+  describe("profile hook caps still deny when their clock expires", () => {
+    it.each([
+      // The CLI masks its deadline error behind the stage it reached (deadline check is at "input").
+      ["cli", /profile-hook-unavailable-stale-invalid-or-consumed; profile-hook-stage-input/],
+      ["supervisor", /profile-hook-cli-unavailable-or-invalid/],
+    ])(
+      "denies when the %s clock expires",
+      async (expired, reason) => {
+        const trace = await liveOwnerFixture("repeated-role");
+        vi.stubEnv("NAVORI_VCLOCK_EXPIRE", expired);
+        const result = await runNativeProfileProbe(cwd);
+        expect(result.status).toBe("pending");
+        expect(result.children).toEqual([]);
+        const lines = readFileSync(trace, "utf8").trim().split("\n");
+        const traced = lines.map((line) => JSON.parse(line) as { hookDenied?: string });
+        expect(traced.find((line) => line.hookDenied)?.hookDenied).toMatch(reason);
+        // The preload loaded where the clock expired; an expired supervisor may deny before the CLI starts.
+        const loaded = readFileSync(join(cwd, "vclock.log"), "utf8").split("\n");
+        expect(loaded).toContain(`${expired} expired`);
+        if (expired === "cli") expect(loaded).toContain("supervisor");
+      },
+      STARVED_TIMEOUT_MS,
+    );
+  });
   // Covers: R13, R16, R18
   it.each([null, "true"])(
     "rejects a non-boolean enabled control %s before a turn",
