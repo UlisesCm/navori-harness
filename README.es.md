@@ -171,7 +171,7 @@ navori-harness/
 
 ## Desarrollo
 
-Requiere **Node ≥ 22** y **bun 1.4.4**.
+El desarrollo local y el CI usan Node 26.13.0 (fijado en `.nvmrc`) y bun 1.4.4; el CLI publicado conserva su mínimo declarado de Node >= 22.12, que el CI prueba con un smoke test sobre el binario construido.
 
 ```bash
 bun install
