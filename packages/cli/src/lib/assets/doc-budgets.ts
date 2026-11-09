@@ -82,7 +82,11 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #1273: Codex dropped `gh-protocol` (3805 → 3698 words measured); the old
   // ceiling had also drifted slack. ceil(3698 × 1.10) = 4068.
   // #1331: Codex dispatch sessionId + residuals (3877 measured → ceil(3877 × 1.05) = 4071).
-  "AGENTS.md": 3152, // 3001 → ×1.05 (#1520: markers no longer counted)
+  // Spec 0064 PR 2 + 4a: Pi hands the orchestrator layer to `.pi/navori/orchestrator.md`, so this
+  // repo's AGENTS.md shrank to the shared layer (1445 measured → ceil(1445 × 1.10) = 1590).
+  "AGENTS.md": 1590,
+  // Spec 0064 PR 2: the orchestrator layer Pi injects into the parent only (1251 measured → ×1.10).
+  ".pi/navori/orchestrator.md": 1377,
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.

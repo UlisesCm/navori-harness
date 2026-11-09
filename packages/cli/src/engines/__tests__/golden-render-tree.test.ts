@@ -191,6 +191,21 @@ const ENGINE_CASES: readonly EngineCase[] = [
     engines: ["pi"],
     render: (cwd, config) => void renderPiEngine(cwd, config),
   },
+  // Spec 0064: Claude plus the layered AGENTS.md, without Pi. AGENTS.md keeps the orchestrator
+  // layer here, because Claude still reads its own CLAUDE.md and nothing else delivers it.
+  {
+    id: "claude-agents-md",
+    engines: ["claude", "agents-md"],
+    render: (cwd, config) => {
+      renderClaudeEngine(cwd, config);
+      renderAgentsMdEngine(cwd, config);
+    },
+    pick: ["AGENTS.md", "CLAUDE.md"],
+    extraConfig: {
+      plugins: { tgrep: { enabled: true }, codegraph: { enabled: true } },
+      project: { criticalAreas: ["payments", "auth"] },
+    },
+  },
   // Spec 0064: the shape where AGENTS.md is the shared source. Claude keeps its own file, Pi
   // hands the orchestrator layer to its parent, and `agents-md` writes the layered AGENTS.md.
   {
