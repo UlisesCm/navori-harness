@@ -17,8 +17,9 @@ import { fileURLToPath } from "node:url";
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(PKG_ROOT, "dist", "index.js");
-const ENGINES = ["claude", "agents-md", "pi"];
-const EXPECTED_FILES = ["CLAUDE.md", "AGENTS.md", ".pi/navori/orchestrator.md"];
+// No `pi`: that engine has its own, higher floor (`MIN_NODE_VERSION` in engines/pi/runtime-version.ts).
+const ENGINES = ["claude", "agents-md"];
+const EXPECTED_FILES = ["CLAUDE.md", "AGENTS.md"];
 
 const home = mkdtempSync(join(tmpdir(), "navori-floor-home-"));
 const repo = mkdtempSync(join(tmpdir(), "navori-floor-repo-"));
