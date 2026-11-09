@@ -132,10 +132,14 @@ describe("skills security and quality inventory", () => {
       version: string;
     };
     const references = repositoryFile("docs/references/skills-security-quality.md");
-    const agents = repositoryFile("AGENTS.md");
+    // Not AGENTS.md: since #1618 it holds a single block, and a block whose content did not
+    // change keeps the version of its last real change (lib/render/marker.ts:290), so a
+    // release that leaves AGENTS.md untouched would fail here. This context file is
+    // rewritten with the CLI version on every release.
+    const rendered = repositoryFile(".claude/context/20-agentes-disponibles.md");
 
     expect(references).toContain(`Harness CLI ${manifest.version} assets`);
-    expect(agents).toContain(`version="${manifest.version}"`);
+    expect(rendered).toContain(`version="${manifest.version}"`);
   });
 
   // Covers: R3

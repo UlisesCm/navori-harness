@@ -76,6 +76,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
             "render 会先备份，再移除被 flag 关闭的未修改单元；移除引擎时只删除其托管块，含有你自己文字的文件会保留。新增守卫会拦截携带你身份标识（git user.email 与 NAVORI_PERSONAL_IDS）发往外部主机的请求。在 Pi 中，reviewer 时限为 30 分钟，models.piMap 按层级设定模型，调度会在拥有该功能的 worktree 中校验门禁、交接和证据；若根目录与 worktree 同时持有同一功能的状态，则直接拒绝。更新后请重启 Pi。harness.sessionState 键可让仓库不再使用 progress/。reviewer 每轮都会封存证据，规格的收尾里程碑始终运行完整门禁，审计会记录搜索的 fail-open。navori bench 已移除，Codex 冻结为可选引擎。",
         },
       },
+      {
+        version: "0.12.5",
+        date: "2026-11-09",
+        note: {
+          es: "Plan maestro v2: el estado de cada slice sale de marcas en git (trailer Slice: S<n>), navori master init crea specs/_plan/PLAN.md, status y check --incoming leen el plan y limitan el trabajo en curso, accept y reject registran tu veredicto por lote en la rama navori/acceptance, y migrate pasa una etapa v1 al plan v2 sin renumerar; la v1 queda en solo lectura. AGENTS.md lleva solo la doctrina compartida: lo exclusivo de Claude pasa a un apéndice y, en Pi, la doctrina del orquestador llega solo al hilo principal, unos 2.3k tokens menos por cada hijo. Un criterio cumplido que vuelves a correr registra evidencia nueva, y el rechazo de plan update nombra la causa. CI del repo en Node 26; el CLI sigue pidiendo Node 22.12 o superior.",
+          en: "Master plan v2: each slice's state comes from git markers (the Slice: S<n> trailer), navori master init creates specs/_plan/PLAN.md, status and check --incoming read the plan and cap work in progress, accept and reject record your verdict per batch on the navori/acceptance branch, and migrate moves a v1 stage into the v2 plan without renumbering; v1 becomes read-only. AGENTS.md carries only the shared doctrine: Claude-only content moves to an appendix and, on Pi, the orchestrator doctrine reaches only the main thread, about 2.3k fewer tokens per child. Re-running a met criterion records fresh evidence, and a plan update rejection names its cause. The repo's CI runs on Node 26; the CLI still requires Node 22.12 or later.",
+          "zh-CN":
+            "主计划 v2：每个 slice 的状态来自 git 标记（Slice: S<n> trailer），navori master init 创建 specs/_plan/PLAN.md，status 与 check --incoming 读取计划并限制进行中的工作，accept 与 reject 将你的批量裁决记录在 navori/acceptance 分支，migrate 将 v1 阶段迁入 v2 计划且不重新编号；v1 变为只读。AGENTS.md 只包含共享规范：Claude 专属内容移至附录；在 Pi 中，编排者规范只发送给主线程，每个子进程约少 2.3k token。重新运行已达成的标准会记录新的证据，plan update 拒绝时会指明原因。仓库 CI 使用 Node 26；CLI 仍要求 Node 22.12 或更高版本。",
+        },
+      },
     ],
     date: "2026-10-12",
     headline: {
