@@ -14,7 +14,7 @@
     "sharp"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "build": "bun run --filter '*' build",
