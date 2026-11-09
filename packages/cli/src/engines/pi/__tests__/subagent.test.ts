@@ -715,7 +715,10 @@ describe("Pi child failure diagnostics", () => {
   it("strips ANSI, C0/C1 control and bidi override characters from the stderr tail", async () => {
     const result = await runScout(
       [assistant({ stopReason: "error", errorMessage: "boom" }), settled],
-      { stderr: "\u001b[31mred\u001b[0m bell\u0007 csi\u009b2J bidi‮evil⁦x⁩\r\nlast line\n" },
+      {
+        stderr:
+          "\u001b[31mred\u001b[0m bell\u0007 csi\u009b2J bidi\u202eevil\u2066x\u2069\r\nlast line\n",
+      },
     );
     const text = result.content[0]!.text;
     const tail = text.slice(text.indexOf("Child stderr (tail, redacted):\n"));
