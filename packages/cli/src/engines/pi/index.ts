@@ -250,6 +250,15 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
 }
 
 /**
+ * The orchestrator doctrine lives in Pi's parent-only file whenever Codex does not carry it in
+ * its own AGENTS.md. Decoupled from {@link piNeedsContextWriter}: with `agents-md` as the
+ * AGENTS.md writer the file is still Pi's, because that engine always omits the layer.
+ */
+function piWritesOrchestrator(config: NavoriConfig): boolean {
+  return !config.engines.includes("codex");
+}
+
+/**
  * Spec 0047 R10 (fail-closed): Pi children always run with `--no-mcp` (Pi 1.1.0 connects every
  * enabled server and lists them all in the child prompt, so per-server limiting is not
  * verifiable). An enabled plugin that injects MCP prose into a rendered Pi role therefore cannot
@@ -467,8 +476,10 @@ export function preparePiEngine(
   }));
   const permissions = collectShellPermissionRules(config, ctx.plugins);
   const needsContext = piNeedsContextWriter(config);
-  // The orchestrator layer lives in its own whole-file resource only when Pi is the AGENTS.md writer.
-  const orchestrator = needsContext ? buildOrchestratorDoctrine(ctx, roles, plugins, lang) : null;
+  // The orchestrator layer lives in its own whole-file resource unless Codex carries it in AGENTS.md.
+  const orchestrator = piWritesOrchestrator(config)
+    ? buildOrchestratorDoctrine(ctx, roles, plugins, lang)
+    : null;
   const serialized = serializePiManifest({
     schemaVersion: PI_MANIFEST_SCHEMA,
     // Parent roles are rendered but never dispatchable, so the manifest does not list them.
@@ -640,7 +651,7 @@ export function preparePiEngine(
       }
     }
   }
-  // Codex (or another engine) owning AGENTS.md carries the layer there: retire Pi's own copy.
+  // Codex carries the layer in its AGENTS.md: retire Pi's own copy.
   const staleOrchestrator = lstatSync(join(cwd, ORCHESTRATOR), { throwIfNoEntry: false });
   if (orchestrator === null && staleOrchestrator) {
     if (

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
+import { renderAgentsMdEngine } from "../../agents-md/index.ts";
 import { renderCodexEngine } from "../../codex/index.ts";
 import { renderPiEngine } from "../index.ts";
 
@@ -137,6 +138,35 @@ describe("Pi writes the Codex AGENTS.md doctrine when Codex is off (#1512)", () 
     mkdirSync(join(foreign, ".pi/navori"), { recursive: true });
     writeFileSync(join(foreign, ".pi/navori/orchestrator.md"), "mine\n");
     renderPiEngine(foreign, cfg(["claude", "codex", "pi"]));
+    expect(readFileSync(join(foreign, ".pi/navori/orchestrator.md"), "utf-8")).toBe("mine\n");
+  });
+
+  it("writes the parent-only orchestrator file with agents-md and no codex, never into AGENTS.md", () => {
+    const dir = freshDir();
+    const config = cfg(["claude", "pi", "agents-md"]);
+    renderAgentsMdEngine(dir, config);
+    renderPiEngine(dir, config);
+
+    expect(read(dir, ".pi/navori/orchestrator.md")).toContain(
+      "## Role: orchestrator (route by risk)",
+    );
+    const manifest = JSON.parse(read(dir, ".pi/navori.json")) as { ownedPaths: string[] };
+    expect(manifest.ownedPaths).toContain(".pi/navori/orchestrator.md");
+    expect(read(dir, "AGENTS.md")).not.toContain("Role: orchestrator");
+  });
+
+  it("writes no orchestrator file when codex joins agents-md, retiring Pi's own, keeping a foreign one", () => {
+    const dir = freshDir();
+    renderPiEngine(dir, cfg(["claude", "pi", "agents-md"]));
+    const file = join(dir, ".pi/navori/orchestrator.md");
+    expect(existsSync(file)).toBe(true);
+    renderPiEngine(dir, cfg(["claude", "codex", "pi", "agents-md"]));
+    expect(existsSync(file)).toBe(false);
+
+    const foreign = freshDir();
+    mkdirSync(join(foreign, ".pi/navori"), { recursive: true });
+    writeFileSync(join(foreign, ".pi/navori/orchestrator.md"), "mine\n");
+    renderPiEngine(foreign, cfg(["claude", "codex", "pi", "agents-md"]));
     expect(readFileSync(join(foreign, ".pi/navori/orchestrator.md"), "utf-8")).toBe("mine\n");
   });
 });
