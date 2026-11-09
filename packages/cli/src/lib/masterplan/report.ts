@@ -35,6 +35,10 @@ export interface StatusOptions {
 export interface CheckOptions {
   incoming?: string;
   base?: string;
+  /** Branch of the PR: `slice/S<n>-…` counts as a mark and requires `[S<n>]` in `title`. */
+  branch?: string;
+  /** Title of the PR; absent before the PR exists (the local gate). */
+  title?: string;
   /** `false` skips the fetch (a CI step that already fetched); otherwise a failed fetch fails closed. */
   fetch?: boolean;
 }
@@ -141,11 +145,13 @@ export function runPlanStatus(cwd: string, options: StatusOptions): CommandOutpu
 }
 
 export function runPlanCheck(cwd: string, options: CheckOptions): CommandOutput {
-  const errors = checkPlan(readFileSync(planPath(cwd), "utf8"))
-    .filter((f) => f.severity === "error")
-    .map((f) => f.message);
-  if (errors.length) return fail(errors.join("\n[navori] "));
   const fetch = options.fetch === false ? false : "required";
+  if (!options.incoming) {
+    const errors = checkPlan(readFileSync(planPath(cwd), "utf8"))
+      .filter((f) => f.severity === "error")
+      .map((f) => f.message);
+    if (errors.length) return fail(errors.join("\n[navori] "));
+  }
   return guarded(() => {
     if (!options.incoming) {
       const state = readPlanState(cwd, { fetch });
@@ -157,7 +163,22 @@ export function runPlanCheck(cwd: string, options: CheckOptions): CommandOutput 
       }
       return { stdout: `plan ok · ${header(state)}\n`, stderr: warnings.join(""), code: 0 };
     }
-    const result = checkIncoming(cwd, options.incoming, options.base, { fetch });
+    if (!options.base) return fail("--incoming exige --base <rama destino del PR>");
+    const result = checkIncoming(cwd, options.incoming, options.base, {
+      fetch,
+      branch: options.branch,
+      title: options.title,
+    });
+    if (result.noPlan)
+      return {
+        stdout: "",
+        stderr: `aviso: sin PLAN.md en origin/${result.base}: no hay WIP que aplicar\n`,
+        code: 0,
+      };
+    if (result.titleMissing)
+      return fail(
+        `la rama slice/${result.titleMissing}-… exige [${result.titleMissing}] en el título del PR`,
+      );
     if (result.ok)
       return {
         stdout: `WIP ok · trae: ${result.incoming.join(", ") || "ningún slice"}\n`,

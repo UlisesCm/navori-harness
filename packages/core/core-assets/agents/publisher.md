@@ -145,7 +145,19 @@ Present the repository, base, current head, title, body-file reference and draft
 6. **Checks — read ONCE**: `gh pr checks <N> --json name,bucket,state,link,workflow`. Never `gh pr checks --watch` (no timeout; it hangs the turn). `bucket: pending` → one line, stop. `bucket: fail` → name the check, point to `follow-up-prs`. Informative only: never hold or revert a PR over a red check.
 
 7. **Close link** — only when the body declares one: `gh pr view <N> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'`. Empty next to `Closes #<N>` → one line naming the unlinked issue, then stop; editing the body or closing the issue is the human's call. Expected empty when `{{prTarget}}` is not the remote default branch (`git rev-parse --abbrev-ref origin/HEAD`).
+<!-- navori:if masterPlan -->
+## Master plan marks and WIP stop
 
+Slice work = the brief names `slice: S<n>` or the branch is `slice/S<n>-…`. Then every commit carries the body line `Slice: S<n>` and the PR title starts with `[S<n>] `. Work outside the plan (fix, chore, hotfix) gets no mark.
+
+**Hard stop** before `git push` and before `gh pr create`, whenever the repo has a master plan:
+
+```bash
+navori master check --incoming HEAD --base {{prTarget}} --branch "$(git rev-parse --abbrev-ref HEAD)" --title "<validated title>"
+```
+
+Omit `--title` before the title exists (commit-only push). A non-zero exit is a stop report quoting its stderr; never edit PLAN.md or the marks to make it pass.
+<!-- /navori:if -->
 ## Comment contract
 
 Every comment, review or ticket update you publish (PR, issue, Jira) has **the body in a file, never inline** — inline bodies mis-render under shell quoting and can't be inspected before firing.

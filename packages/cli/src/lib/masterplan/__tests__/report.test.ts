@@ -33,7 +33,6 @@ beforeEach(() => {
   git(repo, "init", "-q", "-b", "main");
   git(repo, "remote", "add", "origin", origin);
   git(repo, "commit", "-q", "--allow-empty", "-m", "init");
-  for (const b of ["main", "qa", "dev"]) git(repo, "push", "-q", "origin", `HEAD:${b}`);
   mkdirSync(join(repo, "specs", "_plan"), { recursive: true });
   mkdirSync(join(repo, "specs", "s1"), { recursive: true });
   writeFileSync(join(repo, "specs", "_plan", "PLAN.md"), PLAN);
@@ -41,6 +40,9 @@ beforeEach(() => {
     join(repo, "specs", "s1", "spec.md"),
     "# S1\n\n## Guion de aceptación\n\n1. Entra.\n",
   );
+  git(repo, "add", "specs");
+  git(repo, "commit", "-q", "-m", "plan");
+  for (const b of ["main", "qa", "dev"]) git(repo, "push", "-q", "origin", `HEAD:${b}`);
   git(repo, "checkout", "-q", "-b", "qa");
   git(repo, "commit", "-q", "--allow-empty", "-m", "[S1] registro");
   git(repo, "commit", "-q", "--allow-empty", "-m", "[S2] historial");
@@ -113,13 +115,32 @@ describe("runPlanCheck", () => {
     expect(plain.stderr).toMatch(/2 integrados sin aceptar \(WIP 1\)/);
     git(repo, "checkout", "-q", "-b", "slice/S3-cupon", "origin/dev");
     git(repo, "commit", "-q", "--allow-empty", "-m", "[S3] cupón");
-    const blocked = runPlanCheck(repo, { incoming: "HEAD" });
+    const blocked = runPlanCheck(repo, { incoming: "HEAD", base: "dev" });
     expect(blocked.code).toBe(1);
     expect(blocked.stderr).toMatch(/S3.*S1, S2 sin aceptar \(WIP 1\)/);
+    const noTitle = runPlanCheck(repo, {
+      incoming: "HEAD",
+      base: "dev",
+      branch: "slice/S3-cupon",
+      title: "cupón",
+    });
+    expect(noTitle.code).toBe(1);
+    expect(noTitle.stderr).toMatch(/exige \[S3\] en el título/);
     writeFileSync(
       join(repo, "specs", "_plan", "PLAN.md"),
       PLAN.replace("- Rama destino: dev\n", ""),
     );
     expect(runPlanCheck(repo, {}).stderr).toMatch(/Rama destino/);
+    // --incoming does not lint the working-tree plan: it reads the base's
+    expect(runPlanCheck(repo, { incoming: "HEAD", base: "dev" }).stderr).toMatch(/S3.*sin aceptar/);
+    expect(runPlanCheck(repo, { incoming: "HEAD" })).toMatchObject({ code: 1 });
+    git(repo, "checkout", "-q", "-b", "bare", "origin/main");
+    git(repo, "rm", "-q", "-rf", "specs");
+    git(repo, "commit", "-q", "-m", "chore: sin plan");
+    git(repo, "push", "-q", "origin", "bare");
+    expect(runPlanCheck(repo, { incoming: "HEAD", base: "bare" })).toMatchObject({
+      code: 0,
+      stderr: "aviso: sin PLAN.md en origin/bare: no hay WIP que aplicar\n",
+    });
   });
 });
