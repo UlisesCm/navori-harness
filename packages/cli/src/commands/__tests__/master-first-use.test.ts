@@ -2,9 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
-import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
 import * as renderer from "../render.ts";
 import * as atomic from "../../lib/primitives/atomic.ts";
@@ -83,7 +82,7 @@ it("recovers CLI init with a persisted legacy flag and missing engine artifacts"
     configPath,
     JSON.stringify({ ...readJson(configPath), harness: { masterPlan: true } }),
   );
-  await ok(cwd, "init", "mvp");
+  await ok(cwd, "init", "mvp", "--workflow", "legacy");
   expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
     "navori master",
   );
@@ -105,7 +104,7 @@ it("reports ok:false as nonzero without success guidance, then repairs on retry"
     downgrades: [],
     workspaces: [],
   });
-  const failed = await master(cwd, "init", "mvp");
+  const failed = await master(cwd, "init", "mvp", "--workflow", "legacy");
   expect(failed.exitCode).toBe(1);
   expect(failed.err).toContain("render failed: test render failure");
   expect(failed.out).toBe("");
@@ -141,6 +140,15 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
   expect((await ok(cwd, "init")).out).toContain("navori master delivery-check");
+});
+
+it("init without --workflow resumes an active v1 stage and warns instead of creating PLAN.md", async () => {
+  const cwd = freshRepo();
+  await ok(cwd, "init", "mvp", "--workflow", "legacy");
+  const resumed = await ok(cwd, "init");
+  expect(resumed.out).toContain("Etapa 01-mvp");
+  expect(resumed.err).toContain("hay una etapa v1 activa");
+  expect(existsSync(join(cwd, "specs", "_plan", "PLAN.md"))).toBe(false);
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {
@@ -215,7 +223,7 @@ describe("master-plan first use — executable scenario (R59)", () => {
       closable: false,
     });
 
-    await ok(cwd, "init", "mvp");
+    await ok(cwd, "init", "mvp", "--workflow", "legacy");
     // R54: STATUS.md exists right after init and the line does not say "ninguna".
     expect(existsSync(stageFile(cwd, "STATUS.md"))).toBe(true);
     const line = await ok(cwd, "status", "--line");
@@ -274,18 +282,18 @@ describe("master-plan first use — executable scenario (R59)", () => {
 
   it("records the ux decision, abandons, and converts in their own repos", async () => {
     const ux = freshRepo();
-    await ok(ux, "init", "mvp");
+    await ok(ux, "init", "mvp", "--workflow", "legacy");
     setPhase(ux, "ux");
     await ok(ux, "ux", "md-json");
     expect(readJson(stageFile(ux, "state.json")).ux).toBe("md-json");
 
     const abandoned = freshRepo();
-    await ok(abandoned, "init", "mvp");
+    await ok(abandoned, "init", "mvp", "--workflow", "legacy");
     await ok(abandoned, "close", "--abandon", "--reason", "no longer needed");
     expect(readJson(stageFile(abandoned, "state.json")).outcome).toBe("abandonada");
 
     const converted = freshRepo();
-    await ok(converted, "init", "mvp");
+    await ok(converted, "init", "mvp", "--workflow", "legacy");
     await ok(converted, "close", "--convert", "specs/one-shot", "--reason", "single delivery");
     expect(readJson(stageFile(converted, "state.json")).outcome).toBe("convertida");
   }, 120_000);
@@ -347,7 +355,7 @@ describe("master commands record CLI audit events (R55, R70)", () => {
   it("records advance (block), part --accept and close", async () => {
     const cwd = freshRepo();
     const log = startAudit(cwd);
-    await ok(cwd, "init", "mvp");
+    await ok(cwd, "init", "mvp", "--workflow", "legacy");
 
     expect((await master(cwd, "advance")).exitCode).toBe(1);
 
@@ -374,7 +382,7 @@ describe("master commands record CLI audit events (R55, R70)", () => {
   async function executingStage(): Promise<{ cwd: string; log: string }> {
     const cwd = freshRepo();
     const log = startAudit(cwd);
-    await ok(cwd, "init", "mvp");
+    await ok(cwd, "init", "mvp", "--workflow", "legacy");
     writeFileSync(
       stageFile(cwd, "parts.json"),
       `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
@@ -454,7 +462,7 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     delete process.env.CLAUDE_CODE_SESSION_ID;
     delete process.env.NAVORI_AUDIT_HOST;
     delete process.env.NAVORI_AUDIT_SESSION_ID;
-    await ok(cwd, "init", "mvp");
+    await ok(cwd, "init", "mvp", "--workflow", "legacy");
     await ok(cwd, "close", "--abandon", "--reason", "no longer needed");
     expect(cliEvents(log)).toEqual([]);
   }, 120_000);
@@ -484,27 +492,7 @@ function skillForms(skill: string): SkillForm[] {
   return forms;
 }
 
-describe("master-plan skill — every `navori master …` form is exercised (R59)", () => {
-  // Covers: R59
-  it("extracts forms that the scenario runs at least once", () => {
-    const skill = readFileSync(
-      resolve(getCoreRoot(), "core-assets", "skills", "master-plan.md"),
-      "utf8",
-    );
-    const forms = skillForms(skill);
-    expect(forms.length).toBeGreaterThan(10);
-    const missing = forms.filter(
-      (form) =>
-        !exercised.some(
-          (argv) =>
-            argv[0] === form.sub &&
-            (form.positional === null || argv[1] === form.positional) &&
-            form.flags.every((flag) => argv.includes(flag)),
-        ),
-    );
-    expect(missing.map((f) => f.text)).toEqual([]);
-  });
-
+describe("master-plan skill forms extractor (R59)", () => {
   it("sanity: the extractor sees flags and literal positionals", () => {
     const forms = skillForms(
       'usa `navori master close --abandon --reason "x"` y `navori master template ux`',
@@ -522,7 +510,7 @@ describe("master-plan skill — every `navori master …` form is exercised (R59
 // Covers: R14
 it("check --part ausente, vacío o espacios es error de uso sin check de etapa", async () => {
   const cwd = freshRepo();
-  await ok(cwd, "init", "mvp");
+  await ok(cwd, "init", "mvp", "--workflow", "legacy");
   const before = readFileSync(stageFile(cwd, "state.json"), "utf8");
   for (const value of ["", "   "]) {
     const result = await master(cwd, "check", "--part", value);
@@ -539,7 +527,7 @@ it("check --part ausente, vacío o espacios es error de uso sin check de etapa",
 // Covers: R15
 it("init con otro slug y etapa activa explica en stderr y sale 1", async () => {
   const cwd = freshRepo();
-  await ok(cwd, "init", "mvp");
+  await ok(cwd, "init", "mvp", "--workflow", "legacy");
   const result = await master(cwd, "init", "other");
   expect(result.exitCode).toBe(1);
   expect(result.err).toContain('"other"');

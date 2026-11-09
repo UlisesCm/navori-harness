@@ -920,7 +920,7 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
   }
 
   it("fails to advance past executing, without writing", async () => {
-    await master("init", "mvp");
+    await master("init", "mvp", "--workflow", "legacy");
     const stagePathAbs = stagePath();
     const raw: MasterIndex = JSON.parse(readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8"));
     const activeEntry = raw.stages[0]!;
@@ -1267,7 +1267,9 @@ describe("checkClosedStage — R50, hash integrity with CRLF normalization", () 
 
 describe("mode fails after 'context' (R16)", () => {
   it("cannot set mode once past the context phase", async () => {
-    await runCommand(masterCommand, { rawArgs: ["init", "mvp", "--cwd", cwd] });
+    await runCommand(masterCommand, {
+      rawArgs: ["init", "mvp", "--workflow", "legacy", "--cwd", cwd],
+    });
     const stagePathAbs = stagePath();
     writeFileSync(
       join(stagePathAbs, "state.json"),
