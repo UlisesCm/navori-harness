@@ -2,7 +2,7 @@
 
 ## Resultado
 
-Quien renderiza navori con Claude Code y `agents-md` obtiene un `CLAUDE.md` que importa `AGENTS.md` (`@AGENTS.md`) y agrega solo lo exclusivo de Claude. Pi lee el mismo `AGENTS.md`, y sus hijos ya no cargan la doctrina del orquestador. El texto del usuario se conserva, el preview lo muestra todo y el backup se restaura. Va en 0.12.5. Issue: #1598, diseño en #1519.
+Quien renderiza navori con Claude Code y `agents-md` obtiene un `CLAUDE.md` que importa `AGENTS.md` (`@AGENTS.md`) y agrega solo lo exclusivo de Claude. Pi lee el mismo `AGENTS.md`, y sus hijos ya no cargan la doctrina del orquestador. El texto del usuario se conserva, el preview lo muestra todo y el backup se restaura. Va en 0.12.5. Issue: #1598.
 
 ## Reglas aplicables
 
@@ -18,7 +18,7 @@ Quien renderiza navori con Claude Code y `agents-md` obtiene un `CLAUDE.md` que 
 - **Retiro protegido.** Un bloque compartido sale de `CLAUDE.md` solo si está intacto; si fue editado a mano, se queda (`retired-kept`). Sin `pi`, ese id se omite en `AGENTS.md` para no dar a Claude dos reglas contradictorias: única salida de `AGENTS.md` que depende de otro archivo y no de la config. Con `pi`, `AGENTS.md` lo lleva completo. `render` y `doctor` avisan sin quedar verdes; se resuelve moviendo la edición a la zona del usuario o aceptando la versión de navori en `navori sync`, que ofrece esos ids como conflicto. Un bloque de un CLI más nuevo se respeta.
 - **CLI viejos y duplicación.** Cada bloque retirado deja en `CLAUDE.md` un marcador vacío con versión 0.12.5, que un CLI anterior no sobrescribe y no cuesta tokens. Sin la protección de `harnessVersion`, `doctor` reporta la duplicación: un bloque de `AGENTS.md` que reaparece en `CLAUDE.md`. El siguiente render retira la copia intacta.
 - **Texto del usuario en `AGENTS.md`.** Un archivo previo sin marcadores se conserva y recibe el bloque. El prune quita solo el bloque y borra el archivo solo si queda vacío.
-- **Medición.** Presupuesto y `navori audit` miden `CLAUDE.md` con el import resuelto; goldens de `claude+agents-md`, `claude+pi+agents-md` y `agents-md` solo.
+- **Medición.** Presupuestos sobre el 4a; con 4b, `navori audit` mide `CLAUDE.md` con el import resuelto; goldens de `claude+agents-md`, `claude+pi+agents-md` y `agents-md` solo.
 
 ## Estados
 
@@ -61,8 +61,8 @@ Quien renderiza navori con Claude Code y `agents-md` obtiene un `CLAUDE.md` que 
 1. Spec y enmienda de DIRECTION (invariantes 2, 3 y 4), tres idiomas. PR 1.
 2. El orquestador de Pi sale de `AGENTS.md` y la extensión lo inyecta solo al padre. PR 2.
 3. El prune de `AGENTS.md` conserva el texto del usuario. PR 3, área crítica.
-4. `agents-md` único escritor de `AGENTS.md`, por capas y neutral; lo exclusivo de Claude va a un apéndice en línea y la capa del orquestador sale solo con `pi`. PR 4a. `CLAUDE.md` = import + apéndice + marcadores vacíos, retiro protegido y `doctor` con duplicación y su prueba. PR 4b, área crítica.
-5. Presupuestos y auditoría con el import resuelto, y goldens nuevos. PR 5.
-6. Documentos para personas en tres idiomas y el E2E del camino feliz contra el tarball. PR 6.
+4. `agents-md` único escritor de `AGENTS.md`, por capas y neutral; lo exclusivo de Claude va a un apéndice en línea y la capa del orquestador sale solo con `pi`. PR 4a. `CLAUDE.md` = import + apéndice + marcadores vacíos, retiro protegido y `doctor` con duplicación y su prueba. PR 4b, área crítica, después de Rust (#1598).
+5. Presupuestos medidos sobre el 4a y goldens nuevos. PR 5.
+6. Documentos para personas en tres idiomas y E2E del camino feliz del 4a. PR 6.
 
 PRs desde dev, sin apilar, en orden; cada uno con reviewer Opus, `navori gate full` y receipt.
