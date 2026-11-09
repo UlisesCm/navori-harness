@@ -668,9 +668,21 @@ describe("Pi dispatch checks the checkout that holds the feature", () => {
     await expect(pending).rejects.toThrow();
   });
 
-  it("keeps the session checkout when it holds the feature itself", async () => {
+  it("fails closed when the session checkout and a linked worktree both hold the feature", async () => {
     const cwd = fixture({ planTiers: true });
-    holdState(linkWorktree(cwd, "wt"), "workplan_demo.json");
+    const worktree = linkWorktree(cwd, "wt");
+    holdState(worktree, "workplan_demo.json");
+    holdState(cwd, "workplan_demo.json");
+    const runtime = loadRuntime();
+    await expect(invoke(runtime.tool!, cwd, "implementer", "demo")).rejects.toThrow(
+      `feature demo has state in the session checkout and in linked worktree ${worktree}; the session checkout's copy is extra`,
+    );
+    expect(runtime.launches).toHaveLength(0);
+  });
+
+  it("keeps the session checkout when only it holds the feature", async () => {
+    const cwd = fixture({ planTiers: true });
+    linkWorktree(cwd, "wt");
     holdState(cwd, "workplan_demo.json");
     const runtime = loadRuntime();
     const pending = invoke(runtime.tool!, cwd, "implementer", "demo");

@@ -287,8 +287,8 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
   `navori receipt check|ci` 会把审查与其运行所在的检出关联起来。
 - 主检出留作审查和合并之用；不要在那里启动工作会话。
 - 如果主检出中的会话在 `.claude/worktrees/` 下的链接 worktree 中工作（#1575），`navori_subagent` 会在持有该
-  feature 状态的检出中检查 plan gate 和 handoff：会话自身的检出有该状态时用它，否则用唯一持有该状态的链接
-  worktree；有两个时阻止分派。子进程仍从主检出启动，并获得 handoff 的绝对路径。请以
+  feature 状态的检出中检查 plan gate 和 handoff：仅会话自身的检出有该状态时用它，或用唯一持有该状态的链接
+  worktree；会话检出加一个 worktree，或两个 worktree 同时持有时阻止分派，并说明哪份副本多余。子进程仍从主检出启动，并获得 handoff 的绝对路径。请以
   `cd <worktree 绝对根路径> && <完全相同的命令>` 运行验收标准；其他形式都不会记录证据。
 - `worktree-reclaim` 只会删除干净、已推送且其 PR 已合并的 worktree（见[会话生命周期](#会话生命周期)）；
   下一项任务从新的 worktree 开始。
