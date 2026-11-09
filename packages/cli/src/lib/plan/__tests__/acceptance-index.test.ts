@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { buildAcceptanceIndex, writeAcceptanceIndex } from "../acceptance-index.ts";
 import type { Workplan } from "../schema.ts";
-import * as delivery from "../../master/delivery.ts";
+const V1_DELIVERY_FIXTURE = join(
+  import.meta.dirname,
+  "../../masterplan/__tests__/fixtures/workplan-master-delivery.json",
+);
 
 let cwd: string;
 
@@ -45,95 +48,14 @@ afterEach(() => {
 
 // Covers: R6
 describe("acceptance-index", () => {
-  // Covers: R6, R7, R8
-  it("captures qualified delivery authority before the hook runs, not during acceptance", () => {
+  // Covers: R6, R7, R8 — spec 0063 T6: a v1 delivery workplan gets a plain line, never a binding.
+  it("indexes a v1 delivery workplan as a plain four-column line without a delivery binding", () => {
     const dir = join(cwd, ".navori/state/handoffs");
-    const slice = plan("delivery-demo-p1", {}, ["bun check"]);
-    const digest = "a".repeat(64);
-    slice.source = {
-      kind: "master-delivery",
-      stageSlug: "demo",
-      deliveryId: "E1",
-      partId: "P1",
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      contractDigest: digest,
-      sourceDigest: digest,
-      designDigest: digest,
-      masterDigest: digest,
-      criterionMap: { A1: "P1.A1" },
-    };
-    const binding = {
-      policy: "deliveries-content-v1" as const,
-      authorityGeneration: 1,
-      stagePath: "specs/_master/01-demo",
-      sourceIdentity: digest,
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      qualifiedId: "P1.A1",
-      criterionIdentity: digest,
-    };
-    const bind = vi.fn(() => binding);
-    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
-    writePlan(dir, slice);
-    expect(buildAcceptanceIndex([dir])).toBe(
-      `bun check\t${slice.feature}\tA1\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
-    );
-    expect(capture).toHaveBeenCalledWith(cwd, slice.source);
-    expect(bind).toHaveBeenCalledWith("A1", "bun check");
-    writeAcceptanceIndex(resolveStateRoot({ cwd, feature: slice.feature }));
-    expect(JSON.parse(readFileSync(join(dir, "acceptance-expected.jsonl"), "utf8"))).toEqual({
-      command: "bun check",
-      feature: slice.feature,
-      id: "A1",
-      dir,
-      binding,
-      stage: binding.stagePath,
-      expected: "exit 0",
-      spec: { kind: "exit", code: 0 },
-    });
-    capture.mockImplementation(() => {
-      throw new Error("stale current authority");
-    });
-    expect(buildAcceptanceIndex([dir])).toBe("");
-    expect(readFileSync(join(dir, `workplan_${slice.feature}.json`), "utf8")).toBe(
-      JSON.stringify(slice),
-    );
-  });
-  // Covers: R6, R7, R8
-  it("projects a delivery slice once per plan, however many criteria it binds", () => {
-    const dir = join(cwd, ".navori/state/handoffs");
-    const slice = plan("delivery-demo-p1", { A3: "cumplido" }, ["a", "b", "c"]);
-    const digest = "a".repeat(64);
-    slice.source = {
-      kind: "master-delivery",
-      stageSlug: "demo",
-      deliveryId: "E1",
-      partId: "P1",
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      contractDigest: digest,
-      sourceDigest: digest,
-      designDigest: digest,
-      masterDigest: digest,
-      criterionMap: { A1: "P1.A1", A2: "P1.A2", A3: "P1.A3" },
-    };
-    const binding = {
-      policy: "deliveries-content-v1" as const,
-      authorityGeneration: 1,
-      stagePath: "specs/_master/01-demo",
-      sourceIdentity: digest,
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      qualifiedId: "P1.A1",
-      criterionIdentity: digest,
-    };
-    const bind = vi.fn(() => binding);
-    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
-    writePlan(dir, slice);
-    expect(buildAcceptanceIndex([dir]).split("\n").filter(Boolean)).toHaveLength(2);
-    expect(capture).toHaveBeenCalledTimes(1);
-    expect(bind).toHaveBeenCalledTimes(2);
+    mkdirSync(dir, { recursive: true });
+    const fixture = JSON.parse(readFileSync(V1_DELIVERY_FIXTURE, "utf8")) as Workplan;
+    writeFileSync(join(dir, `workplan_${fixture.feature}.json`), JSON.stringify(fixture));
+    const command = fixture.acceptance[0]!.command;
+    expect(buildAcceptanceIndex([dir])).toBe(`${command}\t${fixture.feature}\tA1\t${dir}\n`);
   });
 
   it("lists one tab-separated line per pending criterion, JSON-escaped, skipping cumplido", () => {

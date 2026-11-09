@@ -7,6 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
   appendFileSync,
+  copyFileSync,
   readFileSync,
   existsSync,
   realpathSync,
@@ -484,6 +485,25 @@ describe("evaluatePlanGate — the opening line (R16)", () => {
     const result = evaluatePlanGate(payload("implementer", "workplan: demo\ndo A1"));
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("navori plan check demo");
+  });
+
+  // Spec 0063 T6: the denial names the v1 delivery workplan and the way out, not a silent block.
+  it("denies a v1 delivery workplan telling to run navori master migrate", () => {
+    writeConfig(true);
+    mkdirSync(progressDir(), { recursive: true });
+    copyFileSync(
+      join(
+        import.meta.dirname,
+        "../../masterplan/__tests__/fixtures/workplan-master-delivery.json",
+      ),
+      join(progressDir(), "workplan_delivery-demo-slices-p1.json"),
+    );
+    const result = evaluatePlanGate(
+      payload("implementer", "workplan: delivery-demo-slices-p1\ndo A1"),
+    );
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("workplan de entrega v1");
+    expect(result.reason).toContain("corre navori master migrate");
   });
 });
 
