@@ -586,6 +586,14 @@
         {
           "title": "projects a delivery slice once per plan, however many criteria it binds",
           "reason": "spec 0063 T6: la v1 del plan maestro queda en solo lectura"
+        },
+        {
+          "title": "lists one tab-separated line per pending criterion, JSON-escaped, skipping cumplido",
+          "reason": "#1611 M2: el índice conserva los criterios en cumplido; renombrado a \"lists one tab-separated line per criterion, JSON-escaped, cumplido included\"."
+        },
+        {
+          "title": "is rewritten whole (a fully cumplido workplan disappears) at the neutral dir",
+          "reason": "#1611 M2: un workplan con todo en cumplido ya no sale del índice; renombrado a \"is rewritten whole at the neutral dir and keeps a fully cumplido workplan\"."
         }
       ]
     },

@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="2ed66a17b25d3e8fa774ac497a5b84de752e0fe944b23a93dd9c8191863dfea4"
+// navori:managed-file id="pi-extension" hash="bbc9fdbe0fa7d471636378554c26ef557cc694552f4a145853cc04f06ad50a1c"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -885,7 +885,7 @@ function isBuiltinBash(pi: ToolRegistry): boolean {
 type CriterionHit = { feature: string; id: string; dir: string; binding?: Record<string, unknown>; stage?: string };
 
 /**
- * Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
+ * Criteria (pending or cumplido) whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
  * (6 fields) carries the producer authority the CLI projected (binding JSON and stage path); it is copied verbatim
  * and "navori master delivery-criterion" recomputes and compares it, so the line never grants authority by itself.
  */
