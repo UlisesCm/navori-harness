@@ -555,6 +555,7 @@ describe("hook bridge: routing-watch", () => {
         preset: "custom",
         engines: ["pi"],
         branchBase: "main",
+        harness: { planTiers: true },
         qualityGate: { fast: "bun test", full: "bun test" },
       }),
       { hookBindings: binding },

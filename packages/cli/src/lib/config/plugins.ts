@@ -32,6 +32,12 @@ const ManagedEntrySchema = z.object({
   file: z.string().min(1),
   /** Agent that the plugin recommends for this skill/protocol. */
   recommendedAgent: z.enum(AGENT_ROLES).optional(),
+  /**
+   * `"shared"` declares the block neutral (no engine's tools or paths), so the `agents-md` engine
+   * carries it in `AGENTS.md`. Absent, the block is read as Claude-specific and stays out of that
+   * layered file; the other engines that render plugin blocks keep it either way (spec 0064).
+   */
+  layer: z.enum(["shared"]).optional(),
 });
 
 /**
@@ -345,7 +351,7 @@ export interface LoadedPlugin {
   /** Absolute path to the plugin package root (where plugin.json lives). */
   packageRoot: string;
   /** Resolved absolute paths for each managed entry. */
-  managedAssets: Array<{ id: string; absPath: string }>;
+  managedAssets: Array<{ id: string; absPath: string; layer?: "shared" }>;
   /** Resolved absolute paths for each script entry (source side). */
   scriptAssets: Array<{ src: string; dest: string; exec: boolean }>;
   /** Resolved hook sub-blocks (spec 0039 D6). Absent when the plugin declares none. */
@@ -658,6 +664,7 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
   const managedAssets = manifest.managed.map((entry) => ({
     id: entry.id,
     absPath: containAgainstRoot(entry.file, "managed.file"),
+    layer: entry.layer,
   }));
 
   const scriptAssets = (manifest.scripts ?? []).map((entry) => ({

@@ -248,21 +248,6 @@ const es: Record<string, CommandDoc> = {
       "status es la vista al vuelo; doctor es el audit verboso. Comparten la misma lógica de health-check.",
     ],
   },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary:
-      "Mide render sobre N corridas y reporta p50/p95. Para detectar regresiones locales antes de commitear.",
-    usage: "navori bench [--runs <n>]",
-    flags: [{ flag: "--runs <n>", desc: "Número de iteraciones. Default: 20." }],
-    example: [
-      {
-        title: "Benchmark",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida."],
-  },
   codex: {
     id: "codex",
     title: "codex",
@@ -965,93 +950,68 @@ const es: Record<string, CommandDoc> = {
   master: {
     id: "master",
     title: "master",
-    summary: "Plan maestro de proyecto: gestiona etapas, fases, partes y cierre (spec 0034).",
+    summary:
+      "Plan maestro v2: un PLAN.md de slices que el usuario acepta uno a uno. El flujo v1 por etapas es de solo lectura (spec 0063).",
     usage:
-      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [opciones] [--cwd <path>]",
+      "navori master <init|status|check|accept|reject|migrate|template> [opciones] [--cwd <path>]",
     flags: [
       {
-        flag: "<slug>",
-        desc: "Slug en kebab-case para la primera etapa (init); obligatorio solo cuando no hay ninguna etapa activa.",
+        flag: "init [<slug>]",
+        desc: "Crea specs/_plan/PLAN.md y enciende harness.masterPlan. El slug lo ignora el plan v2. --workflow (v1) se rechaza: usa migrate.",
       },
       {
-        flag: "<template|en-curso>",
-        desc: "Modo de la etapa (mode). Solo se puede fijar en fase 'context' y solo en la primera etapa — de la etapa 2 en adelante el modo queda registrado como 'en-curso' automáticamente.",
+        flag: "status [<id>] [--qa] [--json|--line] [--no-fetch]",
+        desc: "Estado derivado del plan, de solo lectura; <id> detalla un slice. --qa lista entorno y guiones de aceptación de una ronda de QA; --line es la línea de SessionStart.",
       },
       {
-        flag: "ux <none|md|md-json>",
-        desc: "Registra la decisión del contrato UX de la etapa. Solo se puede fijar en la fase 'ux' y aún no está disponible para el modo entregas.",
-      },
-      {
-        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
-        desc: "Proyecta una parte autorizada en un workplan. --refresh reinicia los criterios pendientes y exige --approved-by user.",
-      },
-      {
-        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
-        desc: "Autoriza una cola acotada de partes para una entrega; las partes se validan contra parts.json.",
-      },
-      {
-        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
-        desc: "Revisa sin escribir si la preparación está lista (exit 1 con bloqueos), registra la aprobación explícita de la base o revoca la autoridad de la cola.",
-      },
-      {
-        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
-        desc: "Consume la evidencia del host o, solo en criterios manuales, una atestación explícita (--approved-by user).",
-      },
-      {
-        flag: "delivery-review --part <P<n>> --report <archivo> --envelope <archivo> [--approved-by user]",
-        desc: "Registra la revisión técnica atestada por el operador; el CLI verifica contenido y recibo, no la identidad del revisor ni la ejecución del QA.",
-      },
-      {
-        flag: "delivery-present --delivery <E<n>>",
-        desc: "Registra la identidad de una demo ya revisada técnicamente; no es el consentimiento del cliente.",
-      },
-      {
-        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <texto>] [--reference <ref>] --approved-by user",
-        desc: "Registra la decisión del cliente sobre una identidad revisada; toda decisión distinta de accepted exige --reason.",
-      },
-      {
-        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
-        desc: "Atesta la referencia de release o deploy de una identidad aceptada, sin ejecutar el despliegue (un merge no cuenta).",
-      },
-      {
-        flag: "status [--json|--line]",
-        desc: "Muestra la etapa y fase actuales; sin opciones regenera STATUS.md. --json y --line son de solo lectura.",
+        flag: "check --incoming <ref> --base <rama> [--branch <rama>] [--title <texto>] [--no-fetch]",
+        desc: "Gate de WIP para los slices que trae <ref>; lee origin/<base> y --base es obligatorio con --incoming. Un slice/S<n>-… en --branch o un [S<n>] en --title cuenta como marca. Sin fetch o con clon superficial falla cerrado.",
       },
       {
         flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
-        desc: "Valida la salida de la fase activa, una etapa cerrada, una spec de parte o los criterios verificables para convertir a una sola spec.",
+        desc: "Formas v1: valida una etapa cerrada, una spec de parte o los criterios verificables para convertir a una sola spec.",
       },
       {
-        flag: "advance",
-        desc: "Valida la fase activa y avanza una fase cuando se cumplen sus requisitos.",
+        flag: "accept <S<n>|D<n>…> --approved-by user [--evidence <url>]",
+        desc: "Registra tu veredicto de aceptación en la rama navori/acceptance. --approved-by debe ser user; --evidence admite una URL http/https.",
       },
       {
-        flag: "part <P<n>> [--state <estado>] [--reason <texto>] [--spec <ruta>] [--issue <n>]",
-        desc: "Actualiza una parte; --accept, --command, --result y --approved-by registran evidencia de aceptación.",
+        flag: "reject <S<n>|D<n>…> --approved-by user --notes <tarea>",
+        desc: "Registra tu rechazo. --notes es obligatorio y repetible: cada nota es una tarea abierta del slice.",
+      },
+      {
+        flag: "migrate [--stage <NN>] [--write]",
+        desc: "Convierte una etapa v1 en el PLAN.md v2. Sin --write solo imprime el plan y la tabla E<n> → S<n>; con --write escribe PLAN.md sin sobrescribir, enciende harness.masterPlan y re-renderiza.",
       },
       {
         flag: "template <nombre> [--part <P<n>>]",
-        desc: "Imprime una plantilla; --part rellena la plantilla issue desde parts.json.",
-      },
-      {
-        flag: "close [--convert <ruta>|--abandon] [--reason <texto>]",
-        desc: "Cierra, convierte o abandona la etapa activa; las etapas cerradas son de solo lectura.",
+        desc: "Imprime una plantilla (plan, slice, decisions, issue, …); --part rellena issue desde parts.json.",
       },
       { flag: "--cwd <path>", desc: "Repo a operar; por defecto el directorio actual." },
     ],
     example: [
       {
-        title: "Abrir la primera etapa",
-        code: "$ navori master init mvp\nEtapa 01-mvp · fase context\nSeñal: commits=3 primerCommit=2026-08-01 archivosCambiados=12 framework=next sugerido=template",
+        title: "Crear el plan",
+        code: "navori master init mi-proyecto",
       },
-      { title: "Registrar el modo tras revisar la señal", code: "navori master mode template" },
+      {
+        title: "Gate de WIP de un PR contra dev",
+        code: 'navori master check --incoming HEAD --base dev --branch "$(git branch --show-current)"',
+      },
+      {
+        title: "Aceptar un slice tras tu ronda de QA",
+        code: "navori master accept S3 --approved-by user",
+      },
+      {
+        title: "Migrar una etapa v1 (primero dry-run)",
+        code: "navori master migrate\nnavori master migrate --write",
+      },
     ],
     notes: [
-      "init crea <sdd.specsDir>/_master/<NN>-<slug>/ con context/raw/ (con su propio .gitignore, fuera de git sin importar gitignoreHarness), context/md/ y plans/, enciende harness.masterPlan y aplica el render.",
-      "Con una etapa ya activa, init (con o sin slug) no crea otra: completa lo que le falte a la activa, reporta su etapa y fase, y sale con 1 si se pidió un slug.",
-      "Falla si sdd.enabled es false, nombrando la clave que hay que activar.",
-      "check --stage inspecciona etapas cerradas; las operaciones que mutan estado solo actúan sobre la etapa activa.",
-      "Los subcomandos delivery-* son del modo entregas: validan las partes contra parts.json y toda aprobación exige --approved-by user. El hook master-accept-confirm pide confirmación humana antes de registrar una aceptación; un agente no puede aprobarse a sí mismo.",
+      "init crea specs/_plan/PLAN.md, enciende harness.masterPlan y aplica el render. Si no puede editar la config sin reformatearla, imprime la línea exacta a añadir. Falla si sdd.enabled es false.",
+      "Solo el usuario ejecuta accept y reject. El hook master-accept-confirm pide confirmación humana antes de ambos y de cualquier escritura directa en navori/acceptance; un agente no puede aprobarse a sí mismo.",
+      "migrate nunca escribe navori/acceptance: solo imprime sugerencias para las decisiones accepted de la v1.",
+      "Los comandos v1 (mode, ux, advance, part, close, delivery-slice, delivery-baseline, delivery-queue, delivery-revoke, delivery-criterion, delivery-review, delivery-present, delivery-decision, delivery-publication) son de solo lectura: salen con 1 y apuntan a navori master migrate. delivery-check, check --stage y check --part siguen leyendo.",
     ],
   },
   gate: {
@@ -1324,21 +1284,6 @@ const en: Record<string, CommandDoc> = {
       "status is the at-a-glance view; doctor is the verbose audit. They share the same health-check logic.",
       "Shows harness (last changed), the navori version that last changed the harness (harnessVersion). The --json key remains renderedVersion.",
     ],
-  },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary:
-      "Times render over N runs and reports p50/p95. Spots local regressions before you commit.",
-    usage: "navori bench [--runs <n>]",
-    flags: [{ flag: "--runs <n>", desc: "Number of iterations. Default: 20." }],
-    example: [
-      {
-        title: "Benchmark",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["Complements NAVORI_BENCH=1, which instruments the timings of a single run."],
   },
   codex: {
     id: "codex",
@@ -2047,96 +1992,68 @@ const en: Record<string, CommandDoc> = {
   master: {
     id: "master",
     title: "master",
-    summary: "Project master plan: manages stages, phases, parts, and closure (spec 0034).",
+    summary:
+      "Master plan v2: a PLAN.md of slices the user accepts one by one. The v1 stage flow is read-only (spec 0063).",
     usage:
-      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [options] [--cwd <path>]",
+      "navori master <init|status|check|accept|reject|migrate|template> [options] [--cwd <path>]",
     flags: [
       {
-        flag: "<slug>",
-        desc: "kebab-case slug for the first stage (init); required only when no stage is active.",
+        flag: "init [<slug>]",
+        desc: "Creates specs/_plan/PLAN.md and turns on harness.masterPlan. The v2 plan ignores the slug. --workflow (v1) is refused: use migrate.",
       },
       {
-        flag: "<template|en-curso>",
-        desc: "The stage's mode (mode). Can only be set in phase 'context' and only for the first stage — from stage 2 onward the mode is registered as 'en-curso' automatically.",
+        flag: "status [<id>] [--qa] [--json|--line] [--no-fetch]",
+        desc: "Derived plan status, read-only; <id> details one slice. --qa lists the environment and acceptance scripts for a QA round; --line is the SessionStart line.",
       },
       {
-        flag: "ux <none|md|md-json>",
-        desc: "Records the stage's UX contract decision. It can only be set in phase 'ux' and is not available for deliveries mode yet.",
-      },
-      {
-        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
-        desc: "Projects an authorized part into a workplan. --refresh resets pending criteria and requires --approved-by user.",
-      },
-      {
-        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
-        desc: "Authorizes a bounded queue of parts for a delivery; the parts are validated against parts.json.",
-      },
-      {
-        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
-        desc: "Checks without writing whether preparation is ready (exit 1 with blockers), records the explicit baseline approval, or revokes the queue authority.",
-      },
-      {
-        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
-        desc: "Consumes host evidence or, for manual criteria only, an explicit attestation (--approved-by user).",
-      },
-      {
-        flag: "delivery-review --part <P<n>> --report <file> --envelope <file> [--approved-by user]",
-        desc: "Records the operator-attested technical review; the CLI verifies content and receipt, not the reviewer's identity or QA execution.",
-      },
-      {
-        flag: "delivery-present --delivery <E<n>>",
-        desc: "Records the identity of a demo that is already technically reviewed; it is not client consent.",
-      },
-      {
-        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <text>] [--reference <ref>] --approved-by user",
-        desc: "Records the client's decision on a reviewed identity; any decision other than accepted requires --reason.",
-      },
-      {
-        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
-        desc: "Attests the release or deploy reference of an accepted identity without running the deployment (a merge does not count).",
-      },
-      {
-        flag: "status [--json|--line]",
-        desc: "Shows the current stage and phase; without options, regenerates STATUS.md. --json and --line are read-only.",
+        flag: "check --incoming <ref> --base <branch> [--branch <branch>] [--title <text>] [--no-fetch]",
+        desc: "WIP gate for the slices <ref> brings; reads origin/<base> and --base is required with --incoming. A slice/S<n>-… in --branch or an [S<n>] in --title counts as a mark. Without fetch or on a shallow clone it fails closed.",
       },
       {
         flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
-        desc: "Validates the active phase exit, a closed stage, a part spec, or the verifiable single-spec fit criteria.",
+        desc: "v1 forms: validate a closed stage, a part spec or the verifiable criteria for converting to a single spec.",
       },
       {
-        flag: "advance",
-        desc: "Validates the active phase and advances when its requirements are met.",
+        flag: "accept <S<n>|D<n>…> --approved-by user [--evidence <url>]",
+        desc: "Records your accept verdict on the navori/acceptance branch. --approved-by must be user; --evidence takes an http/https URL.",
       },
       {
-        flag: "part <P<n>> [--state <state>] [--reason <text>] [--spec <path>] [--issue <n>]",
-        desc: "Updates a part; --accept, --command, --result, and --approved-by record acceptance evidence.",
+        flag: "reject <S<n>|D<n>…> --approved-by user --notes <task>",
+        desc: "Records your reject verdict. --notes is required and repeatable: each note is an open task for the slice.",
+      },
+      {
+        flag: "migrate [--stage <NN>] [--write]",
+        desc: "Turns a v1 stage into the v2 PLAN.md. Without --write it only prints the plan and the E<n> → S<n> table; with --write it writes PLAN.md without overwriting, turns on harness.masterPlan and re-renders.",
       },
       {
         flag: "template <name> [--part <P<n>>]",
-        desc: "Prints a template; --part fills the issue template from parts.json.",
-      },
-      {
-        flag: "close [--convert <path>|--abandon] [--reason <text>]",
-        desc: "Closes, converts, or abandons the active stage; closed stages are read-only.",
+        desc: "Prints a template (plan, slice, decisions, issue, …); --part fills issue from parts.json.",
       },
       { flag: "--cwd <path>", desc: "Repo to operate on; defaults to the current directory." },
     ],
     example: [
       {
-        title: "Open the first stage",
-        code: "$ navori master init mvp\nStage 01-mvp · phase context\nSignal: commits=3 firstCommit=2026-08-01 filesChanged=12 framework=next suggested=template",
+        title: "Create the plan",
+        code: "navori master init my-project",
       },
       {
-        title: "Register the mode after reviewing the signal",
-        code: "navori master mode template",
+        title: "WIP gate for a PR against dev",
+        code: 'navori master check --incoming HEAD --base dev --branch "$(git branch --show-current)"',
+      },
+      {
+        title: "Accept a slice after your QA round",
+        code: "navori master accept S3 --approved-by user",
+      },
+      {
+        title: "Migrate a v1 stage (dry-run first)",
+        code: "navori master migrate\nnavori master migrate --write",
       },
     ],
     notes: [
-      "init creates <sdd.specsDir>/_master/<NN>-<slug>/ with context/raw/ (its own .gitignore, out of git regardless of gitignoreHarness), context/md/ and plans/, turns on harness.masterPlan and applies the render.",
-      "With a stage already active, init (with or without a slug) does not create a second one: it completes whatever the active one is missing, reports its stage and phase, and exits 1 if a slug was passed.",
-      "Fails when sdd.enabled is false, naming the key to turn on.",
-      "check --stage inspects closed stages; state-changing operations act only on the active stage.",
-      "The delivery-* subcommands belong to deliveries mode: they validate parts against parts.json and every approval requires --approved-by user. The master-accept-confirm hook asks a human to confirm before an acceptance is recorded; an agent cannot approve itself.",
+      "init creates specs/_plan/PLAN.md, turns on harness.masterPlan and applies the render. If it cannot edit the config without reformatting it, it prints the exact line to add. It fails if sdd.enabled is false.",
+      "Only the user runs accept and reject. The master-accept-confirm hook asks a human to confirm before both and before any direct write to navori/acceptance; an agent cannot approve itself.",
+      "migrate never writes navori/acceptance: it only prints suggestions for the v1 accepted decisions.",
+      "The v1 commands (mode, ux, advance, part, close, delivery-slice, delivery-baseline, delivery-queue, delivery-revoke, delivery-criterion, delivery-review, delivery-present, delivery-decision, delivery-publication) are read-only: they exit 1 and point to navori master migrate. delivery-check, check --stage and check --part still read.",
     ],
   },
   gate: {
@@ -2453,25 +2370,6 @@ const zhCN: Record<string, CommandDoc> = {
       "status 是概览，doctor 是详细审计，两者共用健康检查逻辑。",
       "显示 harness (last changed)，即最后修改 harness 的 navori 版本（harnessVersion）；--json 键仍为 renderedVersion。",
     ],
-  },
-  bench: {
-    id: "bench",
-    title: "bench",
-    summary: "对 render 执行 N 次计时，报告 p50/p95，在提交前发现本地回归。",
-    usage: "navori bench [--runs <n>]",
-    flags: [
-      {
-        flag: "--runs <n>",
-        desc: "迭代次数，默认 20。",
-      },
-    ],
-    example: [
-      {
-        title: "基准测试",
-        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
-      },
-    ],
-    notes: ["补充 NAVORI_BENCH=1 对单次运行的计时。"],
   },
   codex: {
     id: "codex",
@@ -3329,99 +3227,67 @@ const zhCN: Record<string, CommandDoc> = {
   master: {
     id: "master",
     title: "master",
-    summary: "项目主计划：管理阶段、流程、部分和闭环（spec 0034）。",
+    summary: "主计划 v2：由用户逐个验收 slice 的 PLAN.md。v1 阶段流程为只读（spec 0063）。",
     usage:
-      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [options] [--cwd <path>]",
+      "navori master <init|status|check|accept|reject|migrate|template> [options] [--cwd <path>]",
     flags: [
       {
-        flag: "<slug>",
-        desc: "首阶段 kebab-case 名称，仅无活跃阶段时 init 必填。",
+        flag: "init [<slug>]",
+        desc: "创建 specs/_plan/PLAN.md 并启用 harness.masterPlan。v2 计划忽略 slug。--workflow（v1）被拒绝：请用 migrate。",
       },
       {
-        flag: "<template|en-curso>",
-        desc: "阶段模式，只能在首阶段 context 流程设置；从第二阶段起自动记录 en-curso。",
+        flag: "status [<id>] [--qa] [--json|--line] [--no-fetch]",
+        desc: "只读的计划派生状态；<id> 查看单个 slice。--qa 列出一轮 QA 的环境与验收脚本；--line 为 SessionStart 行。",
       },
       {
-        flag: "ux <none|md|md-json>",
-        desc: "记录阶段 UX 契约决策，只能在 ux 流程设置，暂不适用于 deliveries。",
-      },
-      {
-        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
-        desc: "将授权部分投影为工作计划。--refresh 重置待验收标准，并要求 --approved-by user。",
-      },
-      {
-        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
-        desc: "为交付授权限定队列，按 parts.json 校验各部分。",
-      },
-      {
-        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
-        desc: "只读检查准备状态（有阻塞退出 1），记录明确基线批准，或撤销队列权限。",
-      },
-      {
-        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
-        desc: "消费宿主证据；仅手动标准可用显式证明 --approved-by user。",
-      },
-      {
-        flag: "delivery-review --part <P<n>> --report <file> --envelope <file> [--approved-by user]",
-        desc: "记录操作者证明的技术审查，CLI 校验内容与 receipt，不校验审查者身份或 QA 执行。",
-      },
-      {
-        flag: "delivery-present --delivery <E<n>>",
-        desc: "记录已技术审查的演示身份，不代表客户同意。",
-      },
-      {
-        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <text>] [--reference <ref>] --approved-by user",
-        desc: "记录客户对已审查身份的决定；非 accepted 决策须有 --reason。",
-      },
-      {
-        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
-        desc: "证明已接受身份的 release/deploy 引用，不执行部署；merge 不算部署。",
-      },
-      {
-        flag: "status [--json|--line]",
-        desc: "显示当前阶段和流程；无参数时重建 STATUS.md，--json 与 --line 只读。",
+        flag: "check --incoming <ref> --base <branch> [--branch <branch>] [--title <text>] [--no-fetch]",
+        desc: "对 <ref> 带来的 slice 做 WIP 门禁；读取 origin/<base>，使用 --incoming 时必须带 --base。--branch 中的 slice/S<n>-… 或 --title 中的 [S<n>] 算作标记。无 fetch 或浅克隆时按失败处理。",
       },
       {
         flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
-        desc: "校验当前流程出口、已关闭阶段、部分规格或单规格适配的可验证标准。",
+        desc: "v1 形式：校验已关闭阶段、部分 spec，或可转换为单个 spec 的可验证标准。",
       },
       {
-        flag: "advance",
-        desc: "校验当前流程，满足条件后推进。",
+        flag: "accept <S<n>|D<n>…> --approved-by user [--evidence <url>]",
+        desc: "在 navori/acceptance 分支记录你的验收结论。--approved-by 必须为 user；--evidence 接受 http/https URL。",
       },
       {
-        flag: "part <P<n>> [--state <state>] [--reason <text>] [--spec <path>] [--issue <n>]",
-        desc: "更新部分；--accept、--command、--result、--approved-by 记录验收证据。",
+        flag: "reject <S<n>|D<n>…> --approved-by user --notes <task>",
+        desc: "记录你的驳回结论。--notes 必填且可重复：每条备注是该 slice 的一项未完成任务。",
+      },
+      {
+        flag: "migrate [--stage <NN>] [--write]",
+        desc: "把 v1 阶段转为 v2 的 PLAN.md。无 --write 时仅打印计划和 E<n> → S<n> 对照表；带 --write 时写入 PLAN.md（不覆盖）、启用 harness.masterPlan 并重新渲染。",
       },
       {
         flag: "template <name> [--part <P<n>>]",
-        desc: "打印模板；--part 从 parts.json 填充 issue 模板。",
+        desc: "打印模板（plan、slice、decisions、issue 等）；--part 从 parts.json 填充 issue。",
       },
-      {
-        flag: "close [--convert <path>|--abandon] [--reason <text>]",
-        desc: "关闭、转换或放弃当前阶段；已关闭阶段只读。",
-      },
-      {
-        flag: "--cwd <path>",
-        desc: "待操作仓库，默认当前目录。",
-      },
+      { flag: "--cwd <path>", desc: "要操作的仓库；默认当前目录。" },
     ],
     example: [
       {
-        title: "开启首阶段",
-        code: "$ navori master init mvp\nStage 01-mvp · phase context\nSignal: commits=3 firstCommit=2026-08-01 filesChanged=12 framework=next suggested=template",
+        title: "创建计划",
+        code: "navori master init my-project",
       },
       {
-        title: "查看信号后登记模式",
-        code: "navori master mode template",
+        title: "针对 dev 的 PR 做 WIP 门禁",
+        code: 'navori master check --incoming HEAD --base dev --branch "$(git branch --show-current)"',
+      },
+      {
+        title: "QA 一轮后验收 slice",
+        code: "navori master accept S3 --approved-by user",
+      },
+      {
+        title: "迁移 v1 阶段（先 dry-run）",
+        code: "navori master migrate\nnavori master migrate --write",
       },
     ],
     notes: [
-      "init 在 <sdd.specsDir>/_master/<NN>-<slug>/ 创建 context/raw/（独立 .gitignore，任何 gitignoreHarness 模式均不提交）、context/md/ 和 plans/，启用 harness.masterPlan 并应用渲染。",
-      "已有活跃阶段时 init 无论是否带名称都只补齐当前阶段，不创建第二个；报告阶段与流程，若传名称则退出 1。",
-      "sdd.enabled 为 false 时失败，指出需启用的键。",
-      "check --stage 查看已关闭阶段；状态变更操作仅作用于活跃阶段。",
-      "delivery-* 属于 deliveries 模式，按 parts.json 校验，每次批准需 --approved-by user。master-accept-confirm 钩子在记录前要求人类确认，智能体不能自行批准。",
+      "init 创建 specs/_plan/PLAN.md、启用 harness.masterPlan 并应用渲染。若无法在不重排格式的情况下修改配置，会打印需添加的确切一行。sdd.enabled 为 false 时失败。",
+      "只有用户可以执行 accept 和 reject。master-accept-confirm 钩子在二者之前以及任何直接写入 navori/acceptance 之前要求人类确认；智能体不能自行批准。",
+      "migrate 从不写入 navori/acceptance：只为 v1 的 accepted 决策打印建议。",
+      "v1 命令（mode、ux、advance、part、close、delivery-slice、delivery-baseline、delivery-queue、delivery-revoke、delivery-criterion、delivery-review、delivery-present、delivery-decision、delivery-publication）为只读：以 1 退出并指向 navori master migrate。delivery-check、check --stage 和 check --part 仍可读取。",
     ],
   },
   gate: {
@@ -3475,7 +3341,6 @@ export const commandOrder = [
   "scan",
   "doctor",
   "status",
-  "bench",
   "codex",
   "audit",
   "backup",

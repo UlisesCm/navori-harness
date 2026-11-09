@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as delivery from "../delivery.ts";
 import * as part from "../part.ts";
+import { runMasterInit } from "../init.ts";
+import { prepareDeliverySlice } from "../slice.ts";
 import { contractDigest, deliveryDigest } from "../delivery-checks.ts";
 import type { DeliveryParts, DeliveryState } from "../delivery-schema.ts";
 import type { Workplan } from "../../plan/schema.ts";
@@ -149,12 +151,13 @@ export interface PresentedDelivery extends DeliveryRepo {
 }
 
 /**
- * From `delivery-slice` through `delivery-present` for P1 of E1, driven through the CLI.
+ * From `delivery-slice` through `delivery-present` for P1 of E1, driven through the library
+ * (the CLI no longer writes the v1 flow, spec 0063 T6).
  * Cooperative fixture only: it proves lifecycle plumbing, not human attestation.
  */
 export function presentFromSlice(repo: DeliveryRepo, stage: string): string {
-  const { cwd, commit, master } = repo;
-  master("delivery-slice", "--part", "P1");
+  const { cwd, commit } = repo;
+  prepareDeliverySlice(cwd, "P1", false, undefined);
   const dir = join(cwd, ".navori/state/handoffs");
   const feature = "delivery-delivery-p1";
   const planPath = join(dir, `workplan_${feature}.json`);
@@ -187,8 +190,8 @@ export function presentFromSlice(repo: DeliveryRepo, stage: string): string {
       deliveryBinding: binding,
     }) + "\n",
   );
-  master("delivery-criterion", "--part", "P1", "--criterion", "A1");
-  master("delivery-criterion", "--part", "P1", "--criterion", "A2", "--approved-by", "user");
+  part.recordDeliveryCriterion(cwd, "P1", "A1", undefined);
+  part.recordDeliveryCriterion(cwd, "P1", "A2", "user");
   const proof = part.deliveryPartProof(cwd, "P1");
   const state = JSON.parse(readFileSync(join(stage, "state.json"), "utf8")) as DeliveryState;
   const report = "Disposable cooperative technical report\n";
@@ -215,31 +218,19 @@ export function presentFromSlice(repo: DeliveryRepo, stage: string): string {
     }),
   );
   cliOk(cwd, "receipt", "sign", "--feature", feature);
-  master(
-    "delivery-review",
-    "--part",
-    "P1",
-    "--report",
-    "technical-report.txt",
-    "--envelope",
-    "technical-envelope.json",
-    "--approved-by",
-    "user",
-  );
-  const presented = JSON.parse(master("delivery-present", "--delivery", "E1")) as {
-    identity: string;
-  };
+  part.captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
+  const presented = delivery.presentDelivery(cwd, "E1");
   return presented.identity;
 }
 
 /** Whole flow in a fresh repo: stage, parts, baseline, queue, slice, review and present. */
 export function presentedDeliveryFixture(): PresentedDelivery {
   const repo = initDeliveryRepo();
-  repo.master("init", "delivery", "--workflow", "deliveries");
+  runMasterInit(repo.cwd, "delivery", "deliveries");
   const stage = join(repo.cwd, "specs/_master/01-delivery");
-  repo.master("init");
+  runMasterInit(repo.cwd, undefined);
   writeDeliveryParts(repo.cwd, stage);
-  repo.master("delivery-baseline", "--approved-by", "user");
-  repo.master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
+  delivery.approveDeliveryBaseline(repo.cwd, "user");
+  delivery.authorizeDeliveryQueue(repo.cwd, "E1", ["P1"], "user", "replacement");
   return { ...repo, stage, identity: presentFromSlice(repo, stage) };
 }

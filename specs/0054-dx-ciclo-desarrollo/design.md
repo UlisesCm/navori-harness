@@ -149,6 +149,9 @@ Salen de `docs/DIRECTION.md` (calidad > tokens > velocidad; independencia del re
   `.codex/config.toml`, con payloads en `scripts/js/bench-payloads/`. Hace 3 corridas con
   `/usr/bin/time -p` (user+sys), saca medianas por hook y sumas por evento, y sale con 1 si Bash sin
   audit pasa de 300 ms. — R23, R24, R27
+  Nota (#1485): el criterio de salida pasa a ser la forma (hooks y ejecuciones por programa contra
+  `scripts/js/bench-hooks-shape.json`); los milisegundos quedan solo en el reporte, y las cifras de la
+  tabla "Línea base" son históricas.
 - `lib/plan/gate.ts` (`NIVEL0_LINE`, `evaluateNivel0`). Gramática
   `nivel-0: <paths> <feature> | verify: \`<cmd>\` → <expected>`: 0045 D8 sobre la forma de 0052.
   `<expected>` es texto libre no vacío porque E3 queda diferida. — R28

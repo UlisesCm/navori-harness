@@ -27,7 +27,6 @@ export const main = defineCommand({
     registry: () => import("./commands/registry.ts").then((m) => m.registryCommand),
     doctor: () => import("./commands/doctor.ts").then((m) => m.doctorCommand),
     status: () => import("./commands/status.ts").then((m) => m.statusCommand),
-    bench: () => import("./commands/bench.ts").then((m) => m.benchCommand),
     workspace: () => import("./commands/workspace.ts").then((m) => m.workspaceCommand),
     ticket: () => import("./commands/ticket.ts").then((m) => m.ticketCommand),
     backup: () => import("./commands/backup.ts").then((m) => m.backupCommand),

@@ -7,14 +7,12 @@ effort: medium
 maxWords: 3365
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="1311b2b3" version="0.12.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="ab6d7a17" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
-
-**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Route by risk (`navori plan classify` level, critical areas): small reversible changes go direct; critical areas or level ≥ 2 get an independent `reviewer` — see "## Role: orchestrator" in `CLAUDE.md`.
 
 
 
@@ -22,7 +20,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
 2. The catalog of subagents is the managed block whose id is `agentes-disponibles`, delivered at session start. Locate it by the id, never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it. Skills: the host's native listing.
-3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
+3. Recover the previous session's state from memory, not a repo file.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.navori/state/handoffs/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
 
@@ -68,12 +66,13 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
 - **Don't delegate merely to wrap a lookup.** If what's missing is a Code discovery routing call you can make yourself (project instructions), run it directly — a subagent invocation isn't a proxy for a query you can issue this turn. When delegation is warranted for a real reason, carry over the pending question, the evidence you already gathered, the relevant paths and their freshness in the encargo; never assume the subagent shares this context — it starts isolated, with no skills listing: name any skill it should apply with its path `.claude/skills/<id>/SKILL.md`.
+- **An encargo that may touch the network restates the rule:** never send the user's personal data (email, name, git user.email) to external services; use a generic identifier, e.g. navori-agent/1.0. Never paste that data into the encargo.
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **An informational observation (<80) after `APPROVED`** goes to the PR body and doesn't reopen the cycle.
 - **Run each `A<n>` yourself, from the main thread, as written, in the foreground** (the host records evidence only that way). An `A<n>` never runs the full suite; the gate does.
-- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+- **A minor finding after `APPROVED` is a delta fix** — a fresh `implementer`, or you directly when it is level 0 with no critical area. The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ## Continuous execution (don't pause between tasks)
 
@@ -122,15 +121,15 @@ Expected files:
 - `.navori/state/handoffs/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
 - `.navori/state/handoffs/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `workplan_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `workplan_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in memory, not a repo file and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in memory along with the next step.
 
-**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`. Versioned `progress/current.md` and `progress/history.md` are exempt.
+**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`.
 
 ## Closing the cycle: create the PR
 
 When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
-1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
+1. **Before** invoking `publisher`: apply `verify-before-done`'s Session close History + Clear current steps now — that commit must land inside this PR, per its timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
 3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `dev`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 4. Return to the user only the PR URL + title.
@@ -157,7 +156,7 @@ navori gate fast    # fast gate — pre-step to the reviewer
 navori gate full    # full gate — before closing the session / creating the PR
 ```
 
-When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if it is missing, the gate did not run: run the literal `bun run check:fast` or `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` command instead.
+When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if it is missing, the gate did not run: run the literal `bun run check:fast` or `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` command instead.
 
 If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
 
@@ -170,7 +169,7 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 
 ## When NOT to orchestrate
 
-If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
+If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else routes by risk — see the top of this file.
 <!-- /navori:managed id="orchestrator-base" -->
 
 <!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.11.3" source="@navori/plugin-codegraph" -->
@@ -179,30 +178,15 @@ If the task is a pure reading / conceptual question → answer directly, no suba
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="352a2910" version="0.12.1" source="@navori/core" -->
-## Cross-model review (Codex second opinion)
 
-For a second opinion from a **different provider**, after `reviewer` approves a non-trivial diff—or for a critical-area change—you MAY ask Codex to review it against `AGENTS.md`:
-
-```bash
-codex exec "revisa el diff origin/dev...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
-```
-
-- Plain root `codex exec` does not select `.codex/agents/reviewer.toml`; its prompt is not a read-only boundary. Effective permissions and approvals depend on Codex configuration and host policy. Full Access can modify files and use the network; do not assume isolation or approvals.
-- Authentication uses normal (possibly custom) `CODEX_HOME`, `CODEX_API_KEY`, or prior `codex login`; no credentials are copied. Do not pin `--model`.
-- **Advisory, not a gate:** weigh findings against `reviewer`; they do not block the PR.
-
-Use for `criticalAreas`, high-blast-radius changes, or user-requested cross-checks—not trivial diffs.
-<!-- /navori:managed id="codex-cross-review" -->
-
-<!-- navori:managed id="engram-orchestrator-extension" hash="35efaabd" version="0.11.3" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="744ec1a3" version="0.12.3" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
 - Before decomposing: `mem_search` the ticket's keywords with `response_format: "compact"`; `mem_get_observation` for the full body. Read a prior decision before dispatching the `implementer`.
 - After each decision: `mem_save` with a descriptive `title`, a stable `topic_key`, and `type` from `decision, architecture, bugfix, pattern, config, discovery`. If a memory contradicts the code, fix it with `mem_update`.
 - **`mem_save` fails with `multiple active runtime sessions match the current project and directory`**: upstream bug, not your content. Use the CLI: `engram save "<title>" "<content>" --project <project> --type <type> --topic <topic_key>`.
-- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos).
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`.
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
 - **Auto Memory vs. engram**: Auto Memory holds personal preferences; engram holds durable knowledge. Never write the same fact to both.

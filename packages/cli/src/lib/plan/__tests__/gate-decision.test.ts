@@ -1,5 +1,14 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { decideWorkplanGate } from "../gate-decision.ts";
+import { decideWorkplanGate, decideWorkplanGateFromDisk } from "../gate-decision.ts";
+import {
+  resolveStateRoot,
+  stateArtifactPath,
+  type StateRoot,
+} from "../../primitives/state-root.ts";
 
 function plan(
   phases: { name: string; acceptance: string[] }[] | undefined,
@@ -64,5 +73,49 @@ describe("decideWorkplanGate", () => {
         unit: null,
       });
     }
+  });
+});
+
+describe("workplan gate reasons (#1547)", () => {
+  const draft = { feature: "f", objective: "o", files: [{ path: "a.ts" }] };
+
+  it("a draft is workplan-draft and decides full", () => {
+    expect(decideWorkplanGate(draft)).toMatchObject({
+      gateKind: "full",
+      reason: "workplan-draft",
+    });
+  });
+
+  it("level with empty acceptance is workplan-unreadable and decides full", () => {
+    expect(decideWorkplanGate({ ...draft, level: 1, acceptance: [] })).toMatchObject({
+      gateKind: "full",
+      reason: "workplan-unreadable",
+    });
+  });
+
+  /** A temp state root plus the path of `workplan_f.json` inside it. */
+  function diskRoot(): { root: StateRoot; path: string } {
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), "gate-decision-")));
+    execFileSync("git", ["init", "-q"], { cwd });
+    const root = resolveStateRoot({ cwd, feature: "f", dir: ".claude/progress" });
+    const path = stateArtifactPath(root, "workplan_f.json");
+    mkdirSync(join(path, ".."), { recursive: true });
+    return { root, path };
+  }
+
+  it("no file is workplan-missing and decides full", () => {
+    expect(decideWorkplanGateFromDisk(diskRoot().root, "f")).toMatchObject({
+      gateKind: "full",
+      reason: "workplan-missing",
+    });
+  });
+
+  it("broken JSON on disk is workplan-unreadable and decides full", () => {
+    const { root, path } = diskRoot();
+    writeFileSync(path, "{ not json");
+    expect(decideWorkplanGateFromDisk(root, "f")).toMatchObject({
+      gateKind: "full",
+      reason: "workplan-unreadable",
+    });
   });
 });

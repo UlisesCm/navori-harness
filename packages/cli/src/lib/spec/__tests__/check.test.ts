@@ -15,11 +15,6 @@ function rules(text: string, requirements?: readonly string[] | undefined): Find
   return check(text, requirements).findings.map((f) => f.rule);
 }
 
-const master = (prTarget = "main") => ({
-  deliveries: [{ id: "E1", prTarget, integrationTarget: "main" }],
-  prTarget: "main",
-});
-
 const valid = ["## E1 — d", "### M1 — m", OK_A, behavior(1)].join("\n");
 
 /** Six nonempty deliveries with 30 checked active tasks and declared acceptance. */
@@ -300,17 +295,14 @@ describe("checkSpec — completed over-budget declarations", () => {
     expect(result.findings.map((f) => [f.rule, f.severity])).toContainEqual([rule, "error"]);
   });
 
-  // Covers: R7, R8, R22
-  it("still checks requirement coverage, unreadable requirements and master mappings", () => {
+  // Covers: R7, R8
+  it("still checks requirement coverage and unreadable requirements", () => {
     expect(check(completed, ["R1", "R2"]).findings.map((f) => f.rule)).toContain(
       "requirement-uncovered",
     );
     const unreadable = checkSpec(parseTasks(completed), DEFAULT_DELIVERIES, undefined);
     expect(unreadable.ok).toBe(false);
     expect(unreadable.findings.map((f) => f.rule)).toContain("requirements-unreadable");
-    const unmapped = checkSpec(parseTasks(completed), DEFAULT_DELIVERIES, ["R1"], master());
-    expect(unmapped.ok).toBe(false);
-    expect(unmapped.findings.map((f) => f.rule)).toContain("master-delivery-unmapped");
   });
 });
 
@@ -340,34 +332,5 @@ describe("checkSpec — formato anterior", () => {
     expect(result.findings.length).toBeGreaterThan(0);
     expect(result.findings.every((f) => f.severity === "warning")).toBe(true);
     expect(result.findings[0]?.rule).toBe("legacy-format");
-  });
-});
-
-describe("master-plan mapping", () => {
-  // Covers: R22
-  it("flags an E<n> that parts.json does not declare for the part", () => {
-    const text = valid.replace("## E1", "## E2");
-    const result = checkSpec(parseTasks(text), DEFAULT_DELIVERIES, ["R1"], master());
-    expect(result.findings.map((f) => [f.rule, f.severity])).toContainEqual([
-      "master-delivery-unmapped",
-      "error",
-    ]);
-    expect(result.ok).toBe(false);
-  });
-
-  // Covers: R22
-  it("warns when the delivery target differs from prTarget, and stays silent otherwise", () => {
-    const mismatch = checkSpec(parseTasks(valid), DEFAULT_DELIVERIES, ["R1"], master("dev"));
-    expect(mismatch.ok).toBe(true);
-    expect(mismatch.findings.map((f) => [f.rule, f.severity])).toEqual([
-      ["master-target-mismatch", "warning"],
-    ]);
-    expect(checkSpec(parseTasks(valid), DEFAULT_DELIVERIES, ["R1"], master()).findings).toEqual([]);
-  });
-
-  // Covers: R22
-  it("leaves specs outside master-plan unchanged", () => {
-    expect(rules(valid)).toEqual([]);
-    expect(checkSpec(parseTasks(valid), DEFAULT_DELIVERIES, ["R1"], null).findings).toEqual([]);
   });
 });

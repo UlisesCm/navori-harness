@@ -72,7 +72,11 @@ describe("readCodexTrustState — reproduces the four real Codex hashes (spec 00
   // against real values Codex itself wrote, which also pins that the
   // internal command construction has not drifted from build-config-toml.ts.
   it("classifies the four pre-existing registrations as Trusted against the real hashes", () => {
-    const cfg = config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } });
+    // #1484: model-advisor is the first SessionStart row only with `hooks.modelAdvisor`.
+    const cfg = config({
+      qualityGate: { fast: "pnpm test", full: "pnpm test" },
+      hooks: { verifyOnStop: false, modelAdvisor: true, auditMode: false },
+    });
     const hooks = resolveCodexHooks(cfg);
     const configTomlPath = `${GOLDEN_ROOT}/.codex/config.toml`;
     const homeText = goldenHomeConfig(GOLDEN_ROOT);

@@ -66,6 +66,8 @@ There are two levels:
 - **`check:assets:ci`** (in `EXEMPT_FROM_LOCAL_GATE`): it is the same check as `check:assets` with `--strict`. Strict mode depends on tags that CI intentionally provides and a fresh clone does not have, so the local gate would fail for an environmental reason rather than a code issue.
 - **`check:assets`** (in `EXEMPT_FROM_CI`): CI runs its stricter superset, `check:assets:ci`.
 
+A green CI run with the `full` label can stand in for the local full gate (#1492): the reviewer signs `--gate-ran ci`, the publisher opens a draft PR and marks it ready only when `navori receipt ci` verifies that run on the exact HEAD. Paths in `qualityGate.ci.untrustedPaths` and any `qualityGate` change still need the local gate; shell hook changes need the local `hooksCommand`.
+
 For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are enough; the full suite is not needed.
 **"Doc-only" means repo documentation, not assets.** A `.md` file under `packages/core/core-assets/` or `packages/plugins/*/` is a source for the rendered harness, so it triggers steps 2 and 3 (the mirror and golden snapshot) regardless of its extension.
 
@@ -130,6 +132,28 @@ stay TypeScript-only.
   `cargo test --workspace`, `bun run oracle:rust`, `node scripts/js/gen-pi-extension-asset.mjs
   --check` and `node scripts/js/rust-manifest-check.mjs`.
 
+## Parallel sessions
+
+One session, one worktree, from the start, on Claude Code and Pi alike. A session's subagents, hooks,
+`.navori/state/` (workplans, handoffs, receipts) and gates resolve to the checkout the session started in,
+so two sessions sharing a checkout share its branch and state, and a branch switch in one moves the other
+(#1543).
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # or: pi
+```
+
+- The main checkout is for reviewing and merging, not for a working session.
+- The global `navori` is linked to the main checkout's `packages/cli/dist`, so every worktree runs that
+  build. After each pull of `dev` there, rebuild it: `bun run --filter navori build`.
+- Render from a worktree with that worktree's own compiled CLI, never the global `navori`: the global one
+  renders the main checkout's assets over the branch's. `bun run render:apply` at the worktree root builds
+  this worktree's CLI and renders with it; after that build, run any other command as
+  `node packages/cli/dist/index.js <command>`.
+- `worktree-reclaim` removes a worktree once it is clean, pushed and its PR is merged; the next task starts
+  in a new one. Pi specifics: [docs/pi.md](docs/pi.md#parallel-sessions).
+
 ## Prose budget: what is capped and what is only reported
 
 All prose navori sends lives in each session's resident context, so it grows cumulatively: each session that learns something adds it, and nothing prunes it. There are **two startup surfaces**, deliberately treated differently.
@@ -140,7 +164,7 @@ All prose navori sends lives in each session's resident context, so it grows cum
 | Computed blocks (`contexto-proyecto`, `agentes-disponibles`) | navori, from consumer configuration | **Yes**, using `base + k · filas` | `navori doctor` (reports only) |
 | Consumer-owned prose outside markers | The repository owner | **No, never** | Reported only |
 | `.claude/context/*.md` | navori | **Not yet** (#919) | `navori doctor` (reports only) |
-| `AGENTS.md` (engine prose) | navori | **No** — reported against the host's cap | `navori doctor` (yellow warning from 80%) |
+| `AGENTS.md` (engine prose) | navori | **Consumers: No**, reported against the host's cap. **This repo's root `AGENTS.md`: yes**, a whole-file word ceiling | `bun run check:doc-budgets` for the root file; `navori doctor` (yellow warning from 80%) for consumers |
 
 The caps live in one place: `packages/cli/src/lib/assets/doc-budgets.ts`. It is under `src/lib/`, not in a JSON file under `scripts/`, because npm publishes `["dist", "README.md"]`. `doctor` must read the same values inside a consumer's repo, which is possible only if they are in the bundle. Policy: every cap has **at least 5% headroom** above the measured value, and any increase must be justified by the change requesting it. Setting a cap to the exact passing value is how `CLAUDE.md` reached 2548/2550.
 
@@ -153,6 +177,10 @@ Three decisions may not be obvious:
 One metric detail matters when reading a number: **blocks without a cap are excluded from the comparison**. A block navori does not budget (typically a removed block still present in an old file) adds words to the total but contributes zero to the cap. Including it in the ratio would report excess invented by the metric. In the actual `CLAUDE.md` for `bonum-webapp`, `engram-protocol` (497) plus `codegraph-protocol` (255) accounted for **752 of 1207** reported excess words, or 62%. They are counted separately and named on their own line, not hidden.
 
 The prose surface (`AGENTS.md`, shared by `codex`, `agents-md`, `cursor`, and `copilot`) is measured in **bytes**, not words, because the only limit there belongs to the host. Codex concatenates files from the root downward and **stops adding files** when it reaches `project_doc_max_bytes` (32 KiB by default), without warning. No word cap detects that silent truncation. navori reports only its own contribution: the chain also includes the user's `~/.codex/AGENTS.md` and nested `AGENTS.md` files, so the measurement is a **lower bound**. It is not measured block by block either: `AGENTS.md` renders as one `navori-agents` block, and a per-block report would say `ceiling 0, overBy 0`—a line that could never fail. Per-block diagnostics would change the marker topology of an already deployed file, a critical area, and require a separate spec.
+
+This repo's own root `AGENTS.md` is the exception to "not capped": it is a whole file with a word ceiling (`"AGENTS.md"` in `DOC_BUDGETS`), checked by the gate, because it is navori's file, not a consumer's.
+
+**Which layers land where.** The `agents-md` engine writes the shared doctrine plus the orchestrator layer, except when Pi is in `engines`: then the orchestrator layer goes to `.pi/navori/orchestrator.md` (parent-only, see [docs/pi.md](docs/pi.md)). Claude-only doctrine lives in the `claude-apendice` block of `CLAUDE.md`, which the Claude engine always renders, with or without `agents-md`. Ceilings for these files live in `packages/cli/src/lib/assets/doc-budgets.ts`; this document does not repeat their numbers.
 
 The distinction that determines what to do about a warning is: **"your file is large" is not the same as "your file is stale."** A `CLAUDE.md` rendered by an older version can contain blocks that have since shrunk. In `bonum-webapp`, `navori render --apply` removes 1175 words (−37%) without requiring an owner decision. That is why `doctor` reports staleness first: it is the only fix that requires no decision.
 

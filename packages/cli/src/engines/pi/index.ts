@@ -21,8 +21,12 @@ import {
   type PreparedEngine,
 } from "../shared/execute-plan.ts";
 import { OwnedPathInventory } from "../shared/owned-path-inventory.ts";
-import type { ProseEngineResult } from "../shared/prose-harness.ts";
-import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { buildAssetBlocks, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { renderAgentsMdFile } from "../agents-md/index.ts";
+import { ORCHESTRATOR_LAYER_IDS } from "../../lib/render/layers.ts";
+import { buildAgentsIndexBlock, compactAgentDescription } from "../shared/agents-index.ts";
+import { buildContextoProyectoBody } from "../shared/project-context.ts";
+import { adaptHarnessTextForPi } from "./compat.ts";
 import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { PI_MAP_MIGRATION_WARNING, piMapMigrationPending } from "../../lib/diagnose/pi-health.ts";
@@ -30,11 +34,13 @@ import { interpolate } from "../../lib/render/interpolate.ts";
 import {
   ownsPiAgent,
   ownsPiManifest,
+  ownsPiOrchestrator,
   ownsPiSource,
   PI_MANIFEST_SCHEMA,
   piManifestSchemaVersion,
   serializePiAgent,
   serializePiManifest,
+  serializePiOrchestrator,
   serializePiSource,
   type PiManifestHook,
 } from "./owned-file.ts";
@@ -71,7 +77,7 @@ import {
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
-import { PI_ROLE_TOOLS, type PiRoleName } from "./role-tools.ts";
+import { isPiChildRole, isPiParentRole } from "./role-tools.ts";
 import {
   PI_KNOWLEDGE_READONLY,
   piKnowledgeGrants,
@@ -81,10 +87,12 @@ import {
 } from "./knowledge-tools.ts";
 import { mcpPluginIds, mcpServerDiagnostics } from "./mcp-diagnosis.ts";
 
-const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
+/** Whether Pi renders `.pi/agents/<id>.md` for this role: a dispatchable child or a parent role. */
+const isPiRenderedRole = (id: string): boolean => isPiChildRole(id) || isPiParentRole(id);
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
+const ORCHESTRATOR = ".pi/navori/orchestrator.md";
 const HOOKS_DIR = ".pi/navori/hooks";
 const SCRIPTS_DIR = ".pi/navori/scripts";
 /** Plan-skill ids plus the local-skill pointers Pi may own in the shared `.agents/skills` root. */
@@ -123,6 +131,7 @@ function buildAdapter(
             destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
             managedId: skill.managedId,
             commentStyle: "html",
+            transform: adaptHarnessTextForPi,
           },
     // Spec 0048 D1: the shared script, copied to `.pi/navori/hooks/<id>.sh`, only for rows of the
     // binding table: one table decides what is installed, what the bridge runs and the manifest.
@@ -233,6 +242,15 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
 }
 
 /**
+ * The orchestrator doctrine lives in Pi's parent-only file whenever Codex does not carry it in
+ * its own AGENTS.md. Decoupled from {@link piNeedsContextWriter}: with `agents-md` as the
+ * AGENTS.md writer the file is still Pi's, because that engine omits the layer whenever Pi is configured.
+ */
+function piWritesOrchestrator(config: NavoriConfig): boolean {
+  return !config.engines.includes("codex");
+}
+
+/**
  * Spec 0047 R10 (fail-closed): Pi children always run with `--no-mcp` (Pi 1.1.0 connects every
  * enabled server and lists them all in the child prompt, so per-server limiting is not
  * verifiable). An enabled plugin that injects MCP prose into a rendered Pi role therefore cannot
@@ -251,9 +269,10 @@ function mcpRoleDiagnostics(
     if (!plugin.manifest.mcpServer) continue;
     for (const skill of plugin.manifest.skills ?? []) {
       const role = skill.injectInto?.match(/^\.claude\/agents\/([a-z0-9-]+)\.md$/)?.[1];
-      if (role === undefined || !roleIds.has(role)) continue;
+      // A parent role runs in the parent session, where MCP is available.
+      if (role === undefined || !roleIds.has(role) || !isPiChildRole(role)) continue;
       const covered = (PI_KNOWLEDGE_READONLY[plugin.manifest.id] ?? []).map(piKnowledgeToolName);
-      if (covered.some((name) => grants[role as PiRoleName]?.includes(name))) continue;
+      if (covered.some((name) => grants[role]?.includes(name))) continue;
       const tools = deriveMcpTools(plugin, skill.mcpTools).join(", ");
       out.push(
         `Pi role ${role} needs MCP tools from plugin ${plugin.manifest.id} (${tools}) but is unavailable for them in children: ` +
@@ -289,12 +308,52 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
       ? ownsPiManifest(content)
       : rel === EXTENSION
         ? ownsPiSource(content)
-        : agent !== undefined && Object.hasOwn(ROLE_TOOLS, agent) && ownsPiAgent(content, agent);
+        : rel === ORCHESTRATOR
+          ? ownsPiOrchestrator(content)
+          : agent !== undefined && isPiRenderedRole(agent) && ownsPiAgent(content, agent);
   if (owned) return "ours";
   const claimsNavori =
     content.includes('navori:managed-file id="pi-') ||
     /"_navori"\s*:\s*{\s*"id": "pi-runtime"/.test(content);
   return claimsNavori ? "modified" : "foreign";
+}
+
+/**
+ * The orchestrator layer as Pi's parent-only doctrine: its managed assets, the agent catalog and
+ * the plugin orchestrator sub-blocks, in Pi's vocabulary and with the same interpolation they
+ * had inside AGENTS.md.
+ */
+function buildOrchestratorDoctrine(
+  ctx: AdapterCtx,
+  roles: ReadonlyArray<{ id: string; assetPath: string }>,
+  plugins: readonly LoadedPlugin[],
+  lang: ReturnType<typeof resolveLang>,
+): string {
+  const { config } = ctx;
+  const blocks = buildAssetBlocks(config, ctx.repoRoot, ctx.isWorkspace, {
+    engine: "pi",
+    assetIds: ORCHESTRATOR_LAYER_IDS,
+    transform: adaptHarnessTextForPi,
+  });
+  const catalog = buildAgentsIndexBlock(
+    lang,
+    roles.map((agent) => ({
+      id: agent.id,
+      description: compactAgentDescription(
+        interpolate(
+          parseAsset(readFileSync(agent.assetPath, "utf-8"), "html").frontmatter.description ??
+            agent.id,
+          config,
+        ),
+      ),
+    })),
+    { withIntro: false },
+  );
+  return extendWithOrchestratorBlocks(
+    [...blocks, ...(catalog === null ? [] : [catalog])].join("\n\n"),
+    plugins,
+    config,
+  );
 }
 
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
@@ -372,11 +431,11 @@ export function preparePiEngine(
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
   const admitted = (id: string): boolean =>
-    Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
+    isPiRenderedRole(id) && (id !== "scribe" || scribeOwnsMarkdown);
   const roles = plan.agents.filter((agent) => admitted(agent.id));
   warnings.push(
     ...plan.agents
-      .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
+      .filter((agent) => !isPiRenderedRole(agent.id))
       .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`),
   );
   if (!config.engines.includes("codex")) {
@@ -408,21 +467,30 @@ export function preparePiEngine(
     ...(binding.skipOnError ? { skipOnError: true } : {}),
   }));
   const permissions = collectShellPermissionRules(config, ctx.plugins);
+  const needsContext = piNeedsContextWriter(config);
+  // The orchestrator layer lives in its own whole-file resource unless Codex carries it in AGENTS.md.
+  const orchestrator = piWritesOrchestrator(config)
+    ? buildOrchestratorDoctrine(ctx, roles, plugins, lang)
+    : null;
   const serialized = serializePiManifest({
     schemaVersion: PI_MANIFEST_SCHEMA,
-    agents: roles.map((r) => r.id),
+    // Parent roles are rendered but never dispatchable, so the manifest does not list them.
+    agents: roles.filter((r) => isPiChildRole(r.id)).map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
       scribeOwnsMarkdown,
       // Optional: emitted only for a non-default audit.mode so unset configs keep a byte-identical manifest.
       ...(config.audit?.mode === "always" ? { auditMode: "always" as const } : {}),
+      // Optional: emitted only when `harness.sessionState` is false (#1579), same byte-identity rule.
+      ...(config.harness?.sessionState === false ? { sessionState: false as const } : {}),
     },
     hooks,
     // Whole-file destinations only; AGENTS.md and skills mix user text with managed blocks (marker lane).
     ownedPaths: [
       MANIFEST,
       EXTENSION,
+      ...(orchestrator === null ? [] : [ORCHESTRATOR]),
       ...roles.map((agent) => `.pi/agents/${agent.id}.md`),
       ...hooks.map((hook) => hook.path),
     ],
@@ -438,6 +506,15 @@ export function preparePiEngine(
   }> = [
     { relPath: MANIFEST, content: serialized, owned: ownsPiManifest },
     { relPath: EXTENSION, content: extension, owned: ownsPiSource },
+    ...(orchestrator === null
+      ? []
+      : [
+          {
+            relPath: ORCHESTRATOR,
+            content: serializePiOrchestrator(orchestrator),
+            owned: ownsPiOrchestrator,
+          },
+        ]),
   ];
   for (const agent of roles) {
     const parsed = parseAsset(readFileSync(agent.assetPath, "utf-8"), "html");
@@ -455,7 +532,7 @@ export function preparePiEngine(
       name: agent.id,
       description,
       ...(model ? { model } : {}),
-      tools: piRoleTools(agent.id as PiRoleName, knowledgeGrants),
+      tools: isPiChildRole(agent.id) ? piRoleTools(agent.id, knowledgeGrants) : [],
       instructions:
         prefixKnowledgeNames(instructions, agent.id, knowledgeGrants) +
         rolePluginProse(agent.id, plugins, config, knowledgeGrants),
@@ -547,11 +624,7 @@ export function preparePiEngine(
   const removals: CollectedPlan["removals"] = [];
   if (existsSync(agentDir)) {
     for (const name of readdirSync(agentDir)) {
-      if (
-        !name.endsWith(".md") ||
-        desiredAgents.has(name) ||
-        !Object.hasOwn(ROLE_TOOLS, name.slice(0, -3))
-      )
+      if (!name.endsWith(".md") || desiredAgents.has(name) || !isPiRenderedRole(name.slice(0, -3)))
         continue;
       const path = join(agentDir, name);
       if (
@@ -570,6 +643,24 @@ export function preparePiEngine(
       }
     }
   }
+  // Codex carries the layer in its AGENTS.md: retire Pi's own copy.
+  const staleOrchestrator = lstatSync(join(cwd, ORCHESTRATOR), { throwIfNoEntry: false });
+  if (orchestrator === null && staleOrchestrator) {
+    if (
+      staleOrchestrator.isFile() &&
+      !staleOrchestrator.isSymbolicLink() &&
+      ownsPiOrchestrator(readFileSync(join(cwd, ORCHESTRATOR), "utf-8"))
+    ) {
+      removals.push({ path: join(cwd, ORCHESTRATOR) });
+    } else {
+      collided = true;
+      skipped.push({
+        path: ORCHESTRATOR,
+        reason: "Pi orphan ownership mismatch; preserved user file.",
+        status: "user-modified-skipped",
+      });
+    }
+  }
   if (collided) {
     warnings.push(
       "Pi generation was not committed because at least one owned destination collides or was edited.",
@@ -583,7 +674,6 @@ export function preparePiEngine(
         inventory.exclude(destination.relPath);
     }
   }
-  const needsContext = piNeedsContextWriter(config);
   if (needsContext)
     destinations.push(observeDestination(inventory, cwd, "AGENTS.md", "navori-agents"));
   let finalized: CollectedPlan | undefined;
@@ -691,10 +781,20 @@ export function preparePiEngine(
       // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
       // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
       // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
-      const context = renderAgentsMdEngine(cwd, config, {
+      // Same AGENTS.md doctrine Codex writes when it owns the file (#1512), in Pi's vocabulary,
+      // minus the orchestrator layer (it lives in `.pi/navori/orchestrator.md`, parent-only), no
+      // skills index (Pi lists `.agents/skills` natively), plus the project rules risk routing reads.
+      const projectContext = buildContextoProyectoBody(config, lang);
+      const context = renderAgentsMdFile(cwd, config, {
         ...options,
+        engine: "pi",
         includePluginBlocks: true,
-        extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
+        omitAssetIds: ORCHESTRATOR_LAYER_IDS,
+        omitSkillsIndex: true,
+        // The adapter rewrites navori's asset text before interpolation, so the user's
+        // `project.*` values (e.g. critical areas in the routing line) stay verbatim.
+        transform: adaptHarnessTextForPi,
+        extendBody: (body) => [body, projectContext].filter((part) => part !== null).join("\n"),
       });
       return {
         written: [...result.written, ...context.written],

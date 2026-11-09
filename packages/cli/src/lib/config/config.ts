@@ -9,7 +9,7 @@ import { schemaUrl } from "./schema-url.ts";
 
 const SCHEMA_URL = schemaUrl("navori.config.v1.json");
 
-type ConfigObjectRule = {
+export type ConfigObjectRule = {
   /** Keys declared at this JSON object level. */
   keys: readonly string[];
   /** Declared object-valued children that should be checked recursively. */
@@ -254,7 +254,14 @@ export function migrateRetiredConfigKeys(
   return { config, renamed, dropped, decisions, removed };
 }
 
-const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full", "scoped", "nativeHooks"] };
+const QUALITY_GATE_RULE: ConfigObjectRule = {
+  keys: ["fast", "full", "scoped", "affected", "docs", "nativeHooks", "ci"],
+  children: {
+    ci: {
+      keys: ["workflow", "jobs", "label", "untrustedPaths", "hookPaths", "hooksCommand"],
+    },
+  },
+};
 
 /**
  * Raw-config key map used for advisory typo diagnostics.
@@ -265,8 +272,12 @@ const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full", "scoped", "
  * plugin-defined prompt fields and `plugins` accepts arbitrary plugin ids, so
  * their open keys are not reported. We still inspect known nested structures
  * such as `project.foreignHarness` and each plugin entry.
+ *
+ * Exported only so `config-key-rule.test.ts` can check it against
+ * `NavoriConfigSchema`: a key added to the schema but not here would be
+ * reported as unknown on every command (#1510).
  */
-const CONFIG_KEY_RULE: ConfigObjectRule = {
+export const CONFIG_KEY_RULE: ConfigObjectRule = {
   keys: [
     "$schema",
     "name",
@@ -296,7 +307,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
   ],
   children: {
     qualityGate: QUALITY_GATE_RULE,
-    hooks: { keys: ["verifyOnStop"] },
+    hooks: { keys: ["verifyOnStop", "modelAdvisor", "auditMode"] },
     audit: { keys: ["mode"] },
     sdd: {
       keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo", "deliveries"],
@@ -316,13 +327,20 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         "planTiers",
         "codexIntegration",
         "masterPlan",
+        "authoring",
+        "sessionState",
         "compactAdviceTokens",
       ],
     },
     models: {
-      keys: [...AGENT_ROLE_KEYS, "codexMap", "piMap"],
+      keys: [...AGENT_ROLE_KEYS, "codexMap", "piMap", "codexProfiles"],
       children: {
         codexMap: { keys: ["opus", "sonnet", "haiku"] },
+        codexProfiles: {
+          keys: [],
+          recordValues: { keys: ["model", "effort"] },
+          allowExtensions: true,
+        },
         piMap: { keys: ["opus", "sonnet", "haiku"] },
       },
     },
@@ -334,6 +352,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
       keys: [
         "legacyPaths",
         "criticalAreas",
+        "criticalPaths",
         "testRunner",
         "posture",
         "reviewRigor",

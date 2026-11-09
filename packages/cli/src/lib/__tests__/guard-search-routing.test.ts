@@ -5,18 +5,28 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { basename, resolve, join } from "node:path";
+import { isHookReason } from "../audit/model.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { injectManagedSection } from "../render/marker.ts";
 import { renderManagedFile } from "../../engines/shared/render-managed-file.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { acrossShells } from "./helpers/shells.ts";
+import {
+  createExecShims,
+  expectLinearTrace,
+  MAX_DOUBLING_RATIO,
+  traceRatios,
+  traceShape,
+  type TraceShape,
+} from "./helpers/exec-shims.ts";
 
 /**
  * Behavioral tests for the tgrep search lane (spec 0039 D6).
@@ -329,6 +339,124 @@ describe.runIf(runsBash)("guard-search-routing", () => {
       });
     }
   });
+
+  describe("a newline outside quotes starts a command (#1509)", () => {
+    const blocked = [
+      "true\ngrep -rn foo src/",
+      "true\n\ngrep -rn foo src/",
+      "cd x\nrg foo",
+      "echo a &&\ngrep -rn foo src/",
+      "echo a &&\n# c\ngrep -rn foo src/",
+      'echo "a \\" b"\ngrep -rn foo src/',
+    ];
+    for (const command of blocked) {
+      it(`blocks ${JSON.stringify(command)}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+
+    const allowed = [
+      'git commit -m "titulo\n\ngrep -rn foo src/ en el cuerpo"',
+      "git commit -m 'titulo\n\ngrep -rn foo src/ en el cuerpo'",
+      "ls |\ngrep -r foo",
+      "cat a.txt |\n  grep -rn x",
+      "ls |&\ngrep -r foo",
+      "ls |\n# c\ngrep -r foo",
+      'echo "a \\" b"\ngrep -n x f.ts',
+      "# grep -rn foo src/\necho ok",
+      "true\ngrep -n x f.ts",
+      "python3 - <<PY\ngrep -rn foo src/\nPY",
+    ];
+    for (const command of allowed) {
+      it(`allows ${JSON.stringify(command)}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+  });
+});
+
+// Issue #1491: two `grep` forks per segment start made a 6 KB command that only filters with
+// `| grep` cost ~0.8 s inside guard-destructive. The checks are about SHAPE (fork counts,
+// scaling), never an absolute time.
+describe.runIf(runsBash)("guard-search-routing: long multi-segment commands (#1491)", () => {
+  // Pipe filters plus a non-recursive grep that STARTS a segment: every segment start is a
+  // candidate for the old per-segment checks, none of them blocks.
+  const line = `echo 'navori check' && ls packages | grep "core"; grep -n "x" a.ts; cat a || true\n`;
+  const fixture = fixtures.running;
+
+  function runWith(command: string, env: NodeJS.ProcessEnv = {}): number {
+    const r = spawnSync(resolveBin("bash"), [fixture.hook], {
+      input: JSON.stringify({ tool_input: { command } }),
+      env: { ...envFor(fixture), ...env },
+      cwd: fixture.repo,
+    });
+    return r.status ?? -1;
+  }
+
+  it("forks the same number of grep/awk/sed for 20 and 200 lines", () => {
+    const shims = createExecShims();
+    const shimDir = (shims.env.PATH ?? "").split(":")[0] ?? "";
+    const counts = (lines: number): Record<string, number> => {
+      shims.reset();
+      expect(
+        runWith(line.repeat(lines), { ...shims.env, PATH: `${shimDir}:${fixture.path}` }),
+      ).toBe(0);
+      return shims.counts();
+    };
+    const small = counts(20);
+    const large = counts(200);
+    expect(line.repeat(200).length).toBeLessThan(20_000); // still inspected, not skipped
+    expect(large.grep).toBeGreaterThanOrEqual(1); // the shims really observe execs
+    expect(large).toEqual(small);
+  });
+
+  // The trace of a run is the work bash did, so its growth is the scaling, on any machine load.
+  const traceOf = (lines: number, target: Fixture = fixture): TraceShape =>
+    traceShape({
+      script: target.hook,
+      bash: resolveBin("bash"),
+      input: JSON.stringify({ tool_input: { command: line.repeat(lines) } }),
+      env: envFor(target),
+      cwd: target.repo,
+    });
+
+  it("scales linearly: a ~20 KB command traces at most 2.5x the work of a ~10 KB one", () => {
+    expect(line.repeat(230).length).toBeLessThan(20_000);
+    expectLinearTrace(traceOf(115), traceOf(230));
+  });
+
+  it("the trace ratio catches a quadratic lane (mutation smoke)", () => {
+    // Same lane, plus a per-segment string append: each step copies everything before it.
+    const original = readFileSync(join(pluginRoot, "scripts/guard-search-routing.sh"), "utf-8");
+    const anchor = "    printf '%s\\n' \"$seg\"\n";
+    expect(original).toContain(anchor);
+    const quadratic = buildFixture(
+      "running",
+      original.replace(anchor, `    navori_acc="\${navori_acc:-}$seg"\n${anchor}`),
+    );
+    try {
+      const small = traceOf(115, quadratic);
+      const large = traceOf(230, quadratic);
+      expect(small.status).toBe(0);
+      expect(large.status).toBe(0);
+      expect(traceRatios(small, large).bytes).toBeGreaterThan(MAX_DOUBLING_RATIO);
+    } finally {
+      rmSync(quadratic.repo, { recursive: true, force: true });
+    }
+  });
+
+  it("still blocks a recursive search after 200 harmless lines", () => {
+    expect(runWith(`${line.repeat(200)}; grep -rn "foo" src/`)).toBe(2);
+  });
+
+  it("names the first offending segment when several would block", () => {
+    expect(stderrOf(`${line.repeat(20)}; rg foo src && grep -rn foo src/`)).toContain(
+      "rg is recursive by default",
+    );
+    expect(stderrOf(`${line.repeat(20)}; grep -rn foo src/ && rg foo src`)).toContain(
+      "recursive content search through the shell",
+    );
+  });
 });
 
 describe.runIf(runsBash)("guard-search-routing: D6 composition", () => {
@@ -400,6 +528,49 @@ describe.runIf(runsBash)("guard-search-routing: D6 composition", () => {
 
     it("without an index, the search is allowed", () => {
       expect(runGuard('grep -rn "foo" src/', fixtures["no-index"])).toBe(0);
+    });
+
+    // #1533: the fail-open used to be recorded as verdict "unknown" / reason "unspecified".
+    it("records the fail-open as verdict fail-open, reason search-index-unavailable", () => {
+      const f = fixtures["no-index"];
+      const auditRoot = mkdtempSync(join(tmpdir(), "navori-search-audit-"));
+      const repoName = basename(f.repo);
+      mkdirSync(join(auditRoot, repoName, "spool-s1"), { recursive: true });
+      writeFileSync(join(auditRoot, repoName, "session-s1.log"), "{}\n");
+      try {
+        const payload = JSON.stringify({
+          tool_input: { command: 'grep -R "foo" src/' },
+          session_id: "s1",
+          cwd: f.repo,
+          hook_event_name: "PreToolUse",
+        });
+        acrossShells((shell) => {
+          const spool = join(auditRoot, repoName, "spool-s1");
+          for (const name of readdirSync(spool)) rmSync(join(spool, name));
+          const r = spawnSync(resolveBin(shell), [f.hook], {
+            input: payload,
+            env: { ...envFor(f), NAVORI_AUDITS_ROOT: auditRoot },
+            cwd: f.repo,
+          });
+          expect(r.status).toBe(0);
+          const events = readdirSync(spool).map(
+            (name): Record<string, unknown> =>
+              (
+                JSON.parse(readFileSync(join(spool, name), "utf-8")) as {
+                  metadata: Record<string, unknown>;
+                }
+              ).metadata,
+          );
+          const event = events.find((e) => e.name === "guard-destructive");
+          expect(event).toMatchObject({
+            verdict: "fail-open",
+            reason: "search-index-unavailable",
+          });
+          expect(isHookReason(event?.reason)).toBe(true);
+        });
+      } finally {
+        rmSync(auditRoot, { recursive: true, force: true });
+      }
     });
 
     it("runs `tgrep status` only on the branch that blocks", () => {

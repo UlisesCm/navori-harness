@@ -132,11 +132,11 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "guard-destructive-base": "sha256:b2536c2222ab95f8bbf0b28aa91234963f035a7049ad1d2578bfa60317464dc3",
-        "tgrep-search-lane": "sha256:24f3f6b3eb22b3269f99178b0fb1f56a91972c8ddf80aa754771e8af0f924f1e"
+        "guard-destructive-base": "sha256:394ee4650cc754f17db95ffa52f4f79cf693c627a5fed22387b877951723389d",
+        "tgrep-search-lane": "sha256:40c5028ff66f79e674daa948e7ad0c5e5a21fe1001cdcd8054179b3a66d0d484"
       },
       "deps": {
-        "scripts/guard-search-routing.sh": "sha256:d12fba9de5d0386f331b8934f65fa70e60a168d5cfc90d084f959b5ee12f851d"
+        "scripts/guard-search-routing.sh": "sha256:ae09f92a67ec3e6c796fbcf64fb59828f040ae71f57334341f9d1bdb90116b21"
       },
       "impl": "sha256:3dfb5d93267f5c457be8082311a0a116b1debda55aac3ead1e3d9130127b79be"
     },
@@ -144,7 +144,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "subagent-no-background-base": "sha256:ecdca022cba414f887c19433fc8d6ca34672e6e3f70b30bd3500ac9ebb0a7f0e"
+        "subagent-no-background-base": "sha256:7a66430b90ea3006bfa6f7c3e9643e8c0de8532e7029bb6712e9adab2d4ee119"
       },
       "impl": "sha256:8b191f257ca44ba0e624d75f21236874b718ceea46c69a217ecb64e6ae667062"
     },
@@ -152,7 +152,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "qg-pre-commit-base": "sha256:d3c7042757072656ceba4b9000acb37e492a3a48098d22a735bc0bf09c21b631"
+        "qg-pre-commit-base": "sha256:afa3b41f46d37ba5881816702e1cdd4f692d6e1c06c81086ee8d8c5109737025"
       },
       "impl": "sha256:4ab38e63af7df5c217dd80b5fa56587614951d5d8eec499504f09ed64204c367"
     },
@@ -160,7 +160,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "plan-gate-base": "sha256:91c2a84f8ea30a96660917681b3a2f39e84d3cec8bebace16f7c2eea1948b3c6"
+        "plan-gate-base": "sha256:a189e8f4d1921bfa2d6fb2e22722e0ac476245d40298a11eba23182a162c636b"
       },
       "impl": "sha256:c3ae18e6c7dfd680ba8ca4fe2582f29377c6c02318df52f44b4e11fc4edd7099"
     },
@@ -168,7 +168,7 @@
       "mode": "shadow",
       "gating": false,
       "blocks": {
-        "session-start-context-base": "sha256:2f576c798c654581cd1106892685bf0759c82288b73cabd479765ac07b6e54ee"
+        "session-start-context-base": "sha256:1375d62cc3a3fd22ca8a6f84b1d9c63d6f9696648b308b81a1cbc2d744e3578c"
       },
       "impl": "sha256:8c9fc7a8438fdf9151fbb1b924e7374b408756fb367154fa459bb01eeccb87bc"
     },
@@ -176,7 +176,7 @@
       "mode": "shadow",
       "gating": false,
       "blocks": {
-        "subagent-stop-handoff-base": "sha256:781b0c2e463bde4c700f8e99af1e839a8c2e0823ed9087ddd84c4f3a36e0cd01"
+        "subagent-stop-handoff-base": "sha256:76644a2563e07c75229dd738f66acffe0a9311c94070b0caa49267be054310b0"
       },
       "impl": "sha256:115fd6c7a6905d704f7894c34667d840929f0ca92e7cb99160c78d0cd1826d6e"
     },
@@ -184,7 +184,7 @@
       "mode": "shadow",
       "gating": false,
       "blocks": {
-        "model-advisor-base": "sha256:fe4659fc08bb41f86e3ce83e89e4c259b3d9696c668385416f0c8c5aa9851ece"
+        "model-advisor-base": "sha256:c7beeedd2c3d7d088b774b52bff13b4fabae0c279532f69eb5a0ae31d6916a30"
       },
       "impl": "sha256:27ffc888cc455bacd575cf868ee433b60ea1acb94cd42f645e8669397b985994"
     },
@@ -192,7 +192,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "general-purpose-confirm-base": "sha256:d4bb6163f26cd30623bd959fcf474145f6ff0acf19a68edbfdca991941891231"
+        "general-purpose-confirm-base": "sha256:a51c01bfedfc1a1aad2e8e360b84e88163d5be0352c742c360a3f27eff0543bf"
       },
       "impl": "sha256:d028a4db9825024108736fbe104e7aa3ffd152c4887794697f8348fe77a1bbaf"
     },
@@ -200,7 +200,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "master-accept-confirm-base": "sha256:3cf90f34048d6ba6de313a5602efa0a00cadc5bd937f20e6c11c9394dc2b0377"
+        "master-accept-confirm-base": "sha256:86e0ae009fef7acc742c6fe12cdced1cb557b83dd668b1380517d24d5a0fa9a2"
       },
       "impl": "sha256:1577f7d3a3f664f9be9686aa06afc19ce6365e20c324eda0a8e5a6f7f6f7aab3"
     },
@@ -208,7 +208,7 @@
       "mode": "shadow",
       "gating": false,
       "blocks": {
-        "master-plan-context-base": "sha256:003011a2f02857ed272a16a2a1b52ce07c07db6561596e6e1e3199e5d28e593c"
+        "master-plan-context-base": "sha256:cdc01d4a76835e5d814fb286e7096992b4f99ffe327403554c466bcb0c4cc6db"
       },
       "impl": "sha256:c48666eacc7deddb2392c8b151b88b6c77f0bcace85ed1e7d2af868b6aad0af0"
     },
@@ -216,7 +216,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "implementer-no-markdown-base": "sha256:87e7010c7e626726abfb4c6e5d4de2bd6be1eb40c66c20d9214301622bdefdda"
+        "implementer-no-markdown-base": "sha256:ce00753f3e660e1510d91f2577841e57dcfba9df8006f84b2a0d3a38d9d71a7b"
       },
       "impl": "sha256:7bed491c2ade4c7a4e37ac6491463f272962841910a874378bb24e9e42425dbc"
     },
@@ -224,7 +224,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "comment-draft-confirm-base": "sha256:7b38f1f7bec79ca1f4d63cad091032d637026078de690552189908ea53675837"
+        "comment-draft-confirm-base": "sha256:1802adfc799603cf0d22ce9197f38ca4e7c0409239bad1f674712bddd1d83173"
       },
       "impl": "sha256:299f76c5f651fac3647bfbfba3b0a615cc921d9c472d4e1bffa2243e91058fd6"
     },
@@ -232,7 +232,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "pr-publisher-confirm-base": "sha256:3e76e9017eedc2efea5e046e1f9991ff40d3d37402df06209fd7f6ca628269b4"
+        "pr-publisher-confirm-base": "sha256:9dab29bb39731d62b2f67011b6afd2b0fb4ec4b26e089ef817ed7fbc1b9a13d3"
       },
       "impl": "sha256:c6b2f20dee83ca2b3a7020f8a2aaef9d79ef8eec1695b6ffb8059b7adce3462f"
     },
@@ -240,7 +240,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "role-guard-base": "sha256:739bad012bdaa959527410a60165dd7a30eb5639bf57528934eaf5e3a1aebf00"
+        "role-guard-base": "sha256:b275e543f105f6ea5e65fe09fa566f3aa7432b771273bd937702c0470a3921d1"
       },
       "impl": "sha256:589ba7526e4b462f8262f5bd18ebacd7304aac731b649c906e6217607c07822a"
     },
@@ -248,7 +248,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "engram-write-guard-base": "sha256:283b87e16cbf558ff273533e42afea31a4d7171a536c49d78a8f325995b5b9b8"
+        "engram-write-guard-base": "sha256:cb25b563136fb7ac184f2340ee2e26fa08dcdc57a7301943e98df9df8ba29556"
       },
       "impl": "sha256:aca57e55cc3ff7c77e3a7a9acc1cf3cc44cc91ba5083f73a1af4dfe05bb35802"
     }

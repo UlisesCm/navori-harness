@@ -1,7 +1,7 @@
 {
   "$navori": {
     "managed": true,
-    "version": "0.12.3",
+    "version": "0.12.5",
     "notes": "Archivo generado por navori. NO editar a mano — los cambios se pierden en el próximo `navori render`. Per-user / per-machine permissions van a settings.local.json (gitignored)."
   },
   "attribution": {
@@ -48,6 +48,17 @@
             "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-no-background.sh\"; # navori:native-runtime start\nif [ \"${NAVORI_HOOK_IMPL:-}\" != shell ]; then\n  if nv_native=$(command -v navori-rust 2>/dev/null); then\n    nv_out=$(if \"$nv_native\" hook --via-command 'PreToolUse' \"$f\" --shadow; then nv_status=0; else nv_status=$?; fi; printf '.%s' \"$nv_status\")\n    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}\n    case \"$nv_rc\" in\n      0|1|2) printf '%s' \"$nv_out\" >&1 || exit 2; exit \"$nv_rc\" ;;\n      3|126|127) if [ \"${NAVORI_HOOK_IMPL:-}\" = rust ]; then printf '%s\\n' 'navori: subagent-no-background native runtime unavailable or deferred' >&2; exit 1; fi ;;\n      *) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: subagent-no-background could not evaluate this call (native runtime failed); confirm it manually\"}}' >&1 || exit 2; exit 0 ;;\n    esac\n  elif [ \"${NAVORI_HOOK_IMPL:-}\" = rust ]; then printf '%s\\n' 'navori: subagent-no-background native runtime unavailable or deferred' >&2; exit 1; fi\nfi\n# navori:native-runtime end\nbash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/subagent-no-background.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: subagent-no-background"
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/pii-egress-guard.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/pii-egress-guard.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
+            "timeout": 10,
+            "statusMessage": "navori: pii-egress-guard"
           }
         ]
       },
@@ -311,6 +322,7 @@
       "mcp__codegraph__codegraph_explore",
       "Bash(bun run check:fast:*)",
       "Bash(bun run check:scoped:*)",
+      "Bash(bun run check:deps:*)",
       "Bash(bun run format:check:*)",
       "Bash(bun run lint:*)",
       "Bash(bun run typecheck:*)",
@@ -325,7 +337,7 @@
       "Bash(cd packages/cli)",
       "Bash(bun run check:size:*)",
       "Bash(bun run test:coverage:*)",
-      "Bash(bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage)",
+      "Bash(bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage)",
       "Bash(navori gate fast)",
       "Bash(navori gate full)",
       "Bash(bun run build:*)",
@@ -528,13 +540,5 @@
       "Bash(mkfs*)"
     ]
   },
-  "effortLevel": "medium",
-  "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_METRICS_EXPORTER": "none",
-    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
-    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://127.0.0.1:4318/v1/logs",
-    "OTEL_LOGS_EXPORT_INTERVAL": "1000"
-  }
+  "effortLevel": "medium"
 }

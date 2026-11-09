@@ -340,11 +340,15 @@ echo exit=$?; git status --porcelain; git log -1 --stat --format='%H%n%s'`;
       "cp x /tmp/x >> /tmp/log",
       "cp x /tmp/x &>/tmp/log",
     ];
-    beforeAll(() =>
-      primeGuard(
-        ownedGuard,
-        [...denied, ...allowed].map((cmd) => ({ cmd, env })),
-      ),
+    // Same hang detector as every other primer in this file: without it the 10 s default
+    // hookTimeout skipped the ~100 cases below under load (#1485).
+    beforeAll(
+      () =>
+        primeGuard(
+          ownedGuard,
+          [...denied, ...allowed].map((cmd) => ({ cmd, env })),
+        ),
+      PRIME_TIMEOUT_MS,
     );
     // Covers: R8
     it.each(denied)("blocks owned mutation: %s", (command: string) => {
@@ -392,6 +396,115 @@ echo exit=$?; git status --porcelain; git log -1 --stat --format='%H%n%s'`;
     // Covers: R8
     it.each(allowed)("allows unowned destination: %s", (command: string) => {
       expect(runGuardScript(ownedGuard, command, env)).toBe(0);
+    });
+
+    // #1557: rule 6d reads an interpreter heredoc body as shell, so a lone apostrophe
+    // in python prose leaves a quote open and the command is blocked. That false
+    // positive is known and kept (any "this is interpreter body" model diverges from
+    // bash and opens a bypass); what changed is the reason: unparseable quoting is
+    // reported as such, not as a confirmed "shell rewrite of a managed file".
+    describe("unparseable quoting is blocked with its own message (#1557)", () => {
+      const parseMsg = "could not parse the quoting of this command";
+      const parseRoute =
+        "Write/Edit tool (or edit the asset + navori render --apply if it is a managed file)";
+      const rewriteMsg = "shell rewrite of a navori-managed file";
+      const verbose = (command: string): { status: number; stderr: string } => {
+        const r = spawnSync(resolveBin("bash"), [ownedGuard], {
+          input: JSON.stringify({ tool_input: { command } }),
+          env,
+          encoding: "utf-8",
+        });
+        return { status: r.status ?? -1, stderr: r.stderr ?? "" };
+      };
+      // A python `'''` literal, the shape #1557 hit: a shell reading would pair its
+      // quotes with the apostrophes of the prose inside.
+      const py = (text: string): string => `python3 - <<'EOF'\nnew='''\n${text}\n'''\nEOF`;
+      // The command that hit the guard while diagnosing #1557: ANSI-C `$'…'`
+      // strings carry escaped apostrophes and a `cp` that is only an argument.
+      const diagnosis = String.raw`grep -n "^FAST_MAX=\|FAST_MAX=" packages/core/core-assets/hooks/guard-destructive.sh | head -2; run(){ jq -n --arg c "$1" --arg cwd "$PWD" '{tool_name:"Bash",tool_input:{command:$c},cwd:$cwd,hook_event_name:"PreToolUse"}' | CLAUDE_PROJECT_DIR=$PWD bash .claude/hooks/guard-destructive.sh >/dev/null 2>&1; echo "$2 -> exit $?"; }
+run $'python3 - <<\'EOF\'\nprint("it\'s")\nEOF' "corto, apostrofo, sin token"
+run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF' "corto, apostrofo + 'cp '"
+run $'python3 - <<\'EOF\'\nprint("its a cp of x")\nEOF' "corto, sin apostrofo + 'cp '"
+run $'cat > notes.md <<\'EOF\'\nit\'s a cp of x\nEOF' "cat heredoc, apostrofo + 'cp '"
+run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.md' "control: cp real a gestionado"`;
+      const cases: ReadonlyArray<readonly [string, string, number]> = [
+        ["python3 heredoc, apostrophe, no cp", py("the implementer's report"), 0],
+        ["python3 heredoc, apostrophe and a cp in the text", py("the implementer's cp of x"), 2],
+        ["python3 heredoc, cp in the text, no apostrophe", py("the implementers cp of x"), 0],
+        [
+          "python3 heredoc, paired apostrophes and a cp",
+          py("the implementer's cp, the reviewer's"),
+          0,
+        ],
+        ["cat heredoc, apostrophe and a cp", "cat > notes.md <<'EOF'\nit's a cp of x\nEOF", 0],
+        [
+          "real cp into an owned path after the heredoc",
+          `${py("the implementer's cp of x")}\ncp x .claude/agents/reviewer.md`,
+          2,
+        ],
+        ["unbalanced quote outside a heredoc still fails closed", "cp x CLAUDE.md 'unclosed", 2],
+        // A shell interpreter runs its body as shell: it stays scanned as shell.
+        ["bash heredoc with a cp into an owned path", "bash <<'EOF'\ncp x CLAUDE.md\nEOF", 2],
+        ["the diagnosis command that was blocked", diagnosis, 2],
+        // Bash unquotes the whole delimiter word, so these end at XY (or X); the
+        // parser stays as it was and reads what follows as shell.
+        ...(
+          [
+            ['X"Y"', "XY"],
+            ["X'Y'", "XY"],
+            ["'X'Y", "XY"],
+            ["$'X'", "X"],
+          ] as const
+        ).map(
+          ([delim, term]) =>
+            [
+              `python3 heredoc, composite delimiter ${delim}`,
+              `python3 <<${delim}\nfoo\n${term}\necho "\n"; cp x CLAUDE.md`,
+              2,
+            ] as const,
+        ),
+        // Round 2 and the auditor challenge (P1-P15): bash runs the cp in every one.
+        [
+          "cat <<A | sh; python3 <<B",
+          `cat <<A | sh; python3 <<B\necho "\n"; cp x CLAUDE.md\nA\nit's\nB`,
+          2,
+        ],
+        ["P1", `python3 <<EOF; echo "\nx\n"; cp x CLAUDE.md\ny"\nEOF`, 2],
+        ["P2", `python3 <<EOF \\\n; echo "\n"; cp x CLAUDE.md\nx\nEOF`, 2],
+        ["P3", `true; python3 -V\ncat <<A\npython3 <<B\nA\necho "\n"; cp x CLAUDE.md\nB`, 2],
+        ["P4", `cat <<A | bash \\\n; python3 <<B\necho "\n"; cp x CLAUDE.md\nA\nit's\nB`, 2],
+        ["P5", `cat <<A | bash; echo "\n"; python3 <<B\necho "\n"; cp x CLAUDE.md\nA\nit's\nB`, 2],
+        ["P6", `echo "\`printf "\`; python3 - <<B\n"; cp x CLAUDE.md\nB`, 2],
+        ["P7", `python3 $[1<<2 ]\necho "\n"; cp x CLAUDE.md\n2`, 2],
+        ["P8", `perl -pe1 <<EOF | bash\necho "\n"; cp x CLAUDE.md\nEOF`, 2],
+        ["P10", `eval $(perl -pe1 <<EOF\necho "\n"; cp x CLAUDE.md\nEOF\n)`, 2],
+        ["P11", `perl -pe1 <<EOF > n.sh; bash n.sh\necho "\n"; cp x CLAUDE.md\nEOF`, 2],
+        ["P12", String.raw`echo $$'\'; cp x CLAUDE.md; echo '\'`, 2],
+        ["P13", String.raw`echo \$'\'; cp x CLAUDE.md; echo '\'`, 2],
+        ["P14", String.raw`echo $$$'\'; cp x CLAUDE.md; echo '\'`, 2],
+        ["P15", `echo "\`printf "\`\npython3 - <<B\n"; cp x CLAUDE.md\nB`, 2],
+      ];
+      it.each(cases)("%s", (_name: string, command: string, expected: number) => {
+        expect(runGuardScript(ownedGuard, command, env)).toBe(expected);
+      });
+      it.each([
+        ["the original #1557 shape", py("the implementer's cp of x")],
+        ["the diagnosis command", diagnosis],
+      ])("%s: blocked as unparseable quoting, not as a confirmed rewrite", (_n, command) => {
+        const { status, stderr } = verbose(command);
+        expect(status).toBe(2);
+        expect(stderr).toContain(parseMsg);
+        expect(stderr).not.toContain(rewriteMsg);
+        // Agents follow the route line, not the reason: it must lead to Write/Edit.
+        expect(stderr).toContain(`[navori] route: ${parseRoute}\n`);
+      });
+      it("a confirmed owned rewrite keeps the managed-rewrite message", () => {
+        const { status, stderr } = verbose("cp x CLAUDE.md");
+        expect(status).toBe(2);
+        expect(stderr).toContain(rewriteMsg);
+        expect(stderr).not.toContain(parseMsg);
+        expect(stderr).toContain("[navori] route: navori render --apply\n");
+      });
     });
   });
   // Mutation smoke (spec 0054 D4): a batch that cannot see a verdict change would

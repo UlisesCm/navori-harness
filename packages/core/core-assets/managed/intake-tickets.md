@@ -1,6 +1,6 @@
 ## Tickets: problem first, proposed solution second
 
-<!-- navori:if onClaude -->A ticket's **problem is the contract** (verify it with evidence first); its **proposed solution is a suggestion**, never the spec. A verdict that opens no work needs no approval. Rules: `.claude/skills/resolve-ticket/SKILL.md`.<!-- /navori:if --><!-- navori:if-not onClaude -->A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
+<!-- navori:if onLayered -->A ticket's **problem is the contract** (verify it with evidence first); its **proposed solution is a suggestion**, never the spec. A verdict that opens no work needs no approval. Rules: see `resolve-ticket`.<!-- /navori:if --><!-- navori:if-not onLayered -->A ticket (bug or feature, any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
 
 - **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
 - **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.

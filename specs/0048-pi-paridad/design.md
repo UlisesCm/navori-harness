@@ -292,6 +292,10 @@ comando registrado (`codexHookCommand`), no del contenido, así que no se desapr
      JSONL, correlacionados por `toolCallId` con un `tool_execution_end` con `isError`. Nunca del texto.
   2. Si tampoco están, `navori_subagent` devuelve `isError` con "el hijo pidió aprobación del padre; comando
      no recuperable". La tarea nunca se reporta como éxito.
+- **Enmienda (#1496):** un `gh pr create` desde un hijo (p. ej. `implementer`) sigue volviendo por este relay;
+  la publicación ahora ocurre en el padre, con su confirmación nativa. Riesgo conocido: en Pi el publisher
+  pierde su límite de herramientas; "no edita código" es regla de texto, mitigada por el gate de commit/push y
+  el bloqueo de archivos gestionados.
 
 ### D7 — Handoff validado con frescura (R7, F7)
 
@@ -348,16 +352,20 @@ fixtures comunes fijan ambas.
 | auditor | `read, grep, find, ls, bash, write` | 20 min |
 | architect | `read, grep, find, ls, bash, write` | 20 min |
 | implementer | `read, grep, find, ls, bash, edit, write` | 30 min |
-| publisher | `read, grep, find, ls, bash` | 40 min |
+| publisher | — (no es hijo; `tools: []` para el padre, #1496) | — |
 
 - **Plazos.** Invariante con test: plazo del rol ≥ timeout del gate (600 s) + 10 min para los roles que pueden
-  hacer commit o push (implementer, publisher). El tiempo del gate corre dentro del plazo del hijo (F10).
+  hacer commit o push (implementer; el publisher, hasta #1496). El tiempo del gate corre dentro del plazo del hijo (F10).
 - **Sin web en hijos.** Pi no trae herramientas web: `WebFetch`/`WebSearch` son `unsupported` en hijos.
 - **Architect.** Su despacho anidado (`Agent(scout, scribe)`) queda bajo `navori:if-not onPi`; el flujo
   `nested-agent-dispatch` declara Pi `unsupported`.
 - **Plugins MCP.** Su prosa no se inyecta en hijos (`--no-mcp`); `mcpRoleDiagnostics` los nombra.
 - **Publisher.** `git commit`/`git push` corren el gate dentro del hijo (R4). `gh pr create`, los comentarios y
   las reglas `ask` (R18) se rechazan en el hijo y vuelven por D6.
+- **Enmienda (#1496):** el publisher sale de `PI_ROLE_TOOLS` y `PI_ROLE_TIMEOUT_MS`: se renderiza como
+  `.pi/agents/publisher.md` con `tools: []` y la sesión padre lo sigue; el gate corre en el padre y
+  `gh pr create` usa su confirmación nativa. Riesgo conocido: pierde su límite de herramientas; "no edita
+  código" es regla de texto, mitigada por el gate de commit/push y el bloqueo de archivos gestionados.
 
 ### D10 — Versión no verificada, `powershell` y arranque (R15, D-U3, F16)
 

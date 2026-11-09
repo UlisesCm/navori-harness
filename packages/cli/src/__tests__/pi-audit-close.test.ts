@@ -97,7 +97,7 @@ function direct(
 }
 
 describe("Pi audit close through the real writer (#1355)", () => {
-  it.each(["claude", "codex", "pi"] as const)(
+  it.each(["claude", "pi"] as const)(
     "appends a real %s hook close while preserving the header",
     (host: Host) => {
       const reg = registration(host);

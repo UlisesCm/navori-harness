@@ -126,8 +126,8 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "quality-attributes",
   "author-skill",
   // Spec 0032 (#1011): the level-1/level-2 workplan procedures. They render
-  // unconditionally (R22 — the gate that ACTIVATES them is `harness.planTiers`,
-  // not their own presence in the index).
+  // only with `harness.planTiers` (#1484 amends R22: they used to render
+  // unconditionally and only the gate was conditional).
   "plan-simple",
   "plan-advanced",
   "master-plan",
@@ -142,19 +142,22 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
  * and `native-overlap` tests pin the ids against `ENGINES`.
  */
 export const WORKFLOW_SKILL_ENGINES: Readonly<Record<string, readonly string[]>> = {
-  "master-plan": ["claude", "codex"],
-  "context-intake": ["claude", "codex"],
+  "master-plan": ["claude", "codex", "pi"],
+  "context-intake": ["claude", "codex", "pi"],
 };
 
 /** Hooks scoped to a subset of engines; same contract as {@link WORKFLOW_SKILL_ENGINES}. */
 export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
   "master-plan-context": ["claude", "codex"],
-  // Pi has no master-plan skills, but `navori master …` runs in its bash: the confirmation applies (spec 0048 R5).
+  // Pi has no master-plan context hook, but `navori master …` runs in its bash: the confirmation applies (spec 0048 R5).
   "master-accept-confirm": ["claude", "codex", "pi"],
   // Spec 0041 D5: Claude restricts roles with `tools:`; only Codex needs the guard.
   "role-guard": ["codex"],
   // Same reason, for the engram MCP tools (grants compiled from the Claude `tools:` source).
   "engram-write-guard": ["codex"],
+  // #1445: Claude's WebFetch/WebSearch only. The Bash half rides inside `guard-destructive` on every engine
+  // (spec 0039 R28 forbids a second Bash hook); Codex and Pi have no hook on a web tool.
+  "pii-egress-guard": ["claude"],
 };
 
 /**

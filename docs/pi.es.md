@@ -47,12 +47,19 @@ Cada fila corresponde a un control de Pi de `ENGINE_CAPABILITIES.pi.controls`. `
 | `handoff-consumer` | enforced | Se verifican las llamadas de `navori_subagent` de `reviewer` que incluyen explícitamente una función. Las llamadas directas al shell y a herramientas omiten este control. |
 | `analytic-write-tools` | advisory | Las listas de herramientas permitidas por rol son capacidades visibles para el modelo, no entornos aislados del sistema operativo, del sistema de archivos ni de la red. Scout y reviewer conservan `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` se proyecta como referencias bajo `.agents/skills/<id>` y solo se escriben cuando Codex no está habilitado. |
-| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash o falta `exit_code`, no registra nada. |
+| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash, falta `exit_code` o la etapa no está contenida, no registra nada. |
 | `repeat-failure-advice` | advisory | Después de tres fallas idénticas del bash integrado, se agrega una advertencia. Nunca bloquea ni altera el resultado, y no se muestra si falta `exit_code`. |
-| `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto después de un dispatch de publisher. |
-| `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene siete roles fijos y ningún rol general-purpose que confirmar. |
+| `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto; Pi publica en el padre, sin dispatch de publisher. |
+| `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene seis roles fijos y ningún rol general-purpose que confirmar. |
 
 Pi también detecta de forma nativa las skills de proyecto de confianza en `.agents/skills/`. Cuando se seleccionan Pi y Codex, Codex es dueño de los destinos compartidos y Pi no los duplica. Pi no copia ni ejecuta scripts de hooks de Claude y Codex.
+
+Cuando Pi escribe él mismo los archivos compartidos (sin Codex ni `agents-md`), escribe la misma doctrina que escribiría Codex, con el vocabulario de Pi:
+
+- `AGENTS.md` lleva solo la doctrina compartida, sin índice de skills (Pi lista `.agents/skills` de forma nativa). También lleva las reglas de `project.*`, áreas críticas incluidas, que lee el ruteo por riesgo. La capa del orquestador (niveles de plan, rol, arranque de sesión, catálogo de agentes) va a `.pi/navori/orchestrator.md`; ver la viñeta «Doctrina del orquestador» más arriba.
+- `.agents/skills` incluye `master-plan` y `context-intake`. El hook `master-plan-context` sigue sin correr en Pi.
+- La delegación es `navori_subagent`, una skill manual es `/skill:<name>` y las skills viven en `.agents/skills/`.
+- Quedan fuera las líneas solo de Codex (marcadores de despacho, checkpoints de ejecución, `spawn_agent`) y las solo de Claude (`SendMessage`, `AskUserQuestion`, `TaskCreate`).
 
 ## Admisiones de tiempo de ejecución
 
@@ -80,6 +87,8 @@ Esto se ejecuta únicamente en la sesión padre; los hijos no hacen nada. Todas 
 - **Recordatorio de verificación** (`agent_before_settle`, solo cuando está definido `hooks.verifyOnStop`): si el árbol tiene cambios sin confirmar, se agrega como `custom_message` visible un recordatorio fijo en español para ejecutar el quality gate y hacer commit. No dispara otra solicitud al modelo.
 
 **Inicio de audit-mode.** En `session_start` (`startup` o `new`) y en `before_agent_start` del usuario, el padre consume un `navori audit --arm` pendiente (sin etiqueta o `--host pi`) e inicia su registro de auditoría. Con `audit.mode: always` (se emite como `controls.auditMode` opcional en `.pi/navori.json` tras `navori render`), el registro se inicia en el primer prompt del usuario. El modelo recibe un aviso único. Los hijos nunca inician un registro. Un arm sin etiqueta es del repo completo, así que una sesión Claude o Codex concurrente puede consumirlo antes.
+
+**Estado de sesión desactivado.** Con `harness.sessionState: false`, `navori render` emite el `controls.sessionState: false` opcional en `.pi/navori.json` (el campo se omite cuando la clave está activa) y Pi no inyecta `progress/` al inicio. Una CLI anterior considera ajeno un manifiesto con ese campo y se rehúsa a escribir recursos de Pi; volver a activar la clave elimina el campo.
 
 ## Puente de hooks
 
@@ -125,7 +134,8 @@ Un plugin habilitado llega a Pi mediante `renderPiEngine` (`packages/cli/src/eng
 - **Skills sobre skills.** Una skill de plugin con `injectInto: .claude/skills/<id>/SKILL.md` se convierte en un subbloque administrado de `.agents/skills/<id>/SKILL.md`. Pi solo lo escribe cuando Codex no está en `engines`; con Codex activo, Codex escribe esa skill y Pi nunca la duplica.
 - **Texto de roles.** Una skill de plugin con `injectInto: .claude/agents/<role>.md` se agrega a `.pi/agents/<role>.md`, interpolada y adaptada para Pi. Un plugin que declara `mcpServer` aporta texto de rol solo a los roles que tienen sus herramientas de conocimiento `navori_*` (ver [Herramientas de conocimiento en hijos](#herramientas-de-conocimiento-en-hijos)); ahí el texto nombra esas herramientas en lugar de los nombres MCP sin prefijo. Los hijos de Pi siguen ejecutándose con `--no-mcp`.
 
-- **Bloques de orquestador y AGENTS.md.** Una skill inyectada en `.claude/agents/orchestrator.md` y los bloques `managed` del plugin se convierten en subbloques del `AGENTS.md` compartido. Pi solo los escribe si ningún otro motor habilitado es dueño de ese archivo (`ownsAgentsMd`); de lo contrario se conserva la salida de ese propietario.
+- **Doctrina del orquestador.** Una skill inyectada en `.claude/agents/orchestrator.md` va a `.pi/navori/orchestrator.md` siempre que Codex no esté configurado, aunque `agents-md` escriba `AGENTS.md`. Con Codex configurado, el bloque permanece en el `AGENTS.md` de Codex. El archivo es propiedad completa de Navori y figura en `ownedPaths` del manifiesto. La extensión lo inyecta solo en el system prompt del padre: un hijo nunca lo recibe. Si el archivo falta o no se puede leer, la extensión avisa una vez (`navori render --apply` lo restaura) y la sesión corre sin él. El bloque es texto: Pi lo lee, nada lo hace cumplir.
+- **Bloques `managed` del plugin.** Se convierten en subbloques del `AGENTS.md` compartido. Pi solo los escribe si ningún otro motor habilitado es dueño de ese archivo (`ownsAgentsMd`); de lo contrario se conserva la salida de ese propietario.
 - **Scripts.** Los scripts de plugin se copian a `.pi/navori/scripts/<dest>` como copias ejecutables propias de Pi, incluso si Codex está activo. Un script se instala únicamente cuando una fila del puente lo ejecuta o cuando la extensión de hooks del plugin se incorpora a una copia de hook de Pi instalada. Se omiten los destinos duplicados.
 - **Hooks.** Los hooks `PreToolUse`/`Bash` de plugin usan la gramática que traduce Codex. Se convierten en filas de manifiesto v2 en `.pi/navori.json` que apuntan a `.pi/navori/scripts/<dest>`: `tool_call`, `bash`, alcance `all`, `enforced`, no interactivos y con el timeout del manifiesto. Si un hook no se puede traducir, se informa como advertencia y no se instala.
 - **Extensiones de hooks.** Una entrada `hookExtensions` de plugin que apunta a un hook central de Claude se convierte en un subbloque administrado de la copia de Pi, `.pi/navori/hooks/<hook>`, y se elimina de nuevo cuando se deshabilita el plugin.
@@ -143,7 +153,7 @@ Por unidad, los estados en el [Inventario de paridad](#inventario-de-paridad) so
 | Servidor MCP | `advisory` | Render advierte si el servidor falta o está deshabilitado en la configuración MCP de Pi. |
 | Skill MCP de plugin en un rol hijo | `advisory` | El texto nombra las herramientas `navori_*` de solo lectura que tiene el rol. Es un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI y el índice de codegraph puede estar desactualizado. |
 
-| Skill en un rol que Pi no renderiza (por ejemplo, `publisher`) | `unsupported` | Pendiente del trabajo de roles en la especificación 0048 R14 y M11. |
+| Skill en un rol que Pi no renderiza (por ejemplo, `scribe` sin `harness.scribeOwnsMarkdown`) | `unsupported` | No existe archivo de rol, así que el texto del skill no se renderiza. |
 | Script de protección tgrep y extensión de hook `tgrep-search-lane` | `enforced` (protección) | El script se instala bajo `.pi/navori/scripts/`. La ruta se ejecuta dentro de la copia de protección de Pi (`.pi/navori/hooks/guard-destructive.sh`) mediante el puente. Solo cubre grep/rg y falla de forma abierta si tgrep, su servidor o el índice no están disponibles. |
 
 Render advierte si el servidor MCP de un plugin falta o está deshabilitado en la configuración MCP nativa de Pi. Navori nunca escribe la configuración MCP de Pi.
@@ -152,7 +162,7 @@ Render advierte si el servidor MCP de un plugin falta o está deshabilitado en l
 
 Las protecciones de Navori son políticas textuales. Pi no tiene un sistema de permisos, así que cada regla compara el texto de una llamada y funciona como una protección, no como un entorno aislado. Las filas correspondientes aparecen como `enforced (seatbelt)` en el [Inventario de paridad](#inventario-de-paridad).
 
-**Comandos destructivos y reglas deny (`guard-destructive`).** Las reglas destructivas compartidas y las reglas de permisos compartidas `deny` bloquean tanto al padre como a cada hijo. Las reglas `deny` se traducen a prefijos de tokens durante el render, con la misma traducción que usa Codex. Sus reglas `ask` se confirman en el padre (consulta las reglas compartidas `ask` más adelante).
+**Comandos destructivos y reglas deny (`guard-destructive`).** Las reglas destructivas compartidas y las reglas de permisos compartidas `deny` bloquean tanto al padre como a cada hijo. Las reglas `deny` se traducen a prefijos de tokens durante el render, con la misma traducción que usa Codex. Sus reglas `ask` se confirman en el padre (consulta las reglas compartidas `ask` más adelante). El mismo script incluye el carril de egreso de PII: una solicitud `curl`, `wget`, `http`/`https`/`xh`/`xhs` o `fetch(` en línea dentro de bash, dirigida a un host externo, que lleve el `user.email` de git o una entrada de `NAVORI_PERSONAL_IDS`, se deniega para el padre y para cada hijo, con un mensaje que nombra la regla y su fuente y nunca muestra el valor; usa `navori-agent/1.0` como identificador genérico. WebFetch/WebSearch no existen en Pi.
 
 La copia de Pi agrega tres reglas que solo existen ahí:
 
@@ -164,7 +174,7 @@ La copia de Pi agrega tres reglas que solo existen ahí:
 - Bloquea el plano de control y cada entrada `ownedPaths` de `.pi/navori.json`, incluidos los destinos que todavía no existen.
 - En archivos mixtos (`AGENTS.md`, `CLAUDE.md`, skills, `.claude/`, `.codex/`, `.cursor/rules/` e instrucciones de Copilot), solo se reconoce un bloque administrado con la gramática real de marcadores: un marcador de apertura y otro de cierre con el mismo id, ambos en la columna 0 y fuera de una cerca de código. Se bloquea `write` si el archivo contiene un bloque administrado. Se bloquea `edit` si `oldText` cae dentro de uno o si la edición tiene una forma que la ruta no reconoce. El texto fuera de los bloques, incluida la sección de usuario, sigue siendo editable.
 - Un marcador citado a mitad de línea o un marcador de apertura sin cierre no forman un bloque. Si una ruta de archivo mixto no es un archivo regular o supera 4 MiB, se bloquea.
-- Los archivos ajenos `.pi/agents/*.md` siguen siendo editables con `edit`. Brecha conocida: la ruta de shell nombra los siete archivos de rol de Navori (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, `publisher`), un superconjunto; por eso se bloquea la escritura por shell de un archivo de usuario con uno de esos nombres hasta que Navori renderice ese rol.
+- Los archivos ajenos `.pi/agents/*.md` siguen siendo editables con `edit`. Brecha conocida: la ruta de shell nombra los siete archivos de rol de Navori (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect` y `publisher`, renderizado para el padre, no como hijo), un superconjunto; por eso se bloquea la escritura por shell de un archivo de usuario con uno de esos nombres hasta que Navori renderice ese rol.
 
 **Aviso de deriva (`managed-drift-watch`).** Después de una llamada a bash, edit o write, el observador revisa los bloques administrados bajo las raíces de Pi, incluida `.pi/navori/`. Mantiene su propia línea base en `.navori/state/hooks/managed-drift-stamp-pi`, así que nunca consume el informe que vería una sesión de Claude concurrente. La deriva aparece como advertencia en el resultado de la herramienta. Nunca bloquea.
 
@@ -180,12 +190,12 @@ Las reglas destructivas tienen sus propias brechas: entrar al plano de control c
 
 **Orden de las verificaciones (`tool_call`).** En cada llamada, la extensión sigue este orden: (1) bloquea una llamada a `powershell`; (2) lee el manifiesto y, si no se puede leer o no es v2, bloquea `bash`, `edit` y `write`; (3) pasa `edit` o `write` por la ruta de archivos administrados; (4) ejecuta los scripts del puente y detiene la llamada si hay un bloqueo `enforced`; (5) solicita una confirmación combinada para la declaración `--approved-by` y cada veredicto `ask`. La confirmación queda vinculada a la entrada exacta que vio el usuario; si cambia, se rechaza.
 
-**Control de commit y push (`quality-gate-pre-commit`).** Pi no tiene hooks nativos de git, así que la copia de Pi controla tanto `git commit` como `git push`. Ejecuta `qualityGate.fast` con un límite de 600 s. Si el control falla, se bloquea la llamada en el padre y en un hijo. Si falta el ejecutor del control, se bloquea en un hijo o sin interfaz; en el padre con interfaz se pregunta. El script solo existe cuando está definido `qualityGate.fast`. El límite de tamaño del archivo de progreso (`progress/current.md`) también se aplica al hacer push, no solo al hacer commit. Los límites de los roles deben superar al del control: cada rol con `bash` tiene un límite de al menos el del control + 10 min (20 min). Los límites por rol están en `PI_ROLE_TIMEOUT_MS`, en `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `publisher` 40 min, `scribe`, `reviewer`, `auditor` y `architect` 20 min cada uno. `scout` no tiene `bash` y conserva 10 min.
+**Control de commit y push (`quality-gate-pre-commit`).** Pi no tiene hooks nativos de git, así que la copia de Pi controla tanto `git commit` como `git push`. Ejecuta `qualityGate.fast` con un límite de 600 s. Si el control falla, se bloquea la llamada en el padre y en un hijo. Si falta el ejecutor del control, se bloquea en un hijo o sin interfaz; en el padre con interfaz se pregunta. El script solo existe cuando está definido `qualityGate.fast`. El límite de tamaño del archivo de progreso (`progress/current.md`) también se aplica al hacer push, no solo al hacer commit. Los límites de los roles deben superar al del control: cada rol con `bash` tiene un límite de al menos el del control + 10 min (20 min). Los límites por rol están en `PI_ROLE_TIMEOUT_MS`, en `packages/cli/src/engines/pi/role-tools.ts`: `implementer` y `reviewer` 30 min cada uno (el reviewer corre el gate completo en la ronda que aprueba), `scribe`, `auditor` y `architect` 20 min cada uno. `scout` no tiene `bash` y conserva 10 min.
 
 **Confirmaciones de publicación.** Estos scripts preguntan antes de cualquier operación de publicación y muestran el contenido:
 
 - `pr-publisher-confirm` pregunta en cada `gh pr create` (Pi no tiene una solicitud del host, así que la copia de Pi siempre pregunta).
-- `comment-draft-confirm` pregunta para borradores de comentarios y revisiones; `master-accept-confirm`, para aceptar y cerrar el plan maestro.
+- `comment-draft-confirm` pregunta para borradores de comentarios y revisiones; `master-accept-confirm`, para aceptar y rechazar en el plan maestro.
 - La aprobación de un archivo de contenido queda vinculada al sha256 de ese archivo. La extensión vuelve a verificar los resúmenes después de la confirmación y antes de permitir la llamada. Rechaza la llamada si el contenido cambia, se crea o se elimina después de la confirmación, o no se puede leer.
 - Los contenidos creados por shell, stdin y contenidos en línea se muestran en la confirmación, pero no quedan vinculados a un hash.
 
@@ -193,7 +203,7 @@ Las reglas destructivas tienen sus propias brechas: entrar al plano de control c
 
 - Un bloqueo siempre gana sobre una pregunta: los scripts `enforced` se ejecutan primero, así que una llamada que se bloqueará nunca llega al usuario.
 - La confirmación ocurre en el padre. Se rechaza en un hijo (cuando está definido `NAVORI_PI_CHILD_DEPTH`) y el comando exacto se reenvía al padre (consulta [Reenvío de aprobaciones](#reenvío-de-aprobaciones)). La confirmación escrita funciona en la TUI y en modo RPC (que proporciona un contexto de interfaz real). En modo sin interfaz o de impresión, la llamada se rechaza.
-- `publisher` está admitido y sujeto a todas las reglas anteriores: sus operaciones de publicación se rechazan en el hijo, se reenvían al padre y se confirman ahí.
+- La publicación corre en el padre, que sigue `.pi/agents/publisher.md`; `gh pr create` recibe la confirmación del padre. Un `gh pr create` de un hijo se sigue rechazando y reenviando al padre.
 
 **Diálogo de confirmación (primero denegar).** El padre muestra un diálogo de entrada de texto (`ctx.ui.input`) con el título "Navori approval required", el comando exacto, sus motivos y la instrucción de escribir `yes, run it`. Solo se aprueba ese texto exacto, sin espacios al inicio o al final. Enter vacío, Escape, cualquier otro texto, un timeout o un error del diálogo rechazan la llamada. No se usa un selector, así que ninguna opción puede quedar resaltada de antemano. Después de la confirmación, la extensión vuelve a verificar el estado del repositorio y los resúmenes de los contenidos; si alguno cambió, rechaza la llamada y vuelve a solicitar aprobación.
 
@@ -215,7 +225,7 @@ Una vez cargada la extensión de confianza del proyecto, Pi expone la herramient
 - `scribe`: `read, grep, find, ls, bash, edit, write`; solo se admite cuando `harness.scribeOwnsMarkdown` está activado, y en ese caso el implementador requiere que el rol `scribe` esté habilitado
 - `auditor`: `read, grep, find, ls, bash, write`
 - `architect`: `read, grep, find, ls, bash, write`; no puede iniciar subagentes anidados en Pi (`navori:if-not onPi`)
-- `publisher`: `read, grep, find, ls, bash`; sus operaciones de git commit y push ejecutan el quality gate, y sus operaciones de publicación requieren la confirmación del padre (consulta [Protecciones](#protecciones))
+- `publisher`: no se despacha; se renderiza con `tools: []` para que la sesión padre lo siga (consulta [Protecciones](#protecciones)). Riesgo conocido: en Pi pierde su límite de herramientas; "no edita código" es una regla de texto, mitigada por el control de commit/push y el bloqueo de archivos gestionados
 
 La herramienta requiere `role` y una `task` no vacía; `feature` es opcional, excepto para `reviewer`, que requiere un slug explícito de función Navori para verificar el handoff; `implementer`, `reviewer` y `scribe` requieren `feature`. Se conservan las instrucciones y descripciones de los roles. El modelo de cada rol sale de `models.piMap` (opus/sonnet/haiku como `provider/id`, p. ej. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); un tier sin entrada hereda el modelo Pi seleccionado. Pi no lee `models.codexMap`. Cada rol tiene una lista explícita de herramientas Pi; si falta una asignación o no se reconoce, se falla de forma cerrada en vez de habilitar las herramientas predeterminadas. Los hijos nunca reciben permisos MCP (consulta `child-mcp-grants`).
 
@@ -242,6 +252,53 @@ Cualquier falla, incluida la imposibilidad de leer la verificación, devuelve `i
 - Un hijo fallido informa `stopReason` y `errorMessage` (o `auto_retry_end.finalError`), más una cola de stderr redactada y acotada. El resultado también incluye el campo aditivo `details.childStop {stopReason, errorMessage?}`. Salida 0 con `stopReason` `error` o `aborted` cuenta como fallo. La redacción es un mínimo, no una garantía.
 - Un rechazo del preflight de reviewer o scribe añade el detalle del fallo del handoff.
 
+## Trabajar sin hijos
+
+Algunos proveedores rechazan los procesos hijos que inicia `navori_subagent`, o los cobran distinto de la
+sesión interactiva. El hijo fallido informa entonces el `errorMessage` del proveedor. Hay dos rutas soportadas:
+
+- **Asignar los roles** con `models.piMap` a un proveedor que acepte procesos hijos (por ejemplo una API key
+  o un modelo local) y correr `navori render`.
+- **Correr cada rol en su propia sesión interactiva de Pi.** La sesión principal produce; el usuario abre un
+  segundo `pi` en el mismo worktree para el revisor, que sigue `.pi/agents/reviewer.md` y escribe su reporte.
+  Los gates que piden un revisor distinto son atestaciones del
+  operador: el usuario declara que revisó otra sesión, con etiquetas distintas de productor y revisor.
+  Navori no puede verificar esa independencia.
+
+La evidencia de aceptación no depende de hijos: la registra el bash integrado de la sesión principal. Abre Pi
+en la raíz del checkout que tiene el workplan (incluido un worktree), porque la evidencia se registra contra
+el directorio de trabajo de la sesión. Desde una sesión en el checkout principal, un criterio de un worktree
+enlazado solo cuenta si se corre como `cd <raíz absoluta del worktree> && <comando exacto>` (ver
+[Sesiones en paralelo](#sesiones-en-paralelo)).
+
+## Sesiones en paralelo
+
+Los hijos corren en el checkout de la sesión padre; `navori_subagent` no puede apuntarlos a otro (#1543). Dos
+sesiones en un mismo checkout comparten su rama, su `.navori/state/` (workplans, handoffs, recibos) y su caché
+de gates, y un cambio de rama en una mueve a la otra. Regla: **una sesión, un worktree, desde el inicio.**
+
+- Crea el worktree antes de iniciar la sesión y abre Pi en su raíz:
+
+  ```sh
+  git worktree add -b <branch> .claude/worktrees/<name> origin/<base>
+  cd .claude/worktrees/<name> && bun install && pi
+  ```
+
+  Los hijos, handoffs, recibos y gates de esa sesión quedan todos en ese worktree: `.navori/state/` es por
+  checkout, y `navori receipt check|ci` correlaciona una revisión con el checkout donde corre.
+- Deja el checkout principal para revisar y mergear; no inicies ahí una sesión de trabajo.
+- Si una sesión del checkout principal trabaja en un worktree enlazado bajo `.claude/worktrees/` (#1575),
+  `navori_subagent` revisa el plan gate y los handoffs en el checkout que tiene el estado de la feature: el de
+  la propia sesión si solo ella lo tiene, o el único worktree enlazado que lo tenga. Si lo tienen el checkout
+  de la sesión y un worktree, o dos worktrees, bloquea el despacho y el mensaje dice qué copia sobra. Los hijos siguen arrancando en el checkout principal y reciben la ruta absoluta del handoff.
+  Corre los criterios de aceptación como `cd <raíz absoluta del worktree> && <comando exacto>`: con
+  cualquier otra forma no se registra evidencia.
+- `worktree-reclaim` borra un worktree solo cuando está limpio, empujado y con su PR mergeada (ver
+  [Ciclo de vida de la sesión](#ciclo-de-vida-de-la-sesión)); la siguiente tarea empieza en uno nuevo.
+- Un `navori` global enlazado al `packages/cli/dist` de un checkout (como en el repo de navori) corre ese
+  build desde todos los worktrees. Reconstrúyelo después de cada pull de `<base>` en ese checkout:
+  `bun run --filter navori build`.
+
 ## Límites y ejecuciones sin interfaz
 
 - Los hijos están limitados a un nivel, tres procesos concurrentes y diez minutos cada uno.
@@ -262,7 +319,7 @@ Los hijos mantienen `--no-mcp`, así que codegraph y engram no son accesibles po
 | `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout, implementer, reviewer, auditor |
 | `navori_mem_get_observation` | el mismo servidor de engram | scout, implementer, reviewer, auditor |
 
-El scribe y el publisher no reciben ninguna. Ningún rol recibe `mem_save` ni otra herramienta de escritura: los permisos son los de Claude para cada rol (`tools:` del agente central más `skills[].mcpTools` del plugin habilitado) intersectados con una tabla cerrada de solo lectura, y solo con el plugin habilitado. Los nombres llevan el prefijo `navori_` para no chocar con las herramientas `mem_*` nativas del paquete `gentle-engram` del usuario (`engram setup pi`).
+El scribe no recibe ninguna; el publisher corre en el padre, así que no necesita permisos. Ningún rol recibe `mem_save` ni otra herramienta de escritura: los permisos son los de Claude para cada rol (`tools:` del agente central más `skills[].mcpTools` del plugin habilitado) intersectados con una tabla cerrada de solo lectura, y solo con el plugin habilitado. Los nombres llevan el prefijo `navori_` para no chocar con las herramientas `mem_*` nativas del paquete `gentle-engram` del usuario (`engram setup pi`).
 
 Funcionamiento: la extensión inicia cada servidor de forma diferida en la primera llamada, con una lista de argumentos fija (ningún texto del modelo llega a ella) y un entorno filtrado, habla MCP por stdio, rechaza cualquier herramienta fuera de la lista cerrada antes de que llegue al servidor, acota la salida por bytes y detiene el servidor al cerrar la sesión. Un binario `codegraph` o `engram` ausente, o un índice de codegraph ausente, es un error de herramienta claro y el rol continúa con `read`/`grep`/`find`. Las herramientas se registran solo en hijos, nunca en la sesión padre, y no hay un interruptor exclusivo de Pi: deshabilita el plugin para quitarlas.
 
@@ -364,12 +421,13 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 | `hook:comment-draft-confirm` | enforced | protección (clases de evasión anteriores) | un contenido en línea o ilegible solo se muestra como comando. No se muestran los contenidos stdin (`-F -`) ni una ruta construida por el shell (`$VAR`, `$(…)`). Hay una ventana entre la verificación y la ejecución. Las formas indirectas de shell lo omiten |
 | `hook:engram-write-guard` | n/a | — | Solo Codex: los hijos de Pi se ejecutan con `--no-mcp` y nunca reciben una herramienta de escritura de engram (solo las `navori_mem_*` de lectura; ver las filas `plugin-skill` de engram); `bash` sigue alcanzando el CLI de engram, que ningún control de Pi protege |
 | `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
-| `hook:guard-destructive` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando: reglas destructivas del script compartido, reglas de permisos compartidas `deny`, escrituras al plano de control de Pi (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) y `pi --no-extensions`. Las reglas compartidas `ask` responden `ask` (su propia fila) |
+| `hook:guard-destructive` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando: reglas destructivas del script compartido, su carril de egreso de PII (una petición `curl`/`wget` a un host externo que lleva el email de git o una entrada de `NAVORI_PERSONAL_IDS`; nunca muestra ninguno de los dos), reglas de permisos compartidas `deny`, escrituras al plano de control de Pi (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) y `pi --no-extensions`. Las reglas compartidas `ask` responden `ask` (su propia fila) |
 | `hook:implementer-no-markdown` | advisory | control `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | nunca bloquea y solo detecta bloques con marcador hash (AGENTS.md, skills, copias de hooks); la extensión, el manifiesto y los archivos de roles no tienen hash por bloque y están protegidos por la protección y la ruta de edit/write. La deriva que no puede evaluar pasa inadvertida |
-| `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` y `delivery-slice --refresh`; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
+| `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master accept` y `master reject`, y las escrituras directas a `navori/acceptance`; las formas de escritura v1 ya no escriben; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
 | `hook:model-advisor` | unsupported | — | Un port a Pi necesita un modo Pi en el script y un binding; no está planeado (el modelo se elige con `/model` y se pasa a los hijos, especificación 0047 R17) |
+| `hook:pii-egress-guard` | n/a | — | Solo Claude: protege WebFetch y WebSearch, que Pi no tiene. El `bash` de Pi lo cubre el carril de egreso de PII dentro de guard-destructive (su fila) |
 | `hook:plan-gate` | enforced | control `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | protección (clases de evasión anteriores) | solo se instala cuando el rol publisher está habilitado; un contenido en línea o ilegible solo se muestra como comando. Las formas indirectas de shell lo omiten |
 | `hook:quality-gate-pre-commit` | enforced | protección (clases de evasión anteriores) | solo con `qualityGate.fast` configurado (sin fila en otro caso, igual que en Claude y Codex); el resultado corresponde al árbol de trabajo en ese momento. Las formas indirectas de shell (`sh -c`, un script en disco) lo omiten; no detecta un hook externo al agente (la propia terminal del usuario) |
@@ -486,11 +544,11 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 | `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
-| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi escribe el archivo AGENTS (con includePluginBlocks) solo cuando ni Codex ni agents-md son sus propietarios; entonces prevalece la salida de ese propietario. El bloque es texto: Pi lo lee, nada lo hace cumplir |
+| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi escribe la sub-sección en `.pi/navori/orchestrator.md` (una entrada de ownedPaths), que la extensión inyecta solo en el system prompt del padre; un hijo nunca la recibe, y si el archivo falta o no se puede leer, la extensión avisa una vez y la sesión corre sin ella. Con Codex configurado, el bloque permanece en el AGENTS.md de Codex. El bloque es texto: Pi lo lee, nada lo hace cumplir |
 | `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:engram/engram-auditor-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:engram/engram-implementer-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
-| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi escribe el archivo AGENTS (con includePluginBlocks) solo cuando ni Codex ni agents-md son sus propietarios; entonces prevalece la salida de ese propietario. El bloque es texto: Pi lo lee, nada lo hace cumplir |
+| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi escribe la sub-sección en `.pi/navori/orchestrator.md` (una entrada de ownedPaths), que la extensión inyecta solo en el system prompt del padre; un hijo nunca la recibe, y si el archivo falta o no se puede leer, la extensión avisa una vez y la sesión corre sin ella. Con Codex configurado, el bloque permanece en el AGENTS.md de Codex. El bloque es texto: Pi lo lee, nada lo hace cumplir |
 | `plugin-skill:engram/engram-reviewer-extension` | advisory | — | un techo que ve el modelo, no aislamiento: `bash` sigue alcanzando los CLI de codegraph y engram (incluido `engram save`) y los hijos heredan el entorno del padre; codegraph usa `--no-watch`, así que su índice queda desactualizado tras las ediciones del propio hijo; un binario o índice ausente es un error de herramienta; un paquete `gentle-engram` instalado por el usuario sigue cargándose en los hijos (sus herramientas `mem_*` siguen filtradas por `--tools`) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | solo son indicaciones; nada las hace cumplir. Con el rol publisher deshabilitado no existe un archivo de rol y el texto no se renderiza |
 <!-- pi-parity:end -->

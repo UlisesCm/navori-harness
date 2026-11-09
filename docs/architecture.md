@@ -97,7 +97,7 @@ flowchart LR
     RENDER["navori render --apply<br/>writes outputs"]
     WORK["work in the repo"]
     SYNC["navori sync --interactive<br/>resolves drift by block"]
-    INSPECT["doctor · status · bench<br/>inspection"]
+    INSPECT["doctor · status<br/>inspection"]
 
     INIT --> EDIT --> RENDER --> WORK
     WORK -- "bundle advances /<br/>you edited manually = drift" --> SYNC
@@ -109,20 +109,18 @@ flowchart LR
     click EDIT "../packages/cli/src/commands/add.ts" "add / configure"
     click RENDER "../packages/cli/src/commands/render.ts" "render"
     click SYNC "../packages/cli/src/commands/sync.ts" "sync"
-    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
+    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
-## 4. Master plan — numbered stages and phases
+## 4. Master plan — a PLAN.md of slices (v2)
 
-The master plan organizes project work into independent, numbered, slugged stages, for example `01-mvp` and `02-payments`. Each stage has its own record under `specs/_master/`; the index says which stage is active, and closed stages remain read-only records.
+The master plan (v2) is one page, `specs/_plan/PLAN.md`: a table of slices S<n> (actor -> outcome) plus decisions D<n>. `navori master init` creates it and turns on `harness.masterPlan`; the plan is Markdown prose, validated by structure.
 
-The workflow moves through phases: `context` gathers the mode and input files; `transcribed` produces the code inventory and its digest; `mapped` generates and evaluates plans; `planned` records decisions; `questioned` consolidates `MASTER.md` and its parts; `mastered` waits for the command to begin; and `executing` starts the parts as specs. `navori master check` validates the active phase, and `navori master advance` moves it only when its criteria are met.
+A slice is built on a `slice/S<n>-…` branch or marked `[S<n>]` in the PR title. `navori master check --incoming <ref> --base <branch>` is the WIP gate for the slices a PR brings: it reads `origin/<base>` (`--base` is required) and fails closed without fetch or on a shallow clone. `navori master status` (`--qa`, `--line`, `--json`) derives state from the plan and git, read-only.
 
-A stage can end normally with `navori master close` after execution. From `context` through `questioned`, the user can choose `close --convert` to turn the work into one spec; before `mastered`, `close --abandon` records abandonment. Closing preserves the stage record and updates master-plan state.
+Acceptance belongs to the user: `navori master accept|reject S<n>|D<n> --approved-by user` records the verdict on the `navori/acceptance` branch (`reject` needs `--notes`, an open task). The `master-accept-confirm` hook asks a human to confirm and covers direct writes to that branch; an agent cannot approve itself.
 
-Mutable state — active stage, phase, mode, and each part's status or links — lives in schema-validatable JSON, so the CLI can check transitions and generate derived state. Plans, decisions, and `MASTER.md` content are prose authored in Markdown: they express human judgment and are checked against their structure, not parsed as the source of state. Derived state files such as `STATUS.md` are rendered.
-
-**Deliveries for a part.** Each part's deliveries are validated against its `parts.json`, not Markdown. `navori master delivery-*` operates on the delivery phase: `delivery-baseline` records explicit baseline approval; `delivery-queue` authorizes a bounded queue of parts from a delivery (`--delivery E<n> --parts P<n>,…`); `delivery-slice` projects the authorized slice into a workplan; `delivery-revoke` withdraws the granted authority. `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, and `delivery-publication` cover each delivery's criteria, review, presentation, decision, and publication. Steps that authorize or approve require `--approved-by`, which must be `user`.
+**v1 is read-only.** The stage flow (`mode`, `ux`, `advance`, `part`, `close`, `delivery-*`) exits 1 and points to `navori master migrate`, which prints the v2 plan from a v1 stage (dry-run) or writes it with `--write`; closed stages stay readable.
 
 ### 4.1 Specs in deliveries — `navori spec classify` and `check`
 
@@ -179,7 +177,7 @@ Each managed script with `exit 2` declares its classification in the header `# B
 
 | Class | Meaning | Hooks |
 |---|---|---|
-| `hard` | There is a verdict or a containment action; nothing is available to approve | `guard-destructive` (limits, `--no-verify`, force-push to base, `rm` on root/home/system, rewriting managed files, discarding a whole tree with uncommitted work: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` paths without `--staged`, `git clean -f`), `plan-gate` with a denied plan, `quality-gate-pre-commit` with invalid cwd or failing gate, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard` |
+| `hard` | There is a verdict or a containment action; nothing is available to approve | `guard-destructive` (limits, `--no-verify`, force-push to base, `rm` on root/home/system, rewriting managed files, discarding a whole tree with uncommitted work: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` paths without `--staged`, `git clean -f`, the PII-egress lane: a Bash request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry), `plan-gate` with a denied plan, `quality-gate-pre-commit` with invalid cwd or failing gate, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `pii-egress-guard` (WebFetch/WebSearch, Claude only) |
 | `ask` | No verdict is available (the tool is missing); the human decides in the UI | `plan-gate` with navori missing or without the `plan` subcommand; `quality-gate-pre-commit` with missing runner |
 | `advisory` | `PostToolUse`: `exit 2` reaches only the model | `managed-drift-watch` |
 
@@ -217,6 +215,8 @@ Host contract for a hook `ask` (Claude Code docs):
 | `-p` | denies | blocks | denies unless permission host |
 
 `guard-destructive` does not ask. For `rm` on a variable, it blocks and its message gives the literal form `rm -rf <absolute path>`, which the `ask` rule in `settings-base.json` turns into native confirmation. Residual: that rule matches literal spellings only; other forms remain blocked.
+
+PII egress (#1445). The rule "never send the user's personal data to an external service" has two homes, because spec 0039 R28 forbids a second hook on the Bash path: a lane inside `guard-destructive` for Bash (every engine) and `pii-egress-guard` for WebFetch/WebSearch (Claude only; Codex has no hook on its hosted web search and Pi has no such tool). Identifiers are the git `user.email` and the comma-separated `NAVORI_PERSONAL_IDS` (entries under 4 characters are ignored); no identifier resolvable means no-op. `NAVORI_PERSONAL_IDS`: comma-separated list of extra personal identifiers (a full name, a handle) the PII-egress rule must keep out of requests to external hosts, on top of the git `user.email`, which is always read. Entries shorter than 4 characters are ignored. Set it in the shell that starts the agent. Claude Code does not pass the session email to hooks, so the user has to set `NAVORI_PERSONAL_IDS` to cover it; the git `user.email` is read automatically. A "network request to an external host" is a live shell segment running curl, wget, http/https/xh/xhs or an inline node/bun/deno/python fetch to a host that is not localhost, loopback, or a private range (10/8, 172.16/12, 192.168/16). Matching is a case-insensitive literal plus the URL-encoded forms. The deny never echoes the command or the identifier: it names the rule and the source, suggests `navori-agent/1.0`, and the audit reason is the fixed code `pii-egress`. Failure contract: before the cheap gate matches, any error allows; after it matches, any error denies ("could not verify"), and the lane runs in a subshell so it can never disable the guard's other rules. Documented false negatives: git (push, commit --author), gh, ssh, scp, rsync, MCP tools, sh -c, eval, a value the hook cannot see expanded (`$EMAIL`, `--data @file`, `-K cfg`), script files. A request that legitimately needs a real contact email is run by the user.
 
 Audit: `navori_audit_log` derives `kind` from the verdict (`block` → `hard`, `ask` → `ask`; explicit `deny`) and `reason` is one code from the `HOOK_REASON_CODES` allowlist ([model.ts](../packages/cli/src/lib/audit/model.ts)), mirrored by the partial's `jq` list (a test detects drift). Any other text is recorded as `unspecified`.
 

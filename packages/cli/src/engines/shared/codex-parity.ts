@@ -183,6 +183,7 @@ export function codexCapabilityFor(
 export const CODEX_HOOKS_WITHOUT_REGISTRATION: readonly string[] = [
   "bash-outcome-watch",
   "subagent-no-background",
+  "pii-egress-guard",
 ];
 
 /** `kind:id` key a unit is stored under in {@link CODEX_PARITY}. */
@@ -769,6 +770,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     [
+      "hook:pii-egress-guard",
+      equivalente(
+        "the Bash half is a lane inside guard-destructive on PreToolUse(Bash): a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry is denied (#1445). Spec 0039 R28 forbids a second hook on the Bash path, so no separate script is registered",
+        "Codex's hosted web search has no hook event, so WebFetch/WebSearch egress is not guarded; the script is neither installed nor registered in Codex",
+      ),
+    ],
+    [
       "hook:master-accept-confirm",
       equivalente(
         "deny-as-confirmation: the Codex copy of the hook denies instead of asking (the comment-draft-confirm pattern, spec 0041 D11)",
@@ -818,7 +826,6 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     // Managed blocks: prose contracts, no host dependency.
     ...igualUnits("managed-block", [
       "arranque-sesion",
-      "cierre-sesion",
       "code-discovery-routing",
       "codex-cross-review",
       "formato-respuesta",
@@ -831,6 +838,14 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "sdd",
       "tipado-fuerte",
     ]),
+    // Spec 0064: the Claude-only appendix is never written to Codex's AGENTS.md.
+    [
+      codexParityKey("managed-block", "claude-apendice"),
+      equivalente(
+        "not rendered on Codex: the neutral blocks it was split from carry the shared text",
+        "the Claude permission, tool and path specifics have no Codex counterpart",
+      ),
+    ],
     // Bundled plugins; the script-level gaps live on their plugin-script rows.
     ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "tgrep"]),
     [

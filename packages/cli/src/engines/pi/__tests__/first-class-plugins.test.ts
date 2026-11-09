@@ -23,10 +23,10 @@ import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_PARITY, piParityKey } from "../../shared/pi-parity.ts";
 import { load as loadExtension } from "./fixtures/load-extension.ts";
-import { rolePluginProse } from "../plugin-projection.ts";
+import { extendWithOrchestratorBlocks, rolePluginProse } from "../plugin-projection.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
-import { piKnowledgeGrants } from "../knowledge-tools.ts";
+import { piKnowledgeGrants, piRoleTools } from "../knowledge-tools.ts";
 
 interface Tool {
   execute: (
@@ -551,7 +551,9 @@ describe("Pi plugin projection", () => {
     expect(JSON.stringify(piKnowledgeGrants(both))).not.toContain("mem_save");
     // A role outside the grant has no knowledge tool in its Pi tool list.
     expect(piKnowledgeGrants(both).scribe).toBeUndefined();
-    expect(piKnowledgeGrants(both).publisher).toBeUndefined();
+    // Publisher is a parent role (#1496): no grant and no tool list.
+    expect(piKnowledgeGrants(both)).not.toHaveProperty("publisher");
+    expect(piRoleTools("publisher", piKnowledgeGrants(both))).toEqual([]);
   });
 
   // Covers: R12
@@ -594,5 +596,27 @@ describe("Pi plugin projection", () => {
     );
     expect(rolePluginProse("implementer", [plugin(false)], config)).toBe("");
     expect(rolePluginProse("reviewer", [plugin(true)], config)).toBe("");
+  });
+
+  it("conditions orchestrator plugin sub-blocks on harness.sessionState (#1579)", () => {
+    const render = (harness: Record<string, unknown>): string => {
+      const config = NavoriConfigSchema.parse({
+        name: "pi-session-state",
+        preset: "custom",
+        engines: ["pi"],
+        branchBase: "main",
+        qualityGate: { fast: "bun test", full: "bun test" },
+        plugins: { engram: { enabled: true } },
+        harness,
+      });
+      return extendWithOrchestratorBlocks("", loadEnabledPlugins(config.plugins).loaded, config);
+    };
+    const absent = render({});
+    expect(absent).toBe(render({ sessionState: true }));
+    expect(absent).toContain("history.md");
+    const off = render({ sessionState: false });
+    expect(off).toContain("mem_session_summary");
+    expect(off).not.toContain("history.md");
+    for (const out of [absent, off]) expect(out).not.toContain("navori:if");
   });
 });

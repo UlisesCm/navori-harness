@@ -531,7 +531,12 @@ export function sealReview(options: EvidenceOptions & { nonce: string }): SealRe
 
 export type SealedCheck =
   | { status: "missing" | "invalid" | "unknown-algorithm" }
-  | { status: "sealed" | "changed-during-review"; evidence: ReviewEvidence };
+  | {
+      status: "sealed" | "changed-during-review";
+      evidence: ReviewEvidence;
+      /** Target recorded in the review's begin stamp. */
+      target?: string;
+    };
 
 /**
  * Verifies the sidecar's evidence WITHOUT recomputing the content identity:
@@ -571,12 +576,18 @@ export function checkSealedEvidence(root: StateRoot, sidecar: ReviewSidecar): Se
       return { status: "invalid" };
     }
   }
-  return { status: evidence.state === "validated" ? "sealed" : "changed-during-review", evidence };
+  return {
+    status: evidence.state === "validated" ? "sealed" : "changed-during-review",
+    evidence,
+    target: stamp.target,
+  };
 }
 
 export interface ReviewCorrelationResult {
   correlation: ReviewCorrelation;
   evidence?: ReviewEvidence;
+  /** Identity fields that differ, set only for `changed-after-review`. */
+  differs?: string[];
 }
 
 /** Full correlation: `checkSealedEvidence` plus the current identity (needs `options`). */
@@ -613,9 +624,12 @@ export function correlateReview(
     )
       return { correlation: "unavailable", evidence: checked.evidence };
   }
-  return sameIdentity(current, checked.evidence)
-    ? { correlation: "correlated", evidence: checked.evidence }
-    : { correlation: "changed-after-review", evidence: checked.evidence };
+  if (sameIdentity(current, checked.evidence))
+    return { correlation: "correlated", evidence: checked.evidence };
+  const differs = (["fingerprint", "base", "gate", "inputs"] as const).filter(
+    (field) => current[field] !== checked.evidence[field],
+  );
+  return { correlation: "changed-after-review", evidence: checked.evidence, differs };
 }
 
 /** Publisher-side nudge (`handoff check --for publisher`): why this review is not sealed, or `null`. */

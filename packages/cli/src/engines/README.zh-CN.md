@@ -71,4 +71,6 @@ Codex 从 `.agents/skills/<id>/SKILL.md` 发现仓库 skills。该目录是**跨
 
 这些引擎共享自己的 spine（`renderProseFile`），并且只是约 40 行的包装器。它们不会为每个文件分别输出 agents/skills/hooks；将其迁移到 `EngineAdapter` 只会增加改动，不会带来收益（Spec 0007 DT-1）。
 
-每个 adapter 都会将自己的 `engine`（`"agents-md"`、`"cursor"`、`"copilot"`）传给 `renderProseFile`，这是必需的（#1273）。该函数会解析保留的条件键 `onCodex` 和 `onClaude`（两者都忽略 config）。只有 `engine === "claude"` 时 `onClaude` 才为 true：`CLAUDE.md` 会接收不变量以及 `intake-tickets` 和 `sdd` 的指针；prose engines（以及 Pi）不会加载 skills，因此会保留完整文本。
+每个 adapter 都会将自己的 `engine`（`"agents-md"`、`"cursor"`、`"copilot"`）传给 `renderProseFile`，这是必需的（#1273）。该函数会解析保留的条件键 `onCodex`、`onClaude` 和 `onLayered`（都忽略 config）。只有 `engine === "claude"` 时 `onClaude` 才为 true：`CLAUDE.md` 会接收不变量以及 `intake-tickets` 和 `sdd` 的指针；prose engines（以及 Pi）不会加载 skills，因此会保留完整文本。`onLayered` 在 `engine === "claude"` 时为 true，对于 `agents-md` 则仅当 `engines` 中包含 `pi` 时为 true：带 Pi 的 `CLAUDE.md` 和分层 `AGENTS.md` 会获得简短的 `intake-tickets` 指针，而 cursor、copilot、codex、不带 `agents-md` 的 Pi 以及不带 Pi 的 agents-md 保留长文本。
+
+层规则（面向资产作者）：共享块按名称引用 skills，不包含 `onClaude` 段，仅 Claude 的文本放入 `claude-apendice` 资产。插件清单中的 `managed[].layer: "shared"` 会使其块成为 agents-md 的 `AGENTS.md` 的一部分。

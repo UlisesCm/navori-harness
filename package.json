@@ -14,7 +14,7 @@
     "sharp"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "build": "bun run --filter '*' build",
@@ -29,6 +29,7 @@
     "bench:hooks": "node scripts/js/bench-hooks.mjs",
     "fuzz:hooks": "node scripts/js/hook-fuzz.mjs",
     "bench:context": "node scripts/js/bench-context.mjs",
+    "check:deps": "node scripts/js/check-deps-sync.mjs",
     "check:links": "node scripts/js/check-links.mjs",
     "ensure-dist": "bun packages/cli/scripts/ensure-dist.ts",
     "oracle:rust": "bun run ensure-dist && node scripts/js/rust-oracle.mjs",
@@ -48,9 +49,9 @@
     "prepare": "bun run hooks:install",
     "hooks:install": "node scripts/js/install-git-hooks.mjs",
     "render:apply": "bun run --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check:scoped": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage",
-    "check:fast": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast"
+    "check:scoped": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size",
+    "check": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage",
+    "check:fast": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",

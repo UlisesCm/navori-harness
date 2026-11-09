@@ -337,7 +337,12 @@ function readEvents(spool) {
 export function runMode(cases, mode, { resolveHook, runHookBatch, binary, timeoutMs, impl = "shell", scratch }) {
   const results = new Array(cases.length);
   const baseline = { PATH: [scratch.bin, scratch.nodeBin, process.env.PATH ?? ""].join(":"), HOME: scratch.home, TMPDIR: scratch.tmp };
-  for (const key of ["LANG", "LC_ALL", "LC_CTYPE", "TERM"]) if (process.env[key] !== undefined) baseline[key] = process.env[key];
+  for (const key of ["LANG", "LC_CTYPE", "TERM"]) if (process.env[key] !== undefined) baseline[key] = process.env[key];
+  // The host's character handling is kept, but shell and strerror diagnostics are pinned to English:
+  // the corpus stores them verbatim, so a localized host (es_ES) would differ in stderr. LC_ALL would
+  // override LC_MESSAGES, so its value is folded into LC_CTYPE instead of being passed through.
+  if (process.env.LC_ALL) baseline.LC_CTYPE = process.env.LC_ALL;
+  baseline.LC_MESSAGES = "C";
   const saved = { ...process.env };
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, baseline);

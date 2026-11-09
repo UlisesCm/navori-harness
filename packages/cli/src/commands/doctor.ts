@@ -435,7 +435,10 @@ export const doctorCommand = defineCommand({
         claudeMdExists: existsSync(claudeMdPath),
         agentsMdExists: existsSync(`${cwd}/AGENTS.md`),
         claudeDirExists: existsSync(`${cwd}/.claude`),
-        progressDirExists: existsSync(`${cwd}/${config.progress?.dir ?? "progress"}`),
+        // Omitted when `harness.sessionState` is false (#1579): there is no progress/ to expect.
+        ...(config.harness?.sessionState === false
+          ? {}
+          : { progressDirExists: existsSync(`${cwd}/${config.progress?.dir ?? "progress"}`) }),
       },
       managedBlocks: markers,
       missingPlugins,
@@ -582,7 +585,9 @@ export const doctorCommand = defineCommand({
         // otherwise a leftover AGENTS.md is reported as an orphan, not a ✓ (#312).
         ...(agentsMdEngineActive ? [`  ${check(report.checks.agentsMdExists)} AGENTS.md`] : []),
         `  ${check(report.checks.claudeDirExists)} .claude/`,
-        `  ${check(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`,
+        ...(report.checks.progressDirExists === undefined
+          ? []
+          : [`  ${check(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`]),
       ].join("\n"),
       td.fsChecksTitle,
     );

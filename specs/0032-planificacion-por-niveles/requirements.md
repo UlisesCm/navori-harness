@@ -127,7 +127,8 @@ deja rastro verificable:
 
 - **R22** — El bloque `planificacion` DEBERÁ contener solo la tabla de niveles y la regla del
   gate, dentro de su techo propio; el procedimiento de nivel 1 DEBERÁ vivir en la skill
-  `plan-simple`, el de nivel 2 en `plan-advanced` y el de nivel 3 en `spec-bootstrap`. El
+  `plan-simple`, el de nivel 2 en `plan-advanced` y el de nivel 3 en `spec-bootstrap`. Las skills
+  `plan-simple` y `plan-advanced` solo se renderizan con `harness.planTiers`, no de forma incondicional. El
   mecanismo que las activa es el motivo del gate (R16), no la coincidencia de su descripción.
 
 ### El architect

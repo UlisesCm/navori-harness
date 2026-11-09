@@ -62,6 +62,7 @@ describe("Spec 0036 engine-neutral state integration", () => {
       engines: ["claude", "codex"],
       preset: "custom",
       gitignoreHarness: "off",
+      harness: { planTiers: true },
     });
     writeConfig(join(main, "navori.config.json"), config);
     writeConfig(join(linked, "navori.config.json"), config);

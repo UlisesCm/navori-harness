@@ -122,6 +122,18 @@ export function interpolate(
       typeof config.qualityGate?.fast === "string" && config.qualityGate.fast.trim() !== ""
         ? "0"
         : "1",
+    // `harness.sessionState` (#1579). Never blank (a blank value renders as
+    // "<not configured>"): on, both render the exact text the hook always had;
+    // off, the file list is an empty quoted word (matches nothing) and the
+    // post-compaction sentence ends without pointing at the progress file.
+    "navori.progressFiles":
+      config.harness?.sessionState === false
+        ? '""'
+        : '"progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"',
+    "navori.compactSummaryTail":
+      config.harness?.sessionState === false
+        ? ", con las decisiones y los bugs con causa raíz de esta sesión."
+        : " y/o anota en progress/current.md las decisiones y los bugs con causa raíz de esta sesión.",
     // Roles the plan gate lets through without a workplan, for the shell fast path of
     // `plan-gate.sh` (spec 0054 R24). Single source: `NON_IMPLEMENTER_ROLES`.
     "navori.nonImplementerRoles": NON_IMPLEMENTER_ROLES.join(" "),

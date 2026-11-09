@@ -38,7 +38,7 @@ const CONFIG = {
   commits: "conventional-es",
   qualityGate: { fast: "x", full: "y" },
   hooks: { verifyOnStop: true },
-  harness: { planTiers: true, masterPlan: true },
+  harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true },
 } as unknown as NavoriConfig;
 
 const SCRIPT = "routing-watch";

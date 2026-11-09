@@ -370,20 +370,69 @@ describe("validateEvidence", () => {
     expect(verdict.ok).toBe(true);
   });
 
-  // Covers: R7
-  it("names `navori plan render` when the acceptance index has no line for the feature", () => {
-    const verdict = validate();
-    expect(verdict).toMatchObject({ ok: false, why: "no run recorded" });
-    if (!verdict.ok) expect(verdict.fix).toContain("navori plan render demo");
+  // Covers: R7 — issue #1611 M4: each zero-run cause gets its own concrete fix.
+  describe("no run recorded", () => {
+    const dir = (): string => join(cwd, ".navori/state/handoffs");
+    const writeIndex = (text: string): void => {
+      mkdirSync(dir(), { recursive: true });
+      writeFileSync(join(dir(), "acceptance-index"), text);
+    };
+    const fixOf = (): string => {
+      const verdict = validate();
+      expect(verdict).toMatchObject({ ok: false, why: "no run recorded" });
+      if (verdict.ok) throw new Error("expected a rejection");
+      return verdict.fix;
+    };
+
+    it("(a) names `navori plan render` in the checkout when there is no index file", () => {
+      const fix = fixOf();
+      expect(fix).toContain(`there is no acceptance index in ${cwd}`);
+      expect(fix).toContain(`run \`navori plan render demo\` in ${cwd}`);
+    });
+
+    it("(b) names `navori plan render` when the index has no line for the criterion", () => {
+      writeIndex(`${COMMAND}\tdemo\tA2\t${dir()}\nother\tother\tA1\t${dir()}\n`);
+      const fix = fixOf();
+      expect(fix).toContain("has no line for A1 of demo");
+      expect(fix).toContain("`navori plan render demo`");
+    });
+
+    it("(c) says the workplan was edited outside the CLI when the index has another command", () => {
+      writeIndex(`bun test old\tdemo\tA1\t${dir()}\n`);
+      const fix = fixOf();
+      expect(fix).toContain("different command for A1");
+      expect(fix).toContain("edited outside the CLI");
+      expect(fix).toContain("`navori plan render demo` to refresh it, then rerun");
+    });
+
+    it("(d) keeps the rerun text and the verbatim rule when the index is fine", () => {
+      writeIndex(`${COMMAND}\tdemo\tA1\t${dir()}\n`);
+      const fix = fixOf();
+      expect(fix).toContain("Large repos");
+      expect(fix).toContain(
+        "no pipe, redirection (`2>&1`), env-var prefix, subshell or relative `cd`",
+      );
+      expect(fix).toContain(`on Pi: \`cd ${cwd} && ${COMMAND}\``);
+      expect(fix).not.toContain("plan render");
+    });
+
+    it("matches a JSON-escaped command in the index", () => {
+      const command = 'echo "q"';
+      writeIndex(`echo \\"q\\"\tdemo\tA1\t${dir()}\n`);
+      const verdict = validate(command);
+      if (verdict.ok) throw new Error("expected a rejection");
+      expect(verdict.fix).toContain("Large repos");
+    });
   });
 
-  it("reports no run recorded, with a FIX that mentions large repos", () => {
-    const dir = join(cwd, ".navori/state/handoffs");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "acceptance-index"), `${COMMAND}\tdemo\tA1\t${dir}\n`);
-    const verdict = validate();
-    expect(verdict).toMatchObject({ ok: false, why: "no run recorded" });
-    if (!verdict.ok) expect(verdict.fix).toContain("large repos");
+  it("says a recorded command wraps the criterion (pipe, redirection, env prefix)", () => {
+    for (const wrapped of [`${COMMAND} | tail`, `${COMMAND} 2>&1`, `CI=1 ${COMMAND}`]) {
+      writeLog([logLine({ command: wrapped })]);
+      const verdict = validate();
+      expect(verdict).toMatchObject({ ok: false, why: "recorded for a different command" });
+      if (verdict.ok) throw new Error("expected a rejection");
+      expect(verdict.fix).toContain(`wraps the criterion (\`${wrapped}\`)`);
+    }
   });
 
   it("rejects an edited command", () => {

@@ -66,7 +66,7 @@ describe("scanMissingModelProfile (#817)", () => {
       harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 8 core agents on by default (orchestrator included — it's rendered
+    // The 7 core agents on by default (`scribe` only with scribeOwnsMarkdown, #1484; orchestrator included — it's rendered
     // for Claude; `architect` always renders too since spec 0032 R33 retired
     // its `harness.architect` toggle).
     expect(issues.map((i) => i.agent).sort()).toEqual(
@@ -78,7 +78,6 @@ describe("scanMissingModelProfile (#817)", () => {
         "publisher",
         "reviewer",
         "scout",
-        "scribe",
       ].sort(),
     );
   });

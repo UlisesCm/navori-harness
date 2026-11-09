@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:dac94bfc948dab1fcdd54407fda0b00829afdc82835f85977ae8287ecf02d9e3 impl=sha256:d028a4db9825024108736fbe104e7aa3ffd152c4887794697f8348fe77a1bbaf
-# navori:managed start id="general-purpose-confirm-base" hash="b6f914f5" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:39978e8f931a84bd639db6625227dd67b6cffde90dfd3ab2b6585a1498b6dcc5 impl=sha256:d028a4db9825024108736fbe104e7aa3ffd152c4887794697f8348fe77a1bbaf
+# navori:managed start id="general-purpose-confirm-base" hash="96a13406" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -405,12 +405,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0

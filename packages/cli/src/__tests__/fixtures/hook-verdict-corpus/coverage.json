@@ -1,7 +1,7 @@
 {
   "guard-destructive.sh": {
-    "observed": 1202,
-    "included": 1202,
+    "observed": 1233,
+    "included": 1233,
     "excluded": {}
   },
   "audit-mode-close.sh": {
@@ -45,8 +45,8 @@
     "excluded": {}
   },
   "master-accept-confirm.sh": {
-    "observed": 289,
-    "included": 289,
+    "observed": 165,
+    "included": 165,
     "excluded": {}
   },
   "master-plan-context.sh": {
@@ -109,6 +109,11 @@
   "worktree-reclaim.sh": {
     "observed": 18,
     "included": 18,
+    "excluded": {}
+  },
+  "pii-egress-guard.sh": {
+    "observed": 6,
+    "included": 6,
     "excluded": {}
   }
 }

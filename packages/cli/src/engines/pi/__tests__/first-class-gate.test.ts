@@ -29,7 +29,7 @@ interface Ctx {
 type Env = Record<string, string>;
 
 const PARENT: Env = {};
-const CHILD: Env = { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" };
+const CHILD: Env = { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" };
 
 // Every call runs the real scripts under bash; a saturated machine needs room.
 vi.setConfig({ testTimeout: 60_000 });

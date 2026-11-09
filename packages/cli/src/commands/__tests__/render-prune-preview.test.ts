@@ -1,7 +1,10 @@
+// The imports and the `vi.mock` + dynamic-import prologue below cannot move into a shared
+// module (vi.mock only hoists inside the test file), so the other prune suite repeats them.
+/* jscpd:ignore-start */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { listFiles, makeSandboxDirs, navoriAuthored } from "./prune-fixtures.ts";
 
 /**
  * #521: `render --prune` is the most destructive operation in the product, and
@@ -23,34 +26,13 @@ vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home
 const { runCommand } = await import("citty");
 const { writeConfig } = await import("../../lib/config/config.ts");
 const { runRender, renderCommand } = await import("../render.ts");
-const { injectManagedSection } = await import("../../lib/render/marker.ts");
-const { readCliVersion } = await import("../../lib/render/bundled-assets.ts");
+/* jscpd:ignore-end */
 
 /** ANSI escapes, BUILT rather than written as a literal control char (which
  *  the linter rejects): picocolors keeps them under FORCE_COLOR. */
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 let cwd: string;
-
-/** A file exactly as an engine would have rendered it: managed marker, current
- *  version, navori as the source — the only shape a prune may delete. */
-const navoriAuthored = (id: string, body: string): string =>
-  injectManagedSection("", id, `${body}\n`, {
-    version: readCliVersion(),
-    source: "@navori/core",
-  }).output;
-
-/** Every file under `dir`, as `dir`-relative paths, sorted: fails on a missing
- *  file AND on an extra one, which `existsSync` per path never does. */
-function listFiles(dir: string, root = dir): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listFiles(full, root));
-    else out.push(relative(root, full));
-  }
-  return out.sort();
-}
 
 /**
  * An orphaned `.codex/` of the shape the rollout met: navori's own file next to
@@ -59,8 +41,7 @@ function listFiles(dir: string, root = dir): string[] {
  * assertion cannot pass by comparing two empty lists.
  */
 beforeEach(() => {
-  home.dir = mkdtempSync(join(tmpdir(), "navori-home-"));
-  cwd = mkdtempSync(join(tmpdir(), "navori-prune-preview-"));
+  ({ home: home.dir, cwd } = makeSandboxDirs("prune-preview"));
   writeConfig(join(cwd, "navori.config.json"), {
     name: "demo",
     engines: ["claude"],
@@ -68,7 +49,10 @@ beforeEach(() => {
   });
   mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
   mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
-  writeFileSync(join(cwd, ".codex/config.toml"), navoriAuthored("codex-config", "sandbox = true"));
+  writeFileSync(
+    join(cwd, ".codex/config.toml"),
+    navoriAuthored("codex-config", "sandbox = true", "shell"),
+  );
   writeFileSync(join(cwd, ".codex/agents/mio.toml"), "agente escrito a mano\n");
   writeFileSync(join(cwd, ".codex/progress/receipt.txt"), "APPROVED\n");
   writeFileSync(join(cwd, "AGENTS.md"), navoriAuthored("agentes-disponibles", "rendered"));
@@ -151,6 +135,50 @@ describe("render --prune can be previewed (#521)", () => {
   });
 });
 
+describe("render --prune strips the blocks of a file that also holds the user's text (#1604)", () => {
+  const MINE = "## Mis notas\nTexto propio del usuario.\n";
+
+  beforeEach(() => {
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      `${navoriAuthored("agentes-disponibles", "rendered")}\n${MINE}`,
+    );
+  });
+
+  it("preview, apply and --json agree: blocks removed, file kept", async () => {
+    const original = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    const preview = runRender(cwd, { dryRun: true, prune: true });
+    expect(preview.strippedEngineOutputs).toEqual(["AGENTS.md"]);
+    expect(preview.prunedEngineOutputs).toEqual([".codex/config.toml"]);
+    // A preview rewrites nothing.
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(original);
+
+    const payload = await renderJson("--prune");
+    expect(payload.mode).toBe("preview");
+    expect(payload.strippedEngineOutputs).toEqual(["AGENTS.md"]);
+    expect(payload.prunedEngineOutputs).toEqual([".codex/config.toml"]);
+
+    const applied = runRender(cwd, { dryRun: false, prune: true });
+    expect(applied.strippedEngineOutputs).toEqual(preview.strippedEngineOutputs);
+    expect(applied.prunedEngineOutputs).toEqual(preview.prunedEngineOutputs);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(`\n${MINE}`);
+    expect(readFileSync(join(applied.prunedBackupPath as string, "AGENTS.md"), "utf-8")).toBe(
+      original,
+    );
+  });
+
+  it("the human report says the text is kept, in the conditional voice for a preview", async () => {
+    const preview = await renderOutput("--prune");
+    expect(preview).toContain("AGENTS.md");
+    expect(preview).toMatch(/conservaría tu texto|keep your text/);
+    expect(preview).not.toMatch(/conservé tu texto|kept your text/);
+
+    const applied = await renderOutput("--prune", "--apply");
+    expect(applied).toMatch(/conservé tu texto|kept your text/);
+  });
+});
+
 /** Run `render` capturing the human report clack writes to stdout. */
 async function renderOutput(...args: string[]): Promise<string> {
   const chunks: string[] = [];
@@ -169,6 +197,7 @@ async function renderOutput(...args: string[]): Promise<string> {
 interface PrunePayload {
   mode: string;
   prunedEngineOutputs: string[];
+  strippedEngineOutputs: string[];
   keptEngineOutputs: Array<{ path: string; reason: string }>;
 }
 

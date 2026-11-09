@@ -17,6 +17,7 @@ function steps(command: string | undefined): string[] {
 }
 
 const CHEAP = [
+  "check:deps",
   "format:check",
   "lint",
   "typecheck",

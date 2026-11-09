@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="11369e1c" version="0.11.3" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="26251e82" version="0.12.3" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 # Search-routing lane for the tgrep plugin (spec 0039 D6, R29-R31).
 #
@@ -43,26 +43,42 @@ if [ "${#cmd}" -gt 20000 ]; then exit 0; fi
 # SEGMENTS. Each rule only matches WITHIN one segment, and a segment carries
 # whether it starts a command (`@C@` or the first line) or continues a pipe
 # (`@P@`). `||` is rewritten before `|`; separators inside quotes are data.
+# A newline outside quotes ALSO starts a command (#1509), like `;`, unless the
+# line ended inside quotes (the newline is data) or on a pipe/`&&`/`||`/`;`
+# (the next line continues the same segment). Quote state persists across lines.
 segments=$(printf '%s' "$cmd" \
   | sed -e ':a' -e '$!N' -e 's/\\\n/ /' -e 'ta' -e 'P' -e 'D' \
   | awk '
+    BEGIN { inq = ""; pend = 0 }   # inq: "", "\047" (single) or "\042" (double)
     {
       line = $0
+      # A comment-only line is neither a command nor the end of one: a pipe or
+      # `&&` left open above it still continues on the next line.
+      if (inq == "" && line ~ /^[ \t]*#/) next
       out = ""
-      inq = ""      # "", "\047" (single) or "\042" (double)
+      if (NR > 1) {
+        if (inq != "" || pend) out = " "
+        else { out = "\n@C@"; pend = 0 }
+      }
       n = length(line)
       for (i = 1; i <= n; i++) {
         c = substr(line, i, 1)
         if (inq == "") {
-          if (c == "\047" || c == "\042") { inq = c; out = out c; continue }
+          if (c == "\047" || c == "\042") { inq = c; pend = 0; out = out c; continue }
           # `||` before `|`, or the first pipe of a `||` starts a bogus segment.
-          if (c == "|" && substr(line, i + 1, 1) == "|") { out = out "\n@C@"; i++; continue }
-          if (c == "&" && substr(line, i + 1, 1) == "&") { out = out "\n@C@"; i++; continue }
-          if (c == ";") { out = out "\n@C@"; continue }
-          if (c == "|") { out = out "\n@P@"; continue }
+          if (c == "|" && substr(line, i + 1, 1) == "|") { out = out "\n@C@"; pend = 1; i++; continue }
+          if (c == "&" && substr(line, i + 1, 1) == "&") { out = out "\n@C@"; pend = 1; i++; continue }
+          if (c == ";") { out = out "\n@C@"; pend = 1; continue }
+          # `|&` pipes stderr too: the `&` belongs to the pipe, not to the next word.
+          if (c == "|") { if (substr(line, i + 1, 1) == "&") i++; out = out "\n@P@"; pend = 1; continue }
+          if (c != " " && c != "\t") pend = 0
           out = out c
           continue
         }
+        pend = 0
+        # In double quotes a backslash escapes the next character, so `"a \" b"`
+        # keeps its parity now that quote state outlives the line.
+        if (inq == "\042" && c == "\\") { out = out c substr(line, i + 1, 1); i++; continue }
         # Inside a quoted span every separator is DATA. The span ends only on
         # its own quote character, which is what keeps `"a ; b"` whole while
         # `'"'"'a'"'"' ; b` still splits.
@@ -181,48 +197,98 @@ search_block() {
 
 starts=$(printf '%s\n' "$segments" | sed -n -e 's/^@C@//p' -e '1{/^@[CP]@/!p;}')
 
-while IFS= read -r seg; do
-  [ -n "$seg" ] || continue
-
-  # Peel `VAR=value` prefixes so the verb anchor below sees the real command
-  # (#724 B2). `LC_ALL=C grep -rn foo src/` evaded every rule here by sitting
-  # one token to the right of the anchor — verified: exit 0 against exit 2 for
-  # the same command without the prefix.
-  #
-  # Parameter expansion, not a `sed` fork: this runs once per segment next to
-  # two `grep -qE` forks that are already there, and a heredoc is many segments.
-  # The idiom is the one `gate-trigger.sh` uses (its FIX C) and it is the third
-  # place this peel lives — `guard-destructive.sh` does it with a sed loop and
-  # `parse.ts`'s `leadingBinary` in TypeScript. A fourth earns a shared partial.
-  seg="${seg#"${seg%%[![:space:]]*}"}"
-  while [[ "$seg" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
-    case "$seg" in
-      *[[:space:]]*)
-        seg="${seg#*[[:space:]]}"
-        seg="${seg#"${seg%%[![:space:]]*}"}"
-        ;;
-      *) seg=""; break ;;
-    esac
-  done
-  [ -n "$seg" ] || continue
-
-  # Recursive grep: the flag may sit anywhere among the options.
-  if printf '%s' "$seg" | grep -qE '^[[:space:]]*(grep|egrep|fgrep)([[:space:]]|$)' \
-    && printf '%s' "$seg" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|=|$)' \
-    && ! names_a_file "$seg"; then
-    search_block "recursive content search through the shell"
-  fi
-
-  # `rg` is recursive by DEFAULT, so it is extraction only when a concrete file
-  # (or a ROOT outside the repo) is named. `--files`, `--version` and `--help`
-  # search no content at all.
-  if printf '%s' "$seg" | grep -qE '^[[:space:]]*rg([[:space:]]|$)' \
-    && ! printf '%s' "$seg" | grep -qE '(^|[[:space:]])(--files|--version|--help)([[:space:]]|$)' \
-    && ! names_a_file "$seg"; then
-    search_block "content search through the shell (rg is recursive by default)"
-  fi
-done <<EOF
+# PEEL every segment start in the shell, with no fork, and print one per line.
+#
+# `VAR=value` prefixes come off so the verb anchor below sees the real command
+# (#724 B2). `LC_ALL=C grep -rn foo src/` evaded every rule here by sitting
+# one token to the right of the anchor — verified: exit 0 against exit 2 for
+# the same command without the prefix.
+#
+# The idiom is the one `gate-trigger.sh` uses (its FIX C) and it is the third
+# place this peel lives — `guard-destructive.sh` does it with a sed loop and
+# `parse.ts`'s `leadingBinary` in TypeScript. A fourth earns a shared partial.
+#
+# Printed, not appended to a variable: in bash 3.2 growing a string once per
+# segment costs more than linear time.
+navori_peel_starts() {
+  while IFS= read -r seg; do
+    [ -n "$seg" ] || continue
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    while [[ "$seg" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+      case "$seg" in
+        *[[:space:]]*)
+          seg="${seg#*[[:space:]]}"
+          seg="${seg#"${seg%%[![:space:]]*}"}"
+          ;;
+        *) seg=""; break ;;
+      esac
+    done
+    [ -n "$seg" ] || continue
+    printf '%s\n' "$seg"
+  done <<EOF
 $starts
+EOF
+}
+
+# ONE pass over every segment (#1491): only the ones that start with a search
+# verb go on. A grep per segment made a 6 KB command that merely filters with
+# `| grep` cost ~0.8 s, because every segment start paid two forks.
+#
+# `-a` keeps a byte that is not valid in the locale from turning the output
+# into "Binary file matches" (GNU grep); the match itself is unchanged.
+navori_candidates=$(navori_peel_starts \
+  | grep -aE '^[[:space:]]*(grep|egrep|fgrep|rg)([[:space:]]|$)') || exit 0
+
+# Line numbers of the candidates that match ERE $1, as " 1 4 ", in
+# `navori_lines`. The same regexes the per-segment checks used, each run ONCE
+# over every candidate: the process count stays flat however many there are.
+navori_match() {
+  navori_hits=$(printf '%s\n' "$navori_candidates" | grep -anE "$1") || navori_hits=""
+  navori_lines=" "
+  while IFS= read -r navori_hit; do
+    [ -n "$navori_hit" ] || continue
+    navori_lines="$navori_lines${navori_hit%%:*} "
+  done <<NAVORI_HITS
+$navori_hits
+NAVORI_HITS
+}
+
+navori_match '^[[:space:]]*(grep|egrep|fgrep)([[:space:]]|$)'
+navori_grep_lines=$navori_lines
+# Recursive grep: the flag may sit anywhere among the options.
+navori_match '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|=|$)'
+navori_recursive_lines=$navori_lines
+navori_match '^[[:space:]]*rg([[:space:]]|$)'
+navori_rg_lines=$navori_lines
+# `rg` is recursive by DEFAULT, so it is extraction only when a concrete file
+# (or a ROOT outside the repo) is named. `--files`, `--version` and `--help`
+# search no content at all.
+navori_match '(^|[[:space:]])(--files|--version|--help)([[:space:]]|$)'
+navori_no_content_lines=$navori_lines
+
+# Candidates in command order, so the first offending segment is the one named.
+navori_line=0
+while IFS= read -r seg; do
+  navori_line=$((navori_line + 1))
+  case "$navori_grep_lines" in
+    *" $navori_line "*)
+      case "$navori_recursive_lines" in
+        *" $navori_line "*)
+          names_a_file "$seg" || search_block "recursive content search through the shell"
+          ;;
+      esac
+      ;;
+  esac
+  case "$navori_rg_lines" in
+    *" $navori_line "*)
+      case "$navori_no_content_lines" in
+        *" $navori_line "*) ;;
+        *) names_a_file "$seg" || search_block "content search through the shell (rg is recursive by default)" ;;
+      esac
+      ;;
+  esac
+done <<EOF
+$navori_candidates
 EOF
 
 exit 0

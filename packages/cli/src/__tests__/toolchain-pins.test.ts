@@ -38,26 +38,36 @@ const READMES = [
 
 describe("toolchain pins", () => {
   // Covers: R1
-  it("pins Node 26.12.1 locally and Bun 1.4.4 with Node 24 in every CI job", () => {
-    expect(read(".nvmrc").trim()).toBe("26.12.1");
+  it("pins Node 26.13.0 locally and Bun 1.4.4, with every CI job reading .nvmrc", () => {
+    expect(read(".nvmrc").trim()).toBe("26.13.0");
     const bun = /^bun@(.+)$/.exec(readJson("package.json").packageManager ?? "")?.[1];
     expect(bun).toBe("1.4.4");
     const bunVersions = workflowValues("bun-version");
     expect(bunVersions.length).toBeGreaterThan(0);
     for (const v of bunVersions) expect(v).toBe(bun);
-    const nodeVersions = workflowValues("node-version");
-    // Every setup-node step must pin it inline: a `node-version-file` step would not match.
+    // Every setup-node step reads .nvmrc, except the one that switches `node-floor` to the floor.
     const setupNodeSteps = workflows.reduce(
       (n, { text }) => n + (text.match(/actions\/setup-node@/g)?.length ?? 0),
       0,
     );
-    expect(nodeVersions.length).toBe(setupNodeSteps);
-    for (const v of nodeVersions) expect(v).toBe("24");
+    const nodeVersionFiles = workflowValues("node-version-file");
+    expect(nodeVersionFiles.length).toBe(setupNodeSteps - 1);
+    for (const v of nodeVersionFiles) expect(v).toBe(".nvmrc");
   });
 
   // Covers: R2
-  it("keeps root engines at >=24 and the published CLI at >=22.12", () => {
-    expect(readJson("package.json").engines?.node).toBe(">=24");
+  it("smoke-tests the built CLI on the Node floor the published package declares", () => {
+    const floor = /^>=(\d+\.\d+)$/.exec(readJson("packages/cli/package.json").engines?.node ?? "");
+    expect(floor?.[1]).toBe("22.12");
+    expect(workflowValues("node-version")).toEqual([floor?.[1]]);
+    const ci = read(".github/workflows/ci.yml");
+    expect(ci).toContain("node-floor:");
+    expect(ci).toContain("node packages/cli/scripts/smoke-node-floor.mjs");
+  });
+
+  // Covers: R2
+  it("keeps root engines at >=26 and the published CLI at >=22.12", () => {
+    expect(readJson("package.json").engines?.node).toBe(">=26");
     expect(readJson("packages/cli/package.json").engines?.node).toBe(">=22.12");
   });
 

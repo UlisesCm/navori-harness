@@ -11,9 +11,7 @@ maxWords: 3365
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
-
-**Why the inline ladder was retired.** Its threshold lived in **seven places that did not agree**: session writes, source reads and shipping files measured different populations. One route makes an unreviewed PR an unambiguous deviation; its additional cost is accepted. Reconsider only after the gate is proven under one route and a shared classifier defines "non-trivial source file" once in code for the hook, miner and publisher.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Route by risk (`navori plan classify` level, critical areas): small reversible changes go direct; critical areas or level ≥ 2 get an independent `reviewer` — see "## Role: orchestrator" in `CLAUDE.md`.
 
 <!-- navori:if onCodex -->
 ## Codex execution checkpoints
@@ -29,7 +27,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
 2. The catalog of subagents is the managed block whose id is `agentes-disponibles`, delivered at session start. Locate it by the id, never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it. Skills: the host's native listing.
-3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
+3. <!-- navori:if sessionState -->Read `progress/current.md` (repo root) if it exists — the previous session's state.<!-- /navori:if --><!-- navori:if-not sessionState -->Recover the previous session's state from memory, not a repo file.<!-- /navori:if-not -->
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.navori/state/handoffs/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
 
@@ -77,12 +75,13 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
 - **Don't delegate merely to wrap a lookup.** If what's missing is a Code discovery routing call you can make yourself (project instructions), run it directly — a subagent invocation isn't a proxy for a query you can issue this turn. When delegation is warranted for a real reason, carry over the pending question, the evidence you already gathered, the relevant paths and their freshness in the encargo; never assume the subagent shares this context — it starts isolated, with no skills listing: name any skill it should apply with its path `.claude/skills/<id>/SKILL.md`.
+- **An encargo that may touch the network restates the rule:** never send the user's personal data (email, name, git user.email) to external services; use a generic identifier, e.g. navori-agent/1.0. Never paste that data into the encargo.
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **An informational observation (<80) after `APPROVED`** goes to the PR body and doesn't reopen the cycle.
 - **Run each `A<n>` yourself, from the main thread, as written, in the foreground** (the host records evidence only that way). An `A<n>` never runs the full suite; the gate does.
-- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+- **A minor finding after `APPROVED` is a delta fix** — a fresh `implementer`, or you directly when it is level 0 with no critical area. The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ## Continuous execution (don't pause between tasks)
 
@@ -135,15 +134,15 @@ Expected files:
 - `.navori/state/handoffs/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
 - `.navori/state/handoffs/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, <!-- navori:if planTiers -->`workplan_*`, <!-- /navori:if -->`impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.<!-- navori:if-not scribeOwnsMarkdown -->md<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->json<!-- /navori:if -->`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, <!-- navori:if planTiers -->`workplan_*`, <!-- /navori:if -->`impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in <!-- navori:if sessionState -->`progress/current.md` (repo root, persists in git)<!-- /navori:if --><!-- navori:if-not sessionState -->memory, not a repo file<!-- /navori:if-not --> and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.<!-- navori:if-not scribeOwnsMarkdown -->md<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->json<!-- /navori:if -->`, you record the blocker in <!-- navori:if sessionState -->`progress/current.md`<!-- /navori:if --><!-- navori:if-not sessionState -->memory<!-- /navori:if-not --> along with the next step.
 
-**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`. Versioned `progress/current.md` and `progress/history.md` are exempt.
+**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram<!-- navori:if authoring --> via `dominio`<!-- /navori:if -->.<!-- navori:if sessionState --> Versioned `progress/current.md` and `progress/history.md` are exempt.<!-- /navori:if -->
 
 ## Closing the cycle: create the PR
 
 When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
-1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
+1. **Before** invoking `publisher`: apply `verify-before-done`'s Session close History + Clear current steps now — that commit must land inside this PR, per its timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
 3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `{{branchBase}}`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 4. Return to the user only the PR URL + title.
@@ -183,7 +182,7 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 
 ## When NOT to orchestrate
 
-If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
+If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else routes by risk — see the top of this file.
 
 <!-- navori:user-section -->
 ## Project rules

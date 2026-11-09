@@ -66,7 +66,6 @@ describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => 
     const marked = CORE_MANAGED_ASSETS.filter((a) => a.audience === "orchestrator");
     expect(marked.map((a) => a.id).sort()).toEqual([
       "arranque-sesion",
-      "cierre-sesion",
       "orquestacion",
       "plan-maestro",
       // Spec 0032 (#1011): the level table and the gate rule — same audience
@@ -95,7 +94,7 @@ describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => 
   it("interpolates the repo's config, so no placeholder reaches the agent", () => {
     renderClaudeEngine(cwd, CONFIG);
     const file = contextFile("orquestacion");
-    expect(file).toContain("pnpm test");
+    expect(file).toContain("navori gate full");
     expect(file).not.toMatch(/\{\{[^}]+\}\}/);
   });
 

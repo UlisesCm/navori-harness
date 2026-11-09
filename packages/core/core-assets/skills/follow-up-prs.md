@@ -51,7 +51,7 @@ unblocks it, and don't invent a fix in the diff.
 **5 · Turn each finding into an encargo:** one line per `CHANGES_REQUESTED` or unanswered
 comment — `file:line`, what it asks, and the smallest change that covers it. **Implement
 nothing here**: the user picks what gets attacked. **A reply to the comment is `publisher`'s
-job** — hand it the thread and the text; this skill never posts one.
+job**<!-- navori:if onPi --> (on Pi, this session following `.pi/agents/publisher.md`)<!-- /navori:if --> — hand it the thread and the text; this skill never posts one.
 
 ## Hard rules
 

@@ -32,7 +32,7 @@ export const NPM_URL = "https://www.npmjs.com/package/navori";
  */
 export const INVENTORY = {
   /** Subcommands registered in `packages/cli/src/index.ts`. */
-  commands: 29,
+  commands: 28,
   /** Stack presets under `packages/core/core-assets/presets/`. */
   presets: 13,
   /** Plugin bundles under `packages/plugins/`. */
@@ -44,7 +44,7 @@ export const INVENTORY = {
   /** Core skills + library skills — what a repo can end up with. */
   skills: 66,
   /** Hooks under `packages/core/core-assets/hooks/`. */
-  hooks: 22,
+  hooks: 23,
 } as const;
 
 /** Plugin ids, in the order the toolbox section presents them. */

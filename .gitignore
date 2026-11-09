@@ -7,6 +7,7 @@ coverage-*/
 .astro/
 *.log
 .DS_Store
+__pycache__/
 
 # The Claude harness (.claude/ + CLAUDE.md) IS committed here — navori dogfoods
 # itself. The "never commit .claude/ or CLAUDE.md" rule is scoped to the Bonum
@@ -16,9 +17,8 @@ coverage-*/
 .claude/worktrees/
 # Ephemeral subagent handoffs (audits, research, solutions, reviews). navori's
 # own CUBO_A lists this as never-commit; the file was missing the entry, so a
-# session's artifacts leaked into git. Root session state is machine-local too.
+# session's artifacts leaked into git. Root `progress/` is versioned (#1496).
 .claude/progress/
-/progress/
 # mtime baseline for the managed-drift watcher — machine-local timing state
 .claude/.managed-drift-stamp
 # Per-session tally for the routing watcher (spec 0020): which files the main

@@ -6,15 +6,13 @@ Multi-agent harness and SDD scaffolder for Claude Code and other AI engines.
 
 `navori` brings your Claude Code setup (agents, skills, hooks, `CLAUDE.md`, and `AGENTS.md`) to multiple repositories with one command, preserving local customizations and existing work.
 
-It also renders a complete Codex harness: `AGENTS.md`, skills in
-`.agents/skills/`, agents and hooks in `.codex/`, and project-local MCP configuration.
+Codex is frozen: the CLI still renders its harness as opt-in (`AGENTS.md`, skills in
+`.agents/skills/`, agents and hooks in `.codex/`, and project-local MCP configuration),
+unchanged and with no new features.
 
 ## Engine profiles
 
 ```jsonc
-// Paridad completa para ambos proveedores
-{ "engines": ["claude", "codex"] }
-
 // Claude completo + guía AGENTS.md ligera para Codex y otras herramientas
 { "engines": ["claude", "agents-md"] }
 
@@ -24,7 +22,7 @@ It also renders a complete Codex harness: `AGENTS.md`, skills in
 // Solo Pi (opt-in; ver docs/pi.md)
 { "engines": ["pi"] }
 ```
-`codex` already includes and manages `AGENTS.md`; you do not need to combine it with
+If you still enable the frozen `codex` engine, it already includes and manages `AGENTS.md`; you do not need to combine it with
 `agents-md`. If both appear in a config, the Codex adapter takes precedence
 to avoid duplicate blocks.
 
@@ -130,9 +128,7 @@ cache files in both directories.
 | `tools notice [--ack <pluginId@x.y.z,…>]` | Emits pending external tool version notices for the startup hook; `--ack` marks them as delivered. |
 | `handoff <check\|log-review>` | `check` validates the implementer's handoff (`impl_<feature>.json`) before the next agent is dispatched. `log-review <feature>` validates `review_<feature>.json` and adds findings with score >= 50 to `findings.jsonl` (`navori handoff check <feature> [--for scribe] [--produced-by reviewer [--since <iso>]] [--dir <path>] [--cwd <checkout>] [--json]`). |
 | `plan <sub>` | Tiered planning (`harness.planTiers`): `classify [--files\|--diff]` measures task complexity and level; `render`/`update` keep the Markdown workplan in sync with its JSON; `check` validates its schema and rules; `gate` is the `PreToolUse(Agent)` hook that denies dispatch without a valid workplan. |
-| `master <sub>` | Guided, staged master-plan flow (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) and deliveries for its parts: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Commands that authorize or approve require `--approved-by`. |
-| `bench` | Runs `render` in dry-run mode N times and reports latency to detect local regressions. |
-| `workspace <sub>` | Manages cross-repository workspaces (`init`, `ls`, `show`, `link`, `add-repo`, `set-default`, `render`, `rename`, `delete`). |
+| `master <sub>` | Guided, staged master-plan flow (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) and deliveries for its parts: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Commands that authorize or approve require `--approved-by`. || `workspace <sub>` | Manages cross-repository workspaces (`init`, `ls`, `show`, `link`, `add-repo`, `set-default`, `render`, `rename`, `delete`). |
 | `ticket <sub>` | Manages tickets as files in a workspace (`new`, `list`, `show`, `archive`, `delete`). |
 | `dominio <sub>` | Manages the durable workspace knowledge base (`init`, `list`, `show`, `reindex`, `doctor`, `inject`). |
 | `codex <sub>` | Codex-specific commands; currently, `trust` approves project hooks in `~/.codex/config.toml`. |

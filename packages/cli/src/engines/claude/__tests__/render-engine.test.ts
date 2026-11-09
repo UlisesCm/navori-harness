@@ -8,6 +8,7 @@ import {
   mkdirSync,
   statSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
@@ -139,7 +140,6 @@ describe("renderClaudeEngine — first render with full config", () => {
       ".claude/agents/publisher.md",
       ".claude/agents/reviewer.md",
       ".claude/agents/scout.md",
-      ".claude/agents/scribe.md",
     ]);
     const claudeMd = r.written.find((w) => w.path === "CLAUDE.md");
     expect(claudeMd?.status).toBe("created");
@@ -150,7 +150,7 @@ describe("renderClaudeEngine — first render with full config", () => {
     // switch. Spec 0019 routes the orchestration block to `.claude/context/`,
     // not inline in CLAUDE.md.
     const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
-    expect(orquestacionBody).toContain("`architect` applies `solution-design` and writes");
+    expect(orquestacionBody).toContain("architect pass (`solution-design`)");
   });
 
   it("writes CLAUDE.md last so a mid-loop crash leaves it intact (#71 item 10)", () => {
@@ -327,6 +327,27 @@ describe("renderClaudeEngine — progress bootstrap (E2)", () => {
     expect(readFileSync(join(cwd, "progress/current.md"), "utf-8")).toBe("# MY CUSTOM CURRENT\n");
   });
 
+  it("creates no progress files with harness.sessionState false, and renders a parseable hook", () => {
+    const off = { ...CONFIG_FULL, harness: { sessionState: false } } as unknown as NavoriConfig;
+    const result = renderClaudeEngine(cwd, off);
+    expect(existsSync(join(cwd, "progress"))).toBe(false);
+    expect(result.written.some((w) => w.path.startsWith("progress/"))).toBe(false);
+    const hook = readFileSync(join(cwd, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain('for f in ""; do');
+    expect(hook).not.toContain("<not configured");
+    expect(
+      spawnSync("bash", ["-n", join(cwd, ".claude/hooks/session-start-context.sh")]).status,
+    ).toBe(0);
+  });
+
+  it("renders the pre-change progress loop in the hook when the key is absent", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const hook = readFileSync(join(cwd, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain(
+      'for f in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do',
+    );
+  });
+
   it("respects custom progress paths from config.progress", () => {
     const customConfig = {
       ...CONFIG_FULL,
@@ -492,13 +513,15 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
     //   1 routing watcher (spec 0020: the R2 notice at the moment of the
     //   decision, the second PostToolUse hook) +
-    //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
-    //   the two session ceremonies and the agents index (#572) + the
+    //   3 blocks routed to .claude/context/ — the routing doctrine (#573) plus
+    //   the session start block and the agents index (#572; #1455 retired the closeout block) + the
     //   model-advisor hook (spec 0028) + 2 dormant Claude-only master-plan
     //   hooks (spec 0034) + 1 general-purpose-confirm hook (spec 0039 T35) +
-    //   1 Bash outcome watcher (spec 0039 T23) = 59.
+    //   1 Bash outcome watcher (spec 0039 T23) + 1 pii-egress-guard hook (#1445) = 59.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(59);
+    // #1484: minus 12 opt-in units (dominio, author-skill, plan-simple, plan-advanced, scribe,
+    // implementer-no-markdown, model-advisor, routing-watch, audit-mode x2, master-plan hooks x2) = 47.
+    expect(first.inspected).toBe(47);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file, and the
     // `planificacion` and `plan-maestro` context blocks are inspected but not
@@ -512,7 +535,8 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     // hook of spec 0030 + the subagent-no-background hook of #1003 + the
     // architect agent that spec 0032 R33 always renders now + spec 0032's
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow skills).
-    expect(first.written.length).toBe(53);
+    // #1484: 41 with the 12 opt-in units off by default.
+    expect(first.written.length).toBe(41);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -626,8 +650,9 @@ describe("renderClaudeEngine — dry-run", () => {
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow
     // skills, plus the two dormant Claude-only master-plan hooks and the
     // general-purpose-confirm hook (spec 0039 T35) and the Bash outcome
-    // watcher (spec 0039 T23) (53).
-    expect(r.written).toHaveLength(53);
+    // watcher (spec 0039 T23) and the pii-egress-guard hook (#1445) (54), minus the retired closeout block (#1455) (53).
+    // #1484: the 12 opt-in units are not written by default (41).
+    expect(r.written).toHaveLength(41);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
@@ -663,22 +688,28 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
     // prose engines' SDD block.
     expect(claudeMd).not.toContain("batches of 1-3");
     // orquestacion and planificacion render as context files, not inline in CLAUDE.md.
-    const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
-    expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
-    expect(orquestacion).toContain("navori receipt gate");
-    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>`");
+    // #1525: the deliveries cycle and the plan-approval rule are planTiers doctrine.
+    const orquestacionOff = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionOff).not.toContain("spec: <spec> E<n> M<n>");
+    expect(orquestacionOff).not.toContain("without plan approval");
     // planificacion only renders behind `harness.planTiers`.
     renderClaudeEngine(cwd, {
       ...CONFIG_FULL,
       harness: { ...CONFIG_FULL.harness, planTiers: true },
     } as NavoriConfig);
+    const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
+    expect(orquestacion).toContain("navori receipt gate");
+    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>`");
+    expect(orquestacion).toContain("without plan approval");
     const planificacion = readFileSync(join(cwd, ".claude/context/05-planificacion.md"), "utf-8");
-    expect(planificacion).toContain("`<spec>-e<n>`");
+    expect(planificacion).toContain("`navori spec check`");
     const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
-    expect(skill).toContain("## E1 —");
-    expect(skill).toContain("### M1 —");
-    expect(skill).toContain("**A1**");
+    expect(skill).toContain("## Acceptance script");
+    expect(skill).toContain("navori spec check <feature>");
     expect(skill).not.toContain("batches of 1-3");
+    // #1525: same "done" wording as the SDD block.
+    expect(skill).toContain("where the outcome is observable");
   });
 
   // Covers: R16, R17, R26
@@ -788,7 +819,7 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     // The Structure/Tracking paragraphs live in `spec-bootstrap` for Claude
     // (#1273); the trigger and the no-TaskCreate rule stay always-on.
     expect(md).toContain("When to PROPOSE a spec");
-    expect(md).toContain("do NOT use `TaskCreate`");
+    expect(md).toContain("`TaskCreate` (ignore its reminder)");
     expect(md).not.toContain("Covers: R");
   });
 
@@ -1080,16 +1111,12 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
   });
 
   // Covers: R21, R23
-  it("master-plan clasifica specs: the skill cites classify, delivery rules and the E<n> id", () => {
+  it("master-plan skill is the v2 flow: PLAN.md index, spec check and user-only verdicts", () => {
     renderClaudeEngine(cwd, { ...CONFIG_FULL, harness: { masterPlan: true } } as NavoriConfig);
     const skill = readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf-8");
-    // Every spec of a part is classified, then split with the delivery rules.
-    expect(skill).toContain("navori spec classify");
-    expect(skill).toContain("sdd.deliveries");
-    // `E<n>` is the PR unit and shares its id with `parts.json`; `spec check` validates it.
-    expect(skill).toContain("E<n>");
-    expect(skill).toContain("parts.json");
     expect(skill).toContain("navori spec check");
+    expect(skill).toContain("navori master check");
+    expect(skill).toContain("--approved-by user");
   });
 
   // Covers: R21, R23

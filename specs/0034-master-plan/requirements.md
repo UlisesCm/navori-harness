@@ -72,7 +72,9 @@ ella.
 ### Entrada y precondición
 
 - **R1** — navori DEBERÁ renderizar la skill `master-plan` en todo repo con el engine `claude`,
-  con o sin `harness.masterPlan`. La skill DEBERÁ poder cargarse con `/master-plan` o cuando el
+  con o sin `harness.masterPlan`. Las skills `master-plan` y `context-intake` se renderizan sin ese flag:
+  son la vía de consentimiento para `navori master init`, que activa `harness.masterPlan`; solo los
+  hooks `master-plan-context` y `master-accept-confirm` lo requieren. La skill DEBERÁ poder cargarse con `/master-plan` o cuando el
   usuario lo pida en prosa, y su primer paso DEBERÁ comprobar que el usuario pidió el plan maestro
   de forma explícita en el hilo actual. SI no lo pidió, ENTONCES la skill NO DEBERÁ hacer nada
   más. Es el mismo candado que `spec-bootstrap` adoptó en #892: `disable-model-invocation` bloquea

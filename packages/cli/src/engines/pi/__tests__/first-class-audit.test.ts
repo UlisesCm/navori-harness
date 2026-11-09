@@ -343,6 +343,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
       "scribe",
       "auditor",
       "architect",
+      // A parent role since #1496; sessions recorded before it still classify as publisher.
       "publisher",
     ];
     writeFileSync(file, line({ type: "session", id: ID, cwd: CWD }));

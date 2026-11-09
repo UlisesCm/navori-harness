@@ -19,6 +19,9 @@ function job(name: string): string {
   return rest.slice(0, end === -1 ? undefined : end).join("\n");
 }
 
+/** Lets only the `full` label start the tests on a `labeled` event (#1551). */
+const LABEL_FILTER = "github.event.action != 'labeled' || github.event.label.name == 'full'";
+
 const stepRuns = (body: string): string[] =>
   [...body.matchAll(/^ {8}run: (.+)$/gm)].map((m) => (m[1] as string).trim());
 
@@ -55,6 +58,7 @@ describe("ci workflow", () => {
   // Covers: R18 R23
   it("quality corre hacia dev y main y compila una vez", () => {
     const checks = job("checks");
+    // No branch or label filter: a skipped `checks` would pass a required check (#1562).
     expect(checks).not.toMatch(/^ {4}if:/m);
     const runs = stepRuns(checks);
     expect(runs.filter((r) => /ensure-dist|\bbuild\b/.test(r) && !r.includes("website"))).toEqual([
@@ -63,6 +67,11 @@ describe("ci workflow", () => {
     expect(runs.indexOf("bun run ensure-dist")).toBeLessThan(runs.indexOf("bun run check:render"));
     expect(checks).not.toContain("test:coverage");
     expect(checks).toContain("check:tests-preserved");
+    // A PR to dev compares against the event's base SHA, not the live tip of origin/dev (#1566).
+    expect(checks).toContain(
+      "PR_BASE_SHA: ${{ github.base_ref == 'dev' && github.event.pull_request.base.sha || '' }}",
+    );
+    expect(checks).toContain('bun run check:tests-preserved ${PR_BASE_SHA:+--base "$PR_BASE_SHA"}');
     expect(checks).toContain("check:assets:ci");
     expect(checks).toContain("@navori/website build");
     expect(job("semgrep")).toContain("base_ref == 'main'");
@@ -74,13 +83,17 @@ describe("ci workflow", () => {
     expect(tests).toContain("github.event_name == 'push'");
     expect(tests).toContain("github.base_ref == 'main'");
     expect(tests).toContain("needs.plan.outputs.full == 'true'");
+    // A `full` label forces the full suite on a PR to dev (#1492).
+    expect(tests).toContain("contains(github.event.pull_request.labels.*.name, 'full')");
     expect(tests).toContain("!cancelled()");
     expect(tests).toContain("fail-fast: false");
     expect(tests).toContain("shard: [1, 2, 3, 4]");
     expect(tests).toContain("--shard ${{ matrix.shard }}/4");
     expect(tests).toContain("if-no-files-found: error");
     const merge = job("test-merge");
-    expect(merge).toContain("always() && needs.test.result != 'skipped'");
+    // A run cancelled by concurrency skips the merge; a failed shard still fails it (#1600).
+    expect(merge).toContain("!cancelled() && needs.test.result != 'skipped'");
+    expect(merge).not.toContain("always()");
     expect(merge).toContain('test "$SHARD_RESULT" = success');
     expect(merge).toContain("--merge .vitest-reports --shards 4");
     expect(merge).toContain("vitest-merged.json");
@@ -88,9 +101,22 @@ describe("ci workflow", () => {
     const affected = job("affected");
     expect(affected).toContain("base_ref == 'dev'");
     expect(affected).toContain("needs.plan.outputs.full == 'false'");
-    expect(affected).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(affected).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
     expect(affected).toContain("check-test-budget.mjs --report");
     expect(job("plan")).toContain("--plan-json");
     expect(job("plan")).toContain("fetch-depth: 0");
+  });
+
+  it("a full label added after opening starts the suite and other labels only repeat checks (#1551, #1562)", () => {
+    // Listing `types` replaces the defaults, so all three must stay next to `labeled`.
+    expect(workflow).toContain("types: [opened, synchronize, reopened, labeled]");
+    for (const name of ["plan", "test", "semgrep"]) {
+      expect(job(name)).toContain(LABEL_FILTER);
+    }
+    // A run for another label repeats only `checks`; its own group keeps it from cancelling the real run.
+    expect(workflow).toContain(
+      "github.event.action == 'labeled' && github.event.label.name != 'full' && format('-{0}', github.run_id)",
+    );
+    expect(workflow).toContain("cancel-in-progress: true");
   });
 });

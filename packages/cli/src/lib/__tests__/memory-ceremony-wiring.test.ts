@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { conditioned } from "./helpers/conditioned-asset.ts";
 
 /**
  * #401 — the memory ceremony is paid once, not two or three times.
@@ -37,7 +38,8 @@ const packages = resolve(here, "..", "..", "..", "..");
 const coreAssets = resolve(packages, "core", "core-assets");
 const engram = resolve(packages, "plugins", "engram");
 
-const readCore = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
+const readCore = (rel: string): string =>
+  conditioned(readFileSync(resolve(coreAssets, rel), "utf-8"));
 const readEngram = (rel: string): string => readFileSync(resolve(engram, rel), "utf-8");
 
 /** The single line of a block that carries `needle`, asserted to exist. */
@@ -84,14 +86,12 @@ describe("memory startup — the call is conditioned on the absence of a hook (#
 });
 
 describe("session close — one redaction serves every destination (#401)", () => {
-  const closeout = readCore("managed/cierre-sesion.md");
+  const closeout = readCore("skills/verify-before-done.md");
   const protocol = readEngram("skills/engram-orchestrator.md");
 
   it("the closeout's history step states the single-redaction rule", () => {
-    const step2 = lineWith(closeout, "2. **History**", "cierre-sesion.md");
-    expect(step2).toMatch(/One redaction, every destination/);
-    expect(step2).toMatch(/write that summary once and reuse the same text/i);
-    expect(step2).toMatch(/never write the same session up twice/i);
+    const step2 = lineWith(closeout, "2. **History**", "verify-before-done.md");
+    expect(step2).toMatch(/one redaction for every destination/i);
   });
 
   it("the core states it without naming a plugin's tools", () => {
@@ -102,9 +102,17 @@ describe("session close — one redaction serves every destination (#401)", () =
     // plugin tool (`core-assets/skills/resolve-ticket.md` names `mem_search`),
     // because it is only read when invoked. The rule is phrased over
     // destinations, not over tools.
-    const step2 = lineWith(closeout, "2. **History**", "cierre-sesion.md");
+    const step2 = lineWith(closeout, "2. **History**", "verify-before-done.md");
     expect(step2).not.toMatch(/mem_/);
-    expect(step2).toMatch(/a memory store, for instance/i);
+    expect(step2).toMatch(/\(memory included\)/i);
+    // With harness.sessionState off (#1579) the step is a memory summary, still tool-neutral.
+    const raw = readFileSync(resolve(coreAssets, "skills/verify-before-done.md"), "utf-8");
+    const off = lineWith(
+      conditioned(raw, { sessionState: false }),
+      "2. **Summary**",
+      "verify-before-done.md (sessionState off)",
+    );
+    expect(off).not.toMatch(/mem_|history\.md|progress\//);
   });
 
   it("the memory protocol reuses that same text instead of re-writing it", () => {
@@ -129,15 +137,14 @@ describe("session close — one redaction serves every destination (#401)", () =
 });
 
 describe("#401 leaves #378's lean close lane intact", () => {
-  const closeout = readCore("managed/cierre-sesion.md");
+  const closeout = readCore("skills/verify-before-done.md");
   const protocol = readEngram("skills/engram-orchestrator.md");
 
   it("the closeout still owns the lane's verifiable conditions", () => {
-    const lane = lineWith(closeout, "**Lean close**", "cierre-sesion.md");
+    const lane = lineWith(closeout, "**Lean close**", "verify-before-done.md");
     // Eran tres; la condición de ruta se cayó con la escalera retirada. Las dos
     // que quedan siguen siendo comprobables sin juicio, que es el punto del carril.
-    expect(lane).toMatch(/\*\*one\*\* user task/);
-    expect(lane).toContain("{{project.criticalAreas}}");
+    expect(lane).toMatch(/one user task AND no critical area/);
     expect(lane).toMatch(/skip step 2 when nothing was committed/i);
   });
 
@@ -156,7 +163,7 @@ describe("#401 leaves #378's lean close lane intact", () => {
     // #378 replaced with checkable conditions. #401 rewrote both blocks, so the
     // denylist is re-asserted here over the new prose.
     for (const [label, text] of [
-      ["managed/cierre-sesion.md", closeout],
+      ["skills/verify-before-done.md", closeout],
       ["engram/skills/engram-orchestrator.md", protocol],
     ] as const) {
       expect(text, `${label} reintroduced a self-judged exemption`).not.toMatch(

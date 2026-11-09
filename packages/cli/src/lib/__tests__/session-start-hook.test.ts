@@ -17,6 +17,7 @@ import { expandHookIncludes } from "../render/hook-includes.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { acrossShells, shellSensitive } from "./helpers/shells.ts";
+import { sessionStartVars } from "./helpers/session-start-vars.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import type { HookShell } from "./helpers/shells.ts";
 
@@ -72,14 +73,16 @@ function git(...args: string[]): void {
  * that here with `shellSingleQuote`. `destRel`, when given, places the script
  * under that relative path instead of the repo root — `nv_engine` (spec 0035
  * D2) reads `$0`, so this is how a test drives the Codex arm. */
-function installHook(destRel = "hook.sh"): string {
+function installHook(destRel = "hook.sh", sessionState?: boolean): string {
   // Includes expanded first, then placeholders — the same order `render` uses,
   // and the reason it matters: a partial may itself carry `{{...}}`. Testing the
   // raw asset would exercise a script that exists nowhere, since
   // `# navori:include` is resolved at render time.
   const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8"))
     .replace("{{shq:branchBase}}", shellSingleQuote("main"))
-    .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES));
+    .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES))
+    .replace("{{navori.progressFiles}}", sessionStartVars(sessionState).progressFiles)
+    .replace("{{navori.compactSummaryTail}}", sessionStartVars(sessionState).compactSummaryTail);
   const path = join(dir, destRel);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, raw);
@@ -593,12 +596,17 @@ describe("session-start context hook — tool update notice (#1244)", () => {
 
   it("does not call navori at all without node or jq (nothing could emit it)", () => {
     // PATH made of symlinks to every system tool EXCEPT node, jq and navori.
+    // With a merged /usr (/bin -> usr/bin) each name is listed twice, and a dangling
+    // host symlink fails `existsSync`, so the farm tracks the names it already linked.
     const farm = join(bin, "farm");
     mkdirSync(farm);
+    const linked = new Set<string>();
     for (const root of ["/usr/bin", "/bin"])
       for (const name of readdirSync(root))
-        if (!["node", "jq", "navori"].includes(name) && !existsSync(join(farm, name)))
+        if (!["node", "jq", "navori"].includes(name) && !linked.has(name)) {
+          linked.add(name);
           symlinkSync(join(root, name), join(farm, name));
+        }
     const r = emit({ ...stub(OUTPUT), PATH: `${bin}:${farm}` });
     expect(r.ctx).toBe("");
     expect(r.calls).toEqual([]);
@@ -657,6 +665,49 @@ describe("session-start context hook — soft-cap notice (#1263)", () => {
     const line = ctx.split("\n").find((l) => l.includes(EN));
     expect(line).toBe(
       `[navori] progress/current.md is ${PROGRESS_SOFT_CAP_BYTES + 1} bytes, ${EN}: trim it to the current state and the next step, moving older checkpoints to progress/history.md.`,
+    );
+  });
+});
+
+describe("session-start context hook — harness.sessionState off (#1579)", () => {
+  it("renders a script that parses and injects no progress file, even when one exists", () => {
+    const hook = installHook("off.sh", false);
+    const syntax = spawnSync("bash", ["-n", hook], { encoding: "utf-8" });
+    expect(syntax.status, syntax.stderr).toBe(0);
+    expect(readFileSync(hook, "utf-8")).not.toContain("<not configured");
+
+    repoTplFeat.copyInto(dir);
+    git("config", "user.email", "t@t.co");
+    git("config", "user.name", "t");
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "feat: primer commit");
+    mkdirSync(join(dir, "progress"), { recursive: true });
+    writeFileSync(join(dir, "progress", "current.md"), "Task: seguir con N1\n");
+
+    const r = runOnce("bash", "startup", hook);
+    expect(r.status).toBe(0);
+    const ctx = parseCtx(r.stdout);
+    expect(ctx).toContain("Branch: feat/x");
+    expect(ctx).toContain("feat: primer commit");
+    expect(ctx).not.toContain("Resume — progress/current.md");
+    expect(ctx).not.toContain("Task: seguir con N1");
+  });
+
+  it("does not point the post-compaction reminder at the progress file", () => {
+    const r = runOnce("bash", "compact", installHook("off.sh", false));
+    const ctx = parseCtx(r.stdout);
+    expect(ctx).toContain("resumen de sesión");
+    expect(ctx).not.toContain("progress/current.md");
+  });
+
+  it("keeps the on-state text byte for byte as before (key absent)", () => {
+    const vars = sessionStartVars();
+    expect(vars.progressFiles).toBe(
+      '"progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"',
+    );
+    expect(vars.compactSummaryTail).toBe(
+      " y/o anota en progress/current.md las decisiones y los bugs con causa raíz de esta sesión.",
     );
   });
 });

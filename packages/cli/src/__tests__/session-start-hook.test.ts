@@ -16,6 +16,7 @@ import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { shellSingleQuote } from "../lib/primitives/shell-escape.ts";
 import { PROGRESS_SOFT_CAP_BYTES } from "../lib/assets/doc-budgets.ts";
+import { sessionStartVars } from "../lib/__tests__/helpers/session-start-vars.ts";
 import { shellSensitive } from "../lib/__tests__/helpers/shells.ts";
 
 const ROOT = resolve(import.meta.dirname, "../../../..");
@@ -160,7 +161,7 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         join(root, "navori.config.json"),
         JSON.stringify({
           ...config,
-          ...(warnings ? {} : { qualityGate: { fast: "true", full: "true" } }),
+          qualityGate: { fast: "true", full: "true", ...(warnings ? { fulll: "true" } : {}) },
           language: "es",
           plugins: { engram: { enabled: true } },
         }),
@@ -204,14 +205,16 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         encoding: "utf8",
       });
       expect(notice.status, notice.stderr).toBe(0);
-      if (warnings) expect(notice.stderr).toContain("qualityGate.affected");
+      if (warnings) expect(notice.stderr).toContain("qualityGate.fulll");
       expect(notice.stdout).toContain("ack=engram@3.2.1");
       const body = notice.stdout.slice(notice.stdout.indexOf("\n") + 1, -1);
       const source = expandHookIncludes(
         readFileSync(join(getCoreRoot(), "core-assets/hooks/session-start-context.sh"), "utf8"),
       )
         .replace("{{shq:branchBase}}", shellSingleQuote("dev"))
-        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES));
+        .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES))
+        .replace("{{navori.progressFiles}}", sessionStartVars().progressFiles)
+        .replace("{{navori.compactSummaryTail}}", sessionStartVars().compactSummaryTail);
       writeFileSync(join(root, "hook.sh"), source);
       return { bin, log, body, env };
     }
@@ -242,7 +245,7 @@ describe.each(shellSensitive("SessionStart frame parsing and UTF-8 byte accounti
         hookSpecificOutput: { additionalContext: string };
       };
       expect(output.hookSpecificOutput.additionalContext).toContain(body);
-      expect(run.stdout).not.toContain("qualityGate.affected");
+      expect(run.stdout).not.toContain("qualityGate.fulll");
       expect(readFileSync(log, "utf8")).toBe(`tools session-context --notice-reserve ${bytes}\n`);
       expect(acknowledged()).toBe(true);
       expect(readdirSync(diagnostics)).toEqual(["caller-owned"]);

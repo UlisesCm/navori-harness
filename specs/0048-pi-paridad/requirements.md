@@ -77,6 +77,12 @@ primero; cada control declara `enforced`, `advisory` o `unsupported` con su lím
 - **R14** — WHEN un proyecto habilite los roles `auditor`, `architect` o `publisher`, the system SHALL
   permitir despacharlos con `navori_subagent` conservando instrucciones, modelo y una lista explícita de
   herramientas; el `publisher` SHALL quedar sujeto a R4, R5 y R6.
+  **Enmienda (#1496):** el `publisher` ya no es hijo Pi: se renderiza como `.pi/agents/publisher.md` con
+  `tools: []` para la sesión padre, fuera de `PI_ROLE_NAMES`, `PI_ROLE_TIMEOUT_MS` y `navori_subagent`.
+  `PI_PARENT_ROLES` cubre limpieza de huérfanos, propiedad (`render --prune`), `piRoleTools` y auditoría;
+  `gh pr create` recibe la confirmación nativa del padre. Riesgo conocido: en Pi el publisher pierde su límite
+  de herramientas (el padre puede editar); "no edita código" queda como regla de texto, mitigada por el gate de
+  commit/push y el bloqueo de archivos gestionados.
 - **R15** — IF la extensión no puede evaluar un control `enforced` (error, payload desconocido o versión
   no verificada) THEN the system SHALL denegar la operación con un diagnóstico accionable; IF falla un
   control `advisory` THEN the system SHALL omitir el aviso sin alterar el resultado.

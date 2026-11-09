@@ -118,6 +118,23 @@ describe("Pi hook placement and manifest v2", () => {
   });
 
   // Covers: R15
+  it("registers master-accept-confirm only when harness.masterPlan is on (parity with Claude)", () => {
+    const script = ".pi/navori/hooks/master-accept-confirm.sh";
+    const off = dir();
+    renderPiEngine(off, config);
+    expect(existsSync(join(off, script))).toBe(false);
+    expect((manifest(off).hooks as PiManifestHook[]).map((h) => h.script)).not.toContain(
+      "master-accept-confirm",
+    );
+    const on = dir();
+    renderPiEngine(on, NavoriConfigSchema.parse({ ...config, harness: { masterPlan: true } }));
+    expect(existsSync(join(on, script))).toBe(true);
+    expect((manifest(on).hooks as PiManifestHook[]).map((h) => h.script)).toContain(
+      "master-accept-confirm",
+    );
+  });
+
+  // Covers: R15
   it("honors `when` and never installs a script without a binding row", () => {
     const cwd = dir();
     renderPiEngine(cwd, NavoriConfigSchema.parse({ ...config, qualityGate: undefined }), {

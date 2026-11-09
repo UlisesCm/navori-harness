@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="4c9e3efa" version="0.12.3" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="62c8ad76" version="0.12.4" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -381,7 +381,7 @@ nv_is_spawn_tool() {
 #
 # THE EVIDENCE LANE. The host runs a criterion's `command` in its own Bash tool;
 # `PostToolUse` fires only on success, so this lane's very firing is the success
-# signal. It appends ONE line per matching pending criterion to
+# signal. It appends ONE line per matching criterion (pending or cumplido) to
 # `<state dir>/workplan_<feature>.evidence.jsonl`, which `plan update` compares
 # against the criterion and the current tree (`lib/plan/evidence.ts`). It never
 # runs the criterion's command and never writes anything but that line.
@@ -394,7 +394,7 @@ nv_is_spawn_tool() {
 # `plan update` rejects with "no run recorded".
 #
 # FAST PATH, BUILTINS ONLY. `acceptance-index` (rewritten by the CLI) holds
-# `<command JSON-escaped>\t<feature>\t<A<n>>\t<state dir>` per pending
+# `<command JSON-escaped>\t<feature>\t<A<n>>\t<state dir>` per
 # criterion. The command is matched as the EXACT JSON string value of
 # `"command"` in the raw payload — no decoding, no normalization, no process.
 # A `tool_response` cannot forge a match: inside it every quote is `\"`.
@@ -1104,12 +1104,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0

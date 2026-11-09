@@ -60,15 +60,12 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 1.1.0 y probada 1.4.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
+- **Engine adapters** — Claude Code (`.claude/`) y Codex, congelado (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 1.1.0 y probada 1.4.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](./docs/pi.es.md).
 
-Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
-ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
-`codexMode` adicional.
-
-Codex recibe **paridad de garantías**: cada hook, agente, skill y regla tiene en Codex un
-equivalente o un límite documentado ([`docs/native-overlap.md`](./docs/native-overlap.md);
-verificación en vivo en [`docs/research/codex-paridad-verificacion.md`](./docs/research/codex-paridad-verificacion.md)).
+Codex está **congelado**: el motor sigue en el CLI como opt-in, sin cambios ni funciones
+nuevas, y su paridad de garantías ya no se mantiene. Para Claude junto a Codex y otras
+herramientas usa `["claude", "agents-md"]`; no hace falta un `codexMode` adicional. El último
+mapeo de paridad está en [`docs/native-overlap.md`](./docs/native-overlap.md).
 
 - Tras `navori render --apply` con Codex, corre `navori codex trust` para aprobar los hooks. Repítelo cuando cambien (por ejemplo, al activar `masterPlan` o tgrep) y en cada worktree; `navori doctor` avisa por ruta.
 - Requiere Codex ≥ 0.160.0; `doctor` avisa si la versión es menor.
@@ -121,10 +118,10 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `codex trust` | Aprueba los hooks del proyecto en `~/.codex/config.toml` |
 | `receipt <sign\|check\|gate\|review>` | Recibo del contenido revisado antes de publicar; `gate` decide si cada milestone necesita el gate acotado o el completo |
 | `tools notice` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque (`--ack` marca como entregados) |
-| `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
+| `master <sub>` | Plan maestro v2: un PLAN.md de slices que el usuario acepta (`init`, `status`, `check --incoming --base`, `accept`/`reject`, `migrate`, `template`). Los comandos v1 por etapas son de solo lectura; corre `master migrate` |
 | `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
+| `preset` / `scan` / `backup` / `migrations` | Presets locales, monorepos, restore, migraciones |
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.es.md).
 
@@ -174,7 +171,7 @@ navori-harness/
 
 ## Desarrollo
 
-Requiere **Node ≥ 22** y **bun 1.4.4**.
+El desarrollo local y el CI usan Node 26.13.0 (fijado en `.nvmrc`) y bun 1.4.4; el CLI publicado conserva su mínimo declarado de Node >= 22.12, que el CI prueba con un smoke test sobre el binario construido.
 
 ```bash
 bun install
@@ -223,12 +220,26 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
 # 421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
 4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3. Va en
    `dev`, por PR a `dev` como cualquier ticket.
-5. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
+5. Antes del PR `dev` → `main`, revisa la punta de `dev` en un clon desechable bajo tu home:
+   `render --apply` no reporta cambios, `navori gate full` sale en verde y semgrep corre con los
+   argumentos del CI. El CI solo corre semgrep en PRs y pushes a `main`, así que los PRs a `dev`
+   nunca ven sus hallazgos; en 0.12.4 aparecieron recién en el PR a `main` (#1612, arreglado en #1613).
+
+```bash
+   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" semgrep/semgrep \
+     semgrep scan --config p/default --error --metrics=off \
+     --baseline-commit "$(git merge-base HEAD origin/main)"
+```
+
+   Usa un clon, no tu árbol de trabajo: el modo baseline saca la base y restaura los archivos, lo
+   que cambia su mtime (y, sin `--user`, los deja como de root). Docker instalado como snap no puede
+   montar `/tmp`.
+6. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
    siguiente release no arrastra historia reescrita. Tras el merge, `dev` queda por detrás del merge
    commit: avánzalo a `main` (fast-forward) para que ambas ramas coincidan.
-6. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
+7. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
    `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre el HEAD de
-   ese push (el merge commit del paso 5, que contiene el commit `chore(release)`) si no existe ya.
+   ese push (el merge commit del paso 6, que contiene el commit `chore(release)`) si no existe ya.
    Es idempotente, así que re-correrlo no hace nada.
 
    Está automatizado porque el paso se saltó en **0.8.4 y en 0.8.5**, y el segundo fue
@@ -237,10 +248,11 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
    lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
    que ya va en 0.8.4, y no falla nada.
 
-   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`.
+   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 6> && git push origin vX.Y.Z`.
    Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
    como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-7. `npm publish` desde `packages/cli`.
+8. En `main`, tras el merge, `npm publish` desde `packages/cli` (antes `npm login`; `prepack`
+   construye `dist/`). Compruébalo con `npm view navori version`.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en

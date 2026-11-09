@@ -10,4 +10,4 @@ Three contracts govern all data code:
 
 Every external dependency (SMS, payments, third-party APIs) sits behind an interface in `[service].adapter.ts`: services receive the interface, not the implementation, so it can be mocked in tests.
 
-**Context efficiency** — the generated artifacts (`types/graphql.ts` can run into tens of thousands of tokens, `schema.graphql`, `migrations/`, the lockfile) are **not read in full**: infer the types from the *list* in `models/` or from `schema.prisma`, and search with `grep`/`Grep` instead of opening the whole file.
+**Context efficiency** — the generated artifacts (`types/graphql.ts` can run into tens of thousands of tokens, `schema.graphql`, `migrations/`, the lockfile) are **not read in full**: infer the types from the *list* in `models/` or from `schema.prisma`, and search with `grep` instead of opening the whole file.
