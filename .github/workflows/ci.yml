@@ -5,17 +5,25 @@ name: CI
 on:
   push:
     branches: [main, dev]
+  # `labeled` lets a `full` label added after the PR opened start the suite
+  # (#1551); listing `types` replaces the defaults, so they are repeated here.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 # Cancel a PR's in-flight run when a newer commit is pushed — no point burning
 # minutes on a superseded SHA. `main` pushes get a per-SHA group so releases
-# never cancel each other.
+# never cancel each other. Any label other than `full` gets a per-run group: its
+# run repeats only `checks`, so it must not cancel the PR's real run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: >-
+    ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'full' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   checks:
+    # No label filter (#1562): a run whose `checks` read skipped would count as a
+    # pass for a required check. Every label run repeats it for real.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -135,12 +143,15 @@ jobs:
       # Spec 0055 R21 — a test case may not disappear unannounced: every `*.test.ts` changed or
       # deleted against the merge-base with `origin/dev` keeps its cases and `// Covers:` tokens,
       # or declares the removal (with a reason) in `scripts/js/test-preservation.config.json`.
-      # On a push to `dev` the merge-base is HEAD, so the step is trivial there.
+      # On a push to `dev` the merge-base is HEAD, so the step is trivial there. A PR to `dev`
+      # compares against the event's base SHA, not the live tip of `origin/dev` (#1566).
       - name: Test cases are preserved or their removal is declared
-        run: bun run check:tests-preserved
+        env:
+          PR_BASE_SHA: ${{ github.base_ref == 'dev' && github.event.pull_request.base.sha || '' }}
+        run: bun run check:tests-preserved ${PR_BASE_SHA:+--base "$PR_BASE_SHA"}
 
   plan:
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && (github.event.action != 'labeled' || github.event.label.name == 'full')
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.plan.outputs.full }}
@@ -157,7 +168,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - id: plan
         env:
-          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           node packages/cli/scripts/test-affected.mjs --plan-json > "$RUNNER_TEMP/affected-plan.json"
           node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (typeof p.full !== "boolean") throw Error("invalid plan"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "full=" + p.full + "\n")' "$RUNNER_TEMP/affected-plan.json"
@@ -165,8 +176,10 @@ jobs:
   test:
     needs: [plan]
     if: >-
-      ${{ !cancelled() && (github.event_name == 'push' || github.base_ref == 'main' ||
-          (needs.plan.result == 'success' && needs.plan.outputs.full == 'true')) }}
+      ${{ !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'full') &&
+          (github.event_name == 'push' || github.base_ref == 'main' ||
+          (needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||
+          contains(github.event.pull_request.labels.*.name, 'full')))) }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -202,7 +215,11 @@ jobs:
 
   test-merge:
     needs: [test]
-    if: ${{ always() && needs.test.result != 'skipped' }}
+    # `!cancelled()` instead of an unconditional run: a run cancelled by concurrency (e.g. the
+    # `full` label superseding the opening run) skips the merge instead of
+    # failing it on `SHARD_RESULT: cancelled` (#1600). A failed shard still
+    # runs it, and the first step fails.
+    if: ${{ !cancelled() && needs.test.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard to succeed
@@ -253,7 +270,7 @@ jobs:
         run: bun run ensure-dist
       - name: Affected subset
         env:
-          NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}
+          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
           NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-affected.json
         run: node packages/cli/scripts/test-affected.mjs
       - name: Affected time budget
@@ -266,7 +283,7 @@ jobs:
   # ones stay debt. No `|| true`: exit 1 (new findings) and exit >1 (broken
   # scanner) both fail the job, so a scan that could not run never reads green.
   semgrep:
-    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    if: (github.ref == 'refs/heads/main' || github.base_ref == 'main') && (github.event.action != 'labeled' || github.event.label.name == 'full')
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b

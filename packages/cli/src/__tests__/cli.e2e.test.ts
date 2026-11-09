@@ -680,17 +680,6 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toContain("Nada que sugerir");
   });
 
-  it("bench reports percentiles over N runs (spec 0003 §3.5.4)", () => {
-    const repo = makeTmpRepo();
-    dirs.push(repo);
-    runSpawned(["init", "--recommended", "--cwd", repo]);
-
-    const r = runSpawned(["bench", "--runs", "3", "--cwd", repo]);
-    expect(r.status).toBe(0);
-    expect(r.combined).toMatch(/p50/);
-    expect(r.combined).toMatch(/p95/);
-  });
-
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -784,7 +773,7 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
     // The core managed blocks injected into CLAUDE.md by --recommended:
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
-    // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
+    // tipado-fuerte, operaciones-seguras, arranque-sesion,
     // sdd (enabled by default), intake-tickets, code-discovery-routing (#838),
     // plus the computed agentes-disponibles (skills-index left in #1273). engram carries
     // no CLAUDE.md-wide block (#814): its doctrine is a skill injected
@@ -793,7 +782,6 @@ describe("CLI e2e — happy paths", () => {
     expect(blockIds).toEqual([
       "agentes-disponibles",
       "arranque-sesion",
-      "cierre-sesion",
       "code-discovery-routing",
       "formato-respuesta",
       "idioma-rol",
@@ -829,13 +817,12 @@ describe("CLI e2e — happy paths", () => {
     // The orchestration mechanics are inlined here (self-contained, auto-loaded)
     // and the main agent is told to embody the role, never delegate it — so a
     // spawned `orchestrator` subagent can't recreate the serialized-work regression.
-    expect(doctrine).toContain("you decompose, you coordinate");
+    expect(doctrine).toContain("you decompose, coordinate and synthesize");
     expect(doctrine).toContain("Agent(subagent_type: orchestrator)");
     // Organic routing (M1): the block leads with the smallest-route model, so a
     // 1–3 file mechanical change is done inline — not funneled through a
     // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
-    expect(doctrine).toContain("Every change to source goes through");
-    expect(doctrine).toContain("Delegation is about WRITING");
+    expect(doctrine).toContain("route by risk");
     expect(doctrine).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the orchestrator,
@@ -2330,7 +2317,6 @@ describe("CLI e2e — exit-code coverage after the R9 dedupe", () => {
     ["init", "init aborts if navori.config.json already exists"],
     ["add", "add --suggest recommends available external providers when none are enabled (#981)"],
     ["backup", "'backup list --limit abc' errors instead of silently emptying the list"],
-    ["bench", "bench reports percentiles over N runs (spec 0003 §3.5.4)"],
     ["configure", "configure language changes the config field"],
     ["doctor", "doctor exits 2 on hard issues (corrupted settings.json) regardless of --strict"],
     ["migrations", "'migrations list --limit abc' errors instead of silently emptying the list"],

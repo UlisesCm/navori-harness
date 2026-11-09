@@ -56,11 +56,9 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — 可跨预设复用的模块化 skills，根据依赖检测注入。无论使用哪个预设，只要仓库包含相应依赖，就会获得 `socketio`、`mongoose`、`redux-toolkit`、`formik`、`zod` 等 skills。
 - **Workspace** — 可继承的默认设置，以及涉及多个仓库时使用的跨仓库 tickets。
 - **Project config** — 在 `navori.config.json` 中设置项目覆盖项。
-- **Engine adapters** — Claude Code（`.claude/`）和完整 Codex（`AGENTS.md`、`.agents/skills`、`.codex/agents`、hooks 和 MCP），以及通用 `AGENTS.md`、Cursor 和 Copilot。Pi 需显式启用（`.pi/` 中包含扩展和 agents，skills 位于 `.agents/skills`）；最低且经过测试的版本为 1.1.0，Pi 要求 Node.js >= 22.19。矩阵和限制见 [docs/pi.md](./docs/pi.zh-CN.md)。
+- **Engine adapters** — Claude Code（`.claude/`）和已冻结的 Codex（`AGENTS.md`、`.agents/skills`、`.codex/agents`、hooks 和 MCP），以及通用 `AGENTS.md`、Cursor 和 Copilot。Pi 需显式启用（`.pi/` 中包含扩展和 agents，skills 位于 `.agents/skills`）；最低版本为 1.1.0，经过测试的版本为 1.4.0，Pi 要求 Node.js >= 22.19。矩阵和限制见 [docs/pi.md](./docs/pi.zh-CN.md)。
 
-要启用完整支持，请使用 `"engines": ["claude", "codex"]`。要在 Claude 旁边使用轻量的 Codex 配置，请使用 `["claude", "agents-md"]`；无需额外设置 `codexMode`。
-
-Codex 具备**保障能力对等性**：每个 hook、agent、skill 和规则在 Codex 中都有对应实现或已记录的限制（[`docs/native-overlap.md`](./docs/native-overlap.md)；实时验证见 [`docs/research/codex-paridad-verificacion.md`](./docs/research/codex-paridad-verificacion.md)）。
+Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中，不再变更，也不再增加新功能，其保障能力对等性不再维护。要在 Claude 旁边配合 Codex 和其他工具使用，请使用 `["claude", "agents-md"]`；无需额外设置 `codexMode`。最后一版对等映射见 [`docs/native-overlap.md`](./docs/native-overlap.md)。
 
 - 使用 Codex 执行 `navori render --apply` 后，运行 `navori codex trust` 以批准项目 hooks。hooks 发生变化时（例如启用 `masterPlan` 或 tgrep 后）以及在每个 worktree 中都要重新执行；`navori doctor` 会按路径提示缺少信任授权。
 - 要求 Codex >= 0.160.0；版本较低时 `doctor` 会发出警告。
@@ -109,7 +107,7 @@ Codex 具备**保障能力对等性**：每个 hook、agent、skill 和规则在
 | `master <sub>` | 分阶段总体规划（`init`、`ux`、`mode`、`advance`、`check` 等）和交付（`delivery-*`，须通过 `--approved-by` 门控）。 |
 | `adopt` | 将你手动编写的 harness 文件纳入 Navori 管理（添加管理标记，不重写内容）。 |
 | `workspace` / `ticket` / `dominio` | 管理跨仓库配置和 tickets，以及工作区的持久知识库。 |
-| `preset` / `scan` / `backup` / `migrations` / `bench` | 本地预设、monorepo、恢复和基准测试。 |
+| `preset` / `scan` / `backup` / `migrations` | 本地预设、monorepo、恢复和迁移。 |
 
 → 完整命令表、预设和插件见 [`packages/cli/README.md`](./packages/cli/README.zh-CN.md)。
 

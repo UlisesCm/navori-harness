@@ -589,6 +589,9 @@ describe("audit explicit child capture action", () => {
     writeFileSync(join(repoDir, "navori.config.json"), "{}");
     const sources = join(home, ".codex", "sessions");
     mkdirSync(sources, { recursive: true, mode: 0o700 });
+    // The binding rejects a group- or world-writable ancestor of the rollout, and
+    // `mode` is masked by the host's umask: pin every fixture directory explicitly.
+    for (const dir of [canonical, home, join(home, ".codex"), sources]) chmodSync(dir, 0o700);
     const rootSource = join(sources, "rollout-fixture-root.jsonl");
     const child = join(sources, "rollout-fixture-child.jsonl");
     for (const [path, id, parent] of [
@@ -610,6 +613,7 @@ describe("audit explicit child capture action", () => {
         }) + "\n",
         { mode: 0o600 },
       );
+      chmodSync(path, 0o600);
     }
     const log = join(auditDir, "session-root.log");
     writeFileSync(
@@ -625,6 +629,8 @@ describe("audit explicit child capture action", () => {
       }) + "\n",
       { mode: 0o600 },
     );
+    chmodSync(auditDir, 0o700);
+    chmodSync(log, 0o600);
     return { log, child };
   }
 
@@ -850,6 +856,98 @@ describe("audit --arm / --disarm (#597)", () => {
     expect(res.status).toBe(0);
     expect(existsSync(armedFile())).toBe(true);
     expect(existsSync(join(auditsRoot, "agent-a2a999b59fde9ce6c"))).toBe(false);
+  });
+});
+
+describe("audit --arm --host / --consume-arm --host pi (pi-audit-mode)", () => {
+  const armedFile = () => join(auditDir, ".armed");
+  const consume = (host: string, id: string): CliResult =>
+    runAudit([
+      "--consume-arm",
+      "--start",
+      id,
+      "--host",
+      host,
+      "--cwd",
+      repoDir,
+      "--root",
+      auditsRoot,
+    ]);
+
+  it("tags the arm with the host and keeps untagged arms valid", () => {
+    expect(runAudit(["--arm", "--host", "pi"]).status).toBe(0);
+    const tagged = JSON.parse(readFileSync(armedFile(), "utf-8")) as Record<string, unknown>;
+    expect(Object.keys(tagged).sort()).toEqual(["cwd", "host", "ts"]);
+    expect(tagged.host).toBe("pi");
+    expect(runAudit(["--disarm"]).status).toBe(0);
+    expect(runAudit(["--arm"]).status).toBe(0);
+    expect(Object.keys(JSON.parse(readFileSync(armedFile(), "utf-8")) as object)).toEqual([
+      "ts",
+      "cwd",
+    ]);
+  });
+
+  it("rejects an unknown arm host without writing", () => {
+    expect(runAudit(["--arm", "--host", "vim"]).status).toBe(2);
+    expect(existsSync(armedFile())).toBe(false);
+  });
+
+  it("consumes a pi-tagged arm for host pi and starts a pi log", () => {
+    runAudit(["--arm", "--host", "pi"]);
+    expect(consume("pi", "pi-sess").status).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+    const log = readFileSync(join(auditDir, "session-pi-sess.log"), "utf-8");
+    expect(JSON.parse(log.split("\n")[0]!)).toMatchObject({ event: "start", host: "pi" });
+  });
+
+  it("consumes an untagged arm for host pi", () => {
+    runAudit(["--arm"]);
+    expect(consume("pi", "pi-untagged").status).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+  });
+
+  it("leaves an arm tagged for another host in place", () => {
+    runAudit(["--arm", "--host", "pi"]);
+    const before = readFileSync(armedFile());
+    expect(consume("claude", "wrong-host").status).toBe(2);
+    expect(readFileSync(armedFile())).toEqual(before);
+    expect(existsSync(join(auditDir, "session-wrong-host.log"))).toBe(false);
+  });
+});
+
+describe("audit unsafe root: repair hint (pi-audit-mode)", () => {
+  it("prints a find-based repair hint for a permission-only fault", () => {
+    mkdirSync(auditDir, { mode: 0o755 });
+    chmodSync(auditDir, 0o755);
+    const res = runAudit(["--start", "perm"]);
+    expect(res.status).toBe(2);
+    expect(res.combined).toContain("unsafe-audit-target");
+    expect(res.combined).toContain(`find '${auditsRoot}' -type d -exec chmod 700 {} +`);
+    expect(res.combined).toContain("-type f -exec chmod 600 {} +");
+    // Never auto-repaired.
+    expect(statSync(auditDir).mode & 0o777).toBe(0o755);
+  });
+
+  it("adds repair{root,command} to --json", () => {
+    mkdirSync(auditDir, { mode: 0o755 });
+    chmodSync(auditDir, 0o755);
+    const res = runAudit(["--start", "perm", "--json"]);
+    expect(res.status).toBe(2);
+    const body = JSON.parse(res.combined.trim().split("\n").pop()!) as {
+      repair?: { root: string; command: string };
+    };
+    expect(body.repair?.root).toBe(auditsRoot);
+    expect(body.repair?.command).toContain("chmod 700");
+  });
+
+  it("gives no hint for a symlinked repo dir", () => {
+    const target = join(sandbox, "target");
+    mkdirSync(target, { mode: 0o700 });
+    symlinkSync(target, auditDir);
+    const res = runAudit(["--start", "linked"]);
+    expect(res.status).toBe(2);
+    expect(res.combined).toContain("unsafe-audit-target");
+    expect(res.combined).not.toContain("chmod");
   });
 });
 
@@ -1244,6 +1342,7 @@ describe("private CLI lifecycle and exports", () => {
       const path = join(auditDir, flag === "--disarm" ? ".armed" : "session-unsafe.log");
       const bytes = JSON.stringify({ event: "start", sessionId: "unsafe", cwd: repoDir }) + "\n";
       writeFileSync(path, bytes, { mode: 0o644 });
+      chmodSync(path, 0o644);
       expect(runAudit(flag === "--disarm" ? [flag] : [flag, "unsafe"]).status).toBe(2);
       expect(readFileSync(path, "utf8")).toBe(bytes);
       expect(statSync(path).mode & 0o777).toBe(0o644);
@@ -1279,11 +1378,13 @@ describe("private CLI lifecycle and exports", () => {
     markedSessionWithTranscript("output-private", "2026-08-25");
     const out = join(sandbox, "custom");
     mkdirSync(out, { mode: 0o755 });
+    chmodSync(out, 0o755);
     expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
     expect(statSync(out).mode & 0o777).toBe(0o755);
     chmodSync(out, 0o700);
     const target = join(out, "report.md");
     writeFileSync(target, "old-report", { mode: 0o644 });
+    chmodSync(target, 0o644);
     expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
     expect(readFileSync(target, "utf8")).toBe("old-report");
     expect(statSync(target).mode & 0o777).toBe(0o644);

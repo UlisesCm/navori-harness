@@ -85,6 +85,56 @@ describe("planAffected", () => {
     expect(output).toMatchObject({ full: false, related: [], tests: [T("test-affected")] });
     expect(result.stdout.split("\n")).toHaveLength(2);
   });
+  // #1566: CI must run the full suite when the diff touches qualityGate.ci.untrustedPaths.
+  it("untrustedPaths force the full suite with receipt-ci glob semantics", () => {
+    const ci = ".github/workflows/ci.yml";
+    const input = { hasMergeBase: true, testFiles, grep: () => [] };
+    expect(
+      planAffected({
+        ...input,
+        changes: [{ path: ci, deleted: false }],
+        untrustedPaths: [".github/**"],
+      }),
+    ).toEqual({
+      full: true,
+      reason: `${ci} is in qualityGate.ci.untrustedPaths`,
+      related: [],
+      tests: [],
+    });
+    expect(
+      planAffected({
+        ...input,
+        changes: [{ path: "packages/cli/src/lib/x.ts", deleted: false }],
+        untrustedPaths: [".github/**"],
+      }),
+    ).toMatchObject({ full: false, related: ["packages/cli/src/lib/x.ts"] });
+    // `*` stays inside a segment.
+    expect(
+      planAffected({
+        ...input,
+        changes: [{ path: "packages/cli/vitest.x/y.ts", deleted: false }],
+        untrustedPaths: ["packages/cli/vitest.*.ts"],
+      }).full,
+    ).toBe(false);
+  });
+  // #1566: the CLI reads the real navori.config.json list.
+  it("plan-json runs full for a workflow-only diff", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve(import.meta.dirname, "../../scripts/test-affected.mjs"),
+        "--files",
+        ".github/workflows/ci.yml",
+        "--plan-json",
+      ],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      full: true,
+      reason: ".github/workflows/ci.yml is in qualityGate.ci.untrustedPaths",
+    });
+  });
   // Covers: R24
   it("base explícita, hub medido y umbral por salida disparan la suite completa", () => {
     expect(mergeBaseRefs("feature", { NAVORI_AFFECTED_BASE: "env" })).toEqual(["feature"]);

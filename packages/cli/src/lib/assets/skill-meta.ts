@@ -150,9 +150,12 @@ export function skillListingChars(meta: SkillMeta): number {
   return (meta.description?.length ?? 0) + (meta.whenToUse?.length ?? 0);
 }
 
-/** Count words in a skill body the way the cap check measures them. */
+/** Navori markers (`navori:if`, `navori:managed`, their closers): render syntax, not prose. */
+const NAVORI_MARKER = /<!--\s*\/?navori:[\s\S]*?-->/g;
+
+/** Count words in a skill body the way the cap check measures them; navori markers are not words (#1520). */
 export function countWords(body: string): number {
-  const trimmed = body.trim();
+  const trimmed = body.replace(NAVORI_MARKER, " ").trim();
   return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
 }
 

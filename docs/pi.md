@@ -65,14 +65,25 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
 | `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
-| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Fails closed: a replaced bash tool or a missing `exit_code` records nothing. |
+| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Delivery-bound criteria (`navori master delivery-slice`) are recorded with their binding and fingerprint v2, as on Claude; `navori master delivery-criterion` recomputes the binding. Fails closed: a replaced bash tool, a missing `exit_code` or an uncontained stage records nothing. |
 | `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
-| `compact-advice` | unsupported | Pi runs no Navori hook scripts, so no context-size advice is injected after a publisher dispatch. |
-| `general-purpose-confirm` | unsupported | Pi runs no Claude hook scripts and its `navori_subagent` roster has no general-purpose role to confirm. |
+| `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected; Pi publishes in the parent, with no publisher dispatch. |
+| `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has six fixed roles and no general-purpose role to confirm. |
 
 Pi also natively discovers trusted project skills in `.agents/skills/`. When Pi and Codex are both
 selected, Codex owns the shared destinations and Pi does not duplicate them. Claude and Codex hook
 scripts are not copied or run by Pi.
+
+When Pi writes the shared files itself (no Codex, no `agents-md`), it writes the same doctrine Codex
+would, in Pi's vocabulary:
+
+- `AGENTS.md` carries the orchestration block, the role catalog and the plan tiers, with no skills index
+  (Pi lists `.agents/skills` natively). It also carries the `project.*` rules, critical areas included,
+  that risk routing reads.
+- `.agents/skills` includes `master-plan` and `context-intake`. The `master-plan-context` hook still does not run on Pi.
+- Delegation is `navori_subagent`, a manual skill is `/skill:<name>`, and skills live under `.agents/skills/`.
+- Codex-only lines (dispatch markers, execution checkpoints, `spawn_agent`) and Claude-only ones
+  (`SendMessage`, `AskUserQuestion`, `TaskCreate`) are left out.
 
 ## Runtime admissions
 
@@ -85,7 +96,8 @@ capabilities are verified on Pi 1.4.0; `deferred` capabilities are not available
 | `child-model-selection` | admitted | `--model <provider/id>` selects the child's model. Effort and thinking are not redefined. |
 | `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
 | `child-ipc-relay` | admitted | Node IPC (`stdio` `ipc`) from the child to the parent reports the exact refused command. It never approves anything; see [Approval relay](#approval-relay). |
-| `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
+| `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role grants of Pi's own MCP are not verifiable. Codegraph and engram reads reach children through navori-owned `navori_*` extension tools instead; see [Knowledge tools in children](#knowledge-tools-in-children). |
+
 | `session-end-event` | admitted | `session_shutdown` runs on a clean quit or `/new` only, in the parent. A SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session. |
 | `settle-boundary-entries` | admitted | `agent_before_settle` appends a visible entry at the end of the agent run. It never sets `continue`, so it cannot force another model request. |
 
@@ -98,6 +110,10 @@ These run only in the parent session; children do nothing. All failures are sile
   2. `audit-mode-close` runs with a 3 s deadline and seals only an existing audit log.
 - **Reload, resume and fork**: nothing runs.
 - **Verification reminder** (`agent_before_settle`, only when `hooks.verifyOnStop` is set): if the tree has uncommitted changes, a fixed Spanish reminder to run the quality gate and commit is appended as a visible `custom_message`. It never triggers another model request.
+
+**Audit-mode start.** On `session_start` (`startup` or `new`) and on a user `before_agent_start`, the parent consumes a pending `navori audit --arm` (untagged or `--host pi`) and starts its audit log. With `audit.mode: always` (emitted as the optional `controls.auditMode` in `.pi/navori.json` after `navori render`), the log starts on the first user prompt instead. The model gets a one-time notice. Children never start a log. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first.
+
+**Session state off.** With `harness.sessionState: false`, `navori render` emits the optional `controls.sessionState: false` in `.pi/navori.json` (the field is omitted when the key is on), and Pi skips injecting `progress/` at startup. An older CLI treats a manifest carrying that field as foreign and won't write Pi resources; turning the key back on removes the field.
 
 ## Hook bridge
 
@@ -159,7 +175,10 @@ projects:
   active, Codex writes that skill and Pi never duplicates it.
 - **Role prose.** A plugin skill with `injectInto: .claude/agents/<role>.md` is appended to
   `.pi/agents/<role>.md`, interpolated and conditioned for Pi. A plugin that declares an `mcpServer`
-  contributes no role prose at all: Pi children run with `--no-mcp`.
+  contributes role prose only for the roles that hold its `navori_*` knowledge tools (see
+  [Knowledge tools in children](#knowledge-tools-in-children)); there the prose names those tools instead
+  of the bare MCP names. Pi children still run with `--no-mcp`.
+
 - **Orchestrator and AGENTS.md blocks.** A skill injected into `.claude/agents/orchestrator.md` and the
   plugin `managed` blocks become sub-blocks of the shared `AGENTS.md`. Pi writes them only when no other
   enabled engine owns that file (`ownsAgentsMd`); otherwise that owner's output stands.
@@ -187,8 +206,9 @@ Per unit, the states in [Parity inventory](#parity-inventory) are:
 | Plugin hook | `enforced` | Same limits as the shared guard; enforced only while the extension is loaded. |
 | `settingsFragment` | `n/a` | Only `allow` rules, which Pi does not translate (as Codex). |
 | MCP server | `advisory` | Render warns when the server is missing or disabled in Pi's MCP config. |
-| MCP plugin skill on a child role | `unsupported` | Children run `--no-mcp`, so the prose is not injected. |
-| Skill on a role Pi does not render (for example `publisher`) | `unsupported` | Pending the role work in spec 0048 R14 and M11. |
+| MCP plugin skill on a child role | `advisory` | The prose names the read-only `navori_*` tools the role holds. A ceiling the model sees, not isolation: `bash` still reaches the CLIs, and the codegraph index can be stale. |
+
+| Skill on a role Pi does not render (for example `scribe` without `harness.scribeOwnsMarkdown`) | `unsupported` | No role file exists, so the skill prose is not rendered. |
 | tgrep guard script and `tgrep-search-lane` hook extension | `enforced` (seatbelt) | The script is installed under `.pi/navori/scripts/`. The lane runs inside the Pi guard copy (`.pi/navori/hooks/guard-destructive.sh`) through the bridge. It covers grep/rg only and fails open when tgrep, its server or the index is unavailable. |
 
 Render warns when a plugin's MCP server is missing or disabled in Pi's native MCP config. Navori never writes
@@ -202,7 +222,7 @@ and is a seatbelt, not a sandbox. The rows are `enforced (seatbelt)` in [Parity 
 **Destructive commands and deny rules (`guard-destructive`).** The shared destructive rules and the shared
 `deny` permission rules block in the parent and in every child. The `deny` rules are translated to token
 prefixes at render time, the same translation Codex uses. Its `ask` rules are confirmed in the parent
-(see the shared `ask` rules below).
+(see the shared `ask` rules below). The same script carries the PII-egress lane: a bash `curl`, `wget`, `http`/`https`/`xh`/`xhs` or inline `fetch(` request to an external host that carries the git `user.email` or a `NAVORI_PERSONAL_IDS` entry is denied for the parent and every child, with a message that names the rule and the source and never echoes the value; use `navori-agent/1.0` as a generic identifier. WebFetch/WebSearch do not exist in Pi.
 The Pi copy adds three rules that exist only there:
 
 - **Control plane.** Write verbs (`>`, `>>`, `>|`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`,
@@ -235,8 +255,8 @@ symlinks. Then:
 - A marker quoted mid-line, or an open marker with no close, is not a block. A file that is not a regular
   file, or is over 4 MiB, is blocked when it matches a mixed-file path.
 - Foreign `.pi/agents/*.md` files stay editable through `edit`. Known gap: the shell lane names all seven
-  Navori role files (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, `publisher`), a
-  superset, so a user file with one of those names is blocked from shell writes until Navori renders that role.
+  Navori role files (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, and `publisher`,
+  rendered for the parent, not as a child), a superset, so a user file with one of those names is blocked from shell writes until Navori renders that role.
 
 **Drift advisory (`managed-drift-watch`).** After a bash, edit or write call, the watcher checks the managed
 blocks under the Pi roots, including `.pi/navori/`. It keeps its own baseline in
@@ -268,8 +288,7 @@ call in the parent and in a child. A gate whose runner is missing blocks in a ch
 parent with UI it asks instead. The script exists only when `qualityGate.fast` is set. The progress-file
 size ratchet (`progress/current.md`) also applies on push, not only on commit. Role deadlines must outlive
 the gate: every role with `bash` has a deadline of at least gate + 10 min (20 min). The per-role deadlines
-are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `publisher`
-40 min, `scribe`, `reviewer`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
+are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` and `reviewer` 30 min each (the reviewer runs the full gate on the round it approves), `scribe`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
 
 **Publishing confirmations.** These scripts ask before any publishing operation, and the ask shows the body:
 
@@ -291,8 +310,8 @@ them, bound to the exact call.
   command is relayed to the parent (see [Approval relay](#approval-relay)). The typed
   confirmation works in the TUI and in RPC mode (which provides a real UI context). In headless/print mode,
   with no interactive UI, the call is refused.
-- The `publisher` is admitted and is subject to all of the rules above: its publishing operations are
-  refused in the child, relayed to the parent, and confirmed there.
+- Publishing runs in the parent, which follows `.pi/agents/publisher.md`; `gh pr create` gets the parent's
+  confirmation. A child's `gh pr create` is still refused and relayed to the parent.
 
 **Confirmation dialog (deny-first).** The parent shows a typed-input dialog (`ctx.ui.input`) titled "Navori
 approval required" with the exact command, its reasons, and the instruction to type `yes, run it`. Only that
@@ -334,13 +353,22 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 - `scribe`: `read, grep, find, ls, bash, edit, write`; admitted only when `harness.scribeOwnsMarkdown` is on, and then the implementer requires the `scribe` role to be enabled
 - `auditor`: `read, grep, find, ls, bash, write`
 - `architect`: `read, grep, find, ls, bash, write`; cannot dispatch nested subagents on Pi (`navori:if-not onPi`)
-- `publisher`: `read, grep, find, ls, bash`; its git commit and push run the quality gate, and its publishing operations need the parent's confirmation (see [Guards](#guards))
+- `publisher`: not dispatchable; rendered with `tools: []` for the parent session to follow (see [Guards](#guards)). Known risk: on Pi it loses its tool limit; "does not edit code" is a text rule, mitigated by the commit/push gate and the managed-file block
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are
-preserved. A configured model is used when it maps to a concrete `codexMap` model; otherwise the child
-inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
-closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
+preserved. A role model comes from `models.piMap` (opus/sonnet/haiku as `provider/id`, e.g. `anthropic/claude-sonnet-5-5`, `ollama/llama3`); a tier without an entry inherits the selected Pi model. `models.codexMap` is not read by Pi. Each role has an explicit Pi tool list; missing or unknown mappings fail
+closed rather than enabling default tools. Children never receive Pi MCP grants (see `child-mcp-grants`); the only
+extra tools a role may hold are the read-only `navori_*` knowledge tools below.
+
+
+### Model selection and failure diagnostics
+
+- Role models come from `models.piMap` (`opus`, `sonnet`, `haiku` as `provider/id`; a `:thinking` suffix is allowed). A tier without an entry inherits the selected Pi model.
+- Render and `navori doctor` warn when Pi is enabled, `models.codexMap` has at least one tier, and `models.piMap` is undefined. Setting `piMap` (even `{}`) silences the warning.
+- Downgrade caveat: an older navori ignores `piMap` and reverts Pi roles to `codexMap`.
+- A failed child reports `stopReason` and `errorMessage` (or `auto_retry_end.finalError`) plus a redacted, bounded stderr tail. The result also carries the additive `details.childStop {stopReason, errorMessage?}`. Exit 0 with `stopReason` `error` or `aborted` counts as a failure. Redaction is a floor, not a guarantee.
+- A reviewer or scribe preflight denial appends the handoff failure detail.
 
 ## Approval relay
 
@@ -363,6 +391,53 @@ At dispatch the extension snapshots the child's canonical handoff: `impl_<featur
 
 Any failure, including an unreadable check, returns `isError` with the reason and the child output (fail-closed). `scribe` is not validated at child end; only its `feature` requirement applies.
 
+## Working without children
+
+Some providers reject the child processes `navori_subagent` starts, or bill them differently from the
+interactive session. The failed child then reports the provider's `errorMessage`. Two supported routes:
+
+- **Map the roles** to a provider that accepts child processes with `models.piMap` (for example an API key,
+  or a local model), then run `navori render`.
+- **Run each role in its own interactive Pi session.** The parent session produces; the user opens a
+  second `pi` in the same worktree for the reviewer, which follows `.pi/agents/reviewer.md` and writes its
+  report. Gates that need a separate reviewer (for example `navori master delivery-review`) are operator
+  attestations: the user states that a different session reviewed, with distinct producer and reviewer
+  labels. Navori cannot verify that independence.
+
+Acceptance evidence does not depend on children: the parent's built-in bash records it. Start Pi at the
+root of the checkout that holds the workplan (a worktree included), because evidence is recorded against
+the session's working directory. From a session at the main checkout, a criterion of a linked worktree
+counts only when run as `cd <absolute worktree root> && <exact command>` (see
+[Parallel sessions](#parallel-sessions)).
+
+## Parallel sessions
+
+Children run in the parent session's checkout; `navori_subagent` cannot point them at another one (#1543).
+Two sessions in one checkout share its branch, its `.navori/state/` (workplans, handoffs, receipts) and its
+gate cache, and a branch switch in one moves the other. Rule: **one session, one worktree, from the start.**
+
+- Create the worktree before starting the session and start Pi at its root:
+
+  ```sh
+  git worktree add -b <branch> .claude/worktrees/<name> origin/<base>
+  cd .claude/worktrees/<name> && bun install && pi
+  ```
+
+  The session's children, handoffs, receipts and gates then all resolve to that worktree: `.navori/state/`
+  is per checkout, and `navori receipt check|ci` correlates a review with the checkout it runs in.
+- Keep the main checkout for reviewing and merging; do not start a working session there.
+- If a session at the main checkout does work in a linked worktree under `.claude/worktrees/` (#1575),
+  `navori_subagent` checks the plan gate and handoffs in the checkout that holds the feature's state: the
+  session's own checkout when only it has it, or the one linked worktree that does. The session checkout
+  plus a worktree, or two worktrees, block the dispatch, and the message says which copy is extra. Children still start at the main checkout and get the absolute handoff path. Run
+  acceptance criteria as `cd <absolute worktree root> && <exact command>`: any other shape records no
+  evidence.
+- `worktree-reclaim` removes a worktree only when it is clean, pushed and its PR is merged (see
+  [Session lifecycle](#session-lifecycle)); the next task starts in a new one.
+- A global `navori` linked to a checkout's `packages/cli/dist` (as in navori's own repo) runs that build
+  from every worktree. Rebuild it after each pull of `<base>` in that checkout:
+  `bun run --filter navori build`.
+
 ## Limits and headless runs
 
 - Children are limited to one level, three concurrent processes, and ten minutes each.
@@ -374,7 +449,42 @@ Any failure, including an unreadable check, returns `isError` with the reason an
   returns the command to the parent session so the user can approve it there. Trust is not approval: a
   child receives process-scoped `--approve` only after the trusted parent has loaded the extension.
 - These limits, tool lists, and `--no-mcp` do not create an OS sandbox. Child processes inherit the
-  user's environment, filesystem and network authority, and Pi agent directory.
+  user's environment, filesystem and network authority, and Pi agent directory. The same holds for the
+  knowledge tools: `bash` in a child still reaches the `codegraph` and `engram` CLIs, `engram save` included.
+
+
+## Knowledge tools in children
+
+Children keep `--no-mcp`, so codegraph and engram are not reachable through Pi's MCP. The Navori extension
+registers three read-only tools inside a child instead, only for roles that hold them:
+
+| Tool | Backed by | Roles |
+|---|---|---|
+| `navori_codegraph_explore` | `codegraph serve --mcp --no-watch -p <cwd>` (`CODEGRAPH_MCP_TOOLS=explore`) | scout, implementer, reviewer, auditor, architect |
+| `navori_mem_search` | `engram mcp --tools=mem_search,mem_get_observation` | scout, implementer, reviewer, auditor |
+| `navori_mem_get_observation` | same engram server | scout, implementer, reviewer, auditor |
+
+The scribe gets none; the publisher runs in the parent, so it needs no grants. No role gets `mem_save` or any other write tool: grants are the roles'
+Claude grants (core agent `tools:` plus the enabled plugin's `skills[].mcpTools`) intersected with a closed
+read-only table, and only for an enabled plugin. The names carry the `navori_` prefix so they never collide
+with the native `mem_*` tools of a user-installed `gentle-engram` package (`engram setup pi`).
+
+How it works: the extension starts each server lazily on the first call, with a fixed argument list (no model
+text ever reaches it) and a filtered environment, speaks MCP over stdio, refuses any tool outside the closed
+list before it reaches the server, bounds the output by bytes, and stops the server when the session shuts down.
+A missing `codegraph` or `engram` binary, or a missing codegraph index, is a clear tool error and the role
+continues with `read`/`grep`/`find`. The tools are registered only in children, never in the parent session, and
+there is no Pi-only switch: disable the plugin to remove them.
+
+Limits, stated plainly:
+
+- This is a ceiling the model sees, not isolation. `bash` in a child still reaches the `codegraph` and `engram`
+  CLIs (`engram save` included) and children inherit the parent's environment.
+- codegraph runs with `--no-watch`, so up to three children never auto-sync one SQLite index at once. The index
+  can therefore be stale relative to the child's own edits; re-read edited files directly.
+- Without its own `.codegraph/` in a worktree, the server resolves the index from a parent directory.
+- A user-installed `gentle-engram` package still loads in children. Its native `mem_*` tools are filtered out by
+  `--tools`, but its hooks still run. Navori does not pass `--no-extensions`; that is the user's choice.
 
 ## Live comparison with Claude
 
@@ -470,23 +580,24 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 
 | Unit | State | Class | Boundary |
 |---|---|---|---|
-| `hook:audit-mode-close` | advisory | — | seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent |
-| `hook:audit-mode-trigger` | unsupported | — | Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal) |
+| `hook:audit-mode-close` | advisory | — | seals only a log that already exists (opened by `audit-mode-trigger`), so it is a no-op until one is started. Failures are silent |
+| `hook:audit-mode-trigger` | advisory | — | the shared hook script is not run: the extension calls `navori audit --start` itself. An untagged arm is repo-wide, so a concurrent Claude or Codex session may consume it first. Children never start a log; failures are silent |
 | `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
 | `hook:comment-draft-confirm` | enforced | seatbelt (bypass classes above) | a body that is inline or unreadable is shown only as the command; stdin (`-F -`) bodies and a path built by the shell (`$VAR`, `$(…)`) are not shown. A window remains between the check and the exec. Indirect shell forms bypass it |
-| `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred) |
+| `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp` and are never granted an engram write tool (only the read-only navori_mem_* tools, see the engram plugin-skill rows); bash still reaches the engram CLI, which no Pi control guards |
 | `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
-| `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
+| `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, its PII-egress lane (a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry; never echoes either), the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
 | `hook:implementer-no-markdown` | enforced | control `markdown-ownership` | Shared script via tool_call for child bash/edit/write when scribeOwnsMarkdown is enabled. Edit/write retain AI-doctrine exceptions; Bash is a textual seatbelt, not a sandbox: dynamic destinations, external scripts, ambient writes and unrecognized runners remain outside it. |
 | `hook:managed-drift-watch` | advisory | — | never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent |
 | `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
-| `hook:model-advisor` | unsupported | — | In Pi the model is chosen with `/model` and passed to children (spec 0047 R17); there is no per-turn model-change payload to advise on |
+| `hook:model-advisor` | unsupported | — | A Pi port needs a Pi mode in the script and a binding; not planned (the model is chosen with `/model` and passed to children, spec 0047 R17) |
+| `hook:pii-egress-guard` | n/a | — | Claude-only: it guards WebFetch and WebSearch, which Pi does not have. Pi's `bash` is covered by the PII-egress lane inside guard-destructive (its row) |
 | `hook:plan-gate` | enforced | control `plan-gate` | — |
 | `hook:pr-publisher-confirm` | enforced | seatbelt (bypass classes above) | installed only when the publisher role is enabled; a body that is inline or unreadable is shown only as the command. Indirect shell forms bypass it |
 | `hook:quality-gate-pre-commit` | enforced | seatbelt (bypass classes above) | only with `qualityGate.fast` configured (no row otherwise, as in Claude and Codex); the result holds for the working tree at that moment. Indirect shell forms (`sh -c`, a script on disk) bypass it; a hook outside the agent (the user's own terminal) is not seen |
 | `hook:role-guard` | n/a | — | Codex-only: Claude and Pi restrict roles by their tool allowlist, not a hook (HOOK_ENGINES) |
-| `hook:routing-watch` | unsupported | — | Becomes `advisory` only once the bridge maps Pi tool names and payload fields to the script's contract and turns its additionalContext into an appended result block (spec 0048 E1 M2/E3); never blocks |
+| `hook:routing-watch` | advisory | — | at most one note per session; never blocks; errored results are not forwarded, so a failed write or a refused `navori_subagent` is neither work nor delegation; like Claude it needs Pi started at the repository root, and the bash lane counts only redirect/tee/sed -i writes |
 | `hook:session-start-context` | advisory | — | context only, not a boundary; the injection is skipped on any error |
 | `hook:stop-verify-reminder` | advisory | — | never blocks and never sets `continue`, so no extra model request; one reminder per agent run; a failure shows nothing |
 | `hook:subagent-no-background` | enforced | seatbelt (bypass classes above) | textual policy over the command string, children only: the parent may background work |
@@ -595,15 +706,15 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `plugin-settings:gh` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:tgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
-| `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the architect prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:codegraph/codegraph-access-v2-auditor` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:codegraph/codegraph-access-v2-implementer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
-| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:engram/engram-auditor-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
-| `plugin-skill:engram/engram-implementer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:engram/engram-auditor-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
+| `plugin-skill:engram/engram-implementer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
-| `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:engram/engram-reviewer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
 <!-- pi-parity:end -->
 
@@ -723,7 +834,7 @@ record each step in [evals.md](../specs/0048-pi-paridad/evals.md).
 11. Close the criterion: `navori plan update <feature> --progress A<n>=cumplido`. It succeeds only with
     recorded evidence.
 
-Current status: **not yet run**. Evidence goes to [evals.md](../specs/0048-pi-paridad/evals.md).
+Current status: the live smoke ran on 2026-10-12 with Pi 1.1.0 (run 4, GREEN; runs 1–3 were RED and fixed by #1301/#1302). It has not yet been repeated on the tested Pi 1.4.0. Evidence is in [evals.md](../specs/0048-pi-paridad/evals.md).
 
 See the [Pi engine specification](../specs/0040-pi-engine/requirements.md) and the
 [Pi first specification](../specs/0047-pi-first/requirements.md) for requirements and

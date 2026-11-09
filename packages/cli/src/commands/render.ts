@@ -1,10 +1,11 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import {
   readConfig,
   recordHarnessVersion,
+  effectiveConfig,
   ConfigError,
   type NavoriConfig,
 } from "../lib/config/config.ts";
@@ -21,9 +22,11 @@ import {
 import {
   planOrphanRemoval,
   removeEmptyDirs,
+  stripManagedBlocks,
   type OrphanRemovalPlan,
 } from "../lib/render/removable.ts";
 import { createBackup, purgeOldBackups } from "../lib/render/backup.ts";
+import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render/render-plan.ts";
 import { prepareClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
@@ -106,12 +109,18 @@ import {
  */
 function applyPiOwnership(cwd: string, plan: OrphanRemovalPlan): OrphanRemovalPlan {
   const isPi = (rel: string): boolean => rel.startsWith(".pi/");
-  const out: OrphanRemovalPlan = { remove: [], keep: [] };
+  const out: OrphanRemovalPlan = { remove: [], strip: [], keep: [] };
   const judge = (rel: string): void => {
     const verdict = piOwnershipVerdict(cwd, rel);
     if (verdict === "ours") out.remove.push(rel);
     else out.keep.push({ path: rel, reason: verdict });
   };
+  // A Pi file that mixes the user's text with blocks is not stripped here: Pi has
+  // its own validators, so it stays whole and is reported (when unsure, keep).
+  for (const rel of plan.strip) {
+    if (isPi(rel)) out.keep.push({ path: rel, reason: "modified" });
+    else out.strip.push(rel);
+  }
   for (const rel of plan.remove) {
     if (isPi(rel)) judge(rel);
     else out.remove.push(rel);
@@ -181,6 +190,7 @@ function reconcileTrimmedWorkspace(
   wsCwd: string,
   dryRun: boolean,
   sweep: readonly string[],
+  wsConfig: NavoriConfig,
 ): OrphanRemovalPlan {
   const present = WORKSPACE_TRIMMED_PATHS.filter((rel) => existsSync(resolve(wsCwd, rel)));
   // Spec 0043 F13: the engine already removed the skill copies the workspace no
@@ -192,16 +202,19 @@ function reconcileTrimmedWorkspace(
   };
   if (present.length === 0) {
     sweepEmptyHarnessDirs();
-    return { remove: [], keep: [] };
+    return { remove: [], strip: [], keep: [] };
   }
-  const plan = planOrphanRemoval(wsCwd, present, EPHEMERAL_HARNESS_PATHS);
+  const plan = planOrphanRemoval(wsCwd, present, wsConfig, EPHEMERAL_HARNESS_PATHS);
+  // A trimmed file that also holds the user's text is left whole and reported:
+  // this path only ever deleted navori's own files, never rewrote the user's.
+  for (const rel of plan.strip.splice(0)) plan.keep.push({ path: rel, reason: "modified" });
   if (!dryRun && plan.remove.length > 0) {
     // Backed up before deleting, like every other delete path — a trim the user
     // did not want must be recoverable.
     const handle = createBackup(wsCwd, plan.remove, {
       exclude: [...EPHEMERAL_HARNESS_PATHS],
     });
-    if (handle.files.length > 0) purgeOldBackups();
+    if (handle.files.length > 0) purgeOldBackups({ keep: handle.path });
     // Never recursive: the plan enumerated FILES, so a directory only goes away
     // through `removeEmptyDirs` — that is, when nothing of the user's is left.
     for (const rel of plan.remove) rmSync(resolve(wsCwd, rel), { force: true });
@@ -668,6 +681,10 @@ function runRenderCore(
    *  directory is never deleted whole — see `keptEngineOutputs` for what stays
    *  behind (#496). */
   prunedEngineOutputs?: string[];
+  /** FILES the prune rewrote — or, in preview, WOULD rewrite — without their
+   *  managed blocks because they also hold the user's own text (#1604). Same
+   *  presence and preview/apply semantics as `prunedEngineOutputs`. */
+  strippedEngineOutputs?: string[];
   /** Paths inside an orphaned output that the prune left — or would leave — in
    *  place, with the reason: `foreign` (navori never wrote it), `newer` (navori
    *  wrote it, but a release ahead of this CLI, so rolling it back is not ours
@@ -852,8 +869,8 @@ function runRenderCore(
     // AFTER every engine rendered, so a run that fails to write never deletes (0018 R4)
     // and the empty-directory sweep sees what the Codex engine just removed (spec 0043).
     const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
-      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config))
-      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config), wsConfig)
+      : ({ remove: [], strip: [], keep: [] } as OrphanRemovalPlan);
     return {
       ok: true,
       language: lang,
@@ -967,8 +984,8 @@ function runRenderCore(
     reportBlockedHoists(decision, ws.name, wsResult, lang);
     reportBlockedCodexHoists(codexDecision, ws.name, wsExtraEngines, lang);
     const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
-      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config))
-      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config), wsConfig)
+      : ({ remove: [], strip: [], keep: [] } as OrphanRemovalPlan);
     workspaces.push({
       workspacePath: ws.path,
       workspaceName: ws.name,
@@ -1056,6 +1073,7 @@ function runRenderCore(
   // run, back them up and delete them.
   const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
   let prunedEngineOutputs: string[] | undefined;
+  let strippedEngineOutputs: string[] | undefined;
   let keptEngineOutputs: KeptEngineOutput[] | undefined;
   let prunedBackupPath: string | null = null;
   if (pruneFlag && orphanedEngineOutputs.length > 0) {
@@ -1080,7 +1098,7 @@ function runRenderCore(
     ]);
     const plan = applyPiOwnership(
       cwd,
-      planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS, (abs) =>
+      planOrphanRemoval(cwd, paths, effectiveConfig(config), EPHEMERAL_HARNESS_PATHS, (abs) =>
         retiredAssetKeepReason(abs, retiredCtx),
       ),
     );
@@ -1095,7 +1113,10 @@ function runRenderCore(
           shouldHaveNestedGitignore(cwd, rel.slice(0, -"/.gitignore".length), enabledEngines)
         ),
     );
-    if (!dryRun && removable.length > 0) {
+    // #1604: a file that mixes navori's blocks with the user's own text keeps the
+    // text — only the blocks go. Preview reports the same list apply rewrites.
+    const stripped = plan.strip;
+    if (!dryRun && (removable.length > 0 || stripped.length > 0)) {
       // Back up before deleting so a mistaken prune is recoverable (same safety
       // net the prose engine uses for overwrites). The excludes are NOT optional:
       // an orphaned engine dir is exactly where the ephemerals live (`.codex/
@@ -1104,20 +1125,26 @@ function runRenderCore(
       // for the render backup; this second entry point had been missed (#373).
       // Second guard, on purpose: `planOrphanRemoval` already skips the same
       // paths, so this holds the #348 invariant even if that skip ever narrows.
-      const handle = createBackup(cwd, removable, {
+      const handle = createBackup(cwd, [...removable, ...stripped], {
         exclude: [...EPHEMERAL_HARNESS_PATHS],
       });
       if (handle.files.length > 0) {
         prunedBackupPath = handle.path;
-        purgeOldBackups();
+        purgeOldBackups({ keep: handle.path });
       }
       // Never recursive: the plan enumerated FILES, so a directory can only go
       // away through `removeEmptyDirs` — i.e. when nothing of the user's is left.
       for (const rel of removable) rmSync(resolve(cwd, rel), { force: true });
+      for (const rel of stripped) {
+        const abs = resolve(cwd, rel);
+        const cut = stripManagedBlocks(rel, readFileSync(abs, "utf-8"));
+        if (cut.kind === "ok") writeFileAtomic(abs, cut.stripped);
+      }
       noteRealWrite();
       removeEmptyDirs(cwd, paths);
     }
     prunedEngineOutputs = removable;
+    strippedEngineOutputs = stripped;
     keptEngineOutputs = plan.keep;
   }
 
@@ -1137,6 +1164,7 @@ function runRenderCore(
     extraEngines,
     orphanedEngineOutputs,
     prunedEngineOutputs,
+    strippedEngineOutputs,
     keptEngineOutputs,
     prunedBackupPath,
     gitignore,
@@ -1395,6 +1423,14 @@ export const renderCommand = defineCommand({
     // kept list below carries that answer and the roots warning would contradict
     // it by promising a deletion that will not happen.
     if (result.prunedEngineOutputs) {
+      const strippedOutputs = result.strippedEngineOutputs ?? [];
+      if (strippedOutputs.length > 0) {
+        const lines = strippedOutputs
+          .map((path) => `  ${preview ? color.magenta(sym.removed) : color.green(sym.ok)} ${path}`)
+          .join("\n");
+        if (preview) p.log.warn(tr.prunePreviewStrippedOutputs(strippedOutputs.length, lines));
+        else p.log.info(tr.prunedStrippedOutputs(strippedOutputs.length, lines));
+      }
       if (result.prunedEngineOutputs.length > 0) {
         const lines = result.prunedEngineOutputs
           .map((path) => `  ${preview ? color.magenta(sym.removed) : color.green(sym.ok)} ${path}`)
@@ -1806,6 +1842,9 @@ function buildRenderJson(
     orphanedWorkspaces: result.orphanedWorkspaces ?? [],
     orphanedEngineOutputs: result.orphanedEngineOutputs ?? [],
     prunedEngineOutputs: result.prunedEngineOutputs ?? [],
+    // #1604: files kept without their managed blocks, travelling with the deleted
+    // ones for the same reason `keptEngineOutputs` does.
+    strippedEngineOutputs: result.strippedEngineOutputs ?? [],
     // #496: what the prune spared travels with what it deleted. Publishing one
     // without the other is the #479 shape — a `--json` consumer that sees an
     // empty `prunedEngineOutputs` cannot tell "nothing was orphaned" from

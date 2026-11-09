@@ -52,6 +52,23 @@ function safeGateChain(): z.ZodString {
     .refine(isSafeGateChain, "must be a plain command chain (`<pm> …` / `cd <dir>` joined by &&)");
 }
 
+/**
+ * `qualityGate.ci` (#1492): what `navori receipt ci` trusts instead of the local full gate.
+ * `workflow`/`jobs` name the full-suite run and its required jobs; `untrustedPaths` and a
+ * changed `qualityGate` force the local gate; `hookPaths` + `hooksCommand` keep shell hooks local.
+ */
+const QualityGateCiSchema = z
+  .object({
+    workflow: z.string().min(1),
+    jobs: z.array(z.string().min(1)).min(1),
+    /** Label the publisher adds at `gh pr create` so the opening run is the full suite. */
+    label: z.string().min(1).optional(),
+    untrustedPaths: z.array(z.string().min(1)),
+    hookPaths: z.array(z.string().min(1)),
+    hooksCommand: safeGateChain(),
+  })
+  .strict();
+
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
   full: z.string().min(1),
@@ -66,6 +83,8 @@ const QualityGateSchema = z.object({
   /** Declares that the project's native git pre-commit already runs `fast`, so
    * the `quality-gate-pre-commit` hook skips only its gate step (spec 0045 R1-R3). */
   nativeHooks: z.boolean().optional(),
+  /** CI evidence for `receipt sign --gate-ran ci` (#1492). */
+  ci: QualityGateCiSchema.optional(),
 });
 
 // Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —
@@ -76,6 +95,12 @@ const QualityGateSchema = z.object({
 // hook.
 const HooksSchema = z.object({
   verifyOnStop: z.boolean().default(false),
+  // #1484: opt-in hooks that used to ship unconditionally. Default `false`
+  // (frozen units keep working behind their flag).
+  /** `model-advisor` (SessionStart/PostModelSwitch/Stop advice on Claude and Codex). */
+  modelAdvisor: z.boolean().default(false),
+  /** `audit-mode-*` recorder hooks; `audit.mode: "always"` implies them. */
+  auditMode: z.boolean().default(false),
 });
 
 /**
@@ -274,12 +299,22 @@ const HarnessSchema = z.object({
   codexIntegration: z.boolean().default(false),
   // Spec 0034 (#1050), R37/R39: gates the master-plan flow (`navori master`,
   // the `master-plan`/`context-intake` skills' effects, the `plan-maestro`
-  // managed block and its SessionStart hook). Default `false`: principle 3 of
+  // managed block and its two hooks, `master-plan-context` and
+  // `master-accept-confirm`, which are not written without it, #1484). The two
+  // skills stay ungated: the skill is the consent path to `navori master init`,
+  // which is what sets this flag. Default `false`: principle 3 of
   // design.md — zero behavior change with the flag off, except the three
   // incondicional exceptions the requirements name explicitly (R1, R24, R43)
   // and `doctor`'s scan over `_master/index.json` (D8), none of which read
   // this key.
   masterPlan: z.boolean().default(false),
+  // #1484: gates the `dominio` and `author-skill` skills (authoring surface).
+  // Default `false`; a repo that authors skills/domain notes opts in.
+  authoring: z.boolean().default(false),
+  // #1579: `false` turns off the per-repo `progress/` session state (bootstrap,
+  // startup injection, doctrine asking to update it); engram carries continuity.
+  // Default `true`: an absent key renders byte for byte as before.
+  sessionState: z.boolean().default(true),
   // Spec 0039 (R44): context-token threshold above which `subagent-stop-handoff`
   // advises saving the summary and running /compact or /clear after a
   // `publisher` dispatch. A number, NOT a flag: it is interpolated into the hook
@@ -318,6 +353,14 @@ const CodexProfileSchema = z
   })
   .strict();
 
+// Pi model as `provider/id` (nested ids such as `openrouter/a/b` and a `:thinking` suffix are valid).
+const PiModelSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9._-]*\/\S+$/i, "must be provider/id, e.g. anthropic/claude-sonnet-4-5")
+  .describe(
+    "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed",
+  );
+
 const ModelsSchema = z.object({
   codexProfiles: z
     .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), CodexProfileSchema)
@@ -355,6 +398,15 @@ const ModelsSchema = z.object({
           "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)",
         )
         .optional(),
+    })
+    .optional(),
+  // Pi has its own model vocabulary (`provider/id`); it never reads codexMap. A tier with
+  // no entry here inherits the model of the parent Pi session.
+  piMap: z
+    .object({
+      opus: PiModelSchema.optional(),
+      sonnet: PiModelSchema.optional(),
+      haiku: PiModelSchema.optional(),
     })
     .optional(),
 });

@@ -683,6 +683,9 @@ interface RenderCmdStrings {
   prunedEngineOutputs: (count: number, list: string) => string;
   /** Same list, before anything is deleted: `--prune` without `--apply` (#521). */
   prunePreviewEngineOutputs: (count: number, list: string) => string;
+  /** Files kept with only the managed blocks removed — the user's text survives (#1604). */
+  prunedStrippedOutputs: (count: number, list: string) => string;
+  prunePreviewStrippedOutputs: (count: number, list: string) => string;
   keptEngineOutputs: (count: number, list: string) => string;
   /** The spared half of that same preview plan (#521). */
   keptEngineOutputsPreview: (count: number, list: string) => string;
@@ -898,6 +901,8 @@ interface DoctorCmdStrings {
   /** #943 — index freshness for the textual (tgrep) and structural (codegraph)
    *  search providers. Informational only, never feeds the verdict. */
   tgrepIndexStale: (age: string, rootPath: string) => string;
+  /** Audit root or repo dirs with group/other permission bits: navori audit refuses them. */
+  auditRootOpen: (rows: string, command: string) => string;
   codegraphIndexDrift: (builtWithVersion: string, currentVersion: string) => string;
   /** #982 — shown once when codegraph/tgrep's reported state (missing
    *  binary, stale index, available-not-enabled) makes the setup recipe
@@ -996,6 +1001,8 @@ interface DoctorCmdStrings {
   piVersionUnverified: (found: string, min: string) => string;
   /** Spec 0048 D-U3 - Pi's `defaultTools` selects powershell, which Navori blocks. */
   piPowershellDefault: string;
+  /** Pi roles used to take their model from models.codexMap; they now inherit unless models.piMap is set. */
+  piMapMigration: string;
   /** Spec 0048 D4 - project extensions other than Navori's can mutate a tool call after its guards. */
   piForeignExtensions: (names: string) => string;
   /** Spec 0041 T20 follow-up — the global `navori` the hooks call is older than this CLI. */
@@ -1826,6 +1833,12 @@ const CMD_ES: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Borré archivos huérfanos de engines desactivados (${count}) — solo los que escribió ` +
       `navori (llevan su marcador), respaldados antes de borrar:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Quité los bloques de navori de ${count} archivo(s) de engines desactivados y conservé ` +
+      `tu texto — el archivo sigue ahí, respaldado antes de reescribirlo:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `Con --apply quitaría los bloques de navori de ${count} archivo(s) de engines ` +
+      `desactivados y conservaría tu texto, con respaldo previo. Este preview no tocó nada:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `Con --apply borraría ${count} archivo(s) huérfanos de engines desactivados — solo los ` +
       `que escribió navori (llevan su marcador), y los respalda antes de borrar. Este preview ` +
@@ -2142,6 +2155,9 @@ const CMD_ES: CmdStrings = {
       `Este repo audita siempre pero el receptor de eventos OTel no está corriendo, así que las ` +
       `sesiones pierden la tercera fuente (quién aprobó cada permiso, qué skill declaró el host). ` +
       `Levántalo con 'navori audit --collect' (en primer plano o bajo el supervisor que prefieras).`,
+    auditRootOpen: (rows, command) =>
+      `El audit root tiene directorios abiertos a otros usuarios; 'navori audit' los rechaza ('unsafe-audit-target'):\n${rows}\n` +
+      `Verifica la ruta y repáralo con: ${command}`,
     tgrepIndexStale: (age, rootPath) =>
       `El índice de tgrep se actualizó hace ${age} y no hay servidor corriendo: ` +
       `las búsquedas responden desde ese snapshot congelado, no desde el árbol actual. ` +
@@ -2308,6 +2324,8 @@ const CMD_ES: CmdStrings = {
       `pi ${found} no está verificado (se requiere una versión estable ${min} o posterior): la extensión bloquea bash, edit, write y powershell — corre 'pi --version' y actualiza Pi`,
     piPowershellDefault:
       "defaultTools de Pi incluye powershell: Navori lo desactiva al iniciar y lo bloquea — instala Git for Windows y usa bash, o quítalo de defaultTools",
+    piMapMigration:
+      "los roles de Pi ya no toman su modelo de models.codexMap: ahora heredan el modelo del Pi padre — define models.piMap (opus/sonnet/haiku como provider/id) para fijarlo, o {} para seguir heredando y silenciar este aviso",
     piForeignExtensions: (names) =>
       `extensiones de proyecto de Pi ajenas a Navori (${names}): pueden modificar una llamada después de las guardas de Navori — revísalas o quítalas`,
     globalLayerLeftovers: (lines) =>
@@ -3216,6 +3234,12 @@ const CMD_EN: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Deleted orphaned files from disabled engines (${count}) — only the ones navori wrote ` +
       `(they carry its marker), backed up before deletion:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Removed navori's blocks from ${count} file(s) of disabled engines and kept your text — ` +
+      `the file stays, backed up before it was rewritten:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `With --apply this would remove navori's blocks from ${count} file(s) of disabled engines ` +
+      `and keep your text, backed up first. This preview touched nothing:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `With --apply this would delete ${count} orphaned file(s) from disabled engines — only ` +
       `the ones navori wrote (they carry its marker), backed up before deletion. This preview ` +
@@ -3530,6 +3554,9 @@ const CMD_EN: CmdStrings = {
       `This repo audits every session but the OTel receiver is not running, so those sessions ` +
       `lose the third source (who approved each permission, which skill the host declared). ` +
       `Start it with 'navori audit --collect' (in the foreground or under the supervisor you prefer).`,
+    auditRootOpen: (rows, command) =>
+      `The audit root has directories open to other users; 'navori audit' refuses them ('unsafe-audit-target'):\n${rows}\n` +
+      `Verify the path, then repair with: ${command}`,
     tgrepIndexStale: (age, rootPath) =>
       `The tgrep index was last updated ${age} ago and no server is running: ` +
       `searches are answering from that frozen snapshot, not the current tree. ` +
@@ -3695,6 +3722,8 @@ const CMD_EN: CmdStrings = {
       `pi ${found} is not verified (needs a stable ${min} or later): the extension blocks bash, edit, write and powershell — run 'pi --version' and upgrade Pi`,
     piPowershellDefault:
       "Pi defaultTools includes powershell: Navori deactivates it at startup and blocks it — install Git for Windows and use bash, or remove it from defaultTools",
+    piMapMigration:
+      "Pi roles no longer take their model from models.codexMap: they now inherit the parent Pi model — set models.piMap (opus/sonnet/haiku as provider/id) to pin them, or {} to keep inheriting and silence this warning",
     piForeignExtensions: (names) =>
       `Pi project extensions that are not Navori's (${names}): they can mutate a tool call after Navori's guards — review or remove them`,
     globalLayerLeftovers: (lines) =>

@@ -131,6 +131,7 @@ function freshProject(): void {
       engines: ["pi"],
       branchBase: "main",
       qualityGate: { fast: "bun test", full: "bun test" },
+      hooks: { auditMode: true },
     }),
   );
 }
@@ -214,7 +215,7 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     const pending = rt.run(controller.signal);
     const assertion = expect(pending).resolves.toMatchObject({
       isError: true,
-      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+      details: { outcome: "failed", failure: expect.stringContaining("cancelled by the parent") },
     });
     controller.abort();
     controller.abort();
@@ -239,7 +240,7 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     const pending = rt.run();
     const assertion = expect(pending).resolves.toMatchObject({
       isError: true,
-      details: { outcome: "failed", failure: expect.stringContaining("cancelled, timed out") },
+      details: { outcome: "failed", failure: expect.stringContaining("timed out after 10 min") },
     });
     await vi.advanceTimersByTimeAsync(599_999);
     expect(rt.groupKills).toEqual([]);
@@ -293,7 +294,14 @@ function loadReal(env: Record<string, string> = {}): Map<string, LifecycleHandle
     exports,
     require: (id: string): unknown => modules[id] ?? nodeRequire(id),
     process: {
-      env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "", NAVORI_PI_CHILD_ROLE: "", ...env },
+      env: {
+        ...process.env,
+        NAVORI_PI_CHILD_DEPTH: "",
+        NAVORI_PI_CHILD_ROLE: "",
+        NAVORI_PI_CHILD_ID: "",
+        NAVORI_PI_PARENT_SESSION: "",
+        ...env,
+      },
       platform: process.platform,
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
@@ -341,7 +349,7 @@ function gitProject(verifyOnStop = false): { cwd: string; origin: string } {
       engines: ["pi"],
       branchBase: "main",
       qualityGate: { fast: "bun test", full: "bun test" },
-      ...(verifyOnStop ? { hooks: { verifyOnStop: true } } : {}),
+      hooks: { auditMode: true, ...(verifyOnStop ? { verifyOnStop: true } : {}) },
     }),
   );
   writeFileSync(join(cwd, ".gitignore"), ".claude/worktrees/\n.navori/state/\n");

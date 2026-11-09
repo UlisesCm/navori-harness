@@ -44,6 +44,44 @@ function isDistInput(path) {
   );
 }
 
+/**
+ * Mirrors globToRegExp in src/lib/diagnose/receipt-ci.ts: `*` stays inside a segment, `**` crosses.
+ * @param {string} glob
+ * @returns {RegExp}
+ */
+function globToRegExp(glob) {
+  const out = glob
+    .split("**")
+    .map((part) =>
+      part
+        .split("*")
+        .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^/]*"),
+    )
+    .join(".*");
+  return new RegExp(`^${out}$`); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- glob from the repo's own config, every metachar escaped, only unnested [^/]* and .*
+}
+
+/**
+ * Reads qualityGate.ci.untrustedPaths from the repo config; [] when the file or key is absent.
+ * @returns {string[]}
+ */
+function readUntrustedPaths() {
+  const file = join(REPO_ROOT, "navori.config.json");
+  if (!existsSync(file)) return [];
+  let config;
+  try {
+    config = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`Cannot parse ${file}: ${error.message}`);
+  }
+  const list = config?.qualityGate?.ci?.untrustedPaths;
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || !list.every((p) => typeof p === "string"))
+    throw new Error(`${file}: qualityGate.ci.untrustedPaths must be an array of strings`);
+  return list;
+}
+
 const isTestFile = (path) => path.startsWith(TESTS_ROOT) && path.endsWith(".test.ts");
 const isRenderOrGolden = (path) =>
   path.includes("/render/__tests__/") || basename(path).startsWith("golden-");
@@ -56,6 +94,7 @@ const isRenderOrGolden = (path) =>
  *   testFiles: string[],
  *   grep: (needle: string) => string[],
  *   graph?: Map<string, string[]>,
+ *   untrustedPaths?: string[],
  * }} PlanInput
  * @typedef {{
  *   full: boolean,
@@ -69,14 +108,31 @@ const isRenderOrGolden = (path) =>
  * Decides what to run. Paths are repo-relative. `testFiles` is every
  * `*.test.ts` in the package; `grep` returns the test files whose text contains
  * a literal. Deleted files never reach `vitest related` (it errors on them):
- * they select the tests that still name them.
+ * they select the tests that still name them. A change matching any
+ * `untrustedPaths` glob (qualityGate.ci.untrustedPaths, #1566) runs everything.
  *
  * @param {PlanInput} input
  * @returns {Plan}
  */
-export function planAffected({ changes, hasMergeBase, testFiles, grep, graph = new Map() }) {
+export function planAffected({
+  changes,
+  hasMergeBase,
+  testFiles,
+  grep,
+  graph = new Map(),
+  untrustedPaths = [],
+}) {
   if (!hasMergeBase)
     return { full: true, reason: "no merge-base with origin/dev or dev", related: [], tests: [] };
+  const untrusted = untrustedPaths.map(globToRegExp);
+  const risky = changes.find((c) => untrusted.some((pattern) => pattern.test(c.path)));
+  if (risky)
+    return {
+      full: true,
+      reason: `${risky.path} is in qualityGate.ci.untrustedPaths`,
+      related: [],
+      tests: [],
+    };
   const trigger = changes.find((c) => FULL_SUITE_NAME.test(basename(c.path)));
   if (trigger)
     return { full: true, reason: `${trigger.path} can affect every test`, related: [], tests: [] };
@@ -274,6 +330,7 @@ function main() {
     changes,
     hasMergeBase: options.files !== undefined || base !== null,
     testFiles,
+    untrustedPaths: readUntrustedPaths(),
     graph: buildGraph(
       Object.fromEntries(files.map((p) => [p, readFileSync(join(REPO_ROOT, p), "utf8")])),
     ),

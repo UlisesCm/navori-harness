@@ -393,7 +393,6 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
   const scoped = interpolate("{{navori.scopedGate}}", repoConfig);
   const renders = {
     claude: readFileSync(resolve(ROOT, ".claude/agents/reviewer.md"), "utf-8"),
-    codex: readFileSync(resolve(ROOT, ".codex/agents/reviewer.toml"), "utf-8"),
   };
 
   for (const [engine, text] of Object.entries(renders)) {
@@ -418,9 +417,26 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
       // Covers: R9
       it("ties the full gate to the round that signs APPROVED, incl. delta re-sign", () => {
         expect(text).toContain(
-          "| About to sign `APPROVED` (including delta re-sign) | The full gate",
+          "| Same, no `qualityGate.ci`, or a closing milestone | The full gate",
         );
         expect(text).toContain("The full gate runs only on the round about to sign `APPROVED`");
+      });
+
+      // Covers: #1544 — with qualityGate.ci a delta re-sign also signs `--gate-ran ci`
+      it("picks the CI row for any APPROVED signature, delta re-sign included", () => {
+        expect(text).toContain(
+          `| About to sign \`APPROVED\` (delta re-sign too), \`qualityGate.ci\` declared, not a closing milestone | \`${scoped}\`; sign \`--gate-ran ci\`.`,
+        );
+        expect(text).toContain("plus step 3's `--gate-ran` (`ci`; none after the full gate)");
+        expect(text).not.toContain("workplan PR |");
+      });
+
+      // Covers: #1590 — a spec's closing milestone always runs the full gate, even with qualityGate.ci
+      it("keeps the closing milestone on the full gate in Setup 5 and the content receipt", () => {
+        expect(text).toContain(
+          "the full gate (Pass 2) over those bytes, even with `qualityGate.ci`.",
+        );
+        expect(text).toContain("`ci` per the table, never on a closing milestone;");
       });
 
       // Covers: R8, R24

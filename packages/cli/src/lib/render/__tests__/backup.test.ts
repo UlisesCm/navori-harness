@@ -226,6 +226,48 @@ describe("purgeOldBackups — retention + size cap (#393)", () => {
     expect(existsSync(b)).toBe(true);
   });
 
+  it("nunca borra el backup recién tomado, aunque solo exceda el tope", () => {
+    const older = makeBackup(100, 3);
+    const fresh = makeBackup(1000, 0);
+    // The fresh snapshot alone is over the cap: the older one goes, the fresh one stays.
+    const pruned = purgeOldBackups({ maxTotalBytes: 500, keep: fresh });
+    expect(pruned).toEqual([older]);
+    expect(existsSync(fresh)).toBe(true);
+    // Kept from the age pass too.
+    const expired = makeBackup(10, 40);
+    expect(purgeOldBackups({ keep: expired })).toEqual([]);
+    expect(existsSync(expired)).toBe(true);
+    // Without `keep` the cap still applies to it (`backup prune`).
+    expect(purgeOldBackups({ maxTotalBytes: 500 })).toContain(fresh);
+  });
+
+  it("solo poda directorios con forma de backup", () => {
+    const root = backupRoot();
+    const longAgo = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+    const dir = (name: string): string => {
+      const path = join(root, name);
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, "f"), "x");
+      utimesSync(path, longAgo, longAgo);
+      return path;
+    };
+    const foreign = ["my-project", "node_modules", "repo-2020-01-01", "2020-01-01T00-00-00x"].map(
+      dir,
+    );
+    const ours = [
+      "repo-2020-01-01T00-00-00-000-p123-0",
+      "repo-2020-01-01T00-00-00-000-p123",
+      "repo-2020-01-01T00-00-00-000",
+      "2020-01-01T00-00-00",
+      "my-repo-x-2020-01-01T00-00-00-000-p1-12",
+    ].map(dir);
+    expect(purgeOldBackups().sort()).toEqual([...ours].sort());
+    for (const path of foreign) expect(existsSync(path), path).toBe(true);
+    // The size pass ignores them too, even over the cap.
+    expect(purgeOldBackups({ maxTotalBytes: 0 })).toEqual([]);
+    for (const path of foreign) expect(existsSync(path), path).toBe(true);
+  });
+
   it("applies both criteria in one call: age pass, then size pass", () => {
     const expired = makeBackup(10, 40);
     const heavyOld = makeBackup(1000, 5);

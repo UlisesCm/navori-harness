@@ -210,6 +210,18 @@ function currentProgressPath(repoRoot: string): string {
   }
 }
 
+/** True only when the repo's valid config sets `harness.sessionState: false` (#1579); never throws. */
+function sessionStateOff(repoRoot: string): boolean {
+  try {
+    const parsed = NavoriConfigSchema.safeParse(
+      JSON.parse(readFileSync(join(repoRoot, "navori.config.json"), "utf-8")),
+    );
+    return parsed.success && parsed.data.harness?.sessionState === false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Scan a list of repos for session-state files (`progress/current.md`, or the
  * path configured in each repo's navori.config.json) that reference a given
@@ -226,6 +238,7 @@ export function findReferencingRepos(
 
   for (const repoPath of repoPaths) {
     const abs = resolve(repoPath);
+    if (sessionStateOff(abs)) continue;
     const current = currentProgressPath(abs);
     if (!existsSync(current)) continue;
     try {

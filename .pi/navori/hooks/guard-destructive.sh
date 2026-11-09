@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="0f91a813" version="0.12.2" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="6f32eb39" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -31,6 +31,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the PII-egress lane (#1445, `_partials/pii-egress*.sh`): hard — personal data leaving the machine cannot be
+#     recalled; it denies through its own function (never `block()`, which prints the command), audit reason
+#     `pii-egress`, and the route is a generic identifier (`navori-agent/1.0`).
 #   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
 #     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
 #     Navori's own files change.
@@ -65,8 +68,9 @@ payload_load() { :; }
 # `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
 # tool names this hook does not otherwise read) keeps that value, empty or
 # not, instead of this partial re-reading an already-drained pipe and
-# clobbering it with "".
-payload=${payload-$(cat)}
+# clobbering it with "". The inner quotes matter: unquoted, zsh word-splits the
+# substitution and rejoins it with single spaces (bash does not).
+payload=${payload-"$(cat)"}
 payload_field() {
   case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
     if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
@@ -449,7 +453,13 @@ navori_audit_spool_write() {
   [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
   navori_audit_stamp=${EPOCHREALTIME:-0}
   navori_audit_stamp=${navori_audit_stamp//[.,]/}
-  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  # A per-process sequence keeps the events of one invocation apart where the stamp and
+  # $RANDOM cannot: without EPOCHREALTIME (bash < 5) the stamp is 0, and before bash 5.1 a
+  # subshell repeats its parent's next $RANDOM, so a second event (gate-started, then the
+  # verdict) took the first one's name and noclobber dropped it. Counted in this shell, never
+  # in the subshell below; it starts at 1000 so the names sort in write order.
+  navori_audit_seq=$(( ${navori_audit_seq:-1000} + 1 ))
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$navori_audit_seq-$RANDOM.json" ) 2>/dev/null || return 1
   return 0
 }
 
@@ -551,12 +561,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -782,7 +792,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .agents/skills/citty/SKILL.md
 .agents/skills/clack/SKILL.md
 .agents/skills/context-intake/SKILL.md
-.agents/skills/context-intake/agents/openai.yaml
 .agents/skills/debug-failure/SKILL.md
 .agents/skills/dominio/SKILL.md
 .agents/skills/follow-up-prs/SKILL.md
@@ -816,7 +825,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/context/10-orquestacion.md
 .claude/context/20-agentes-disponibles.md
 .claude/context/30-arranque-sesion.md
-.claude/context/40-cierre-sesion.md
 .claude/hooks/audit-mode-close.sh
 .claude/hooks/audit-mode-trigger.sh
 .claude/hooks/bash-outcome-watch.sh
@@ -825,9 +833,8 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/hooks/guard-destructive.sh
 .claude/hooks/implementer-no-markdown.sh
 .claude/hooks/managed-drift-watch.sh
-.claude/hooks/master-accept-confirm.sh
-.claude/hooks/master-plan-context.sh
 .claude/hooks/model-advisor.sh
+.claude/hooks/pii-egress-guard.sh
 .claude/hooks/plan-gate.sh
 .claude/hooks/pr-publisher-confirm.sh
 .claude/hooks/quality-gate-pre-commit.sh
@@ -860,34 +867,6 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .claude/skills/verify-before-done/SKILL.md
 .claude/skills/vitest/SKILL.md
 .claude/skills/zod-validation/SKILL.md
-.codex/agents/architect.toml
-.codex/agents/auditor.toml
-.codex/agents/implementer.toml
-.codex/agents/publisher.toml
-.codex/agents/reviewer.toml
-.codex/agents/scout.toml
-.codex/agents/scribe.toml
-.codex/config.toml
-.codex/hooks/audit-mode-close.sh
-.codex/hooks/audit-mode-trigger.sh
-.codex/hooks/comment-draft-confirm.sh
-.codex/hooks/engram-write-guard.sh
-.codex/hooks/general-purpose-confirm.sh
-.codex/hooks/guard-destructive.sh
-.codex/hooks/implementer-no-markdown.sh
-.codex/hooks/managed-drift-watch.sh
-.codex/hooks/model-advisor.sh
-.codex/hooks/plan-gate.sh
-.codex/hooks/pr-publisher-confirm.sh
-.codex/hooks/quality-gate-pre-commit.sh
-.codex/hooks/role-guard.sh
-.codex/hooks/routing-watch.sh
-.codex/hooks/session-start-context.sh
-.codex/hooks/subagent-stop-handoff.sh
-.codex/hooks/worktree-reclaim.sh
-.codex/orchestrator.md
-.codex/rules/navori.rules
-.codex/scripts/guard-search-routing.sh
 .mcp.json
 .pi/agents/architect.md
 .pi/agents/auditor.md
@@ -903,9 +882,9 @@ nv_owned_paths='.agents/skills/author-agent/SKILL.md
 .pi/navori/hooks/guard-destructive.sh
 .pi/navori/hooks/implementer-no-markdown.sh
 .pi/navori/hooks/managed-drift-watch.sh
-.pi/navori/hooks/master-accept-confirm.sh
 .pi/navori/hooks/pr-publisher-confirm.sh
 .pi/navori/hooks/quality-gate-pre-commit.sh
+.pi/navori/hooks/routing-watch.sh
 .pi/navori/hooks/subagent-no-background.sh
 .pi/navori/hooks/worktree-reclaim.sh
 .pi/navori/scripts/guard-search-routing.sh
@@ -1345,6 +1324,264 @@ fi
 # partial, called here so the fail-closed order is unchanged.
 navori_inert_skeleton
 
+# PII-egress lane (#1445): a Bash request to an external host that carries the user's git email
+# or a `NAVORI_PERSONAL_IDS` entry is denied. It lives HERE and not in a hook of its own because
+# spec 0039 R28 forbids adding a hook to the Bash path. It runs BEFORE the fast path below (a
+# `curl` carries none of that path's tokens), behind a fork-free gate, in a subshell (no failure
+# of the lane can disable the rules below), with its own deny path: `block()` prints the
+# command, and this lane never echoes the command or the identifier. Matching, the failure
+# contract and the documented false negatives: `_partials/pii-egress*.sh`.
+# Shared PII-egress core (#1445) — inlined into `guard-destructive` (its Bash lane) and
+# `pii-egress-guard` (WebFetch/WebSearch) at render time (see the include directive in the
+# source scripts + lib/render/hook-includes.ts). DO NOT copy this body back into a hook by
+# hand: two hand-synced copies of a matcher are how scanners drift (#225/#261).
+#
+# The mechanical half of "never send the user's personal data to an external service". An
+# agent once put the user's git email in the `User-Agent` of a `curl` to a third-party API,
+# because the prose rule did not exist yet and a contact address "looked polite".
+#
+# IDENTIFIERS. `git config user.email` and the comma-separated env var `NAVORI_PERSONAL_IDS`
+# (entries shorter than 4 characters are ignored). No identifier resolvable → no verdict.
+# Matching is a case-insensitive literal (`grep -iF`) of each identifier plus its URL-encoded
+# forms (`@`→`%40`, `+`→`%2B`, space→`%20`/`+`).
+#
+# EXTERNAL = any host that is not `localhost`, `*.localhost`, `127/8`, `::1`, `0.0.0.0`,
+# `10/8`, `172.16/12` or `192.168/16`. Mixed hosts → external. `169.254/16` is external.
+#
+# NEVER ECHOES. Neither stderr nor the audit log carries the identifier or the command: the
+# message names the rule and the SOURCE (git user.email / NAVORI_PERSONAL_IDS) and the audit
+# reason is the fixed code `pii-egress`. The caller's own `block()` is NOT used for this
+# reason: `guard-destructive`'s prints the command.
+#
+# FAILURE CONTRACT (owned by the callers, executed through `navori_pii_finish`): the check
+# runs in a subshell; before the caller's network gate matches, any error ALLOWS; after it
+# matches, a status other than the explicit codes below DENIES ("could not verify").
+#
+# Requires, from the caller: the `navori_audit_verdict`/`navori_audit_reason` variables the
+# audit trap reads. Blocking classification (#1117):
+#   - an identifier in a request to an external host: hard — personal data leaving the machine
+#     cannot be recalled; the message names the rule and the source, and the route is a generic identifier.
+#   - a check that could not complete after the gate matched: hard — fail closed, nothing was verified.
+_pii_nl=$'\n'
+
+# 1 when the text holds identifier $1, 0 otherwise; a grep error leaves the
+# subshell (exit 1 → "could not verify").
+_pii_has() {
+  local _rc=0
+  grep -qiF -e "$1" <<<"$2" >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -le 1 ] || exit 1
+  [ "$_rc" -eq 0 ]
+}
+
+# Does the text carry identifier $1 in any of its forms?
+_pii_hits() {
+  local _id="$1" _t="$2" _enc
+  _pii_has "$_id" "$_t" && return 0
+  _enc="${_id//@/%40}"
+  _enc="${_enc//+/%2B}"
+  _enc="${_enc// /%20}"
+  _pii_has "$_enc" "$_t" && return 0
+  _enc="${_id// /+}"
+  _pii_has "$_enc" "$_t" && return 0
+  return 1
+}
+
+# Is host[:port] $1 local? (0 = local)
+_pii_local() {
+  local _h="$1" _hn
+  # Authority only: cut the path/query first, so an `@` in a query is not userinfo.
+  _h="${_h%%/*}"
+  _h="${_h%%\?*}"
+  _h="${_h%%#*}"
+  _h="${_h##*@}"
+  case "$_h" in
+    "" | '[::1]' | '[::1]':*) return 0 ;;
+  esac
+  _hn="${_h%%:*}"
+  case "$_hn" in
+    localhost | *.localhost | 0.0.0.0) return 0 ;;
+    *[!0-9.]*) return 1 ;;
+  esac
+  case "$_hn" in
+    127.* | 10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
+  esac
+  return 1
+}
+
+# Subshell body, last step: resolve the identifiers (at most one fork, only for an external
+# request) and look for them in text $1. Exit 0 no hit · 41 hit on git user.email · 42 hit on
+# NAVORI_PERSONAL_IDS.
+navori_pii_verdict() {
+  local _texts="$1" _ids="" _email _v _line _src
+  _email=$(git config user.email 2>/dev/null || true)
+  [ "${#_email}" -lt 4 ] || _ids="g:${_email}${_pii_nl}"
+  if [ -n "${NAVORI_PERSONAL_IDS:-}" ]; then
+    while IFS= read -r _v; do
+      _v="${_v#"${_v%%[![:space:]]*}"}"
+      _v="${_v%"${_v##*[![:space:]]}"}"
+      [ "${#_v}" -lt 4 ] || _ids="${_ids}e:${_v}${_pii_nl}"
+    done <<<"$(printf '%s' "$NAVORI_PERSONAL_IDS" | tr ',' '\n')"
+  fi
+  [ -n "$_ids" ] || exit 0
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _src="${_line%%:*}"
+    _v="${_line#*:}"
+    if _pii_hits "$_v" "$_texts"; then
+      if [ "$_src" = g ]; then exit 41; fi
+      exit 42
+    fi
+  done <<<"$_ids"
+  exit 0
+}
+
+# Turn the subshell status $1 into the verdict: 0 returns (allow), anything else denies with
+# `exit 2`. Only ASSIGNMENTS before the exit: the caller's trap records the verdict.
+navori_pii_finish() {
+  local _why
+  case "$1" in
+    0) return 0 ;;
+    41) _why="a request to an external host carries a personal identifier (source: the configured user email)." ;;
+    42) _why="a request to an external host carries a personal identifier (source: NAVORI_PERSONAL_IDS)." ;;
+    *) _why="could not verify that this network request is free of personal identifiers; split it, or ask the user to run it." ;;
+  esac
+  echo "[navori] BLOCKED by pii-egress-guard: ${_why}" >&2
+  echo "[navori] Rule: never send the user's personal data to external services. Use a generic identifier instead, e.g. \"User-Agent: navori-agent/1.0\" or example@example.com." >&2
+  navori_audit_verdict="block"
+  navori_audit_reason="pii-egress"
+  exit 2
+}
+# PII-egress Bash lane (#1445) — inlined into `guard-destructive` at render time (see the
+# include directive in the source script + lib/render/hook-includes.ts). It rides inside the
+# destructive guard, not in a hook of its own, because spec 0039 R28 forbids adding a hook to
+# the ordinary Bash path (the per-call latency of every extra process). Matching, identifiers,
+# the never-echo rule and the failure contract live in `pii-egress.sh` (included beside it).
+#
+# "NETWORK REQUEST TO AN EXTERNAL HOST", for Bash: a LIVE segment (heredoc bodies and
+# `-m`/`--body` values are data) whose command is, behind `sudo|env|time|command|exec` and a
+# path prefix, one of `curl wget http https xh xhs`, or an inline `node|bun|deno|python|python3`
+# (`-e|-c|eval`) using `fetch(`, `requests.`, `urllib` or `http.request`. Matching is PER
+# SEGMENT, plus the heredoc bodies of the command when that segment opens a heredoc (the body
+# IS the request body). A `git commit -m "<email>" && curl https://x` is therefore not blocked.
+# A scheme-less segment is external unless one of its words is a local host. A request is also
+# blocked when it READS the email inline (`-A "$(git config user.email)"`).
+#
+# DOCUMENTED FALSE NEGATIVES (a seatbelt against accidental leaks, not a sandbox): `git` (push,
+# commit --author), `gh`, `ssh`, `scp`, `rsync`, MCP tools, `sh -c`, `eval`, obfuscation;
+# scheme-less `nc|ncat|netcat|telnet` (not in the cheap gate); a value the lane cannot see
+# expanded (`$EMAIL`, `$(cat file)`, `-K cfg`, `--data @file`, `-H @file`); `node script.js`,
+# `python3 script.py`, `bun run`, `npx` and a `python3 - <<EOF` (no inline flag); a `;` inside a
+# quoted URL splits the segment. WebFetch/WebSearch are covered by `pii-egress-guard` (Claude).
+#
+# FAILURE CONTRACT. The cheap gate is fork-free and runs on every Bash call; before it matches,
+# nothing runs and any error allows. After it matches, the check runs in a SUBSHELL, so no
+# failure of this lane can end the guard and disable its other rules; a status other than the
+# explicit codes denies ("could not verify"). A command too large to inspect never reaches the
+# lane: the guard's own ceilings block it first.
+#
+# Requires, from the caller: `$cmd`, `$skeleton` (after `navori_inert_skeleton`), the inert
+# partial's `navori_inert_live`/`navori_inert_segments`, and the `pii-egress.sh` partial.
+
+# Is segment $1 an external network request's text? (0 = external)
+_pii_external() {
+  local _seg="$1" _line _found=0 _w
+  local _hre="[A-Za-z][A-Za-z0-9+.-]*://[^/?#\"'[:space:]]*"
+  local _urls
+  _urls=$(printf '%s\n' "$_seg" | grep -oE "$_hre" 2>/dev/null) || [ "$?" -eq 1 ]
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _found=1
+    _pii_local "${_line#*://}" || return 0
+  done <<<"$_urls"
+  [ "$_found" -eq 1 ] && return 1
+  # No scheme: local only when one word is a local host[:port][/path].
+  while IFS= read -r _w; do
+    case "$_w" in "" | -*) continue ;; esac
+    _w="${_w#[\"\']}"
+    _w="${_w%%/*}"
+    # A path (`/usr/bin/http`, `-o /tmp/x`) has no host; empty is local only after a scheme.
+    [ -n "$_w" ] || continue
+    _pii_local "$_w" && return 1
+  done <<<"$(printf '%s' "$_seg" | tr -s '[:space:]' '\n')"
+  return 0
+}
+
+# Is segment $1 a network request (see the header)? (0 = yes)
+_pii_is_request() {
+  local _s="$1" _w
+  while :; do
+    _s="${_s#"${_s%%[![:space:]]*}"}"
+    _w="${_s%%[[:space:]]*}"
+    case "$_w" in
+      sudo | env | time | command | exec) _s="${_s#"$_w"}" ;;
+      [A-Za-z_]*=*) _s="${_s#"$_w"}" ;;
+      *) break ;;
+    esac
+  done
+  _w="${_w##*/}"
+  case "$_w" in
+    curl | wget | http | https | xh | xhs) return 0 ;;
+    node | bun | deno | python | python3)
+      case " $_s " in
+        *' -e '* | *' -c '* | *' --eval '* | *' eval '*)
+          case "$_s" in
+            *fetch* | *requests.* | *urllib* | *http.request*) return 0 ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# Subshell body. Exit 0 allow · 41 hit on git user.email · 42 hit on NAVORI_PERSONAL_IDS ·
+# anything else: could not verify.
+navori_pii_bash_check() {
+  set -euo pipefail
+  # Never the guard's `block()`: it prints the command. The ceilings were already enforced
+  # by the caller, so this is unreachable unless the contract changes — then it fails closed.
+  block() { exit 1; }
+  local _texts="" _seg
+  navori_inert_live
+  navori_inert_segments
+  # Per live segment; a heredoc opener widens that segment to the whole command (the body is
+  # the request body).
+  while IFS= read -r _seg; do
+    [ -n "$_seg" ] || continue
+    _pii_is_request "$_seg" || continue
+    _pii_external "$_seg" || continue
+    case "$_seg" in
+      *'<<'*) _texts="${_texts}${cmd}${_pii_nl}" ;;
+      *) _texts="${_texts}${_seg}${_pii_nl}" ;;
+    esac
+    case "$_seg" in
+      *'git config user.email'* | *'git config --get user.email'*) exit 41 ;;
+    esac
+  done <<<"$segments"
+  [ -n "$_texts" ] || exit 0
+  navori_pii_verdict "$_texts"
+}
+
+# The lane. THE CHEAP GATE comes first: pure `case`, no fork. HTTPie (`http https xh xhs`)
+# matches only as a whole word (#1489): after the start, a blank, one of ``; & | ( ` ``, or a path `/`,
+# and before a blank. A bare `nc` stays out: it matches `sync`, `once` and `--since`, and would
+# send ordinary calls through the forks below. A deny exits 2 through `navori_pii_finish`.
+navori_pii_bash_lane() {
+  case " $cmd" in
+    *curl* | *wget* | *'://'* | *'fetch('*) ;;
+    *[[:space:]';&|(`/']http[[:space:]]* | *[[:space:]';&|(`/']https[[:space:]]*) ;;
+    *[[:space:]';&|(`/']xh[[:space:]]* | *[[:space:]';&|(`/']xhs[[:space:]]*) ;;
+    *) return 0 ;;
+  esac
+  local _rc=0
+  set +e
+  ( navori_pii_bash_check )
+  _rc=$?
+  set -e
+  navori_pii_finish "$_rc"
+}
+navori_pii_bash_lane
+
 # ─── Fast path: a command no rule below can possibly match ───────────────────
 #
 # WHY: this guard runs on EVERY Bash call, and in auto mode the host tells the
@@ -1586,16 +1823,10 @@ navori_strip_heredoc_bodies() {
 }
 
 # Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
-# global `navori_trigger_hits`. `$2` = 1 stops at the first hit (is_scan_trigger
-# only needs "any"). The single home of the segment normalisation, shared with
+# global `navori_trigger_hits`. The single home of the segment normalisation, shared with
 # navori_commit_landing so the two can never disagree about what a segment is.
 navori_count_triggers() {
-  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
-  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
-  # left compound commands unsplit there and the gate silently skipped
-  # `cd x && git commit` (#391). A plain variable expands identically in
-  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
-  local input="$1" stop="${2:-0}" segment nl=$'\n'
+  local input="$1" segment
   navori_trigger_hits=0
   if [ "${TRIGGER_STRIP_HEREDOC_BODIES:-}" = 1 ]; then
     case "$input" in *'<<'*) navori_strip_heredoc_bodies "$input"; input="$navori_heredoc_stripped" ;; esac
@@ -1603,14 +1834,32 @@ navori_count_triggers() {
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).
-  input="${input//\\$'\n'/ }"
-  input="${input//&&/$nl}"
-  input="${input//||/$nl}"
-  input="${input//;/$nl}"
-  input="${input//|/$nl}"
+  # Then `&&`, `||`, `;`, `|` become newlines, in that order. One awk pass:
+  # bash 3.2's `${var//pat/repl}` is superlinear on long input. The `x`
+  # sentinel keeps trailing newlines exact across `$(…)`. No `$'\n'` in a
+  # shell replacement, which zsh does not expand (#391).
+  # Without awk on PATH (a stripped-down host) fall back to the slower pure-bash
+  # substitutions so the gate never silently skips; `nl` is pre-expanded for zsh.
+  if command -v awk >/dev/null 2>&1; then
+  input=$(printf '%sx' "$input" | LC_ALL=C awk '{ s = s sep $0; sep = "\n" } END { s = substr(s, 1, length(s) - 1); gsub(/\\\n/, " ", s); gsub(/&&/, "\n", s); gsub(/\|\|/, "\n", s); gsub(/;/, "\n", s); gsub(/\|/, "\n", s); printf "%sx", s }')
+  input="${input%x}"
+  else
+    local nl=$'\n'
+    input="${input//\\$'\n'/ }"
+    input="${input//&&/$nl}"
+    input="${input//||/$nl}"
+    input="${input//;/$nl}"
+    input="${input//|/$nl}"
+  fi
   # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
   # command that contains backticks/$() is inspected, never executed.
-  while IFS= read -r segment; do
+  # The peeled segments stream into ONE `grep -c` (a fork per segment made the
+  # cost scale with the segment count, #1481). A segment holds no newline and
+  # grep is line-based, so the matching-line count equals the per-segment count;
+  # an empty segment is skipped, as an empty `printf` never produced a match.
+  # grep -c exits 1 on zero matches (and pipefail may add a failure): the
+  # printed count is what counts, normalised to 0 so `set -e` callers survive.
+  navori_trigger_hits=$(while IFS= read -r segment; do
     segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
     # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
     # `VAR=val git …` all reduce to a plain `git …` before matching.
@@ -1620,12 +1869,13 @@ navori_count_triggers() {
     done
     segment="${segment#\\}"                                 # strip a leading backslash (\git)
     while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      # Patterns carry a leading `(`: bash 3.2 mis-parses a bare `pat)` inside `$( … )`.
       case "$segment" in
-        *[[:space:]]*)
+        (*[[:space:]]*)
           segment="${segment#*[[:space:]]}"
           segment="${segment#"${segment%%[![:space:]]*}"}"
           ;;
-        *) segment=""; break ;;
+        (*) segment=""; break ;;
       esac
     done
     if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
@@ -1635,11 +1885,9 @@ navori_count_triggers() {
     # FIX C: allow git global options between `git` and the subcommand
     # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
     # keeps `git commitgraph` / `git config …` from matching.
-    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
-      navori_trigger_hits=$((navori_trigger_hits + 1))
-      if [ "$stop" = 1 ]; then return 0; fi
-    fi
-  done <<< "$input"
+    if [ -n "$segment" ]; then printf '%s\n' "$segment"; fi
+  done <<< "$input" | grep -cE -- "$TRIGGER_RE") || true
+  case "$navori_trigger_hits" in '' | *[!0-9]*) navori_trigger_hits=0 ;; esac
   return 0
 }
 
@@ -1662,7 +1910,7 @@ is_scan_trigger() {
   # the pair travels together; when unset the fast path disarms and the loop
   # runs exactly as before (fail-open to the SLOW path, never to a skip).
   has_trigger_token "$1" || return 1
-  navori_count_triggers "$1" 1
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -gt 0 ]
 }
 # Shared worktree resolver — inlined into each gate hook at render time (see the
@@ -2061,7 +2309,7 @@ navori_commit_landing() {
   local cd_dir="" found=0 more=1 cdcount=0 nl=$'\n' tab=$'\t'
   navori_landing="ambiguous"; navori_landing_root=""
 
-  navori_count_triggers "$1" 0
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -ge 1 ] || return 0
 
   navori_strip_heredoc_bodies "$1"
@@ -2569,6 +2817,7 @@ if [ "$nv_engine" = pi ]; then
 fi
 managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+${managed_pi})"
 managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
+unparsed_quoting_msg="could not parse the quoting of this command, so it cannot rule out a write to a navori-managed file. To write a file (handoff, notes) use the Write/Edit tool; for a managed file, edit its source asset and run navori render --apply"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
 # the target would land in a segment of its own. Reading the unsplit copy is
@@ -2661,8 +2910,15 @@ fi
 # in `~` matching, and shell metacharacters and owned paths are ASCII anyway.
 # A newline inside an open quote stays in the word (multi-line -m "$(cat <<EOF)");
 # outside quotes it ends the segment; an unclosed quote at the end still fails.
+# A "$(...)" opens its own quoting context, as in Bash (#1497): a quote inside it
+# never closes the outer double quote, and its commands are checked as segments
+# of their own while the enclosing word is kept for its command.
 # Heredoc bodies are NOT skipped here: the caller elides the inert ones (and their
 # terminator) from the live text, and skipping on that text would hide commands.
+# Exit 2: a confirmed owned destination (or an unsupported copy form). Exit 3: the
+# quoting could not be parsed (open quote, dangling escape, open "$(", unterminated
+# redirect operand), so a write cannot be ruled out; the verdict is the same block,
+# only the caller's message differs (#1557). Exit 2 wins when both hold.
 # Paths are lexical against the tool cwd. Command-local directory changes,
 # dynamic operands and arbitrary filesystem aliases are outside this seatbelt.
 navori_copy_dest_safe() {
@@ -2818,6 +3074,18 @@ navori_copy_dest_safe() {
   }
   function word() { if (have) tok[++nt] = buf; buf = ""; have = 0 }
   function segment() { word(); check(); nt = 0 }
+  # "$(...)" inside double quotes: park the outer word and its tokens, check the
+  # commands of the substitution as segments of their own, then resume the word.
+  function enter(text,    i) {
+    sd++; subp[sd] = 0; sbuf[sd] = text; snt[sd] = nt
+    for (i = 1; i <= nt; i++) stok[sd,i] = tok[i]
+    buf = ""; have = 0; nt = 0
+  }
+  function leave(    i) {
+    nt = snt[sd]
+    for (i = 1; i <= nt; i++) tok[i] = stok[sd,i]
+    buf = sbuf[sd]; have = 1; sd--
+  }
   BEGIN {
     root = ENVIRON["NV_COPY_ROOT"]
     if (root == "") root = ENVIRON["PWD"]
@@ -2852,10 +3120,27 @@ navori_copy_dest_safe() {
         }
         escape = 1; continue
       }
+      if (quote == "\042" && substr(line,pos,32) == "$(git rev-parse --show-toplevel)") {
+        buf = buf substr(line,pos,32); have = 1; pos += 31; continue
+      }
+      if (quote == "\042" && c == "$" && substr(line,pos+1,1) == "(") {
+        enter(buf "$("); quote = ""; pos++; continue
+      }
       if (quote != "") {
         if (c == quote) quote = ""
         else buf = buf c
         have = 1; continue
+      }
+      if (sd > 0) {
+        # A heredoc body is free text (git commit -m "$(cat <<EOF ...)"): back
+        # to the outer double quote, the pre-#1497 reading of the word.
+        if (c == "<" && substr(line,pos+1,1) == "<") {
+          segment(); while (sd > 0) leave()
+          quote = "\042"; buf = buf c; have = 1; continue
+        }
+        if (c == "(") subp[sd]++
+        else if (c == ")" && subp[sd] > 0) subp[sd]--
+        else if (c == ")") { segment(); leave(); quote = "\042"; buf = buf c; have = 1; continue }
       }
       if (c == "\047" || c == "\042") { quote = c; have = 1; continue }
       if (substr(line,pos,21) == "${CLAUDE_PROJECT_DIR}") {
@@ -2876,9 +3161,9 @@ navori_copy_dest_safe() {
           rc = substr(line,pos,1)
           if (rq != "") { if (rc == rq) rq = ""; continue }
           if (rc == "\047" || rc == "\042") { rq = rc; continue }
-          if (rc ~ /[ \t;&|]/) break
+          if (rc ~ /[ \t;&|]/ || (sd > 0 && rc == ")")) break
         }
-        if (rq != "") bad = 1
+        if (rq != "") qbad = 1
         pos--; continue
       }
       if (c ~ /[;&|(){}]/) { segment(); continue }
@@ -2889,13 +3174,21 @@ navori_copy_dest_safe() {
     else if (quote != "") { buf = buf "\n"; have = 1 }
     else segment()
   }
-  END { if (quote != "" || escape) bad = 1; segment(); exit (bad ? 2 : 0) }
+  END { if (quote != "" || escape || sd > 0) qbad = 1; segment(); exit (bad ? 2 : qbad ? 3 : 0) }
   ' <<EOF
 $live
 EOF
 }
-if [ "$nv_owned_paths" != "-" ] && ! navori_copy_dest_safe; then
-  block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
+if [ "$nv_owned_paths" != "-" ]; then
+  nv_cd_rc=0
+  navori_copy_dest_safe || nv_cd_rc=$?
+  if [ "$nv_cd_rc" = 3 ]; then
+    # Same verdict, honest reason: the quoting was unparseable (#1557), not a confirmed rewrite.
+    # The route differs too: agents follow the route line, and render is only right for managed files.
+    block "$unparsed_quoting_msg" managed-rewrite "Write/Edit tool (or edit the asset + navori render --apply if it is a managed file)"
+  elif [ "$nv_cd_rc" != 0 ]; then
+    block "$managed_rewrite_msg" managed-rewrite "navori render --apply"
+  fi
 fi
 
 # 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
@@ -3124,7 +3417,7 @@ if [ "$nv_copy_only" = 1 ] && [ -z "$navori_pi_ask" ]; then
 fi
 # navori:managed end id="guard-destructive-base"
 
-# navori:managed start id="tgrep-search-lane" hash="dcd394f0" version="0.11.3" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-search-lane" hash="8cdb352a" version="0.12.3" source="@navori/plugin-tgrep"
 # Blocking classification (#1117):
 #   - content search that should go through the index (exit 42 -> exit 2): hard — the remedy
 #     (`tgrep search`) is printed on stderr. Missing tgrep or no index fails open (exit 43): advisory.
@@ -3144,7 +3437,7 @@ case "$cmd" in
     fi
     if [ "$navori_search_rc" -eq 43 ]; then
       navori_audit_verdict="fail-open"
-      navori_audit_reason="search index unavailable"
+      navori_audit_reason="search-index-unavailable"
     fi
     ;;
 esac

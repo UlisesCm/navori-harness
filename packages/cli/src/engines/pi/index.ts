@@ -22,9 +22,12 @@ import {
 import { OwnedPathInventory } from "../shared/owned-path-inventory.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { buildAgentsIndexBlock, compactAgentDescription } from "../shared/agents-index.ts";
+import { buildContextoProyectoBody } from "../shared/project-context.ts";
+import { adaptHarnessTextForPi } from "./compat.ts";
 import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
+import { PI_MAP_MIGRATION_WARNING, piMapMigrationPending } from "../../lib/diagnose/pi-health.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
 import {
   ownsPiAgent,
@@ -60,6 +63,7 @@ import {
   applySkillSubBlocks,
   extendWithOrchestratorBlocks,
   piBindingPath,
+  prefixKnowledgeNames,
   piInstalledPluginScripts,
   piLivePlugins,
   resolvePiPluginHooks,
@@ -69,10 +73,18 @@ import {
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
-import { PI_ROLE_TOOLS } from "./role-tools.ts";
+import { isPiChildRole, isPiParentRole } from "./role-tools.ts";
+import {
+  PI_KNOWLEDGE_READONLY,
+  piKnowledgeGrants,
+  piKnowledgeToolName,
+  piRoleTools,
+  type PiKnowledgeGrants,
+} from "./knowledge-tools.ts";
 import { mcpPluginIds, mcpServerDiagnostics } from "./mcp-diagnosis.ts";
 
-const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
+/** Whether Pi renders `.pi/agents/<id>.md` for this role: a dispatchable child or a parent role. */
+const isPiRenderedRole = (id: string): boolean => isPiChildRole(id) || isPiParentRole(id);
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
@@ -114,6 +126,7 @@ function buildAdapter(
             destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
             managedId: skill.managedId,
             commentStyle: "html",
+            transform: adaptHarnessTextForPi,
           },
     // Spec 0048 D1: the shared script, copied to `.pi/navori/hooks/<id>.sh`, only for rows of the
     // binding table: one table decides what is installed, what the bridge runs and the manifest.
@@ -228,15 +241,24 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
  * enabled server and lists them all in the child prompt, so per-server limiting is not
  * verifiable). An enabled plugin that injects MCP prose into a rendered Pi role therefore cannot
  * work there: direct, discovery and codemode access are all unavailable. Name each one.
+ * A (plugin, role) pair the navori knowledge tools cover (`knowledge-tools.ts`) is not diagnosed:
+ * the role reaches the plugin's read-only tools through them.
  */
-function mcpRoleDiagnostics(config: NavoriConfig, roles: ReadonlyArray<{ id: string }>): string[] {
+function mcpRoleDiagnostics(
+  config: NavoriConfig,
+  roles: ReadonlyArray<{ id: string }>,
+  grants: PiKnowledgeGrants,
+): string[] {
   const roleIds = new Set(roles.map((role) => role.id));
   const out: string[] = [];
   for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
     if (!plugin.manifest.mcpServer) continue;
     for (const skill of plugin.manifest.skills ?? []) {
       const role = skill.injectInto?.match(/^\.claude\/agents\/([a-z0-9-]+)\.md$/)?.[1];
-      if (role === undefined || !roleIds.has(role)) continue;
+      // A parent role runs in the parent session, where MCP is available.
+      if (role === undefined || !roleIds.has(role) || !isPiChildRole(role)) continue;
+      const covered = (PI_KNOWLEDGE_READONLY[plugin.manifest.id] ?? []).map(piKnowledgeToolName);
+      if (covered.some((name) => grants[role]?.includes(name))) continue;
       const tools = deriveMcpTools(plugin, skill.mcpTools).join(", ");
       out.push(
         `Pi role ${role} needs MCP tools from plugin ${plugin.manifest.id} (${tools}) but is unavailable for them in children: ` +
@@ -272,7 +294,7 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
       ? ownsPiManifest(content)
       : rel === EXTENSION
         ? ownsPiSource(content)
-        : agent !== undefined && Object.hasOwn(ROLE_TOOLS, agent) && ownsPiAgent(content, agent);
+        : agent !== undefined && isPiRenderedRole(agent) && ownsPiAgent(content, agent);
   if (owned) return "ours";
   const claimsNavori =
     content.includes('navori:managed-file id="pi-') ||
@@ -301,6 +323,8 @@ export function preparePiEngine(
   // Spec 0048 D13: the plugins Pi projects (the matrix may mark one native on Pi).
   const plugins = piLivePlugins(loadedPlugins.loaded);
   const pluginHooks = resolvePiPluginHooks(plugins);
+  // Read-only codegraph/engram tools per child role, derived from the same grants Claude renders.
+  const knowledgeGrants = piKnowledgeGrants(plugins);
   const bindings: readonly (PiHookBinding | PiPluginBinding)[] = [
     ...coreBindings,
     ...pluginHooks.bindings,
@@ -353,11 +377,11 @@ export function preparePiEngine(
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
   const admitted = (id: string): boolean =>
-    Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
+    isPiRenderedRole(id) && (id !== "scribe" || scribeOwnsMarkdown);
   const roles = plan.agents.filter((agent) => admitted(agent.id));
   warnings.push(
     ...plan.agents
-      .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
+      .filter((agent) => !isPiRenderedRole(agent.id))
       .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`),
   );
   if (!config.engines.includes("codex")) {
@@ -369,8 +393,9 @@ export function preparePiEngine(
     warnings.push(`Pi could not load plugin ${id}: ${reason}`);
   }
   warnings.push(...pluginHooks.warnings);
-  warnings.push(...mcpRoleDiagnostics(config, roles));
+  warnings.push(...mcpRoleDiagnostics(config, roles, knowledgeGrants));
   warnings.push(...mcpServerDiagnostics(cwd, config));
+  if (piMapMigrationPending(config)) warnings.push(PI_MAP_MIGRATION_WARNING);
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
     warnings.push(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
@@ -385,15 +410,21 @@ export function preparePiEngine(
     class: binding.class,
     interactive: binding.interactive,
     timeoutMs: binding.timeoutMs,
+    ...(binding.skipOnError ? { skipOnError: true } : {}),
   }));
   const permissions = collectShellPermissionRules(config, ctx.plugins);
   const serialized = serializePiManifest({
     schemaVersion: PI_MANIFEST_SCHEMA,
-    agents: roles.map((r) => r.id),
+    // Parent roles are rendered but never dispatchable, so the manifest does not list them.
+    agents: roles.filter((r) => isPiChildRole(r.id)).map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
       scribeOwnsMarkdown,
+      // Optional: emitted only for a non-default audit.mode so unset configs keep a byte-identical manifest.
+      ...(config.audit?.mode === "always" ? { auditMode: "always" as const } : {}),
+      // Optional: emitted only when `harness.sessionState` is false (#1579), same byte-identity rule.
+      ...(config.harness?.sessionState === false ? { sessionState: false as const } : {}),
     },
     hooks,
     // Whole-file destinations only; AGENTS.md and skills mix user text with managed blocks (marker lane).
@@ -405,7 +436,9 @@ export function preparePiEngine(
     ],
     permissionRules: { ask: permissions.ask, deny: permissions.deny },
   });
-  const extension = serializePiSource(renderPiExtensionSource(mcpPluginIds(config)));
+  const extension = serializePiSource(
+    renderPiExtensionSource(mcpPluginIds(config), knowledgeGrants),
+  );
   const resources: Array<{
     relPath: string;
     content: string;
@@ -423,28 +456,17 @@ export function preparePiEngine(
       config,
     );
     const tier = agent.modelKey ? config.models?.[agent.modelKey] : undefined;
-    // codexMap values may be a Codex family (resolved against the local catalog)
-    // or a full id (verbatim). The never-downgrade rule is Codex-specific (it
-    // reads a rendered .codex toml), so Pi resolves catalog-or-fallback only.
-    const mapped = tier ? config.models?.codexMap?.[tier] : undefined;
-    const resolved = tier && mapped ? resolveCodexModel(config, tier) : undefined;
-    const model =
-      resolved === undefined
-        ? undefined
-        : resolved.source === "pin"
-          ? resolved.model
-          : `openai-codex/${resolved.model}`;
-    if (tier && !mapped) {
-      warnings.push(
-        `Pi role ${agent.id} has a model tier but no concrete codexMap.${tier}; inheriting the selected Pi model.`,
-      );
-    }
+    // Pi has its own vocabulary: piMap[tier] is a provider/id emitted verbatim; no entry
+    // means no `model:` and the child inherits the parent Pi model. codexMap is never read.
+    const model = tier ? config.models?.piMap?.[tier] : undefined;
     const content = serializePiAgent({
       name: agent.id,
       description,
       ...(model ? { model } : {}),
-      tools: ROLE_TOOLS[agent.id]!,
-      instructions: instructions + rolePluginProse(agent.id, plugins, config),
+      tools: isPiChildRole(agent.id) ? piRoleTools(agent.id, knowledgeGrants) : [],
+      instructions:
+        prefixKnowledgeNames(instructions, agent.id, knowledgeGrants) +
+        rolePluginProse(agent.id, plugins, config, knowledgeGrants),
     });
     resources.push({
       relPath: `.pi/agents/${agent.id}.md`,
@@ -533,11 +555,7 @@ export function preparePiEngine(
   const removals: CollectedPlan["removals"] = [];
   if (existsSync(agentDir)) {
     for (const name of readdirSync(agentDir)) {
-      if (
-        !name.endsWith(".md") ||
-        desiredAgents.has(name) ||
-        !Object.hasOwn(ROLE_TOOLS, name.slice(0, -3))
-      )
+      if (!name.endsWith(".md") || desiredAgents.has(name) || !isPiRenderedRole(name.slice(0, -3)))
         continue;
       const path = join(agentDir, name);
       if (
@@ -665,10 +683,39 @@ export function preparePiEngine(
       // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
       // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
       // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
+      // Same AGENTS.md doctrine Codex writes when it owns the file (#1512): the orchestration
+      // block, the agent catalog and no skills index (Pi lists `.agents/skills` natively),
+      // in Pi's vocabulary, plus the project rules risk routing reads (critical areas).
+      const catalog = buildAgentsIndexBlock(
+        lang,
+        roles.map((agent) => ({
+          id: agent.id,
+          description: compactAgentDescription(
+            interpolate(
+              parseAsset(readFileSync(agent.assetPath, "utf-8"), "html").frontmatter.description ??
+                agent.id,
+              config,
+            ),
+          ),
+        })),
+        { withIntro: false },
+      );
+      const projectContext = buildContextoProyectoBody(config, lang);
       const context = renderAgentsMdEngine(cwd, config, {
         ...options,
+        engine: "pi",
+        includeOrchestration: true,
         includePluginBlocks: true,
-        extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
+        omitSkillsIndex: true,
+        // The adapter rewrites navori's asset text before interpolation, so the user's
+        // `project.*` values (e.g. critical areas in the routing line) stay verbatim.
+        transform: adaptHarnessTextForPi,
+        extendBody: (body) =>
+          extendWithOrchestratorBlocks(
+            [body, projectContext, catalog].filter((part) => part !== null).join("\n"),
+            plugins,
+            config,
+          ),
       });
       return {
         written: [...result.written, ...context.written],

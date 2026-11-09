@@ -150,14 +150,14 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
   it("substitutes the critical-areas fallback in the R2-architectural signal list", () => {
     // The exact sentence the bug rendered as "· a `` area ·".
     expect(doctrine(render(CLAUDE, {}))).toContain(
-      "a critical area (`auth, permissions, payments, data integrity`)",
+      "critical areas (`auth, permissions, payments, data integrity`)",
     );
   });
 
   it("still prefers the configured value over the fallback", () => {
     const rendered = doctrine(render(CLAUDE, { criticalAreas: ["src/auth", "src/billing"] }));
-    expect(rendered).toContain("a critical area (`src/auth, src/billing`)");
-    expect(rendered).not.toContain("a critical area (`auth, permissions");
+    expect(rendered).toContain("critical areas (`src/auth, src/billing`)");
+    expect(rendered).not.toContain("critical areas (`auth, permissions");
   });
 });
 

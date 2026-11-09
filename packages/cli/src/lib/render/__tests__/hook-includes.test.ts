@@ -202,6 +202,16 @@ describe("every shared partial is consumed and covered by a core hook", () => {
       file: "lib/__tests__/guard-destructive.test.ts",
       title: "inert content — written text vs executed text (#462)",
     },
+    "pii-egress": {
+      hook: "pii-egress-guard",
+      file: "lib/__tests__/pii-egress-guard.test.ts",
+      title: "blocks a WebFetch url and a WebSearch query, never echoing them",
+    },
+    "pii-egress-bash": {
+      hook: "guard-destructive",
+      file: "lib/__tests__/pii-egress-guard.test.ts",
+      title: "blocks the git email in a curl User-Agent",
+    },
     "progress-ratchet": {
       hook: "guard-destructive",
       file: "lib/__tests__/guard-destructive-progress.test.ts",

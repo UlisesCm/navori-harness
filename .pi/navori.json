@@ -1,14 +1,13 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "bcf59132cd1e71db84b91ace3b7068ba7c00090748b865c1720a7cafc3ffb0e0"
+    "hash": "2bd949836e7dfab75e579da2704cf7b6ea7afc8d3e774983e27f39d37ab89448"
   },
   "schemaVersion": 2,
   "agents": [
     "architect",
     "auditor",
     "implementer",
-    "publisher",
     "reviewer",
     "scout",
     "scribe"
@@ -16,7 +15,8 @@
   "controls": {
     "planTiers": true,
     "masterPlan": false,
-    "scribeOwnsMarkdown": true
+    "scribeOwnsMarkdown": true,
+    "sessionState": false
   },
   "hooks": [
     {
@@ -68,18 +68,6 @@
       "timeoutMs": 10000
     },
     {
-      "script": "master-accept-confirm",
-      "path": ".pi/navori/hooks/master-accept-confirm.sh",
-      "on": "tool_call",
-      "tools": [
-        "bash"
-      ],
-      "scope": "all",
-      "class": "enforced",
-      "interactive": true,
-      "timeoutMs": 10000
-    },
-    {
       "script": "subagent-no-background",
       "path": ".pi/navori/hooks/subagent-no-background.sh",
       "on": "tool_call",
@@ -120,6 +108,22 @@
       "timeoutMs": 10000
     },
     {
+      "script": "routing-watch",
+      "path": ".pi/navori/hooks/routing-watch.sh",
+      "on": "tool_result",
+      "tools": [
+        "bash",
+        "edit",
+        "write",
+        "navori_subagent"
+      ],
+      "scope": "parent",
+      "class": "advisory",
+      "interactive": false,
+      "timeoutMs": 10000,
+      "skipOnError": true
+    },
+    {
       "script": "worktree-reclaim",
       "path": ".pi/navori/hooks/worktree-reclaim.sh",
       "on": "session_shutdown",
@@ -153,9 +157,9 @@
     ".pi/navori/hooks/guard-destructive.sh",
     ".pi/navori/hooks/implementer-no-markdown.sh",
     ".pi/navori/hooks/managed-drift-watch.sh",
-    ".pi/navori/hooks/master-accept-confirm.sh",
     ".pi/navori/hooks/pr-publisher-confirm.sh",
     ".pi/navori/hooks/quality-gate-pre-commit.sh",
+    ".pi/navori/hooks/routing-watch.sh",
     ".pi/navori/hooks/subagent-no-background.sh",
     ".pi/navori/hooks/worktree-reclaim.sh"
   ],

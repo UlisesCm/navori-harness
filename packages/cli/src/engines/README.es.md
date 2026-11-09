@@ -97,7 +97,7 @@ método de la Spec 0004 §Fase 0 para Codex):
    (Claude: `.claude/settings.json`; Codex: `.codex/config.toml`.)
 4. **Mapa de modelos** — ¿cómo nombra sus modelos? Mapea los tiers Claude
    (opus/sonnet/haiku) a ids concretos (ver `CODEX_MODEL_BY_CLAUDE_TIER` +
-   override `models.codexMap`, Spec 0007 M3).
+   override `models.codexMap`, Spec 0007 M3). Pi tiene su propio `models.piMap` (`provider/id`); un motor no debe leer el mapa de modelos de otro motor.
 
 ## Criterio DT-2 — cuándo factorizar más (regla de tres)
 

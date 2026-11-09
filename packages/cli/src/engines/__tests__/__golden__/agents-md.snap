@@ -75,34 +75,17 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 **Audit mode on request**: if the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as the FIRST action of that turn — before loading skills or starting any pipeline — and confirm the log path it prints. The phrase never activates anything by itself (by design); the command is the only switch. If the injected context already says audit-mode is ACTIVE (armed via `navori audit --arm` — which also applies to a RUNNING session on its next message), it is running — do not start it again, and never tell the user to close and reopen the session for this.
 
-## Session closeout
-
-Before closing the session:
-
-1. **Quality gate**: run `navori receipt check --feature <feature> --include-consumed --json`. `"status":"ok"` and `"fresh":true` → cite the receipt as evidence, no re-run needed. Any other result → run navori gate full again (or document debt in `progress/current.md`).
-2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
-3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step. It holds only current state and next step (≤ ~4000 bytes); checkpoints and narrative go to `progress/history.md` (step 2). Agent commits growing it past ~8000 bytes are blocked.
-4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Commit**: atomic, in the configured style (`conventional-es`), landing inside the work PR before it opens — never a `progress/`-only PR; `history.md` can't cite it. No work PR → commit `progress/` alone.
-6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
-   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `follow-up-prs`.
-   - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
-   - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
-   - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
-
-**Lean close** — the conditions are verifiable, so this is not a judgment call: the session covered **one** user task and touched no critical area (`auth, permissions, payments, data integrity`). Both hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
-
 ## Spec Driven Development (SDD)
 
-**Functional deliveries:** independently usable capabilities AND thresholds; runtime consumers/executable acceptance required. `prCount`≠proof.
+**When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a form field, isolated refactors or copy tweaks go straight in. SDD is a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 
-**When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
+**One page, one vertical slice:** `specs/<feature>/spec.md` — one actor reaches an observable outcome across every layer it needs; behavior, not implementation. `navori spec check` validates it.
 
-**Structure:** `specs/<feature>/{requirements.md, design.md, tasks.md}` — EARS requirements with id `R<n>`, a design with decisions and trade-offs, and `tasks.md` in deliveries `E<n>` (one PR each), milestones `M<n>` (each verified and committed) and tasks `T<n>` that declare the `R<n>` they cover. Each `R<n>` is covered by ≥1 test that references it (`// Covers: R<n>`); without full traceability the feature is not done.
+**Done = accepted:** a human runs the spec's acceptance script on the real surface where the outcome is observable (the deployed app, the built binary — whatever the project ships) and approves it, AND the happy-path E2E passes against that same surface, without mocks. Unit and integration tests are quality, not acceptance; `prCount` ≠ proof.
 
-**Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
+**The spec's task list is the board:** do NOT mirror it in a separate task list.
 
-Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`: propose SDD; it scaffolds once accepted, via prose or `/spec-bootstrap`.
+Templates and rules live in `spec-bootstrap`; the work is routed like any other change, by `navori plan classify` (`planificacion`) and `orquestacion`, not by a fixed agent chain.
 
 ## Tickets: problem first, proposed solution second
 

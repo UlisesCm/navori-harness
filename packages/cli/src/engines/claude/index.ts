@@ -68,6 +68,7 @@ import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { forcedManagedFileContent, renderManagedFile } from "../shared/render-managed-file.ts";
 import { applyHookExtension, removeHookExtension } from "../shared/hook-extension.ts";
 import { interpolate, sanitizeProjectValue } from "../../lib/render/interpolate.ts";
+import { buildContextoProyectoBody } from "../shared/project-context.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { benchMark } from "../../lib/primitives/bench.ts";
 import { stripFrontmatter } from "../../lib/render/frontmatter.ts";
@@ -80,7 +81,13 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
-import { resolveHarnessPlan, type HarnessPlan, type PlannedSkill } from "../shared/harness-plan.ts";
+import {
+  GATED_HOOK_PREDICATES,
+  GATED_WORKFLOW_SKILL_FLAGS,
+  resolveHarnessPlan,
+  type HarnessPlan,
+  type PlannedSkill,
+} from "../shared/harness-plan.ts";
 import {
   OVERLAP_ROWS,
   filterInventory,
@@ -235,7 +242,19 @@ const ORCHESTRATOR_CONTEXT_ORDER: Readonly<Record<string, number>> = {
   orquestacion: 10,
   "agentes-disponibles": 20,
   "arranque-sesion": 30,
-  "cierre-sesion": 40,
+};
+
+/**
+ * Context files of blocks that no longer ship, by marker id → bare filenames
+ * under `.claude/context/`. Render only visits ids still in the plan, so a
+ * dropped block's file would otherwise linger in every onboarded repo and keep
+ * reaching the SessionStart hook's glob. Removal uses the same criterion and
+ * backup channel as `blocks.exclude` (marker id match, not newer-stamped).
+ * The list is never aged out: it runs on every render.
+ * `cierre-sesion` (#1455): its doctrine now lives in `verify-before-done`.
+ */
+const RETIRED_CONTEXT_FILES: Readonly<Record<string, readonly string[]>> = {
+  "cierre-sesion": ["40-cierre-sesion.md", "cierre-sesion.md"],
 };
 
 /** `orquestacion` → `10-orquestacion.md`; unknown ids → `90-<id>.md`. Zero-padded
@@ -421,82 +440,6 @@ function buildContextoMonorepoBody(
   return lines.join("\n");
 }
 
-/**
- * Turn the init questionnaire answers (project.* posture, review rigor,
- * architecture rule, critical areas, tests policy) into ACTIVE rules the
- * agents follow — not user-section hints. Returns null when nothing is set so
- * the block is stripped rather than rendered empty.
- */
-function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | null {
-  // Read straight off the schema type: an `?? {}` fallback would widen `proj`
-  // to a union with `{}` and lose every declared key.
-  const proj = config.project;
-  const t = tc(lang).blocks.projectContext;
-  const rows: string[] = [];
-
-  const posture = proj?.posture;
-  if (posture === "greenfield") {
-    rows.push(t.stageGreenfield);
-  } else if (posture === "production") {
-    rows.push(t.stageProduction);
-  } else if (posture === "migration") {
-    rows.push(t.stageMigration);
-  }
-
-  const migrations = proj?.libraryMigrations ?? [];
-  for (const m of migrations) {
-    // project.* is untrusted config (checked-in, editable via PR) landing inside
-    // a trusted managed block — sanitize so it can't inject doctrine or forge a
-    // marker to corrupt the region (#198).
-    const domain = sanitizeProjectValue(m.domain);
-    const preferred = sanitizeProjectValue(m.preferred);
-    const legacy = sanitizeProjectValue(m.legacy);
-    rows.push(t.migrationRow(domain, preferred, legacy));
-  }
-
-  const rigor = proj?.reviewRigor;
-  if (rigor === "strict") {
-    rows.push(t.rigorStrict);
-  } else if (rigor === "pragmatic") {
-    rows.push(t.rigorPragmatic);
-  }
-
-  const arch = sanitizeProjectValue(proj?.architectureRule ?? "");
-  if (arch) {
-    rows.push(t.architecture(arch));
-  }
-
-  const critical = (proj?.criticalAreas ?? [])
-    .map((c) => sanitizeProjectValue(c))
-    .filter((c) => c !== "");
-  if (critical.length > 0) {
-    rows.push(t.criticalAreas(critical.join(", ")));
-  }
-
-  const tests = proj?.testsForNewCode;
-  if (tests === "always") {
-    rows.push(t.testsAlways);
-  } else if (tests === "when-applicable") {
-    rows.push(t.testsWhenApplicable);
-  } else if (tests === "none") {
-    rows.push(t.testsNone);
-  }
-
-  // #529: the exclusion only means something next to a policy that demands
-  // tests. Under `none` there is nothing to carve out, and printing it there
-  // would read as a second, contradictory rule.
-  if (tests === "always" || tests === "when-applicable") {
-    const excluded = (proj?.testsExclude ?? [])
-      .map((e) => sanitizeProjectValue(e))
-      .filter((e) => e !== "");
-    if (excluded.length > 0) rows.push(t.testsExclude(excluded.join(", ")));
-  }
-
-  if (rows.length === 0) return null;
-
-  return [t.heading, "", t.intro, "", ...rows, ""].join("\n");
-}
-
 /** Retain Claude placements and composition until the target union is sealed. */
 export function prepareClaudeEngine(
   cwd: string,
@@ -679,6 +622,15 @@ export function prepareClaudeEngine(
       pending,
       skipped,
     );
+  }
+
+  if (!trimmedHarness) {
+    for (const [id, names] of Object.entries(RETIRED_CONTEXT_FILES)) {
+      for (const name of names) {
+        const path = join(cwd, ORCHESTRATOR_CONTEXT_DIR, name);
+        if (existsSync(path) && isRemovableNavoriFile(path, id)) removals.push({ path });
+      }
+    }
   }
 
   // 1b. Skills index — retired from the Claude render (#1273): the main session
@@ -1016,8 +968,10 @@ export function prepareClaudeEngine(
   // 5. progress/ bootstrap (one-shot, never overwritten). Not under `root`: that
   // workspace holds its context file and nothing else, and the root keeps the
   // session state (spec 0043 R4).
-  if (!rootScope) inspected += 2;
-  if (!rootScope)
+  // `harness.sessionState: false` (#1579) opts the repo out of the progress/ files.
+  const sessionState = config.harness?.sessionState !== false;
+  if (!rootScope && sessionState) inspected += 2;
+  if (!rootScope && sessionState)
     applyBootstrapPlan(
       planBootstrapFile({
         cwd,
@@ -1028,7 +982,7 @@ export function prepareClaudeEngine(
       cwd,
       pending,
     );
-  if (!rootScope)
+  if (!rootScope && sessionState)
     applyBootstrapPlan(
       planBootstrapFile({
         cwd,
@@ -1565,6 +1519,92 @@ export function prepareClaudeEngine(
       warnings,
       claudeMdPath,
     });
+
+    // 8.7f. Units gated behind an opt-in flag (#1484). Claude Code discovers
+    // skills/agents by walking the directory, so a unit whose flag is off must
+    // not linger from a render that had it on. Same registry-driven shape as
+    // §8.7b-d (a static list, never a directory scan), `localSkills` skipped.
+    {
+      const flagsOn: NavoriConfig = {
+        ...config,
+        harness: {
+          ...config.harness,
+          planTiers: true,
+          authoring: true,
+          scribeOwnsMarkdown: true,
+          masterPlan: true,
+        } as NavoriConfig["harness"],
+        hooks: { verifyOnStop: false, ...config.hooks, modelAdvisor: true, auditMode: true },
+      };
+      const pristineFor = (
+        assetPath: string,
+        managedId: string,
+        commentStyle: "html" | "shell",
+      ): { expected: string } => ({
+        expected: renderManagedFile({
+          assetPath,
+          existingContent: null,
+          managedId,
+          meta: CORE_META,
+          config: effectiveConfig(flagsOn),
+          commentStyle,
+          engine: "claude",
+        }).content,
+      });
+      const queue = (candidates: readonly (PendingRemoval | null)[]): void => {
+        for (const removal of candidates) {
+          if (removal && !removals.some((r) => r.path === removal.path)) removals.push(removal);
+        }
+      };
+      const retired = (id: string): { id: string; successor: null } => ({ id, successor: null });
+
+      for (const id of Object.keys(GATED_WORKFLOW_SKILL_FLAGS)) {
+        if (fullHarnessPlan.skills.some((s) => s.id === id) || localSkillIds.has(id)) continue;
+        const pristine = pristineFor(join(coreAssets, "skills", `${id}.md`), id, "html");
+        queue([
+          planFlatSkillRemoval(cwd, id, id, pristine),
+          planDirSkillRemoval(cwd, id, id, pristine),
+        ]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/skills", `${id}.md`), join(cwd, ".claude/skills", id, "SKILL.md")],
+          id,
+          retired(id),
+          pristine,
+        );
+      }
+      for (const id of Object.keys(GATED_HOOK_PREDICATES)) {
+        if (fullHarnessPlan.hooks.some((h) => h.id === id)) continue;
+        const markerId = `${id}-base`;
+        const pristine = pristineFor(join(coreAssets, "hooks", `${id}.sh`), markerId, "shell");
+        queue([planRetiredHookRemoval(cwd, id, markerId, pristine)]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/hooks", `${id}.sh`)],
+          markerId,
+          retired(id),
+          pristine,
+        );
+      }
+      if (!fullHarnessPlan.agents.some((a) => a.id === "scribe")) {
+        const pristine = pristineFor(
+          join(coreAssets, "agents", "scribe.md"),
+          "scribe-base",
+          "html",
+        );
+        queue([planRetiredAgentRemoval(cwd, "scribe", "scribe-base", pristine)]);
+        reportKeptRetired(
+          warnings,
+          cwd,
+          [join(cwd, ".claude/agents", "scribe.md")],
+          "scribe-base",
+          retired("scribe"),
+          pristine,
+        );
+      }
+    }
 
     // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
     // every Claude skill as `.claude/skills/<id>/SKILL.md` (the shape Claude Code
@@ -2267,6 +2307,35 @@ export function buildDesiredMcpServers(
   return desired;
 }
 
+/** The keys `buildDesiredMcpServers` emits for a server: navori's to set and to drop. */
+const NAVORI_MCP_ENTRY_KEYS: ReadonlySet<string> = new Set([
+  "command",
+  "args",
+  "env",
+  "alwaysLoad",
+]);
+
+/**
+ * The entry a navori plugin's server gets: navori's keys from `desired`, every other key the file
+ * already carried kept in place (#1448). A host adds its own switches inside the entry (pi's
+ * `directTools`); replacing the entry wholesale deleted them on every render and left the mirror
+ * permanently "stale" in that host. Navori keys keep their position, a navori key `desired` no
+ * longer has (an `env` that went away, `alwaysLoad` turned off) is dropped, and new ones go last.
+ */
+function mergeServerEntry(
+  existing: unknown,
+  desired: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!isPlainObject(existing)) return desired;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(existing)) {
+    if (!NAVORI_MCP_ENTRY_KEYS.has(key)) out[key] = value;
+    else if (key in desired) out[key] = desired[key];
+  }
+  for (const [key, value] of Object.entries(desired)) if (!(key in out)) out[key] = value;
+  return out;
+}
+
 export function planMcpRegistration(
   cwd: string,
   enabledPlugins: LoadedPlugin[],
@@ -2313,7 +2382,7 @@ export function planMcpRegistration(
   for (const plugin of disabledPlugins) {
     if (plugin.manifest.mcpServer) delete servers[plugin.manifest.id];
   }
-  for (const [id, entry] of desired) servers[id] = entry;
+  for (const [id, entry] of desired) servers[id] = mergeServerEntry(servers[id], entry);
 
   // No file yet and nothing to register → don't create an empty `.mcp.json`.
   if (existing === null && Object.keys(servers).length === 0) return { kind: "noop" };
@@ -2553,7 +2622,12 @@ function composeSubBlock(
   skill: LoadedPlugin["skillAssets"][number],
   config: NavoriConfig,
 ): { result: InjectResult; finalContent: string; source: string } {
-  const skillBody = stripFrontmatter(readFileSync(skill.absPath, "utf-8"));
+  // `navori:if` markers resolve here like on Codex and Pi (engine "claude"); a skill without any
+  // marker comes out byte-identical, so existing sub-blocks do not move.
+  const skillBody = conditionOrchestration(
+    stripFrontmatter(readFileSync(skill.absPath, "utf-8")),
+    config,
+  );
   const interpolated = interpolate(skillBody, config, {
     extraVars: pluginExtraVars(config),
   });

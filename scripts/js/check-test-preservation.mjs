@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
  * `origin/dev`, then `dev`) and compares case count, the set of `// Covers:` tokens and, for a
  * merge, the literal baseline. A removal must be declared in `test-preservation.config.json`:
  * `files[].removedCases` (`{ title, reason }`, the reason is mandatory) or `merges[]` (cases moved
- * between files). Static analysis only: it never runs the suite.
+ * between files). A `Covers:` token a kept file drops on purpose is declared in
+ * `files[].removedCovers` (`{ token, reason }`, the reason is mandatory). Static analysis only: it
+ * never runs the suite.
  *
  * Usage: node scripts/js/check-test-preservation.mjs [--base <ref>] [--config <path>]
  */
@@ -69,10 +71,17 @@ export function coversSet(text) {
 /**
  * Compares one rewritten file (or a merge) with its baseline text(s).
  *
- * @param {{ label: string, baseTexts: string[], nowText: string, removedCases?: string[], rowIds?: boolean }} input
+ * @param {{ label: string, baseTexts: string[], nowText: string, removedCases?: string[], removedCovers?: string[], rowIds?: boolean }} input
  * @returns {string[]} violations, empty when preserved
  */
-export function compareFile({ label, baseTexts, nowText, removedCases = [], rowIds = false }) {
+export function compareFile({
+  label,
+  baseTexts,
+  nowText,
+  removedCases = [],
+  removedCovers = [],
+  rowIds = false,
+}) {
   const violations = [];
   const baseCount = baseTexts.reduce((sum, text) => sum + countCases(text), 0);
   const nowCount = countCases(nowText, { rowIds });
@@ -83,7 +92,7 @@ export function compareFile({ label, baseTexts, nowText, removedCases = [], rowI
   }
   const nowCovers = coversSet(nowText);
   for (const token of new Set(baseTexts.flatMap((text) => [...coversSet(text)]))) {
-    if (!nowCovers.has(token)) violations.push(`${label}: lost "Covers: ${token}"`);
+    if (!nowCovers.has(token) && !removedCovers.includes(token)) violations.push(`${label}: lost "Covers: ${token}"`);
   }
   if (removedCases.length > 0) {
     const nowTitles = caseTitles(nowText);
@@ -96,6 +105,26 @@ export function compareFile({ label, baseTexts, nowText, removedCases = [], rowI
       if (nowTitles.has(title))
         violations.push(`${label}: "${title}" is listed as removed but still exists`);
     }
+  }
+  return violations;
+}
+
+/**
+ * Checks every declared `Covers:` drop names its token and carries a non-empty reason.
+ *
+ * @param {string} label
+ * @param {unknown[] | undefined} entries `{ token, reason }` objects
+ * @returns {string[]} violations
+ */
+export function removedCoversViolations(label, entries = []) {
+  const violations = [];
+  for (const entry of entries) {
+    const token = entry && typeof entry === "object" ? entry.token : undefined;
+    const reason = entry && typeof entry === "object" ? entry.reason : undefined;
+    if (typeof token !== "string" || token === "")
+      violations.push(`${label}: removedCovers entries must be { token, reason }`);
+    else if (typeof reason !== "string" || reason.trim() === "")
+      violations.push(`${label}: removed Covers "${token}" has no reason`);
   }
   return violations;
 }
@@ -161,7 +190,7 @@ export function parseNameStatus(output) {
  * Pure core: compares every changed/deleted test against its baseline.
  *
  * @param {{
- *   config: { files?: { path: string, rowIds?: boolean, removedCases?: unknown[] }[], merges?: { into: string, from: string[], reason?: string, countRowIds?: boolean, removedCases?: unknown[], literalBaseline?: { path: string, positive: number, negative: number, equivalenceCase: string } }[] },
+ *   config: { files?: { path: string, rowIds?: boolean, removedCases?: unknown[], removedCovers?: unknown[] }[], merges?: { into: string, from: string[], reason?: string, countRowIds?: boolean, removedCases?: unknown[], literalBaseline?: { path: string, positive: number, negative: number, equivalenceCase: string } }[] },
  *   changes: { modified: string[], deleted: string[] },
  *   readBase: (path: string) => string | null,
  *   readNow: (path: string) => string | null,
@@ -175,8 +204,10 @@ export function checkPreservation({ config, changes, readBase, readNow }) {
   const absorbed = new Set(merges.flatMap((merge) => merge.from));
   const titlesOf = (entries = []) =>
     entries.map((entry) => (entry && typeof entry === "object" ? entry.title : entry));
-  for (const file of files)
+  for (const file of files) {
     violations.push(...removalReasonViolations(file.path, file.removedCases));
+    violations.push(...removedCoversViolations(file.path, file.removedCovers));
+  }
   for (const merge of merges) {
     if (typeof merge.reason !== "string" || merge.reason.trim() === "")
       violations.push(`${merge.into}: merge has no reason`);
@@ -233,6 +264,9 @@ export function checkPreservation({ config, changes, readBase, readNow }) {
         baseTexts: [base],
         nowText: now,
         removedCases: titlesOf(entry?.removedCases),
+        removedCovers: (entry?.removedCovers ?? []).map((item) =>
+          item && typeof item === "object" ? item.token : item,
+        ),
         rowIds: entry?.rowIds,
       }),
     );

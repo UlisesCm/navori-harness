@@ -13,6 +13,7 @@ function config(): NavoriConfig {
     engines: ["claude"],
     preset: "custom",
     branchBase: "main",
+    hooks: { modelAdvisor: true },
     qualityGate: { fast: "bun lint", full: "bun test" },
     models: { implementer: "sonnet" },
     effort: { implementer: "medium" },

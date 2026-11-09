@@ -1,8 +1,34 @@
 {
   "baseRef": "origin/dev",
   "files": [
-    { "path": "packages/cli/src/lib/master/__tests__/slice.test.ts" },
-    { "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts" },
+    {
+      "path": "packages/cli/src/__tests__/ci-workflow.test.ts",
+      "removedCases": [
+        {
+          "title": "a full label added after opening starts the suite and other labels start nothing (#1551)",
+          "reason": "Renamed by #1562: a run for another label now repeats checks instead of skipping it, so the title says other labels only repeat checks."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/core-templates.test.ts",
+      "removedCases": [
+        {
+          "title": "references the gateRun.full placeholder",
+          "reason": "The cierre-sesion managed block was retired (#1455); its gate step now lives in verify-before-done, which uses the plain gate placeholders."
+        },
+        {
+          "title": "does not wrap the qualityGate placeholder in backticks",
+          "reason": "The cierre-sesion managed block was retired (#1455); the asset that carried this placeholder no longer exists."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/master/__tests__/slice.test.ts"
+    },
+    {
+      "path": "packages/cli/src/lib/plan/__tests__/escalation.test.ts"
+    },
     {
       "path": "packages/cli/src/__tests__/cli.e2e.test.ts",
       "removedCases": [
@@ -29,6 +55,10 @@
         {
           "title": "render --workspace falla con mensaje claro cuando el nombre no matchea",
           "reason": "dropped by spec 0054 (cli.e2e rewrite, T13)"
+        },
+        {
+          "title": "bench reports percentiles over N runs (spec 0003 §3.5.4)",
+          "reason": "#1484: the `bench` subcommand was removed; NAVORI_BENCH and the bench:* scripts stay"
         }
       ]
     },
@@ -45,7 +75,98 @@
         }
       ]
     },
-    { "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts" }
+    {
+      "path": "packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts"
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/always-on-delta-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "spec-bootstrap offers it as an optional, rare spec artifact",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "the method is RED/GREEN over one isolated variable, with evidence",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "it lives in the spec because that is what survives the session",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        },
+        {
+          "title": "optional stays optional: traceability is still tasks and tests",
+          "reason": "the evals.md artifact was dropped from spec-bootstrap (one-page spec.md doctrine)"
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/analysis-cascade-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "the lookup ships with a row per decision, not a paragraph per mechanism",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "every mechanism it routes into is still reachable from the always-on layer",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "the architectural signals moved into the table and are not restated below it",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "the SDD row points at the block that owns the threshold instead of restating it",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/commit-pr-pilot-contract.test.ts",
+      "removedCases": [
+        {
+          "title": "lee la región de la excepción",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "nombra los dos casos de imposibilidad, no una categoría vaga",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "exige el gate completo al pilot, porque no hay review en que confiar",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "exige la traza en el PR — es lo que la vuelve contable",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "declara explícitamente que no hay conteo, para que no vuelva en silencio",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/handoff-wiring.test.ts",
+      "removedCases": [
+        {
+          "title": "does not require an implementation handoff before its first producer exists",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/lib/__tests__/protocol-coherence.test.ts",
+      "removedCases": [
+        {
+          "title": "the pilot owns the PR side of the delegation rule",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        },
+        {
+          "title": "orquestacion apunta a esa excepción con una sola redacción",
+          "reason": "Risk routing replaces the every-change-through-implementer-reviewer rule; the pinned phrase no longer exists in the orchestration/publisher assets (orquestacion-por-riesgo, #1467)."
+        }
+      ]
+    }
   ],
   "merges": [
     {
@@ -60,10 +181,11 @@
       ],
       "literalBaseline": {
         "path": "packages/cli/src/__tests__/fixtures/doctrine-literals.baseline.json",
-        "positive": 114,
-        "negative": 43,
+        "positive": 97,
+        "negative": 42,
         "equivalenceCase": "cada token afirmado antes de la fusión sigue afirmado"
-      }
+      },
+      "removedCases": []
     }
   ]
 }

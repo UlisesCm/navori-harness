@@ -191,11 +191,39 @@ describe("PI_PARITY rows", () => {
   });
 
   // Covers: R1
-  it("keeps routing-watch declared with its evaluation and model-advisor unsupported", () => {
-    const routing = PI_PARITY["hook:routing-watch"] as PiDirectParity;
-    expect(routing.state).toBe("unsupported");
-    expect(routing.mechanism).toContain("Probe");
-    expect((PI_PARITY["hook:model-advisor"] as PiDirectParity).state).toBe("unsupported");
+  it("promotes routing-watch to advisory and keeps model-advisor unsupported with its real reason", () => {
+    const routing = PI_PARITY["hook:routing-watch"] as PiDirectParity & { evidence?: string };
+    expect(routing.state).toBe("advisory");
+    expect(routing.evidence).toBe("pi-extension:tool_result");
+    const advisor = PI_PARITY["hook:model-advisor"] as PiDirectParity;
+    expect(advisor.state).toBe("unsupported");
+    expect(advisor.mechanism).toContain("model_select");
+  });
+
+  // Covers: R1
+  it("codegraph and engram role skills are advisory ceilings, honest about bash and a stale index", () => {
+    const keys = [
+      ...["implementer", "reviewer", "auditor", "architect"].map((role) =>
+        piParityKey("plugin-skill", `codegraph/codegraph-access-v2-${role}`),
+      ),
+      ...["implementer", "reviewer", "auditor"].map((role) =>
+        piParityKey("plugin-skill", `engram/engram-${role}-extension`),
+      ),
+    ];
+    for (const key of keys) {
+      const row = PI_PARITY[key] as PiDirectParity;
+      expect(row.state, key).toBe("advisory");
+      expect(row.evidence, key).toBe("render:plugin-projection");
+      expect(row.mechanism, key).toContain("navori_");
+      expect(row.boundary, key).toContain("not isolation");
+      expect(row.boundary, key).toContain("bash still reaches");
+      expect(row.boundary, key).toContain("stale");
+      expect(row.boundary, key).toContain("gentle-engram");
+    }
+    // The write-guard stays Codex-only and says why, without claiming isolation.
+    expect((PI_PARITY["hook:engram-write-guard"] as PiDirectParity).boundary).toContain(
+      "bash still reaches",
+    );
   });
 
   // Covers: R1

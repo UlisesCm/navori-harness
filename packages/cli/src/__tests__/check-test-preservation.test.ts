@@ -193,6 +193,24 @@ describe("check-test-preservation", () => {
   });
 
   // Covers: R21
+  it("una etiqueta Covers perdida pasa solo si removedCovers la declara con motivo", () => {
+    const base = ["// Covers: R1", "// Covers: R2", 'it("a", () => {});'].join("\n");
+    const run = (removedCovers?: unknown[]) =>
+      checkPreservation({
+        config: { files: [{ path: "x/y.test.ts", ...(removedCovers ? { removedCovers } : {}) }] },
+        changes: { modified: ["x/y.test.ts"], deleted: [] },
+        readBase: files({ "x/y.test.ts": base }),
+        readNow: files({ "x/y.test.ts": ONE }),
+      });
+    expect(run()).toEqual(['x/y.test.ts: lost "Covers: R2"']);
+    expect(run([{ token: "R2", reason: "requirement retired by its spec" }])).toEqual([]);
+    expect(run([{ token: "R2", reason: " " }])).toEqual([
+      'x/y.test.ts: removed Covers "R2" has no reason',
+    ]);
+    expect(run(["R2"])).toContain("x/y.test.ts: removedCovers entries must be { token, reason }");
+  });
+
+  // Covers: R21
   it("un archivo borrado exige removedCases o una fusión que lo absorba", () => {
     const run = (config: Record<string, unknown>, now: string) =>
       checkPreservation({

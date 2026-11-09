@@ -98,12 +98,12 @@ describe("master-plan canonical prose rendering", () => {
       const expectedNotice = canonical
         .slice(canonical.indexOf("## Aviso de inicio"), canonical.indexOf("## Mensaje de fase"))
         .replace(
-          /<!-- navori:if-not onCodex -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+          /<!-- navori:if onClaude -->([\s\S]*?)<!-- \/navori:if -->/g,
           engine === "claude" ? "$1" : "",
         )
         .replace(
-          /<!-- navori:if onCodex -->([\s\S]*?)<!-- \/navori:if -->/g,
-          engine === "codex" ? "$1" : "",
+          /<!-- navori:if-not onClaude -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+          engine === "claude" ? "" : "$1",
         );
       expect(expectedNotice).toContain("Solo para la primera etapa");
       expect(expectedNotice).not.toContain("<!-- navori:if");
@@ -137,8 +137,9 @@ describe("master-plan managed context (spec 0034 T11)", () => {
 
     renderClaudeEngine(cwd, closed);
     const settings = readFileSync(join(cwd, ".claude/settings.json"), "utf8");
+    // #1484: closing the stage prunes the pristine scripts too.
     for (const script of scripts) {
-      expect(existsSync(join(cwd, `.claude/hooks/${script}.sh`))).toBe(true);
+      expect(existsSync(join(cwd, `.claude/hooks/${script}.sh`))).toBe(false);
       expect(settings).not.toContain(`${script}.sh`);
     }
   });

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { conditionOrchestration } from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Sanity checks for the agent assets shipped with @navori/core.
@@ -258,14 +260,17 @@ describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => 
   });
 
   // Covers: R22
-  it.each(["implementer", "reviewer"])("%s maxWords is its measured count times 1.05", (id) => {
-    const parsed = parseAsset(readAgent(id));
-    const cap = Number(parsed.frontmatter.maxWords);
-    const managed = parsed.body.slice(0, parsed.body.indexOf(SENTINEL));
-    const words = managed.trim().split(/\s+/).filter(Boolean).length;
-    // Spec 0052 (M15 reviewer, M16 implementer): the ceiling is measured × 1.05, rounded up.
-    expect(cap).toBe(Math.ceil(words * 1.05));
-  });
+  it.each(["implementer", "reviewer", "auditor"])(
+    "%s maxWords is its measured count times 1.05",
+    (id) => {
+      const parsed = parseAsset(readAgent(id));
+      const cap = Number(parsed.frontmatter.maxWords);
+      const managed = parsed.body.slice(0, parsed.body.indexOf(SENTINEL));
+      const words = managed.trim().split(/\s+/).filter(Boolean).length;
+      // Spec 0052 (M15 reviewer, M16 implementer): the ceiling is measured × 1.05, rounded up.
+      expect(cap).toBe(Math.ceil(words * 1.05));
+    },
+  );
 });
 
 // Covers: R41
@@ -288,6 +293,10 @@ describe("core agent assets — interpolation placeholders", () => {
 
   it("publisher opens PRs against prTarget (gh pr create --base)", () => {
     expect(readAgent("publisher")).toContain("--base {{prTarget}}");
+  });
+
+  it("publisher never stages a path git ignores (#1496)", () => {
+    expect(readAgent("publisher")).toContain("stage only paths `git status --short` lists");
   });
 
   it("at least one agent references project.criticalAreas", () => {
@@ -434,7 +443,19 @@ describe("architect never issues a verdict nor decomposes and stays under 700 wo
 
   // Covers: R36, R37
   it("can dispatch scout and scribe through a parenthesised Agent entry", () => {
-    expect(parsed.frontmatter.tools).toContain("Agent(scout, scribe)");
+    const toolsWith = (scribeOwnsMarkdown: boolean): string | undefined => {
+      const config = NavoriConfigSchema.parse({
+        name: "architect-tools",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { scribeOwnsMarkdown },
+      });
+      return parseAsset(conditionOrchestration(raw, config)).frontmatter.tools;
+    };
+    expect(toolsWith(true)).toContain("Agent(scout, scribe)");
+    // #1525: scribe is not installed without harness.scribeOwnsMarkdown.
+    expect(toolsWith(false)).toContain("Agent(scout)");
+    expect(toolsWith(false)).not.toContain("scribe");
   });
 
   it("declares a maxWords ceiling of 700", () => {

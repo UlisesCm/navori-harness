@@ -84,6 +84,26 @@
 - **`NAVORI_TEST_WORKERS`**（正整数）设置 Vitest 的 worker 数量。未设置时，数量为
   `min(CPUs - 1, 4, 文件描述符预算)`。
 
+## 并行会话
+
+一个会话，一个 worktree，从一开始就如此；Claude Code 与 Pi 相同。会话的子代理、hook、`.navori/state/`
+（workplan、handoff、receipt）和关卡都解析到会话启动时所在的检出，因此共享同一检出的两个会话会共享其分支和
+状态，其中一个切换分支也会移动另一个（#1543）。
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # 或：pi
+```
+
+- 主检出用于审查和合并，而不是工作会话。
+- 全局 `navori` 链接到主检出的 `packages/cli/dist`，因此每个 worktree 都运行该构建。每次在那里 pull `dev`
+  之后都要重新构建：`bun run --filter navori build`。
+- 在 worktree 中渲染时，要用该 worktree 自己编译的 CLI，绝不要用全局 `navori`：全局的会把主检出的 assets 渲染到分支之上。
+  在 worktree 根目录运行 `bun run render:apply`，它会构建该 worktree 的 CLI 并用它渲染；构建之后，其他命令都以
+  `node packages/cli/dist/index.js <命令>` 运行。
+- `worktree-reclaim` 会在 worktree 干净、已推送且其 PR 已合并后将其删除；下一项任务从新的 worktree 开始。
+  Pi 的细节：[docs/pi.zh-CN.md](docs/pi.zh-CN.md#并行会话)。
+
 ## 文案预算：哪些会设上限，哪些只报告
 
 navori 注入的所有文案都留在每个会话的常驻上下文中，因此会不断累积：每个学到新内容的会话都会添加内容，却没有机制修剪。启动时会加载**两种内容面**，设计上分别处理。

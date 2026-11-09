@@ -585,15 +585,15 @@ describe("Pi credential-free first-class cycle", () => {
             { text: "turn: publishing" },
             bash(PR), // body swapped while the dialog is open
             { text: "turn: body swapped" },
-            dispatch("publisher", "publish the work"),
-            { text: "turn: publisher" },
+            // Publishing is not a Pi child (#1496); a child that tries it is still relayed.
+            dispatch("implementer", "publish the work"),
+            { text: "turn: publishing child" },
             bash(A1), // the commits moved HEAD: evidence is bound to the tree, so A1 runs again
             { text: "turn: fresh evidence" },
             call("write", { path: "progress/state.txt", content: "edited\n" }),
             { text: "turn: settle" },
           ],
           auditor: [{ text: "audit complete" }],
-          publisher: [bash("git reset --hard"), bash(PR), { echoAll: "publisher results:" }],
           architect: [{ text: "design complete" }],
           scout: [{ bigText: BIG }],
           implementer: [
@@ -931,11 +931,29 @@ describe("Pi credential-free first-class cycle", () => {
         expect(ghCalls()).toHaveLength(1);
       });
 
-      // ---- 6d. The publisher child never publishes: both approvals are relayed (R6, R17, R18) -----------
+      // ---- 6d. A child never publishes: both approvals are relayed (R6, R17, R18) -----------------------
+      // Each child process re-reads the script, so only this dispatch runs the publishing steps.
+      const faux = JSON.parse(readFileSync(join(root, "script.json"), "utf8")) as {
+        scripts: Record<string, unknown[]>;
+      };
+      faux.scripts.implementer = [
+        bash("git reset --hard"),
+        bash(PR),
+        call("write", {
+          path: `${DIR}/impl_${FEATURE}.json`,
+          content: JSON.stringify({
+            ...handoff,
+            head: git("rev-parse", "HEAD"),
+            verification: { ...handoff.verification, summary: "relay" },
+          }),
+        }),
+        { echoAll: "implementer results:" },
+      ];
+      writeFileSync(join(root, "script.json"), JSON.stringify(faux));
       writeFileSync(join(cwd, "pr-body.txt"), PR_BODY);
       const asksBefore = asked.length;
-      const relayed = await turn("publisher child", confirming);
-      await phase("publisher gh pr create and ask rule relayed to the parent", diagnostic, () => {
+      const relayed = await turn("publishing child", confirming);
+      await phase("child gh pr create and ask rule relayed to the parent", diagnostic, () => {
         expect(relayed[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
         expect(relayed[0]?.text).toContain("return this command to the parent");
         const details = JSON.stringify(relayed[0]?.details);

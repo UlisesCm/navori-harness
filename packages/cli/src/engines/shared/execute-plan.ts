@@ -1031,7 +1031,7 @@ export function commitWrites(input: {
       const handle = createBackup(cwd, targets, { exclude });
       if (handle.files.length > 0) {
         backupPath = handle.path;
-        purgeOldBackups();
+        purgeOldBackups({ keep: handle.path });
       }
     }
     // The engine's human-facing entry point is written LAST so a partial

@@ -1,6 +1,6 @@
-// navori:managed-file id="pi-extension" hash="e8067c667660b9f28d90093a05fb5df077be5ee1e98eb96705466e6a4588d6c6"
+// navori:managed-file id="pi-extension" hash="65ca1727e85160cccfe7fd2dd5b4a8b6f353f44577f1a6612638cb79c6f074b2"
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -20,6 +20,14 @@ const PI_EXTENSION_DENIALS = {"planBlocked":{"control":"plan-gate","tools":["nav
 
 const MCP_PLUGIN_IDS: readonly string[] = ["engram","codegraph"];
 const mcpServerStates = function(e,t,n){let r=e=>e.replaceAll(`-`,`_`),i=e=>{let t=new Map,n=typeof e==`object`&&e&&!Array.isArray(e)?e.mcpServers:void 0;if(typeof n!=`object`||!n||Array.isArray(n))return t;for(let[e,i]of Object.entries(n))typeof i==`object`&&i&&!Array.isArray(i)&&t.set(r(e),{enabled:i.enabled!==!1,replaces:[`command`,`url`,`type`].some(e=>e in i)});return t},a=i(t),o=i(n);return e.map(e=>{let t=a.get(r(e)),n=o.get(r(e)),i=n===void 0?t:n.replaces?n:t&&{...t,enabled:n.enabled};return t?.enabled===!0&&i?.enabled?`global`:i?.enabled?`project-only`:i===void 0?`missing`:`disabled`})};
+const redactSecrets = function(e){let t=[[/\b(?:gh[opsu]|github_pat)_[A-Za-z0-9_]{8,}/g,`[redacted]`],[/\bsk-[A-Za-z0-9_-]{8,}/g,`[redacted]`],[/\bAKIA[0-9A-Z]{12,}/g,`[redacted]`],[/\bxox[abposr]-[A-Za-z0-9-]{8,}/g,`[redacted]`],[/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,`$1 [redacted]`],[/:\/\/[^\s/:@]+:[^\s/@]+@/g,`://[redacted]@`],[/((?:api[_-]?key|token|passw(?:or)?d|secret|authorization)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,`$1[redacted]`],[/(--(?:api[_-]?key|token|passw(?:or)?d|secret)[= ])\S+/gi,`$1[redacted]`],[/\b(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{40,}\b/g,`[redacted]`]],n=e;for(let[e,r]of t)n=n.replace(e,r);return n};
+const createKnowledgeClient = function(e,t,n,r){let i=new Map,a=new Map,o=/^(?:PATH|HOME|USERPROFILE|TMPDIR|TEMP|TMP|LANG|LC_[A-Z_]+|SHELL|SYSTEMROOT|COMSPEC|PATHEXT|APPDATA|LOCALAPPDATA|XDG_[A-Z_]+|CODEGRAPH_[A-Z_]+|ENGRAM_[A-Z_]+)$/i,s=e=>{typeof e==`object`&&e&&`unref`in e&&typeof e.unref==`function`&&e.unref()},c=e=>{let t={};for(let e of Object.keys(n)){let r=n[e];r!==void 0&&o.test(e)&&(t[e]=r)}return{...t,...e}},l=e=>{let t=Buffer.from(e,`utf8`);if(t.length<=r)return e;let n=r;for(;n>0&&(t[n]&192)==128;)n--;return t.subarray(0,n).toString(`utf8`)+`
+[output truncated at `+r+` bytes]`},u=(e,t)=>{if(e.dead)return;e.dead=!0;let n=e.stderrTail.trim(),r=Error(t+(n?`
+server stderr (tail): `+n:``));for(let t of[...e.pending.values()])t.timer&&clearTimeout(t.timer),t.reject(r);e.pending.clear();try{e.proc.stdin?.end()}catch{}try{e.proc.kill(`SIGTERM`)}catch{}},d=(e,t)=>{if(!(e.dead||!e.proc.stdin||e.proc.stdin.destroyed))try{e.proc.stdin.write(JSON.stringify({jsonrpc:`2.0`,...t})+`
+`)}catch{}},f=(e,t,n,r,i)=>new Promise((a,o)=>{if(e.dead){o(Error(`server is not running`));return}if(i?.aborted){o(Error(`call aborted`));return}let s=e.nextId++,c=()=>{let t=e.pending.get(s);t?.timer&&clearTimeout(t.timer),e.pending.delete(s),i?.removeEventListener(`abort`,f)},l=t=>{c(),d(e,{method:`notifications/cancelled`,params:{requestId:s,reason:t}})},u=setTimeout(()=>{l(`timeout`),o(Error(`timed out after `+Math.round(r/1e3)+` s`))},r);function f(){l(`aborted`),o(Error(`call aborted`))}i?.addEventListener(`abort`,f,{once:!0}),e.pending.set(s,{resolve:e=>{c(),a(e)},reject:e=>{c(),o(e)},timer:u}),d(e,{id:s,method:t,params:n})}),p=(e,t)=>{let n;try{let e=JSON.parse(t);if(typeof e!=`object`||!e||Array.isArray(e))return;n=e}catch{return}if(typeof n.method==`string`){if(n.id===void 0||n.id===null)return;n.method===`ping`?d(e,{id:n.id,result:{}}):d(e,{id:n.id,error:{code:-32601,message:`Method not found`}});return}if(typeof n.id!=`number`)return;let r=e.pending.get(n.id);if(!r)return;let i=n.error;if(typeof i==`object`&&i){let e=i.message;r.reject(Error(`server error: `+(typeof e==`string`?e:`unknown`)))}else r.resolve(n.result)},m=(t,n,r)=>{a.set(t,(a.get(t)??0)+1);let o=n.args.map(e=>e===`{cwd}`?r:e),l=e(n.command,o,{cwd:r,env:c(n.env),stdio:[`pipe`,`pipe`,`pipe`]}),m={proc:l,pending:new Map,ready:Promise.resolve(),nextId:1,dead:!1,stderrTail:``};i.set(t,m),l.unref();for(let e of[l.stdout,l.stderr,l.stdin])s(e);let h=Buffer.alloc(0);return l.stdout?.on(`data`,e=>{h=Buffer.concat([h,e]);for(let e=h.indexOf(10);e!==-1;e=h.indexOf(10)){let t=h.subarray(0,e).toString(`utf8`).trim();h=h.subarray(e+1),t&&p(m,t)}h.length>8388608&&u(m,`server sent an oversized message`)}),l.stderr?.on(`data`,e=>{m.stderrTail=(m.stderrTail+e.toString(`utf8`)).slice(-1024)}),l.stdin?.on(`error`,()=>{}),l.on(`error`,e=>{u(m,e.code===`ENOENT`?n.command+` is not on PATH`:n.command+` could not start`)}),l.on(`close`,e=>{u(m,n.command+` exited (code `+String(e)+`)`)}),m.ready=f(m,`initialize`,{protocolVersion:`2025-06-18`,capabilities:{},clientInfo:{name:`navori-pi-child`,version:`1`}},n.initTimeoutMs??2e4).then(()=>{d(m,{method:`notifications/initialized`})}),m.ready.catch(e=>{u(m,e instanceof Error?e.message:`initialize failed`)}),m};return{async call(e,n,r,o,s){let c=Object.prototype.hasOwnProperty.call(t,e)?t[e]:void 0;if(!c||!c.tools.includes(n))return{text:`Navori refuses `+e+`/`+n+`: it is not a read-only tool granted to Pi children.`,isError:!0};let u=e+`\0`+o;try{let e=i.get(u);if(!e||e.dead){if((a.get(u)??0)>=2)return{text:c.command+` failed repeatedly in this child; continue with read/grep/find.`,isError:!0};e=m(u,c,o)}await e.ready;let t=await f(e,`tools/call`,{name:n,arguments:r},c.timeoutMs,s),d=typeof t==`object`&&t?t:{},p=(Array.isArray(d.content)?d.content:[]).map(e=>{let t=typeof e==`object`&&e?e:{};return t.type===`text`&&typeof t.text==`string`?t.text:``}).filter(e=>e!==``).join(`
+`);return{text:l(p||`(no output)`),isError:d.isError===!0}}catch(e){let t=e instanceof Error?e.message:`unknown failure`;return{text:l(c.command+` is unavailable: `+t+`. Continue with read/grep/find.`),isError:!0}}},shutdown(){for(let e of[...i.values()])u(e,`shut down`);i.clear()}}};
+const KNOWLEDGE_SERVERS = {"codegraph":{"command":"codegraph","args":["serve","--mcp","--no-watch","-p","{cwd}"],"env":{"CODEGRAPH_MCP_TOOLS":"explore","CODEGRAPH_EXPLORE_DEDUP":"0"},"tools":["codegraph_explore"],"timeoutMs":60000},"engram":{"command":"engram","args":["mcp","--tools=mem_search,mem_get_observation"],"env":{},"tools":["mem_search","mem_get_observation"],"timeoutMs":15000}};
+const KNOWLEDGE_TARGETS: Record<string, readonly [string, string]> = {"navori_codegraph_explore":["codegraph","codegraph_explore"],"navori_mem_search":["engram","mem_search"],"navori_mem_get_observation":["engram","mem_get_observation"]};
 const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}let a=(e=process.versions.node)=>{let n=r(e),a=r(t);if(!n||!a||!i(n,a))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${e}.`)},o=t=>{let n=r(t),a=r(e);return n!==null&&a!==null&&i(n,a)};return{assert:(t,n=process.versions.node)=>{if(a(n),!o(t))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${t}. Run pi --version and upgrade Pi.`)},assertNode:a,verified:o,unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("1.1.0", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.4.0"},{"capability":"child-model-selection","verifiedFrom":"1.4.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.4.0"},{"capability":"child-ipc-relay","verifiedFrom":"1.4.0"},{"capability":"session-end-event","verifiedFrom":"1.4.0"},{"capability":"settle-boundary-entries","verifiedFrom":"1.4.0"}]);
 const PI_MIN_VERSION = "1.1.0";
 const assertSupportedPiRuntime = piRuntimeChecks.assert;
@@ -28,28 +36,31 @@ const isVerifiedPiRuntime = piRuntimeChecks.verified;
 const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect" | "publisher";
+type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect";
+const ROLE_SCHEMA = Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect")]);
+const SUBAGENT_DESCRIPTION = "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, or architect child in this trusted project. Publishing (commit, push, PR) is not a child: this session runs it following .pi/agents/publisher.md.";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
+const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-  scout: new Set(["read","grep","find","ls","write"]),
-  implementer: new Set(["read","grep","find","ls","bash","edit","write"]),
-  reviewer: new Set(["read","grep","find","ls","bash","write"]),
+  scout: new Set(["read","grep","find","ls","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
+  implementer: new Set(["read","grep","find","ls","bash","edit","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
+  reviewer: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
   scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
-  auditor: new Set(["read","grep","find","ls","bash","write"]),
-  architect: new Set(["read","grep","find","ls","bash","write"]),
-  publisher: new Set(["read","grep","find","ls","bash"]),
+  auditor: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]),
+  architect: new Set(["read","grep","find","ls","bash","write","navori_codegraph_explore"]),
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
-const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1800000,"auditor":1200000,"architect":1200000,"implementer":1800000};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 type ChildUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } };
-type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage;
+/** Last assistant stopReason (and its error text) a child reported on stdout; exit code 0 does not imply success in --mode json. */
+type ChildStop = { stopReason: string; errorMessage?: string };
+type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage; stop?: ChildStop;
   /** Commands of tool calls the child refused for lack of approval, recovered from structured JSONL args (undefined = not recoverable). */
   refusals?: Array<string | undefined> };
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -167,10 +178,11 @@ function planDenial(stderr: string, feature: string | undefined): string {
   return PI_EXTENSION_DENIALS.planBlocked.prefix + ". The denial reason is unavailable or not safe to display. Review the plan opening, classification and approval in this checkout before another dispatch.";
 }
 
-async function checkDispatch(cwd: string, role: Role, task: string,
-    feature: string | undefined, signal: AbortSignal): Promise<void> {
+async function checkDispatch(cwd: string, stateCwd: string, role: Role, task: string,
+    feature: string | undefined, signal: AbortSignal, sessionId: string): Promise<void> {
   if (role === "implementer" && controls(cwd).planTiers) {
-    const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
+    const payload = JSON.stringify({ cwd: stateCwd, ...(sessionId ? { session_id: sessionId } : {}),
+      tool_input: { agent_type: role, message: task } });
     let result;
     try { result = await runNavori(cwd, ["plan", "gate"], payload, signal, true); }
     catch (error) {
@@ -190,13 +202,17 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
-      "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
+      "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", stateCwd, "--dir", ".navori/state/handoffs", "--json"],
       "", signal); }
     catch { throw new Error(PI_EXTENSION_DENIALS.handoffUnavailable.prefix + role + " blocked"); }
     let parsed: unknown;
     try { parsed = JSON.parse(result.stdout); } catch { throw new Error(PI_EXTENSION_DENIALS.handoffJson.prefix + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
-        parsed.feature !== feature) throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked");
+        parsed.feature !== feature) {
+      const detail = isRecord(parsed) && Array.isArray(parsed.failures)
+        ? parsed.failures.map((f) => (isRecord(f) ? String(f.detail) : "invalid finding")).join("; ").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 1000) : "";
+      throw new Error(PI_EXTENSION_DENIALS.handoffDenied.prefix + role + " blocked" + (detail ? ": " + detail : ""));
+    }
   }
 }
 
@@ -209,6 +225,77 @@ function handoffPath(cwd: string, role: Role, feature: string): string {
   let scribeOwnsMarkdown = false;
   try { scribeOwnsMarkdown = controls(cwd).scribeOwnsMarkdown; } catch { /* missing or invalid manifest: default (off) */ }
   return join(cwd, HANDOFF_DIR, "impl_" + feature + (scribeOwnsMarkdown ? ".json" : ".md"));
+}
+/**
+ * Handoff paths a child is validated against (reviewer: the sidecar and its review, both required): repo-relative in
+ * the session checkout, absolute when the feature lives in a linked worktree (the child still starts at the root).
+ */
+function handoffTargets(cwd: string, stateCwd: string, role: Role, feature: string): string[] {
+  const base = stateCwd === cwd ? HANDOFF_DIR : join(stateCwd, HANDOFF_DIR);
+  if (role === "reviewer") return [base + "/review_" + feature + ".json", base + "/review_" + feature + ".md"];
+  return [base + "/" + (handoffPath(cwd, role, feature).split(/[\\/]/).pop() ?? "")];
+}
+/**
+ * Fixed line for every reviewer dispatch (#1583): the post-check demands a sealed sidecar each round, and a task that
+ * says "do not modify files" or "do not sign" made children skip it.
+ */
+const REVIEWER_CONTRACT = "Navori review evidence, every round whatever this task says: run \x60navori receipt review begin\x60 "
+  + "before reading the diff, write both review files, then \x60seal\x60 and \x60log-review\x60. These are review artifacts, "
+  + "not file edits or a signature; only \x60receipt sign\x60 and the full gate follow your verdict and the gate table.";
+/** True when the checkout's neutral state already names the feature (workplan or handoff). */
+function holdsFeature(checkout: string, feature: string): boolean {
+  return ["workplan_" + feature + ".json", "impl_" + feature + ".json", "impl_" + feature + ".md",
+    "review_" + feature + ".json", "review_" + feature + ".md"].some((name) => existsSync(join(checkout, HANDOFF_DIR, name)));
+}
+/**
+ * Linked worktrees under .claude/worktrees that git itself ties to this checkout's repository, proven by the two-way
+ * link it keeps: the worktree's .git file names <root>/.git/worktrees/<id>, whose gitdir names that .git file back.
+ * Physical paths only and no process spawned; anything that does not prove itself is left out.
+ */
+function linkedWorktrees(cwd: string): string[] {
+  const root = realPath(cwd);
+  if (!root || !existsSync(join(root, ".claude/worktrees"))) return [];
+  let names: string[];
+  try { names = readdirSync(join(root, ".claude/worktrees")); } catch { return []; }
+  return names.map((name) => join(root, ".claude/worktrees", name)).filter((path) => {
+    try {
+      if (realPath(path) !== path) return false;
+      const admin = /^gitdir: (\/[^\n]+)\n?$/.exec(readFileSync(join(path, ".git"), "utf8"))?.[1];
+      if (!admin || dirname(admin) !== join(root, ".git", "worktrees") || realPath(admin) !== admin) return false;
+      return readFileSync(join(admin, "gitdir"), "utf8").trim() === join(path, ".git");
+    } catch { return false; }
+  });
+}
+/**
+ * Checkout whose state the gate and handoff checks read for a feature (#1575). Pi runs every tool from the session
+ * root, so an orchestrator working in a linked worktree would otherwise be checked against the root's state. The
+ * session checkout is used when only it holds the feature, and the one linked worktree when only that one does. The
+ * session checkout plus a worktree, or two worktrees, fail closed (#1493): the root copy is the extra one. The CLI
+ * keeps its checkout-local resolution (spec 0036) inside the chosen checkout.
+ */
+function featureCheckout(cwd: string, feature: string): string {
+  const owners = linkedWorktrees(cwd).filter((path) => holdsFeature(path, feature));
+  if (holdsFeature(cwd, feature)) {
+    if (owners.length) {
+      throw new Error("Navori: feature " + feature + " has state in the session checkout and in linked worktree "
+        + owners.join(", ") + "; the session checkout's copy is extra: archive it, or start the session in the worktree");
+    }
+    return cwd;
+  }
+  if (owners.length > 1) {
+    throw new Error("Navori: feature " + feature + " has state in " + owners.length + " linked worktrees ("
+      + owners.join(", ") + "); keep it in one, or start the session in the one that owns it");
+  }
+  return owners[0] ?? cwd;
+}
+/** Fresh same-role handoffs under another name (hint only; never makes the check pass). */
+function strayHandoffs(cwd: string, snap: HandoffSnapshot, expected: string): string {
+  try {
+    const prefix = snap.role === "reviewer" ? "review_" : "impl_";
+    const found = readdirSync(join(cwd, HANDOFF_DIR)).filter((name) => name.startsWith(prefix) && name !== expected
+      && statSync(join(cwd, HANDOFF_DIR, name)).mtimeMs >= snap.dispatchedAt).slice(0, 3);
+    return found.length ? "; found " + found.join(", ").replace(/[\u0000-\u001f\u007f]/g, " ") + " instead (expected " + expected + ")" : "";
+  } catch { return ""; }
 }
 function readHandoffFile(path: string): HandoffFile {
   if (!existsSync(path)) return null;
@@ -227,10 +314,12 @@ function snapshotHandoff(cwd: string, role: Role, feature: string): HandoffSnaps
 async function verifyHandoff(cwd: string, snap: HandoffSnapshot, signal: AbortSignal): Promise<string | undefined> {
   const { role, feature } = snap;
   try {
-    const now = readHandoffFile(handoffPath(cwd, role, feature));
-    if (!now) return "the " + role + " handoff for " + feature + " was not written";
+    const canonical = handoffPath(cwd, role, feature);
+    const expectedName = canonical.split(/[\\/]/).pop() ?? "";
+    const now = readHandoffFile(canonical);
+    if (!now) return "the " + role + " handoff for " + feature + " was not written" + strayHandoffs(cwd, snap, expectedName);
     if (snap.file && now.mtimeMs === snap.file.mtimeMs && now.content === snap.file.content) {
-      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch";
+      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch" + strayHandoffs(cwd, snap, expectedName);
     }
     const args = ["handoff", "check", feature, "--cwd", cwd, "--dir", HANDOFF_DIR, "--json"];
     if (role === "reviewer") args.push("--produced-by", "reviewer", "--since", new Date(Math.floor(snap.dispatchedAt / 1000) * 1000).toISOString().replace(".000Z", "Z"));
@@ -394,6 +483,15 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
     tools: tools as string[], instructions: match[2].trim() };
 }
 
+/** Child-supplied text made safe to show: ANSI, C0/C1 control and bidi override characters stripped, secrets redacted BEFORE slicing, at most 20 lines / 800 chars (the end for a stderr tail). */
+function childDiagnostic(raw: string, fromEnd: boolean): string {
+  const clean = redactSecrets(raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ""));
+  const lines = clean.split("\n");
+  const text = (fromEnd ? lines.slice(-20) : lines.slice(0, 20)).join("\n").trim();
+  return fromEnd ? text.slice(-800) : text.slice(0, 800);
+}
+
 type ModelContext = { model?: { provider?: unknown; id?: unknown }; modelRegistry?: { getAvailable?: () => Array<{ provider: string; id: string }> } };
 
 /** Resolve the exact provider/model a child runs on: role override wins, else the parent's identity. Never credentials. */
@@ -427,6 +525,8 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
   let usage: ChildUsage | null = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   let usageSeen = false;
+  let stop: ChildStop | undefined;
+  let finalError: string | undefined;
   const starts = new Map<string, string | undefined>();
   const refusals: Array<string | undefined> = [];
   const record = (raw: Buffer): void => {
@@ -450,8 +550,15 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
       if (refusals.length < MAX_RELAYS && JSON.stringify(event.result ?? "").includes(APPROVAL_REFUSAL_MARKER)) refusals.push(starts.get(event.toolCallId));
       return;
     }
+    if (event.type === "auto_retry_end" && event.success === false && typeof event.finalError === "string") finalError = childDiagnostic(event.finalError, false);
     if (event.type !== "message_end" || !isRecord(event.message) || event.message.role !== "assistant") return;
     usageSeen = true;
+    // Read before the content guard below: an errored turn may carry no usable content blocks. The latest message wins.
+    const stopReason: unknown = event.message.stopReason;
+    const errorMessage: unknown = event.message.errorMessage;
+    stop = typeof stopReason === "string"
+      ? { stopReason, ...(typeof errorMessage === "string" && errorMessage ? { errorMessage: childDiagnostic(errorMessage, false) } : {}) } : undefined;
+    if (stopReason !== "error" && stopReason !== "aborted") finalError = undefined;
     if (usage) usage = addUsage(usage, event.message.usage);
     const blocks = event.message.content;
     if (!Array.isArray(blocks)) return;
@@ -506,7 +613,8 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
       pending = Buffer.alloc(0);
       pendingBytes = 0;
       if (!settled) throw new Error("Pi child stopped before agent_settled");
-      const done: ChildResult = { ...result, ...(refusals.length ? { refusals } : {}) };
+      const reported = stop ? { ...stop, ...(stop.errorMessage === undefined && finalError ? { errorMessage: finalError } : {}) } : undefined;
+      const done: ChildResult = { ...result, ...(reported ? { stop: reported } : {}), ...(refusals.length ? { refusals } : {}) };
       return usage && usageSeen ? { ...done, usage } : done;
     },
   };
@@ -523,7 +631,7 @@ function parseParentApproval(raw: unknown): ParentApproval | undefined {
   } catch { return undefined; }
 }
 
-type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string };
+type ChildRun = ChildResult & { approvals: ParentApproval[]; failure?: string; stderrNote?: string };
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
 function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal,
   parentSession: string, agentId: string): Promise<ChildRun> {
@@ -546,11 +654,18 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     const child = spawn("pi", args, { cwd, env: childEnv,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
     const parser = childParser();
+    // Rolling raw tail of stderr (never unbounded); redacted and bounded only when shown. --mode json usually leaves it empty.
+    let stderrTail = Buffer.alloc(0);
+    const stderrNote = (): string => {
+      const tail = childDiagnostic(stderrTail.toString("utf8"), true);
+      return tail ? "\n\nChild stderr (tail, redacted):\n" + tail : "";
+    };
     const approvals: ParentApproval[] = [];
     // A pid is host evidence that spawn succeeded. ENOENT and other pre-spawn errors still reject.
-    const fail = (failure: string): void => {
-      if (!child.pid) reject(new Error(failure));
-      else resolve({ text: "", truncated: false, approvals, failure });
+    const fail = (failure: string, partial: ChildResult = { text: "", truncated: false }): void => {
+      const full = failure + stderrNote();
+      if (!child.pid) reject(new Error(full));
+      else resolve({ ...partial, approvals, failure: full });
     };
     child.on("message", (raw: unknown) => {
       const accepted = parseParentApproval(raw);
@@ -558,6 +673,8 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     });
     let parseError: unknown;
     let stopping = false;
+    // Why the parent stopped the child (#1498): the role deadline and a parent abort need different fixes.
+    let stopCause: "timeout" | "abort" | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     // Kill the whole process group so descendants of the leader are cleaned up too.
     const kill = (signal: NodeJS.Signals): void => {
@@ -566,26 +683,27 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
         else child.kill(signal);
       } catch { /* Process or group already exited. */ }
     };
-    const stop = (): void => {
+    const stop = (cause?: "timeout" | "abort"): void => {
       if (stopping) return;
       stopping = true;
+      stopCause = cause;
       kill("SIGTERM");
       // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
-    const timeout = setTimeout(stop, ROLE_TIMEOUT_MS[role.name]);
-    const abort = (): void => stop();
+    const timeout = setTimeout(() => stop("timeout"), ROLE_TIMEOUT_MS[role.name]);
+    const abort = (): void => stop("abort");
     const release = (): void => {
       clearTimeout(timeout);
       parentSignal.removeEventListener("abort", abort);
     };
     parentSignal.addEventListener("abort", abort, { once: true });
-    if (parentSignal.aborted) stop();
+    if (parentSignal.aborted) stop("abort");
     child.stdout.on("data", (chunk: Buffer) => {
       if (stopping) return;
       try { parser.feed(chunk); } catch (cause) { parseError = cause; stop(); }
     });
-    child.stderr.resume();
+    child.stderr.on("data", (chunk: Buffer) => { stderrTail = Buffer.concat([stderrTail, chunk]).subarray(-4096); });
     child.on("error", (cause: Error) => {
       // A spawn failure has no process or group to escalate against.
       if (!child.pid) { stopping = true; if (killTimer) clearTimeout(killTimer); }
@@ -597,9 +715,28 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
     child.on("close", (code: number | null) => {
       release();
       if (parseError) fail(parseError instanceof Error ? parseError.message : "Invalid Pi child JSONL event");
+      else if (stopCause === "timeout") {
+        fail("Pi child timed out after " + Math.round(ROLE_TIMEOUT_MS[role.name] / 60_000) + " min (" + role.name + " role timeout)");
+      } else if (stopCause === "abort") fail("Pi child cancelled by the parent");
       else if (stopping) fail("Pi child cancelled, timed out, or exceeded output limit");
-      else if (code !== 0) fail("Pi child exited " + code + "; inspect Pi auth with /login openai-codex");
-      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); } }
+      else if (code !== 0) {
+        const provider = model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
+        fail("Pi child exited " + code + " on " + model + "; inspect Pi auth with /login" + (provider ? " " + provider : ""));
+      } else {
+        let done: ChildResult;
+        try { done = parser.finish(); } catch (cause) { fail(cause instanceof Error ? cause.message : "Invalid Pi child JSONL event"); return; }
+        // --mode json exits 0 even when the model call failed: the last assistant stopReason is the signal ("length" is not a failure).
+        if (done.stop && (done.stop.stopReason === "error" || done.stop.stopReason === "aborted")) {
+          // Only a provider rejection (4xx other than timeout or rate limit) suggests another route; aborts and transient errors do not.
+          const rejected = done.stop.stopReason === "error" && /^4(?!08|29)\d\d\b/.test(done.stop.errorMessage ?? "");
+          fail("Pi child model call failed (stopReason " + done.stop.stopReason + ") on " + model + ": " + (done.stop.errorMessage ?? "no error message")
+            + (rejected ? ". If the provider rejected child processes, map the role to one that accepts them with models.piMap, or run the role"
+              + " in a second interactive Pi session (docs/pi.md, Working without children)." : ""), done);
+        } else {
+          const note = stderrNote();
+          resolve({ ...done, approvals, ...(note ? { stderrNote: note } : {}) });
+        }
+      }
     });
   });
 }
@@ -609,6 +746,9 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
 // never run from here: it only records what Pi's own built-in bash tool already ran and reported.
 const EVIDENCE_DIRS = [".navori/state/handoffs", ".claude/progress", ".codex/progress"];
 const FINGERPRINT_EXCLUDES = [".navori/state", ".claude/progress", ".codex/progress", ".claude/worktrees"];
+// Fingerprint v2 ("fp":2): IDENTITY_EXCLUDES of lib/primitives/content-identity.ts, the set the Claude hook stamps.
+const FINGERPRINT_V2_EXCLUDES = [".navori/state", ".claude/progress", ".codex/progress", "progress", ".claude/worktrees"];
+const DELIVERY_POLICY = "deliveries-content-v1";
 const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
 const GIT_TIMEOUT_MS = 120_000;
 const MAX_SEEN_CALLS = 1024;
@@ -630,12 +770,38 @@ function git(cwd: string, args: string[], options: GitOptions = {}): Promise<str
   });
 }
 
+/** Stage path a delivery row may name: relative, no empty, "." or ".." segment, no tab, newline or backslash. */
+function isStagePath(path: string): boolean {
+  return /^[^\t\r\n\\]+$/.test(path) && !path.startsWith("/") && !path.split("/").some((part) => !part || part === "." || part === "..");
+}
+
+/** Physical path or undefined; a symlink anywhere in the path makes it differ from the joined one. */
+function realPath(path: string): string | undefined {
+  try { return realpathSync(path); } catch { return undefined; }
+}
+
+/**
+ * Fingerprint excludes for a delivery-bound line: v2 plus the stage's state.json and STATUS.md, after the same
+ * containment checks as fingerprintTree in lib/plan/evidence.ts. undefined = the stage is unusable (fail closed).
+ */
+function deliveryExcludes(tree: string, stagePath: string): string[] | undefined {
+  if (!isStagePath(stagePath)) return undefined;
+  const root = realPath(tree);
+  const stage = root && join(root, stagePath);
+  if (!root || !stage || !stage.startsWith(root + sep) || realPath(stage) !== stage) return undefined;
+  for (const name of ["state.json", "STATUS.md"]) {
+    const path = join(stage, name);
+    if ((name === "state.json" || existsSync(path)) && realPath(path) !== path) return undefined;
+  }
+  return [...FINGERPRINT_V2_EXCLUDES, stagePath + "/state.json", stagePath + "/STATUS.md"];
+}
+
 /** Content hash of the whole working tree; same procedure as fingerprintTree in lib/plan/evidence.ts (change one, change both). */
-async function fingerprintTree(tree: string): Promise<string | undefined> {
+async function fingerprintTree(tree: string, excludes: readonly string[] = FINGERPRINT_EXCLUDES): Promise<string | undefined> {
   const scratch = (await git(tree, ["rev-parse", "--path-format=absolute", "--git-path", "navori-fp-index"]))?.trim();
   if (!scratch || existsSync(scratch + ".lock")) return undefined;
   const listed = await git(tree, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate", "--", ".",
-    ...FINGERPRINT_EXCLUDES.map((path) => ":(exclude,literal)" + path)]);
+    ...excludes.map((path) => ":(exclude,literal)" + path)]);
   if (listed === undefined) return undefined;
   const files: Array<{ path: string; mode: string }> = [];
   const links: Array<{ path: string; target: string }> = [];
@@ -682,6 +848,19 @@ async function childGitState(cwd: string, signal: AbortSignal): Promise<{ head: 
 
 type EvidenceEvent = { toolName: string; toolCallId: string; input: unknown; isError: boolean; structuredContent?: unknown };
 type EvidenceContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+/** Session id of the current Pi thread (a child reports its parent's), sanitized; "" when unavailable. */
+function piSessionId(ctx: EvidenceContext): string {
+  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
+  return process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
+    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+}
+/**
+ * Audit-mode session id: the Pi id with every character outside the CLI's session-id charset dropped
+ * (so no "."), capped at its 256 limit. One value for start AND close so both name the same log; "" = unusable.
+ */
+function auditSessionId(ctx: LifecycleContext): string {
+  return (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 256);
+}
 type ToolRegistry = { getAllTools?: () => Array<{ name: string; sourceInfo?: { path?: string; source?: string } }> };
 
 /**
@@ -703,45 +882,71 @@ function isBuiltinBash(pi: ToolRegistry): boolean {
   return bash?.sourceInfo?.path === "builtin:bash" && bash.sourceInfo.source === "builtin";
 }
 
-/** Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. */
-function matchingCriteria(cwd: string, command: string): Array<{ feature: string; id: string; dir: string }> {
+type CriterionHit = { feature: string; id: string; dir: string; binding?: Record<string, unknown>; stage?: string };
+
+/**
+ * Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
+ * (6 fields) carries the producer authority the CLI projected (binding JSON and stage path); it is copied verbatim
+ * and "navori master delivery-criterion" recomputes and compares it, so the line never grants authority by itself.
+ */
+function matchingCriteria(cwd: string, command: string): CriterionHit[] {
   let index: string;
   try { index = readFileSync(join(cwd, EVIDENCE_DIRS[0], "acceptance-index"), "utf8"); } catch { return []; }
-  const hits: Array<{ feature: string; id: string; dir: string }> = [];
+  const hits: CriterionHit[] = [];
   for (const row of index.split("\n")) {
     const fields = row.split("\t");
-    // Delivery-bound criteria (6 fields) need producer authority Pi does not capture: never recorded here.
-    if (fields.length !== 4) continue;
+    if (fields.length !== 4 && fields.length !== 6) continue;
     let criterion: unknown;
     try { criterion = JSON.parse('"' + fields[0] + '"'); } catch { continue; }
     if (criterion !== command) continue;
     const [, feature, id, dir] = fields;
     if (!/^[a-z0-9][a-z0-9._-]*$/.test(feature) || !/^A[0-9]+$/.test(id)) continue;
     if (!EVIDENCE_DIRS.some((rel) => join(cwd, rel) === dir)) continue;
-    hits.push({ feature, id, dir });
+    if (fields.length === 4) { hits.push({ feature, id, dir }); continue; }
+    const stage = fields[5];
+    let binding: unknown;
+    try { binding = JSON.parse(fields[4]); } catch { continue; }
+    if (!isRecord(binding) || binding.policy !== DELIVERY_POLICY || binding.stagePath !== stage || !isStagePath(stage)) continue;
+    hits.push({ feature, id, dir, binding, stage });
   }
   return hits;
+}
+
+/**
+ * "cd <worktree> && <criterion>" (#1575): Pi's bash keeps no cd, so this is how a session anchored at the root runs a
+ * criterion inside a linked worktree. The path must be plain (no quoting or expansion) and exactly the root of a
+ * worktree that proves itself (linkedWorktrees); the rest must still equal the criterion. Anything else is no evidence.
+ */
+function worktreeCommand(cwd: string, command: string): { tree: string; command: string } | undefined {
+  const match = /^cd (\/[^\s'"$\x60*?~\\;&|<>(){}[\]]+) && ([^\n]+)$/.exec(command);
+  if (!match || !linkedWorktrees(cwd).includes(match[1])) return undefined;
+  return { tree: match[1], command: match[2] };
 }
 
 /** Append one evidence line per pending criterion matched by a verified, exact bash success. Never runs the command. */
 async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
   if (!isVerifiedBashSuccess(pi, event)) return;
-  const command = event.input.command;
-  const parentSession = process.env.NAVORI_PI_PARENT_SESSION ?? "";
-  const sessionId = process.env.NAVORI_PI_CHILD_DEPTH && /^[A-Za-z0-9_-]{1,256}$/.test(parentSession)
-    ? parentSession : (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const sessionId = piSessionId(ctx);
   const callKey = sessionId + "\0" + event.toolCallId;
   if (seenCalls.has(callKey)) return;
-  const hits = matchingCriteria(ctx.cwd, command);
+  let command = event.input.command;
+  let runCwd = ctx.cwd;
+  let hits = matchingCriteria(ctx.cwd, command);
+  if (!hits.length && command.startsWith("cd /")) {
+    const inner = worktreeCommand(ctx.cwd, command);
+    if (!inner) return;
+    hits = matchingCriteria(inner.tree, inner.command);
+    command = inner.command;
+    runCwd = inner.tree;
+  }
   if (!hits.length) return;
   seenCalls.add(callKey);
   if (seenCalls.size > MAX_SEEN_CALLS) seenCalls.delete(seenCalls.values().next().value as string);
-  const tree = (await git(ctx.cwd, ["rev-parse", "--show-toplevel"]))?.trim();
-  if (!tree || /[\u0000-\u001f]/.test(ctx.cwd + tree)) return;
+  const tree = (await git(runCwd, ["rev-parse", "--show-toplevel"]))?.trim();
+  if (!tree || /[\u0000-\u001f]/.test(runCwd + tree)) return;
   const head = (await git(tree, ["rev-parse", "HEAD"]))?.trim() ?? "";
   const headTree = (await git(tree, ["rev-parse", "HEAD^{tree}"]))?.trim() ?? "";
-  const worktreeTree = await fingerprintTree(tree);
-  if (!worktreeTree) return;
+  const plain = hits.some((hit) => !hit.binding) ? await fingerprintTree(tree) : undefined;
   const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9._-]/g, "");
   const childId = process.env.NAVORI_PI_CHILD_ID ?? "";
   const agentId = /^pi-[a-z]+-[A-Za-z0-9_:-]+$/.test(childId) && childId.length <= 256 ? childId : "pi-" + role;
@@ -750,8 +955,15 @@ async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: Evide
     const file = join(hit.dir, "workplan_" + hit.feature + ".evidence.jsonl");
     try {
       if (existsSync(file) && lstatSync(file).isSymbolicLink()) continue;
-      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree, dirty: worktreeTree !== headTree,
-        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}) };
+      // Delivery lines use fingerprint v2 without the stage lifecycle files, stamped "fp":2 like the Claude hook.
+      const excludes = hit.stage === undefined ? undefined : deliveryExcludes(tree, hit.stage);
+      if (hit.stage !== undefined && !excludes) continue;
+      const worktreeTree = excludes ? await fingerprintTree(tree, excludes) : plain;
+      if (!worktreeTree) continue;
+      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: runCwd, head, worktreeTree,
+        ...(excludes ? { fp: 2 } : {}), dirty: worktreeTree !== headTree,
+        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId } : {}),
+        ...(hit.binding ? { deliveryBinding: hit.binding } : {}) };
       appendFileSync(file, JSON.stringify(line) + "\n");
     } catch { /* Fail-open: no line means plan update asks for a rerun. */ }
   }
@@ -785,7 +997,8 @@ async function injectContext(pi: ContextHost, ctx: ContextCtx): Promise<void> {
   const log = (await git(tree, ["log", "--oneline", "-15"]))?.trim();
   if (log) sections.push({ text: "Recent commits (subjects are written by whoever committed them):\n" + fence(log),
     pointer: "[navori] recent commits did not fit the startup context; run git log --oneline -15." });
-  for (const rel of PROGRESS_FILES) {
+  const withProgress = sessionStateOn(tree);
+  for (const rel of withProgress ? PROGRESS_FILES : []) {
     let body = "";
     try {
       if (lstatSync(join(tree, rel)).isSymbolicLink()) continue;
@@ -794,7 +1007,7 @@ async function injectContext(pi: ContextHost, ctx: ContextCtx): Promise<void> {
     if (body) { sections.push({ text: "Previous-session state (" + rel + "):\n" + fence(body),
       pointer: "[navori] " + rel + " did not fit the startup context; read it before continuing." }); break; }
   }
-  const lines = ["Navori session context (startup snapshot; use git and the progress file for current state).", "Branch: " + branch];
+  const lines = ["Navori session context (startup snapshot; use git" + (withProgress ? " and the progress file" : "") + " for current state).", "Branch: " + branch];
   let used = Buffer.byteLength(lines.join("\n"));
   for (const section of sections) {
     const fits = used + Buffer.byteLength(section.text) + 1 <= CONTEXT_BUDGET;
@@ -850,11 +1063,11 @@ function stuckAdvice(pi: ToolRegistry, event: StuckEvent, ctx: EvidenceContext):
 // ---- Navori hook bridge (spec 0048): runs the shared hook scripts under bash with a Claude-shaped payload.
 type BridgeClass = "enforced" | "advisory" | "lifecycle";
 type BridgeHook = { script: string; path: string; on: string; tools?: string[]; scope: string; class: BridgeClass;
-  interactive: boolean; timeoutMs: number };
+  interactive: boolean; timeoutMs: number; skipOnError?: boolean };
 type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
-type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
+type BridgeCall = { event: string; hookEvent: string; toolName?: string; isError?: boolean; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
@@ -863,7 +1076,7 @@ const BRIDGE_ADVISORY_CAP = 1_024;
 const BRIDGE_KILL_GRACE_MS = 2_000;
 const BRIDGE_DRAIN_MS = 250;
 const BRIDGE_RENDER_ACTION = "run navori render --apply with the current Navori CLI";
-const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
+const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write", navori_subagent: "Agent" };
 // Tools the bridge guards: an unreadable or incompatible manifest blocks these (fail-closed), never the read-only ones.
 const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
 const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
@@ -889,7 +1102,7 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
   if (typeof raw.interactive !== "boolean" || typeof raw.timeoutMs !== "number" || !(raw.timeoutMs > 0)) return undefined;
   if (raw.tools !== undefined && !(Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string"))) return undefined;
   return { script: raw.script, path: raw.path, on: raw.on, tools: raw.tools as string[] | undefined, scope: raw.scope,
-    class: raw.class, interactive: raw.interactive, timeoutMs: raw.timeoutMs };
+    class: raw.class, interactive: raw.interactive, timeoutMs: raw.timeoutMs, skipOnError: raw.skipOnError === true };
 }
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
@@ -1081,7 +1294,7 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
  */
 async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSignal | undefined): Promise<BridgeResult> {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
-  const selected = hooks.filter((hook) => hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
+  const selected = hooks.filter((hook) => !(hook.skipOnError && call.isError === true) && hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
     && (hook.tools === undefined || (call.toolName !== undefined && hook.tools.includes(call.toolName))));
   const result: BridgeResult = { asks: [], bodyFiles: [], warnings: [] };
   if (!selected.length) return result;
@@ -1107,12 +1320,12 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
 }
 
 /** Advisory text after a tool result: manifest or script trouble is silent by contract (spec 0048 R15). */
-async function bridgeAdvisories(event: { toolName: string; toolCallId: string; input: unknown }, ctx: { cwd: string; hasUI?: boolean;
+async function bridgeAdvisories(event: { toolName: string; toolCallId: string; input: unknown; isError?: boolean }, ctx: { cwd: string; hasUI?: boolean;
     sessionManager?: { getSessionId?: () => string } }): Promise<string[]> {
   const manifest = bridgeManifest(ctx.cwd);
   if (!manifest.ok) return [];
   try {
-    const result = await runBridge(manifest.hooks, { event: "tool_result", hookEvent: "PostToolUse", toolName: event.toolName,
+    const result = await runBridge(manifest.hooks, { event: "tool_result", hookEvent: "PostToolUse", toolName: event.toolName, isError: event.isError,
       toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: ctx.hasUI === true }, undefined);
     return result.warnings;
   } catch { return []; }
@@ -1294,14 +1507,99 @@ async function closeSession(event: { reason?: unknown }, ctx: LifecycleContext):
   if (reason === undefined) return;
   const manifest = bridgeManifest(ctx.cwd);
   if (!manifest.ok) return;
+  const sessionId = auditSessionId(ctx);
   for (const script of ["worktree-reclaim", "audit-mode-close"]) {
     // Pi creates no worktrees: without the directory there is nothing to reclaim.
     if (script === "worktree-reclaim" && !existsSync(join(ctx.cwd, ".claude/worktrees"))) continue;
+    // No usable id means no audit log was ever started under one: nothing to seal.
+    if (script === "audit-mode-close" && !sessionId) continue;
     try {
       await runBridge(manifest.hooks.filter((hook) => hook.script === script), { event: "session_shutdown", hookEvent: "SessionEnd", reason,
-        cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+        cwd: ctx.cwd, sessionId, hasUI: false }, undefined);
     } catch { /* Closing must never fail the session. */ }
   }
+}
+
+// ---- Audit-mode trigger (spec pi-audit-mode), parent thread only: the Pi counterpart of Claude's audit-mode-trigger hook.
+/** Session ids this process already started a log for, and the ones where "always" was already attempted (once each). */
+const auditStarted = new Set<string>();
+const auditAlwaysTried = new Set<string>();
+/** Started sessions whose notice the model has not seen yet (session_start cannot return a message). */
+const auditNoticeOwed = new Map<string, string>();
+
+/** Same root the CLI resolves ($NAVORI_AUDITS_ROOT or ~/.navori/audits); "" when it cannot be absolute. */
+function piAuditsRoot(): string {
+  const override = (process.env.NAVORI_AUDITS_ROOT ?? "").trim();
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const root = override || (home ? join(home, ".navori", "audits") : "");
+  return root && isAbsolute(root) ? resolve(root) : "";
+}
+
+/** True when any repo under the audit root holds a pending .armed flag: one cheap scan instead of a spawn per prompt. */
+function auditArmPending(root: string): boolean {
+  try {
+    return readdirSync(root, { withFileTypes: true }).some((entry) => entry.isDirectory() && existsSync(join(root, entry.name, ".armed")));
+  } catch { return false; }
+}
+
+/** Session state is on unless the manifest carries controls.sessionState === false; a missing, unreadable or invalid manifest means on. */
+function sessionStateOn(cwd: string): boolean {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
+    return !(isRecord(manifest) && isRecord(manifest.controls) && manifest.controls.sessionState === false);
+  } catch { return true; }
+}
+
+/** Optional controls.auditMode === "always" in the manifest; a missing, unreadable or invalid manifest means off. */
+function auditAlways(cwd: string): boolean {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
+    return isRecord(manifest) && isRecord(manifest.controls) && manifest.controls.auditMode === "always";
+  } catch { return false; }
+}
+
+/** Run navori audit for this Pi session (runNavori enforces its own 10 s deadline); true only when the CLI started the log. */
+async function runAuditStart(cwd: string, args: string[]): Promise<boolean> {
+  try { return (await runNavori(cwd, ["audit", ...args], "", new AbortController().signal)).code === 0; }
+  catch { return false; }
+}
+
+/** Consume a pending arm for this session; the CLI only honors untagged or pi-tagged arms. Fail-open. */
+async function consumeAuditArm(ctx: LifecycleContext): Promise<boolean> {
+  const id = auditSessionId(ctx);
+  const root = piAuditsRoot();
+  if (!id || !root || auditStarted.has(id) || !auditArmPending(root)) return false;
+  const started = await runAuditStart(ctx.cwd, ["--consume-arm", "--start", id, "--host", "pi", "--cwd", ctx.cwd, "--root", root]);
+  if (started) {
+    auditStarted.add(id);
+    auditNoticeOwed.set(id, "navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the Pi extension ran --start " + id + ").");
+  }
+  return started;
+}
+
+/** audit.mode = always: start the log on the first user prompt of this session id; arm consumption has already been tried. */
+async function startAuditAlways(ctx: LifecycleContext): Promise<boolean> {
+  const id = auditSessionId(ctx);
+  if (!id || auditStarted.has(id) || auditAlwaysTried.has(id)) return false;
+  auditAlwaysTried.add(id);
+  if (!auditAlways(ctx.cwd)) return false;
+  if (!(await runAuditStart(ctx.cwd, ["--start", id, "--host", "pi", "--cwd", ctx.cwd]))) return false;
+  auditStarted.add(id);
+  auditNoticeOwed.set(id, "navori: audit-mode ACTIVE from this message on (audit.mode=always; no --arm needed).");
+  return true;
+}
+
+/** before_agent_start, user runs only: consume a pending arm or honor "always", then hand the model the one-time notice. Fail-open. */
+async function auditBeforeAgentStart(event: { messageType?: unknown }, ctx: LifecycleContext): Promise<{ message: { customType: string; content: string; display: boolean } } | undefined> {
+  try {
+    if (event.messageType !== "user") return undefined;
+    if (!(await consumeAuditArm(ctx))) await startAuditAlways(ctx);
+    const id = auditSessionId(ctx);
+    const content = auditNoticeOwed.get(id);
+    if (content === undefined) return undefined;
+    auditNoticeOwed.delete(id);
+    return { message: { customType: "navori-audit-mode", content, display: false } };
+  } catch { return undefined; /* A recorder is never the reason a prompt fails. */ }
 }
 
 /** The verification reminder as ONE visible custom_message entry; never sets continue, so no extra model request. */
@@ -1314,6 +1612,61 @@ async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleCont
   const text = bridged.warnings.join("\n").trim();
   if (!text) return undefined;
   return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
+}
+
+/** Built on demand: only a child holding a grant ever touches the Type builders. */
+const knowledgeSchemas = () => ({
+  navori_codegraph_explore: { label: "Navori codegraph explore",
+    description: "Read-only structural code discovery over the project's CodeGraph index (relevant symbols, source and call paths in one call). The index is not refreshed after edits made in this session, so re-read edited files directly. Fails cleanly when codegraph or its index is missing.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), maxFiles: Type.Optional(Type.Number({ minimum: 1, maximum: 30 })) }) },
+  navori_mem_search: { label: "Navori memory search",
+    description: "Read-only search of the project's engram memory. Use response_format \"compact\" for bounded previews.",
+    parameters: Type.Object({ query: Type.String({ minLength: 1 }), type: Type.Optional(Type.String()), project: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.String()), limit: Type.Optional(Type.Number({ minimum: 1, maximum: 20 })), response_format: Type.Optional(Type.String()) }) },
+  navori_mem_get_observation: { label: "Navori memory observation",
+    description: "Read-only: the full content of one engram observation by id (an id from a memory search result).",
+    parameters: Type.Object({ id: Type.Number() }) },
+});
+
+/** Only the known keys of a tool's input reach the server; the explore project path is always the child's own cwd. */
+function knowledgeArguments(name: string, params: unknown, cwd: string): Record<string, unknown> {
+  const input = isRecord(params) ? params : {};
+  const pick = (keys: string[]): Record<string, unknown> => Object.fromEntries(keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  if (name === "navori_codegraph_explore") return { ...pick(["query", "maxFiles"]), projectPath: cwd };
+  if (name === "navori_mem_search") return pick(["query", "type", "project", "scope", "limit", "response_format"]);
+  return pick(["id"]);
+}
+
+/**
+ * Child only, never the parent: the read-only codegraph/engram tools this role was granted at render time. Pi children keep
+ * --no-mcp, so these go through one lazily started private MCP server per plugin (knowledge client). The grant is re-checked on
+ * every call because a tool_call handler has no default-deny for unknown tools. The tool is an allowlisted read channel, not an
+ * isolation boundary: bash still reaches the same CLIs.
+ */
+function registerKnowledgeTools(pi: ExtensionAPI): void {
+  const role = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+  if (!process.env.NAVORI_PI_CHILD_DEPTH || !ROLES.has(role as Role)) return;
+  const granted = [...ROLE_TOOLS[role as Role]].filter((name) => Object.prototype.hasOwnProperty.call(KNOWLEDGE_TARGETS, name));
+  if (!granted.length) return;
+  const client = createKnowledgeClient(spawn, KNOWLEDGE_SERVERS, process.env, MAX_OUTPUT_BYTES);
+  pi.on("session_shutdown", () => { client.shutdown(); });
+  if (typeof process.once === "function") process.once("exit", () => { client.shutdown(); });
+  for (const name of granted) {
+    const schema = knowledgeSchemas()[name as keyof ReturnType<typeof knowledgeSchemas>];
+    pi.registerTool(defineTool({
+      name, label: schema.label, description: schema.description, parameters: schema.parameters as never,
+      async execute(_id, params, signal, _onUpdate, ctx) {
+        const current = process.env.NAVORI_PI_CHILD_ROLE ?? "";
+        if (!ROLES.has(current as Role) || !ROLE_TOOLS[current as Role].has(name)) {
+          return { isError: true, content: [{ type: "text" as const, text: "Navori role " + current + " is not granted " + name + "." }], details: {} };
+        }
+        const [server, tool] = KNOWLEDGE_TARGETS[name]!;
+        const result = await client.call(server, tool, knowledgeArguments(name, params, ctx.cwd), ctx.cwd, signal);
+        const text = result.isError ? childDiagnostic(result.text, false) : result.text;
+        return { ...(result.isError ? { isError: true } : {}), content: [{ type: "text" as const, text }], details: {} };
+      },
+    }));
+  }
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -1390,6 +1743,7 @@ export default function (pi: ExtensionAPI): void {
       powershellNoticed = true;
     } catch { /* The tool_call block still refuses powershell. */ }
   });
+  registerKnowledgeTools(pi);
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
   // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
   pi.on("session_start", async (_event, ctx) => {
@@ -1410,26 +1764,29 @@ export default function (pi: ExtensionAPI): void {
     // The draft is the exact CustomMessageEntryDraft shape; the cast only bridges unknown[] to the Pi entry union.
     try { return (await settleReminder(event, ctx)) as never; } catch { return undefined; }
   });
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }
+    try { if (event.reason === "startup" || event.reason === "new") await consumeAuditArm(ctx); } catch { /* Recording never blocks a session. */ }
   });
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!controls(ctx.cwd).masterPlan) return;
     try {
-      const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });
-      const line = result.stdout.trim();
-      if (result.code === 0 && line && !/[\r\n]/.test(line) && line.length <= 600) {
-        // Additive: one named prompt section; Pi appends the delta instead of replacing the whole system prompt (D6).
-        event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-master-plan": line };
+      if (controls(ctx.cwd).masterPlan) {
+        const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });
+        const line = result.stdout.trim();
+        if (result.code === 0 && line && !/[\r\n]/.test(line) && line.length <= 600) {
+          // Additive: one named prompt section; Pi appends the delta instead of replacing the whole system prompt (D6).
+          event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-master-plan": line };
+        }
       }
     } catch { /* Advisory only; the user's prompt must continue. */ }
+    return await auditBeforeAgentStart(event, ctx);
   });
   let active = 0;
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
+    description: SUBAGENT_DESCRIPTION,
+    parameters: Type.Object({ role: ROLE_SCHEMA,
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);
@@ -1442,14 +1799,22 @@ export default function (pi: ExtensionAPI): void {
       const model = resolveModel(spec, ctx);
       active++;
       try {
-        if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
+        // #1575: the checkout that holds the feature's state, so a session at the root can work in a linked worktree.
+        const stateCwd = params.role !== "scout" && params.feature && /^[a-z0-9][a-z0-9_-]*$/.test(params.feature)
+          ? featureCheckout(ctx.cwd, params.feature) : ctx.cwd;
+        if (params.role !== "scout") await checkDispatch(ctx.cwd, stateCwd, params.role, params.task, params.feature, signal, piSessionId(ctx));
         const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
-          ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
+          ? snapshotHandoff(stateCwd, params.role, params.feature) : undefined;
         const parentSession = ctx.sessionManager?.getSessionId?.() ?? "";
         const agentId = "pi-" + params.role + "-" + _id;
-        const result = await runChild(ctx.cwd, spec, model, params.task, signal, parentSession, agentId);
+        const childTask = snapshot
+          ? params.task + "\n\nNavori handoff: write it exactly to " + handoffTargets(ctx.cwd, stateCwd, snapshot.role, snapshot.feature).join(" and ")
+            + " — this exact path is validated when you finish; do not derive another name."
+            + (snapshot.role === "reviewer" ? "\n" + REVIEWER_CONTRACT : "")
+          : params.task;
+        const result = await runChild(ctx.cwd, spec, model, childTask, signal, parentSession, agentId);
         const identity = { role: params.role, agentId, parentSession, ...await childGitState(ctx.cwd, signal) };
-        const details = { ...identity, truncated: result.truncated,
+        const details = { ...identity, truncated: result.truncated, ...(result.stop ? { childStop: result.stop } : {}),
           ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) };
         const failed = (failure: string, handoff: "invalid" | "none" = "none") => ({
           isError: true, content: [{ type: "text" as const, text: failure }],
@@ -1462,8 +1827,8 @@ export default function (pi: ExtensionAPI): void {
             + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
         }
         if (snapshot) {
-          const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
-          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+          const failure = await verifyHandoff(stateCwd, snapshot, signal);
+          if (failure) return { isError: true, content: [{ type: "text", text: (params.role === "implementer" ? PI_EXTENSION_DENIALS.implementerHandoff.prefix : PI_EXTENSION_DENIALS.reviewerHandoff.prefix) + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) + (result.stderrNote ?? "") }],
             details: { ...details, outcome: "failed", failure: failure.slice(0, 2048), handoff: "invalid" } };
         }
         const relay = result.approvals.length

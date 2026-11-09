@@ -1,18 +1,18 @@
 ---
 name: master-plan
-description: Use when the user explicitly asks to start or resume a project master plan, invokes `$master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
+description: Use when the user explicitly asks to start or resume a project master plan, invokes `/skill:master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
   # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870. Sube a 2957: sección de subcomandos que mutan (0052 T56), medidas 2816 * 1.05 => 2957.
   maxWords: 2957
 ---
 
-<!-- navori:managed id="master-plan" hash="ceacd28f" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="5ef323af" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
 
-Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `$master-plan` o responde a una oferta previa de R38 con una confirmación clara: “sí, continúa” o una variante que no cambia su sentido (“sí”, “dale”, “continúa”). Una respuesta con condiciones, dudas o un pedido distinto no confirma: respóndela primero. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
+Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `/skill:master-plan` o responde a una oferta previa de R38 con una confirmación clara: “sí, continúa” o una variante que no cambia su sentido (“sí”, “dale”, “continúa”). Una respuesta con condiciones, dudas o un pedido distinto no confirma: respóndela primero. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
 
 ## Precondición
 
@@ -67,11 +67,11 @@ Antes de cerrar cada plan, `MASTER.md` y cada spec de parte comprueba: nada impl
 
 ## Spec de una parte
 
-Cuando una parte arranque, crea su spec con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada tarea debe declarar archivos exactos, interfaces, archivo patrón, lista cerrada de lectura, versiones fijas de librerías, comando y resultado esperado, pruebas nombradas y fuera de alcance; no escribas cuerpos de funciones en las tareas. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y aparecer en al menos un `R<n>`; cada requisito que cite un criterio debe apuntar a uno existente. Corre `navori master check --part P<n>`.
+Cuando una parte arranque, crea su `spec.md` de una página con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y citarse en la `spec.md` como `P<n>.A<m>` o `A<m>`, normalmente en su guion de aceptación. Una parte heredada con `tasks.md` cita cada criterio en un `R<n>`. Corre `navori master check --part P<n>`.
 
 ### Part-spec: entregas funcionales
 
-En una spec de proyecto con entregas, cada `E<n>` del `tasks.md` de la parte debe declarar su entrega usando la identidad exacta del `E<n>` en `parts.json`. Clasificar la spec con `navori spec classify` antes de dividirla por entregas según `sdd.deliveries`. Con entregas activas, `navori spec check` valida que cada `E<n>` del `tasks.md` mapea a una entrega existente de `parts.json`. Sin entregas, se ignora este mapeo y la spec sigue el flujo clásico de un PR por spec.
+Con entregas, una `spec.md` pertenece a la entrega `deliveryId` de su parte en `parts.json`. Solo en specs heredadas con `tasks.md`, cada `E<n>` usa la identidad exacta del `E<n>` en `parts.json`: clasifícala con `navori spec classify` antes de dividirla según `sdd.deliveries`, y `navori spec check` valida el mapeo. Sin entregas, la spec sigue el flujo clásico de un PR por spec.
 
 ## Issues de GitHub
 

@@ -60,7 +60,9 @@ const MINIMAL_CONFIG = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "pnpm lint" },
-  hooks: { verifyOnStop: true },
+  // #1484: routing-watch (planTiers), model-advisor and audit-mode are opt-in; keep them in scope.
+  harness: { planTiers: true },
+  hooks: { verifyOnStop: true, modelAdvisor: true, auditMode: true },
 } as unknown as NavoriConfig;
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -447,6 +449,9 @@ function coreWiredHooks(): WiredHook[] {
       for (const entry of bucket.hooks) {
         const name = /([\w-]+\.sh)/.exec(entry.command ?? "")?.[1];
         if (!name) continue;
+        // #1484: `planTiers` (needed for routing-watch) also registers plan-gate, whose deny
+        // object comes from a TypeScript half this scan cannot parse; it was out of scope before.
+        if (name === "plan-gate.sh") continue;
         const path = resolve(HOOKS_ROOT, name);
         if (!existsSync(path)) continue;
         wired.push({

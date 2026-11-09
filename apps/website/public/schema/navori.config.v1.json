@@ -100,6 +100,53 @@
         },
         "nativeHooks": {
           "type": "boolean"
+        },
+        "ci": {
+          "type": "object",
+          "properties": {
+            "workflow": {
+              "type": "string",
+              "minLength": 1
+            },
+            "jobs": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "untrustedPaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hookPaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hooksCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "workflow",
+            "jobs",
+            "untrustedPaths",
+            "hookPaths",
+            "hooksCommand"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -114,10 +161,20 @@
         "verifyOnStop": {
           "default": false,
           "type": "boolean"
+        },
+        "modelAdvisor": {
+          "default": false,
+          "type": "boolean"
+        },
+        "auditMode": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
-        "verifyOnStop"
+        "verifyOnStop",
+        "modelAdvisor",
+        "auditMode"
       ],
       "additionalProperties": false
     },
@@ -252,6 +309,14 @@
           "default": false,
           "type": "boolean"
         },
+        "authoring": {
+          "default": false,
+          "type": "boolean"
+        },
+        "sessionState": {
+          "default": true,
+          "type": "boolean"
+        },
         "compactAdviceTokens": {
           "default": 175000,
           "type": "integer",
@@ -271,6 +336,8 @@
         "planTiers",
         "codexIntegration",
         "masterPlan",
+        "authoring",
+        "sessionState",
         "compactAdviceTokens"
       ],
       "additionalProperties": false
@@ -384,6 +451,27 @@
             "haiku": {
               "type": "string",
               "description": "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "piMap": {
+          "type": "object",
+          "properties": {
+            "opus": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
+            },
+            "sonnet": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
+            },
+            "haiku": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*\\/\\S+$",
+              "description": "Pi model as provider/id (e.g. anthropic/claude-sonnet-4-5, ollama/llama3); an optional :thinking suffix is allowed"
             }
           },
           "additionalProperties": false
@@ -722,6 +810,53 @@
                   },
                   "nativeHooks": {
                     "type": "boolean"
+                  },
+                  "ci": {
+                    "type": "object",
+                    "properties": {
+                      "workflow": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "jobs": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "untrustedPaths": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "hookPaths": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "hooksCommand": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "workflow",
+                      "jobs",
+                      "untrustedPaths",
+                      "hookPaths",
+                      "hooksCommand"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [

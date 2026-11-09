@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { conditioned } from "./helpers/conditioned-asset.ts";
 
 /**
  * #378 — ceremony proportional to risk, with the exemption bound to the DIFF.
@@ -35,25 +36,22 @@ const packages = resolve(here, "..", "..", "..", "..");
 const coreAssets = resolve(packages, "core", "core-assets");
 const engram = resolve(packages, "plugins", "engram");
 
-const readCore = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
 const readEngram = (rel: string): string => readFileSync(resolve(engram, rel), "utf-8");
+const readCore = (rel: string): string =>
+  conditioned(readFileSync(resolve(coreAssets, rel), "utf-8"));
 
-/** The lean close paragraph of the closeout block, which owns the conditions. */
-function expressLane(): string {
-  const block = readCore("managed/cierre-sesion.md");
-  const line = block.split("\n").find((l) => l.includes("**Lean close**"));
-  expect(line, "the closeout block lost the lean close lane").toBeDefined();
-  return line!;
-}
+/** The lean close paragraph of verify-before-done's Session close, which owns the conditions. */
+const expressLane = (): string => {
+  const lane = /^\*\*Lean close\*\*.*$/m.exec(readCore("skills/verify-before-done.md"));
+  expect(lane, "Session close lost the lean close lane").not.toBeNull();
+  return lane![0];
+};
 
 describe("lean close — the exemption is bound to the diff (#378)", () => {
-  it("the closeout block owns the three checkable conditions", () => {
+  it("Session close owns the checkable conditions", () => {
     const lane = expressLane();
-    expect(lane).toMatch(/not a judgment call/i);
-    // 1. route, 2. a single user task, 3. a diff outside the critical areas.
-    expect(lane).toMatch(/covered \*\*one\*\* user task/);
-    expect(lane).toMatch(/\*\*one\*\* user task/);
-    expect(lane).toContain("{{project.criticalAreas}}");
+    // A single user task and a diff outside the critical areas.
+    expect(lane).toMatch(/one user task AND no critical area/);
   });
 
   it("what it exempts is bounded, and the gate is not part of it", () => {
@@ -69,7 +67,7 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     // "no durable finding" is judged by the closing agent — the exact failure
     // mode the decision replaced with checkable conditions.
     for (const [label, text] of [
-      ["managed/cierre-sesion.md", readCore("managed/cierre-sesion.md")],
+      ["skills/verify-before-done.md", readCore("skills/verify-before-done.md")],
       ["engram/skills/engram-orchestrator.md", readEngram("skills/engram-orchestrator.md")],
     ] as const) {
       expect(text, `${label} reintroduced a self-judged exemption`).not.toMatch(

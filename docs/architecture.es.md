@@ -120,7 +120,7 @@ flowchart LR
     RENDER["navori render --apply<br/>escribe outputs"]
     WORK["trabajás en el repo"]
     SYNC["navori sync --interactive<br/>resuelve drift por bloque"]
-    INSPECT["doctor · status · bench<br/>inspección"]
+    INSPECT["doctor · status<br/>inspección"]
 
     INIT --> EDIT --> RENDER --> WORK
     WORK -- "bundle avanza /<br/>editaste a mano = drift" --> SYNC
@@ -132,7 +132,7 @@ flowchart LR
     click EDIT "../packages/cli/src/commands/add.ts" "add / configure"
     click RENDER "../packages/cli/src/commands/render.ts" "render"
     click SYNC "../packages/cli/src/commands/sync.ts" "sync"
-    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
+    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
 ## 4. Plan maestro — etapas numeradas y fases
@@ -271,7 +271,7 @@ Cada script managed con `exit 2` declara su clasificación en el header
 
 | Clase | Significa | Hooks |
 |---|---|---|
-| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard` |
+| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`, el carril de egreso de PII: una petición Bash a un host externo que lleva el email de git o una entrada de `NAVORI_PERSONAL_IDS`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `pii-egress-guard` (WebFetch/WebSearch, solo Claude) |
 | `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente |
 | `advisory` | `PostToolUse`: el `exit 2` solo llega al modelo | `managed-drift-watch` |
 
@@ -301,6 +301,8 @@ Contrato del host para un `ask` de hook (docs de Claude Code):
 indica la forma literal `rm -rf <ruta absoluta>`, que la regla `ask` de
 `settings-base.json` convierte en confirmación nativa. Residual: esa regla solo
 casa las grafías literales; cualquier otra forma sigue bloqueada.
+
+Egreso de PII (#1445). La regla "nunca enviar datos personales del usuario a un servicio externo" tiene dos sedes, porque la spec 0039 R28 prohíbe un segundo hook en la ruta de Bash: un carril dentro de `guard-destructive` para Bash (todos los motores) y `pii-egress-guard` para WebFetch/WebSearch (solo Claude; Codex no tiene hook sobre su búsqueda web alojada y Pi no tiene esa herramienta). Los identificadores son el `user.email` de git y `NAVORI_PERSONAL_IDS`, separado por comas (las entradas de menos de 4 caracteres se ignoran); si no se resuelve ningún identificador, no hace nada. `NAVORI_PERSONAL_IDS`: lista separada por comas de identificadores personales adicionales (un nombre completo, un handle) que la regla de egreso de PII debe mantener fuera de las solicitudes a hosts externos, además del `user.email` de git, que siempre se lee. Las entradas de menos de 4 caracteres se ignoran. Defínela en la shell que inicia el agente. Claude Code no pasa el email de la sesión a los hooks, así que el usuario debe definir `NAVORI_PERSONAL_IDS` para cubrirlo; el `user.email` de git se lee automáticamente. Una "solicitud de red a un host externo" es un segmento de shell activo que ejecuta curl, wget, http/https/xh/xhs o un fetch en línea de node/bun/deno/python hacia un host que no es localhost, loopback ni un rango privado (10/8, 172.16/12, 192.168/16). La coincidencia es un literal sin distinguir mayúsculas más las formas codificadas en URL. El deny nunca muestra el comando ni el identificador: nombra la regla y la fuente, sugiere `navori-agent/1.0`, y el motivo de auditoría es el código fijo `pii-egress`. Contrato de fallo: antes de que el filtro barato coincida, cualquier error permite; después de que coincida, cualquier error deniega ("no se pudo verificar"), y el carril corre en un subshell para que nunca pueda desactivar las demás reglas del guard. Falsos negativos documentados: git (push, commit --author), gh, ssh, scp, rsync, herramientas MCP, sh -c, eval, un valor que el hook no puede ver expandido (`$EMAIL`, `--data @file`, `-K cfg`), archivos de script. Una solicitud que legítimamente necesita un email de contacto real la ejecuta el usuario.
 
 Auditoría: `navori_audit_log` deriva `kind` del veredicto (`block` → `hard`,
 `ask` → `ask`; `deny` explícito) y `reason` es un único código de la allowlist

@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -87,7 +88,7 @@ function project(scribeOwnsMarkdown = true): string {
 /** Loads the generated extension with a scripted `navori` and a controllable Pi child. */
 function load(reply: (args: string[]) => NavoriReply) {
   const navori: string[][] = [];
-  const children: Array<{ child: EventEmitter & { stdout: PassThrough } }> = [];
+  const children: Array<{ child: EventEmitter & { stdout: PassThrough }; args: string[] }> = [];
   const spawn = (program: string, args: string[]) => {
     const child = Object.assign(new EventEmitter(), {
       pid: 7,
@@ -104,13 +105,13 @@ function load(reply: (args: string[]) => NavoriReply) {
         if (answer.body !== undefined) child.stdout.write(JSON.stringify(answer.body));
         child.emit("close", answer.code ?? 0);
       });
-    } else children.push({ child });
+    } else children.push({ child, args });
     return child;
   };
   let tool: Tool | undefined;
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { existsSync, readFileSync, statSync },
+    "node:fs": { existsSync, readFileSync, statSync, readdirSync },
     "node:path": { join },
     "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
     "@earendil-works/pi-coding-agent": {
@@ -340,11 +341,100 @@ describe("Pi child handoff validation (spec 0048 R7, R15)", () => {
     ).rejects.toThrow(/unavailable/);
   });
 
+  // Covers: R7, R15
+  it("appends the bounded handoff failure detail to a denied reviewer preflight", async () => {
+    const cwd = project();
+    const dispatch = (rt: ReturnType<typeof load>): Promise<Outcome> =>
+      rt.tool.execute(
+        "call",
+        { role: "reviewer", task: "x", feature: FEATURE },
+        new AbortController().signal,
+        () => {},
+        { cwd, isProjectTrusted: () => true, model: { provider: "p", id: "m" } },
+      );
+    const message = (rt: ReturnType<typeof load>): Promise<string | undefined> =>
+      dispatch(rt).then(
+        () => undefined,
+        (cause: unknown) => String((cause as { message?: unknown }).message),
+      );
+    const denied = await message(
+      load(() => ({
+        code: 2,
+        ...check({
+          status: "findings",
+          failures: [
+            { check: "fresh", detail: "impl handoff missing field Y\u001b[31m" },
+            { check: "head", detail: "z".repeat(2000) },
+          ],
+        }),
+      })),
+    );
+    expect(denied).toMatch(
+      /handoff check did not pass; reviewer blocked: impl handoff missing field Y/,
+    );
+    expect(denied).not.toContain("\u001b");
+    expect(denied!.length).toBeLessThan(1200);
+    // No detail keeps the exact previous text.
+    expect(await message(load(() => ({ code: 2, ...check() })))).toMatch(/reviewer blocked$/);
+  });
+
   // Covers: R7
   it("declares handoff-shape as enforced on the extension tool", () => {
     expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"]).toMatchObject({
       state: "enforced",
       evidence: { kind: "extension-tool", tool: "navori_subagent" },
     });
+  });
+
+  // Covers: R7
+  it("tells the child the exact handoff path for implementer and reviewer, not scout", async () => {
+    const cwd = project();
+    const impl = load(() => check());
+    await run(cwd, impl, "implementer", () => writeHandoff(cwd, `impl_${FEATURE}.json`, '{"n":1}'));
+    expect(impl.children[0]!.args.at(-1)).toContain(
+      `Navori handoff: write it exactly to ${HANDOFFS}/impl_${FEATURE}.json — this exact path is validated when you finish; do not derive another name.`,
+    );
+    const review = load(() => check());
+    await run(cwd, review, "reviewer", () =>
+      writeHandoff(cwd, `review_${FEATURE}.json`, '{"n":1}'),
+    );
+    expect(review.children[0]!.args.at(-1)).toContain(
+      `${HANDOFFS}/review_${FEATURE}.json and ${HANDOFFS}/review_${FEATURE}.md`,
+    );
+
+    const scout = load(() => check());
+    const pending = scout.tool.execute(
+      "call",
+      { role: "scout" as unknown as Role, task: "Look around", feature: FEATURE },
+      new AbortController().signal,
+      () => {},
+      { cwd, isProjectTrusted: () => true, model: { provider: "p", id: "m" } },
+    );
+    await vi.waitFor(() => expect(scout.children).toHaveLength(1));
+    expect(scout.children[0]!.args.at(-1)).not.toContain("Navori handoff:");
+    scout.children[0]!.child.emit("close", 0);
+    await pending.catch(() => undefined);
+  });
+
+  // Covers: R7
+  it("sub-slug: a fresh impl_<feature>-m1.json is named in the failure; the exact path passes", async () => {
+    const cwd = project();
+    const stray = await run(
+      cwd,
+      load(() => check()),
+      "implementer",
+      () => writeHandoff(cwd, `impl_${FEATURE}-m1.json`, '{"n":1}'),
+    );
+    expect(stray.isError).toBe(true);
+    expect(stray.content[0]!.text).toContain(
+      `found impl_${FEATURE}-m1.json instead (expected impl_${FEATURE}.json)`,
+    );
+    const exact = await run(
+      cwd,
+      load(() => check()),
+      "implementer",
+      () => writeHandoff(cwd, `impl_${FEATURE}.json`, '{"n":2}'),
+    );
+    expect(exact.isError).toBeUndefined();
   });
 });

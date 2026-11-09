@@ -14,6 +14,7 @@ export interface PiManifestHook {
   class: "enforced" | "advisory" | "lifecycle";
   interactive: boolean;
   timeoutMs: number;
+  skipOnError?: boolean;
 }
 
 interface PiManifestBase {
@@ -22,6 +23,10 @@ interface PiManifestBase {
     planTiers: boolean;
     masterPlan: boolean;
     scribeOwnsMarkdown: boolean;
+    /** Optional (pi-audit-mode): present only when audit.mode is "always". */
+    auditMode?: "always";
+    /** Optional (#1579): present only when harness.sessionState is false. */
+    sessionState?: false;
   };
 }
 
@@ -163,6 +168,7 @@ function canonicalPayload(payload: PiManifestPayload): string {
             class: hook.class,
             interactive: hook.interactive,
             timeoutMs: hook.timeoutMs,
+            ...(hook.skipOnError ? { skipOnError: true } : {}),
           })),
           ownedPaths: [...payload.ownedPaths].sort(),
           permissionRules: {
@@ -208,8 +214,12 @@ function isPiHookPath(script: string, path: unknown): path is string {
 function parseManifestHook(raw: unknown): PiManifestHook | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const hook = raw as Record<string, unknown>;
-  const keys = Object.keys(hook).sort().join(",");
-  if (keys !== HOOK_KEYS && keys !== `${HOOK_KEYS},tools`) return null;
+  const keys = Object.keys(hook)
+    .filter((key) => key !== "tools" && key !== "skipOnError")
+    .sort()
+    .join(",");
+  if (keys !== HOOK_KEYS) return null;
+  if (hook.skipOnError !== undefined && hook.skipOnError !== true) return null;
   if (
     typeof hook.script !== "string" ||
     !/^[a-z0-9][a-z0-9-]*$/.test(hook.script) ||
@@ -236,6 +246,7 @@ function parseManifestHook(raw: unknown): PiManifestHook | null {
     class: hook.class as PiManifestHook["class"],
     interactive: hook.interactive,
     timeoutMs: hook.timeoutMs,
+    ...(hook.skipOnError === true ? { skipOnError: true } : {}),
   };
 }
 
@@ -289,8 +300,14 @@ export function ownsPiManifest(content: string): boolean {
       )
         return false;
       const raw = record.controls as Record<string, unknown>;
+      const keys = Object.keys(raw).sort().join(",");
       if (
-        Object.keys(raw).sort().join(",") !== "masterPlan,planTiers,scribeOwnsMarkdown" ||
+        (keys !== "masterPlan,planTiers,scribeOwnsMarkdown" &&
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown" &&
+          keys !== "masterPlan,planTiers,scribeOwnsMarkdown,sessionState" &&
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown,sessionState") ||
+        (raw.auditMode !== undefined && raw.auditMode !== "always") ||
+        (raw.sessionState !== undefined && raw.sessionState !== false) ||
         typeof raw.planTiers !== "boolean" ||
         typeof raw.masterPlan !== "boolean" ||
         typeof raw.scribeOwnsMarkdown !== "boolean"
@@ -300,6 +317,8 @@ export function ownsPiManifest(content: string): boolean {
         planTiers: raw.planTiers,
         masterPlan: raw.masterPlan,
         scribeOwnsMarkdown: raw.scribeOwnsMarkdown,
+        ...(raw.auditMode === "always" ? { auditMode: "always" as const } : {}),
+        ...(raw.sessionState === false ? { sessionState: false as const } : {}),
       };
     }
     const common = { agents: record.agents, ...(controls ? { controls } : {}) };

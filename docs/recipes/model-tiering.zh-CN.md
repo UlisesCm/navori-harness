@@ -57,7 +57,13 @@ Claude 的 effort 只参与 Codex 解析：即使模型来自固定版本或 `co
 
 `models_cache.json` 中的条目只提供候选项。如果没有经过外部验证的来源、时间戳和上下文，新鲜度就是 `unknown`；如果目录缺失、格式错误或没有兼容条目，状态就是 `degraded`。缓存、mtime 和 slug 都不能证明当前可用性。`configured`、render 候选项和 `observed` 是不同状态：如果没有与已启动上下文关联的观察结果，有效结果仍然未知，应用状态为 `pending`。补救方式是启动新的 Codex 上下文，并在那里核实模型与 effort。本文不声称不同模型的质量等价。
 
-Pi 保留其显式的 `codexMap` 使用方，但它只解析模型；effort 转换和按名称设置的覆盖值仅适用于 Codex。Claude 配置保持不变。
+Pi 从 `models.piMap` 解析模型（opus/sonnet/haiku 对应 `provider/id`），没有条目的档位会继承所选 Pi 模型；它不读取 `codexMap`。effort 转换和按名称设置的覆盖值仅适用于 Codex。Claude 配置保持不变。
+
+```json
+{
+  "models": { "piMap": { "sonnet": "anthropic/claude-sonnet-5-5", "opus": "anthropic/claude-opus-5-5" } }
+}
+```
 
 ## 不要全部设置为顶档
 

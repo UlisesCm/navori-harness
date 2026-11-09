@@ -66,6 +66,8 @@ There are two levels:
 - **`check:assets:ci`** (in `EXEMPT_FROM_LOCAL_GATE`): it is the same check as `check:assets` with `--strict`. Strict mode depends on tags that CI intentionally provides and a fresh clone does not have, so the local gate would fail for an environmental reason rather than a code issue.
 - **`check:assets`** (in `EXEMPT_FROM_CI`): CI runs its stricter superset, `check:assets:ci`.
 
+A green CI run with the `full` label can stand in for the local full gate (#1492): the reviewer signs `--gate-ran ci`, the publisher opens a draft PR and marks it ready only when `navori receipt ci` verifies that run on the exact HEAD. Paths in `qualityGate.ci.untrustedPaths` and any `qualityGate` change still need the local gate; shell hook changes need the local `hooksCommand`.
+
 For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are enough; the full suite is not needed.
 **"Doc-only" means repo documentation, not assets.** A `.md` file under `packages/core/core-assets/` or `packages/plugins/*/` is a source for the rendered harness, so it triggers steps 2 and 3 (the mirror and golden snapshot) regardless of its extension.
 
@@ -87,6 +89,28 @@ For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are en
   `qualityGate.fast` on a hit; a hit never replaces a verdict.
 - **`NAVORI_TEST_WORKERS`** (a positive integer) sets Vitest's worker count. Without it, the count is
   `min(CPUs - 1, 4, file-descriptor budget)`.
+
+## Parallel sessions
+
+One session, one worktree, from the start, on Claude Code and Pi alike. A session's subagents, hooks,
+`.navori/state/` (workplans, handoffs, receipts) and gates resolve to the checkout the session started in,
+so two sessions sharing a checkout share its branch and state, and a branch switch in one moves the other
+(#1543).
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # or: pi
+```
+
+- The main checkout is for reviewing and merging, not for a working session.
+- The global `navori` is linked to the main checkout's `packages/cli/dist`, so every worktree runs that
+  build. After each pull of `dev` there, rebuild it: `bun run --filter navori build`.
+- Render from a worktree with that worktree's own compiled CLI, never the global `navori`: the global one
+  renders the main checkout's assets over the branch's. `bun run render:apply` at the worktree root builds
+  this worktree's CLI and renders with it; after that build, run any other command as
+  `node packages/cli/dist/index.js <command>`.
+- `worktree-reclaim` removes a worktree once it is clean, pushed and its PR is merged; the next task starts
+  in a new one. Pi specifics: [docs/pi.md](docs/pi.md#parallel-sessions).
 
 ## Prose budget: what is capped and what is only reported
 

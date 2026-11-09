@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
-import { renderNonClaudeEngines } from "../../../commands/render.ts";
+import { renderNonClaudeEngines, runRender } from "../../../commands/render.ts";
 import { commitWrites } from "../../shared/execute-plan.ts";
 import { renderPiEngine } from "../index.ts";
 import { ownsPiManifest, serializePiManifest } from "../owned-file.ts";
@@ -57,7 +57,79 @@ describe("Pi render base", () => {
     },
   );
 
+  // #1496: publisher is a parent role; a generated copy is navori's to prune, a user's is kept.
+  it.each([true, false])(
+    "render --prune with Pi off deletes a generated publisher.md, keeps a user one: generated=%s",
+    (generated: boolean): void => {
+      const cwd = freshDir();
+      writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config, null, 2));
+      renderPiEngine(cwd, config);
+      const path = join(cwd, ".pi/agents/publisher.md");
+      expect(readFileSync(path, "utf-8")).toContain("\ntools: []\n");
+      if (!generated) writeFileSync(path, "# my own publisher\n");
+      writeFileSync(
+        join(cwd, "navori.config.json"),
+        JSON.stringify({ ...config, engines: ["cursor"] }, null, 2),
+      );
+      const result = runRender(cwd, { dryRun: false, prune: true });
+      expect(result.ok).toBe(true);
+      expect(existsSync(path)).toBe(!generated);
+      expect(result.prunedEngineOutputs ?? []).toEqual(
+        generated
+          ? expect.arrayContaining([".pi/agents/publisher.md"])
+          : expect.not.arrayContaining([".pi/agents/publisher.md"]),
+      );
+      if (!generated) expect(readFileSync(path, "utf-8")).toBe("# my own publisher\n");
+    },
+  );
+
   // Covers: R6
+  it("pins Pi roles from models.piMap verbatim and ignores codexMap", () => {
+    const cwd = freshDir();
+    const withMaps = (models: object): ReturnType<typeof NavoriConfigSchema.parse> =>
+      NavoriConfigSchema.parse({
+        ...config,
+        models: { implementer: "sonnet", scout: "haiku", ...models },
+      });
+    const pinned = withMaps({
+      codexMap: { sonnet: "gpt-6.1-sol", haiku: "luna" },
+      piMap: { sonnet: "anthropic/claude-sonnet-5-5:thinking", haiku: "openrouter/a/b" },
+    });
+    renderPiEngine(cwd, pinned);
+    const implementer = readFileSync(join(cwd, ".pi/agents/implementer.md"), "utf-8");
+    expect(implementer).toContain('model: "anthropic/claude-sonnet-5-5:thinking"');
+    expect(readFileSync(join(cwd, ".pi/agents/scout.md"), "utf-8")).toContain(
+      'model: "openrouter/a/b"',
+    );
+    // No piMap entry: no model line (inherit the parent), whatever codexMap says.
+    const inherit = freshDir();
+    renderPiEngine(inherit, withMaps({ codexMap: { sonnet: "gpt-6.1-sol" } }));
+    expect(readFileSync(join(inherit, ".pi/agents/implementer.md"), "utf-8")).not.toContain(
+      "model:",
+    );
+  });
+
+  it("warns to set piMap when codexMap has tiers and piMap is undefined", () => {
+    const migrate = (models: object): string[] =>
+      renderPiEngine(freshDir(), NavoriConfigSchema.parse({ ...config, models })).warnings.filter(
+        (w) => w.includes("models.piMap"),
+      );
+    expect(migrate({ codexMap: { sonnet: "gpt-6.1-sol" } })).toHaveLength(1);
+    expect(migrate({ codexMap: { sonnet: "gpt-6.1-sol" }, piMap: {} })).toEqual([]);
+    expect(migrate({ piMap: { sonnet: "anthropic/claude-sonnet-5-5" } })).toEqual([]);
+    expect(migrate({})).toEqual([]);
+  });
+
+  it("rejects a provider-less Pi pin and accepts provider/id shapes", () => {
+    const ok = (piMap: object): boolean =>
+      NavoriConfigSchema.safeParse({ ...config, models: { piMap } }).success;
+    expect(ok({ sonnet: "gpt-6.1-sol" })).toBe(false);
+    expect(ok({ sonnet: "anthropic/" })).toBe(false);
+    expect(ok({ sonnet: "/x" })).toBe(false);
+    expect(ok({ sonnet: "openai-codex/gpt-x", haiku: "ollama/llama3" })).toBe(true);
+    expect(ok({ opus: "anthropic/claude-sonnet-5-5:thinking" })).toBe(true);
+  });
+
   it("preserves dangling symlinks at the Pi root and managed destinations", () => {
     const root = freshDir();
     symlinkSync(join(root, "missing-pi"), join(root, ".pi"));

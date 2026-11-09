@@ -44,6 +44,7 @@ import {
 } from "../lib/audit/report.ts";
 import {
   ALL_REPOS_DIR,
+  auditRootRepairCommand,
   auditsRoot,
   projectRootFromCwd,
   rangeReportDir,
@@ -195,14 +196,45 @@ function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: bool
  * can take back. Both failure paths exit 2 — this function never returns
  * normally unless the match was unique.
  */
+/**
+ * Repair hint for a permission-only fault inside the audit root. Text only,
+ * never executed. A NAVORI_AUDITS_ROOT override may point anywhere, so the hint
+ * then asks to verify the path before running it.
+ */
+function repairHint(): { root: string; command: string; text: string } | undefined {
+  try {
+    const root = auditsRoot();
+    const command = auditRootRepairCommand(root);
+    const override = process.env.NAVORI_AUDITS_ROOT?.trim()
+      ? " (NAVORI_AUDITS_ROOT override: verify this path first)"
+      : "";
+    return {
+      root,
+      command,
+      text: `audit root ${root}${override} is too open; to repair it run: ${command}`,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Refuse unsafe history without repairing it or exposing its contents. */
 function privateResultOrExit<T>(result: PrivateAuditResult<T>, json: boolean): T {
   if (result.ok) return result.value;
+  const repair = result.permissionOnly === true ? repairHint() : undefined;
   if (json)
     process.stdout.write(
-      JSON.stringify({ ok: false, error: "unsafe-audit-target", reason: result.reason }) + "\n",
+      JSON.stringify({
+        ok: false,
+        error: "unsafe-audit-target",
+        reason: result.reason,
+        ...(repair ? { repair: { root: repair.root, command: repair.command } } : {}),
+      }) + "\n",
     );
-  else p.cancel("unsafe-audit-target: " + result.reason);
+  else {
+    p.cancel("unsafe-audit-target: " + result.reason);
+    if (repair) p.log.message(repair.text);
+  }
   return process.exit(2);
 }
 
@@ -379,8 +411,17 @@ async function recordMetadataAction(args: Readonly<Record<string, unknown>>): Pr
   }
 }
 
+function isAuditHost(value: unknown): value is "claude" | "codex" | "pi" {
+  return value === "claude" || value === "codex" || value === "pi";
+}
+
 /** Read complete private arm payload and capture its stable observable generation. */
-function readArm(file: string, cwd: string, root: string): Stats | null {
+function readArm(
+  file: string,
+  cwd: string,
+  root: string,
+  consumerHost: "claude" | "codex" | "pi",
+): Stats | null {
   const identity = lstatSync(file);
   const read = readPrivateAuditFile(file, { ownedRoot: resolve(root), maxBytes: 2048 });
   if (!read.ok) return null;
@@ -389,14 +430,19 @@ function readArm(file: string, cwd: string, root: string): Stats | null {
   const arm: unknown = JSON.parse(text);
   if (!arm || typeof arm !== "object" || Array.isArray(arm)) return null;
   const payload = arm as Record<string, unknown>;
+  // {ts,cwd} (untagged) or {ts,cwd,host} (host-tagged by `--arm --host`).
+  const keys = Object.keys(payload);
   if (
-    Object.keys(payload).length !== 2 ||
+    keys.length !== (payload.host === undefined ? 2 : 3) ||
+    (payload.host !== undefined && !isAuditHost(payload.host)) ||
     typeof payload.ts !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(payload.ts) ||
     !Number.isFinite(Date.parse(payload.ts)) ||
     typeof payload.cwd !== "string" ||
     !isAbsolute(payload.cwd) ||
-    resolve(projectRootFromCwd(payload.cwd)) !== resolve(projectRootFromCwd(cwd))
+    resolve(projectRootFromCwd(payload.cwd)) !== resolve(projectRootFromCwd(cwd)) ||
+    // A tagged arm belongs to that engine only; any other consumer leaves it in place.
+    (payload.host !== undefined && payload.host !== consumerHost)
   )
     return null;
   const current = lstatSync(file);
@@ -420,7 +466,7 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
     args["consume-arm"] !== true ||
     typeof start !== "string" ||
     !/^[A-Za-z0-9_-]{1,256}$/.test(start) ||
-    (host !== "claude" && host !== "codex") ||
+    !isAuditHost(host) ||
     typeof cwd !== "string" ||
     !isAbsolute(cwd) ||
     Buffer.byteLength(cwd) > 2048 ||
@@ -438,7 +484,7 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
     return false;
   try {
     const file = join(repoAuditDir(repoFromCwd(cwd)), ".armed");
-    const original = readArm(file, cwd, root);
+    const original = readArm(file, cwd, root, host);
     if (!original) return false;
     const claim = `${file}.claim`;
     const token = `${randomUUID()}\n`;
@@ -449,7 +495,7 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
     let released = false;
     try {
       claimed = lstatSync(claim);
-      const current = readArm(file, cwd, root);
+      const current = readArm(file, cwd, root, host);
       if (
         current &&
         current.dev === original.dev &&
@@ -517,7 +563,8 @@ const auditArgs = {
   rollout: { type: "string", description: "Exact --capture-child rollout source" },
   host: {
     type: "string",
-    description: "claude/codex/pi; metadata/consumption requires claude|codex; start: claude",
+    description:
+      "claude/codex/pi; metadata/consumption requires claude|codex|pi; start: claude|codex|pi; arm: tag the arm for one host",
   },
   stop: {
     type: "string",
@@ -885,6 +932,16 @@ export const auditCommand = defineCommand({
     // the id only IT knows; consumption-first means the flag arms exactly ONE
     // session, never "every session from now on".
     if (args.arm === true) {
+      // Optional host tag: only that engine's session consumes the arm.
+      const armHost = args.host;
+      if (armHost !== undefined && !isAuditHost(armHost)) {
+        const message = isEs
+          ? `--host acepta 'claude', 'codex' o 'pi', recibí '${String(armHost)}'.`
+          : `--host accepts 'claude', 'codex' or 'pi', got '${String(armHost)}'.`;
+        if (json) console.log(JSON.stringify({ ok: false, error: "invalid-host", message }));
+        else p.cancel(message);
+        process.exit(2);
+      }
       const armedFile = join(auditDir, ".armed");
       privateResultOrExit(ensurePrivateAuditDirectory(auditDir), json);
       if (existsSync(armedFile)) {
@@ -899,7 +956,7 @@ export const auditCommand = defineCommand({
       privateResultOrExit(
         createPrivateAuditFile(
           armedFile,
-          `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
+          `${JSON.stringify({ ts: new Date().toISOString(), cwd, ...(armHost ? { host: armHost } : {}) })}\n`,
         ),
         json,
       );

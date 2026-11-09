@@ -1,5 +1,6 @@
 import { type NavoriConfig } from "../../lib/config/config.ts";
 import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { AGENTS_MD_HEADER, AGENTS_MD_USER_SECTION } from "../../lib/render/scaffold.ts";
 
 /**
  * AGENTS.md engine adapter. Emits a single `AGENTS.md` at the repo root — the
@@ -13,14 +14,6 @@ export type AgentsMdEngineResult = ProseEngineResult;
 
 const MANAGED_ID = "navori-agents";
 
-/** Title the first render seeds before the managed block. */
-const HEADER = "# AGENTS.md\n";
-/** User-owned section appended once, the first time AGENTS.md is created. */
-const USER_SECTION =
-  "\n<!-- navori:user-section -->\n" +
-  "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n";
-
 export function renderAgentsMdEngine(
   cwd: string,
   inputConfig: NavoriConfig,
@@ -29,7 +22,15 @@ export function renderAgentsMdEngine(
     repoRoot?: string;
     /** Pi only (spec 0048 D13): the plugin blocks and sub-blocks it owns in the shared file. */
     includePluginBlocks?: boolean;
+    /** Pi only: as the sole writer it carries the orchestration Codex would (#1512). */
+    includeOrchestration?: boolean;
+    /** Pi only: Pi discovers `.agents/skills` natively, like Codex. */
+    omitSkillsIndex?: boolean;
+    /** Engine whose `onX` conditions the prose resolves; defaults to `agents-md`. */
+    engine?: string;
     extendBody?: (body: string) => string;
+    /** Pi only: its vocabulary adapter, applied before interpolation. */
+    transform?: (text: string) => string;
   } = {},
 ): AgentsMdEngineResult {
   return renderProseFile({
@@ -37,12 +38,15 @@ export function renderAgentsMdEngine(
     config: inputConfig,
     destRelPath: "AGENTS.md",
     managedId: MANAGED_ID,
-    engine: "agents-md",
-    header: HEADER,
-    userSection: USER_SECTION,
+    engine: options.engine ?? "agents-md",
+    header: AGENTS_MD_HEADER,
+    userSection: AGENTS_MD_USER_SECTION,
     dryRun: options.dryRun,
     repoRoot: options.repoRoot,
     includePluginBlocks: options.includePluginBlocks,
+    includeOrchestration: options.includeOrchestration,
+    omitSkillsIndex: options.omitSkillsIndex,
     extendBody: options.extendBody,
+    transform: options.transform,
   });
 }

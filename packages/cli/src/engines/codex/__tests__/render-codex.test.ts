@@ -75,8 +75,9 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 
 // Covers: R8, R9
 it.each([
-  [false, false, "868e548496c97ff9707c4b16aae93ae9fe2e1696fd28cd972ec1d771e5f01f25"],
-  [false, true, "288c567b98076be364a3ca9a2f5c9a28ff58a67bd83de98382029fcd8588fcb8"],
+  // planTiers=false digests re-taken in #1484: routing-watch is not registered without planTiers.
+  [false, false, "b93d78a0dff844660e0fa454902ec6c6344f762376f9ac96c5fb05575e5df4f6"],
+  [false, true, "54f3d43c0327809c54c800b684f146e23221400cd970fb147f924f67bbb1e1e8"],
   [true, false, "9e1f2d40ccb1311249ff0aa6f467b7bbc8cd5b15169b3f34b9edbcf5b5bd067e"],
   [true, true, "c410047ce68dcdfcfcc506593ef7d7368a09443e0568e5337511ac0ded0b7c24"],
 ] as const)(
@@ -87,7 +88,9 @@ it.each([
       engines: ["codex"],
       preset: "custom",
       plugins: Object.fromEntries(listBundledPluginIds().map((id) => [id, { enabled: true }])),
-      hooks: { verifyOnStop: true },
+      // #1484: model-advisor and audit-mode are opt-in; with them on (and routing-watch riding
+      // planTiers) the planTiers=true digests are the ones captured before the cut.
+      hooks: { verifyOnStop: true, modelAdvisor: true, auditMode: true },
       harness: { planTiers, masterPlan },
     });
     const hooks = resolveCodexHooks(cfg, loadEnabledPlugins(cfg.plugins).loaded);
@@ -118,6 +121,27 @@ it.each([
     );
   },
 );
+
+// Covers: R8
+it("registers model-advisor, routing-watch and audit-mode only behind their flags (#1484)", () => {
+  const scripts = (cfg: NavoriConfig): string[] => resolveCodexHooks(cfg).map((h) => h.script);
+  const gated = ["model-advisor", "routing-watch", "audit-mode-trigger", "audit-mode-close"];
+  for (const id of gated) expect(scripts(config())).not.toContain(id);
+  expect(scripts(config({ hooks: { modelAdvisor: true } }))).toContain("model-advisor");
+  expect(scripts(config({ harness: { planTiers: true } }))).toContain("routing-watch");
+  expect(scripts(config({ hooks: { auditMode: true } }))).toEqual(
+    expect.arrayContaining(["audit-mode-trigger", "audit-mode-close"]),
+  );
+  expect(scripts(config({ audit: { mode: "always" } }))).toContain("audit-mode-close");
+  // The codexIntegration PreToolUse row keeps its own advisor registration.
+  const integration = resolveCodexHooks(config({ harness: { codexIntegration: true } }));
+  expect(integration.some((h) => h.script === "model-advisor" && h.event === "PreToolUse")).toBe(
+    true,
+  );
+  expect(integration.some((h) => h.script === "model-advisor" && h.event === "SessionStart")).toBe(
+    false,
+  );
+});
 
 function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPlugin {
   return {
@@ -279,7 +303,7 @@ describe("renderCodexEngine", () => {
   // Covers: R3, R4, R5, R6, R7
   it("registers the Astra-only SessionStart advisor without changing agent profiles", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config());
+    renderCodexEngine(cwd, config({ hooks: { modelAdvisor: true } }));
 
     const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf8");
     expect(toml).toContain("[[hooks.SessionStart]]");
@@ -446,14 +470,16 @@ describe("renderCodexEngine", () => {
   // contract.
   it("keeps the trusted_hash of the four pre-existing registrations", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }));
+    const advised = config({
+      qualityGate: { fast: "pnpm test", full: "pnpm test" },
+      hooks: { modelAdvisor: true },
+    });
+    renderCodexEngine(cwd, advised);
     const hookBase = `$(git rev-parse --show-toplevel)/.codex/hooks`;
     const commandFor = (hook: { script: string; args?: string }): string =>
       `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
 
-    const resolved = resolveCodexHooks(
-      config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }),
-    );
+    const resolved = resolveCodexHooks(advised);
     const byScript = (script: string) => {
       const hook = resolved.find((h) => h.script === script);
       if (!hook) throw new Error(`missing resolved hook: ${script}`);
@@ -508,7 +534,7 @@ describe("renderCodexEngine", () => {
     }
     for (const hook of [claudeHook, codexHook]) {
       expect(hook).toContain('".navori/state/handoffs"');
-      expect(hook.match(/payload=\$\{payload-\$\(cat\)\}/g)).toHaveLength(1);
+      expect(hook.match(/payload=\$\{payload-"\$\(cat\)"\}/g)).toHaveLength(1);
       expect(hook).not.toContain("navori_field() {");
     }
     expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).toContain(
@@ -726,6 +752,20 @@ describe("renderCodexEngine", () => {
     const rerender = renderCodexEngine(cwd, config());
     expect(rerender.written).toEqual([]);
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(before);
+  });
+
+  it("conditions the orchestrator plugin sub-block in AGENTS.md on harness.sessionState (#1579)", () => {
+    const agentsMd = (harness: Record<string, unknown>): string => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ harness }));
+      return readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    };
+    const absent = agentsMd({});
+    expect(absent).toContain("history.md");
+    const off = agentsMd({ sessionState: false });
+    expect(off).toContain('id="engram-orchestrator-extension"');
+    expect(off).not.toContain("history.md");
+    for (const out of [absent, off]) expect(out).not.toContain("navori:if");
   });
 
   it("points the workspace config.toml hook command at the workspace's own hooks (#279)", () => {
@@ -1228,7 +1268,7 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(agentsMd).toContain("$spec-bootstrap");
+    expect(agentsMd).toContain("`spec-bootstrap`");
     expect(agentsMd).not.toContain("/spec-bootstrap");
   });
 
@@ -1424,8 +1464,10 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "plan-gate",
       "engram-write-guard",
     ];
-    const base = config(withPlugins);
-    const on = config({ ...withPlugins, harness: { masterPlan: true } });
+    // #1484: model-advisor is the first SessionStart row only with `hooks.modelAdvisor`.
+    const advisor = { hooks: { modelAdvisor: true } };
+    const base = config({ ...withPlugins, ...advisor });
+    const on = config({ ...withPlugins, ...advisor, harness: { masterPlan: true } });
     const plugins = loadEnabledPlugins(base.plugins).loaded;
     const slots = (cfg: NavoriConfig): Map<string, string[]> => {
       const byEvent = new Map<string, string[]>();
@@ -1547,6 +1589,9 @@ it("anclas de entrega", () => {
   expect(publisher.indexOf("mode: commit-only")).toBeLessThan(publisher.indexOf("## PR flow"));
   expect(reviewer).toContain("spec: <spec> E<n> M<n>");
   expect(reviewer).toContain("navori receipt gate");
-  expect(agentsMd).toContain("spec: <spec> E<n> M<n>");
-  expect(agentsMd).toContain("deliveries `E<n>`");
+  // #1525: the orchestrator's deliveries cycle is planTiers doctrine.
+  expect(agentsMd).not.toContain("spec: <spec> E<n> M<n>");
+  expect(agentsMd).toContain("**Done = accepted:**");
+  renderCodexEngine(cwd, config({ harness: { planTiers: true } }));
+  expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toContain("spec: <spec> E<n> M<n>");
 });

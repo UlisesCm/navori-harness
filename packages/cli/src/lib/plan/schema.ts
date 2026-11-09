@@ -136,3 +136,64 @@ export type RecordedEvidence = z.infer<typeof RecordedEvidenceSchema>;
 export type UnevidencedAcceptance = z.infer<typeof UnevidencedAcceptanceSchema>;
 export type AcceptanceEvidence = z.infer<typeof AcceptanceEvidenceSchema>;
 export type ProgressStatus = z.infer<typeof ProgressStatusSchema>;
+
+/** What `plan classify` needs from a workplan draft: its declared file paths
+ * and, if present, `classification.signals`. */
+export interface DraftShape {
+  files: string[];
+  signals: string[];
+}
+
+/** Reads the draft shape of a parsed JSON object WITHOUT `WorkplanSchema` (a
+ * draft written before `classify` ran has no `level`/`classification`).
+ * Single definition shared by `classify` and the gate decision. Throws an
+ * `Error` whose message names the offending field; callers add the context. */
+export function parseDraftShape(record: Record<string, unknown>): DraftShape {
+  const rawFiles = record.files;
+  const files: string[] = [];
+  if (rawFiles !== undefined) {
+    if (!Array.isArray(rawFiles)) {
+      throw new Error(`"files" must be an array`);
+    }
+    for (const entry of rawFiles) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as { path?: unknown }).path !== "string"
+      ) {
+        throw new Error(`every "files" entry needs a string "path"`);
+      }
+      files.push((entry as { path: string }).path);
+    }
+  }
+  const rawSignals = (record.classification as { signals?: unknown } | undefined)?.signals;
+  const signals: string[] = [];
+  if (rawSignals !== undefined) {
+    if (!Array.isArray(rawSignals) || rawSignals.some((s) => typeof s !== "string")) {
+      throw new Error(`"classification.signals" must be a string array`);
+    }
+    signals.push(...(rawSignals as string[]));
+  }
+  return { files, signals };
+}
+
+/** True for a `plan classify` draft: a JSON object with neither `level` nor
+ * `acceptance` and a non-empty, well-formed `files` list. Anything else that
+ * fails `WorkplanSchema` is broken, not a draft. */
+export function isWorkplanDraft(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
+  const record = raw as Record<string, unknown>;
+  if ("level" in record || "acceptance" in record) return false;
+  try {
+    return parseDraftShape(record).files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The declared `classification.signals` of a `plan classify` draft, or
+ * `undefined` when `raw` is not a draft (#1571). */
+export function workplanDraftSignals(raw: unknown): string[] | undefined {
+  if (!isWorkplanDraft(raw)) return undefined;
+  return parseDraftShape(raw as Record<string, unknown>).signals;
+}

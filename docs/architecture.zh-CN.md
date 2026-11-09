@@ -94,7 +94,7 @@ flowchart LR
     RENDER["navori render --apply<br/>写入输出"]
     WORK["在仓库中工作"]
     SYNC["navori sync --interactive<br/>按区块解决 drift"]
-    INSPECT["doctor · status · bench<br/>检查"]
+    INSPECT["doctor · status<br/>检查"]
 
     INIT --> EDIT --> RENDER --> WORK
     WORK -- "bundle 更新 /<br/>手动修改 = drift" --> SYNC
@@ -106,7 +106,7 @@ flowchart LR
     click EDIT "../packages/cli/src/commands/add.ts" "add / configure"
     click RENDER "../packages/cli/src/commands/render.ts" "render"
     click SYNC "../packages/cli/src/commands/sync.ts" "sync"
-    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
+    click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
 ## 4. Master plan — 编号阶段与 phase
@@ -176,7 +176,7 @@ Master plan 将项目工作组织为彼此独立、带编号和 slug 的阶段�
 
 | 类别 | 含义 | Hooks |
 |---|---|---|
-| `hard` | 已有判定或隔离措施；没有可批准的操作 | `guard-destructive`（限制、`--no-verify`、向 base force-push、对 root/home/system 使用 `rm`、重写 managed 文件、丢弃仍有未提交工作的整个工作树：`git reset --hard`、`git checkout -f` / `git checkout .`、未带 `--staged` 的 `git restore` 路径、`git clean -f`），被拒绝 plan 的 `plan-gate`，cwd 无效或 gate 失败时的 `quality-gate-pre-commit`，`role-guard`、`implementer-no-markdown`、`subagent-no-background`、`engram-write-guard` |
+| `hard` | 已有判定或隔离措施；没有可批准的操作 | `guard-destructive`（限制、`--no-verify`、向 base force-push、对 root/home/system 使用 `rm`、重写 managed 文件、丢弃仍有未提交工作的整个工作树：`git reset --hard`、`git checkout -f` / `git checkout .`、未带 `--staged` 的 `git restore` 路径、`git clean -f`、PII 外泄通道：发往外部主机且携带 git 邮箱或 `NAVORI_PERSONAL_IDS` 条目的 Bash 请求），被拒绝 plan 的 `plan-gate`，cwd 无效或 gate 失败时的 `quality-gate-pre-commit`，`role-guard`、`implementer-no-markdown`、`subagent-no-background`、`engram-write-guard`、`pii-egress-guard`（WebFetch/WebSearch，仅 Claude） |
 | `ask` | 缺少工具，无法判定；由人通过 UI 决定 | 缺少 navori 或没有 `plan` 子命令时的 `plan-gate`；缺少 runner 时的 `quality-gate-pre-commit` |
 | `advisory` | `PostToolUse`：`exit 2` 只会到达模型 | `managed-drift-watch` |
 
@@ -195,6 +195,8 @@ Claude Code 文档中的 host `ask` 契约：
 | `-p` | 拒绝 | 阻止 | 拒绝，除非由 permission host 处理 |
 
 `guard-destructive` 不会询问。对变量执行 `rm` 时，它会阻止并在消息中给出字面形式 `rm -rf <absolute path>`，`settings-base.json` 的 `ask` 规则会将其转为原生确认。残余限制：该规则只匹配字面拼写；其他形式仍会被阻止。
+
+PII 外泄（#1445）。“绝不向外部服务发送用户个人数据”这一规则有两个落点，原因是 spec 0039 R28 禁止在 Bash 路径上增加第二个 hook：Bash 的通道位于 `guard-destructive` 内（所有引擎），WebFetch/WebSearch 则由 `pii-egress-guard` 负责（仅 Claude；Codex 的托管网页搜索没有 hook，Pi 也没有该工具）。识别符为 git `user.email` 和以逗号分隔的 `NAVORI_PERSONAL_IDS`（少于 4 个字符的条目会被忽略）；无法解析出任何识别符时不做任何处理。`NAVORI_PERSONAL_IDS`：以逗号分隔的额外个人识别符列表（完整姓名、用户名），PII 外泄规则须将其排除在发往外部主机的请求之外，此外还会读取 git `user.email`（始终读取）。少于 4 个字符的条目会被忽略。请在启动代理的 shell 中设置它。 Claude Code 不会将会话邮箱传递给 hook，因此用户须设置 `NAVORI_PERSONAL_IDS` 以覆盖该邮箱；git `user.email` 会被自动读取。“网络请求至外部主机”指正在执行的 shell 片段运行 curl、wget、http/https/xh/xhs，或内联的 node/bun/deno/python fetch，且目标主机不是 localhost、回环地址或私有网段（10/8、172.16/12、192.168/16）。匹配方式为不区分大小写的字面量，并包含 URL 编码形式。拒绝消息从不回显命令或识别符：它指明规则与来源，建议使用 `navori-agent/1.0`，审计原因为固定代码 `pii-egress`。失败契约：在廉价门控匹配之前，任何错误都放行；匹配之后，任何错误都拒绝（“无法验证”），且该通道在子 shell 中运行，因此绝不会禁用守卫的其他规则。已记录的假阴性：git（push、commit --author）、gh、ssh、scp、rsync、MCP 工具、sh -c、eval、hook 无法看到展开结果的值（`$EMAIL`、`--data @file`、`-K cfg`）、脚本文件。确实需要真实联系邮箱的请求，由用户自行执行。
 
 审计：`navori_audit_log` 根据判定推导 `kind`（`block` → `hard`，`ask` → `ask`；显式 `deny`），`reason` 是 `HOOK_REASON_CODES` allowlist（[model.ts](../packages/cli/src/lib/audit/model.ts)）中的单一代码，与 partial 的 `jq` 列表保持镜像（测试会检查漂移）。其他文本都会被记录为 `unspecified`。
 

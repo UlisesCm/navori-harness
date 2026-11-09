@@ -1,7 +1,7 @@
 # Pi: igualar los resultados de Claude — Requirements
 
-**Estado:** scaffold aceptado por el usuario el 2026-10-14. Abrir la spec no autoriza workplans de entrega,
-implementación ni publicación.
+**Estado:** cerrada el 2026-11-04 sin T16 (corrida en vivo de Pi), por decisión del usuario. Lo entregado está en
+`tasks.md`; los problemas de Pi siguen por el diagnóstico de logs de #1493. Scaffold aceptado el 2026-10-14.
 **Base:** `origin/dev`. Pi pinneado en `@earendil-works/pi-coding-agent` 1.1.0; última publicada 1.2.0
 (2026-10-12).
 
@@ -106,6 +106,6 @@ Pi (código en `origin/dev`, sesiones en `~/.pi/agent/sessions`, paquete upstrea
 - No se replican subagentes ni permisos nativos en Pi; los hijos siguen siendo procesos `pi` y la
   enforcement sigue en `tool_call`.
 - MCP en hijos sigue con `--no-mcp`.
-- `audit-mode` en Pi queda fuera: `navori audit` ya lee las sesiones Pi.
+- `audit-mode` en Pi queda fuera: `navori audit` ya lee las sesiones Pi. Nota: el disparo de audit-mode en Pi (arm/`--host pi` y `audit.mode=always`) se promovió en la spec pi-audit-mode.
 - Que el hook de gate de Claude ejecute una cadena distinta de `qualityGate.fast` es un hallazgo aparte;
   se abre como issue, no entra aquí.

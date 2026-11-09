@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
-import { WorkplanSchema } from "./schema.ts";
+import { isWorkplanDraft, WorkplanSchema } from "./schema.ts";
 
 export type WorkplanGateReason =
   | "pending-later-work"
@@ -16,6 +16,8 @@ export type WorkplanGateReason =
   | "no-completed-phase"
   | "closing-phase"
   | "unit-complete"
+  | "workplan-missing"
+  | "workplan-draft"
   | "workplan-unreadable";
 
 export interface WorkplanGateDecision {
@@ -37,11 +39,16 @@ export interface WorkplanGateDecision {
  *
  * `scoped` only when phases exist, the reference phase exists and a later phase
  * has an `A<n>` not `cumplido`. Everything else, including an unreadable
- * workplan (`plan` that is not a valid workplan), is `full`.
+ * workplan, is `full`. The reason tells the cases apart: `workplan-missing`
+ * (no file, from disk), `workplan-draft` (a `plan classify` draft not yet
+ * written as a workplan) and `workplan-unreadable` (broken JSON or an invalid
+ * workplan). None of them can ever decide `scoped`.
  */
 export function decideWorkplanGate(plan: unknown, phase?: string): WorkplanGateDecision {
   const parsed = WorkplanSchema.safeParse(plan);
-  if (!parsed.success) return full("workplan-unreadable", null, null);
+  if (!parsed.success) {
+    return full(isWorkplanDraft(plan) ? "workplan-draft" : "workplan-unreadable", null, null);
+  }
   const { feature, phases, progress } = parsed.data;
   if (!phases || phases.length === 0) return full("no-phases", feature, null);
   const closingPhase = phases[phases.length - 1]!.name;
@@ -86,7 +93,7 @@ export function decideWorkplanGateFromDisk(
 ): WorkplanGateDecision {
   try {
     const path = stateArtifactPath(root, `workplan_${feature}.json`);
-    if (!existsSync(path)) return full("workplan-unreadable", null, null);
+    if (!existsSync(path)) return full("workplan-missing", null, null);
     return decideWorkplanGate(JSON.parse(readFileSync(path, "utf8")) as unknown, phase);
   } catch {
     return full("workplan-unreadable", null, null);

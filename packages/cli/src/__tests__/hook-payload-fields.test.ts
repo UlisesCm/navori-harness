@@ -147,6 +147,34 @@ describe.each(
   });
 
   // Covers: R22
+  it("lee el payload de stdin sin partir ni unir espacios", () => {
+    const { bin } = toolDir(["cat", "jq", "sed"]);
+    try {
+      // Unquoted, `${payload-$(cat)}` word-splits under zsh and rejoins with one space:
+      // the guard would read `rm -rf` where the payload says `rm  -rf`.
+      const payload = JSON.stringify(
+        { tool_input: { command: "git status \\\n  && rm  -rf /" }, cwd: "/a  b" },
+        null,
+        2,
+      );
+      const script = [
+        `. '${PARTIAL}'`,
+        `printf '%s${SEP}' "$payload"`,
+        `payload_fields cmd=tool_input.command cwd=cwd`,
+        `printf '%s${SEP}%s' "$cmd" "$cwd"`,
+      ].join("\n");
+      const r = spawnSync(which(shell), ["-c", script], {
+        input: payload,
+        encoding: "utf-8",
+        env: { PATH: bin },
+      });
+      expect(r.stdout.split(SEP)).toEqual([payload, "git status \\\n  && rm  -rf /", "/a  b"]);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R22
   it("sin jq ni node usa la extracción por campo con sed", () => {
     const { bin } = toolDir(["sed"]);
     try {

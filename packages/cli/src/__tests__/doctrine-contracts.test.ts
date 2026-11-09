@@ -289,25 +289,18 @@ const ROWS: readonly ContractRow[] = [
   {
     id: "el bloque conserva la regla operativa (R4)",
     file: asset(BLOCK),
-    tokens: [
-      "NEVER delegate that role",
-      "Every change to source goes through",
-      "Delegation is about WRITING, not about answering",
-      "### How much analysis does this task deserve",
-      "**The architectural pass — design before you decompose.**",
-      "ALL `Agent` calls in a SINGLE turn",
-      "### When delegation is genuinely impossible",
-    ],
+    tokens: ["NEVER delegate that role"],
+  },
+  // Covers: R33
+  {
+    id: "el bloque enruta las señales arquitectónicas al pase del architect",
+    file: asset(BLOCK),
+    tokens: ["architect pass (`solution-design`)"],
   },
   {
     id: "la escalera retirada no vuelve al bloque",
     file: asset(BLOCK),
     absent: ["R1 · Inline", "R2 · Delegate", "4-file rule", "2+ non-trivial files"],
-  },
-  {
-    id: "orchestrator.md explica por qué se retiró la escalera y qué hace falta para reponerla",
-    file: asset(ORCHESTRATOR),
-    tokens: ["seven places that did not agree", "shared classifier"],
   },
   // Covers: R7
   {
@@ -352,27 +345,6 @@ const ROWS: readonly ContractRow[] = [
       "squash merge leaves no ancestry",
       "a review from a **different provider**",
     ],
-  },
-  // Covers: R33
-  {
-    id: "architectural pass: proposes via `architect` while planTiers is off (default)",
-    file: conditioned(BLOCK, { auditor: true }),
-    tokens: [
-      "`architect` applies `solution-design` and writes",
-      "READY / CONCERNS / BLOCKED — always yours",
-    ],
-    match: [/an `auditor`, not a new agent/],
-  },
-  // Covers: R30
-  {
-    id: "architectural pass: the paragraph drops once planTiers is on",
-    file: conditioned(BLOCK, { planTiers: true, auditor: true }),
-    absent: ["`architect` applies `solution-design`"],
-  },
-  {
-    id: "architectural pass: the verdict is the orchestrator's without an auditor",
-    file: conditioned(BLOCK, { auditor: false }),
-    tokens: ["READY / CONCERNS / BLOCKED — always yours"],
   },
   // Covers: R7
   {
@@ -498,7 +470,6 @@ const ROWS: readonly ContractRow[] = [
   {
     id: "orquestacion OFF: implementer then reviewer only",
     file: conditioned("managed/orquestacion.md", OFF),
-    tokens: ["then **1 fresh `reviewer`**"],
     absent: ["`scribe`"],
   },
   // Covers: R9
@@ -507,12 +478,6 @@ const ROWS: readonly ContractRow[] = [
     file: conditioned("agents/orchestrator.md", ON),
     tokens: ["prose-only change (no code) skips the `implementer`"],
     match: [/implementer.*scribe.*reviewer/s],
-  },
-  // Covers: R9
-  {
-    id: "orquestacion ON: scribe appears with markdownRequests",
-    file: conditioned("managed/orquestacion.md", ON),
-    match: [/`scribe`.*markdownRequests/s],
   },
   // Covers: R9
   {
@@ -561,27 +526,12 @@ const ROWS: readonly ContractRow[] = [
     tokens: ["Planning tiers"],
     match: [/\| 0 \|.*\| 1 \|.*\| 2 \|.*\| 3 \|/s],
   },
-  // Covers: R30
-  {
-    id: "planTiers off: orquestacion keeps the architect paragraph",
-    file: claude("base", `${CONTEXT_DIR}/10-orquestacion.md`),
-    tokens: ["`architect` applies `solution-design` and writes"],
-  },
-  {
-    id: "planTiers on: orquestacion drops the architectural paragraph",
-    file: claude("tiers", `${CONTEXT_DIR}/10-orquestacion.md`),
-    absent: ["`architect` applies `solution-design`"],
-  },
   // Covers: R40
   {
-    id: "planTiers on: el contexto inline trae precondición, regla sin ruta inline y spec",
+    id: "planTiers on: el contexto inline trae precondición y spec",
     file: claude("tiers", `${CONTEXT_DIR}/05-planificacion.md`),
     squash: true,
-    tokens: [
-      "Plan precondition:",
-      "every code write goes through `implementer` → `reviewer`, with no inline route",
-      "spec: <spec> E<n> M<n>",
-    ],
+    tokens: ["Plan precondition:", "spec: <spec> E<n> M<n>"],
     absent: ["see `orquestacion`"],
   },
   // Covers: R6
@@ -688,15 +638,6 @@ const ROWS: readonly ContractRow[] = [
       "never runs the full suite",
     ],
   },
-  {
-    id: "orquestacion: scribe condicionado y A<n> desde el hilo principal",
-    file: asset(BLOCK),
-    squash: true,
-    tokens: [
-      "only when `markdownRequests` is non-empty (else `navori handoff render <feature>`",
-      "you run each `A<n>` from the main thread, foreground;",
-    ],
-  },
   // Covers: R47
   ...[".claude/agents/reviewer.md", ".claude/skills/plan-advanced/SKILL.md"].map(
     (file): ContractRow => ({
@@ -730,9 +671,9 @@ const ROWS: readonly ContractRow[] = [
     ],
   },
   {
-    id: "R28: spec-bootstrap's rendered Order has the architect apply solution-design for design.md",
+    id: "R28: spec-bootstrap's rendered skill produces the one-page spec.md for a vertical slice",
     file: claude("tiers", ".claude/skills/spec-bootstrap/SKILL.md"),
-    tokens: ["The `architect` writes `design.md`, applying `solution-design`."],
+    tokens: ["<feature>/spec.md` — one file, one vertical slice, one delivery"],
   },
   {
     id: "R23/R24: planTiers on routes level 2 through architect/auditor/user/verdict",
@@ -807,9 +748,9 @@ const ROWS: readonly ContractRow[] = [
     absent: [...INTAKE_BULLETS, "navori:if"],
   },
   {
-    id: "Claude CLAUDE.md: sdd keeps the trigger and the no-TaskCreate rule, drops Structure/Tracking",
+    id: "Claude CLAUDE.md: sdd keeps the trigger and the no-mirror TaskCreate rule, drops Structure/Tracking",
     file: rendered("claude", "diet", "CLAUDE.md"),
-    tokens: ["When to PROPOSE a spec", "do NOT use `TaskCreate`"],
+    tokens: ["When to PROPOSE a spec", "`TaskCreate` (ignore its reminder)"],
     absent: ["**Structure:**", "Covers: R"],
   },
   {
@@ -824,9 +765,9 @@ const ROWS: readonly ContractRow[] = [
       ["copilot", ".github/copilot-instructions.md"],
     ] as const
   ).map(([engine, file]): ContractRow => ({
-    id: `${engine}: full intake bullets and SDD Structure/Tracking, no pointer, no markers`,
+    id: `${engine}: full intake bullets and SDD one-page spec contract, no pointer, no markers`,
     file: rendered(engine, "diet", file),
-    tokens: [...INTAKE_BULLETS, "**Structure:**", "Covers: R"],
+    tokens: [...INTAKE_BULLETS, "**One page, one vertical slice:**", "**Done = accepted:**"],
     absent: [SKILL_POINTER, "navori:if"],
   })),
 
@@ -952,10 +893,11 @@ describe("doctrine contracts — intake doctrine has two owners by engine, one w
   });
 
   // Covers: #1273
-  it("the SDD threshold stays single-owner and spec-bootstrap owns the Covers convention", () => {
+  it("the SDD threshold stays single-owner and spec-bootstrap owns the one-page spec.md", () => {
     has(readAsset("managed/sdd.md"), "~2 days");
     lacks(readAsset("skills/spec-bootstrap.md"), "~2 days");
-    has(readAsset("skills/spec-bootstrap.md"), "// Covers: R<n>");
+    lacks(readAsset("skills/spec-bootstrap.md"), "EARS");
+    has(readAsset("skills/spec-bootstrap.md"), "spec.md");
   });
 });
 

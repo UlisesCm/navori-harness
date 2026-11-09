@@ -108,6 +108,12 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
  */
 const EXEMPT_FROM_CI = new Map<string, string>([
   [
+    "check:deps",
+    // CI installs with `bun install --frozen-lockfile`, so node_modules matches
+    // bun.lock by construction; the check only guards stale LOCAL installs.
+    "CI already runs `bun install --frozen-lockfile`; the check would be a no-op there",
+  ],
+  [
     "check:assets",
     // The inverse of the `check:assets:ci` exemption above, and the same pair of
     // checks: CI runs the STRICTER `:ci` variant, which is this one plus
@@ -446,7 +452,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
 
   it("check:fast runs the scans, lint, format and typecheck (anti-false-green)", () => {
     expect([...fast].sort()).toEqual(
-      ["check:ast", "check:dup", "format:check", "lint", "typecheck"].sort(),
+      ["check:ast", "check:dup", "check:deps", "format:check", "lint", "typecheck"].sort(),
     );
   });
 
@@ -463,8 +469,9 @@ describe("pre-commit and CI's dev tier run no tests", () => {
 
   it("CI's fast job runs only the check:fast set, no tests", () => {
     const checks = ciChecks("checks");
-    expect([...fast].filter((c) => !checks.has(c))).toEqual([]);
+    expect([...fast].filter((c) => !checks.has(c) && !EXEMPT_FROM_CI.has(c))).toEqual([]);
     expect([...checks].some((c) => c.startsWith("test"))).toBe(false);
+    // No branch or label filter: every run, label runs included, runs it (#1562).
     expect(jobBody("checks")).not.toMatch(/^ {4}if:/m);
     expect(jobBody("checks")).not.toMatch(/^\s*run: .*\b(?:test|vitest)\b/m);
   });
@@ -481,7 +488,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(shards).toContain("include-hidden-files: true");
     expect(shards).toContain("if-no-files-found: error");
     expect(merge).toContain("needs: [test]");
-    expect(merge).toContain("always() && needs.test.result != 'skipped'");
+    expect(merge).toContain("!cancelled() && needs.test.result != 'skipped'");
     expect(merge).toContain("SHARD_RESULT: ${{ needs.test.result }}");
     expect(merge).toContain('run: test "$SHARD_RESULT" = success');
     expect(merge).toContain("pattern: vitest-shard-*");
@@ -494,16 +501,22 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     const workflow = readFileSync(CI_WORKFLOW, "utf-8");
     expect(workflow).toContain("branches: [main, dev]");
     expect(workflow).toMatch(/^  pull_request:/m);
-    expect(jobBody("checks")).not.toMatch(/^ {4}(?:if|needs):/m);
+    expect(jobBody("checks")).not.toMatch(/^ {4}needs:/m);
     const shards = jobBody("test");
     expect(shards).toContain("needs: [plan]");
     expect(shards).toContain("!cancelled()");
     expect(shards).toContain("github.event_name == 'push' || github.base_ref == 'main'");
-    expect(shards).toContain("needs.plan.result == 'success' && needs.plan.outputs.full == 'true'");
+    expect(shards).toContain(
+      "needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||",
+    );
+    // A `full` label forces the full suite on a PR to dev (#1492).
+    expect(shards).toContain("contains(github.event.pull_request.labels.*.name, 'full')");
     const plan = jobBody("plan");
     expect(plan).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
     expect(plan).toContain("full: ${{ steps.plan.outputs.full }}");
-    expect(plan).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    // The diff base is fixed at the event: a merge to dev mid-run must not change the plan (#1566).
+    expect(plan).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
+    expect(plan).not.toContain("origin/${{ github.base_ref }}");
     expect(plan).toContain("node packages/cli/scripts/test-affected.mjs --plan-json");
     const affected = jobBody("affected");
     expect(affected).toContain("needs: [plan]");
@@ -511,7 +524,8 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(affected).toContain(
       "needs.plan.result == 'success' && needs.plan.outputs.full == 'false'",
     );
-    expect(affected).toContain("NAVORI_AFFECTED_BASE: origin/${{ github.base_ref }}");
+    expect(affected).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
+    expect(affected).not.toContain("origin/${{ github.base_ref }}");
     expect(affected).toMatch(/^\s*run: node packages\/cli\/scripts\/test-affected\.mjs$/m);
     expect(affected).toContain(
       'check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"',

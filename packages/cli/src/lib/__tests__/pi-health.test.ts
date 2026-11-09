@@ -41,9 +41,20 @@ describe("navori doctor Pi diagnosis", () => {
       versionUnverified: null,
       powershellDefault: false,
       foreignExtensions: [],
+      piMapMigration: false,
     });
     // No `pi` binary on PATH is "nothing to check", never an error.
     expect(scanPiHealth(cwd, piConfig, () => null)?.versionUnverified).toBeNull();
+  });
+
+  it("flags the codexMap to piMap migration until piMap is defined", () => {
+    const { cwd } = fixture();
+    const migrating = (models: object): boolean | undefined =>
+      scanPiHealth(cwd, NavoriConfigSchema.parse({ ...piConfig, models }), () => "1.1.0")
+        ?.piMapMigration;
+    expect(migrating({ codexMap: { sonnet: "gpt-6.1-sol" } })).toBe(true);
+    expect(migrating({ codexMap: { sonnet: "gpt-6.1-sol" }, piMap: {} })).toBe(false);
+    expect(migrating({})).toBe(false);
   });
 
   // Covers: R15

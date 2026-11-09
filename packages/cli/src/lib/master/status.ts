@@ -120,6 +120,14 @@ function taskCounts(spec: string | null): { done: number; total: number } {
   return { done: tasks.filter((m) => m[1] !== " ").length, total: tasks.length };
 }
 
+/** True when the linked spec directory holds a one-page `spec.md` (progress comes from evidence only). */
+function hasOnePageSpec(spec: string | null): boolean {
+  if (!spec) return false;
+  const real = requireRealPath(join(spec, "spec.md"));
+  const realDir = requireRealPath(spec);
+  return Boolean(real && realDir && real.startsWith(`${realDir}${sep}`));
+}
+
 function evidenceAge(cwd: string, commit: string): { behind: number | null; orphan: boolean } {
   const ancestor = git(cwd, ["merge-base", "--is-ancestor", commit, "HEAD"]);
   // git() returns empty string for a successful --is-ancestor and null otherwise.
@@ -273,6 +281,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
   const mapped = parts.map((part): EffectivePart => {
     const spec = part.spec ? safeSpec(cwd, specsDir, part.spec) : null;
     const { done, total } = taskCounts(spec);
+    const onePage = hasOnePageSpec(spec);
     const acceptance = part.acceptance.map((criterion) => {
       const age =
         criterion.evidence?.kind === "run"
@@ -302,11 +311,17 @@ export function readMasterStatus(cwd: string): MasterStatus {
       if (part.spec)
         effective = !spec
           ? "pendiente"
-          : total > 0 && done === total && missing.length === 0
-            ? "hecho"
-            : done > 0 || (total > 0 && missing.length > 0)
-              ? "parcial"
-              : "pendiente";
+          : onePage
+            ? acceptance.length > 0 && missing.length === 0
+              ? "hecho"
+              : acceptance.some((a) => a.verified)
+                ? "parcial"
+                : "pendiente"
+            : total > 0 && done === total && missing.length === 0
+              ? "hecho"
+              : done > 0 || (total > 0 && missing.length > 0)
+                ? "parcial"
+                : "pendiente";
       else if (part.state === "hecho" && missing.length > 0) effective = "parcial";
     }
     if (effective !== part.state)
@@ -316,7 +331,10 @@ export function readMasterStatus(cwd: string): MasterStatus {
       blockers.push(`${part.id}: ${effective}`);
     if (effective === "parcial") blockers.push(...missing);
     if (effective === "hecho" && part.spec) {
-      const failures = checkPart(cwd, part.id).filter((f) => !f.startsWith("warning:"));
+      // Closing judges evidence and traceability; completed tasks are not re-prepared.
+      const failures = checkPart(cwd, part.id, { skipCompletedTasks: true }).filter(
+        (f) => !f.startsWith("warning:"),
+      );
       blockers.push(...failures.map((f) => `${part.id}: ${f}`));
     }
     return {

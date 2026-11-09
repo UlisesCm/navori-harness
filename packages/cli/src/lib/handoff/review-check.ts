@@ -20,6 +20,11 @@ export interface ReviewHandoffOptions {
   /** ISO UTC instant (the dispatch time); the review must have begun at or after it. */
   since?: string;
   evidenceOptions?: EvidenceOptions;
+  /**
+   * The caller gave no explicit `--target`: correlate against the target the
+   * review's begin stamp recorded instead of the configured default.
+   */
+  targetFromStamp?: boolean;
 }
 
 const VERDICT = /\b(?:APPROVED|CHANGES_REQUESTED)\b/;
@@ -92,14 +97,22 @@ export function checkReviewHandoff(options: ReviewHandoffOptions): HandoffCheckR
       });
     }
     const sealed = checkSealedEvidence(root, parsed.data);
-    if (
-      options.evidenceOptions &&
-      correlateReview(root, parsed.data, options.evidenceOptions).correlation !== "correlated"
-    ) {
-      result.failures.push({
-        check: "evidence",
-        detail: "review does not match the current independent delivery",
-      });
+    if (options.evidenceOptions) {
+      const stampTarget = options.targetFromStamp && "target" in sealed ? sealed.target : undefined;
+      const correlated = correlateReview(
+        root,
+        parsed.data,
+        stampTarget === undefined
+          ? options.evidenceOptions
+          : { ...options.evidenceOptions, target: stampTarget },
+      );
+      if (correlated.correlation !== "correlated") {
+        const why = correlated.differs?.length ? `: ${correlated.differs.join(", ")} differs` : "";
+        result.failures.push({
+          check: "evidence",
+          detail: `review does not match the current independent delivery (${correlated.correlation}${why})`,
+        });
+      }
     }
     if (sealed.status !== "sealed") {
       result.failures.push({

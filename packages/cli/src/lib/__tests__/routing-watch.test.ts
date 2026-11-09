@@ -402,6 +402,8 @@ const MINIMAL_CONFIG = {
   language: "es",
   branchBase: "main",
   commits: "conventional-es",
+  // #1484: the hook is registered only with planTiers.
+  harness: { planTiers: true },
 } as unknown as NavoriConfig;
 
 describe("routing-watch — wiring (spec 0020)", () => {

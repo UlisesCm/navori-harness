@@ -1,4 +1,4 @@
-# navori:managed start id="pr-publisher-confirm-base" hash="3085c571" version="0.12.2" source="@navori/core"
+# navori:managed start id="pr-publisher-confirm-base" hash="bfd1f736" version="0.12.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
@@ -46,8 +46,9 @@ payload_load() { :; }
 # `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
 # tool names this hook does not otherwise read) keeps that value, empty or
 # not, instead of this partial re-reading an already-drained pipe and
-# clobbering it with "".
-payload=${payload-$(cat)}
+# clobbering it with "". The inner quotes matter: unquoted, zsh word-splits the
+# substitution and rejoins it with single spaces (bash does not).
+payload=${payload-"$(cat)"}
 payload_field() {
   case "$1" in "" | *[!A-Za-z0-9_.]*) ;; *)
     if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
@@ -298,16 +299,10 @@ navori_strip_heredoc_bodies() {
 }
 
 # Counts the segments of $1 that start with a gated op ($TRIGGER_RE); sets the
-# global `navori_trigger_hits`. `$2` = 1 stops at the first hit (is_scan_trigger
-# only needs "any"). The single home of the segment normalisation, shared with
+# global `navori_trigger_hits`. The single home of the segment normalisation, shared with
 # navori_commit_landing so the two can never disagree about what a segment is.
 navori_count_triggers() {
-  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
-  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
-  # left compound commands unsplit there and the gate silently skipped
-  # `cd x && git commit` (#391). A plain variable expands identically in
-  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
-  local input="$1" stop="${2:-0}" segment nl=$'\n'
+  local input="$1" segment
   navori_trigger_hits=0
   if [ "${TRIGGER_STRIP_HEREDOC_BODIES:-}" = 1 ]; then
     case "$input" in *'<<'*) navori_strip_heredoc_bodies "$input"; input="$navori_heredoc_stripped" ;; esac
@@ -315,14 +310,32 @@ navori_count_triggers() {
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).
-  input="${input//\\$'\n'/ }"
-  input="${input//&&/$nl}"
-  input="${input//||/$nl}"
-  input="${input//;/$nl}"
-  input="${input//|/$nl}"
+  # Then `&&`, `||`, `;`, `|` become newlines, in that order. One awk pass:
+  # bash 3.2's `${var//pat/repl}` is superlinear on long input. The `x`
+  # sentinel keeps trailing newlines exact across `$(…)`. No `$'\n'` in a
+  # shell replacement, which zsh does not expand (#391).
+  # Without awk on PATH (a stripped-down host) fall back to the slower pure-bash
+  # substitutions so the gate never silently skips; `nl` is pre-expanded for zsh.
+  if command -v awk >/dev/null 2>&1; then
+  input=$(printf '%sx' "$input" | LC_ALL=C awk '{ s = s sep $0; sep = "\n" } END { s = substr(s, 1, length(s) - 1); gsub(/\\\n/, " ", s); gsub(/&&/, "\n", s); gsub(/\|\|/, "\n", s); gsub(/;/, "\n", s); gsub(/\|/, "\n", s); printf "%sx", s }')
+  input="${input%x}"
+  else
+    local nl=$'\n'
+    input="${input//\\$'\n'/ }"
+    input="${input//&&/$nl}"
+    input="${input//||/$nl}"
+    input="${input//;/$nl}"
+    input="${input//|/$nl}"
+  fi
   # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
   # command that contains backticks/$() is inspected, never executed.
-  while IFS= read -r segment; do
+  # The peeled segments stream into ONE `grep -c` (a fork per segment made the
+  # cost scale with the segment count, #1481). A segment holds no newline and
+  # grep is line-based, so the matching-line count equals the per-segment count;
+  # an empty segment is skipped, as an empty `printf` never produced a match.
+  # grep -c exits 1 on zero matches (and pipefail may add a failure): the
+  # printed count is what counts, normalised to 0 so `set -e` callers survive.
+  navori_trigger_hits=$(while IFS= read -r segment; do
     segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
     # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
     # `VAR=val git …` all reduce to a plain `git …` before matching.
@@ -332,12 +345,13 @@ navori_count_triggers() {
     done
     segment="${segment#\\}"                                 # strip a leading backslash (\git)
     while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      # Patterns carry a leading `(`: bash 3.2 mis-parses a bare `pat)` inside `$( … )`.
       case "$segment" in
-        *[[:space:]]*)
+        (*[[:space:]]*)
           segment="${segment#*[[:space:]]}"
           segment="${segment#"${segment%%[![:space:]]*}"}"
           ;;
-        *) segment=""; break ;;
+        (*) segment=""; break ;;
       esac
     done
     if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
@@ -347,11 +361,9 @@ navori_count_triggers() {
     # FIX C: allow git global options between `git` and the subcommand
     # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
     # keeps `git commitgraph` / `git config …` from matching.
-    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
-      navori_trigger_hits=$((navori_trigger_hits + 1))
-      if [ "$stop" = 1 ]; then return 0; fi
-    fi
-  done <<< "$input"
+    if [ -n "$segment" ]; then printf '%s\n' "$segment"; fi
+  done <<< "$input" | grep -cE -- "$TRIGGER_RE") || true
+  case "$navori_trigger_hits" in '' | *[!0-9]*) navori_trigger_hits=0 ;; esac
   return 0
 }
 
@@ -374,7 +386,7 @@ is_scan_trigger() {
   # the pair travels together; when unset the fast path disarms and the loop
   # runs exactly as before (fail-open to the SLOW path, never to a skip).
   has_trigger_token "$1" || return 1
-  navori_count_triggers "$1" 1
+  navori_count_triggers "$1"
   [ "$navori_trigger_hits" -gt 0 ]
 }
 
@@ -520,7 +532,13 @@ navori_audit_spool_write() {
   [ -n "$navori_audit_event" ] && [ "${#navori_audit_event}" -le 4096 ] || return 1
   navori_audit_stamp=${EPOCHREALTIME:-0}
   navori_audit_stamp=${navori_audit_stamp//[.,]/}
-  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$RANDOM.json" ) 2>/dev/null || return 1
+  # A per-process sequence keeps the events of one invocation apart where the stamp and
+  # $RANDOM cannot: without EPOCHREALTIME (bash < 5) the stamp is 0, and before bash 5.1 a
+  # subshell repeats its parent's next $RANDOM, so a second event (gate-started, then the
+  # verdict) took the first one's name and noclobber dropped it. Counted in this shell, never
+  # in the subshell below; it starts at 1000 so the names sort in write order.
+  navori_audit_seq=$(( ${navori_audit_seq:-1000} + 1 ))
+  ( set -C; umask 077; printf '%s\n' "$navori_audit_event" > "$navori_audit_spool/$navori_audit_stamp-$$-$navori_audit_seq-$RANDOM.json" ) 2>/dev/null || return 1
   return 0
 }
 
@@ -622,12 +640,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0

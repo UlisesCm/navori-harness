@@ -203,6 +203,7 @@ const HOOK_IDS: readonly string[] = [
   "guard-destructive",
   "implementer-no-markdown",
   "subagent-no-background",
+  "pii-egress-guard",
   "session-start-context",
   "model-advisor",
   "subagent-stop-handoff",
@@ -227,7 +228,6 @@ const HOOK_IDS: readonly string[] = [
 /** Blocks under `core-assets/managed/`, by file basename. */
 const MANAGED_BLOCK_IDS: readonly string[] = [
   "arranque-sesion",
-  "cierre-sesion",
   "code-discovery-routing",
   "codex-cross-review",
   "formato-respuesta",
