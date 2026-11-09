@@ -1,4 +1,4 @@
-<!-- navori:managed-file id="pi-orchestrator" hash="b753c52614521ebe089fe4a640394c294a7e2d7dc541c38c48dad4f39e125e60" -->
+<!-- navori:managed-file id="pi-orchestrator" hash="f51f386763bab9a8468f39c93bdd3d7939dd35540b0e7c94781999430be0b6da" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -79,7 +79,7 @@ On Claude, a `SessionStart` hook injects the live context at the top of the sess
 - `scribe` — Use after a producer completes and before its consumer reads the artifact
 - `architect` — Use when the architectural row fires
 
-<!-- navori:managed id="engram-orchestrator-extension" hash="744ec1a3" version="0.12.3" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="744ec1a3" version="0.12.4" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
@@ -92,7 +92,7 @@ On Claude, a `SessionStart` hook injects the live context at the top of the sess
 - **Auto Memory vs. engram**: Auto Memory holds personal preferences; engram holds durable knowledge. Never write the same fact to both.
 <!-- /navori:managed id="engram-orchestrator-extension" -->
 
-<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.12.3" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.12.4" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.

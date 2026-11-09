@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="65ca1727e85160cccfe7fd2dd5b4a8b6f353f44577f1a6612638cb79c6f074b2"
+// navori:managed-file id="pi-extension" hash="2ed66a17b25d3e8fa774ac497a5b84de752e0fe944b23a93dd9c8191863dfea4"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1480,6 +1480,27 @@ function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
   try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
 }
 
+// Spec 0064: the orchestrator doctrine lives in its own owned file and only the parent process receives it.
+const ORCHESTRATOR_FILE = ".pi/navori/orchestrator.md";
+const ORCHESTRATOR_HEADER = /^<!-- navori:managed-file id="pi-orchestrator" hash="[a-f0-9]{64}" -->\n/;
+let orchestratorNoticed = false;
+
+/** Adds the orchestrator section to a parent's prompt; a missing file the manifest promises is a visible warning, once. */
+function injectOrchestrator(event: { systemPromptOptions: { sections?: Record<string, string> } }, ctx: NoticeCtx & { cwd: string }): void {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  const manifest: unknown = JSON.parse(readFileSync(join(ctx.cwd, ".pi/navori.json"), "utf8"));
+  if (!isRecord(manifest) || !Array.isArray(manifest.ownedPaths) || !manifest.ownedPaths.includes(ORCHESTRATOR_FILE)) return;
+  const file = join(ctx.cwd, ORCHESTRATOR_FILE);
+  let text = "";
+  try { if (!lstatSync(file).isSymbolicLink()) text = readFileSync(file, "utf8").replace(ORCHESTRATOR_HEADER, "").trim(); } catch { /* Reported below. */ }
+  if (text) {
+    event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-orchestrator": text };
+    return;
+  }
+  noticeOnce(ctx, orchestratorNoticed, "Navori orchestrator doctrine " + ORCHESTRATOR_FILE + " is missing or unreadable, so this session runs without it. Run navori render --apply.");
+  orchestratorNoticed = true;
+}
+
 const POWERSHELL_REASON = PI_EXTENSION_DENIALS.powershell.prefix + "it would run commands outside the shared shell policy. "
   + "Install Git for Windows and use the bash tool (see docs/pi.md), or run the command yourself.";
 
@@ -1769,6 +1790,7 @@ export default function (pi: ExtensionAPI): void {
     try { if (event.reason === "startup" || event.reason === "new") await consumeAuditArm(ctx); } catch { /* Recording never blocks a session. */ }
   });
   pi.on("before_agent_start", async (event, ctx) => {
+    try { injectOrchestrator(event, ctx); } catch { /* Advisory only; the user's prompt must continue. */ }
     try {
       if (controls(ctx.cwd).masterPlan) {
         const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });
