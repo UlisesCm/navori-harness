@@ -114,7 +114,7 @@ navori 注入的所有文案都留在每个会话的常驻上下文中，因此�
 | 计算生成的区块（`contexto-proyecto`、`agentes-disponibles`） | navori，根据使用方配置生成 | **是**，公式为 `base + k · filas` | `navori doctor`（只报告） |
 | marker 之外由使用方维护的文案 | 仓库所有者 | **绝不设上限** | 只报告 |
 | `.claude/context/*.md` | navori | **暂不设上限**（#919） | `navori doctor`（只报告） |
-| `AGENTS.md`（各 engine 的文案） | navori | **不设上限**，按 host 上限报告 | `navori doctor`（达到 80% 后显示黄色警告） |
+| `AGENTS.md`（各 engine 的文案） | navori | **消费者侧不设上限**，按 host 上限报告；**本仓库根目录的 `AGENTS.md`：设上限**，整文件词数上限 | 根文件用 `bun run check:doc-budgets`；消费者用 `navori doctor`（达到 80% 后显示黄色警告） |
 
 上限只定义在一个位置：`packages/cli/src/lib/assets/doc-budgets.ts`。它放在 `src/lib/`，而不是 `scripts/` 下的 JSON 文件中，因为 npm 发布 `["dist", "README.md"]`。使用方仓库中的 `doctor` 必须读取相同的数值，因此这些数值必须包含在发布 bundle 中。政策是：每个上限都要比实测值至少高 **5%**，并且提出上调的改动必须说明理由。把上限设成刚好通过的数值，最终导致 `CLAUDE.md` 达到 2548/2550。
 
@@ -127,6 +127,10 @@ navori 注入的所有文案都留在每个会话的常驻上下文中，因此�
 阅读指标时还要注意一点：**没有上限的区块不参与比较**。navori 不纳入预算的区块（通常是已移除、却仍留在旧文件中的区块）会增加总词数，却对上限贡献 0。把它算进比值会导致指标凭空报告超限。实测 `bonum-webapp` 的 `CLAUDE.md`：`engram-protocol`（497）加上 `codegraph-protocol`（255），占报告超出部分 **1207 个词中的 752 个**，即 62%。这些区块会单独计数，并在独立行中注明，不会隐藏起来。
 
 文案内容面（`AGENTS.md`，由 `codex`、`agents-md`、`cursor` 和 `copilot` 共用）按**字节**而非词数衡量，原因是这里唯一存在的限制来自 host。Codex 从根目录向下拼接文件；达到 `project_doc_max_bytes`（默认 32 KiB）后便**停止添加后续文件**，且不会提示。静默截断无法通过词数上限发现。navori 只报告自己的部分：整个链条还包含用户的 `~/.codex/AGENTS.md` 和嵌套的 `AGENTS.md`，所以测量结果只是一个**下限**。这里也不按区块测量：`AGENTS.md` 会渲染为一个 `navori-agents` 区块；若按区块报告，结果会是 `ceiling 0, overBy 0`，永远不可能失败。对每个区块分别诊断会改变已部署文件的 marker 拓扑，属于关键区域，因此需要单独制定 spec。
+
+本仓库自身的根目录 `AGENTS.md` 是“不设上限”这一说法的例外：它是整文件词数上限（`DOC_BUDGETS` 中的 `"AGENTS.md"`），由 gate 检查，因为它是 navori 自己的文件，而不是消费者的文件。
+
+**各层的去向。** `agents-md` engine 写入共享文案，以及 orchestrator 层；但当 Pi 位于 `engines` 中时例外：orchestrator 层改写入 `.pi/navori/orchestrator.md`（仅供父会话，见 [docs/pi.zh-CN.md](docs/pi.zh-CN.md)）。仅供 Claude 的文案位于 `CLAUDE.md` 的 `claude-apendice` 区块中，Claude engine 始终会渲染它，无论是否启用 `agents-md`。这些文件的上限位于 `packages/cli/src/lib/assets/doc-budgets.ts`；本文不重复其数值。
 
 决定如何处理警告时，必须区分：**“文件太大”和“文件已过期”不是一回事。** 旧版本渲染的 `CLAUDE.md` 可能还保留已经缩减的区块。在 `bonum-webapp` 中，运行 `navori render --apply` 会减少 1175 个词（−37%），且不需要仓库所有者作出决定。因此 `doctor` 会优先报告过期状态：这是唯一不需要决策就能处理的问题。
 

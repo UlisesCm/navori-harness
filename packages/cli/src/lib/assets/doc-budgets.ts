@@ -68,11 +68,11 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "CLAUDE.md": 1744,
   // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
   // above, it is a RENDERED file, not a source asset, so it matches no
-  // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
-  // as `PROSE_WRAPPER_CEILINGS["navori-agents"]` (this file, below) — that one
-  // measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report;
-  // this one measures the WHOLE file for navori's own hard gate. They differ
-  // by the ~12 words of the seeded user-section outside the marker.
+  // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. It
+  // used to share its value with `PROSE_WRAPPER_CEILINGS["navori-agents"]` (this file, below),
+  // which measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report; this one
+  // measures the WHOLE file for navori's own hard gate. Since spec 0064 they differ (see the
+  // Spec 0064 line just above the entry).
   // spec 0032 (#1011), lote 4/T12: turning this repo's own `harness.planTiers`
   // on (R31) renders the `planificacion` block and the always-on architect
   // paragraph into `AGENTS.md` for the first time here, landing at 4471 words
@@ -399,14 +399,16 @@ const MANAGED_ASSET_RE = /\/managed\/([^/]+)\.md$/;
  * so it never fails their build). navori's own HARD gate for its self-hosted
  * `AGENTS.md` is a separate, simpler mechanism: the whole-file `"AGENTS.md"`
  * entry in `DOC_BUDGETS` above, checked by `check-doc-budgets.mjs`'s plain
- * per-path loop — same standing as `CLAUDE.md`. Both numbers are calibrated
- * from the SAME measurement and happen to share a value; they are not the
- * same table (see the comment on that entry for why they can drift by a few
- * words).
+ * per-path loop — same standing as `CLAUDE.md`. The two numbers are no longer
+ * calibrated from the same measurement: this repo's `AGENTS.md` is now the
+ * shared layer only (Pi carries the orchestrator layer in
+ * `.pi/navori/orchestrator.md`, spec 0064), so its whole-file ceiling is far
+ * below this wrapper's.
  *
- * Measured 3686 words for the `navori-agents` block in THIS repo's own
- * `AGENTS.md` (codex engine, plugin sub-blocks included) → ceiling below
- * carries ~10% headroom over that.
+ * The ceiling below was last measured at 2992 words for a Codex-written
+ * `navori-agents` block (shared + orchestrator layers, plugin sub-blocks
+ * included; #1520), with ~5% headroom. This repo no longer renders that shape,
+ * so it cannot be re-measured here: recalibrate it from a Codex consumer.
  */
 export const PROSE_WRAPPER_CEILINGS: Readonly<Record<string, number>> = {
   // #1273: re-measured at 3686 words after `gh-protocol` left Codex; ceil(3686 × 1.10).
