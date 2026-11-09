@@ -34,6 +34,14 @@ export interface PlanFinding {
   message: string;
 }
 
+/** `S01`, `s1` and `S1` are the same slice: upper case, no leading zeros (`D<n>` decisions too). */
+export function canonicalSliceId(id: string): string {
+  return id
+    .trim()
+    .toUpperCase()
+    .replace(/^([SD])0+(?=\d)/, "$1");
+}
+
 const norm = (s: string): string =>
   s
     .normalize("NFD")
@@ -115,13 +123,13 @@ export function parsePlan(text: string): Plan {
     } else if (key) acceptance[key] = value.replace(/`/g, "");
   }
   const slices = tableRows(section(all, SECTIONS.slices) ?? "").map((row) => ({
-    id: pick(row, ["id"]).toUpperCase(),
+    id: canonicalSliceId(pick(row, ["id"])),
     outcome: pick(row, ["actor", "outcome", "resultado"]),
     spec: pick(row, ["spec"]).replace(/`/g, ""),
     commit: pick(row, ["commit"]).replace(/`/g, ""),
   }));
   const decisions = tableRows(section(all, SECTIONS.decisions) ?? "").map((row) => ({
-    id: pick(row, ["id"]).toUpperCase(),
+    id: canonicalSliceId(pick(row, ["id"])),
     text: pick(row, ["decision"]),
   }));
   return { goal: (section(all, SECTIONS.goal) ?? "").trim(), acceptance, slices, decisions };
@@ -148,9 +156,11 @@ export function checkPlan(text: string): PlanFinding[] {
   if (plan.slices.length === 0) error("Slices: índice vacío");
   const seen = new Set<string>();
   for (const slice of plan.slices) {
-    if (!/^S\d+$/.test(slice.id)) error(`${slice.id || "(sin ID)"}: el ID debe ser S<n>`);
+    if (!/^S[1-9]\d*$/.test(slice.id)) error(`${slice.id || "(sin ID)"}: el ID debe ser S<n>`);
     if (seen.has(slice.id)) error(`${slice.id}: ID duplicado`);
     seen.add(slice.id);
+    if (slice.commit && !/^[0-9a-f]{4,64}$/i.test(slice.commit))
+      error(`${slice.id}: el Commit debe ser un SHA hexadecimal`);
     if (HORIZONTAL.test(slice.outcome)) error(`${slice.id}: slice horizontal (una sola capa)`);
     else if (!slice.outcome.includes("→")) error(`${slice.id}: debe ser "actor → resultado"`);
   }
