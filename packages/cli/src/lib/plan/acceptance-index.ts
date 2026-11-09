@@ -1,9 +1,9 @@
 /**
  * `acceptance-index` (spec 0039 R6/R7, carry-over 0038 D1): the file the
  * `routing-watch` success lane reads to recognize, with shell builtins only,
- * that a Bash call ran a pending acceptance criterion's `command`.
+ * that a Bash call ran an acceptance criterion's `command`.
  *
- * Text, one line per pending criterion, rewritten whole by the CLI each time it
+ * Text, one line per criterion (pending or cumplido), rewritten whole by the CLI each time it
  * writes a workplan:
  *   `<command JSON-escaped, no quotes>\t<feature>\t<A<n>>\t<absolute state dir>\n`
  * The hook never parses a workplan; the CLI never trusts the hook's output.
@@ -24,11 +24,11 @@ const LEGACY_DIRS = [".claude/progress", ".codex/progress"] as const;
 const INDEX_NAME = "acceptance-index";
 
 /** The command exactly as `JSON.stringify` writes it inside a payload string. */
-function jsonEscape(command: string): string {
+export function jsonEscape(command: string): string {
   return JSON.stringify(command).slice(1, -1);
 }
 
-/** Index lines for the pending criteria of every readable workplan in `dir`. */
+/** Index lines for the criteria of every readable workplan in `dir`. */
 function linesForDir(dir: string): { lines: string[]; comparisons: string[] } {
   const lines: string[] = [];
   const comparisons: string[] = [];
@@ -38,7 +38,8 @@ function linesForDir(dir: string): { lines: string[]; comparisons: string[] } {
     try {
       const plan = WorkplanSchema.parse(JSON.parse(readFileSync(resolve(dir, name), "utf8")));
       for (const criterion of plan.acceptance) {
-        if (plan.progress[criterion.id] === "cumplido") continue;
+        // Cumplido criteria stay indexed: a rerun after a change must record fresh
+        // evidence, and a stale green never validates against a moved tree.
         lines.push(`${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`);
         const spec = parseExpected(criterion.expected);
         if (spec.kind !== "free")

@@ -17,6 +17,7 @@ import { IDENTITY_EXCLUDES } from "../primitives/content-identity.ts";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
 import { RecordedEvidenceSchema, type RecordedEvidence } from "./schema.ts";
 import { expectedEvidenceProblem } from "./expected.ts";
+import { jsonEscape } from "./acceptance-index.ts";
 
 /** Paths excluded from the tree fingerprint so the evidence log, state files
  * and sibling worktrees never change the hash they are recorded against.
@@ -439,15 +440,34 @@ function candidateProblem(
   return undefined;
 }
 
-/** True when the acceptance index (the file the evidence hook reads) has a pending line for `feature`. */
-function indexHasFeature(root: StateRoot, feature: string): boolean {
+/** How the acceptance index (the file the evidence hook reads) covers one criterion. */
+type IndexCoverage = "no-file" | "no-line" | "different-command" | "ok";
+
+/** Looks the criterion up by feature + id (columns 2, 3) and compares column 1 with its escaped command. */
+function indexCoverage(
+  root: StateRoot,
+  feature: string,
+  id: string,
+  command: string,
+): IndexCoverage {
+  let text: string;
   try {
-    const text = readFileSync(resolve(root.cwd, ".navori/state/handoffs/acceptance-index"), "utf8");
-    return text.split("\n").some((line) => line.split("\t")[1] === feature);
+    text = readFileSync(resolve(root.cwd, ".navori/state/handoffs/acceptance-index"), "utf8");
   } catch {
-    return false;
+    return "no-file";
   }
+  const rows = text
+    .split("\n")
+    .map((line) => line.split("\t"))
+    .filter((cols) => cols[1] === feature && cols[2] === id);
+  if (rows.length === 0) return "no-line";
+  return rows.some((cols) => cols[0] === jsonEscape(command)) ? "ok" : "different-command";
 }
+
+/** Why a command run from the host would not match: the hook needs the exact string, nothing around it. */
+const VERBATIM_RULE =
+  "the hook matches the command verbatim — no pipe, redirection (`2>&1`), env-var prefix, " +
+  "subshell or relative `cd` around it";
 
 /**
  * Finds the newest evidence line that still holds for `id`: same command as
@@ -466,16 +486,38 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
   const treeRoot = accepted[0] ?? root.cwd;
   const rerun = (tree: string): string =>
     `from ${tree}, run exactly:\n         ${command}\n` +
+    `       verbatim from the root of that checkout — no pipe, redirection, env-var prefix or relative \`cd\` ` +
+    `(on Pi: \`cd ${tree} && ${command}\`)\n` +
     `       then: navori plan update ${feature} --progress ${id}=cumplido`;
 
   if (lines.length === 0) {
-    if (!indexHasFeature(root, feature)) {
+    const render = `navori plan render ${feature}`;
+    const coverage = indexCoverage(root, feature, id, command);
+    if (coverage === "no-file") {
       return {
         ok: false,
         why: "no run recorded",
         fix:
-          `the acceptance index has no line for ${feature}, so no run could be recorded: ` +
-          `run \`navori plan render ${feature}\`, then rerun the command.\n       ${rerun(treeRoot)}`,
+          `there is no acceptance index in ${root.cwd}, so no run could be recorded: ` +
+          `run \`${render}\` in ${root.cwd}, then rerun the command.\n       ${rerun(treeRoot)}`,
+      };
+    }
+    if (coverage === "no-line") {
+      return {
+        ok: false,
+        why: "no run recorded",
+        fix:
+          `the acceptance index has no line for ${id} of ${feature}, so no run could be recorded: ` +
+          `run \`${render}\`, then rerun the command.\n       ${rerun(treeRoot)}`,
+      };
+    }
+    if (coverage === "different-command") {
+      return {
+        ok: false,
+        why: "no run recorded",
+        fix:
+          `the acceptance index has a different command for ${id} (the workplan was edited outside the CLI): ` +
+          `run \`${render}\` to refresh it, then rerun the command.\n       ${rerun(treeRoot)}`,
       };
     }
     return {
@@ -483,13 +525,21 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
       why: "no run recorded",
       fix:
         `${rerun(treeRoot)}\n` +
-        "       (large repos: the hook computes a tree fingerprint after the run and can be " +
-        "killed mid-way, leaving no line; rerun the command, or check the evidence log exists)",
+        `       (${VERBATIM_RULE}; a wrapped command records nothing. Large repos: the hook ` +
+        "computes a tree fingerprint after the run and can be killed mid-way, leaving no line; " +
+        "rerun the command, or check the evidence log exists)",
     };
   }
   const sameCommand = lines.filter((l) => l.command === command).reverse();
   if (sameCommand.length === 0) {
-    return { ok: false, why: "recorded for a different command", fix: rerun(treeRoot) };
+    const wrapped = lines.find((l) => l.command.includes(command));
+    return {
+      ok: false,
+      why: "recorded for a different command",
+      fix: wrapped
+        ? `the recorded command wraps the criterion (\`${wrapped.command}\`): ${VERBATIM_RULE}.\n       ${rerun(treeRoot)}`
+        : rerun(treeRoot),
+    };
   }
   let firstProblem: Problem | undefined;
   const memo = new Map<string, Fingerprint>();

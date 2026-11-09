@@ -34,7 +34,7 @@ metadata:
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
-   decisions)<!-- navori:if sessionState -->; `progress/current.md` points at the workplan, it doesn't copy it<!-- /navori:if -->. Acceptance evidence depends on the host's signal (Claude's main thread included): the routing-watch hook records it only when the host itself ran the exact `command` of that `A<n>`. `--progress A<n>=cumplido` is accepted only with that evidence, and `cumplido` without evidence is a `plan check` warning. A single owner runs `navori plan update` and must mark right after running the command on the same tree.
+   decisions)<!-- navori:if sessionState -->; `progress/current.md` points at the workplan, it doesn't copy it<!-- /navori:if -->. Acceptance evidence depends on the host's signal (Claude's main thread included): the routing-watch hook records it only when the host itself ran the exact `command` of that `A<n>`, verbatim from the root of the workplan's checkout: no pipe, redirection, env-var prefix or relative `cd` (on Pi, `cd <absolute worktree path> && <command>`). A rerun after a change records again, also for a `cumplido` criterion. `--progress A<n>=cumplido` is accepted only with that evidence, and `cumplido` without evidence is a `plan check` warning. A single owner runs `navori plan update` and must mark right after running the command on the same tree.
 6. A change outside the approved files is a decision: record it and ask the user before
    dispatching it.
 7. "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output."

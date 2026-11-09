@@ -919,7 +919,7 @@ function isBuiltinBash(pi: ToolRegistry): boolean {
 type CriterionHit = { feature: string; id: string; dir: string; binding?: Record<string, unknown>; stage?: string };
 
 /**
- * Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
+ * Criteria (pending or cumplido) whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
  * (6 fields) carries the producer authority the CLI projected (binding JSON and stage path); it is copied verbatim
  * and "navori master delivery-criterion" recomputes and compares it, so the line never grants authority by itself.
  */
