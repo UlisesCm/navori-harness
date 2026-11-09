@@ -47,7 +47,7 @@ Cada fila corresponde a un control de Pi de `ENGINE_CAPABILITIES.pi.controls`. `
 | `handoff-consumer` | enforced | Se verifican las llamadas de `navori_subagent` de `reviewer` que incluyen explícitamente una función. Las llamadas directas al shell y a herramientas omiten este control. |
 | `analytic-write-tools` | advisory | Las listas de herramientas permitidas por rol son capacidades visibles para el modelo, no entornos aislados del sistema operativo, del sistema de archivos ni de la red. Scout y reviewer conservan `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` se proyecta como referencias bajo `.agents/skills/<id>` y solo se escriben cuando Codex no está habilitado. |
-| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Los criterios ligados a una entrega (`navori master delivery-slice`) se registran con su vínculo y la huella v2, como en Claude; `navori master delivery-criterion` recalcula el vínculo. Falla de forma cerrada: si se reemplaza la herramienta bash, falta `exit_code` o la etapa no está contenida, no registra nada. |
+| `acceptance-evidence` | enforced | La extensión registra como evidencia del workplan los códigos de salida observados por el host para el bash integrado de Pi (llamadas del padre, del hijo y anidadas; Pi 1.1.0+). Si `PI_SESSION_ID` está definido, `plan update` rechaza `cumplido` sin esa evidencia. Falla de forma cerrada: si se reemplaza la herramienta bash, falta `exit_code` o la etapa no está contenida, no registra nada. |
 | `repeat-failure-advice` | advisory | Después de tres fallas idénticas del bash integrado, se agrega una advertencia. Nunca bloquea ni altera el resultado, y no se muestra si falta `exit_code`. |
 | `compact-advice` | unsupported | Ningún binding de Pi ejecuta compact-advice, así que no se inyectan consejos sobre el tamaño del contexto; Pi publica en el padre, sin dispatch de publisher. |
 | `general-purpose-confirm` | unsupported | La lista de `navori_subagent` de Pi tiene seis roles fijos y ningún rol general-purpose que confirmar. |
@@ -195,7 +195,7 @@ Las reglas destructivas tienen sus propias brechas: entrar al plano de control c
 **Confirmaciones de publicación.** Estos scripts preguntan antes de cualquier operación de publicación y muestran el contenido:
 
 - `pr-publisher-confirm` pregunta en cada `gh pr create` (Pi no tiene una solicitud del host, así que la copia de Pi siempre pregunta).
-- `comment-draft-confirm` pregunta para borradores de comentarios y revisiones; `master-accept-confirm`, para aceptar y cerrar el plan maestro.
+- `comment-draft-confirm` pregunta para borradores de comentarios y revisiones; `master-accept-confirm`, para aceptar y rechazar en el plan maestro.
 - La aprobación de un archivo de contenido queda vinculada al sha256 de ese archivo. La extensión vuelve a verificar los resúmenes después de la confirmación y antes de permitir la llamada. Rechaza la llamada si el contenido cambia, se crea o se elimina después de la confirmación, o no se puede leer.
 - Los contenidos creados por shell, stdin y contenidos en línea se muestran en la confirmación, pero no quedan vinculados a un hash.
 
@@ -261,7 +261,7 @@ sesión interactiva. El hijo fallido informa entonces el `errorMessage` del prov
   o un modelo local) y correr `navori render`.
 - **Correr cada rol en su propia sesión interactiva de Pi.** La sesión principal produce; el usuario abre un
   segundo `pi` en el mismo worktree para el revisor, que sigue `.pi/agents/reviewer.md` y escribe su reporte.
-  Los gates que piden un revisor distinto (por ejemplo `navori master delivery-review`) son atestaciones del
+  Los gates que piden un revisor distinto son atestaciones del
   operador: el usuario declara que revisó otra sesión, con etiquetas distintas de productor y revisor.
   Navori no puede verificar esa independencia.
 
@@ -424,7 +424,7 @@ Clases de evasión de cada fila de protección (una protección es una verificac
 | `hook:guard-destructive` | enforced | protección (clases de evasión anteriores) | política textual sobre la cadena del comando: reglas destructivas del script compartido, su carril de egreso de PII (una petición `curl`/`wget` a un host externo que lleva el email de git o una entrada de `NAVORI_PERSONAL_IDS`; nunca muestra ninguno de los dos), reglas de permisos compartidas `deny`, escrituras al plano de control de Pi (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) y `pi --no-extensions`. Las reglas compartidas `ask` responden `ask` (su propia fila) |
 | `hook:implementer-no-markdown` | advisory | control `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | nunca bloquea y solo detecta bloques con marcador hash (AGENTS.md, skills, copias de hooks); la extensión, el manifiesto y los archivos de roles no tienen hash por bloque y están protegidos por la protección y la ruta de edit/write. La deriva que no puede evaluar pasa inadvertida |
-| `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` y `delivery-slice --refresh`; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
+| `hook:master-accept-confirm` | enforced | protección (clases de evasión anteriores) | cubre `navori master accept` y `master reject`, y las escrituras directas a `navori/acceptance`; las formas de escritura v1 ya no escriben; las formas indirectas de shell (`sh -c`, un script en disco) la omiten. La confirmación es una protección, no un entorno aislado |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
 | `hook:model-advisor` | unsupported | — | Un port a Pi necesita un modo Pi en el script y un binding; no está planeado (el modelo se elige con `/model` y se pasa a los hijos, especificación 0047 R17) |
 | `hook:pii-egress-guard` | n/a | — | Solo Claude: protege WebFetch y WebSearch, que Pi no tiene. El `bash` de Pi lo cubre el carril de egreso de PII dentro de guard-destructive (su fila) |
