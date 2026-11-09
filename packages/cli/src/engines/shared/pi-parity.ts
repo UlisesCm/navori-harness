@@ -411,13 +411,17 @@ const PLUGIN_PROJECTION = "render:plugin-projection";
 const CONTEXT_BOUNDARY =
   "Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it";
 
+/** The orchestrator layer: Pi's parent-only file, injected by the extension (spec 0064). */
+const ORCHESTRATOR_BOUNDARY =
+  "Pi writes the sub-block into `.pi/navori/orchestrator.md` (an ownedPaths entry), which the extension injects into the parent's system prompt only; a child never receives it, and if the file is missing or unreadable the extension warns once and the session runs without it. With Codex configured the block stays in Codex's AGENTS.md instead. The block is prose: Pi reads it, nothing enforces it";
+
 const pluginEntries = (): Array<[string, PiParity]> => {
-  /** A skill extending the orchestrator: a sub-block of the context file Pi embodies it through. */
+  /** A skill extending the orchestrator: a sub-block of the parent-only file Pi embodies it through. */
   const skillOnOrchestrator = (plugin: string, id: string): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
     advisory(
-      "sub-block of the AGENTS file, the main thread's durable guide",
-      CONTEXT_BOUNDARY,
+      "sub-block of .pi/navori/orchestrator.md, the main thread's durable guide",
+      ORCHESTRATOR_BOUNDARY,
       PLUGIN_PROJECTION,
     ),
   ];

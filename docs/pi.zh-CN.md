@@ -56,7 +56,7 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 
 当 Pi 自己写入共享文件时（未启用 Codex 和 `agents-md`），它会写入与 Codex 相同的规范内容，并使用 Pi 的术语：
 
-- `AGENTS.md` 包含编排区块、角色目录和计划层级，不包含技能索引（Pi 会原生列出 `.agents/skills`）。它还包含风险路由所读取的 `project.*` 规则，包括关键领域。
+- `AGENTS.md` 只包含共享文案，不包含技能索引（Pi 会原生列出 `.agents/skills`）。它还包含风险路由所读取的 `project.*` 规则，包括关键领域。orchestrator 层（计划层级、角色、会话启动、代理名册）写入 `.pi/navori/orchestrator.md`；见上文「Orchestrator 指令」条目。
 - `.agents/skills` 包含 `master-plan` 和 `context-intake`。`master-plan-context` hook 仍不会在 Pi 上运行。
 - 委派使用 `navori_subagent`，手动调用技能使用 `/skill:<name>`，技能位于 `.agents/skills/`。
 - 不包含仅属于 Codex 的内容（派发标记、执行检查点、`spawn_agent`）和仅属于 Claude 的内容（`SendMessage`、`AskUserQuestion`、`TaskCreate`）。
@@ -140,7 +140,8 @@ Pi 也会原生发现 `.agents/skills/` 中受信任的项目技能。如果同�
 - **技能写入技能目录。** 插件技能的 `injectInto: .claude/skills/<id>/SKILL.md` 会成为 `.agents/skills/<id>/SKILL.md` 中由 Navori 管理的子区块。仅当 `engines` 中没有 Codex 时，Pi 才会写入它；启用 Codex 后，由 Codex 写入该技能，Pi 不会重复写入。
 - **角色说明。** 插件技能的 `injectInto: .claude/agents/<role>.md` 会插入变量并按 Pi 的条件处理后，附加到 `.pi/agents/<role>.md`。声明了 `mcpServer` 的插件只会为持有其 `navori_*` 知识工具的角色提供角色说明（见 [子进程中的知识工具](#子进程中的知识工具)），说明中使用这些工具名，而不是无前缀的 MCP 名称。Pi 子进程仍以 `--no-mcp` 运行。
 
-- **Orchestrator 和 AGENTS.md 区块。** 注入到 `.claude/agents/orchestrator.md` 的技能以及插件的 `managed` 区块会成为共享 `AGENTS.md` 的子区块。只有在没有其他已启用引擎管理该文件（`ownsAgentsMd`）时，Pi 才会写入这些区块；否则以该引擎的输出为准。
+- **Orchestrator 指令。** 注入到 `.claude/agents/orchestrator.md` 的技能，只要未配置 Codex，就会写入 `.pi/navori/orchestrator.md`，即使 `agents-md` 写入的是 `AGENTS.md`。配置了 Codex 时，该区块仍保留在 Codex 的 `AGENTS.md` 中。该文件整体归 Navori 所有，并列在 manifest 的 `ownedPaths` 中。扩展只把它注入父会话的 system prompt：子会话永远收不到它。若文件缺失或无法读取，扩展会警告一次（`navori render --apply` 可恢复），会话在没有它的情况下运行。该区块只是说明文本：Pi 会读取，但没有机制强制执行。
+- **插件的 `managed` 区块。** 它们会成为共享 `AGENTS.md` 的子区块。只有在没有其他已启用引擎管理该文件（`ownsAgentsMd`）时，Pi 才会写入这些区块；否则以该引擎的输出为准。
 - **脚本。** 即使启用了 Codex，插件脚本也会作为 Pi 自己的可执行副本复制到 `.pi/navori/scripts/<dest>`。只有桥接行会运行该脚本，或插件的 hook 扩展包含在已安装的 Pi hook 副本中时，才会安装脚本。目标路径冲突时会跳过。
 - **Hooks。** 插件的 `PreToolUse`/`Bash` hooks 使用 Codex 转换时采用的语法。它们会成为 `.pi/navori.json` 中的 manifest v2 行，指向 `.pi/navori/scripts/<dest>`：`tool_call`、`bash`、范围 `all`、`enforced`、非交互式，并使用 manifest 中的超时时间。无法转换的 hook 会报告为警告，且不会安装。
 - **Hook 扩展。** 目标为 Claude 核心 hook 的插件 `hookExtensions` 条目，会成为 Pi 副本 `.pi/navori/hooks/<hook>` 中由 Navori 管理的子区块；禁用插件时会再次移除该区块。
@@ -541,11 +542,11 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 | `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
-| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | 只有在 Codex 和 agents-md 都不管理 AGENTS 文件时，Pi 才会通过 includePluginBlocks 写入该文件；否则以所有者的输出为准。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
+| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi 将该子区块写入 `.pi/navori/orchestrator.md`（ownedPaths 条目），扩展只把它注入父会话的 system prompt；子会话永远收不到它。若文件缺失或无法读取，扩展会警告一次，会话在没有它的情况下运行。配置了 Codex 时，该区块仍保留在 Codex 的 AGENTS.md 中。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
 | `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:engram/engram-auditor-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:engram/engram-implementer-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
-| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | 只有在 Codex 和 agents-md 都不管理 AGENTS 文件时，Pi 才会通过 includePluginBlocks 写入该文件；否则以所有者的输出为准。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
+| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi 将该子区块写入 `.pi/navori/orchestrator.md`（ownedPaths 条目），扩展只把它注入父会话的 system prompt；子会话永远收不到它。若文件缺失或无法读取，扩展会警告一次，会话在没有它的情况下运行。配置了 Codex 时，该区块仍保留在 Codex 的 AGENTS.md 中。该区块只是说明文本：Pi 会读取，但没有机制强制执行。 |
 | `plugin-skill:engram/engram-reviewer-extension` | advisory | — | 这是模型可见的上限，不是隔离：`bash` 仍可访问 codegraph 和 engram CLI（包括 `engram save`），子进程继承父进程环境；codegraph 使用 `--no-watch`，因此子进程自己编辑后索引会过期；缺少可执行文件或索引会得到工具错误；用户安装的 `gentle-engram` 包仍会在子进程中加载（其原生 `mem_*` 工具仍被 `--tools` 过滤） |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | 仅提供指导，没有任何机制强制执行；禁用 publisher 角色时，没有对应角色文件，因此不会渲染该说明文本。 |
 <!-- pi-parity:end -->
