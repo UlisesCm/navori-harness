@@ -66,6 +66,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
             "Pi 审计关联父会话与调用标识，保留子进程失败，并通过私有写入器记录关闭；Pi 1.4.0 现为启动子代理的最低版本，并修复子进程参数与诊断。计划检查拒绝缺失或过期的证据，校验每条标准的 `expected`，并保留原始请求供审查。审计可识别 Claude Code 2.1.310 转录中的 api-request 记录，守卫 6d 现已正确处理重音字符与多行命令。引擎对比附带发布证据与实时驱动（spec 0053），基准报告与其来源绑定。依赖与工具链全面更新（CI 使用 Node 24、bun 1.4.4、astro 7、citty 0.2、clack 1.x）。同时修复 Codex 原生配置、防回滚保护及 doctor 诊断，首页重新设计以展示 harness 能力。",
         },
       },
+      {
+        version: "0.12.4",
+        date: "2026-11-09",
+        note: {
+          es: "El render retira, con backup, las unidades prístinas que tus flags apagan, y al quitar un motor solo borra sus bloques gestionados: el archivo con texto tuyo se conserva. Un guard nuevo bloquea las peticiones a hosts externos que llevan tus identificadores (git user.email y NAVORI_PERSONAL_IDS). En Pi, el reviewer tiene 30 minutos, models.piMap fija el modelo por tier y el despacho valida gate, handoff y evidencia en el worktree dueño de la feature; falla cerrado si la raíz y un worktree tienen estado de la misma feature. Reinicia Pi después de actualizar. La clave harness.sessionState permite prescindir de progress/. El reviewer sella su evidencia en cada ronda y el hito que cierra una spec exige el gate completo, y la auditoría registra el fail-open de la búsqueda. Se retira navori bench y Codex queda congelado como opt-in.",
+          en: "Render removes, after a backup, the pristine units your flags turn off, and removing an engine only deletes its managed blocks: a file with your own text is kept. A new guard blocks requests to external hosts that carry your identifiers (git user.email and NAVORI_PERSONAL_IDS). On Pi, the reviewer gets 30 minutes, models.piMap sets the model per tier, and dispatch validates gate, handoff and evidence in the worktree that owns the feature; it fails closed when the root and a worktree both hold state for the same feature. Restart Pi after updating. The harness.sessionState key lets a repo do without progress/. The reviewer seals its evidence every round, a spec's closing milestone always runs the full gate, and audit records the search fail-open. navori bench is retired and Codex is frozen as opt-in.",
+          "zh-CN":
+            "render 会先备份，再移除被 flag 关闭的未修改单元；移除引擎时只删除其托管块，含有你自己文字的文件会保留。新增守卫会拦截携带你身份标识（git user.email 与 NAVORI_PERSONAL_IDS）发往外部主机的请求。在 Pi 中，reviewer 时限为 30 分钟，models.piMap 按层级设定模型，调度会在拥有该功能的 worktree 中校验门禁、交接和证据；若根目录与 worktree 同时持有同一功能的状态，则直接拒绝。更新后请重启 Pi。harness.sessionState 键可让仓库不再使用 progress/。reviewer 每轮都会封存证据，规格的收尾里程碑始终运行完整门禁，审计会记录搜索的 fail-open。navori bench 已移除，Codex 冻结为可选引擎。",
+        },
+      },
     ],
     date: "2026-10-12",
     headline: {
