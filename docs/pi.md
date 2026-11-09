@@ -77,9 +77,10 @@ scripts are not copied or run by Pi.
 When Pi writes the shared files itself (no Codex, no `agents-md`), it writes the same doctrine Codex
 would, in Pi's vocabulary:
 
-- `AGENTS.md` carries the orchestration block, the role catalog and the plan tiers, with no skills index
-  (Pi lists `.agents/skills` natively). It also carries the `project.*` rules, critical areas included,
-  that risk routing reads.
+- `AGENTS.md` carries the shared doctrine only, with no skills index (Pi lists `.agents/skills` natively).
+  It also carries the `project.*` rules, critical areas included, that risk routing reads. The orchestrator
+  layer (planning tiers, role, session startup, agent roster) goes to `.pi/navori/orchestrator.md`; see
+  the "Orchestrator doctrine" bullet above.
 - `.agents/skills` includes `master-plan` and `context-intake`. The `master-plan-context` hook still does not run on Pi.
 - Delegation is `navori_subagent`, a manual skill is `/skill:<name>`, and skills live under `.agents/skills/`.
 - Codex-only lines (dispatch markers, execution checkpoints, `spawn_agent`) and Claude-only ones
@@ -179,9 +180,14 @@ projects:
   [Knowledge tools in children](#knowledge-tools-in-children)); there the prose names those tools instead
   of the bare MCP names. Pi children still run with `--no-mcp`.
 
-- **Orchestrator and AGENTS.md blocks.** A skill injected into `.claude/agents/orchestrator.md` and the
-  plugin `managed` blocks become sub-blocks of the shared `AGENTS.md`. Pi writes them only when no other
-  enabled engine owns that file (`ownsAgentsMd`); otherwise that owner's output stands.
+- **Orchestrator doctrine.** A skill injected into `.claude/agents/orchestrator.md` goes to
+  `.pi/navori/orchestrator.md` whenever Codex is not configured, even when `agents-md` writes `AGENTS.md`.
+  With Codex configured, the block stays in Codex's `AGENTS.md`. The file is owned as a whole and listed in
+  the manifest's `ownedPaths`. The extension injects it into the parent's system prompt only: a child never
+  receives it. If the file is missing or unreadable, the extension warns once (`navori render --apply` restores
+  it) and the session runs without it. The block is prose: Pi reads it, nothing enforces it.
+- **Plugin `managed` blocks.** They become sub-blocks of the shared `AGENTS.md`. Pi writes them only when no
+  other enabled engine owns that file (`ownsAgentsMd`); otherwise that owner's output stands.
 - **Scripts.** Plugin scripts are copied to `.pi/navori/scripts/<dest>` as Pi's own executable copies, even
   when Codex is active. A script is installed only when a bridge row runs it, or when its plugin's hook
   extension rides inside an installed Pi hook copy. Colliding destinations are skipped.
@@ -709,11 +715,11 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `plugin-skill:codegraph/codegraph-access-v2-architect` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:codegraph/codegraph-access-v2-auditor` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:codegraph/codegraph-access-v2-implementer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
-| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi writes the sub-block into `.pi/navori/orchestrator.md` (an ownedPaths entry), which the extension injects into the parent's system prompt only; a child never receives it, and if the file is missing or unreadable the extension warns once and the session runs without it. With Codex configured the block stays in Codex's AGENTS.md instead. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-skill:codegraph/codegraph-access-v2-reviewer` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:engram/engram-auditor-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:engram/engram-implementer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
-| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the sub-block into `.pi/navori/orchestrator.md` (an ownedPaths entry), which the extension injects into the parent's system prompt only; a child never receives it, and if the file is missing or unreadable the extension warns once and the session runs without it. With Codex configured the block stays in Codex's AGENTS.md instead. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-skill:engram/engram-reviewer-extension` | advisory | — | a ceiling the model sees, not isolation: bash still reaches the codegraph and engram CLIs (engram save included) and children inherit the parent's env; codegraph runs --no-watch, so its index is stale after the child's own edits; a missing binary or index is a tool error; a user-installed gentle-engram extension still loads in children (its mem_* tools stay filtered by --tools) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
 <!-- pi-parity:end -->
