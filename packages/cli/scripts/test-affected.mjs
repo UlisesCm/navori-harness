@@ -59,7 +59,7 @@ function globToRegExp(glob) {
         .join("[^/]*"),
     )
     .join(".*");
-  return new RegExp(`^${out}$`);
+  return new RegExp(`^${out}$`); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- glob from the repo's own config, every metachar escaped, only unnested [^/]* and .*
 }
 
 /**

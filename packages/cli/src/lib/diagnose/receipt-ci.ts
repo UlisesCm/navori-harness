@@ -96,7 +96,7 @@ function globToRegExp(glob: string): RegExp {
       } else out += "[^/]*";
     } else out += char.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp(`^${out}$`);
+  return new RegExp(`^${out}$`); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- glob from the repo's own config, every metachar escaped, only unnested [^/]* and .*
 }
 
 function matching(paths: readonly string[], globs: readonly string[]): string[] {
