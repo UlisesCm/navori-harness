@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { readConfig } from "../config/config.ts";
-import { type Plan, type PlanAcceptance, parsePlan } from "./plan.ts";
+import { type Plan, type PlanAcceptance, canonicalSliceId, parsePlan } from "./plan.ts";
 
 export type SliceState = "pendiente" | "en curso" | "integrado" | "aceptado";
 
@@ -42,7 +42,7 @@ export const LogEntrySchema = z.object({
   verdict: z.enum(["accepted", "rejected"]),
   at: z.string(),
   env: z.string(),
-  commit: z.string(),
+  commit: z.string().regex(/^[0-9a-f]{4,64}$/i),
   by: z.literal("user"),
   evidence: z.string().optional(),
   notes: z.array(z.string()).optional(),
@@ -119,7 +119,8 @@ export function marksOf(message: string): string[] {
     ...[...subject.matchAll(/\[(S\d+)\]/gi)].map((m) => m[1]),
     ...[...subject.matchAll(/\bslice\/(S\d+)-/gi)].map((m) => m[1]),
   ];
-  return [...new Set(ids.filter((id): id is string => Boolean(id)).map((id) => id.toUpperCase()))];
+  const canon = ids.filter((id): id is string => Boolean(id)).map(canonicalSliceId);
+  return [...new Set(canon.filter((id) => id !== "S0"))];
 }
 
 /** Slice IDs marked in the commits of `range` (any `git log` revision arguments). */
@@ -152,14 +153,23 @@ function remoteRef(cwd: string, branch: string): string {
   return ref;
 }
 
+/** A commit id read from a file (PLAN.md, the log): hex only, so git never sees it as an option. */
+export const isSha = (value: string): boolean => /^[0-9a-f]{4,64}$/i.test(value);
+
+/** A branch name read from data must not look like a git option. */
+function assertBranchName(name: string): void {
+  if (name.startsWith("-")) throw new PlanStateError(`nombre de rama inválido: ${name}`);
+}
+
 const isAncestor = (cwd: string, sha: string, ref: string): boolean =>
-  sha !== "" && git(cwd, ["merge-base", "--is-ancestor", sha, ref]) !== null;
+  isSha(sha) && git(cwd, ["merge-base", "--is-ancestor", sha, ref]) !== null;
 
 /** Parses the lines of an `acceptance.jsonl`. */
 export function parseLog(lines: string[]): LogEntry[] {
   return lines
     .filter((line) => line.trim() !== "")
-    .map((line) => LogEntrySchema.parse(JSON.parse(line)));
+    .map((line) => LogEntrySchema.parse(JSON.parse(line)))
+    .map((entry) => ({ ...entry, id: canonicalSliceId(entry.id) }));
 }
 
 /** Log entries: the local branch (unpublished verdicts included), else the remote one. */
@@ -198,6 +208,8 @@ function assertFullHistory(cwd: string): void {
 export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState {
   const plan = options.plan ?? readPlan(cwd);
   const { acceptance } = plan;
+  assertBranchName(acceptance.branch);
+  assertBranchName(acceptance.target);
   const warnings: string[] = [];
   if (options.fetch) {
     const offline = fetchPlanBranches(cwd, acceptance);
@@ -212,6 +224,8 @@ export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState
   const inTarget = marksIn(cwd, [targetRef]);
   const anywhere = firstMarked(cwd, ["--all"]);
   for (const slice of plan.slices) {
+    if (slice.commit && !isSha(slice.commit))
+      throw new PlanStateError(`${slice.id}: el Commit ${slice.commit} del índice no es un SHA`);
     if (slice.commit && git(cwd, ["cat-file", "-e", `${slice.commit}^{commit}`]) === null) {
       throw new PlanStateError(
         `${slice.id}: el Commit ${slice.commit} del índice no existe en este repo`,
@@ -272,7 +286,8 @@ export function readPlanState(cwd: string, options: ReadOptions = {}): PlanState
 
   const planned = new Set(plan.slices.map((s) => s.id));
   for (const id of new Set([...inAcc, ...inTarget])) {
-    if (!planned.has(id)) warnings.push(`${id}: commits marcados, pero no está en el índice`);
+    if (!planned.has(id))
+      warnings.push(`${id}: marca huérfana: hay commits marcados, pero no está en el índice`);
   }
   const counted = [...new Set([...inAcc, ...inTarget])].filter((id) => !accepted(id)).sort();
   const decisions = plan.decisions.map((d) => ({ ...d, approved: accepted(d.id) }));
@@ -308,6 +323,7 @@ export function checkIncoming(
   base: string,
   options: ReadOptions & { branch?: string; title?: string } = {},
 ): IncomingResult {
+  assertBranchName(base);
   const baseName = base;
   if (options.fetch) {
     const fetched = git(cwd, ["fetch", "--quiet", "origin", baseName], 30_000);
@@ -318,7 +334,8 @@ export function checkIncoming(
   const plan = readPlanAt(cwd, baseRef);
   const empty = { incoming: [], newSlices: [], counted: [], limit: 0, base: baseName };
   if (!plan) return { ...empty, ok: true, noPlan: true };
-  const sliceBranch = /^slice\/(S\d+)-/i.exec(options.branch ?? "")?.[1]?.toUpperCase();
+  const branchId = /^slice\/(S\d+)-/i.exec(options.branch ?? "")?.[1];
+  const sliceBranch = branchId ? canonicalSliceId(branchId) : undefined;
   const titleMarks = marksOf(options.title ?? "");
   const limit = plan.acceptance.wip;
   if (sliceBranch && options.title !== undefined && !titleMarks.includes(sliceBranch))

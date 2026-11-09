@@ -2,10 +2,10 @@
  * Text and JSON output of `navori master status` and `check` for a v2 plan
  * (spec 0063). Returns the output instead of printing, so the command stays thin.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_LANG, tc, type Lang } from "../i18n.ts";
-import { checkPlan } from "./plan.ts";
+import { canonicalSliceId, checkPlan } from "./plan.ts";
 import {
   PlanStateError,
   checkIncoming,
@@ -49,7 +49,9 @@ export function hasPlan(cwd: string): boolean {
 
 /** The slice's spec (a repo-relative path from the index) has an acceptance script. */
 function hasScript(cwd: string, spec: string): boolean {
-  const file = join(cwd, spec);
+  let file = join(cwd, spec);
+  // A slice's spec is a one-page `spec.md` or the directory that holds it.
+  if (spec !== "" && existsSync(file) && statSync(file).isDirectory()) file = join(file, "spec.md");
   return (
     spec !== "" &&
     existsSync(file) &&
@@ -117,7 +119,7 @@ export function runPlanStatus(cwd: string, options: StatusOptions): CommandOutpu
     if (options.json)
       return { stdout: `${JSON.stringify(state)}\n`, stderr: warnings.join(""), code: 0 };
     if (options.id) {
-      const slice = state.slices.find((s) => s.id === options.id?.toUpperCase());
+      const slice = state.slices.find((s) => s.id === canonicalSliceId(options.id ?? ""));
       if (!slice) return fail(`${options.id} no está en el índice`);
       const notes = slice.notes.map((n) => `- [ ] ${n}\n`).join("");
       const evidence = slice.evidence ? `evidencia: ${slice.evidence}\n` : "";

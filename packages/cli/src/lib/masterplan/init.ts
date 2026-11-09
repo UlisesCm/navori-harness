@@ -20,11 +20,11 @@ export interface InitOptions {
   render?: (cwd: string) => { ok: boolean; reason?: string };
 }
 
-const FLAG_EDIT = '"harness": { "masterPlan": true }';
-const RENDER_CMD = "navori render --apply";
+export const FLAG_EDIT = '"harness": { "masterPlan": true }';
+export const RENDER_CMD = "navori render --apply";
 
 /** Language template with `{{slug}}` and `{{target}}` filled in. */
-function renderTemplate(root: string, lang: Lang, slug: string, target: string): string {
+export function renderTemplate(root: string, lang: Lang, slug: string, target: string): string {
   // Not `PLAN.md`: it would collide with v1's `plan.md` on case-insensitive filesystems.
   const file = join(root, "core-assets/master-plan", lang === "en" ? "en" : ".", "plan-v2.md");
   return readFileSync(file, "utf8").replaceAll("{{slug}}", slug).replaceAll("{{target}}", target);
@@ -35,7 +35,7 @@ function renderTemplate(root: string, lang: Lang, slug: string, target: string):
  * in the canonical shape `writeConfig` produces (same criterion as
  * `recordHarnessVersion`); a hand-formatted file is left byte-identical.
  */
-function enableFlag(configPath: string): "set" | "unchanged" | "non-canonical" {
+export function enableFlag(configPath: string): "set" | "unchanged" | "non-canonical" {
   const text = readFileSync(configPath, "utf8");
   const raw = JSON.parse(text) as Record<string, unknown>;
   const harness = (raw.harness ?? {}) as Record<string, unknown>;

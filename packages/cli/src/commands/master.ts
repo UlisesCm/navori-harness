@@ -19,6 +19,7 @@ import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { resolveLang, tc } from "../lib/i18n.ts";
 import { runPlanInit } from "../lib/masterplan/init.ts";
+import { runPlanMigrate } from "../lib/masterplan/migrate.ts";
 import { recordVerdicts } from "../lib/masterplan/accept.ts";
 import {
   type CommandOutput,
@@ -389,6 +390,31 @@ const advanceSubCommand = defineCommand({
       }
       throw cause;
     }
+  },
+});
+
+const migrateSubCommand = defineCommand({
+  meta: {
+    name: "migrate",
+    description: "Turn a v1 stage into the v2 PLAN.md (one release); prints it without --write",
+  },
+  args: {
+    stage: { type: "string", description: "Stage number (default: the active one)" },
+    write: { type: "boolean", description: "Write PLAN.md, enable harness.masterPlan, re-render" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const stage = args.stage === undefined ? undefined : Number(args.stage);
+    if (stage !== undefined && !(Number.isInteger(stage) && stage > 0)) {
+      reportError(new Error(`--stage debe ser un número de etapa (recibí "${args.stage}")`));
+      return;
+    }
+    emit(
+      runPlanMigrate(resolve(args.cwd ?? process.cwd()), {
+        ...(stage ? { stage } : {}),
+        write: args.write,
+      }),
+    );
   },
 });
 
@@ -928,6 +954,7 @@ export const masterCommand = defineCommand({
       },
     }),
     init: initSubCommand,
+    migrate: migrateSubCommand,
     mode: modeSubCommand,
     ux: uxSubCommand,
     template: templateSubCommand,

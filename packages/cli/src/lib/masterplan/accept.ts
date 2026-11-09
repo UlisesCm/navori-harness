@@ -6,6 +6,7 @@
  */
 import { DEFAULT_LANG, tc, type Lang } from "../i18n.ts";
 import { fail, guarded, type CommandOutput } from "./report.ts";
+import { canonicalSliceId } from "./plan.ts";
 import {
   LOG_BRANCH,
   LOG_FILE,
@@ -168,7 +169,7 @@ export function recordVerdicts(cwd: string, options: VerdictOptions): CommandOut
   return guarded(() => {
     if (options.approvedBy !== "user")
       return fail("accept/reject registran el veredicto del usuario: requieren --approved-by user");
-    const ids = options.ids.map((id) => id.toUpperCase());
+    const ids = options.ids.map(canonicalSliceId);
     // One retry when the push loses the race (the remote moved after the fetch).
     const result = attempt(cwd, options, ids, false);
     const done = result === "rejected" ? attempt(cwd, options, ids, true) : result;
