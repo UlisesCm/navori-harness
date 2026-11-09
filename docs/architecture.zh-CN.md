@@ -109,17 +109,15 @@ flowchart LR
     click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
-## 4. Master plan — 编号阶段与 phase
+## 4. Master plan — 由 slice 组成的 PLAN.md（v2）
 
-Master plan 将项目工作组织为彼此独立、带编号和 slug 的阶段，例如 `01-mvp` 和 `02-payments`。每个阶段在 `specs/_master/` 下都有自己的记录；索引指出当前活跃阶段，已关闭阶段则保留为只读记录。
+v2 计划是一页 `specs/_plan/PLAN.md`：slice S<n>（actor -> 结果）表加决策 D<n>；`navori master init` 创建它并启用 `harness.masterPlan`。计划是 Markdown prose，按结构验证。
 
-流程按 phase 推进：`context` 收集模式和输入文件；`transcribed` 生成代码清单及其 digest；`mapped` 生成并评估计划；`planned` 记录决策；`questioned` 汇总 `MASTER.md` 及其 parts；`mastered` 等待开始命令；`executing` 将各 part 作为 specs 启动。`navori master check` 会验证当前活跃 phase；只有符合标准时，`navori master advance` 才会推进它。
+slice 在 `slice/S<n>-…` 分支上构建，或在 PR 标题中标记 `[S<n>]`；`navori master check --incoming <ref> --base <branch>` 是 PR 所带 slice 的 WIP 门禁，读取 `origin/<base>`（`--base` 必填），无 fetch 或浅克隆时按失败处理；`navori master status`（`--qa`、`--line`、`--json`）从计划和 git 派生状态，只读。
 
-执行完成后，可以用 `navori master close` 正常结束一个阶段。从 `context` 到 `questioned`，用户可以选择 `close --convert`，将工作转换为单一 spec；在 `mastered` 之前，`close --abandon` 会记录放弃。关闭操作会保留阶段记录并更新 master plan 状态。
+验收属于用户：`navori master accept|reject S<n>|D<n> --approved-by user` 在 `navori/acceptance` 分支记录结论（`reject` 需要 `--notes`，即未完成任务）；`master-accept-confirm` 钩子要求人类确认，并覆盖对该分支的直接写入。agent 无法自我批准。
 
-可变状态——活跃阶段、phase、模式以及每个 part 的状态或链接——存放在可进行 schema 验证的 JSON 中，这样 CLI 可以检查状态转换并生成派生状态。计划、决策和 `MASTER.md` 内容是用 Markdown 编写的 prose：它们表达人的判断，按结构验证，而不是解析为状态来源。派生状态文件（例如 `STATUS.md`）由 render 生成。
-
-**Part 的 deliveries。** 每个 part 的 deliveries 都根据它自己的 `parts.json` 验证，而不是根据 Markdown。`navori master delivery-*` 操作 delivery phase：`delivery-baseline` 记录明确的基线批准；`delivery-queue` 授权某个 delivery 中有界限的 part 队列（`--delivery E<n> --parts P<n>,…`）；`delivery-slice` 将获授权的 slice 投射到 workplan；`delivery-revoke` 撤销已授予的权限。`delivery-criterion`、`delivery-review`、`delivery-present`、`delivery-decision` 和 `delivery-publication` 分别处理每个 delivery 的标准、review、展示、决策和发布。授予权限或批准的步骤都要求 `--approved-by`，且其值必须是 `user`。
+**v1 为只读。** 阶段流程（`mode`、`ux`、`advance`、`part`、`close`、`delivery-*`）以 1 退出并指向 `navori master migrate`，它可从 v1 阶段打印 v2 计划（dry-run）或用 `--write` 写入；已关闭阶段仍可读取。
 
 ### 4.1 按 delivery 交付 specs — `navori spec classify` 和 `check`
 

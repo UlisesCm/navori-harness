@@ -2,13 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
-import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
-import * as renderer from "../render.ts";
-import * as atomic from "../../lib/primitives/atomic.ts";
-import { readMasterStatus, renderStatusMd } from "../../lib/master/status.ts";
+import { runMasterInit } from "../../lib/master/init.ts";
 import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
 
 /**
@@ -68,6 +65,54 @@ async function master(cwd: string, ...argv: string[]): Promise<RunResult> {
   return { exitCode, out, err };
 }
 
+/** Opens a v1 stage through the library: the CLI no longer writes the v1 flow (spec 0063 T6). */
+function initV1(cwd: string, workflow: "legacy" | "deliveries" = "legacy"): void {
+  runMasterInit(cwd, workflow === "legacy" ? "mvp" : "delivery", workflow);
+}
+
+/** Every v1 writing subcommand with a representative argv. */
+const REFUSED_V1_WRITES: readonly string[][] = [
+  ["mode", "template"],
+  ["ux", "none"],
+  ["advance"],
+  ["part", "P1", "--state", "hecho"],
+  ["close"],
+  ["close", "--abandon", "--reason", "x"],
+  ["init", "mvp", "--workflow", "legacy"],
+  ["init", "delivery", "--workflow", "deliveries"],
+  ["delivery-slice", "--part", "P1"],
+  ["delivery-baseline", "--approved-by", "user"],
+  ["delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user"],
+  ["delivery-revoke", "--approved-by", "user"],
+  ["delivery-criterion", "--part", "P1", "--criterion", "A1"],
+  ["delivery-review", "--part", "P1", "--report", "r.txt", "--envelope", "e.json"],
+  ["delivery-present", "--delivery", "E1"],
+  [
+    "delivery-decision",
+    "--delivery",
+    "E1",
+    "--identity",
+    "a".repeat(64),
+    "--decision",
+    "accepted",
+    "--approved-by",
+    "user",
+  ],
+  [
+    "delivery-publication",
+    "--delivery",
+    "E1",
+    "--identity",
+    "a".repeat(64),
+    "--kind",
+    "release",
+    "--reference",
+    "v1",
+    "--approved-by",
+    "user",
+  ],
+];
+
 /** Runs a command that must succeed (no exit code set). */
 async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
   const result = await master(cwd, ...argv);
@@ -75,60 +120,9 @@ async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
   return result;
 }
 
-// Covers: R1
-it("recovers CLI init with a persisted legacy flag and missing engine artifacts", async (): Promise<void> => {
-  const cwd = freshRepo();
-  const configPath = join(cwd, "navori.config.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify({ ...readJson(configPath), harness: { masterPlan: true } }),
-  );
-  await ok(cwd, "init", "mvp");
-  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
-    "navori master",
-  );
-  expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toContain("navori:managed");
-});
-
-// Covers: R1, R2
-it("reports ok:false as nonzero without success guidance, then repairs on retry", async (): Promise<void> => {
-  const cwd = freshRepo();
-  const render = vi.spyOn(renderer, "runRender").mockReturnValueOnce({
-    ok: false,
-    reason: "test render failure",
-    language: "es",
-    filePath: join(cwd, "CLAUDE.md"),
-    entries: [],
-    written: false,
-    languageFallbacks: [],
-    updatesAvailable: [],
-    downgrades: [],
-    workspaces: [],
-  });
-  const failed = await master(cwd, "init", "mvp");
-  expect(failed.exitCode).toBe(1);
-  expect(failed.err).toContain("render failed: test render failure");
-  expect(failed.out).toBe("");
-  expect(failed.out).not.toContain("context/raw/");
-  expect(failed.out).not.toContain("navori master delivery-check");
-  render.mockRestore();
-  const statePath = stageFile(cwd, "state.json");
-  const indexPath = join(cwd, "specs/_master/index.json");
-  const before = [statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"));
-  await ok(cwd, "init");
-  expect([statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"))).toEqual(
-    before,
-  );
-  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
-    "navori master",
-  );
-});
-
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
-  expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
-    "navori master delivery-check",
-  );
+  initV1(cwd, "deliveries");
   const stage = join(cwd, "specs", "_master", "01-delivery");
   const statePath = join(stage, "state.json");
   const before = readFileSync(statePath, "utf8");
@@ -140,7 +134,45 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
-  expect((await ok(cwd, "init")).out).toContain("navori master delivery-check");
+});
+
+it("init without --workflow on an active v1 stage refuses and points to migrate, creating no PLAN.md", async () => {
+  const cwd = freshRepo();
+  initV1(cwd);
+  const result = await master(cwd, "init");
+  expect(result.exitCode).toBe(1);
+  expect(result.err).toContain("navori master migrate");
+  expect(existsSync(join(cwd, "specs", "_plan", "PLAN.md"))).toBe(false);
+});
+
+// Covers: R15 — spec 0063 T6: every v1 writing subcommand is refused and touches nothing.
+it.each(REFUSED_V1_WRITES)(
+  "refuses the v1 write `%s` without touching specs/_master",
+  async (...argv: string[]) => {
+    const cwd = freshRepo();
+    initV1(cwd);
+    const snapshot = (): string =>
+      ["state.json", "parts.json", "STATUS.md"]
+        .map((name) =>
+          existsSync(stageFile(cwd, name)) ? readFileSync(stageFile(cwd, name), "utf8") : "",
+        )
+        .join("\n") + readFileSync(join(cwd, "specs/_master/index.json"), "utf8");
+    const before = snapshot();
+    const result = await master(cwd, ...argv);
+    expect(result.exitCode, argv.join(" ")).toBe(1);
+    expect(result.err).toContain("navori master migrate");
+    expect(result.out).toBe("");
+    expect(snapshot()).toBe(before);
+  },
+);
+
+it("status without a v2 plan reads and does not regenerate STATUS.md", async () => {
+  const cwd = freshRepo();
+  initV1(cwd);
+  rmSync(stageFile(cwd, "STATUS.md"));
+  const result = await ok(cwd, "status");
+  expect(result.out).toContain(`etapa ${STAGE}`);
+  expect(existsSync(stageFile(cwd, "STATUS.md"))).toBe(false);
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {
@@ -161,49 +193,9 @@ function stageFile(cwd: string, name: string): string {
   return join(cwd, "specs", "_master", STAGE, name);
 }
 
-function setPhase(cwd: string, phase: string): void {
-  const path = stageFile(cwd, "state.json");
-  const state = readJson(path) as { history: unknown[] };
-  writeFileSync(
-    path,
-    `${JSON.stringify({ ...state, phase, history: [...state.history, { phase, at: "2026-01-01" }] }, null, 2)}\n`,
-  );
-}
-
-const PART = {
-  id: "P1",
-  title: "Build",
-  objective: "Build it",
-  scope: [],
-  outOfScope: [],
-  dependsOn: [],
-  seedRequirements: [],
-  inheritedFrom: null,
-  state: "pendiente",
-  reason: null,
-  spec: null,
-  issue: null,
-  acceptance: [
-    {
-      id: "A1",
-      description: "Command passes",
-      method: "comando",
-      command: { run: "echo ok", expected: "ok" },
-      evidence: null,
-    },
-    {
-      id: "A2",
-      description: "User reviews",
-      method: "manual",
-      manual: { check: "review", how: "inspect" },
-      evidence: null,
-    },
-  ],
-};
-
 describe("master-plan first use — executable scenario (R59)", () => {
   // Covers: R52, R53, R54, R59
-  it("walks status -> init -> mode -> check/advance -> part --accept -> status -> close", async () => {
+  it("walks the v1 read path: status, template, check; every write is refused", async () => {
     const cwd = freshRepo();
 
     // R52: first use is a normal case, not an error.
@@ -215,20 +207,18 @@ describe("master-plan first use — executable scenario (R59)", () => {
       closable: false,
     });
 
-    await ok(cwd, "init", "mvp");
+    initV1(cwd);
     // R54: STATUS.md exists right after init and the line does not say "ninguna".
     expect(existsSync(stageFile(cwd, "STATUS.md"))).toBe(true);
     const line = await ok(cwd, "status", "--line");
     expect(line.out).toContain("sin parte activa");
     expect(line.out).not.toContain("ninguna");
 
-    await ok(cwd, "mode", "template");
-    expect(readJson(stageFile(cwd, "state.json")).mode).toBe("template");
     await ok(cwd, "template", "plan");
     await ok(cwd, "template", "ux");
     await ok(cwd, "template", "parts");
 
-    // Context phase without raw files: check and advance refuse, and say why.
+    // Context phase without raw files: check refuses and says why; advance is refused.
     expect((await master(cwd, "check")).exitCode).toBe(1);
     expect((await master(cwd, "advance")).exitCode).toBe(1);
     expect(readJson(stageFile(cwd, "state.json")).phase).toBe("context");
@@ -240,54 +230,6 @@ describe("master-plan first use — executable scenario (R59)", () => {
     };
     expect(early).toMatchObject({ allDone: false, closable: false });
     expect((await master(cwd, "close")).exitCode).toBe(1);
-
-    // The middle phases (context digest, plans, MASTER.md) have their own tests; seed their outcome.
-    writeFileSync(
-      stageFile(cwd, "parts.json"),
-      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
-    );
-    setPhase(cwd, "ux");
-    await ok(cwd, "ux", "none");
-    // advance into executing needs a full MASTER.md (checks.test.ts covers it); seed the phase.
-    setPhase(cwd, "executing");
-    await master(cwd, "check", "--part", "P1");
-    writeFileSync(stageFile(cwd, "context/DIGEST.md"), "# Digest\n");
-    writeFileSync(stageFile(cwd, "context/CODEBASE.md"), "# Codebase\n");
-    await master(cwd, "check", "--fit", "--json");
-    createCommitHelper(createGitHelper(cwd))("harness and plan");
-
-    await ok(cwd, "part", "P1", "--accept", "A1", "--command", "echo ok", "--result", "ok");
-    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
-    await ok(cwd, "part", "P1", "--state", "hecho");
-
-    const status = JSON.parse((await ok(cwd, "status", "--json")).out) as {
-      allDone: boolean;
-      closable: boolean;
-    };
-    expect(status).toMatchObject({ allDone: true, closable: true });
-    await ok(cwd, "status");
-
-    const closed = await ok(cwd, "close");
-    expect(closed.out).toContain(`${STAGE}: entregada`);
-    expect(existsSync(stageFile(cwd, "CLOSURE.md"))).toBe(true);
-  }, 120_000);
-
-  it("records the ux decision, abandons, and converts in their own repos", async () => {
-    const ux = freshRepo();
-    await ok(ux, "init", "mvp");
-    setPhase(ux, "ux");
-    await ok(ux, "ux", "md-json");
-    expect(readJson(stageFile(ux, "state.json")).ux).toBe("md-json");
-
-    const abandoned = freshRepo();
-    await ok(abandoned, "init", "mvp");
-    await ok(abandoned, "close", "--abandon", "--reason", "no longer needed");
-    expect(readJson(stageFile(abandoned, "state.json")).outcome).toBe("abandonada");
-
-    const converted = freshRepo();
-    await ok(converted, "init", "mvp");
-    await ok(converted, "close", "--convert", "specs/one-shot", "--reason", "single delivery");
-    expect(readJson(stageFile(converted, "state.json")).outcome).toBe("convertida");
   }, 120_000);
 });
 
@@ -344,120 +286,18 @@ describe("master commands record CLI audit events (R55, R70)", () => {
   }
 
   // Covers: R55, R70
-  it("records advance (block), part --accept and close", async () => {
+  it("a refused v1 write records no CLI audit event", async () => {
     const cwd = freshRepo();
     const log = startAudit(cwd);
-    await ok(cwd, "init", "mvp");
-
-    expect((await master(cwd, "advance")).exitCode).toBe(1);
-
-    writeFileSync(
-      stageFile(cwd, "parts.json"),
-      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
-    );
-    setPhase(cwd, "executing");
-    createCommitHelper(createGitHelper(cwd))("plan");
-    await ok(cwd, "part", "P1", "--accept", "A1", "--command", "echo ok", "--result", "ok");
-    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
-    await ok(cwd, "part", "P1", "--state", "hecho");
-    await ok(cwd, "close");
-
-    expect(cliEvents(log)).toEqual([
-      expect.objectContaining({ name: "master-advance", verdict: "block" }),
-      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
-      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
-      expect.objectContaining({ name: "master-close", verdict: "allow" }),
-    ]);
-  }, 120_000);
-
-  /** Seeds an executing stage with PART committed, ready for `part` mutations. */
-  async function executingStage(): Promise<{ cwd: string; log: string }> {
-    const cwd = freshRepo();
-    const log = startAudit(cwd);
-    await ok(cwd, "init", "mvp");
-    writeFileSync(
-      stageFile(cwd, "parts.json"),
-      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
-    );
-    setPhase(cwd, "executing");
-    mkdirSync(join(cwd, "specs", "p1-spec"), { recursive: true });
-    createCommitHelper(createGitHelper(cwd))("plan");
-    return { cwd, log };
-  }
-
-  // Covers: R7
-  it("tras part --state, --spec, --issue y --accept no hay drift de STATUS.md", async () => {
-    const { cwd } = await executingStage();
-    const inSync = (): void =>
-      expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toBe(
-        renderStatusMd(readMasterStatus(cwd), "es"),
-      );
-    await ok(cwd, "part", "P1", "--state", "parcial");
-    inSync();
-    await ok(cwd, "part", "P1", "--spec", "specs/p1-spec");
-    inSync();
-    await ok(cwd, "part", "P1", "--issue", "7");
-    inSync();
-    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
-    inSync();
-    expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toContain("verificado");
-  }, 120_000);
-
-  // Covers: R21
-  it("con cierre iniciado part, advance y ux piden reanudar con close sin escribir", async () => {
-    const { cwd } = await executingStage();
-    const statePath = stageFile(cwd, "state.json");
-    writeFileSync(
-      statePath,
-      `${JSON.stringify({ ...readJson(statePath), outcome: "entregada" }, null, 2)}\n`,
-    );
-    const files = ["parts.json", "state.json"].map((name) => stageFile(cwd, name));
-    const before = files.map((path) => readFileSync(path, "utf8"));
-    for (const argv of [["part", "P1", "--state", "parcial"], ["advance"], ["ux", "none"]]) {
-      const result = await master(cwd, ...argv);
-      expect(result.exitCode, argv.join(" ")).toBe(1);
-      expect(result.err).toContain("reanude con 'navori master close'");
-    }
-    expect(files.map((path) => readFileSync(path, "utf8"))).toEqual(before);
-  }, 120_000);
-
-  // Covers: R8
-  it("fallo de regeneración tras --accept conserva parts.json y el evento master-part-accept y dice Repare con navori master status", async () => {
-    const { cwd, log } = await executingStage();
-    const original = atomic.writeFileAtomic;
-    vi.spyOn(atomic, "writeFileAtomic").mockImplementation(
-      (path: string, content: string): void => {
-        if (path === stageFile(cwd, "STATUS.md")) throw new Error("derived failure");
-        original(path, content);
-      },
-    );
-    const failed = await master(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
-    vi.restoreAllMocks();
-    expect(failed.exitCode).toBe(1);
-    expect(failed.err).toContain(`${STAGE}: parts.json actualizado`);
-    expect(failed.err).toContain("derived failure");
-    expect(failed.err).toContain("Repare con 'navori master status'");
-    expect(failed.err).toContain("no repita 'navori master part'");
-    const parts = readJson(stageFile(cwd, "parts.json")) as {
-      parts: Array<{ acceptance: Array<{ id: string; evidence: unknown }> }>;
-    };
-    expect(parts.parts[0]?.acceptance.find((a) => a.id === "A2")?.evidence).not.toBeNull();
-    expect(cliEvents(log)).toEqual([
-      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
-    ]);
-  }, 120_000);
-
-  // Covers: R55
-  it("writes nothing without a session id (fail-open)", async () => {
-    const cwd = freshRepo();
-    const log = startAudit(cwd);
-    delete process.env.CLAUDE_CODE_SESSION_ID;
-    delete process.env.NAVORI_AUDIT_HOST;
-    delete process.env.NAVORI_AUDIT_SESSION_ID;
-    await ok(cwd, "init", "mvp");
-    await ok(cwd, "close", "--abandon", "--reason", "no longer needed");
+    initV1(cwd);
+    for (const argv of [
+      ["advance"],
+      ["close"],
+      ["part", "P1", "--accept", "A2", "--approved-by", "user"],
+    ])
+      expect((await master(cwd, ...argv)).exitCode, argv.join(" ")).toBe(1);
     expect(cliEvents(log)).toEqual([]);
-  }, 120_000);
+  });
 });
 
 /** A `navori master …` form written in the skill: subcommand, optional literal positional, flags. */
@@ -484,27 +324,7 @@ function skillForms(skill: string): SkillForm[] {
   return forms;
 }
 
-describe("master-plan skill — every `navori master …` form is exercised (R59)", () => {
-  // Covers: R59
-  it("extracts forms that the scenario runs at least once", () => {
-    const skill = readFileSync(
-      resolve(getCoreRoot(), "core-assets", "skills", "master-plan.md"),
-      "utf8",
-    );
-    const forms = skillForms(skill);
-    expect(forms.length).toBeGreaterThan(10);
-    const missing = forms.filter(
-      (form) =>
-        !exercised.some(
-          (argv) =>
-            argv[0] === form.sub &&
-            (form.positional === null || argv[1] === form.positional) &&
-            form.flags.every((flag) => argv.includes(flag)),
-        ),
-    );
-    expect(missing.map((f) => f.text)).toEqual([]);
-  });
-
+describe("master-plan skill forms extractor (R59)", () => {
   it("sanity: the extractor sees flags and literal positionals", () => {
     const forms = skillForms(
       'usa `navori master close --abandon --reason "x"` y `navori master template ux`',
@@ -522,7 +342,7 @@ describe("master-plan skill — every `navori master …` form is exercised (R59
 // Covers: R14
 it("check --part ausente, vacío o espacios es error de uso sin check de etapa", async () => {
   const cwd = freshRepo();
-  await ok(cwd, "init", "mvp");
+  initV1(cwd);
   const before = readFileSync(stageFile(cwd, "state.json"), "utf8");
   for (const value of ["", "   "]) {
     const result = await master(cwd, "check", "--part", value);
@@ -539,10 +359,8 @@ it("check --part ausente, vacío o espacios es error de uso sin check de etapa",
 // Covers: R15
 it("init con otro slug y etapa activa explica en stderr y sale 1", async () => {
   const cwd = freshRepo();
-  await ok(cwd, "init", "mvp");
+  initV1(cwd);
   const result = await master(cwd, "init", "other");
   expect(result.exitCode).toBe(1);
-  expect(result.err).toContain('"other"');
-  expect(result.err).toContain("ignorado");
-  expect(result.err).toContain(STAGE);
+  expect(result.err).toContain("navori master migrate");
 });

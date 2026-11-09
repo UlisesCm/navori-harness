@@ -919,7 +919,7 @@ function isBuiltinBash(pi: ToolRegistry): boolean {
 type CriterionHit = { feature: string; id: string; dir: string; binding?: Record<string, unknown>; stage?: string };
 
 /**
- * Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
+ * Criteria (pending or cumplido) whose command equals this one exactly, from the CLI-written acceptance-index. A delivery-bound row
  * (6 fields) carries the producer authority the CLI projected (binding JSON and stage path); it is copied verbatim
  * and "navori master delivery-criterion" recomputes and compares it, so the line never grants authority by itself.
  */
@@ -1105,6 +1105,27 @@ let powershellNoticed = false;
 function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
   if (seen) return;
   try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
+}
+
+// Spec 0064: the orchestrator doctrine lives in its own owned file and only the parent process receives it.
+const ORCHESTRATOR_FILE = ".pi/navori/orchestrator.md";
+const ORCHESTRATOR_HEADER = /^<!-- navori:managed-file id="pi-orchestrator" hash="[a-f0-9]{64}" -->\n/;
+let orchestratorNoticed = false;
+
+/** Adds the orchestrator section to a parent's prompt; a missing file the manifest promises is a visible warning, once. */
+function injectOrchestrator(event: { systemPromptOptions: { sections?: Record<string, string> } }, ctx: NoticeCtx & { cwd: string }): void {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  const manifest: unknown = JSON.parse(readFileSync(join(ctx.cwd, ".pi/navori.json"), "utf8"));
+  if (!isRecord(manifest) || !Array.isArray(manifest.ownedPaths) || !manifest.ownedPaths.includes(ORCHESTRATOR_FILE)) return;
+  const file = join(ctx.cwd, ORCHESTRATOR_FILE);
+  let text = "";
+  try { if (!lstatSync(file).isSymbolicLink()) text = readFileSync(file, "utf8").replace(ORCHESTRATOR_HEADER, "").trim(); } catch { /* Reported below. */ }
+  if (text) {
+    event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, "navori-orchestrator": text };
+    return;
+  }
+  noticeOnce(ctx, orchestratorNoticed, "Navori orchestrator doctrine " + ORCHESTRATOR_FILE + " is missing or unreadable, so this session runs without it. Run navori render --apply.");
+  orchestratorNoticed = true;
 }
 
 const POWERSHELL_REASON = PI_EXTENSION_DENIALS.powershell.prefix + "it would run commands outside the shared shell policy. "
@@ -1396,6 +1417,7 @@ export default function (pi: ExtensionAPI): void {
     try { if (event.reason === "startup" || event.reason === "new") await consumeAuditArm(ctx); } catch { /* Recording never blocks a session. */ }
   });
   pi.on("before_agent_start", async (event, ctx) => {
+    try { injectOrchestrator(event, ctx); } catch { /* Advisory only; the user's prompt must continue. */ }
     try {
       if (controls(ctx.cwd).masterPlan) {
         const result = await pi.exec("navori", ["master", "status", "--line"], { cwd: ctx.cwd, timeout: 10_000 });

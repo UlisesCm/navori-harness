@@ -104,7 +104,7 @@ Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中�
 | `codex trust` | 批准 `~/.codex/config.toml` 中的项目 hooks。 |
 | `receipt <sign\|check\|gate\|review>` | 发布前为已审阅内容生成凭据；`gate` 决定每个里程碑需要范围受限的质量门还是完整质量门。 |
 | `tools notice` | 为启动 hook 发出待处理的外部工具版本通知（`--ack` 将其标记为已送达）。 |
-| `master <sub>` | 分阶段总体规划（`init`、`ux`、`mode`、`advance`、`check` 等）和交付（`delivery-*`，须通过 `--approved-by` 门控）。 |
+| `master <sub>` | 主计划 v2：由用户验收 slice 的 PLAN.md（`init`、`status`、`check --incoming --base`、`accept`/`reject`、`migrate`、`template`）。v1 阶段命令为只读；请运行 `master migrate`。 |
 | `adopt` | 将你手动编写的 harness 文件纳入 Navori 管理（添加管理标记，不重写内容）。 |
 | `workspace` / `ticket` / `dominio` | 管理跨仓库配置和 tickets，以及工作区的持久知识库。 |
 | `preset` / `scan` / `backup` / `migrations` | 本地预设、monorepo、恢复和迁移。 |
@@ -151,7 +151,7 @@ navori-harness/
 
 ## 开发
 
-需要 **Node >= 22** 和 **bun 1.4.4**。
+本地开发和 CI 使用 Node 26.13.0（固定于 `.nvmrc`）和 bun 1.4.4；已发布的 CLI 保留其声明的最低要求 Node >= 22.12，CI 会针对构建后的二进制文件进行冒烟测试。
 
 ```bash
 bun install
@@ -184,13 +184,22 @@ node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 ```
    每个 managed block 的标记都会记录 CLI 版本，因此第 2 步的版本更新会让整个仓库的已渲染镜像过时。从 0.6.0 升到 0.6.1 时，`.claude/` 和 `CLAUDE.md` 中共有 **30 个文件**受影响。跳过这一步会让 tag 指向不一致的树，并导致发布后 `main` 上的第一次 CI 失败（`bun run check:render`，#421）。走 PR 流程可以在合并前发现问题；直接 push 时就没有这道检查。
 4. 提交 `chore(release): navori vX.Y.Z`，同时包含版本更新**和**第 3 步的重新渲染。推送到 `dev`，并像其他 ticket 一样创建指向 `dev` 的 PR。
-5. 创建从 `dev` 指向 `main` 的 PR，使用**合并提交，不要 squash**。这样 `dev` 仍是 `main` 的祖先，后续发布不会带入被改写的历史。合并后 `dev` 会落后于合并提交；将它 fast-forward 到 `main`，使两个分支保持一致。
-6. 创建 tag `vX.Y.Z`——**从 0.8.6 起自动执行**。当 `main` 上的 `packages/cli/package.json` 发生变化时，`release-tag.yml` 会在该次 push 的 HEAD（第 5 步的合并提交，其中包含 `chore(release)` 提交）创建并 push 带注释的 tag；如果 tag 已存在则不重复创建。该操作具备幂等性，重新运行不会产生变化。
+5. 创建 `dev` → `main` 的 PR 之前，在你的 home 目录下用一次性克隆检查 `dev` 的最新提交：`render --apply` 不报告任何变更，`navori gate full` 通过，并用与 CI 相同的参数运行 semgrep。CI 只在指向 `main` 的 PR 和 push 上运行 semgrep，所以指向 `dev` 的 PR 看不到它的发现；0.12.4 的问题直到指向 `main` 的 PR 才出现（#1612，由 #1613 修复）。
+
+```bash
+   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" semgrep/semgrep \
+     semgrep scan --config p/default --error --metrics=off \
+     --baseline-commit "$(git merge-base HEAD origin/main)"
+```
+
+   请使用克隆而不是工作树：baseline 模式会检出基线再恢复文件，这会改变文件的 mtime（不加 `--user` 时还会让文件归 root 所有）。以 snap 安装的 Docker 无法挂载 `/tmp`。
+6. 创建从 `dev` 指向 `main` 的 PR，使用**合并提交，不要 squash**。这样 `dev` 仍是 `main` 的祖先，后续发布不会带入被改写的历史。合并后 `dev` 会落后于合并提交；将它 fast-forward 到 `main`，使两个分支保持一致。
+7. 创建 tag `vX.Y.Z`——**从 0.8.6 起自动执行**。当 `main` 上的 `packages/cli/package.json` 发生变化时，`release-tag.yml` 会在该次 push 的 HEAD（第 6 步的合并提交，其中包含 `chore(release)` 提交）创建并 push 带注释的 tag；如果 tag 已存在则不重复创建。该操作具备幂等性，重新运行不会产生变化。
 
    之所以自动化，是因为 **0.8.4 和 0.8.5** 都漏掉了这一步，而且第二次漏掉时，准确命令已经写在这里。影响会延迟出现且不易察觉：`check-asset-commands.mjs` 会与最新 tag 比较，因此没有 tag 的发布会拿前一个版本做校验。仓库已经是 0.8.4，它却仍会报告“存在于 v0.8.3”，而检查不会失败。
 
-   如需手动执行：`git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`。在 `dev` → `main` 流程启用前发布的 tag 直接指向 `chore(release)` 提交，例如 `v0.8.2` → `285fa51` 和 `v0.8.3` → `6f32a00`。
-7. 在 `packages/cli` 中运行 `npm publish`。
+   如需手动执行：`git tag -a vX.Y.Z <第 6 步之后 main 的 HEAD> && git push origin vX.Y.Z`。在 `dev` → `main` 流程启用前发布的 tag 直接指向 `chore(release)` 提交，例如 `v0.8.2` → `285fa51` 和 `v0.8.3` → `6f32a00`。
+8. 合并后在 `main` 上，于 `packages/cli` 中运行 `npm publish`（先执行 `npm login`；`prepack` 会构建 `dist/`）。用 `npm view navori version` 确认。
 
 Website 页脚通过导入 CLI 的 `package.json` 显示版本（`apps/website/src/components/Footer.astro`）；`deploy-website.yml` 的 `paths` 过滤器也会监视该文件，所以第 2 步的版本更新会触发网站重新部署。**如果网站显示旧版本，首先检查这个过滤器**：在 0.8.4 之前，它没有包含 CLI manifest，导致网站落后两个版本；npm 已发布 0.8.4 时，网站仍显示 `v0.8.2`。
 

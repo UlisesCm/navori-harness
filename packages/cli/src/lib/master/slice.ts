@@ -120,6 +120,24 @@ export function deliverySliceProjection(cwd: string, partId: string): Workplan {
   });
 }
 
+/** `plan check` for a v1 delivery workplan: the plan rules plus the source-authority comparison. */
+export function checkV1DeliveryWorkplan(
+  plan: unknown,
+  cwd: string | undefined,
+  feature?: string,
+): { ok: boolean; findings: { rule: string; message: string }[] } {
+  const result = checkWorkplan(plan, { cwd, feature, allowV1Delivery: true });
+  const parsed = WorkplanSchema.safeParse(plan);
+  const problems = !parsed.success
+    ? []
+    : (cwd
+        ? checkDeliveryPlanSource(cwd, parsed.data)
+        : ["delivery source requires an explicit checkout context"]
+      ).map((message) => ({ rule: "delivery-source", message }));
+  const findings = [...result.findings, ...problems];
+  return { ok: findings.length === 0, findings };
+}
+
 /** Compare source-owned fields; never treat human additions as source authority. */
 export function checkDeliveryPlanSource(cwd: string, plan: Workplan): string[] {
   if (!plan.source) return [];
@@ -204,7 +222,7 @@ export function prepareDeliverySlice(
             },
           ],
         });
-        if (!checkWorkplan(next, { cwd: root.cwd, feature: projection.feature }).ok)
+        if (!checkV1DeliveryWorkplan(next, root.cwd, projection.feature).ok)
           throw new Error("refreshed projection needs valid human planning metadata");
         // The index is derived from the plan files on disk, so the plan is written first.
         // If the index write fails the previous plan bytes are restored: a retry then sees the
@@ -224,7 +242,7 @@ export function prepareDeliverySlice(
           `existing workplan diverged; manual review required: ${sourceProblems.join("; ")}` +
             " (after a queue change, re-run with --refresh --approved-by user)",
         );
-      const validation = checkWorkplan(parsed, { cwd: root.cwd, feature: projection.feature });
+      const validation = checkV1DeliveryWorkplan(parsed, root.cwd, projection.feature);
       if (!validation.ok)
         throw new Error(
           `existing workplan requires valid human planning metadata: ${validation.findings.map((finding) => finding.message).join("; ")}`,

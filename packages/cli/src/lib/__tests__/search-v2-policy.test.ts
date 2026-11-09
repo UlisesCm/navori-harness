@@ -37,12 +37,12 @@ describe("the routing distinctions are stated where the policy actually lives", 
     expect(core).toContain("do not search.");
   });
 
-  it("core block: known-file — a bounded local change goes straight to Read/Edit", () => {
-    expect(core).toContain("Read/Edit directly.");
+  it("core block: known-file — a bounded local change is read/edited directly", () => {
+    expect(core).toContain("read/edit directly.");
   });
 
-  it("core block: filename — a name/path pattern routes to Glob", () => {
-    expect(core).toContain("Filename/path patterns: Glob.");
+  it("core block: filename — a name/path pattern routes to globbing", () => {
+    expect(core).toContain("Filename/path patterns: globbing.");
   });
 
   it("core block: structural — behavior/definitions/relationships/impact route to structural discovery", () => {

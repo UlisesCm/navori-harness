@@ -1,131 +1,17 @@
-import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { masterCommand } from "../master.ts";
 import * as delivery from "../../lib/master/delivery.ts";
 import * as part from "../../lib/master/part.ts";
-import { DeliveryStateSchema } from "../../lib/master/delivery-schema.ts";
-import {
-  cli,
-  initDeliveryRepo,
-  presentFromSlice,
-  writeDeliveryParts,
-} from "../../lib/master/__tests__/delivery-flow.ts";
+import * as slice from "../../lib/master/slice.ts";
 
-// Covers: R15
-it("smoke integrated: first stage, close, second stage, conversion and full deliveries lifecycle", (): void => {
-  const { cwd, commit, master } = initDeliveryRepo();
-  dirs.push(cwd);
-  const json = (path: string): Record<string, unknown> =>
-    JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({ stage: null, lastClosed: null });
-  master("init", "first");
-  master("mode", "template");
-  const first = join(cwd, "specs/_master/01-first");
-  // Seed authored plan output; transitions and dispositions still use the real CLI.
-  writeFileSync(
-    join(first, "parts.json"),
-    JSON.stringify({
-      version: 1,
-      parts: [
-        {
-          id: "P1",
-          title: "One",
-          objective: "Review",
-          scope: [],
-          outOfScope: [],
-          dependsOn: [],
-          seedRequirements: [],
-          inheritedFrom: null,
-          state: "pendiente",
-          reason: null,
-          spec: null,
-          issue: null,
-          acceptance: [
-            {
-              id: "A1",
-              description: "Inspect",
-              method: "manual",
-              manual: { check: "Inspect", how: "Read" },
-              evidence: null,
-            },
-          ],
-        },
-      ],
-    }),
-  );
-  writeFileSync(
-    join(first, "state.json"),
-    JSON.stringify({ ...json(join(first, "state.json")), phase: "executing" }),
-  );
-  commit("first plan");
-  master("part", "P1", "--accept", "A1", "--approved-by", "user");
-  master("part", "P1", "--state", "hecho");
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
-  master("close");
-  expect(json(join(first, "state.json"))).toMatchObject({ outcome: "entregada" });
-  master("init", "second");
-  const second = join(cwd, "specs/_master/02-second");
-  expect(json(join(second, "state.json"))).toMatchObject({ mode: "en-curso" });
-  expect(cli(cwd, "master", "mode", "template").code).toBe(1);
-  master("close", "--convert", "specs/converted", "--reason", "Single delivery");
-  expect(json(join(second, "state.json"))).toMatchObject({ outcome: "convertida" });
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({
-    stage: null,
-  });
-  master("init", "delivery", "--workflow", "deliveries");
-  const stage = join(cwd, "specs/_master/03-delivery");
-  master("init");
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({
-    workflow: "deliveries",
-    closable: false,
-  });
-  const statePath = join(stage, "state.json");
-  const before = readFileSync(statePath, "utf8");
-  expect(cli(cwd, "master", "advance").code).toBe(1);
-  expect(readFileSync(statePath, "utf8")).toBe(before);
-  writeDeliveryParts(cwd, stage);
-  expect(JSON.parse(master("delivery-check"))).toMatchObject({ ready: true });
-  expect(cli(cwd, "master", "delivery-baseline").code).toBe(1);
-  master("delivery-baseline", "--approved-by", "user");
-  expect(cli(cwd, "master", "delivery-queue", "--delivery", "E1", "--parts", "P1").code).toBe(1);
-  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
-  const presented = { identity: presentFromSlice({ cwd, commit, master }, stage) };
-  master(
-    "delivery-decision",
-    "--delivery",
-    "E1",
-    "--identity",
-    presented.identity,
-    "--decision",
-    "accepted",
-    "--approved-by",
-    "user",
-  );
-  expect(cli(cwd, "master", "close").code).toBe(1);
-  master(
-    "delivery-publication",
-    "--delivery",
-    "E1",
-    "--identity",
-    presented.identity,
-    "--kind",
-    "release",
-    "--reference",
-    "fixture-v1",
-    "--approved-by",
-    "user",
-  );
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
-  master("close");
-  expect(json(statePath)).toMatchObject({ phase: "closed" });
-  expect(JSON.parse(master("status", "--json"))).toMatchObject({
-    stage: null,
-    lastClosed: { slug: "delivery", state: "cerrada" },
-  });
-}, 120_000);
+/**
+ * Spec 0063 T6: the v1 delivery flow is read-only. Every delivery-* writer is refused before it
+ * reaches the library, and `delivery-check` keeps reading.
+ */
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -154,219 +40,39 @@ async function invoke(
   }
 }
 
-describe("delivery CLI", () => {
+describe("delivery CLI is read-only", () => {
   const identity = "a".repeat(64);
-  const decisionSchema = DeliveryStateSchema.shape.decisions.unwrap().element;
 
-  /** Adapter-only fixture: validates persisted schema, not human/reviewer attestation. */
-  function mockDecisionPersistence(): MockInstance<typeof delivery.decideDelivery> {
-    let previous = "";
-    return vi
-      .spyOn(delivery, "decideDelivery")
-      .mockImplementation(
-        (_cwd, deliveryId, reviewedIdentity, decision, approvedBy, reason, reference) => {
-          const record = decisionSchema.parse({
-            kind: "operator-attestation",
-            deliveryId,
-            reviewedIdentity,
-            decision,
-            approvedBy,
-            ...(reason !== undefined ? { reason } : {}),
-            ...(reference !== undefined ? { reference } : {}),
-            recordedAt: "2026-10-04T00:00:00.000Z",
-          });
-          const current = JSON.stringify(record);
-          const unchanged = previous === current;
-          previous = current;
-          return { unchanged };
-        },
-      );
-  }
-
-  it.each(
-    (["accepted", "declined", "deferred", "discarded"] as const).flatMap((decision) =>
-      [undefined, "client-record-42"].map((reference) => ({ decision, reference })),
-    ),
-  )(
-    "preserves reference $reference for $decision and fixture replay",
-    async ({ decision, reference }) => {
-      const persistence = mockDecisionPersistence();
-      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-      const args = [
-        "delivery-decision",
-        "--delivery",
-        "E1",
-        "--identity",
-        identity,
-        "--decision",
-        decision,
-        "--approved-by",
-        "user",
-        ...(reference === undefined ? [] : ["--reference", reference]),
-        ...(decision === "accepted" ? [] : ["--reason", "Client fixture reason"]),
-      ];
-      expect((await invoke(tmpdir(), ...args)).code).toBeUndefined();
-      expect(persistence).toHaveBeenLastCalledWith(
-        tmpdir(),
-        "E1",
-        identity,
-        decision,
-        "user",
-        decision === "accepted" ? undefined : "Client fixture reason",
-        reference,
-      );
-      expect(stdout).toHaveBeenLastCalledWith('{"unchanged":false}\n');
-      expect((await invoke(tmpdir(), ...args)).code).toBeUndefined();
-      expect(stdout).toHaveBeenLastCalledWith('{"unchanged":true}\n');
-    },
-  );
-
-  it("keeps explicit empty references invalid under the real strict schema", async () => {
-    mockDecisionPersistence();
-    const result = await invoke(
-      tmpdir(),
-      "delivery-decision",
-      "--delivery",
-      "E1",
-      "--identity",
-      identity,
-      "--decision",
-      "accepted",
-      "--approved-by",
-      "user",
-      "--reference",
-      "",
-    );
+  it.each([
+    ["delivery-slice", "--part", "P1", "--refresh", "--approved-by", "user"],
+    ["delivery-baseline", "--approved-by", "user"],
+    ["delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user"],
+    ["delivery-revoke", "--approved-by", "user"],
+    ["delivery-criterion", "--part", "P1", "--criterion", "A1", "--approved-by", "user"],
+    ["delivery-review", "--part", "P1", "--report", "r.txt", "--envelope", "e.json"],
+    ["delivery-present", "--delivery", "E1"],
+    ["delivery-decision", "--delivery", "E1", "--identity", identity, "--decision", "accepted"],
+    ["delivery-publication", "--delivery", "E1", "--identity", identity, "--kind", "release"],
+  ])("refuses %s before it reaches the library", async (...args: string[]) => {
+    const spies = [
+      vi.spyOn(delivery, "approveDeliveryBaseline"),
+      vi.spyOn(delivery, "authorizeDeliveryQueue"),
+      vi.spyOn(delivery, "revokeDeliveryQueue"),
+      vi.spyOn(delivery, "presentDelivery"),
+      vi.spyOn(delivery, "decideDelivery"),
+      vi.spyOn(delivery, "publishDelivery"),
+      vi.spyOn(part, "recordDeliveryCriterion"),
+      vi.spyOn(part, "captureDeliveryReview"),
+      vi.spyOn(slice, "prepareDeliverySlice"),
+    ];
+    const result = await invoke(tmpdir(), ...args);
     expect(result.code).toBe(1);
-    expect(result.output).toMatch(/reference/);
+    expect(result.output).toContain(`navori master ${args[0]}`);
+    expect(result.output).toContain("navori master migrate");
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 
-  it("does not infer operator consent when approved-by is omitted", async () => {
-    const result = await invoke(
-      tmpdir(),
-      "delivery-decision",
-      "--delivery",
-      "E1",
-      "--identity",
-      identity,
-      "--decision",
-      "accepted",
-    );
-    expect(result.code).toBe(1);
-    expect(result.output).toMatch(/requires --approved-by user/);
-  });
-
-  describe("operator mutation adapters", () => {
-    const quietStdout = (): MockInstance<typeof process.stdout.write> =>
-      vi.spyOn(process.stdout, "write").mockReturnValue(true);
-
-    it("passes delivery-revoke consent through and refuses it when omitted", async () => {
-      const revoke = vi.spyOn(delivery, "revokeDeliveryQueue").mockReturnValue({ generation: 3 });
-      const stdout = quietStdout();
-      expect(
-        (await invoke(tmpdir(), "delivery-revoke", "--approved-by", "user")).code,
-      ).toBeUndefined();
-      expect(revoke).toHaveBeenLastCalledWith(tmpdir(), "user");
-      expect(stdout).toHaveBeenLastCalledWith('{"generation":3}\n');
-      vi.restoreAllMocks();
-      const refused = await invoke(tmpdir(), "delivery-revoke");
-      expect(refused.code).toBe(1);
-      expect(refused.output).toMatch(/requires --approved-by user/);
-    });
-
-    it("passes delivery-review artifacts and consent to the technical capture", async () => {
-      const capture = vi
-        .spyOn(part, "captureDeliveryReview")
-        .mockReturnValue({ identity, unchanged: false });
-      const stdout = quietStdout();
-      const args = ["delivery-review", "--part", "P1", "--report", "r.txt", "--envelope", "e.json"];
-      expect((await invoke(tmpdir(), ...args, "--approved-by", "user")).code).toBeUndefined();
-      expect(capture).toHaveBeenLastCalledWith(tmpdir(), "P1", "r.txt", "e.json", "user");
-      expect(stdout).toHaveBeenLastCalledWith(`{"identity":"${identity}","unchanged":false}\n`);
-      vi.restoreAllMocks();
-      const refused = await invoke(tmpdir(), ...args);
-      expect(refused.code).toBe(1);
-      expect(refused.output).toMatch(/requires --approved-by user/);
-    });
-
-    it("passes delivery-present the delivery id only", async () => {
-      const present = vi
-        .spyOn(delivery, "presentDelivery")
-        .mockReturnValue({ identity, unchanged: false });
-      const stdout = quietStdout();
-      expect((await invoke(tmpdir(), "delivery-present", "--delivery", "E1")).code).toBeUndefined();
-      expect(present).toHaveBeenLastCalledWith(tmpdir(), "E1");
-      expect(stdout).toHaveBeenLastCalledWith(`{"identity":"${identity}","unchanged":false}\n`);
-    });
-
-    it("passes delivery-criterion approval only when the operator supplies it", async () => {
-      const record = vi
-        .spyOn(part, "recordDeliveryCriterion")
-        .mockReturnValue({ unchanged: false });
-      quietStdout();
-      const args = ["delivery-criterion", "--part", "P1", "--criterion", "A1"];
-      expect((await invoke(tmpdir(), ...args)).code).toBeUndefined();
-      expect(record).toHaveBeenLastCalledWith(tmpdir(), "P1", "A1", undefined);
-      expect((await invoke(tmpdir(), ...args, "--approved-by", "user")).code).toBeUndefined();
-      expect(record).toHaveBeenLastCalledWith(tmpdir(), "P1", "A1", "user");
-    });
-
-    it("passes delivery-publication its attested reference and rejects a merge kind", async () => {
-      const publish = vi.spyOn(delivery, "publishDelivery").mockReturnValue({ unchanged: false });
-      const stdout = quietStdout();
-      const args = ["delivery-publication", "--delivery", "E1", "--identity", identity];
-      const approved = ["--reference", "v1.2.0", "--approved-by", "user"];
-      expect(
-        (await invoke(tmpdir(), ...args, "--kind", "deploy", ...approved)).code,
-      ).toBeUndefined();
-      expect(publish).toHaveBeenLastCalledWith(
-        tmpdir(),
-        "E1",
-        identity,
-        "deploy",
-        "v1.2.0",
-        "user",
-      );
-      expect(stdout).toHaveBeenLastCalledWith('{"unchanged":false}\n');
-      publish.mockClear();
-      const merge = await invoke(tmpdir(), ...args, "--kind", "merge", ...approved);
-      expect(merge.code).toBe(1);
-      expect(merge.output).toMatch(/publication kind must be release or deploy/);
-      expect(publish).not.toHaveBeenCalled();
-    });
-
-    it("rejects an unknown delivery-queue transition before any authorization", async () => {
-      const authorize = vi
-        .spyOn(delivery, "authorizeDeliveryQueue")
-        .mockReturnValue({ identity, unchanged: false });
-      quietStdout();
-      const args = [
-        "delivery-queue",
-        "--delivery",
-        "E1",
-        "--parts",
-        "P1,P2",
-        "--approved-by",
-        "user",
-      ];
-      const invalid = await invoke(tmpdir(), ...args, "--transition", "swap");
-      expect(invalid.code).toBe(1);
-      expect(invalid.output).toMatch(/invalid authority transition/);
-      expect(authorize).not.toHaveBeenCalled();
-      expect(
-        (await invoke(tmpdir(), ...args, "--transition", "continuation")).code,
-      ).toBeUndefined();
-      expect(authorize).toHaveBeenLastCalledWith(
-        tmpdir(),
-        "E1",
-        ["P1", "P2"],
-        "user",
-        "continuation",
-      );
-    });
-  });
-
-  it("does not turn a general implementation request into baseline or queue authority", async () => {
+  it("keeps delivery-check read-only and working", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "navori-d2-cli-"));
     dirs.push(cwd);
     writeFileSync(
@@ -378,26 +84,6 @@ describe("delivery CLI", () => {
         sdd: { enabled: true },
       }),
     );
-    expect((await invoke(cwd, "delivery-baseline")).code).toBe(1);
-    expect((await invoke(cwd, "delivery-queue", "--delivery", "E1", "--parts", "P1")).code).toBe(1);
     expect((await invoke(cwd, "delivery-check")).output).toMatch(/no active deliveries stage/);
   });
 });
-
-// Covers: R35
-it("delivery-criterion sin workplan nombra la ruta relativa sin ENOENT ni ruta absoluta", (): void => {
-  const { cwd, master } = initDeliveryRepo();
-  dirs.push(cwd);
-  master("init", "delivery", "--workflow", "deliveries");
-  master("init");
-  writeDeliveryParts(cwd, join(cwd, "specs/_master/01-delivery"));
-  master("delivery-baseline", "--approved-by", "user");
-  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
-  const result = cli(cwd, "master", "delivery-criterion", "--part", "P1", "--criterion", "A1");
-  const output = `${result.out}${result.err}`;
-  expect(result.code).not.toBe(0);
-  expect(output).toContain(".navori/state/handoffs/workplan_delivery-delivery-p1.json");
-  expect(output).toContain("navori master delivery-slice");
-  expect(output).not.toMatch(/ENOENT/);
-  expect(output).not.toContain(cwd);
-}, 120_000);

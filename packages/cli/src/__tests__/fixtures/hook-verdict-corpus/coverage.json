@@ -45,8 +45,8 @@
     "excluded": {}
   },
   "master-accept-confirm.sh": {
-    "observed": 289,
-    "included": 289,
+    "observed": 165,
+    "included": 165,
     "excluded": {}
   },
   "master-plan-context.sh": {

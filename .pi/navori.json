@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "2bd949836e7dfab75e579da2704cf7b6ea7afc8d3e774983e27f39d37ab89448"
+    "hash": "96bd9ce9098f6a9fc9fe7a08aa4e1d992804810e703626d8692225be980f26fb"
   },
   "schemaVersion": 2,
   "agents": [
@@ -161,7 +161,8 @@
     ".pi/navori/hooks/quality-gate-pre-commit.sh",
     ".pi/navori/hooks/routing-watch.sh",
     ".pi/navori/hooks/subagent-no-background.sh",
-    ".pi/navori/hooks/worktree-reclaim.sh"
+    ".pi/navori/hooks/worktree-reclaim.sh",
+    ".pi/navori/orchestrator.md"
   ],
   "permissionRules": {
     "ask": [

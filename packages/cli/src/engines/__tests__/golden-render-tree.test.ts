@@ -109,7 +109,10 @@ function normalize(content: string): string {
  *    and `{{prTarget}}` are interpolated at render time and reach the snapshot
  *    already resolved; stable inputs keep them stable.
  */
-function goldenConfig(engines: NavoriConfig["engines"]): NavoriConfig {
+function goldenConfig(
+  engines: NavoriConfig["engines"],
+  extra: GoldenExtraConfig = {},
+): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "golden-demo",
     engines,
@@ -123,9 +126,16 @@ function goldenConfig(engines: NavoriConfig["engines"]): NavoriConfig {
       gh: { enabled: true },
       jscpd: { enabled: true },
       semgrep: { enabled: true },
+      ...extra.plugins,
     },
-    project: { libraries: ["zod-validation", "vitest"] },
+    project: { libraries: ["zod-validation", "vitest"], ...extra.project },
   });
+}
+
+/** What a combo case adds to the representative config, key by key. */
+interface GoldenExtraConfig {
+  readonly plugins?: Readonly<Record<string, { enabled: boolean }>>;
+  readonly project?: Readonly<Record<string, unknown>>;
 }
 
 interface EngineCase {
@@ -134,6 +144,13 @@ interface EngineCase {
   /** `engines` declared in the config for this case. */
   readonly engines: NavoriConfig["engines"];
   readonly render: (cwd: string, config: NavoriConfig) => void;
+  /**
+   * Combo cases only: snapshot just these files. A combo renders every engine's whole tree, which
+   * the single-engine goldens already pin; what the combo adds is how the files interact.
+   */
+  readonly pick?: readonly string[];
+  /** Combo cases only: turns on what the layered files carry (search plugins, project rules). */
+  readonly extraConfig?: GoldenExtraConfig;
 }
 
 /**
@@ -174,6 +191,37 @@ const ENGINE_CASES: readonly EngineCase[] = [
     engines: ["pi"],
     render: (cwd, config) => void renderPiEngine(cwd, config),
   },
+  // Spec 0064: Claude plus the layered AGENTS.md, without Pi. AGENTS.md keeps the orchestrator
+  // layer here, because Claude still reads its own CLAUDE.md and nothing else delivers it.
+  {
+    id: "claude-agents-md",
+    engines: ["claude", "agents-md"],
+    render: (cwd, config) => {
+      renderClaudeEngine(cwd, config);
+      renderAgentsMdEngine(cwd, config);
+    },
+    pick: ["AGENTS.md", "CLAUDE.md"],
+    extraConfig: {
+      plugins: { tgrep: { enabled: true }, codegraph: { enabled: true } },
+      project: { criticalAreas: ["payments", "auth"] },
+    },
+  },
+  // Spec 0064: the shape where AGENTS.md is the shared source. Claude keeps its own file, Pi
+  // hands the orchestrator layer to its parent, and `agents-md` writes the layered AGENTS.md.
+  {
+    id: "claude-pi-agents-md",
+    engines: ["claude", "pi", "agents-md"],
+    render: (cwd, config) => {
+      renderClaudeEngine(cwd, config);
+      renderPiEngine(cwd, config);
+      renderAgentsMdEngine(cwd, config);
+    },
+    pick: ["AGENTS.md", "CLAUDE.md", ".pi/navori/orchestrator.md"],
+    extraConfig: {
+      plugins: { tgrep: { enabled: true }, codegraph: { enabled: true } },
+      project: { criticalAreas: ["payments", "auth"] },
+    },
+  },
 ];
 
 /** Recursively list every emitted file (repo-relative), sorted for stability. */
@@ -202,8 +250,14 @@ function listFiles(cwd: string, rel = ""): string[] {
  * trailing newline visible (`x` and `x\n` serialize differently) instead of
  * being swallowed by the delimiter.
  */
-function serializeTree(cwd: string, engineId: string): string {
-  const files = listFiles(cwd);
+function serializeTree(cwd: string, engineId: string, pick?: readonly string[]): string {
+  const all = listFiles(cwd);
+  if (pick !== undefined) {
+    const missing = pick.filter((file) => !all.includes(file));
+    if (missing.length > 0)
+      throw new Error(`${engineId}: picked files were not rendered: ${missing}`);
+  }
+  const files = pick === undefined ? all : all.filter((file) => pick.includes(file));
   const parts = [
     `# navori golden render — engine: ${engineId}`,
     "#",
@@ -263,11 +317,11 @@ describe("golden render tree, per engine (#394)", () => {
       // snapshot the FIRST render's bytes and hide the second's.
       const cwd = mkdtempSync(join(tmpdir(), `navori-golden-${engineCase.id}-`));
       tempDirs.push(cwd);
-      engineCase.render(cwd, goldenConfig(engineCase.engines));
+      engineCase.render(cwd, goldenConfig(engineCase.engines, engineCase.extraConfig));
 
       expect(unsafePlainScalarLines(cwd)).toEqual([]);
 
-      const serialized = serializeTree(cwd, engineCase.id);
+      const serialized = serializeTree(cwd, engineCase.id, engineCase.pick);
       const goldenPath = join(GOLDEN_DIR, `${engineCase.id}.snap`);
       try {
         await expect(serialized).toMatchFileSnapshot(goldenPath);

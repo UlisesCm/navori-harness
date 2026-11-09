@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { buildAcceptanceIndex, writeAcceptanceIndex } from "../acceptance-index.ts";
 import type { Workplan } from "../schema.ts";
-import * as delivery from "../../master/delivery.ts";
+import { computeWorktreeTree, readHead, validateEvidence, type EvidenceLine } from "../evidence.ts";
+const V1_DELIVERY_FIXTURE = join(
+  import.meta.dirname,
+  "../../masterplan/__tests__/fixtures/workplan-master-delivery.json",
+);
 
 let cwd: string;
 
@@ -45,104 +49,25 @@ afterEach(() => {
 
 // Covers: R6
 describe("acceptance-index", () => {
-  // Covers: R6, R7, R8
-  it("captures qualified delivery authority before the hook runs, not during acceptance", () => {
+  // Covers: R6, R7, R8 — spec 0063 T6: a v1 delivery workplan gets a plain line, never a binding.
+  it("indexes a v1 delivery workplan as a plain four-column line without a delivery binding", () => {
     const dir = join(cwd, ".navori/state/handoffs");
-    const slice = plan("delivery-demo-p1", {}, ["bun check"]);
-    const digest = "a".repeat(64);
-    slice.source = {
-      kind: "master-delivery",
-      stageSlug: "demo",
-      deliveryId: "E1",
-      partId: "P1",
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      contractDigest: digest,
-      sourceDigest: digest,
-      designDigest: digest,
-      masterDigest: digest,
-      criterionMap: { A1: "P1.A1" },
-    };
-    const binding = {
-      policy: "deliveries-content-v1" as const,
-      authorityGeneration: 1,
-      stagePath: "specs/_master/01-demo",
-      sourceIdentity: digest,
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      qualifiedId: "P1.A1",
-      criterionIdentity: digest,
-    };
-    const bind = vi.fn(() => binding);
-    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
-    writePlan(dir, slice);
-    expect(buildAcceptanceIndex([dir])).toBe(
-      `bun check\t${slice.feature}\tA1\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
-    );
-    expect(capture).toHaveBeenCalledWith(cwd, slice.source);
-    expect(bind).toHaveBeenCalledWith("A1", "bun check");
-    writeAcceptanceIndex(resolveStateRoot({ cwd, feature: slice.feature }));
-    expect(JSON.parse(readFileSync(join(dir, "acceptance-expected.jsonl"), "utf8"))).toEqual({
-      command: "bun check",
-      feature: slice.feature,
-      id: "A1",
-      dir,
-      binding,
-      stage: binding.stagePath,
-      expected: "exit 0",
-      spec: { kind: "exit", code: 0 },
-    });
-    capture.mockImplementation(() => {
-      throw new Error("stale current authority");
-    });
-    expect(buildAcceptanceIndex([dir])).toBe("");
-    expect(readFileSync(join(dir, `workplan_${slice.feature}.json`), "utf8")).toBe(
-      JSON.stringify(slice),
-    );
-  });
-  // Covers: R6, R7, R8
-  it("projects a delivery slice once per plan, however many criteria it binds", () => {
-    const dir = join(cwd, ".navori/state/handoffs");
-    const slice = plan("delivery-demo-p1", { A3: "cumplido" }, ["a", "b", "c"]);
-    const digest = "a".repeat(64);
-    slice.source = {
-      kind: "master-delivery",
-      stageSlug: "demo",
-      deliveryId: "E1",
-      partId: "P1",
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      contractDigest: digest,
-      sourceDigest: digest,
-      designDigest: digest,
-      masterDigest: digest,
-      criterionMap: { A1: "P1.A1", A2: "P1.A2", A3: "P1.A3" },
-    };
-    const binding = {
-      policy: "deliveries-content-v1" as const,
-      authorityGeneration: 1,
-      stagePath: "specs/_master/01-demo",
-      sourceIdentity: digest,
-      baselineIdentity: digest,
-      queueIdentity: digest,
-      qualifiedId: "P1.A1",
-      criterionIdentity: digest,
-    };
-    const bind = vi.fn(() => binding);
-    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
-    writePlan(dir, slice);
-    expect(buildAcceptanceIndex([dir]).split("\n").filter(Boolean)).toHaveLength(2);
-    expect(capture).toHaveBeenCalledTimes(1);
-    expect(bind).toHaveBeenCalledTimes(2);
+    mkdirSync(dir, { recursive: true });
+    const fixture = JSON.parse(readFileSync(V1_DELIVERY_FIXTURE, "utf8")) as Workplan;
+    writeFileSync(join(dir, `workplan_${fixture.feature}.json`), JSON.stringify(fixture));
+    const command = fixture.acceptance[0]!.command;
+    expect(buildAcceptanceIndex([dir])).toBe(`${command}\t${fixture.feature}\tA1\t${dir}\n`);
   });
 
-  it("lists one tab-separated line per pending criterion, JSON-escaped, skipping cumplido", () => {
+  it("lists one tab-separated line per criterion, JSON-escaped, cumplido included", () => {
     const dir = join(cwd, ".navori/state/handoffs");
     writePlan(dir, plan("one", { A1: "cumplido", A2: "pendiente" }, ["echo a", 'echo "b\\c"']));
-    expect(buildAcceptanceIndex([dir])).toBe(`echo \\"b\\\\c\\"\tone\tA2\t${dir}\n`);
+    expect(buildAcceptanceIndex([dir])).toBe(
+      `echo a\tone\tA1\t${dir}\necho \\"b\\\\c\\"\tone\tA2\t${dir}\n`,
+    );
   });
 
-  it("is rewritten whole (a fully cumplido workplan disappears) at the neutral dir", () => {
+  it("is rewritten whole at the neutral dir and keeps a fully cumplido workplan", () => {
     const root = resolveStateRoot({ cwd, feature: "two" });
     writePlan(root.path, plan("two", {}, ["bun check"]));
     writeAcceptanceIndex(root);
@@ -150,7 +75,97 @@ describe("acceptance-index", () => {
     expect(readFileSync(index, "utf8")).toBe(`bun check\ttwo\tA1\t${root.path}\n`);
     writePlan(root.path, plan("two", { A1: "cumplido" }, ["bun check"]));
     writeAcceptanceIndex(root);
-    expect(readFileSync(index, "utf8")).toBe("");
+    expect(readFileSync(index, "utf8")).toBe(`bun check\ttwo\tA1\t${root.path}\n`);
+  });
+
+  it("compares structured expected values for cumplido criteria too", () => {
+    const root = resolveStateRoot({ cwd, feature: "cmp" });
+    const p = plan("cmp", { A1: "cumplido" }, ["echo ready"]);
+    p.acceptance[0]!.expected = "contains: ready";
+    writePlan(root.path, p);
+    writeAcceptanceIndex(root);
+    const rows = readFileSync(join(root.path, "acceptance-expected.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line: string): unknown => JSON.parse(line));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        command: "echo ready",
+        feature: "cmp",
+        id: "A1",
+        dir: root.path,
+        expected: "contains: ready",
+        spec: expect.objectContaining({ kind: "contains" }),
+      }),
+    ]);
+  });
+
+  // A1/M2: the rerun after a change must not leave the previous green valid.
+  describe("a cumplido criterion whose tree changed and whose rerun fails", () => {
+    const COMMAND = "bun test x";
+    const write = (lines: EvidenceLine[]): void => {
+      const dir = join(cwd, ".navori/state/handoffs");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "workplan_demo.evidence.jsonl"),
+        lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+      );
+    };
+    const green = (): EvidenceLine => ({
+      ts: "2026-09-30T10:00:00Z",
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+      tree: cwd,
+      cwd,
+      head: readHead(cwd),
+      worktreeTree: computeWorktreeTree(cwd) ?? "",
+      fp: 2,
+      dirty: false,
+    });
+    const verdict = (expected: string) =>
+      validateEvidence({
+        root: resolveStateRoot({ cwd, feature: "demo" }),
+        feature: "demo",
+        id: "A1",
+        command: COMMAND,
+        expected,
+      });
+
+    beforeEach(() => {
+      execFileSync("git", ["config", "user.email", "t@t"], { cwd });
+      execFileSync("git", ["config", "user.name", "t"], { cwd });
+      writeFileSync(join(cwd, "a.txt"), "a\n");
+      execFileSync("git", ["add", "-A"], { cwd });
+      execFileSync("git", ["commit", "-qm", "init"], { cwd });
+    });
+
+    it("is stale when a failed rerun records nothing (the old green is bound to the old tree)", () => {
+      write([green()]);
+      expect(verdict("exit 0").ok).toBe(true);
+      writeFileSync(join(cwd, "a.txt"), "changed\n");
+      const result = verdict("exit 0");
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.why).toContain("tree changed");
+    });
+
+    it("is failed when a structured-comparison failure line is recorded for the new tree", () => {
+      const old = green();
+      writeFileSync(join(cwd, "a.txt"), "changed\n");
+      write([
+        old,
+        {
+          ...green(),
+          ts: "2026-09-30T11:00:00Z",
+          exit: 1,
+          expected: "contains: ready",
+          outcome: "fail",
+        },
+      ]);
+      const result = verdict("contains: ready");
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.why).toBe("expected not met");
+    });
   });
 
   it("ignores invalid or unreadable workplans instead of failing the write", () => {

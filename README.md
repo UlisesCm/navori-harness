@@ -104,7 +104,7 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
 | `codex trust` | Approves project hooks in `~/.codex/config.toml`. |
 | `receipt <sign\|check\|gate\|review>` | Receipt for reviewed content before publishing; `gate` decides whether each milestone needs the scoped or full gate. |
 | `tools notice` | Emits pending external-tool version notices for the startup hook (`--ack` marks them as delivered). |
-| `master <sub>` | Master plan by stages (`init`, `ux`, `mode`, `advance`, `check`, …) and deliveries (`delivery-*`, gated with `--approved-by`). |
+| `master <sub>` | Master plan v2: a PLAN.md of slices the user accepts (`init`, `status`, `check --incoming --base`, `accept`/`reject`, `migrate`, `template`). v1 stage commands are read-only; run `master migrate`. |
 | `adopt` | Brings a harness file you wrote by hand under Navori management (wraps it, does not rewrite it). |
 | `workspace` / `ticket` / `dominio` | Cross-repository config and tickets, plus the durable workspace knowledge base. |
 | `preset` / `scan` / `backup` / `migrations` | Local presets, monorepos, restore, and migrations. |
@@ -151,7 +151,7 @@ navori-harness/
 
 ## Development
 
-Local development uses Node 26.12.1 (pinned in `.nvmrc`) and bun 1.4.4; CI runs on Node 24; the published CLI keeps its declared minimum of Node >= 22.12.
+Local development and CI use Node 26.13.0 (pinned in `.nvmrc`) and bun 1.4.4; the published CLI keeps its declared minimum of Node >= 22.12, which CI smoke-tests against the built binary.
 
 ```bash
 bun install
@@ -185,13 +185,22 @@ Releases are manual and must follow **this order**. The flow is `dev` → `main`
 
    Each managed block marker records the CLI version, so the bump in step 2 makes the rendered mirror for this **entire** repository stale. From 0.6.0 to 0.6.1, this affected **30 files** across `.claude/` and `CLAUDE.md`. Skipping this step tags an inconsistent tree and makes the first post-release CI on `main` fail (`bun run check:render`, #421). With a PR, this is caught before landing; that was the blind spot of the direct push.
 4. Commit `chore(release): navori vX.Y.Z`, including the version bump **and** the re-render from step 3. Push it to `dev` and open a PR to `dev`, like any other ticket.
-5. Open a PR from `dev` → `main` with a **merge commit, not squash**. This keeps `dev` as an ancestor of `main`, so the next release does not bring rewritten history. After the merge, `dev` is behind the merge commit; fast-forward it to `main` so both branches match.
-6. Tag `vX.Y.Z` — **automatic since 0.8.6**. `release-tag.yml` runs when `packages/cli/package.json` changes on `main` and creates and pushes an annotated tag on the HEAD of that push (the merge commit from step 5, which contains the `chore(release)` commit), if the tag does not already exist. It is idempotent, so rerunning it does nothing.
+5. Before the `dev` → `main` PR, check `dev`'s tip in a throwaway clone under your home directory: `render --apply` reports no changes, `navori gate full` is green, and semgrep runs with CI's arguments. CI runs semgrep only on PRs and pushes to `main`, so PRs to `dev` never see its findings; in 0.12.4 they surfaced only on the PR to `main` (#1612, fixed in #1613).
+
+```bash
+   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" semgrep/semgrep \
+     semgrep scan --config p/default --error --metrics=off \
+     --baseline-commit "$(git merge-base HEAD origin/main)"
+```
+
+   Use a clone, not your working tree: baseline mode checks out the base and restores the files, which changes their mtimes (and, without `--user`, leaves them owned by root). Docker installed as a snap cannot mount `/tmp`.
+6. Open a PR from `dev` → `main` with a **merge commit, not squash**. This keeps `dev` as an ancestor of `main`, so the next release does not bring rewritten history. After the merge, `dev` is behind the merge commit; fast-forward it to `main` so both branches match.
+7. Tag `vX.Y.Z` — **automatic since 0.8.6**. `release-tag.yml` runs when `packages/cli/package.json` changes on `main` and creates and pushes an annotated tag on the HEAD of that push (the merge commit from step 6, which contains the `chore(release)` commit), if the tag does not already exist. It is idempotent, so rerunning it does nothing.
 
    This was automated because the step was skipped in **0.8.4 and 0.8.5**, and the second omission happened *after* the exact command had been written here. The damage is delayed and silent: `check-asset-commands.mjs` compares against the latest tag, so a release without a tag is checked against the previous one. It keeps saying "exists in v0.8.3" for a repository already on 0.8.4, and nothing fails.
 
-   If you need to do it manually: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`. Tags for releases before the `dev` → `main` flow point directly to the `chore(release)` commit, as `v0.8.2` → `285fa51` and `v0.8.3` → `6f32a00`.
-7. Run `npm publish` from `packages/cli`.
+   If you need to do it manually: `git tag -a vX.Y.Z <HEAD of main after step 6> && git push origin vX.Y.Z`. Tags for releases before the `dev` → `main` flow point directly to the `chore(release)` commit, as `v0.8.2` → `285fa51` and `v0.8.3` → `6f32a00`.
+8. On `main` after the merge, run `npm publish` from `packages/cli` (`npm login` first; `prepack` builds `dist/`). Check it with `npm view navori version`.
 
 The website footer prints the version by importing the CLI's `package.json` (`apps/website/src/components/Footer.astro`), and `deploy-website.yml` watches that file in its `paths` filter, so the version bump in step 2 redeploys the site. **If the site displays an old version, check that filter first**: until 0.8.4 it did not include the CLI manifest, and the site fell two releases behind, showing `v0.8.2` while 0.8.4 was already on npm.
 

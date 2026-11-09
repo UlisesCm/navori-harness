@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
-# PreToolUse(Bash): a manual acceptance (`navori master part … --approved-by`)
-# or a `navori master close` must be confirmed by the person whose approval it
-# records (spec 0034 R62, spec 0039 R58).
+# PreToolUse(Bash): `navori master accept|reject` records the user's QA verdict
+# in the acceptance log (branch navori/acceptance), whoever invokes the CLI
+# (navori, npx, `node …/index.js`); any mention of that branch (a push, an
+# update-ref) and `navori plan escalation-reset --approved-by` ask too, so the
+# person whose approval it records confirms it (spec 0063, spec 0039 R58).
 #
 # This is deliberately an interruption, not a parser for the command. The CLI
-# validates the complete flag contract; this hook keeps the human in the loop
-# for the one form that claims their manual review.
+# validates the complete flag contract; this hook keeps the human in the loop.
+# The v1 write forms (`master part`, `close`, `delivery-*`) no longer write
+# (spec 0063 T6), so they no longer ask.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
@@ -16,7 +19,7 @@ payload_load() { :; }
 
 # Every matching command needs this literal token, so its absence from the raw
 # payload proves this hook cannot apply and avoids parsing the payload at all.
-TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue escalation-reset navori master'
+TRIGGER_TOKENS='escalation-reset navori master'
 # navori:include gate-trigger
 
 has_trigger_token "${payload:-}" || exit 0
@@ -48,29 +51,25 @@ trap navori_audit_on_exit EXIT
 # the same compound-command segment, so an unrelated later `--approved-by`
 # cannot turn an earlier command into a confirmation prompt. `navori` may be
 # bare, run via npx/bunx/pnpm exec|dlx, or a path ending in `/navori`.
-# `--approved-by` takes `=` or a space; `close` is gated in all its forms.
+# `--approved-by` takes `=` or a space.
 BOUND='(^|[;&|(`]|[[:space:]])'
 RUNNER='((npx|bunx|pnpm[[:space:]]+(exec|dlx))[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?'
 NAVORI="${RUNNER}([^[:space:];&|(\`]*/)?navori(@[^[:space:]]+)?"
-PART_RE="${NAVORI}[[:space:]]+master[[:space:]]+part([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-CLOSE_RE="${NAVORI}[[:space:]]+master[[:space:]]+close([[:space:];&|)<>]|\$)"
-BASELINE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-baseline([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-QUEUE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-queue([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-DELIVERY_REVIEW_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-(review|decision|publication|revoke)([[:space:];&|)<>]|\$)"
-DELIVERY_CRITERION_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-criterion([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-DELIVERY_REFRESH_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-slice([[:space:]]|\$).*--refresh([[:space:]=]|\$)"
 RESET_RE="${NAVORI}[[:space:]]+plan[[:space:]]+escalation-reset([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE}|${RESET_RE})"
+# Any invoker: `master` just needs the boundary before it (`echo masterpiece` does not match).
+ACCEPT_RE="master[[:space:]]+(accept|reject)([[:space:];&|)<>]|\$)"
+LOG_RE='[^[:space:]]*navori/acceptance'
+TRIGGER_RE=".*${BOUND}(${ACCEPT_RE}|${LOG_RE}|${RESET_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
 navori_semi='; '
 cmd="${cmd//"$navori_subst"/$navori_semi}"
 # Quotes hide the boundary from `BOUND` in wrapped forms (`sh -c 'navori master
-# close'`, `eval "…"`, `navori master "close"`): delete ONLY `"` and `'`. Never
+# accept'`, `eval "…"`, `navori master "accept"`): delete ONLY `"` and `'`. Never
 # `\`: `navori_count_triggers` joins a `\<newline>` continuation first, and
 # removing the backslash here would split the segment (spec 0052 R36). The cost
-# is asking on `echo "navori master close"`, the safe direction. A word split by
+# is asking on `echo "navori master accept"`, the safe direction. A word split by
 # quotes (`navo"ri`) is deliberate obfuscation this hook does not claim to catch.
 # `tr`, not `${cmd//[\"\']/}`: bash 3.2's class substitution is superlinear (44 s
 # on 6.5 KB). `$(…)` trims trailing newlines, harmless: the next step splits on
@@ -78,15 +77,10 @@ cmd="${cmd//"$navori_subst"/$navori_semi}"
 cmd=$(printf '%s' "$cmd" | LC_ALL=C tr -d "\"'")
 is_scan_trigger "$cmd" || exit 0
 
-approval_description="a manual criterion"
+approval_description="the QA verdict on these slices or decisions, written to navori/acceptance"
 case "$cmd" in
-  *delivery-review*) approval_description="this exact technical snapshot: you inspected the bound report, attest that the named reviewer was separate from the producer, and observed the stated full QA command succeed. The CLI checks content and the current receipt; it does not authenticate reviewer identity or execute QA" ;;
-  *delivery-decision*) approval_description="the explicit client decision on this exact presented delivery or reasoned disposition of its current scope" ;;
-  *delivery-publication*) approval_description="the release or deploy reference for this exact accepted delivery; this records publication, it does not deploy" ;;
-  *delivery-revoke*) approval_description="revocation of the active authority generation and prior effective proof" ;;
-  *delivery-slice*) approval_description="the current-queue reverification refresh; pending criteria reset and normal plan approval is required again" ;;
+  *navori/acceptance*) approval_description="a direct change to the acceptance log (navori/acceptance)" ;;
   *escalation-reset*) approval_description="another review round after two rejections at level 2 or higher" ;;
-  *delivery-baseline*|*delivery-queue*) approval_description="the delivery baseline or bounded queue" ;;
 esac
 
 # Fixed by construction: no repository content reaches JSON, so this still
@@ -97,12 +91,12 @@ esac
 case "$0" in
   *".codex/hooks/"*)
     navori_audit_verdict="deny"
-    navori_audit_reason="manual approval or stage close"
+    navori_audit_reason="manual approval"
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved %s, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}\n' "$approval_description"
     ;;
   *)
     navori_audit_verdict="ask"
-    navori_audit_reason="manual approval or stage close"
+    navori_audit_reason="manual approval"
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved %s. Confirm only if you reviewed it."}}\n' "$approval_description"
     ;;
 esac

@@ -5,8 +5,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runCommand } from "citty";
-import { masterCommand } from "../../../commands/master.ts";
 import { runMasterInit } from "../init.ts";
 import { indexJsonPath, masterDirPath } from "../stages.ts";
 import {
@@ -915,12 +913,8 @@ describe("checkTranscribed — first-line read honors every EOL", () => {
 });
 
 describe("runMasterAdvance — never skips, never leaves executing (R8)", () => {
-  async function master(...argv: string[]): Promise<void> {
-    await runCommand(masterCommand, { rawArgs: [...argv, "--cwd", cwd] });
-  }
-
-  it("fails to advance past executing, without writing", async () => {
-    await master("init", "mvp");
+  it("fails to advance past executing, without writing", () => {
+    runMasterInit(cwd, "mvp", "legacy");
     const stagePathAbs = stagePath();
     const raw: MasterIndex = JSON.parse(readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8"));
     const activeEntry = raw.stages[0]!;
@@ -1011,29 +1005,6 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
     expect(writer.mock.calls.map(([path]) => path)).toEqual([statePath]);
     expect(readFileSync(statePath, "utf8")).toBe(before);
     expect(readFileSync(join(stagePath(), "STATUS.md"), "utf8")).toBe(statusBefore);
-  });
-
-  // Covers: R4
-  it("the existing CLI handler reports the durable phase and status-only repair", async () => {
-    readyToAdvance();
-    const originalWriter = atomic.writeFileAtomic;
-    vi.spyOn(atomic, "writeFileAtomic").mockImplementation(
-      (path: string, content: string): void => {
-        if (path === join(stagePath(), "STATUS.md")) throw new Error("derived failure");
-        originalWriter(path, content);
-      },
-    );
-    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((): boolean => true);
-    const previousExitCode = process.exitCode;
-    try {
-      await master("advance");
-      expect(process.exitCode).toBe(1);
-      expect(stderr.mock.calls.map(([text]) => String(text)).join("")).toMatch(
-        /fase durable 'transcribed'.*navori master status.*no repita.*advance/,
-      );
-    } finally {
-      process.exitCode = previousExitCode;
-    }
   });
 
   // Covers: R4
@@ -1262,43 +1233,6 @@ describe("checkClosedStage — R50, hash integrity with CRLF normalization", () 
     const failures = checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es");
     expect(failures.length).toBeGreaterThan(0);
     expect(failures.some((f) => f.includes("Integridad"))).toBe(true);
-  });
-});
-
-describe("mode fails after 'context' (R16)", () => {
-  it("cannot set mode once past the context phase", async () => {
-    await runCommand(masterCommand, { rawArgs: ["init", "mvp", "--cwd", cwd] });
-    const stagePathAbs = stagePath();
-    writeFileSync(
-      join(stagePathAbs, "state.json"),
-      JSON.stringify(
-        baseState({
-          phase: "transcribed",
-          history: [
-            { phase: "context", at: "2026-01-01" },
-            { phase: "transcribed", at: "2026-01-02" },
-          ],
-        }),
-      ),
-    );
-    const originalExitCode = process.exitCode;
-    process.exitCode = undefined;
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    let stderrOutput = "";
-    process.stderr.write = ((chunk: string) => {
-      stderrOutput += chunk;
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      await runCommand(masterCommand, { rawArgs: ["mode", "en-curso", "--cwd", cwd] });
-      expect(process.exitCode).toBe(1);
-      expect(stderrOutput).toContain("context");
-    } finally {
-      process.stderr.write = originalWrite;
-      process.exitCode = originalExitCode;
-    }
-    const state: MasterState = JSON.parse(readFileSync(join(stagePathAbs, "state.json"), "utf8"));
-    expect(state.mode).toBe("template");
   });
 });
 

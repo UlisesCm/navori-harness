@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { runCommand } from "citty";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
@@ -23,7 +22,6 @@ import {
 import { presentedDeliveryFixture } from "./delivery-flow.ts";
 import { contractDigest } from "../delivery-checks.ts";
 import type { DeliveryParts } from "../delivery-schema.ts";
-import { masterCommand } from "../../../commands/master.ts";
 import { readMasterStatus } from "../status.ts";
 
 const dirs: string[] = [];
@@ -183,7 +181,7 @@ describe("delivery authority", () => {
     expect(readFileSync(path, "utf8")).toBe(changed);
   });
   it.each(["missing", "escaping", "edited"] as const)(
-    "delivery CLI rejects %s operator MASTER without mutating approval or operator bytes",
+    "delivery library rejects %s operator MASTER without mutating approval or operator bytes",
     async (kind: "missing" | "escaping" | "edited") => {
       const { cwd, stage } = fixture();
       const path = join(stage, "MASTER.md");
@@ -203,26 +201,19 @@ describe("delivery authority", () => {
         text = "Edited operator scope\n";
         writeFileSync(path, text);
       }
-      const savedCode = process.exitCode;
-      const savedErr = process.stderr.write;
-      let error = "";
-      process.stderr.write = ((chunk: string) => {
-        error += chunk;
-        return true;
-      }) as typeof process.stderr.write;
-      try {
-        for (const args of [
-          ["delivery-baseline", "--approved-by", "user"],
-          ["delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user"],
-        ]) {
-          process.exitCode = undefined;
-          await runCommand(masterCommand, { rawArgs: [...args, "--cwd", cwd] });
-          expect(process.exitCode).toBe(1);
+      const errors: string[] = [];
+      for (const attempt of [
+        () => approveDeliveryBaseline(cwd, "user"),
+        () => authorizeDeliveryQueue(cwd, "E1", ["P1"], "user"),
+      ]) {
+        try {
+          attempt();
+        } catch (cause) {
+          errors.push(cause instanceof Error ? cause.message : String(cause));
         }
-      } finally {
-        process.stderr.write = savedErr;
-        process.exitCode = savedCode;
       }
+      expect(errors).toHaveLength(2);
+      const error = errors.join("\n");
       expect(error).toMatch(kind === "edited" ? /queue revision|baseline.*stale/ : /MASTER/);
       expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
       if (text !== null) expect(readFileSync(path, "utf8")).toBe(text);

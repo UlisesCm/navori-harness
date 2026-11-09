@@ -69,7 +69,7 @@ function run(input: Record<string, unknown>, env?: NodeJS.ProcessEnv, sensitive?
 function expectAsk(
   input: Record<string, unknown>,
   env?: NodeJS.ProcessEnv,
-  approval = "a manual criterion",
+  approval = "the QA verdict on these slices or decisions, written to navori/acceptance",
   sensitive?: string,
 ): void {
   const result = run(input, env, sensitive);
@@ -87,37 +87,36 @@ function expectAsk(
 }
 
 describe.runIf(runsBash)("master-accept-confirm.sh", () => {
-  // Covers: R58, R62
+  // Covers: spec 0063 — the QA verdict asks with any invoker, and so does touching its log.
   it.each([
-    "navori master delivery-review --part P1 --report report.txt --envelope review.json --approved-by user",
-    "echo ready && pnpm exec navori master delivery-review --part P1 --approved-by=user",
-    "$(navori master delivery-review --part P1)",
-  ])("asks explicit cooperative review consent: %s", (command: string) => {
-    const result = run(payload(command));
-    const output = JSON.parse(result.stdout) as {
-      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
-    };
-    expect(output.hookSpecificOutput.permissionDecision).toBe("ask");
-    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-      "named reviewer was separate from the producer",
-    );
-    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-      "does not authenticate reviewer identity or execute QA",
+    "navori master accept S1 --approved-by user",
+    "node /x/packages/cli/dist/index.js master accept S1 --approved-by user",
+    "npx navori master reject S2 --notes a --approved-by user",
+  ])("asks for the acceptance verdict: %s", (command: string) => {
+    expectAsk(
+      payload(command),
+      undefined,
+      "the QA verdict on these slices or decisions, written to navori/acceptance",
     );
   });
 
-  // Covers: R58, R62
-  it.each([
-    "navori master delivery-decision --delivery E1 --identity abc --decision accepted --approved-by user",
-    "bunx navori master delivery-publication --delivery E1 --kind release --reference v1 --approved-by user",
-    "navori master delivery-revoke --approved-by user",
-    "navori master delivery-criterion --part P1 --criterion A2 --approved-by=user",
-    "navori master delivery-slice --part P1 --refresh --approved-by user",
-  ])("keeps every new human attestation behind consent: %s", (command: string) => {
-    expect(JSON.parse(run(payload(command)).stdout).hookSpecificOutput.permissionDecision).toBe(
-      "ask",
-    );
-  });
+  it.each(["git push origin navori/acceptance", "git update-ref refs/heads/navori/acceptance abc"])(
+    "asks before a direct change to the acceptance log: %s",
+    (command: string) => {
+      expectAsk(
+        payload(command),
+        undefined,
+        "a direct change to the acceptance log (navori/acceptance)",
+      );
+    },
+  );
+
+  it.each(["navori master status", "navori master check --incoming x", "echo masterpiece"])(
+    "stays silent on a read-only command: %s",
+    (command: string) => {
+      expect(run(payload(command)).stdout).toBe("");
+    },
+  );
 
   // Covers: R58, R62
   it.each([
@@ -128,39 +127,37 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   ])("does not infer an attestation from non-consent work: %s", (command: string) => {
     expect(run(payload(command)).stdout).toBe("");
   });
-  it("asks for delivery baseline and bounded queue approvals", () => {
-    expectAsk(
-      payload("navori master delivery-baseline --approved-by user"),
-      undefined,
-      "the delivery baseline or bounded queue",
-    );
-    expectAsk(
-      payload("navori master delivery-queue --delivery E1 --parts P1 --approved-by=user"),
-      undefined,
-      "the delivery baseline or bounded queue",
-    );
-    expectAsk(
-      payload(
-        "echo ready && pnpm exec navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
-      ),
-      undefined,
-      "the delivery baseline or bounded queue",
-    );
+
+  // Covers: R58, R62 — spec 0063 T6: the v1 write forms are refused by the CLI, so they no longer ask.
+  it.each([
+    "navori master part P2 --accept A3 --approved-by user",
+    "navori master close",
+    "navori master close --abandon --reason x",
+    "navori master delivery-baseline --approved-by user",
+    "navori master delivery-queue --delivery E1 --parts P1 --approved-by=user",
+    "navori master delivery-review --part P1 --report report.txt --envelope review.json --approved-by user",
+    "navori master delivery-decision --delivery E1 --identity abc --decision accepted --approved-by user",
+    "bunx navori master delivery-publication --delivery E1 --kind release --reference v1 --approved-by user",
+    "navori master delivery-revoke --approved-by user",
+    "navori master delivery-slice --part P1 --refresh --approved-by user",
+  ])("no longer asks on a refused v1 write: %s", (command: string) => {
+    expect(run(payload(command)).stdout).toBe("");
   });
 
   it("does not treat a read-only delivery check as approval", () => {
     expect(run(payload("navori master delivery-check")).stdout).toBe("");
     expect(run(payload("navori master delivery-check && echo --approved-by user")).stdout).toBe("");
   });
+
   // Covers: R62
-  it("asks on navori master part P2 --accept A3 --approved-by user (main thread)", () => {
-    expectAsk(payload("navori master part P2 --accept A3 --approved-by user"));
+  it("asks on navori master accept S1 --approved-by user (main thread)", () => {
+    expectAsk(payload("navori master accept S1 --approved-by user"));
   });
 
   // Covers: R62
   it("asks on approved-by from a subagent", () => {
     expectAsk(
-      payload("navori master part P2 --accept A3 --approved-by user", {
+      payload("navori master accept S1 --approved-by user", {
         agent_id: "a1",
       }),
     );
@@ -169,7 +166,7 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   // Covers: R62
   it("asks on approved-by under auto", () => {
     expectAsk(
-      payload("navori master part P2 --accept A3 --approved-by user", {
+      payload("navori master accept S1 --approved-by user", {
         permission_mode: "auto",
       }),
     );
@@ -178,7 +175,7 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   // Covers: R62
   it("asks on approved-by under bypassPermissions", () => {
     expectAsk(
-      payload("navori master part P2 --accept A3 --approved-by user", {
+      payload("navori master accept S1 --approved-by user", {
         permission_mode: "bypassPermissions",
       }),
     );
@@ -187,28 +184,10 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   // Covers: R62
   it("asks on approved-by under dontAsk", () => {
     expectAsk(
-      payload("navori master part P2 --accept A3 --approved-by user", {
+      payload("navori master accept S1 --approved-by user", {
         permission_mode: "dontAsk",
       }),
     );
-  });
-
-  // Covers: R62
-  it("ignores --accept of a test criterion (--command … --result …)", () => {
-    expect(
-      run(
-        payload("navori master part P2 --accept A3 --command 'bun test' --result pass"),
-      ).stdout.trim(),
-    ).toBe("");
-  });
-
-  // Covers: R62
-  it("ignores --accept of a comando criterion", () => {
-    expect(
-      run(
-        payload("navori master part P2 --accept A3 --command 'bun run check' --result pass"),
-      ).stdout.trim(),
-    ).toBe("");
   });
 
   // Covers: R62
@@ -218,57 +197,51 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   });
 
   // Covers: R62
-  it("asks on chained cd x && navori master part … --approved-by user", () => {
-    expectAsk(payload("cd x && navori master part P2 --accept A3 --approved-by user"));
+  it("asks on chained cd x && navori master accept … --approved-by user", () => {
+    expectAsk(payload("cd x && navori master accept S1 --approved-by user"));
   });
 
   // Covers: R62
-  it("asks on chained true; navori master part … --approved-by user", () => {
-    expectAsk(payload("true; navori master part P2 --accept A3 --approved-by user"));
+  it("asks on chained true; navori master reject … --approved-by user", () => {
+    expectAsk(payload("true; navori master reject S1 --notes a --approved-by user"));
   });
 
   // Covers: R62
-  it("asks on subshell (navori master part … --approved-by user)", () => {
-    expectAsk(payload("(navori master part P2 --accept A3 --approved-by user)"));
+  it("asks on subshell (navori master accept … --approved-by user)", () => {
+    expectAsk(payload("(navori master accept S1 --approved-by user)"));
   });
 
   // Covers: R62
-  it("asks on command substitution $(navori master part … --approved-by user)", () => {
-    expectAsk(payload("$(navori master part P2 --accept A3 --approved-by user)"));
+  it("asks on command substitution $(navori master accept … --approved-by user)", () => {
+    expectAsk(payload("$(navori master accept S1 --approved-by user)"));
   });
 
   // Covers: R58
   it.each([
-    "navori master part P2 --accept A3 --approved-by=user",
-    "navori master part P2 --approved-by user --accept A3",
-    "npx navori master part P2 --accept A3 --approved-by user",
-    "npx --yes navori master part P2 --accept A3 --approved-by=user",
-    "bunx navori master part P2 --accept A3 --approved-by user",
-    "pnpm exec navori master part P2 --accept A3 --approved-by user",
-    "pnpm dlx navori master part P2 --accept A3 --approved-by user",
-    "./node_modules/.bin/navori master part P2 --accept A3 --approved-by user",
-    "/usr/local/bin/navori master part P2 --accept A3 --approved-by=user",
-    "navori master close",
-    "navori master close --abandon --reason x",
-    "navori master close --convert specs/0001-x --reason x",
-    "npx navori master close",
-    "bunx navori master close --abandon --reason x",
-    "pnpm exec navori master close",
-    "pnpm dlx navori master close --abandon --reason x",
-    "/opt/bin/navori master close",
-    "cd x && navori master close",
-    "(navori master close)",
-    "x=$(navori master close)",
-    "echo $(navori master close)",
-    "navori master close>/dev/null",
-    "navori master close;true",
-    "navori master close|cat",
-    "npx navori@latest master close",
-    "npx -y navori@latest master close",
-    "npx navori@1.2 master close --abandon --reason x",
-    "bunx navori@latest master close",
-    "bunx navori@1.2.3 master part P2 --accept A3 --approved-by user",
-    "npx -y navori@latest master part P2 --accept A3 --approved-by=user",
+    "navori master accept S1 --approved-by=user",
+    "navori master accept S1 D2 --approved-by user",
+    "npx navori master accept S1 --approved-by user",
+    "npx --yes navori master reject S2 --notes a --approved-by=user",
+    "bunx navori master accept S1 --approved-by user",
+    "pnpm exec navori master reject S2 --notes a --approved-by user",
+    "pnpm dlx navori master accept S1 --approved-by user",
+    "./node_modules/.bin/navori master accept S1 --approved-by user",
+    "/usr/local/bin/navori master reject S2 --notes a --approved-by=user",
+    "navori master accept",
+    "navori master reject",
+    "/opt/bin/navori master accept",
+    "cd x && navori master accept",
+    "(navori master accept)",
+    "x=$(navori master accept S1)",
+    "echo $(navori master reject S1)",
+    "navori master accept>/dev/null",
+    "navori master accept;true",
+    "navori master accept|cat",
+    "npx navori@latest master accept S1",
+    "npx -y navori@latest master accept S1",
+    "npx navori@1.2 master reject S2 --notes a",
+    "bunx navori@latest master accept S1",
+    "bunx navori@1.2.3 master accept S1 --approved-by user",
   ])("asks on %s", (command) => {
     expectAsk(payload(command));
   });
@@ -280,6 +253,7 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
     "navori master advance",
     "navori master check --part P2",
     "echo navori master closet",
+    "echo navori master acceptable",
   ])("stays silent on %s", (command) => {
     expect(run(payload(command)).stdout.trim()).toBe("");
   });
@@ -287,11 +261,11 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
   // Covers: R36
   it("sh -c, bash -lc, eval y argumentos entrecomillados preguntan y la continuación con barra invertida sigue preguntando en bash y zsh", () => {
     for (const command of [
-      "sh -c 'navori master close'",
-      'bash -lc "cd x && navori master part P1 --accept A1 --approved-by user"',
-      'eval "navori master close"',
-      'navori master "close"',
-      "navori master part P1 \\\n  --accept A1 --approved-by user",
+      "sh -c 'navori master accept S1'",
+      'bash -lc "cd x && navori master reject S1 --notes a --approved-by user"',
+      'eval "navori master accept S1"',
+      'navori master "accept" S1',
+      "navori master \\\n  accept S1 --approved-by user",
     ]) {
       expectAsk(payload(command), undefined, undefined, CONTINUATION_SENSITIVE);
     }
@@ -340,7 +314,7 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
 
   // Covers: R62
   it("emits the fixed reason without jq or node", () => {
-    expectAsk(payload("navori master part P2 --accept A3 --approved-by user"), {
+    expectAsk(payload("navori master accept S1 --approved-by user"), {
       PATH: "/usr/bin:/bin",
     });
   });
@@ -352,7 +326,7 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
     // Several `&&`/`|`/`;` per line: realistic long commands have many segments.
     const line = `echo 'navori master check' && ls /Users/x/navori-harness/packages | grep "core"; cat a || true\n`;
     const heredoc = `cat <<'EOF'\n${"navori master line with 'quotes' and \"more\"\n".repeat(400)}EOF\n`;
-    const trigger = "navori master part P2 --accept A3 --approved-by user";
+    const trigger = "navori master accept S1 --approved-by user";
     const hookRun = (command: string, env?: NodeJS.ProcessEnv): HookRun =>
       runHook("bash", payload(command), env);
 
@@ -462,26 +436,9 @@ describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
 
   // Covers: R20, R58, R62
   it.each([
-    "delivery-review --part P1",
-    "delivery-decision --delivery E1 --decision accepted",
-    "delivery-publication --delivery E1 --kind deploy",
-    "delivery-revoke",
-    "delivery-criterion --part P1 --criterion A2 --approved-by user",
-    "delivery-slice --part P1 --refresh",
-  ])("denies unattended attestation without pretending Codex can ask: %s", (verb: string) => {
-    const result = spawnSync("bash", [codexPath], {
-      input: JSON.stringify(payload(`navori master ${verb}`)),
-      encoding: "utf8",
-    });
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
-  });
-
-  it.each([
-    "navori master part P2 --accept A3 --approved-by user",
-    "navori master delivery-baseline --approved-by user",
-    "navori master delivery-queue --delivery E1 --parts P1 --approved-by=user",
-    "echo ready && pnpm exec navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
+    "navori master accept S1 --approved-by user",
+    "navori master reject S2 --notes a --approved-by user",
+    "echo ready && pnpm exec navori master accept S1 --approved-by user",
   ])("denies approval and never asks or allows: %s", (command: string) => {
     const result = spawnSync("bash", [codexPath], {
       input: JSON.stringify(payload(command)),
@@ -490,8 +447,16 @@ describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
     expect(result.status).toBe(0);
     const decision = JSON.parse(result.stdout).hookSpecificOutput.permissionDecision;
     expect(decision).toBe("deny");
-    if (command.includes("delivery-"))
-      expect(result.stdout).toContain("the delivery baseline or bounded queue");
+    expect(result.stdout).toContain("the QA verdict on these slices or decisions");
+  });
+
+  it("denies a verdict on the Codex copy", () => {
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload("navori master accept S1 --approved-by user")),
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
   });
 
   it.each(["git status", "navori master delivery-check"])(

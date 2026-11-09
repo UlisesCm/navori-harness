@@ -256,7 +256,7 @@ y se tratan distinto a propósito.
 | Bloques computados (`contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
 | Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
 | `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
-| `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |
+| `AGENTS.md` (engines prosa) | navori | **Consumidores: No**, se reporta contra el cap del host. **El `AGENTS.md` raíz de este repo: sí**, un techo de palabras por archivo completo | `bun run check:doc-budgets` para el archivo raíz; `navori doctor` (aviso amarillo desde el 80 %) para consumidores |
 
 Los techos viven en un solo lugar: `packages/cli/src/lib/assets/doc-budgets.ts`. Está bajo `src/lib/` y no
 en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
@@ -294,6 +294,10 @@ inferior**. Tampoco se mide bloque a bloque: `AGENTS.md` renderiza como un solo 
 `navori-agents`, y un reporte por bloque ahí daría `ceiling 0, overBy 0` — una línea que no puede
 fallar nunca. Darle diagnóstico por bloque cambiaría la topología de markers de un archivo ya
 desplegado (área crítica): eso es una spec aparte.
+
+La excepción a "sin tope" es el `AGENTS.md` raíz de este repo: es un archivo completo con techo de palabras (`"AGENTS.md"` en `DOC_BUDGETS`), que verifica la gate, porque es archivo de navori y no de un consumidor.
+
+**Dónde cae cada capa.** El motor `agents-md` escribe la doctrina compartida más la capa del orquestador, salvo que Pi esté en `engines`: entonces la capa del orquestador va a `.pi/navori/orchestrator.md` (solo para el padre, ver [docs/pi.es.md](docs/pi.es.md)). La doctrina exclusiva de Claude vive en el bloque `claude-apendice` de `CLAUDE.md`, que el motor de Claude siempre renderiza, con o sin `agents-md`. Los techos de estos archivos viven en `packages/cli/src/lib/assets/doc-budgets.ts`; este documento no repite sus números.
 
 Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
 archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya
