@@ -112,17 +112,15 @@ flowchart LR
     click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor"
 ```
 
-## 4. Master plan — numbered stages and phases
+## 4. Master plan — a PLAN.md of slices (v2)
 
-The master plan organizes project work into independent, numbered, slugged stages, for example `01-mvp` and `02-payments`. Each stage has its own record under `specs/_master/`; the index says which stage is active, and closed stages remain read-only records.
+The master plan (v2) is one page, `specs/_plan/PLAN.md`: a table of slices S<n> (actor -> outcome) plus decisions D<n>. `navori master init` creates it and turns on `harness.masterPlan`; the plan is Markdown prose, validated by structure.
 
-The workflow moves through phases: `context` gathers the mode and input files; `transcribed` produces the code inventory and its digest; `mapped` generates and evaluates plans; `planned` records decisions; `questioned` consolidates `MASTER.md` and its parts; `mastered` waits for the command to begin; and `executing` starts the parts as specs. `navori master check` validates the active phase, and `navori master advance` moves it only when its criteria are met.
+A slice is built on a `slice/S<n>-…` branch or marked `[S<n>]` in the PR title. `navori master check --incoming <ref> --base <branch>` is the WIP gate for the slices a PR brings: it reads `origin/<base>` (`--base` is required) and fails closed without fetch or on a shallow clone. `navori master status` (`--qa`, `--line`, `--json`) derives state from the plan and git, read-only.
 
-A stage can end normally with `navori master close` after execution. From `context` through `questioned`, the user can choose `close --convert` to turn the work into one spec; before `mastered`, `close --abandon` records abandonment. Closing preserves the stage record and updates master-plan state.
+Acceptance belongs to the user: `navori master accept|reject S<n>|D<n> --approved-by user` records the verdict on the `navori/acceptance` branch (`reject` needs `--notes`, an open task). The `master-accept-confirm` hook asks a human to confirm and covers direct writes to that branch; an agent cannot approve itself.
 
-Mutable state — active stage, phase, mode, and each part's status or links — lives in schema-validatable JSON, so the CLI can check transitions and generate derived state. Plans, decisions, and `MASTER.md` content are prose authored in Markdown: they express human judgment and are checked against their structure, not parsed as the source of state. Derived state files such as `STATUS.md` are rendered.
-
-**Deliveries for a part.** Each part's deliveries are validated against its `parts.json`, not Markdown. `navori master delivery-*` operates on the delivery phase: `delivery-baseline` records explicit baseline approval; `delivery-queue` authorizes a bounded queue of parts from a delivery (`--delivery E<n> --parts P<n>,…`); `delivery-slice` projects the authorized slice into a workplan; `delivery-revoke` withdraws the granted authority. `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, and `delivery-publication` cover each delivery's criteria, review, presentation, decision, and publication. Steps that authorize or approve require `--approved-by`, which must be `user`.
+**v1 is read-only.** The stage flow (`mode`, `ux`, `advance`, `part`, `close`, `delivery-*`) exits 1 and points to `navori master migrate`, which prints the v2 plan from a v1 stage (dry-run) or writes it with `--write`; closed stages stay readable.
 
 ### 4.1 Specs in deliveries — `navori spec classify` and `check`
 

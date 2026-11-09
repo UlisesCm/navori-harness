@@ -118,7 +118,7 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `codex trust` | Aprueba los hooks del proyecto en `~/.codex/config.toml` |
 | `receipt <sign\|check\|gate\|review>` | Recibo del contenido revisado antes de publicar; `gate` decide si cada milestone necesita el gate acotado o el completo |
 | `tools notice` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque (`--ack` marca como entregados) |
-| `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
+| `master <sub>` | Plan maestro v2: un PLAN.md de slices que el usuario acepta (`init`, `status`, `check --incoming --base`, `accept`/`reject`, `migrate`, `template`). Los comandos v1 por etapas son de solo lectura; corre `master migrate` |
 | `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
 | `preset` / `scan` / `backup` / `migrations` | Presets locales, monorepos, restore, migraciones |
