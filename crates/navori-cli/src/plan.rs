@@ -23,6 +23,7 @@ use navori_core::js_json::{self, JsValue};
 use navori_core::plan::acceptance_index;
 use navori_core::plan::check::ProjectContext;
 use navori_core::plan::classify::{ClassifyInput, classify, declared_flags_from_signals};
+use navori_core::plan::draft::{DraftShape, parse_draft_shape, workplan_draft_signals};
 use navori_core::plan::escalation;
 use navori_core::plan::expected::{Expected, parse_expected};
 use navori_core::plan::gate::{AckFront, Context, acknowledge_front};
@@ -649,52 +650,16 @@ fn read_draft(path: &str) -> Option<Result<Option<Draft>, String>> {
     };
     // `cannot read draft workplan …: <V8's message>` is the TS's.
     let raw = js_json::parse(&text)?;
-    let record = match &raw {
-        JsValue::Object(record) => Some(record),
-        JsValue::Array(_) => None,
+    let shape = match &raw {
+        JsValue::Object(record) => parse_draft_shape(record)?,
+        // An array reads as an object without `files` or `classification`.
+        JsValue::Array(_) => Ok(DraftShape::default()),
         _ => return Some(Err(format!("draft workplan {path} is not a JSON object"))),
     };
-    let mut files = Vec::new();
-    if let Some(value) = record.and_then(|r| r.get("files")) {
-        let JsValue::Array(entries) = value else {
-            return Some(Err(format!(
-                "draft workplan {path}: \"files\" must be an array"
-            )));
-        };
-        for entry in entries {
-            match member(Some(entry), "path") {
-                Some(JsValue::String(text)) if matches!(entry, JsValue::Object(_)) => {
-                    files.push(text.to_rust()?);
-                }
-                _ => {
-                    return Some(Err(format!(
-                        "draft workplan {path}: every \"files\" entry needs a string \"path\""
-                    )));
-                }
-            }
-        }
-    }
-    let classification = record.and_then(|r| r.get("classification"));
-    let mut signals = Vec::new();
-    if let Some(value @ JsValue::Object(_)) = classification
-        && let Some(value) = member(Some(value), "signals")
-    {
-        let bad = || {
-            Err(format!(
-                "draft workplan {path}: \"classification.signals\" must be a string array"
-            ))
-        };
-        let JsValue::Array(items) = value else {
-            return Some(bad());
-        };
-        for item in items {
-            let JsValue::String(text) = item else {
-                return Some(bad());
-            };
-            signals.push(text.to_rust()?);
-        }
-    }
-    Some(Ok(Some((files, signals))))
+    Some(match shape {
+        Ok(shape) => Ok(Some((shape.files, shape.signals))),
+        Err(error) => Err(format!("draft workplan {path}: {}", error.message())),
+    })
 }
 
 /// `splitList(value)`.
@@ -804,13 +769,22 @@ fn classify_diff(
         Ok(path) => path,
         Err(_) => return None,
     };
-    let has_workplan = std::path::Path::new(&path).exists();
-    let plan = if has_workplan {
-        // `readWorkplanOrExit`: its message is V8's or zod's.
-        let raw = js_json::parse(&read_artifact(&path)??)?;
-        Some(navori_core::plan::check::workplan_level_signals(&raw)?)
-    } else {
-        None
+    // A `plan classify` draft counts as no workplan but keeps its declared signals (#1571).
+    let (has_workplan, plan, draft_signals) = match read_artifact(&path)? {
+        None => (false, None, None),
+        Some(text) => {
+            // `readDraftSignals` swallows a JSON error, then `readWorkplanOrExit` prints V8's
+            // message: both go to the TS.
+            let raw = js_json::parse(&text)?;
+            match workplan_draft_signals(&raw)? {
+                Some(signals) => (false, None, Some(signals)),
+                None => (
+                    true,
+                    Some(navori_core::plan::check::workplan_level_signals(&raw)?),
+                    None,
+                ),
+            }
+        }
     };
     let declared_level = plan.as_ref().map_or(0, |(level, _)| *level);
     let merge_base = git_lines(&root.cwd, &["merge-base", "HEAD", &base])?
@@ -832,7 +806,9 @@ fn classify_diff(
     files.dedup();
     let declared = plan
         .as_ref()
-        .map(|(_, signals)| declared_flags_from_signals(signals))
+        .map(|(_, signals)| signals)
+        .or(draft_signals.as_ref())
+        .map(|signals| declared_flags_from_signals(signals))
         .unwrap_or_default();
     let input = ClassifyInput {
         files: files.clone(),
