@@ -18,6 +18,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import {
+  type CommandOutput,
+  hasPlan,
+  runPlanCheck,
+  runPlanStatus,
+} from "../lib/masterplan/report.ts";
+import {
   changeMasterPart,
   recordDeliveryCriterion,
   captureDeliveryReview,
@@ -62,6 +68,13 @@ import {
   TEMPLATE_NAMES,
   type TemplateName,
 } from "../lib/master/templates.ts";
+
+/** Prints a v2 plan command's output (spec 0063) and sets the exit code. */
+function emit(out: CommandOutput): void {
+  process.stdout.write(out.stdout);
+  process.stderr.write(out.stderr);
+  if (out.code !== 0) process.exitCode = out.code;
+}
 
 function reportError(cause: unknown): void {
   process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -362,10 +375,17 @@ const checkSubCommand = defineCommand({
     part: { type: "string", description: "P<n> of a linked part spec to validate" },
     fit: { type: "boolean", description: "Count D9 fit criteria without making a decision" },
     json: { type: "boolean", description: "Print machine-readable result for --fit" },
+    incoming: { type: "string", description: "v2: WIP gate for the slices this ref brings" },
+    base: { type: "string", description: "v2: base branch of --incoming (default: target branch)" },
+    fetch: { type: "boolean", default: true, description: "v2: fetch the plan branches first" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
+    if (hasPlan(cwd)) {
+      emit(runPlanCheck(cwd, { incoming: args.incoming, base: args.base, fetch: args.fetch }));
+      return;
+    }
     try {
       if (
         [Boolean(args.stage), args.part !== undefined, Boolean(args.fit)].filter(Boolean).length >
@@ -436,12 +456,19 @@ const checkSubCommand = defineCommand({
 const statusSubCommand = defineCommand({
   meta: { name: "status", description: "Show or regenerate derived master-plan status" },
   args: {
+    id: { type: "positional", required: false, description: "v2: one slice in detail" },
+    qa: { type: "boolean", description: "v2: environment and acceptance scripts for a QA round" },
+    fetch: { type: "boolean", default: true, description: "v2: fetch the plan branches first" },
     json: { type: "boolean", description: "Read-only JSON status" },
     line: { type: "boolean", description: "Read-only SessionStart line" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
+    if (hasPlan(cwd)) {
+      emit(runPlanStatus(cwd, { id: args.id, qa: args.qa, json: args.json, fetch: args.fetch }));
+      return;
+    }
     try {
       if (args.json && args.line) throw new Error("--json and --line are mutually exclusive");
       const status = args.json || args.line ? readMasterStatus(cwd) : writeMasterStatus(cwd);
