@@ -67,6 +67,14 @@ export interface CoreManagedAsset {
    * block this way since spec 0010 FB (#546). This applies it to the repo scope.
    */
   audience?: "orchestrator";
+  /**
+   * Explicit layer of the block (spec 0064). `"claude"` marks text that is true only on Claude
+   * Code (its tools, paths, permission model): every prose engine leaves it out, so only
+   * `CLAUDE.md` carries it. `"shared"` is a plugin block declared neutral in its manifest.
+   * Absent: core and preset blocks are shared; a plugin block is read as Claude-specific by the
+   * layered `agents-md` engine only (see `layers.ts`).
+   */
+  layer?: "claude" | "shared";
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
@@ -171,6 +179,16 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/code-discovery-routing.md",
     baseLanguage: "en",
     rootOnly: true,
+  },
+  // Spec 0064: what is true only on Claude Code (tools, paths, permission model), split out of the
+  // neutral blocks above. Only `CLAUDE.md` carries it. Appended last for the same reason as
+  // `code-discovery-routing`.
+  {
+    id: "claude-apendice",
+    relPath: "core-assets/managed/claude-apendice.md",
+    baseLanguage: "en",
+    rootOnly: true,
+    layer: "claude",
   },
 ] as const;
 
@@ -317,7 +335,10 @@ function resolveConditions(
  * `"claude"`, so Claude-side callers that do not pass it keep their output
  * byte-for-byte; prose callers must pass theirs. The reserved key `onCodex` is true
  * only when `engine === "codex"` and `onClaude` only when `engine === "claude"`;
- * `onPi` only when `engine === "pi"`; none reads `config`, so a config key of the same name has no effect. Spans
+ * `onPi` only when `engine === "pi"`; `onLayered` when `engine === "claude"`, or when
+ * `engine === "agents-md"` and `config.engines` includes `pi` (the layered shape, whose
+ * skills the reader lists natively: spec 0064). None reads a config key of its own
+ * name, so one of the same name has no effect. Spans
  * wrapped in `if-not onCodex` therefore render everywhere except Codex. Prose
  * callers (agents-md, cursor, copilot) pass their own
  * engine id so they never take the Claude-only branch.
@@ -332,6 +353,9 @@ export function conditionOrchestration(
     if (key === "onCodex") return engine === "codex";
     if (key === "onClaude") return engine === "claude";
     if (key === "onPi") return engine === "pi";
+    if (key === "onLayered") {
+      return engine === "claude" || (engine === "agents-md" && config.engines.includes("pi"));
+    }
     if (key === "sdd") return config.sdd?.enabled !== false;
     // Explicit value wins; unset (including an entirely absent `harness`
     // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
@@ -786,7 +810,7 @@ export function computeRenderPlan(
           downgrades,
         );
         entries.push({
-          asset: { id: entry.id, relPath: entry.absPath },
+          asset: { id: entry.id, relPath: entry.absPath, layer: entry.layer },
           source: plugin.manifest.id,
           status: result.status,
           details: result.details,

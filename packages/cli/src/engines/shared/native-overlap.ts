@@ -228,6 +228,7 @@ const HOOK_IDS: readonly string[] = [
 /** Blocks under `core-assets/managed/`, by file basename. */
 const MANAGED_BLOCK_IDS: readonly string[] = [
   "arranque-sesion",
+  "claude-apendice",
   "code-discovery-routing",
   "codex-cross-review",
   "formato-respuesta",
@@ -430,7 +431,10 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
   ...MANAGED_BLOCK_IDS.map((id) =>
     complementa(
       { kind: "managed-block", id },
-      support("emit", "emit", "emit"),
+      // Spec 0064: the Claude-only appendix is written for `CLAUDE.md` alone.
+      id === "claude-apendice"
+        ? support("emit", "n/a", "n/a", "n/a")
+        : support("emit", "emit", "emit"),
       "Prose contract; no verified native equivalent.",
     ),
   ),

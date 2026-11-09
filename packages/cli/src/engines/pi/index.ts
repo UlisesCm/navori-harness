@@ -21,7 +21,8 @@ import {
 } from "../shared/execute-plan.ts";
 import { OwnedPathInventory } from "../shared/owned-path-inventory.ts";
 import { buildAssetBlocks, type ProseEngineResult } from "../shared/prose-harness.ts";
-import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { renderAgentsMdFile } from "../agents-md/index.ts";
+import { ORCHESTRATOR_LAYER_IDS } from "../../lib/render/layers.ts";
 import { buildAgentsIndexBlock, compactAgentDescription } from "../shared/agents-index.ts";
 import { buildContextoProyectoBody } from "../shared/project-context.ts";
 import { adaptHarnessTextForPi } from "./compat.ts";
@@ -93,16 +94,6 @@ const MANIFEST = ".pi/navori.json";
 const ORCHESTRATOR = ".pi/navori/orchestrator.md";
 const HOOKS_DIR = ".pi/navori/hooks";
 const SCRIPTS_DIR = ".pi/navori/scripts";
-/**
- * Managed assets of the orchestrator layer. When Pi writes AGENTS.md they move to
- * {@link ORCHESTRATOR}, which the extension injects into the parent process only (spec 0064).
- */
-const ORCHESTRATOR_ASSET_IDS: ReadonlySet<string> = new Set([
-  "planificacion",
-  "orquestacion",
-  "arranque-sesion",
-  "plan-maestro",
-]);
 /** Plan-skill ids plus the local-skill pointers Pi may own in the shared `.agents/skills` root. */
 interface PiSkillRoot {
   /** Local ids with a safe-to-write pointer (`emit`). */
@@ -252,7 +243,7 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
 /**
  * The orchestrator doctrine lives in Pi's parent-only file whenever Codex does not carry it in
  * its own AGENTS.md. Decoupled from {@link piNeedsContextWriter}: with `agents-md` as the
- * AGENTS.md writer the file is still Pi's, because that engine always omits the layer.
+ * AGENTS.md writer the file is still Pi's, because that engine omits the layer whenever Pi is configured.
  */
 function piWritesOrchestrator(config: NavoriConfig): boolean {
   return !config.engines.includes("codex");
@@ -340,7 +331,7 @@ function buildOrchestratorDoctrine(
   const { config } = ctx;
   const blocks = buildAssetBlocks(config, ctx.repoRoot, ctx.isWorkspace, {
     engine: "pi",
-    assetIds: ORCHESTRATOR_ASSET_IDS,
+    assetIds: ORCHESTRATOR_LAYER_IDS,
     transform: adaptHarnessTextForPi,
   });
   const catalog = buildAgentsIndexBlock(
@@ -781,11 +772,11 @@ export function preparePiEngine(
       // minus the orchestrator layer (it lives in `.pi/navori/orchestrator.md`, parent-only), no
       // skills index (Pi lists `.agents/skills` natively), plus the project rules risk routing reads.
       const projectContext = buildContextoProyectoBody(config, lang);
-      const context = renderAgentsMdEngine(cwd, config, {
+      const context = renderAgentsMdFile(cwd, config, {
         ...options,
         engine: "pi",
         includePluginBlocks: true,
-        omitAssetIds: ORCHESTRATOR_ASSET_IDS,
+        omitAssetIds: ORCHESTRATOR_LAYER_IDS,
         omitSkillsIndex: true,
         // The adapter rewrites navori's asset text before interpolation, so the user's
         // `project.*` values (e.g. critical areas in the routing line) stay verbatim.

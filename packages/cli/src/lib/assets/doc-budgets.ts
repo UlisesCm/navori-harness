@@ -62,7 +62,10 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #1273 — the always-on file dropped the skills index, the gh cheat-sheet and
   // the intake / SDD-Structure prose for Claude: 2198 → 1618 words measured
   // (11,963 B, under the 12,000 B target); ceil(1618 × 1.10) = 1780.
-  "CLAUDE.md": 1665, // 1585 → ×1.05 (#1520: markers no longer counted)
+  // Spec 0064 PR 4a: the `claude-apendice` block lands here (+108 words net: 1585 → 1693). Per the
+  // #955 rule it is paid for by trimming this repo's own prose back to 1585 words, then
+  // ceil(1585 × 1.10) = 1744. Recompute it if the trimmed file measures differently.
+  "CLAUDE.md": 1744,
   // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
   // above, it is a RENDERED file, not a source asset, so it matches no
   // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
@@ -84,6 +87,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
   "packages/core/core-assets/managed/arranque-sesion.md": 200, // 190 → ×1.05 (#1520: markers no longer counted)
+  // Spec 0064 PR 4a: what only Claude Code can act on, moved out of the shared blocks (139 measured → ×1.10).
+  "packages/core/core-assets/managed/claude-apendice.md": 153,
   "packages/core/core-assets/managed/code-discovery-routing.md": 159, // 151 → ×1.05 (#1520: markers no longer counted)
   "packages/core/core-assets/managed/codex-cross-review.md": 146, // 139 → ×1.05 (#1520: markers no longer counted)
   "packages/core/core-assets/managed/formato-respuesta.md": 150,

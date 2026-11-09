@@ -5,6 +5,7 @@ import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
 import { RenderWriteError } from "../../lib/primitives/errors.ts";
 import { computeRenderPlan } from "../../lib/render/render-plan.ts";
+import { declaresClaudeLayer, layerOf, type Layer } from "../../lib/render/layers.ts";
 import { injectManagedSection } from "../../lib/render/marker.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
@@ -131,6 +132,11 @@ export function buildHarnessProse(
     transform?: (text: string) => string;
     /** Rule assets left out of the body (an engine that carries them elsewhere). */
     omitAssetIds?: ReadonlySet<string>;
+    /**
+     * Layered shape (spec 0064): keep exactly the blocks whose layer is listed, instead of the
+     * `includePluginBlocks` source filter. Only the `agents-md` engine passes it.
+     */
+    layers?: ReadonlySet<Layer>;
   },
 ): string {
   // Keep core rule blocks + the active preset's stack block (its source is the
@@ -138,6 +144,7 @@ export function buildHarnessProse(
   // dropped — other tools don't have that infra. The "orquestacion" block is
   // also Claude-only (it drives subagents via the Agent tool, which non-Claude
   // tools lack); its engine-agnostic core lives in the workflow section below.
+  // A block that explicitly declares the Claude layer is dropped for every prose target.
   const ruleBlocks = renderedEntries(
     config,
     repoRoot,
@@ -148,8 +155,13 @@ export function buildHarnessProse(
     .filter(
       (e) =>
         options.omitAssetIds?.has(e.asset.id) !== true &&
+        !declaresClaudeLayer(e) &&
         (options.includeOrchestration === true || e.asset.id !== "orquestacion") &&
-        (options.includePluginBlocks === true || e.source === "core" || e.source === config.preset),
+        (options.layers !== undefined
+          ? options.layers.has(layerOf(e, config.preset))
+          : options.includePluginBlocks === true ||
+            e.source === "core" ||
+            e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());
 
@@ -214,6 +226,8 @@ export interface ProseRenderSpec {
   transform?: (text: string) => string;
   /** Rule assets left out of the body (an engine that carries them elsewhere). */
   omitAssetIds?: ReadonlySet<string>;
+  /** Layered shape: keep only the listed layers (see `buildHarnessProse`). */
+  layers?: ReadonlySet<Layer>;
   /** Engine id (`"agents-md"`, `"cursor"`, `"copilot"`): required so a prose file never renders the Claude-only `onClaude` branch by default. */
   engine: string;
 }
@@ -243,6 +257,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
     omitSkillsIndex: spec.omitSkillsIndex,
     transform: spec.transform,
     omitAssetIds: spec.omitAssetIds,
+    layers: spec.layers,
   });
   const body = spec.extendBody ? spec.extendBody(harnessBody) : harnessBody;
 

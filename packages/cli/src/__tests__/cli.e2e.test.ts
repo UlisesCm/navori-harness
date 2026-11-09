@@ -774,7 +774,7 @@ describe("CLI e2e — happy paths", () => {
     // The core managed blocks injected into CLAUDE.md by --recommended:
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
     // tipado-fuerte, operaciones-seguras, arranque-sesion,
-    // sdd (enabled by default), intake-tickets, code-discovery-routing (#838),
+    // sdd (enabled by default), intake-tickets, code-discovery-routing (#838), claude-apendice (spec 0064),
     // plus the computed agentes-disponibles (skills-index left in #1273). engram carries
     // no CLAUDE.md-wide block (#814): its doctrine is a skill injected
     // straight into the agents that hold `mem_*` tools.
@@ -782,6 +782,7 @@ describe("CLI e2e — happy paths", () => {
     expect(blockIds).toEqual([
       "agentes-disponibles",
       "arranque-sesion",
+      "claude-apendice",
       "code-discovery-routing",
       "formato-respuesta",
       "idioma-rol",

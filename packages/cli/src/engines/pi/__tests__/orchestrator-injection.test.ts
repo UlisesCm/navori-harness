@@ -1,7 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
+import { renderAgentsMdEngine } from "../../agents-md/index.ts";
+import { renderPiEngine } from "../index.ts";
 import { serializePiManifest, serializePiOrchestrator } from "../owned-file.ts";
 import { load } from "./fixtures/load-extension.ts";
 
@@ -48,6 +51,37 @@ async function start(
   await handler(event, ctx);
   return { sections: event.systemPromptOptions.sections, notices };
 }
+
+describe("who carries the orchestrator layer with claude+pi+agents-md (spec 0064)", () => {
+  const HEADINGS = [
+    "## Planning tiers — classified, never chosen",
+    "## Master plan — explicit request only",
+    "## Session startup",
+    "## Role: orchestrator",
+  ];
+
+  it("only the parent's file carries it; AGENTS.md, which children also read, has none", () => {
+    const config = NavoriConfigSchema.parse({
+      name: "orch",
+      engines: ["claude", "pi", "agents-md"],
+      preset: "custom",
+      branchBase: "main",
+      language: "en",
+      harness: { planTiers: true, masterPlan: true },
+    });
+    const cwd = mkdtempSync(join(tmpdir(), "navori-pi-layer-"));
+    dirs.push(cwd);
+    renderPiEngine(cwd, config);
+    renderAgentsMdEngine(cwd, config);
+
+    const orchestrator = readFileSync(join(cwd, ORCHESTRATOR), "utf-8");
+    const agents = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    for (const heading of HEADINGS) {
+      expect(orchestrator, heading).toContain(heading);
+      expect(agents, heading).not.toContain(heading);
+    }
+  });
+});
 
 describe("orchestrator doctrine injection (spec 0064)", () => {
   it("the parent gets the file body, without the ownership header, as a named section", async () => {
