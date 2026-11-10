@@ -19,7 +19,11 @@ use crate::config::{self, Config};
 use crate::js_json::{self, JsValue};
 use crate::js_re::{DOT, non_ws, ws};
 use crate::plan::check::{Checked, ProjectContext, check_workplan};
-use crate::plan::classify::{ClassifyInput, classify, matches_critical_paths, normalize_repo_path};
+use crate::plan::classify::{
+    ClassifyInput, classify, declared_flags_from_signals, matches_critical_paths,
+    normalize_repo_path,
+};
+use crate::plan::draft::workplan_draft_signals;
 use crate::plan::expected::{Expected, parse_expected};
 use crate::plan::roster::NON_IMPLEMENTER_ROLES;
 use crate::posix::js_trim;
@@ -253,6 +257,26 @@ fn read_snapshot(path: &Path) -> R<Option<String>> {
 /// `existsSync`: follows symlinks and swallows every error.
 fn exists(path: &Path) -> bool {
     fs::metadata(path).is_ok()
+}
+
+/// `readDraftSignals(path)` of the `nivel-0:` check (#1571): `Some(signals)` when there is no file
+/// (none declared) or it is a `plan classify` draft, `None` for anything else (a full workplan, or
+/// a file the TS cannot parse), which keeps blocking `nivel-0:`. Text Rust cannot parse exactly
+/// delegates, since the TS might read it as a draft.
+fn read_draft_signals(path: &Path) -> R<Option<Vec<String>>> {
+    if !exists(path) {
+        return Ok(Some(Vec::new()));
+    }
+    let Some(text) = read_snapshot(path)? else {
+        return delegate("workplan vanished");
+    };
+    let Some(raw) = js_json::parse(&text) else {
+        return delegate("workplan JSON error message");
+    };
+    match workplan_draft_signals(&raw) {
+        Some(signals) => Ok(signals),
+        None => delegate("draft string Rust cannot represent"),
+    }
 }
 
 /// A resolved state root (`resolveStateRoot`).
@@ -825,11 +849,13 @@ fn evaluate_nivel0(
         Some(_) => {}
     }
     let root = resolve_state_root(cwd, feature, None, ctx, p)?;
-    if exists(&root.artifact(&format!("workplan_{feature}.json"))?) {
+    let Some(draft_signals) =
+        read_draft_signals(&root.artifact(&format!("workplan_{feature}.json"))?)?
+    else {
         return deny(format!(
             "feature \"{feature}\" already has a workplan — open with `workplan: {feature}`, not nivel-0."
         ));
-    }
+    };
     let files: Vec<String> = raw_path
         .split(',')
         .filter(|f| !f.is_empty())
@@ -857,7 +883,7 @@ fn evaluate_nivel0(
         critical_paths: critical.unwrap_or_default(),
         local_skill_ids: config_strings(config, "project", "localSkills")
             .map(|ids| ids.into_iter().collect()),
-        ..ClassifyInput::default()
+        ..declared_flags_from_signals(&draft_signals)
     };
     let Some(result) = classify(&input) else {
         return delegate("classify rules failed to compile");
