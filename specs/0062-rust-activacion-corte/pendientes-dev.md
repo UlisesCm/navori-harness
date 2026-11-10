@@ -137,6 +137,7 @@ da los 1233 iguales.
 | 3 | El render nativo delega al TS en todos los motores: `render_claude` (12), `render_engines` (4), las paridades de bloque, `CLAUDE.md`, settings, harness, owned paths, Pi, plugins, sub-bloques, `doc_budget` (2), `config_parity` (3), `render.rs`, `rust-tree` (2) y los casos de render del oráculo | #1599, #1617, #1618, #1619, #1622 |
 | 3 | `gen-pi-extension-asset.mjs --check` aborta: el roster de Pi ya no tiene `publisher` | #1532, #1582, #1587, #1608 |
 | 3 | `parser::root_help` y `surface:--help`: el Rust lista `bench`, que `dev` dejó tras un flag | #1502 |
+| 3 (guarda) | guarda de Claude en render: quitarla exige G7a + G3 + 1c, y regresar retired-context a native: true | #1647 |
 | 3 (Codex) | 12 paridades `codex_*`: Codex está congelado; decidir si se retiran | #1618 (parcial) |
 | `spec` | `repo-specs:*`, `spec:*`, `spec-deliveries:*` y `surface:spec_--help` | #1483, #1628 |
 | 4a | `master_hooks` (1) y el oráculo de `master`, que aborta en el setup `master close` (v1 de solo lectura) | #1620, #1621, #1628 |
