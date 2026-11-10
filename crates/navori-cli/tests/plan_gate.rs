@@ -6,14 +6,17 @@ use std::error::Error;
 use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// A scratch repo outside every checkout: `repo_from_cwd` deliberately cuts a path at
+/// `/.claude/worktrees` (#764), so a scratch under a worktree's target dir would take the
+/// worktree's repo name instead of `proj`.
 fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("navori-{name}-{}", std::process::id()));
     if dir.exists() {
         fs::remove_dir_all(&dir)?;
     }
@@ -158,6 +161,7 @@ fn con_log_de_audit_mode_re_delega_antes_de_leer_stdin() -> TestResult {
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
+        fs::remove_dir_all(&dir)?;
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     Ok(())
