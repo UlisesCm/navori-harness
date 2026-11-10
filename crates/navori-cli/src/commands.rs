@@ -54,10 +54,6 @@ pub const ROOT_COMMANDS: &[(&str, &str)] = &[
         "Quick snapshot: config, plugins, drift, and suggested next steps",
     ),
     (
-        "bench",
-        "Benchmark render over N runs and report p50/p95 (spots local regressions)",
-    ),
-    (
         "workspace",
         "Manage navori workspaces (cross-repo config + tickets)",
     ),
@@ -79,12 +75,15 @@ pub const ROOT_COMMANDS: &[(&str, &str)] = &[
         "plan",
         "Classify, render, update and check a level-1/2 workplan",
     ),
-    ("spec", "Classify and validate a spec's tasks.md"),
+    (
+        "spec",
+        "Classify and validate a spec (spec.md, or legacy tasks.md)",
+    ),
     (
         "handoff",
         "Validate the implementer's handoff before dispatch",
     ),
-    ("master", "Master-plan project flow (spec 0034)"),
+    ("master", "Master-plan project flow (v2 plan; v1 read-only)"),
     ("tools", "Machine commands about external tools"),
     (
         "gate",

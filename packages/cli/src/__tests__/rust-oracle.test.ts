@@ -77,6 +77,10 @@ interface Oracle {
     testCase: OracleCase,
     opts: { ts: Runner; rust: Runner; tsCli: string; base: string },
   ) => { id: string; exit: number | null; differences: Difference[] };
+  runCaseOrSetupFailure: (
+    testCase: OracleCase,
+    opts: { ts: Runner; rust: Runner; tsCli: string; base: string },
+  ) => { id: string; exit: number | null; differences: Difference[] };
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +108,33 @@ function stub(dir: string, name: string, body: string): Runner {
 }
 
 describe("rust oracle", () => {
+  it("una falla de setup es una diferencia de ese caso y el siguiente caso corre", () => {
+    const dir = tmp();
+    const base = tmp();
+    const ts = stub(
+      dir,
+      "ts.sh",
+      `[ "$1" = boom ] && { echo 'setup rejected' >&2; exit 1; }; printf 'out\\n'`,
+    );
+    const rust = stub(dir, "rust.sh", `printf 'out\\n'`);
+    const opts = { ts, rust, tsCli: "/unused/index.js", base };
+
+    const failed = oracle.runCaseOrSetupFailure(
+      { id: "setup-falla", fixture: "empty", args: [], setup: [{ navori: ["boom"] }] },
+      opts,
+    );
+    expect(failed).toMatchObject({ id: "setup-falla", exit: null });
+    expect(failed.differences).toHaveLength(1);
+    expect(failed.differences[0]).toMatchObject({ kind: "setup" });
+    expect(failed.differences[0]?.detail).toContain("setup navori boom failed");
+
+    const next = oracle.runCaseOrSetupFailure(
+      { id: "siguiente", fixture: "empty", args: [] },
+      opts,
+    );
+    expect(next.differences).toEqual([]);
+  });
+
   // Covers: R8
   it("una diferencia de un byte en el árbol se reporta", () => {
     const dir = tmp();
