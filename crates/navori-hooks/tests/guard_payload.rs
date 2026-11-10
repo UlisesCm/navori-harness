@@ -8,11 +8,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod support;
+
 use navori_hooks::hooks::guard_destructive::Rendered;
 use navori_hooks::hooks::guard_destructive::entry::{self, Context};
 use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
-use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::capture::CaptureContext;
 use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::repo::System;
@@ -84,18 +86,6 @@ fn tool_dir(root: &Path, extractor: Extractor) -> Result<PathBuf, Box<dyn Error>
         std::os::unix::fs::symlink(locate(tool)?, bin.join(tool))?;
     }
     Ok(bin)
-}
-
-fn dialect() -> Result<ShellDialect, Box<dyn Error>> {
-    let output = Command::new("/bin/bash").arg("--version").output()?;
-    let version = String::from_utf8_lossy(&output.stdout);
-    if version.starts_with("GNU bash, version 3.") {
-        Ok(ShellDialect::Bash3)
-    } else if version.starts_with("GNU bash, version 5.") {
-        Ok(ShellDialect::Bash5)
-    } else {
-        Err(format!("unsupported oracle Bash: {version}").into())
-    }
 }
 
 /// 1-based line of the only source line equal to `needle`.
@@ -212,7 +202,7 @@ fn cada_cascada_de_extraccion_llega_al_veredicto_del_shell() -> TestResult {
     let source = fs::read_to_string(&script)?;
     let rendered = Rendered::from_script(&source).ok_or("rendered assignments")?;
     let capture = CaptureContext {
-        shell: dialect()?,
+        shell: support::bash_dialect()?,
         script: &script,
         input_line: line_of(&source, "payload=${payload-\"$(cat)\"}")?,
         fallback_line: line_of(
