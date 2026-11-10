@@ -700,6 +700,9 @@ describe("bench scripts", () => {
     expect(() => hooksModule.parseBenchArgs(["--impl", "rust", "--root", "base"])).toThrow(
       /--root requires --impl shell/,
     );
+    expect(() => hooksModule.parseBenchArgs(["--impl", "rust", "--write-shape"])).toThrow(
+      /--write-shape requires --impl shell/,
+    );
     const fixture = nativeBenchFixture();
     try {
       for (const args of [
