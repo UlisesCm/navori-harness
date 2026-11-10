@@ -13,6 +13,10 @@ interface Delegation {
   flags?: string[];
   reason: string;
 }
+interface ShellHook {
+  hook: string;
+  reason: string;
+}
 interface Input {
   manifest: {
     commands: Array<{ path: string[]; flags?: string[] }>;
@@ -22,6 +26,7 @@ interface Input {
   hooks: string[];
   history: Array<{ date: string; op: string; id: string }>;
   delegation?: Delegation[];
+  shellHooks?: ShellHook[];
   bench: {
     comparable?: boolean;
     measurements?: Array<{ engine?: string; hook?: string; wallMsP95: number }>;
@@ -48,6 +53,9 @@ interface PostCutover {
 interface Areas {
   PERMANENT_DELEGATION: Delegation[];
   permanentlyDelegated: (path: string[], flag?: string, list?: Delegation[]) => boolean;
+  PERMANENT_SHELL_HOOKS: ShellHook[];
+  permanentShellHook: (id: string, list?: ShellHook[]) => boolean;
+  hookInventory: () => string[];
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -73,6 +81,7 @@ const ready = (): Input => ({
   hooks: ["guard-destructive", "plan-gate"],
   history: [{ date: "2026-10-29", op: "port", id: "render" }],
   delegation: [],
+  shellHooks: [],
   bench: {
     comparable: true,
     measurements: [{ engine: "claude", hook: "plan-gate", wallMsP95: 2 }],
@@ -120,6 +129,39 @@ describe("cutover-check (spec 0062 T8)", () => {
     const stray = ready();
     stray.commands.push({ path: ["nuevo"], flags: [] });
     expect(() => cutover.cutoverFindings(stray)).toThrow(/no area/);
+  });
+
+  // Covers: R20 (enmienda: hooks shell permanentes)
+  it("un hook shell permanente no falta ni deja un unport abierto; cualquier otro sí", () => {
+    const input = ready();
+    input.hooks.push("role-guard", "model-advisor");
+    input.history.push(
+      { date: "2026-11-10", op: "unport", id: "role-guard" },
+      { date: "2026-11-10", op: "unport", id: "model-advisor" },
+    );
+    input.shellHooks = [{ hook: "role-guard", reason: "r" }];
+    expect(cutover.cutoverFindings(input)).toEqual([
+      { check: "hook", detail: "model-advisor" },
+      { check: "unport", detail: "model-advisor (since 2026-11-10)" },
+    ]);
+
+    // The list is explicit: the five hooks frozen by #1503 plus the two Codex-only guards,
+    // every one a real core hook with a reason.
+    expect(areas.PERMANENT_SHELL_HOOKS.map((e) => e.hook).sort()).toEqual([
+      "audit-mode-close",
+      "audit-mode-trigger",
+      "engram-write-guard",
+      "master-accept-confirm",
+      "master-plan-context",
+      "role-guard",
+      "stop-verify-reminder",
+    ]);
+    const inventory = areas.hookInventory();
+    for (const entry of areas.PERMANENT_SHELL_HOOKS) {
+      expect(inventory).toContain(entry.hook);
+      expect(entry.reason).toContain("#1503");
+    }
+    expect(areas.permanentShellHook("guard-destructive")).toBe(false);
   });
 
   // Covers: R17, R18
