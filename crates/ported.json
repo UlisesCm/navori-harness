@@ -178,7 +178,7 @@
       "blocks": {
         "subagent-stop-handoff-base": "sha256:76644a2563e07c75229dd738f66acffe0a9311c94070b0caa49267be054310b0"
       },
-      "impl": "sha256:115fd6c7a6905d704f7894c34667d840929f0ca92e7cb99160c78d0cd1826d6e"
+      "impl": "sha256:3753395652dd1b0aa7e09930616b5a1eabb5bb151920e12a24e71492a8611e81"
     },
     "model-advisor": {
       "mode": "shadow",
