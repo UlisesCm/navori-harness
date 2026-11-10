@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 4f498ffac944b8d6a02674d2586278fa0fc3f2e464d453ea2370bac883f4afb2 # shrinks to (spec, seed, text) = (ProseSpec { engine: "agents-md", dest: "AGENTS.md", managed_id: "navori-agents", header: "# AGENTS.md\n", user_section: "\n<!-- navori:user-section -->\n## Reglas del repo (tuyas)\n\n<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n" }, "{\"name\":\"demo\",\"engines\":[\"agents-md\"],\"preset\":\"custom\"}", "{\"name\":\"demo\",\"engines\":[\"agents-md\"],\"preset\":\"custom\"}"), before = Absent, floor = None

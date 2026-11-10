@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc e89e4e6d681765585f260b32bbf9607491eabd1d635f7dd6f9b66093bca49e70 # shrinks to content = "\n<!-- navori:managed id=\"orquestacion\" hash=\"00000000\" version=\"0.1.0\" source=\"@navori/core\" -->\n\n<!-- /navori:managed id=\"orquestacion\" -->\n\n"

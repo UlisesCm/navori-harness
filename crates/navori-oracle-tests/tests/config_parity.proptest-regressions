@@ -1,8 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 1cf6069fcea25553c03dfffe46e57a51cbf759eca6847fc909e2408d7351e78e # shrinks to text = "{\"preset\":\"node\",\"engines\":[\"claude\"],\"name\":\"my-repo\",\"hooks\":{}}"
-cc 498cc8a4337974af34d5e976f8b2af46f784fa9320e19a7f6e6a56c27ce552b4 # shrinks to text = "{\"preset\":\"node\",\"engines\":[\"claude\"],\"name\":\"my-repo\",\"harness\":{}}"

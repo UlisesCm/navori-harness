@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc aa68f081f62dc0f691d20594576e2f0f295bd4d28c68f0e2510825779893762e # shrinks to text = "{\"codegraph\":{\"enabled\":false}}", enabled = false
