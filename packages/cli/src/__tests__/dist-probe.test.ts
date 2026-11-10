@@ -68,6 +68,8 @@ describe("dist-probe", () => {
       "trust",
       "--help",
     ]);
+    // the real list probes the permanently delegated `master` subtree
+    expect(probe.delegationProbe()).toEqual(["master", "--help"]);
 
     // the hook runs under Node's directory and the system's, never a package manager's tools
     expect(probe.hookPath("/opt/node/bin/node")).toBe(

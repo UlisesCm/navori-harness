@@ -1353,7 +1353,7 @@ fn log_review_result(
 /// `handoff log-review`.
 fn log_review(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
     // `emitReviewOutcome` writes an audit event when a session is in the environment (T18).
-    if crate::master_write::audit_may_write() {
+    if crate::audit_target::audit_may_write() {
         return None;
     }
     let mut fs = RealFs::default();

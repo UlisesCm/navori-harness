@@ -440,6 +440,30 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
 }
 
 // Covers: R7
+/// `master` left the binary for good (#1503, 0063): neither the group nor any subcommand is
+/// selected, so the TS runs it. Without this the table test above passes vacuously.
+#[test]
+fn master_and_its_subcommands_delegate_to_the_ts() -> TestResult {
+    let embedded = Manifest::embedded()?;
+    for path in [
+        ["master"].as_slice(),
+        ["master", "close"].as_slice(),
+        ["master", "status"].as_slice(),
+        ["master", "nope"].as_slice(),
+    ] {
+        assert!(
+            dispatch(&embedded, &invocation(path, &[])).is_none(),
+            "{path:?} must delegate to the TS"
+        );
+    }
+    assert!(
+        NATIVE
+            .iter()
+            .all(|native| native.path.first() != Some(&"master"))
+    );
+    Ok(())
+}
+
 #[test]
 fn unlisted_commands_reach_the_ts_cli_not_a_native_stub() -> TestResult {
     let dir = scratch("unlisted")?;

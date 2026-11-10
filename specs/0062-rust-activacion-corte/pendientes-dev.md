@@ -140,3 +140,9 @@ da los 1233 iguales.
 | 3 (Codex) | 12 paridades `codex_*`: Codex está congelado; decidir si se retiran | #1618 (parcial) |
 | `spec` | `repo-specs:*`, `spec:*`, `spec-deliveries:*` y `surface:spec_--help` | #1483, #1628 |
 | 4a | `master_hooks` (1) y el oráculo de `master`, que aborta en el setup `master close` (v1 de solo lectura) | #1620, #1621, #1628 |
+
+**Tras el paso 4a:** el Rust de `master` (v1), sus hooks nativos y R22 de `spec check` salen del binario; `master`
+queda en `PERMANENT_DELEGATION` como subárbol (`subtree: true`) y sus hooks siguen en shell (#1639). `spec check`
+conserva una condición del R22 retirado: un repo cuyo config no declara `prTarget` ni `branchBase` sigue
+delegando al TS (`crates/navori-cli/src/spec.rs`, en `load_spec`), para que la salida no cambie mientras el Rust no
+entienda `spec.md`. Se quita en el PR de `spec.md` (#1483).

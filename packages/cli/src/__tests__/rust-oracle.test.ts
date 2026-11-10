@@ -70,7 +70,6 @@ interface Oracle {
   relativeTime: (relative: string, now: number) => number;
   FIXTURE_MANIFEST: string;
   antiRollbackCases: (cliVersion: string) => OracleCase[];
-  masterCloseRenderCases: () => OracleCase[];
   ANTI_ROLLBACK_LEVELS: string[];
   ANTI_ROLLBACK_OPS: string[];
   runCase: (
@@ -475,25 +474,6 @@ describe("rust oracle", () => {
     expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
   });
 
-  // Covers: R73, R74
-  it("master close reconcilia y renderiza en cada fixture de render aplicable", () => {
-    const cases = oracle.masterCloseRenderCases();
-    const fixtures = cases.map((c) => c.fixture);
-    for (const name of ["fresh-init", "claude-en", "drifted-block", "tools"])
-      expect(fixtures, name).toContain(name);
-    // other engines, a monorepo with workspaces and the command fixtures stay out
-    for (const name of ["codex-trusted", "pi", "monorepo", "master-closed", "spec-repo"])
-      expect(fixtures, name).not.toContain(name);
-    const loaded = new Set(oracle.loadCases().map((c) => c.id));
-    for (const c of cases) {
-      expect(loaded.has(c.id), c.id).toBe(true);
-      expect(c.args).toEqual(["master", "close"]);
-      expect(c.native).toBe(true);
-      const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
-      expect(config.harness.masterPlan, c.id).toBe(true);
-    }
-  });
-
   // Covers: R76
   it("los stubs de PATH responden por argv desde las grabaciones y registran cada llamada", () => {
     const work = mkdtempSync(join(tmpdir(), "oracle-stubs-"));
@@ -532,7 +512,7 @@ describe("rust oracle", () => {
   // Covers: R77
   it("los casos viven en un archivo por área y un id repetido entre archivos falla", () => {
     const names = readdirSync(oracle.CASES_DIR).filter((n) => n.endsWith(".json"));
-    for (const area of ["master", "plan", "handoff", "spec", "render"])
+    for (const area of ["plan", "handoff", "spec", "render"])
       expect(names, area).toContain(`${area}.json`);
     for (const name of names) {
       const area = name.slice(0, -".json".length);
@@ -831,7 +811,7 @@ describe("rust oracle", () => {
       ).toBe(true);
     }
     expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
-    // A spec of a master plan is `master`'s (M3): that case must stay delegated.
+    // `spec-master` carries a master-plan layout, which no native `spec check` case asserts.
     expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
   });
 
