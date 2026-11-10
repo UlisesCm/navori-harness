@@ -5,8 +5,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod support;
 
 use navori_hooks::hooks::subagent_no_background::{
     CaptureContext, Extractor, Locale, Profile, ShellDialect, evaluate, evaluate_with_capture,
@@ -71,29 +72,6 @@ fn host_profile() -> Profile {
     }
 }
 
-/// Identify the actual oracle binary; unsupported diagnostic dialects fail instead of guessing.
-fn bash_dialect() -> Result<ShellDialect, Box<dyn Error>> {
-    static DIALECT: OnceLock<Result<ShellDialect, String>> = OnceLock::new();
-    let result = DIALECT.get_or_init(|| {
-        let output = Command::new("/bin/bash")
-            .arg("--version")
-            .output()
-            .map_err(|error| error.to_string())?;
-        let version = String::from_utf8_lossy(&output.stdout);
-        if output.status.success() && version.starts_with("GNU bash, version 3.") {
-            Ok(ShellDialect::Bash3)
-        } else if output.status.success() && version.starts_with("GNU bash, version 5.") {
-            Ok(ShellDialect::Bash5)
-        } else {
-            Err(format!("unsupported oracle Bash dialect: {version}"))
-        }
-    });
-    result
-        .as_ref()
-        .copied()
-        .map_err(|error| error.clone().into())
-}
-
 struct ShellOracle {
     output: std::process::Output,
     script: PathBuf,
@@ -139,7 +117,7 @@ fn shell_oracle(bytes: &[u8], profile: Profile) -> Result<ShellOracle, Box<dyn E
         .map(|(index, _)| index + 1)
         .last()
         .ok_or("individual fallback not found in expanded oracle")?;
-    let shell = bash_dialect()?;
+    let shell = support::bash_dialect()?;
     fs::write(&script, source)?;
     let mut command = Command::new("/bin/bash");
     command

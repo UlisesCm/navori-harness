@@ -6,13 +6,14 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod support;
 
 use navori_hooks::hooks::general_purpose_confirm::{evaluate, evaluate_with_capture};
 use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
-use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::capture::CaptureContext;
 use navori_hooks::shell::payload::{Extractor, Profile};
 use serde_json::{Value, json};
 
@@ -57,28 +58,6 @@ fn host_utf8_locale() -> Locale {
     } else {
         Locale::Utf8
     }
-}
-
-fn bash_dialect() -> Result<ShellDialect, Box<dyn Error>> {
-    static DIALECT: OnceLock<Result<ShellDialect, String>> = OnceLock::new();
-    let result = DIALECT.get_or_init(|| {
-        let output = Command::new("/bin/bash")
-            .arg("--version")
-            .output()
-            .map_err(|error| error.to_string())?;
-        let version = String::from_utf8_lossy(&output.stdout);
-        if output.status.success() && version.starts_with("GNU bash, version 3.") {
-            Ok(ShellDialect::Bash3)
-        } else if output.status.success() && version.starts_with("GNU bash, version 5.") {
-            Ok(ShellDialect::Bash5)
-        } else {
-            Err(format!("unsupported oracle Bash dialect: {version}"))
-        }
-    });
-    result
-        .as_ref()
-        .copied()
-        .map_err(|error| error.clone().into())
 }
 
 /// The real asset with its include partials expanded, without Node/Bun or signatures.
@@ -168,7 +147,7 @@ fn compare_shell(bytes: &[u8], engine: Engine, profile: Profile) -> TestResult {
         engine,
         profile,
         CaptureContext {
-            shell: bash_dialect()?,
+            shell: support::bash_dialect()?,
             script: &script,
             input_line,
             fallback_line,
