@@ -213,7 +213,9 @@ export type StripResult =
  * cut across an unclosed or duplicated marker would swallow the user's text, and
  * leaving a marker behind means the file is not really stripped.
  */
-export function stripManagedBlocks(rel: string, content: string): StripResult {
+export function stripManagedBlocks(rel: string, signed: string): StripResult {
+  // The native signature is navori's too, outside every block: cut it with them.
+  const content = stripNativeSignature(signed);
   if (!/navori:managed(?!-)/.test(content)) return { kind: "none" };
   const style = scaffoldKindOf(rel).style;
   // An extension no engine writes markers into: never cut, the file stays whole.
