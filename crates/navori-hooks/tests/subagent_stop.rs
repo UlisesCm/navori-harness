@@ -256,6 +256,55 @@ fn veredictos_del_corpus_en_claude_y_codex() {
             stderr: "/r/.claude/hooks/subagent-stop-handoff.sh: line 70: progress/review_z.md: Permission denied\n",
         },
         Case {
+            name: "scribe: Status como elemento de lista (#1554)",
+            codex: false,
+            mode: "",
+            payload: r#"{"tool_input":{"subagent_type":"scribe"}}"#,
+            stub: stub(|s| {
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_dash.md",
+                    "# Implementation handoff\n\n-Status: DONE\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_indent.md",
+                    "  - Status: DONE\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_multi.md",
+                    "-  \t**STATUS** DONE\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_list.md",
+                    "# Implementation handoff\n\n- Status: DONE\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_list_crlf.md",
+                    "# Implementation handoff\r\n\r\n- Status: DONE\r\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_none.md",
+                    "# Implementation handoff\n\nNo state here.\n",
+                );
+                put(
+                    s,
+                    ".navori/state/handoffs/impl_star.md",
+                    "*\t**status:** blocked\n",
+                );
+            }),
+            verdict: "dirty",
+            stdout: &[
+                "incompletos — .navori/state/handoffs/impl_dash.md sin línea 'Status:'; .navori/state/handoffs/impl_indent.md sin línea 'Status:'; .navori/state/handoffs/impl_none.md sin línea 'Status:'. Revisa",
+            ],
+            log: &["write /t/navori-handoff-repo-anon "],
+            stderr: "",
+        },
+        Case {
             name: "consejo de compactación tras el publisher y sello que falla",
             codex: false,
             mode: "",

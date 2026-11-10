@@ -339,9 +339,12 @@ impl Scan<'_> {
         Ok(())
     }
 
+    /// R10's `scribe` half. The optional `- ` prefix accepts the list item `navori handoff render`
+    /// writes (#1554). ASCII only, like `grep` in the C locale: a UTF-8 locale's wider
+    /// `[[:space:]]` and case folding are a known, accepted gap.
     fn impl_md(&mut self, file: &str) -> Result<(), Failure> {
         static STATUS: LazyLock<Option<BytesRegex>> =
-            LazyLock::new(|| BytesRegex::new(r"(?i-u)^\*{0,2}status").ok());
+            LazyLock::new(|| BytesRegex::new(r"(?i-u)^([-*][[:space:]]+)?\*{0,2}status").ok());
         let bytes = self.host.read(file);
         if is_blank(bytes.as_deref(), self.locale())? {
             self.note(file, format!("{file} vacío"));
