@@ -831,7 +831,7 @@ describe("rust oracle", () => {
       ).toBe(true);
     }
     expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
-    // A spec of a master plan is `master`'s (M3): that case must stay delegated.
+    // `spec-master` carries a master-plan layout, which no native `spec check` case asserts.
     expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
   });
 

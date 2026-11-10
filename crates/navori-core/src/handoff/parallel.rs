@@ -833,7 +833,7 @@ fn bindings(f: &Facts<'_>, c: &ParallelRequest) -> R<JsObject> {
         .iter()
         .filter(|d| d.id == c.delivery)
         .collect();
-    let checked = crate::spec::check::check(&tasks, thresholds(config)?, Some(&requirements), None)
+    let checked = crate::spec::check::check(&tasks, thresholds(config)?, Some(&requirements))
         .map_err(|_| Stop::Unmodeled)?;
     if tasks.format != crate::spec::tasks::Format::Deliveries
         || requirements.is_empty()

@@ -3,17 +3,14 @@
 //! Read-only, like the TS command (`commands/spec.ts`): it never runs acceptance commands and
 //! writes nothing. Everything is computed before the first byte of output, so whatever Rust does
 //! not reproduce exactly returns `None` and the invocation goes to the TS: an argv citty might
-//! read differently, a config `readConfig` rejects or this port does not model, a spec linked to a
-//! master plan (its mapping is `master`'s, spec 0060 M3), or a file that is not UTF-8.
+//! read differently, a config `readConfig` rejects or this port does not model, or a file that is
+//! not UTF-8.
 
 use std::ffi::OsString;
-use std::path::Path;
 use std::process::ExitCode;
 
 use navori_core::config;
 use navori_core::js_json::JsValue;
-use navori_core::master::delivery_parts;
-use navori_core::master::index as master_index;
 use navori_core::spec::check::{self, SpecCheck};
 use navori_core::spec::classify::{self, Classification, DEFAULT_THRESHOLDS, Thresholds};
 use navori_core::spec::tasks::{self, ParsedTasks};
@@ -255,8 +252,6 @@ struct SpecContext {
     dir: String,
     thresholds: Thresholds,
     parsed: ParsedTasks,
-    /// `config.prTarget ?? config.branchBase`, `main` without a config.
-    pr_target: String,
 }
 
 /// ERROR / WHY / FIX.
@@ -302,16 +297,18 @@ fn load_spec(
     json: bool,
 ) -> Option<Result<SpecContext, ()>> {
     let config = read_config(cwd)?;
-    let pr_target = match &config {
-        None => "main".to_owned(),
-        Some(config) => match (
-            member(Some(&config.data), "prTarget"),
-            member(Some(&config.data), "branchBase"),
-        ) {
-            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
-            _ => return None,
-        },
-    };
+    // Removed with spec.md support (#1483): configs without prTarget/branchBase go to the TS.
+    if let Some(config) = &config
+        && !matches!(
+            (
+                member(Some(&config.data), "prTarget"),
+                member(Some(&config.data), "branchBase"),
+            ),
+            (Some(JsValue::String(_)), _) | (None, Some(JsValue::String(_)))
+        )
+    {
+        return None;
+    }
     if let Some(config) = &config {
         for warning in &config.warnings {
             out.stderr.push_str(warning);
@@ -376,7 +373,6 @@ fn load_spec(
         dir,
         thresholds,
         parsed,
-        pr_target,
     }))
 }
 
@@ -551,42 +547,8 @@ fn check_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
         Ok(bytes) => Some(requirement_ids(&String::from_utf8(bytes).ok()?)),
         Err(_) => None,
     };
-    // `deliveryIdsForSpec` reads the config again (its warnings print twice), then maps the spec
-    // to the deliveries of the active stage when it runs in deliveries mode (R22 of 0044).
-    let again = read_config(cwd)?;
-    if let Some(config) = &again {
-        for warning in &config.warnings {
-            out.stderr.push_str(warning);
-            out.stderr.push('\n');
-        }
-    }
-    let master_dir = js_resolve(&[cwd, &specs_dir(again.as_ref())?, "_master"]);
-    // `readMasterIndex` that throws is `null` to the TS; Rust's `Invalid` may also reject more.
-    let mapping = match master_index::read(Path::new(&master_dir)).ok()? {
-        Some(index) => match index.active().filter(|stage| stage.deliveries) {
-            Some(stage) => delivery_parts::delivery_ids_for_spec(
-                Path::new(&js_resolve(&[&master_dir, &stage.dir, "parts.json"])),
-                cwd,
-                &spec.dir,
-            )?,
-            None => None,
-        },
-        None => None,
-    };
-    let master = mapping.map(|deliveries| check::MasterMapping {
-        deliveries: deliveries
-            .into_iter()
-            .map(|(id, pr_target, _)| (id, pr_target))
-            .collect(),
-        pr_target: spec.pr_target.clone(),
-    });
-    let result: SpecCheck = check::check(
-        &spec.parsed,
-        spec.thresholds,
-        requirements.as_deref(),
-        master.as_ref(),
-    )
-    .ok()?;
+    let result: SpecCheck =
+        check::check(&spec.parsed, spec.thresholds, requirements.as_deref()).ok()?;
     let where_ = |line: Option<usize>| {
         line.map_or_else(
             || spec.tasks_path.clone(),
