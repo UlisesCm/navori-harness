@@ -5,9 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   AREAS,
   PERMANENT_DELEGATION,
+  PERMANENT_SHELL_HOOKS,
   areaOf,
   commandInventory,
   hookInventory,
+  permanentShellHook,
   permanentlyDelegated,
 } from "./rust-areas.mjs";
 
@@ -20,8 +22,9 @@ import {
  * Findings, one per line:
  *   - a subcommand or flag of `cli.ts` neither in `crates/ported.json` nor in the permanent
  *     delegation list of `rust-areas.mjs` (D41, D48 of 0060);
- *   - a hook of `core-assets` missing from the manifest, or still in `shadow`;
- *   - an open unport in `crates/ported-history.jsonl`;
+ *   - a hook of `core-assets` missing from the manifest and from the permanent shell hooks of
+ *     `rust-areas.mjs` (amendment of R20), or still in `shadow`;
+ *   - an open unport in `crates/ported-history.jsonl`, unless it retired a permanent shell hook;
  *   - R17: the last `bench:hooks --impl rust` report missing, not comparable or over its p95 budget,
  *     or `navori-rust --version` slower than 10 ms;
  *   - R18: the last `check:post-cutover` missing, red or over its host's budget (300 s on the
@@ -70,6 +73,7 @@ export function postCutoverBudget(host) {
  *   hooks: string[],
  *   history: HistoryEvent[],
  *   delegation?: ReadonlyArray<{ path: string[], flags?: string[], reason: string }>,
+ *   shellHooks?: ReadonlyArray<{ hook: string, reason: string }>,
  *   bench: BenchReport | null,
  *   versionMs: number | null,
  *   postCutover: PostCutoverReport | null,
@@ -78,6 +82,7 @@ export function postCutoverBudget(host) {
  */
 export function cutoverFindings(input) {
   const delegation = input.delegation ?? PERMANENT_DELEGATION;
+  const shellHooks = input.shellHooks ?? PERMANENT_SHELL_HOOKS;
   /** @type {Finding[]} */
   const findings = [];
   const declared = new Map(input.manifest.commands.map((c) => [c.path.join(" "), c.flags ?? []]));
@@ -97,14 +102,16 @@ export function cutoverFindings(input) {
   for (const id of input.hooks) {
     areaOf({ hook: id });
     const hook = input.manifest.hooks[id];
-    if (hook === undefined) findings.push({ check: "hook", detail: id });
+    if (hook === undefined) {
+      if (!permanentShellHook(id, shellHooks)) findings.push({ check: "hook", detail: id });
+    }
     else if (hook.mode === "shadow") findings.push({ check: "shadow", detail: id });
   }
   const latest = new Map(
     input.history.filter((e) => e.op === "port" || e.op === "unport").map((e) => [e.id, e]),
   );
   for (const event of latest.values())
-    if (event.op === "unport")
+    if (event.op === "unport" && !permanentShellHook(event.id, shellHooks))
       findings.push({ check: "unport", detail: `${event.id} (since ${event.date})` });
   if (input.bench === null) {
     findings.push({ check: "R17", detail: "no bench:hooks --impl rust report" });

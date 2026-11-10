@@ -82,6 +82,31 @@ export const AREAS = {
 export const PERMANENT_DELEGATION = [];
 
 /**
+ * Amendment of R20 (0062): hooks that keep their shell body in every engine after the cutover,
+ * outside the manifest. Their Rust leaves the binary (#1503); `cutover:check` does not count them
+ * as missing nor their unport as open. Any other hook or unport still blocks.
+ * @type {ReadonlyArray<{ hook: string, reason: string }>}
+ */
+export const PERMANENT_SHELL_HOOKS = [
+  { hook: "master-plan-context", reason: "master plan frozen in dev; permanent delegation (#1503)" },
+  { hook: "master-accept-confirm", reason: "master plan frozen in dev; permanent delegation (#1503)" },
+  { hook: "audit-mode-trigger", reason: "audit frozen in dev; permanent delegation (#1503)" },
+  { hook: "audit-mode-close", reason: "audit frozen in dev; permanent delegation (#1503)" },
+  { hook: "stop-verify-reminder", reason: "frozen behind its flag in dev (#1503)" },
+  { hook: "role-guard", reason: "Codex only, frozen; its Rust leaves the binary (#1503)" },
+  { hook: "engram-write-guard", reason: "Codex only, frozen; its Rust leaves the binary (#1503)" },
+];
+
+/**
+ * Whether `PERMANENT_SHELL_HOOKS` (or `list`) keeps hook `id` in shell for good.
+ * @param {string} id
+ * @param {ReadonlyArray<{ hook: string, reason: string }>} [list]
+ */
+export function permanentShellHook(id, list = PERMANENT_SHELL_HOOKS) {
+  return list.some((entry) => entry.hook === id);
+}
+
+/**
  * Whether `PERMANENT_DELEGATION` (or `list`) covers a subcommand, or one of its flags.
  * @param {string[]} path
  * @param {string} [flag]
