@@ -200,11 +200,7 @@ fn run_gate(
         .cloned()
         .collect();
     vars.push(("PWD".into(), run.pwd.clone().into()));
-    if let Some(old) = &run.oldpwd {
-        vars.push(("OLDPWD".into(), old.clone().into()));
-    } else if let Some(old) = env_text(env, "OLDPWD") {
-        vars.push(("OLDPWD".into(), old.to_owned()));
-    }
+    vars.push(("OLDPWD".into(), run.oldpwd.clone().into()));
     let args = [
         OsString::from("-c"),
         OsString::from("set -uo pipefail; eval \"$1\""),
