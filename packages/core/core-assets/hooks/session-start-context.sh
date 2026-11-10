@@ -435,7 +435,7 @@ fi
 # mask a gutted guidance block.
 if [ "$_ss_source" = "compact" ]; then
   add ""
-  add "navori: esta sesión arranca justo después de una compactación — el detalle turno-a-turno ya se resumió. Si no persististe un resumen de sesión antes de compactar, hazlo AHORA con lo que quede: guarda el resumen con tu herramienta de memoria y/o anota en progress/current.md las decisiones y los bugs con causa raíz de esta sesión."
+  add "navori: esta sesión arranca justo después de una compactación — el detalle turno-a-turno ya se resumió. Si no persististe un resumen de sesión antes de compactar, hazlo AHORA con lo que quede: guarda el resumen con tu herramienta de memoria{{navori.compactSummaryTail}}"
 fi
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -485,7 +485,7 @@ fi
 # exposed to the render's interpolator, and the default covers the overwhelming
 # common case.)
 current=""
-for f in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+for f in {{navori.progressFiles}}; do
   if [ -f "$f" ]; then current="$f"; break; fi
 done
 if [ -n "$current" ]; then

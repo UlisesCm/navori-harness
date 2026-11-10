@@ -141,6 +141,8 @@ emiten agents/skills/hooks por archivo; migrarlos al `EngineAdapter` sería chur
 sin ganancia (Spec 0007 DT-1).
 
 Cada adapter pasa su `engine` (`"agents-md"`, `"cursor"`, `"copilot"`) a `renderProseFile`, y es obligatorio
-(#1273): resuelve las llaves reservadas de condición `onCodex` y `onClaude` (ambas ignoran la config). `onClaude`
+(#1273): resuelve las llaves reservadas de condición `onCodex`, `onClaude` y `onLayered` (todas ignoran la config). `onClaude`
 solo es verdadera para `engine === "claude"`: el CLAUDE.md recibe el invariante + puntero de `intake-tickets` y
-`sdd`, mientras que los engines de prosa (y Pi) conservan el texto completo porque no cargan skills.
+`sdd`, mientras que los engines de prosa (y Pi) conservan el texto completo porque no cargan skills. `onLayered` es verdadera para `engine === "claude"`, y para `agents-md` solo cuando `pi` está en `engines`: `CLAUDE.md` y el `AGENTS.md` por capas con Pi reciben el puntero corto de `intake-tickets`, mientras que cursor, copilot, codex, Pi sin `agents-md` y agents-md sin Pi conservan el texto largo.
+
+Regla de capas para autores de assets: los bloques compartidos nombran los skills por nombre, no llevan span `onClaude` y el texto exclusivo de Claude va en el asset `claude-apendice`. Un manifiesto de plugin con `managed[].layer: "shared"` hace que su bloque forme parte del `AGENTS.md` de agents-md.

@@ -77,6 +77,9 @@ Estimated LOC: 5300
 
 - **A11** [observable] — Los tres roles se despachan con su lista de herramientas y el publisher pasa por gate y confirmación · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-roles.test.ts` → exit 0; publisher que intenta `gh pr create` en hijo devuelve el relay al padre; plazo del publisher ≥ gate + margen.
 - [x] **T18** (R14) — Admitir auditor/architect (`read, grep, find, ls, bash, write`) y publisher (`read, grep, find, ls, bash`) en `ROLE_TOOLS`; despacho anidado del architect bajo `navori:if-not onPi` (`conditionOrchestration`); retirar `additional-analytic-roles`; plazos por rol. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::auditor architect publisher dispatch
+  **Enmienda (#1496):** el publisher pasó a `PI_PARENT_ROLES`: se renderiza para la sesión padre y no se
+  despacha como hijo. Riesgo conocido: pierde su límite de herramientas; "no edita código" queda como regla de
+  texto, mitigada por el gate de commit/push y el bloqueo de archivos gestionados.
 ### M12 — Verificación en vivo y documentación
 
 - **A12** [observable] — Ciclo Pi-only en vivo completo y RED/GREEN registrados por el usuario · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` → exit 0 y `specs/0048-pi-paridad/evals.md` con el ciclo en vivo (instalación, plan, implementación, docs, revisión, commit y push con gate, PR confirmado, cierre con evidencia) y la tabla RED/GREEN con resultados adversos conservados. Cumplido 2026-10-12: ver [evals.md](evals.md).

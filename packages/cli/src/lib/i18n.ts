@@ -683,6 +683,9 @@ interface RenderCmdStrings {
   prunedEngineOutputs: (count: number, list: string) => string;
   /** Same list, before anything is deleted: `--prune` without `--apply` (#521). */
   prunePreviewEngineOutputs: (count: number, list: string) => string;
+  /** Files kept with only the managed blocks removed — the user's text survives (#1604). */
+  prunedStrippedOutputs: (count: number, list: string) => string;
+  prunePreviewStrippedOutputs: (count: number, list: string) => string;
   keptEngineOutputs: (count: number, list: string) => string;
   /** The spared half of that same preview plan (#521). */
   keptEngineOutputsPreview: (count: number, list: string) => string;
@@ -1745,6 +1748,34 @@ interface CmdStrings {
   adopt: AdoptCmdStrings;
   preset: PresetCmdStrings;
   codex: CodexCmdStrings;
+  master: MasterCmdStrings;
+}
+
+/** Spec 0063 T2 — `navori master accept|reject` (master plan v2). */
+interface MasterCmdStrings {
+  verdict: (
+    id: string,
+    accepted: boolean,
+    date: string,
+    commit: string,
+    detail: { evidence?: string; notes?: number },
+  ) => string;
+  published: (branch: string) => string;
+  unpublished: (reason: string) => string;
+  /** `status --line`: one local-state line for the SessionStart hook. */
+  line: (counts: string, tasks: string) => string;
+  lineEmpty: string;
+  lineTasks: (n: number, ids: string) => string;
+  /** `init` of the v2 plan. */
+  initCreated: (path: string) => string;
+  initKept: (path: string) => string;
+  initNeedsSlug: string;
+  initBadSlug: (slug: string) => string;
+  initNeedsSdd: string;
+  initNoConfig: (path: string) => string;
+  initFlagEdit: (plan: string, path: string, edit: string, render: string) => string;
+  initRenderFailed: (reason: string) => string;
+  initLegacyActive: string;
 }
 
 /** Spec 0035 T9 — `navori codex trust`. */
@@ -1830,6 +1861,12 @@ const CMD_ES: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Borré archivos huérfanos de engines desactivados (${count}) — solo los que escribió ` +
       `navori (llevan su marcador), respaldados antes de borrar:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Quité los bloques de navori de ${count} archivo(s) de engines desactivados y conservé ` +
+      `tu texto — el archivo sigue ahí, respaldado antes de reescribirlo:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `Con --apply quitaría los bloques de navori de ${count} archivo(s) de engines ` +
+      `desactivados y conservaría tu texto, con respaldo previo. Este preview no tocó nada:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `Con --apply borraría ${count} archivo(s) huérfanos de engines desactivados — solo los ` +
       `que escribió navori (llevan su marcador), y los respalda antes de borrar. Este preview ` +
@@ -3160,6 +3197,32 @@ const CMD_ES: CmdStrings = {
     verificationFoundUntrusted: (n) =>
       `Codex reporta ${n} hook(s) de navori aún sin aprobar tras la escritura.`,
   },
+  master: {
+    verdict: (id, accepted, date, commit, { evidence, notes }) =>
+      `${id} ${accepted ? "aceptado" : "rechazado"} ${date} ${commit}` +
+      (evidence ? ` · evidencia ${evidence}` : notes ? ` · ${notes} nota(s)` : ""),
+    published: (branch) => `publicado en origin/${branch}`,
+    unpublished: (reason) => `sin publicar: ${reason}`,
+    line: (counts, tasks) =>
+      `Plan maestro — estado local, sin fetch: ${counts}${tasks}. Detalle: navori master status.`,
+    lineEmpty:
+      "Plan maestro — estado local, sin fetch: índice vacío. Llénalo y corre navori master check.",
+    lineTasks: (n, ids) => `; ${n} tarea(s) abierta(s) de rechazo (${ids})`,
+    initCreated: (path) =>
+      `Creado ${path}. Siguiente: llena el índice de slices con el agente y corre navori master check.`,
+    initKept: (path) => `${path} ya existe: no se sobreescribe. Estado actual:`,
+    initNeedsSlug: "navori master init requiere un slug para crear el plan",
+    initBadSlug: (slug) => `slug inválido "${slug}": usa kebab-case (a-z, 0-9 y guiones)`,
+    initNeedsSdd:
+      "navori master init requiere sdd.enabled (navori.config.json): actívalo para usar el plan maestro",
+    initNoConfig: (path) =>
+      `no puedo leer ${path}: corre 'navori init' o corrige el JSON, y vuelve a correr navori master init`,
+    initFlagEdit: (plan, path, edit, render) =>
+      `${plan} ya está creado, pero no reformateo ${path} (formato manual): agrega ${edit} y corre ${render}; luego repite navori master init`,
+    initRenderFailed: (reason) => `falló el render: ${reason}`,
+    initLegacyActive:
+      "hay una etapa v1 activa: continúo con ella; 'navori master migrate' llega en una release siguiente",
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -3225,6 +3288,12 @@ const CMD_EN: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Deleted orphaned files from disabled engines (${count}) — only the ones navori wrote ` +
       `(they carry its marker), backed up before deletion:\n${list}`,
+    prunedStrippedOutputs: (count, list) =>
+      `Removed navori's blocks from ${count} file(s) of disabled engines and kept your text — ` +
+      `the file stays, backed up before it was rewritten:\n${list}`,
+    prunePreviewStrippedOutputs: (count, list) =>
+      `With --apply this would remove navori's blocks from ${count} file(s) of disabled engines ` +
+      `and keep your text, backed up first. This preview touched nothing:\n${list}`,
     prunePreviewEngineOutputs: (count, list) =>
       `With --apply this would delete ${count} orphaned file(s) from disabled engines — only ` +
       `the ones navori wrote (they carry its marker), backed up before deletion. This preview ` +
@@ -4542,6 +4611,32 @@ const CMD_EN: CmdStrings = {
     verificationOk: "Codex confirms every navori hook is now approved.",
     verificationFoundUntrusted: (n) =>
       `Codex reports ${n} navori hook(s) still unapproved after the write.`,
+  },
+  master: {
+    verdict: (id, accepted, date, commit, { evidence, notes }) =>
+      `${id} ${accepted ? "accepted" : "rejected"} ${date} ${commit}` +
+      (evidence ? ` · evidence ${evidence}` : notes ? ` · ${notes} note(s)` : ""),
+    published: (branch) => `published to origin/${branch}`,
+    unpublished: (reason) => `not published: ${reason}`,
+    line: (counts, tasks) =>
+      `Master plan — local state, no fetch: ${counts}${tasks}. Details: navori master status.`,
+    lineEmpty:
+      "Master plan — local state, no fetch: empty index. Fill it and run navori master check.",
+    lineTasks: (n, ids) => `; ${n} open rejection task(s) (${ids})`,
+    initCreated: (path) =>
+      `Created ${path}. Next: fill the slice index with the agent and run navori master check.`,
+    initKept: (path) => `${path} already exists: not overwritten. Current state:`,
+    initNeedsSlug: "navori master init needs a slug to create the plan",
+    initBadSlug: (slug) => `invalid slug "${slug}": use kebab-case (a-z, 0-9 and hyphens)`,
+    initNeedsSdd:
+      "navori master init requires sdd.enabled (navori.config.json): enable it to use the master plan",
+    initNoConfig: (path) =>
+      `cannot read ${path}: run 'navori init' or fix the JSON, then re-run navori master init`,
+    initFlagEdit: (plan, path, edit, render) =>
+      `${plan} is in place, but not reformatting ${path} (hand-formatted): add ${edit} and run ${render}; then re-run navori master init`,
+    initRenderFailed: (reason) => `render failed: ${reason}`,
+    initLegacyActive:
+      "a v1 stage is active: continuing with it; 'navori master migrate' arrives in a later release",
   },
 };
 

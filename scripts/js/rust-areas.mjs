@@ -26,7 +26,8 @@ export const AREAS = {
     ],
   },
   E2: {
-    commands: ["audit", "receipt", "gate", "bench", "tools"],
+    // `bench` left the default CLI behind a flag in `dev` (#1502) and stays with the TS (#1503).
+    commands: ["audit", "receipt", "gate", "tools"],
     hooks: [
       "audit-mode-trigger",
       "audit-mode-close",
@@ -59,6 +60,8 @@ export const AREAS = {
     commands: ["render", "sync", "remove", "adopt"],
     hooks: [
       "guard-destructive",
+      // Shares guard-destructive's PII partials; ported as step 1c of the 0.13 plan.
+      "pii-egress-guard",
       "subagent-no-background",
       "quality-gate-pre-commit",
       "plan-gate",

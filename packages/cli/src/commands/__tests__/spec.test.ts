@@ -410,3 +410,67 @@ describe("navori spec check", () => {
     expect(result.stderr).toContain("ERROR: cannot read");
   });
 });
+
+describe("navori spec — one-page spec.md", () => {
+  const ONE_PAGE = [
+    "# Demo",
+    "## Outcome",
+    "A member signs in.",
+    "## Acceptance script",
+    "1. Open the app. **Expected:** home.",
+    "## Applicable rules",
+    "- RF-1",
+    "## States",
+    "Empty, error, offline, no permission.",
+    "## Environment and data",
+    "- none",
+    "## Out of scope",
+    "- nothing",
+    "## Tasks",
+    "1. A member reaches home.",
+  ].join("\n");
+
+  function writeSpec(feature: string, text: string): void {
+    mkdirSync(join(cwd, "specs", feature), { recursive: true });
+    writeFileSync(join(cwd, "specs", feature, "spec.md"), text);
+  }
+
+  it("check exits 0 with the onepage JSON contract", async () => {
+    writeSpec("demo", ONE_PAGE);
+    const result = await run("check", "demo", "--json");
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      formatVersion: 1,
+      feature: "demo",
+      format: "onepage",
+      ok: true,
+      findings: [],
+    });
+    const text = await run("check", "demo");
+    expect(text.stdout).toMatch(/^demo: ok — 0 error\(s\), 0 warning\(s\), \d+ words\n$/);
+  });
+
+  it("check exits 2 with ERROR/WHY/FIX on a missing section", async () => {
+    writeSpec("demo", ONE_PAGE.replace("## Tasks\n1. A member reaches home.", ""));
+    const result = await run("check", "demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("ERROR:");
+    expect(result.stderr).toContain("[missing-section]");
+    expect(result.stderr).toContain("FIX:");
+  });
+
+  it("classify reports a single PR without reading tasks.md", async () => {
+    writeSpec("demo", ONE_PAGE);
+    const text = await run("classify", "demo");
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toBe("demo: single (1 PR) — one-page spec, one slice\n");
+    const json = await run("classify", "demo", "--json");
+    expect(JSON.parse(json.stdout)).toEqual({
+      formatVersion: 1,
+      feature: "demo",
+      format: "onepage",
+      shape: "single",
+      prCount: 1,
+    });
+  });
+});

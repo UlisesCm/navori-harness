@@ -856,9 +856,11 @@ fn progress_ratchet_matches_the_rendered_copies_over_real_repositories() -> Test
         ".claude/hooks/guard-destructive.sh",
         "proj/.claude/hooks/guard-destructive.sh",
     )?;
+    // This repository no longer renders Codex (`dev` dropped it in 318d5eff); its copy differed
+    // from Claude's only in the native-failure arm, so the Claude copy runs at the Codex path.
     let codex = install_with_lane(
         &scratch,
-        ".codex/hooks/guard-destructive.sh",
+        ".claude/hooks/guard-destructive.sh",
         "codexhost/.codex/hooks/guard-destructive.sh",
     )?;
     let proj = scratch.path("proj");

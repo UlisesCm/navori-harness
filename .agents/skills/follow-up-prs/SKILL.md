@@ -7,7 +7,7 @@ metadata:
   maxWordsComposed: 550
 ---
 
-<!-- navori:managed id="follow-up-prs" hash="d60d723e" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="follow-up-prs" hash="b90b2413" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # follow-up-prs — pick up what happened after the PR
 
 ## When to use this skill
@@ -52,7 +52,7 @@ unblocks it, and don't invent a fix in the diff.
 **5 · Turn each finding into an encargo:** one line per `CHANGES_REQUESTED` or unanswered
 comment — `file:line`, what it asks, and the smallest change that covers it. **Implement
 nothing here**: the user picks what gets attacked. **A reply to the comment is `publisher`'s
-job** — hand it the thread and the text; this skill never posts one.
+job** (on Pi, this session following `.pi/agents/publisher.md`) — hand it the thread and the text; this skill never posts one.
 
 ## Hard rules
 

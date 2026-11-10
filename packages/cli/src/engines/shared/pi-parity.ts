@@ -223,7 +223,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "master-accept-confirm",
       seatbelt(
         "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/master-accept-confirm.sh`) under bash for the parent and every child; its `ask` needs the operator's confirmation in the interactive parent (the native dialog), and is refused without UI or on denial. A child is refused and the exact command is relayed to the parent (PI_HOOK_BINDINGS). The extension additionally asks for any command that carries `--approved-by`",
-        "covers `navori master part|delivery-baseline|delivery-queue|delivery-criterion … --approved-by`, `master close`, `delivery-review|decision|publication|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox",
+        "covers `navori master accept` and `master reject`, and direct writes to `navori/acceptance`; the v1 write forms no longer write; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox",
         "pi-extension:tool_call",
       ),
     ),
@@ -246,7 +246,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "guard-destructive",
       seatbelt(
         "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/guard-destructive.sh`) under bash for the parent and every child; exit 2 blocks the call before it runs (PI_HOOK_BINDINGS)",
-        "textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row)",
+        "textual policy over the command string: the destructive rules of the shared script, its PII-egress lane (a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry; never echoes either), the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row)",
         "pi-extension:tool_call",
       ),
     ),
@@ -329,6 +329,12 @@ const hookEntries = (): Array<[string, PiParity]> => {
       ),
     ),
     h(
+      "pii-egress-guard",
+      notApplicable(
+        "Claude-only: it guards WebFetch and WebSearch, which Pi does not have. Pi's `bash` is covered by the PII-egress lane inside guard-destructive (its row)",
+      ),
+    ),
+    h(
       "engram-write-guard",
       notApplicable(
         "Codex-only: Pi children run with `--no-mcp` and are never granted an engram write tool (only the read-only navori_mem_* tools, see the engram plugin-skill rows); bash still reaches the engram CLI, which no Pi control guards",
@@ -405,13 +411,17 @@ const PLUGIN_PROJECTION = "render:plugin-projection";
 const CONTEXT_BOUNDARY =
   "Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it";
 
+/** The orchestrator layer: Pi's parent-only file, injected by the extension (spec 0064). */
+const ORCHESTRATOR_BOUNDARY =
+  "Pi writes the sub-block into `.pi/navori/orchestrator.md` (an ownedPaths entry), which the extension injects into the parent's system prompt only; a child never receives it, and if the file is missing or unreadable the extension warns once and the session runs without it. With Codex configured the block stays in Codex's AGENTS.md instead. The block is prose: Pi reads it, nothing enforces it";
+
 const pluginEntries = (): Array<[string, PiParity]> => {
-  /** A skill extending the orchestrator: a sub-block of the context file Pi embodies it through. */
+  /** A skill extending the orchestrator: a sub-block of the parent-only file Pi embodies it through. */
   const skillOnOrchestrator = (plugin: string, id: string): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
     advisory(
-      "sub-block of the AGENTS file, the main thread's durable guide",
-      CONTEXT_BOUNDARY,
+      "sub-block of .pi/navori/orchestrator.md, the main thread's durable guide",
+      ORCHESTRATOR_BOUNDARY,
       PLUGIN_PROJECTION,
     ),
   ];

@@ -4,7 +4,6 @@
  * instead of guessing at a fix (R15).
  */
 import { evidenceCase } from "./render.ts";
-import { checkDeliveryPlanSource } from "../master/slice.ts";
 import { classify, declaredFlagsFromSignals, projectClassifyContext } from "./classify.ts";
 import { WorkplanSchema, type Workplan } from "./schema.ts";
 import { parseExpected } from "./expected.ts";
@@ -177,9 +176,15 @@ function checkLevel(plan: Workplan, cwd: string | undefined): CheckFinding[] {
  * run can drive a full fix. */
 export function checkWorkplan(
   raw: unknown,
-  options: { cwd?: string; feature?: string; evidence?: "warning" | "finding" } = {},
+  options: {
+    cwd?: string;
+    feature?: string;
+    evidence?: "warning" | "finding";
+    /** Only the v1 delivery library (deleted with the v1 flow) opts out of the migrate finding. */
+    allowV1Delivery?: boolean;
+  } = {},
 ): CheckResult {
-  const { cwd, feature, evidence = "warning" } = options;
+  const { cwd, feature, evidence = "warning", allowV1Delivery = false } = options;
   const parsed = WorkplanSchema.safeParse(raw);
   if (!parsed.success) {
     const findings = parsed.error.issues.map((issue) => ({
@@ -190,12 +195,12 @@ export function checkWorkplan(
   }
 
   const findings = [...checkStructural(parsed.data, feature), ...checkLevel(parsed.data, cwd)];
-  if (parsed.data.source) {
-    const problems = cwd
-      ? checkDeliveryPlanSource(cwd, parsed.data)
-      : ["delivery source requires an explicit checkout context"];
-    findings.push(...problems.map((message) => ({ rule: "delivery-source", message })));
-  }
+  if (parsed.data.source && !allowV1Delivery)
+    findings.push({
+      rule: "delivery-v1-workplan",
+      message:
+        "es un workplan de entrega v1 (source.kind master-delivery); la v1 del plan maestro es de solo lectura: corre navori master migrate",
+    });
   const warnings: CheckFinding[] = [];
   for (const note of checkEvidence(parsed.data)) {
     if (

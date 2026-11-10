@@ -17,7 +17,7 @@ case "$cmd" in
     fi
     if [ "$navori_search_rc" -eq 43 ]; then
       navori_audit_verdict="fail-open"
-      navori_audit_reason="search index unavailable"
+      navori_audit_reason="search-index-unavailable"
     fi
     ;;
 esac

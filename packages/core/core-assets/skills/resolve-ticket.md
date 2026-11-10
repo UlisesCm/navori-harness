@@ -19,12 +19,12 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
+| 1 · Triage | you: `mem_search`,<!-- navori:if sessionState --> `cat progress/current.md`,<!-- /navori:if --> `git status/log` | Trivial → skip the deeper phases; route by risk. <!-- navori:if sessionState -->If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel.<!-- /navori:if --><!-- navori:if-not sessionState -->Never two tickets in parallel.<!-- /navori:if-not --> |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict<!-- navori:if planTiers -->, or level 2 → skill `plan-advanced`<!-- /navori:if -->. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it<!-- navori:if scribeOwnsMarkdown -->, then `scribe` when `markdownRequests` is non-empty<!-- /navori:if --> | Reads audit (if 2 ran) → solution (if 3 ran) → applicable skill<!-- navori:if planTiers -->; the encargo opens with `workplan: <feature>`<!-- /navori:if -->. <!-- navori:if-not scribeOwnsMarkdown -->Produces `impl_<feature>.md` with fresh evidence at exit 0.<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->Produces `impl_<feature>.json` with fresh evidence (R2); scribe renders `impl_<feature>.md` and applies `markdownRequests` (R5, R7). Accepted level-3 work may opt into the parallel lifecycle only under the currently supported native Codex 0.162.1 contract; serial is default. Both producers finish before serial render/checks and independent review. Corrections and accepted next milestones need fresh claims and an explicit successor run after both predecessor terminal records; see the canonical guide at https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md.<!-- /navori:if --> **Gate: `{{qualityGate.fast}}` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`<!-- navori:if scribeOwnsMarkdown --> — the complete diff, including the `scribe`'s commit when it ran<!-- /navori:if -->. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
-| 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
+| 6 · Publish | `publisher` agent<!-- navori:if onPi --> — on Pi, this session following `.pi/agents/publisher.md`<!-- /navori:if --> | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per `verify-before-done` Session close. |
 
 ## Phase 2 fan-out
 
@@ -45,11 +45,11 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
   `formato-respuesta.md` before asking approval; no-work verdicts close with evidence, without approval.
 - **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
-- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
+- **A verdict that opens no work doesn't wait for approval:** report it with its evidence,<!-- navori:if sessionState --> leave `progress/current.md` at `idle`,<!-- /navori:if --> stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
 - **A tracker comment is opt-in, per cycle, on request** — `publisher` drafts and posts it only when the user asks; the pipeline never assumes one is wanted.
 
 ## Before declaring done
 
 - A cycle that proceeded ends with a PR via `publisher` and its URL to the user.
 - A cycle closed at phase 2 ends with its verdict + evidence and no PR.
-- Either way, `progress/current.md` at `idle`.
+- Either way, <!-- navori:if sessionState -->`progress/current.md` at `idle`.<!-- /navori:if --><!-- navori:if-not sessionState -->the outcome saved to memory.<!-- /navori:if-not -->

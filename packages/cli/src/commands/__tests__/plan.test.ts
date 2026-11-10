@@ -370,6 +370,39 @@ describe("navori plan classify --diff", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  /** Runs `classify --diff --json` against a "demo" classify draft (#1571). */
+  async function classifyDraft(signals: string[]): Promise<Record<string, unknown>> {
+    gitRepoWithDiff(["src/a.ts"]);
+    writePlan("demo", {
+      feature: "demo",
+      files: [{ path: "src/a.ts" }],
+      classification: { signals },
+    });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "main", "--json", "--cwd", cwd],
+    });
+    spy.restore();
+    return JSON.parse(logs.join("")) as Record<string, unknown>;
+  }
+
+  it("treats a classify draft as no workplan (#1571)", async () => {
+    const parsed = await classifyDraft([]);
+    expect(parsed).toMatchObject({ declaredLevel: 0, workplan: false });
+    expect(parsed.depthReason).not.toBe("workplan");
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it("keeps a classify draft's declared floor signals (#1571)", async () => {
+    const parsed = await classifyDraft(["floor:data-schema-migration"]);
+    expect(parsed).toMatchObject({ level: 2, declaredLevel: 0, workplan: false });
+    expect(parsed.signals).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^floor:data-schema-migration/)]),
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
   // Covers: R29
   it("reviewDepth con área crítica, sin declaración y light", async () => {
     const run = async (

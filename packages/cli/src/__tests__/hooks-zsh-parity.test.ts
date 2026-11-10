@@ -25,6 +25,7 @@ interface CorpusCase {
 }
 interface Replay {
   readCorpus: () => CorpusCase[];
+  caseKey: (c: CorpusCase) => string;
   replayCorpus: (options: {
     corpus: CorpusCase[];
     shell: string;
@@ -80,17 +81,50 @@ const isKnown = (c: CorpusCase): boolean =>
     (k) => k.hook === c.hook && (k.engine === undefined || k.engine === c.engine) && k.matches(c),
   );
 
+/**
+ * Cases per test. The whole corpus (~3,000 cases × 2 audit modes) in one test took ~150 s idle
+ * and crossed its single 300 s limit under load (#1485); a fixed-size chunk keeps the work per
+ * test bounded, so the default testTimeout is only a hang detector.
+ */
+const CHUNK_SIZE = 125;
+
+/** Splits `cases` into consecutive chunks of at most `size`. */
+function chunk<T>(cases: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < cases.length; i += size) chunks.push(cases.slice(i, i + size));
+  return chunks;
+}
+
 describe.runIf(hasZsh)("hooks under zsh", () => {
   const capturedUnderBash = replay.readCorpus().filter((c) => c.shell === "bash");
+  const keyed = capturedUnderBash
+    .filter((c) => !isKnown(c))
+    .map((c) => ({ key: replay.caseKey(c), c }))
+    // Stable order, so a chunk's membership (and its name) does not move between runs.
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const corpus = keyed.map((k) => k.c);
+  const chunks = chunk(corpus, CHUNK_SIZE).map((cases, index) => ({
+    name: `${index * CHUNK_SIZE + 1}-${index * CHUNK_SIZE + cases.length} (${[...new Set(cases.map((c) => c.hook))].join(", ")})`,
+    cases,
+  }));
 
   // Covers: R16
-  it("el corpus da el mismo veredicto bajo zsh", async () => {
-    const corpus = capturedUnderBash.filter((c) => !isKnown(c));
+  it("los chunks cubren el corpus filtrado completo, cada caso una sola vez", () => {
     expect(corpus.length).toBeGreaterThan(0);
-    const result = await replay.replayCorpus({ corpus, shell: "zsh", all: true });
+    const covered = chunks.flatMap((ch) => ch.cases);
+    expect(covered).toHaveLength(corpus.length);
+    const keys = covered.map((c) => replay.caseKey(c));
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(keys)).toEqual(new Set(keyed.map((k) => k.key)));
+    expect(chunks.every((ch) => ch.cases.length <= CHUNK_SIZE)).toBe(true);
+  });
+
+  // Covers: R16
+  it.each(chunks)("el corpus da el mismo veredicto bajo zsh: casos $name", async ({ cases }) => {
+    const result = await replay.replayCorpus({ corpus: cases, shell: "zsh", all: true });
     expect(result.failure).toBeUndefined();
     expect(result.ok).toBe(true);
-  }, 300_000);
+  });
 
   // Covers: R16
   it("cada divergencia conocida sigue divergiendo (si el hook se arregla, quita la entrada)", async () => {

@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -14,14 +15,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { PINNED_PI_VERSION } from "./fixtures/pinned-pi-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
-import { fingerprintTree, readEvidenceLog, validateEvidence } from "../../../lib/plan/evidence.ts";
+import {
+  fingerprintTree,
+  readEvidenceLog,
+  validateEvidence,
+  type DeliveryEvidenceBinding,
+} from "../../../lib/plan/evidence.ts";
 import { resolveStateRoot } from "../../../lib/primitives/state-root.ts";
 
 // The pinned devDependency, not a user install: the probe must never skip silently.
@@ -51,8 +57,19 @@ function load(
 ): { result: ResultHandler | undefined } {
   const modules = new Map<string, unknown>([
     ["node:child_process", { spawn }],
-    ["node:fs", { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync }],
-    ["node:path", { join }],
+    [
+      "node:fs",
+      {
+        appendFileSync,
+        existsSync,
+        lstatSync,
+        readdirSync,
+        readFileSync,
+        readlinkSync,
+        realpathSync,
+      },
+    ],
+    ["node:path", { dirname, join, sep }],
     ["@earendil-works/pi-ai", { Type: new Proxy({}, { get: () => () => ({}) }) }],
     [
       "@earendil-works/pi-coding-agent",
@@ -67,7 +84,14 @@ function load(
     exports,
     require: (id: string): unknown => modules.get(id),
     process: {
-      env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "", NAVORI_PI_CHILD_ROLE: "", ...env },
+      env: {
+        ...process.env,
+        NAVORI_PI_CHILD_DEPTH: "",
+        NAVORI_PI_CHILD_ROLE: "",
+        NAVORI_PI_CHILD_ID: "",
+        NAVORI_PI_PARENT_SESSION: "",
+        ...env,
+      },
       platform: process.platform,
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
@@ -282,6 +306,44 @@ describe("parent and child evidence", () => {
     expect(lines(cwd)).toHaveLength(1);
   });
 
+  // #1575: Pi's bash keeps no cd, so a session at the root runs a worktree's criterion as `cd <worktree> && <cmd>`.
+  it("records a `cd <linked worktree> && <criterion>` run in that worktree, accepted there", async () => {
+    const cwd = project();
+    execFileSync("git", ["worktree", "add", "-q", "-b", "wt", ".claude/worktrees/wt"], { cwd });
+    const worktree = join(cwd, ".claude/worktrees/wt");
+    mkdirSync(join(worktree, DIR), { recursive: true });
+    const escaped = JSON.stringify(COMMAND).slice(1, -1);
+    writeFileSync(
+      join(worktree, DIR, "acceptance-index"),
+      `${escaped}\tdemo\tA1\t${join(worktree, DIR)}\n`,
+    );
+    rmSync(join(cwd, DIR, "acceptance-index"));
+    const { result } = load(BUILTIN);
+    await result?.(ok({ input: { command: `cd ${worktree} && ${COMMAND}` } }), ctx(cwd));
+    expect(lines(worktree)).toHaveLength(1);
+    expect(lines(worktree)[0]).toMatchObject({ command: COMMAND, tree: worktree, cwd: worktree });
+    expect(existsSync(join(cwd, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
+    const root = resolveStateRoot({ cwd: worktree, feature: "demo" });
+    expect(
+      validateEvidence({ root, feature: "demo", id: "A1", command: COMMAND, expected: "passes" }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("records nothing for a cd into a directory that is not a linked worktree of this repo", async () => {
+    const cwd = project();
+    const other = project();
+    const { result } = load(BUILTIN);
+    for (const [id, command] of [
+      ["plain", `cd ${other} && ${COMMAND}`],
+      ["quoted", `cd "${cwd}" && ${COMMAND}`],
+      ["relative", `cd . && ${COMMAND}`],
+    ] as const) {
+      await result?.(ok({ toolCallId: id, input: { command } }), ctx(cwd));
+    }
+    expect(existsSync(join(cwd, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
+    expect(existsSync(join(other, DIR, "workplan_demo.evidence.jsonl"))).toBe(false);
+  });
+
   // Covers: R7
   it("records nothing unless success is established by the built-in bash contract", async () => {
     const cwd = project();
@@ -316,5 +378,146 @@ describe("parent and child evidence", () => {
     execFileSync("ln", ["-s", target, join(cwd, DIR, "workplan_demo.evidence.jsonl")]);
     await load(BUILTIN).result?.(ok(), ctx(cwd));
     expect(readFileSync(target, "utf8")).toBe("");
+  });
+});
+
+const STAGE = "specs/_master/02-demo";
+const OTHER = "specs/_master/03-other";
+const HASH = "a".repeat(64);
+const binding = (over: Partial<DeliveryEvidenceBinding> = {}): DeliveryEvidenceBinding => ({
+  policy: "deliveries-content-v1",
+  authorityGeneration: 1,
+  stagePath: STAGE,
+  sourceIdentity: HASH,
+  baselineIdentity: HASH,
+  queueIdentity: HASH,
+  qualifiedId: "P1.A2",
+  criterionIdentity: HASH,
+  ...over,
+});
+
+/** A stage directory with valid lifecycle files, so a rejection can only come from the rule under test. */
+function stage(cwd: string, path: string): void {
+  mkdirSync(join(cwd, path), { recursive: true });
+  writeFileSync(join(cwd, path, "state.json"), "{}\n");
+  writeFileSync(join(cwd, path, "STATUS.md"), "# status\n");
+}
+
+/** project() whose only index row is delivery-bound (6 fields); both STAGE and OTHER exist on disk. */
+function deliveryProject(row: { binding?: unknown; stage?: string } = {}): string {
+  const cwd = project();
+  stage(cwd, STAGE);
+  stage(cwd, OTHER);
+  const escaped = JSON.stringify(COMMAND).slice(1, -1);
+  writeFileSync(
+    join(cwd, DIR, "acceptance-index"),
+    `${escaped}\tdemo\tA1\t${join(cwd, DIR)}\t${JSON.stringify(row.binding ?? binding())}\t${row.stage ?? STAGE}\n`,
+  );
+  return cwd;
+}
+
+/** The evidence log exactly as written, without readEvidenceLog's silent filtering of invalid lines. */
+function rawLog(cwd: string): string {
+  const file = join(cwd, DIR, "workplan_demo.evidence.jsonl");
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
+}
+
+// Covers: R7
+describe("delivery-bound evidence", () => {
+  // Covers: R7
+  it("records a delivery row with its binding and fp 2, accepted by validateEvidence under that binding", async () => {
+    const cwd = deliveryProject();
+    // progress/ is excluded only by fingerprint v2: its presence makes v2 and legacy differ.
+    mkdirSync(join(cwd, "progress"));
+    writeFileSync(join(cwd, "progress/current.md"), "state\n");
+    await load(BUILTIN).result?.(ok(), ctx(cwd));
+    const recorded = rawLog(cwd).split("\n").filter(Boolean);
+    expect(recorded).toHaveLength(1);
+    const line = JSON.parse(recorded[0]!) as Record<string, unknown>;
+    expect(line).toMatchObject({ fp: 2, deliveryBinding: binding(), feature: "demo", id: "A1" });
+    const v2 = fingerprintTree(cwd, binding());
+    const legacy = fingerprintTree(cwd, binding(), { legacy: true });
+    expect(v2.ok && legacy.ok && v2.tree !== legacy.tree).toBe(true);
+    expect(line.worktreeTree).toBe(v2.ok ? v2.tree : undefined);
+    // Lifecycle and progress writes after the run (delivery-criterion itself) must not stale the proof.
+    writeFileSync(join(cwd, STAGE, "state.json"), '{"criteria":[]}\n');
+    writeFileSync(join(cwd, STAGE, "STATUS.md"), "# changed\n");
+    writeFileSync(join(cwd, "progress/current.md"), "next\n");
+    const root = resolveStateRoot({ cwd, feature: "demo" });
+    const verdict = (deliveryBinding?: DeliveryEvidenceBinding) =>
+      validateEvidence({
+        root,
+        feature: "demo",
+        id: "A1",
+        command: COMMAND,
+        expected: "passes",
+        deliveryBinding,
+      });
+    expect(verdict(binding())).toMatchObject({ ok: true });
+    expect(verdict(binding({ authorityGeneration: 2 }))).toMatchObject({ ok: false });
+    expect(verdict()).toMatchObject({ ok: false });
+  });
+
+  // Covers: R7
+  it("writes nothing to disk for a malformed or uncontained delivery row", async () => {
+    const cases: Array<[string, () => string]> = [
+      [
+        "unknown policy",
+        () => deliveryProject({ binding: binding({ policy: "other" as "deliveries-content-v1" }) }),
+      ],
+      ["binding not an object", () => deliveryProject({ binding: "x" })],
+      // OTHER exists and is valid: only the stage == binding.stagePath rule rejects it.
+      ["existing stage that differs from the binding", () => deliveryProject({ stage: OTHER })],
+      [
+        "parent segment resolving to a valid stage",
+        () => {
+          const path = "specs/_master/x/../02-demo";
+          return deliveryProject({ binding: binding({ stagePath: path }), stage: path });
+        },
+      ],
+      [
+        "symlinked stage directory",
+        () => {
+          const cwd = deliveryProject();
+          stage(cwd, "real-stage");
+          rmSync(join(cwd, STAGE), { recursive: true });
+          symlinkSync(join(cwd, "real-stage"), join(cwd, STAGE));
+          return cwd;
+        },
+      ],
+      [
+        "missing state.json",
+        () => {
+          const cwd = deliveryProject();
+          rmSync(join(cwd, STAGE, "state.json"));
+          return cwd;
+        },
+      ],
+      [
+        "symlinked state.json",
+        () => {
+          const cwd = deliveryProject();
+          writeFileSync(join(cwd, "real.json"), "{}\n");
+          rmSync(join(cwd, STAGE, "state.json"));
+          symlinkSync(join(cwd, "real.json"), join(cwd, STAGE, "state.json"));
+          return cwd;
+        },
+      ],
+      [
+        "symlinked STATUS.md",
+        () => {
+          const cwd = deliveryProject();
+          writeFileSync(join(cwd, "real.md"), "# s\n");
+          rmSync(join(cwd, STAGE, "STATUS.md"));
+          symlinkSync(join(cwd, "real.md"), join(cwd, STAGE, "STATUS.md"));
+          return cwd;
+        },
+      ],
+    ];
+    for (const [label, make] of cases) {
+      const cwd = make();
+      await load(BUILTIN).result?.(ok({ toolCallId: label }), ctx(cwd));
+      expect(rawLog(cwd), label).toBe("");
+    }
   });
 });

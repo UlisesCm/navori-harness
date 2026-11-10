@@ -52,8 +52,8 @@ describe("receipt wiring", () => {
   });
 
   // Covers: R6, R8
-  it("cierre-sesion checks the receipt with --include-consumed instead of citing the cycle", () => {
-    const cierre = read("managed/cierre-sesion.md");
+  it("Session close checks the receipt with --include-consumed instead of citing the cycle", () => {
+    const cierre = read("skills/verify-before-done.md");
     expect(cierre).toContain("--include-consumed");
     expect(cierre).not.toMatch(/cite this cycle's green run/i);
   });

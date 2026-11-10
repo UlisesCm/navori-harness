@@ -96,6 +96,7 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       engines: ["claude", "codex"],
       preset: "custom",
       branchBase: "main",
+      harness: { scribeOwnsMarkdown: true },
       qualityGate: { fast: "pnpm test", full: "pnpm test" },
       // `architect` always renders since spec 0032 R33 retired its
       // `harness.architect` toggle — no harness override needed here.
@@ -181,9 +182,8 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
     // Same trap as the agent set: pin non-empty before comparing.
     expect(claudeHooks.length).toBeGreaterThan(0);
-    expect(claudeHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual(
-      [...MASTER_PLAN_HOOKS].sort(),
-    );
+    // #1484: neither engine writes the master-plan hooks without the flag.
+    expect(claudeHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual([]);
     expect(codexHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual([]);
     // Spec 0041 R13/R30: Codex installs only scripts a registration runs, so the
     // table's `unsupported` rows are absent (and `implementer-no-markdown` is

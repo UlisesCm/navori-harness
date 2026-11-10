@@ -23,7 +23,7 @@ describe("buildSkillRows (shared skills index) — C4", () => {
     expect(defaultRows).not.toContain("`master-plan`");
     expect(defaultRows).not.toContain("`context-intake`");
 
-    for (const engine of ["claude", "codex"]) {
+    for (const engine of ["claude", "codex", "pi"]) {
       const rows = buildSkillRows(
         cfg(),
         process.cwd(),
@@ -36,7 +36,7 @@ describe("buildSkillRows (shared skills index) — C4", () => {
       expect(rows, engine).toContain("`master-plan`");
       expect(rows, engine).toContain("`context-intake`");
     }
-    for (const engine of ["cursor", "copilot", "agents-md", "pi"]) {
+    for (const engine of ["cursor", "copilot", "agents-md"]) {
       const rows = buildSkillRows(
         cfg(),
         process.cwd(),

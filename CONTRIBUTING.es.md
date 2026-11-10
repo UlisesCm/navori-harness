@@ -263,6 +263,29 @@ siguen siendo solo TypeScript.
   `cargo test --workspace`, `bun run oracle:rust`, `node scripts/js/gen-pi-extension-asset.mjs
   --check` y `node scripts/js/rust-manifest-check.mjs`.
 
+## Sesiones en paralelo
+
+Una sesión, un worktree, desde el inicio, igual en Claude Code que en Pi. Los subagentes, hooks,
+`.navori/state/` (workplans, handoffs, recibos) y gates de una sesión se resuelven en el checkout donde
+arrancó, así que dos sesiones en un mismo checkout comparten su rama y su estado, y un cambio de rama en una
+mueve a la otra (#1543).
+
+```sh
+git worktree add -b <branch> .claude/worktrees/<name> origin/dev
+cd .claude/worktrees/<name> && bun install && claude   # o: pi
+```
+
+- El checkout principal es para revisar y mergear, no para una sesión de trabajo.
+- El `navori` global está enlazado al `packages/cli/dist` del checkout principal, así que todos los
+  worktrees corren ese build. Después de cada pull de `dev` ahí, reconstrúyelo:
+  `bun run --filter navori build`.
+- Renderiza desde un worktree con el CLI compilado de ese mismo worktree, nunca con el `navori` global: el
+  global renderiza los assets del checkout principal encima de los de la rama. `bun run render:apply` en la
+  raíz del worktree compila el CLI de ese worktree y renderiza con él; después de ese build, corre cualquier
+  otro comando como `node packages/cli/dist/index.js <comando>`.
+- `worktree-reclaim` borra un worktree cuando está limpio, empujado y con su PR mergeada; la siguiente tarea
+  empieza en uno nuevo. Lo propio de Pi: [docs/pi.es.md](docs/pi.es.md#sesiones-en-paralelo).
+
 ## Presupuesto de prosa: qué se capea y qué solo se reporta
 
 Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por
@@ -275,7 +298,7 @@ y se tratan distinto a propósito.
 | Bloques computados (`contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
 | Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
 | `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
-| `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |
+| `AGENTS.md` (engines prosa) | navori | **Consumidores: No**, se reporta contra el cap del host. **El `AGENTS.md` raíz de este repo: sí**, un techo de palabras por archivo completo | `bun run check:doc-budgets` para el archivo raíz; `navori doctor` (aviso amarillo desde el 80 %) para consumidores |
 
 Los techos viven en un solo lugar: `packages/cli/src/lib/assets/doc-budgets.ts`. Está bajo `src/lib/` y no
 en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
@@ -313,6 +336,10 @@ inferior**. Tampoco se mide bloque a bloque: `AGENTS.md` renderiza como un solo 
 `navori-agents`, y un reporte por bloque ahí daría `ceiling 0, overBy 0` — una línea que no puede
 fallar nunca. Darle diagnóstico por bloque cambiaría la topología de markers de un archivo ya
 desplegado (área crítica): eso es una spec aparte.
+
+La excepción a "sin tope" es el `AGENTS.md` raíz de este repo: es un archivo completo con techo de palabras (`"AGENTS.md"` en `DOC_BUDGETS`), que verifica la gate, porque es archivo de navori y no de un consumidor.
+
+**Dónde cae cada capa.** El motor `agents-md` escribe la doctrina compartida más la capa del orquestador, salvo que Pi esté en `engines`: entonces la capa del orquestador va a `.pi/navori/orchestrator.md` (solo para el padre, ver [docs/pi.es.md](docs/pi.es.md)). La doctrina exclusiva de Claude vive en el bloque `claude-apendice` de `CLAUDE.md`, que el motor de Claude siempre renderiza, con o sin `agents-md`. Los techos de estos archivos viven en `packages/cli/src/lib/assets/doc-budgets.ts`; este documento no repite sus números.
 
 Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
 archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya

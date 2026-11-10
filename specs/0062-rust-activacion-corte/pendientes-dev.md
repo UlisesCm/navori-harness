@@ -75,3 +75,68 @@ código Rust de la rama, sin build. Entran #1526, #1528 y #1529, que son posteri
    (#1478, #1504, #1518, #1521, #1531, #1532, #1578).
 3. No portar #1507 ni las partes de `audit`, `codex`, `bench` y `master-accept-confirm` de #1488,
    #1490 y #1502: van por delegación permanente.
+
+## Actualización del 2026-11-09: #1581 a #1631 (0.12.5)
+
+**Base comparada:** `migration/rust` en `9a803ce6` (#1585) contra `dev` en `bab51106` (#1631, contenido de 0.12.5). Solo lectura: `git log --merges` y `git diff --stat` por PR, más el diff del TS o shell donde toca algo portado. Sin build.
+
+**Sin efecto en Rust:**
+- **Solo documentos o web:** #1581, #1594 (spec 0063), #1597, #1602 (spec 0064), #1614, #1616 y #1631.
+- **Solo pruebas, scripts o CI del repo:** #1595, #1601 y #1603 (`ci.yml`, conflicto del sync), #1606 (`check-test-preservation.mjs`: los PRs de retiro del paso 4 que borren pruebas TS tendrán que declararlo), #1613 (`test-affected.mjs`, `receipt-ci.ts`) y #1626 (Node 26.13 en `ci.yml`; antes del sync `rust.yml` seguía en Node 24, y el sync lo pasa a `.nvmrc`).
+- **Config de este repo o release:** #1586, #1591 y #1630.
+- **Assets embebidos por `build.rs`:** #1588 (`orchestrator.md`), #1589 y #1605 (`reviewer.md`) y la parte de `publisher.md` de #1624. Cambian el render al reconstruir, no el código.
+- **Plan maestro v2, solo TS (delegación permanente):** #1615, #1624 y #1627 (`lib/masterplan/`, `commands/master.ts`), y la parte de comando de #1620 y #1621.
+
+| PR | Qué cambió en `dev` | Archivo Rust afectado | ¿Rompe paridad de sombra? | ¿Descartado? |
+| -- | -- | -- | -- | -- |
+| #1582 | En Pi, el reviewer tiene 30 min, como el implementer | `assets/pi/extension.ts.in:52` (`ROLE_TIMEOUT_MS.reviewer` 1200000 → 1800000) | Sí: `pi_owned_parity` | No |
+| #1587 | `begin`, `seal` y `log-review` del reviewer no dependen del encargo; la extensión de Pi lo aplica | `assets/pi/extension.ts.in` | Sí: `pi_owned_parity` | No |
+| #1596 | `guard-search-routing.sh`: un `grep -r` al inicio de una línea nueva pasa por el guard (#1509) | `ported.json` (dep `scripts/guard-search-routing.sh`), `hooks/guard_destructive/search.rs` | Sí: hash de la dependencia y veredicto distinto con salto de línea (zona S1) | No |
+| #1599 | `harness.sessionState: false` apaga `progress/` por repo | `config.rs` (clave desconocida), render de Claude y Codex (archivos de `progress/`), `render/pi_owned.rs:509` (lista exacta de claves de `controls`), `extension.ts.in`, `session_start.rs` | Solo con la clave puesta: sin ella el TS renderiza igual byte a byte. Rust avisa la clave como desconocida y `pi_owned` rechaza el `controls` con `sessionState` | No |
+| #1607 | La auditoría registra el fail-open de search routing como `fail-open`/`search-index-unavailable` | `ported.json` (hash de los bloques que incluyen `_partials/audit-log.sh` y de `tgrep-search-lane`), etiquetas en `guard_destructive/mod.rs` | Hash (lo corrige `rust:hooks-sync`); etiqueta D5 del paso 1a | Parcial: `audit/cli-event.ts` y `model.ts` |
+| #1608 | Pi falla cerrado si la raíz y un worktree enlazado tienen estado de la misma feature | `assets/pi/extension.ts.in` | Sí: `pi_owned_parity` | No |
+| #1609 | El prune conserva el texto del usuario; los encabezados de siembra pasan a `scaffold.ts` | Ninguno: `render --prune` no está en el manifiesto y el refactor de motores no cambia la salida | No se espera; confirmar en `render_engines` | No |
+| #1617 | La doctrina del orquestador llega solo al hilo principal de Pi (archivo propio `pi-orchestrator`) | `render/pi_engine.rs`, `render/pi_owned.rs`, `extension.ts.in`, render de `AGENTS.md` | Sí: `pi_engine_parity`, `pi_owned_parity`, `render_engines` | No |
+| #1618 | `AGENTS.md` por capas; lo exclusivo de Claude pasa a `claude-apendice.md` (`layers.ts`, `render-plan.ts`) | `render/block_plan.rs`, `render/plan.rs`, `render/claude_md.rs`, `render/prose.rs`, `render/codex_agents_md.rs`, `render/doc_budget.rs`, `render/plugins.rs` (`plugin.json` de acli y codegraph) | Sí: `block_plan_parity`, `claude_md_parity`, `render_engines`, `doc_budget_parity` | Parcial: la parte de Codex |
+| #1619, #1622 | Presupuestos y goldens medidos sobre el `AGENTS.md` por capas | `render/doc_budget.rs` | Sí: `doc_budget_parity` | No |
+| #1620, #1621, #1628 (hooks) | `master-accept-confirm.sh` dispara con triggers v2 y deja los v1; `master-plan-context.sh` ofrece la v2; corpus de `master-accept-confirm` reescrito | `hooks/master_accept_confirm/`, `hooks/master_plan_context/`, `ported.json` | Sí: hash y veredicto en sombra; el replay del corpus falla | **Sí**: el Rust se retira (paso 4a) |
+| #1628 (spec) | Se elimina R22 de `spec check` (`master-delivery-unmapped`, `master-target-mismatch`) y la segunda lectura de config | `navori-cli/src/spec.rs:15-16,549-576`, `spec/check.rs:74-95,202-228` | Sí: el Rust sigue emitiendo R22 (casos `spec-deliveries:*` de `cases/spec.json`) y repite los avisos de config | **Sí**: la v2 reemplaza a la v1; el Rust de R22 se borra (paso 4a) |
+| #1628 (plan) | Un workplan v1 con `source` falla `plan check` y el plan gate con "corre navori master migrate"; el índice de aceptación pierde el binding de entrega | `plan/check.rs:305` y `plan/acceptance_index.rs` (delegan con `source`) | No: el Rust delega al TS. Se puede simplificar después | No |
+| #1629 | El índice de aceptación conserva los criterios en `cumplido`; `validateEvidence` diagnostica por criterio (`no-file`, `no-line`, `different-command`) con mensajes de comando literal; `bash-outcome.sh`; skill `plan-simple` | `plan/acceptance_index.rs`, `plan/evidence.rs`, `navori-cli/src/plan.rs` (`update`), `extension.ts.in` (una línea) | Sí: `plan_evidence_parity`, `plan_validate_evidence_parity`, casos de `cases/plan.json` y `pi_owned_parity` | No |
+
+**Qué cambia en "Qué hacer al retomar":**
+- Paso 2 suma #1629 (`acceptance_index.rs` y `evidence.rs`): el CLI nativo responde distinto que el TS en `plan update` y `plan check`. Va como 2c en la zona plan.
+- Paso 3 suma #1582, #1587, #1599, #1608, #1617, #1618, #1619 y #1622 (render de Pi, `AGENTS.md` y presupuestos).
+- Paso 4a absorbe #1620, #1621 y #1628: hooks de master y R22 se borran, no se portan.
+## Estado tras el sync de `dev` (0.12.5) en `migration/rust`
+
+**Sync:** rama `sync/rust-dev-20261109`, merge de `dev` en `bab51106` sobre `migration/rust` en `9a803ce6`.
+Medido en la máquina local contra la base `9a803ce6`: `cargo test` 10 fallos que ya estaban en la base (jq
+1.8.1 y locale del host) y `rust-oracle` 0 diferencias en 1273 casos.
+
+**Resuelto en el sync:** los hashes de `ported.json` de todos los hooks que `dev` cambió (`rust:hooks-sync
+--check` en 0), el render de los espejos de `.claude/` y `.pi/`, `coverage.json`, el golden de la superficie
+del CLI, la poda de #1604 con la firma nativa (`removable.ts`), `pii-egress-guard` y `bench` en `rust-areas`,
+los workflows de Rust con `.nvmrc` (#1626) y las cinco pruebas de Rust que leían el espejo `.codex/` que
+`dev` borró. El corpus de `guard-destructive` es la unión (1233 casos, 6 de `pii-egress-guard`), y el shell
+da los 1233 iguales.
+
+**También entran con el sync, sin fila propia arriba:** #1512 (quita Codex de los motores de este repo,
+318d5eff; obliga a adaptar las pruebas que leían `.codex/` y deja sin fixture las paridades `codex_*`) y
+#1475 (`lib/master`, delegación permanente).
+
+**Pendiente, por paso** (rojos conocidos del sync; ninguno se porta aquí):
+
+| Paso | Qué falla | Origen en `dev` |
+| -- | -- | -- |
+| 1a | `guard_state`: `search_lane_*` y `pi_arm_*` (motivo de comillas ilegibles) | #1569 |
+| 1b | `guard_destructive`: dos pruebas con 14 casos de `pii-egress`; replay nativo, los mismos 14 | #1488, #1528 |
+| 2 (sin asignar) | `quality_gate_git` (9): el Rust se difiere con "the gate cd is missing" ante `cd "${…:-.}"` | #1546 |
+| 2c | `plan-cmd:*` (16) y `plan_validate_evidence_parity` (2) | #1629 |
+| 2 | `handoff:*` (4) y `review_check_parity` | #1587, #1605 |
+| 3 | El render nativo delega al TS en todos los motores: `render_claude` (12), `render_engines` (4), las paridades de bloque, `CLAUDE.md`, settings, harness, owned paths, Pi, plugins, sub-bloques, `doc_budget` (2), `config_parity` (3), `render.rs`, `rust-tree` (2) y los casos de render del oráculo | #1599, #1617, #1618, #1619, #1622 |
+| 3 | `gen-pi-extension-asset.mjs --check` aborta: el roster de Pi ya no tiene `publisher` | #1532, #1582, #1587, #1608 |
+| 3 | `parser::root_help` y `surface:--help`: el Rust lista `bench`, que `dev` dejó tras un flag | #1502 |
+| 3 (Codex) | 12 paridades `codex_*`: Codex está congelado; decidir si se retiran | #1618 (parcial) |
+| `spec` | `repo-specs:*`, `spec:*`, `spec-deliveries:*` y `surface:spec_--help` | #1483, #1628 |
+| 4a | `master_hooks` (1) y el oráculo de `master`, que aborta en el setup `master close` (v1 de solo lectura) | #1620, #1621, #1628 |

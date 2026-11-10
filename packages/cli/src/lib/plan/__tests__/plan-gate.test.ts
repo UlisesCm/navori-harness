@@ -7,6 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
   appendFileSync,
+  copyFileSync,
   readFileSync,
   existsSync,
   realpathSync,
@@ -485,6 +486,25 @@ describe("evaluatePlanGate — the opening line (R16)", () => {
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("navori plan check demo");
   });
+
+  // Spec 0063 T6: the denial names the v1 delivery workplan and the way out, not a silent block.
+  it("denies a v1 delivery workplan telling to run navori master migrate", () => {
+    writeConfig(true);
+    mkdirSync(progressDir(), { recursive: true });
+    copyFileSync(
+      join(
+        import.meta.dirname,
+        "../../masterplan/__tests__/fixtures/workplan-master-delivery.json",
+      ),
+      join(progressDir(), "workplan_delivery-demo-slices-p1.json"),
+    );
+    const result = evaluatePlanGate(
+      payload("implementer", "workplan: delivery-demo-slices-p1\ndo A1"),
+    );
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("workplan de entrega v1");
+    expect(result.reason).toContain("corre navori master migrate");
+  });
 });
 
 describe("evaluatePlanGate — shared check rules (R5)", () => {
@@ -539,6 +559,48 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
     );
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("not confirmed by classify");
+  });
+
+  // #1571: a `plan classify` draft is not a workplan; a full or broken file still is.
+  it("nivel-0 passes with a classify draft, denied with a full workplan or unparsable file", () => {
+    writeConfig(true);
+    const open = () =>
+      evaluatePlanGate(payload("implementer", `nivel-0: README.md demo ${VERIFY}\nfix it`));
+    const draftPath = join(progressDir(), "workplan_demo.json");
+    mkdirSync(progressDir(), { recursive: true });
+
+    writeFileSync(
+      draftPath,
+      JSON.stringify({
+        feature: "demo",
+        files: [{ path: "README.md" }],
+        classification: { signals: [] },
+      }),
+    );
+    expect(open().decision).toBe("allow");
+
+    // A draft's declared floor still reaches classify, so nivel-0 is denied.
+    writeFileSync(
+      draftPath,
+      JSON.stringify({
+        feature: "demo",
+        files: [{ path: "README.md" }],
+        classification: { signals: ["floor:data-schema-migration"] },
+      }),
+    );
+    let result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("not confirmed by classify");
+
+    writeWorkplan("demo", VALID_LEVEL1);
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("already has a workplan");
+
+    writeFileSync(draftPath, "{ not json");
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("already has a workplan");
   });
 
   // Covers: R28
@@ -1533,6 +1595,7 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     "NAVORI_AUDIT_SESSION_ID",
     "CODEX_SESSION_ID",
     "CODEX_THREAD_ID",
+    "NAVORI_AUDIT_AGENT_ID",
   ];
   let saved: Record<string, string | undefined>;
   let auditRoot: string;

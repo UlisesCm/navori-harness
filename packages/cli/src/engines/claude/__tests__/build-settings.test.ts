@@ -250,11 +250,12 @@ describe("buildClaudeSettings — base shape", () => {
 
   // Covers: R27
   it("does NOT register the Stop verify hook unless config.hooks.verifyOnStop is set", () => {
-    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const cfg = { ...MINIMAL_CONFIG, hooks: { modelAdvisor: true } } as unknown as NavoriConfig;
+    const s = buildClaudeSettings(cfg, []);
     const stop = (s.hooks as { Stop?: Array<{ hooks: Array<{ command: string }> }> }).Stop ?? [];
     const commands = stop.flatMap((b) => b.hooks.map((h) => h.command));
     expect(commands.some((c) => c.includes("stop-verify-reminder.sh"))).toBe(false);
-    // model-advisor rides Stop regardless of verifyOnStop (spec 0039 R27).
+    // model-advisor rides Stop regardless of verifyOnStop (spec 0039 R27), once hooks.modelAdvisor opts in (#1484).
     expect(commands.some((c) => c.includes("model-advisor.sh"))).toBe(true);
   });
 
@@ -1156,7 +1157,7 @@ describe("buildClaudeSettings — commands the harness itself orders (#506)", ()
     const allow = allowOf(MINIMAL_CONFIG);
     expect(allow).not.toContain("Bash(navori:*)");
     const WRITERS =
-      /^Bash\(navori (render|init|add|remove|configure|update|sync|scan|registry|bench|workspace|ticket|backup|migrations|preset|global|dominio (init|inject|reindex))\b/;
+      /^Bash\(navori (render|init|add|remove|configure|update|sync|scan|registry|workspace|ticket|backup|migrations|preset|global|dominio (init|inject|reindex))\b/;
     const offenders = allow.filter((rule) => WRITERS.test(rule));
     expect(
       offenders,

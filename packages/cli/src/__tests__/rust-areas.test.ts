@@ -42,7 +42,7 @@ describe("rust-areas (spec 0060 D40/D41)", () => {
   it("todo subcomando, flag y hook tiene un área", () => {
     expect(commands.length).toBeGreaterThan(29);
     for (const entry of commands) expect(() => areas.areaOf({ command: entry.path })).not.toThrow();
-    expect(hooks).toHaveLength(22);
+    expect(hooks).toHaveLength(23);
     for (const id of hooks) expect(() => areas.areaOf({ hook: id })).not.toThrow();
     const roots = new Set(commands.map((entry) => entry.path[0]));
     const owned = Object.values(areas.AREAS).flatMap((area) => area.commands);

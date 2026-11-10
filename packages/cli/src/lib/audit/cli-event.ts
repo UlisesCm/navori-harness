@@ -455,6 +455,7 @@ const METADATA_VERDICTS = new Set([
   "compact-advice",
   "gate-started",
   "gate-killed",
+  "fail-open",
   "approved",
   "changes-requested",
   "ok",
@@ -462,7 +463,17 @@ const METADATA_VERDICTS = new Set([
   "error",
   "unknown",
 ]);
-const METADATA_TOOLS = new Set(["Bash", "Edit", "Read", "Write", "Agent", "Task", "NotebookEdit"]);
+const METADATA_TOOLS = new Set([
+  "Bash",
+  "WebFetch",
+  "WebSearch",
+  "Edit",
+  "Read",
+  "Write",
+  "Agent",
+  "Task",
+  "NotebookEdit",
+]);
 const METADATA_CLOSE_REASONS = new Set([
   "clear",
   "logout",
@@ -495,6 +506,7 @@ const METADATA_NAMES = new Set([
   "general-purpose-confirm",
   "pr-publisher-confirm",
   "subagent-no-background",
+  "pii-egress-guard",
   "bash-outcome-watch",
   "review-outcome",
   "receipt-outcome",

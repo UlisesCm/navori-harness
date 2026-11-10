@@ -96,6 +96,29 @@ for (const shell of ["bash", "zsh"]) {
       expect(run(shell, f).stdout).toContain("specs/_master/01-mvp/STATUS.md");
     });
 
+    // Covers: R38
+    it("with a v2 PLAN.md prints the local line, else points at PLAN.md before the v1 index", () => {
+      const f = fixture();
+      mkdirSync(join(f.dir, "specs/_plan"), { recursive: true });
+      writeFileSync(join(f.dir, "specs/_plan/PLAN.md"), "# Plan: demo\n");
+      mkdirSync(join(f.dir, "specs/_master"), { recursive: true });
+      writeFileSync(
+        join(f.dir, "specs/_master/INDEX.md"),
+        "Etapa activa: specs/_master/01-mvp/STATUS.md\n",
+      );
+      writeFileSync(
+        join(f.bin, "navori"),
+        "#!/bin/sh\nprintf 'Plan maestro — estado local, sin fetch: 1 en curso.\\n'\n",
+        { mode: 0o755 },
+      );
+      expect(run(shell, f).stdout).toContain("estado local, sin fetch");
+      writeFileSync(join(f.bin, "navori"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      const pointer = run(shell, f);
+      expect(pointer.status).toBe(0);
+      expect(pointer.stdout).toContain("specs/_plan/PLAN.md");
+      expect(pointer.stdout).not.toContain("STATUS.md");
+    });
+
     // Covers: R38, R54
     it("rejects unsafe INDEX paths and still offers without the binary", () => {
       const f = fixture();

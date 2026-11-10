@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { simulateContextDelivery } from "../../../lib/assets/doc-budgets.ts";
+import { getCoreRoot, listBundledPluginIds } from "../../../lib/render/bundled-assets.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
 
@@ -211,23 +220,109 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
     expect(prefixed).toContain('navori:managed id="orquestacion"');
   });
 
-  it("la escalera y el catálogo llegan como cuerpo; el cierre degrada a puntero", () => {
+  it("la escalera, el catálogo y el arranque llegan como cuerpo; el cierre ya no es un bloque de arranque", () => {
     // Covers: R5
     // Caber y llegar son cosas distintas: #623 se declaró inexistente por
     // confundirlas. Esto corre el hook de verdad y mira qué salió.
-    const ctx = runHook(renderedRepo(5000));
+    const cwd = renderedRepo(5000);
+    const ctx = runHook(cwd);
     expect(ctx, "la escalera de ruteo no llegó como cuerpo").toContain(
       'navori:managed id="orquestacion"',
     );
     expect(ctx, "el catálogo de agentes no llegó como cuerpo").toContain(
       'navori:managed id="agentes-disponibles"',
     );
-    // El primero en degradar es el cierre: sus ceremonias aplican horas después
-    // del arranque y un puntero leído a tiempo las cubre.
-    expect(ctx).not.toContain('navori:managed id="cierre-sesion"');
-    expect(ctx, "cierre-sesion degradó pero sin puntero — se perdió").toContain(
-      "40-cierre-sesion.md",
+    expect(ctx, "arranque-sesion no llegó como cuerpo").toContain(
+      'navori:managed id="arranque-sesion"',
     );
+    // #1455: las ceremonias de cierre viven en `verify-before-done` (Session
+    // close), no en el canal de arranque.
+    expect(ctx).not.toContain('navori:managed id="cierre-sesion"');
+    expect(existsSync(join(cwd, ".claude/context/40-cierre-sesion.md"))).toBe(false);
+    // Contrato 3: la doctrina sigue yendo ANTES que el estado volátil.
+    expect(ctx.indexOf("navori:managed id=")).toBeLessThan(ctx.indexOf("Branch:"));
+  });
+});
+
+describe("#1455 — ningún preset degrada el contexto de arranque a puntero", () => {
+  // Defaults only (`planTiers` / `masterPlan` off). OPEN DECISION: the planTiers
+  // render overflows today (~316-407 chars over before `30-arranque-sesion`), so
+  // those flags are deliberately not enumerated here; this test bounds navori's
+  // own default prose, not every consumer config.
+  const coreRoot = getCoreRoot();
+  const presets = [
+    ...readdirSync(join(coreRoot, "core-assets", "presets"))
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.replace(/\.json$/, "")),
+    "custom",
+  ];
+  const cases = presets.flatMap((preset) =>
+    (["en", "es"] as const).map((language) => [preset, language] as const),
+  );
+
+  it.each(cases)(
+    "preset %s (%s): cada archivo de .claude/context llega inline",
+    (preset, language) => {
+      const cwd = mkdtempSync(join(tmpdir(), "navori-budget-matrix-"));
+      const plugins = Object.fromEntries(
+        listBundledPluginIds().map((id) => [id, { enabled: true }]),
+      );
+      renderClaudeEngine(
+        cwd,
+        NavoriConfigSchema.parse({
+          name: "budget-demo",
+          engines: ["claude"],
+          preset,
+          language,
+          branchBase: "main",
+          qualityGate: { fast: "npm run lint", full: "npm test" },
+          plugins,
+        }),
+      );
+      const dir = join(cwd, ".claude/context");
+      const files = readdirSync(dir)
+        .filter((f) => f.endsWith(".md"))
+        .sort()
+        .map((f) => ({
+          path: `.claude/context/${f}`,
+          // The hook's `$(cat)` strips trailing newlines; it counts code points.
+          chars: [...readFileSync(join(dir, f), "utf-8").replace(/\n+$/, "")].length,
+        }));
+      expect(files.length).toBeGreaterThan(0);
+      const degraded = simulateContextDelivery(files).filter((r) => r.delivered !== "inline");
+      expect(
+        degraded.map((r) => `${r.path} (${r.chars} chars, ctxCharsBefore=${r.ctxCharsBefore})`),
+        "these context files would reach the model as a pointer, not as a body",
+      ).toEqual([]);
+    },
+  );
+});
+
+describe("#1455 — retiro del bloque de cierre en repos ya renderizados", () => {
+  const RETIRED =
+    '<!-- navori:managed id="cierre-sesion" hash="abc" version="VERSION" source="@navori/core" -->\n## Session closeout\n';
+
+  function seeded(version: string, name = "40-cierre-sesion.md"): { cwd: string; file: string } {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-retire-"));
+    renderClaudeEngine(cwd, config());
+    const file = join(cwd, ".claude/context", name);
+    writeFileSync(file, RETIRED.replace("VERSION", version));
+    return { cwd, file };
+  }
+
+  it("un 40-cierre-sesion.md marcado y su gemelo sin prefijo se retiran en el siguiente render", () => {
+    const { cwd, file } = seeded("0.0.1");
+    const twin = join(cwd, ".claude/context/cierre-sesion.md");
+    writeFileSync(twin, RETIRED.replace("VERSION", "0.0.1"));
+    renderClaudeEngine(cwd, config());
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(twin)).toBe(false);
+  });
+
+  it("uno sellado por un navori más nuevo se conserva (anti-rollback)", () => {
+    const { cwd, file } = seeded("999.0.0");
+    renderClaudeEngine(cwd, config());
+    expect(existsSync(file)).toBe(true);
   });
 });
 

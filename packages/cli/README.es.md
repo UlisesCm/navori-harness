@@ -6,15 +6,13 @@ Multi-agent harness + SDD scaffolder for Claude Code (and other AI engines).
 
 `navori` lleva tu setup de Claude Code (agentes, skills, hooks, CLAUDE.md, AGENTS.md) a múltiples repos con un solo comando — sin perder customización local, sin sobrescribir lo que ya tenías.
 
-También renderiza un harness Codex completo: `AGENTS.md`, skills en
-`.agents/skills/`, agentes y hooks en `.codex/`, y MCP project-local.
+Codex está congelado: el CLI todavía renderiza su harness como opt-in (`AGENTS.md`, skills en
+`.agents/skills/`, agentes y hooks en `.codex/`, y MCP project-local), sin cambios ni
+funciones nuevas.
 
 ## Perfiles de engines
 
 ```jsonc
-// Paridad completa para ambos proveedores
-{ "engines": ["claude", "codex"] }
-
 // Claude completo + guía AGENTS.md ligera para Codex y otras herramientas
 { "engines": ["claude", "agents-md"] }
 
@@ -25,7 +23,7 @@ También renderiza un harness Codex completo: `AGENTS.md`, skills en
 { "engines": ["pi"] }
 ```
 
-`codex` ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
+Si aún activas el motor `codex`, que está congelado, ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
 `agents-md`. Si ambos aparecen en un config, el adapter Codex toma precedencia
 para evitar bloques duplicados.
 
@@ -136,9 +134,7 @@ de caché de ambos directorios.
 | `tools notice [--ack <pluginId@x.y.z,…>]` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque; `--ack` los marca como entregados |
 | `handoff <check\|log-review>` | `check` valida el handoff del implementer (`impl_<feature>.json`) antes de despachar al siguiente agente; `log-review <feature>` valida `review_<feature>.json` y agrega a `findings.jsonl` los hallazgos con score >= 50 (`navori handoff check <feature> [--for scribe] [--produced-by reviewer [--since <iso>]] [--dir <path>] [--cwd <checkout>] [--json]`) |
 | `plan <sub>` | Planificación por niveles (`harness.planTiers`): `classify [--files\|--diff]` mide complejidad y nivel de una tarea, `render`/`update` mantienen el workplan Markdown en sync con su JSON, `check` valida su esquema y reglas, `gate` es el hook `PreToolUse(Agent)` que niega el despacho sin workplan válido |
-| `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) y entregas de sus partes: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Las que autorizan o aprueban llevan `--approved-by` |
-| `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
-| `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `link`, `add-repo`, `set-default`, `render`, `rename`, `delete`) |
+| `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) y entregas de sus partes: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Las que autorizan o aprueban llevan `--approved-by` || `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `link`, `add-repo`, `set-default`, `render`, `rename`, `delete`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
 | `dominio <sub>` | Base de conocimiento durable del workspace (`init`, `list`, `show`, `reindex`, `doctor`, `inject`) |
 | `codex <sub>` | Comandos específicos de Codex; hoy `trust` aprueba los hooks del proyecto en `~/.codex/config.toml` |

@@ -133,6 +133,26 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
     expect(resumePlans(cwd).plans[0]?.acceptance.A1?.status).toBe("pending");
     expect(readFileSync(state("workplan_demo.json"), "utf8")).toBe(before);
   });
+  it("ignores progress/current.md when harness.sessionState is false (#1579)", () => {
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "test",
+        preset: "custom",
+        engines: ["codex"],
+        branchBase: "main",
+        harness: { sessionState: false },
+      }),
+    );
+    const resumed = resumePlans(cwd);
+    expect(resumed.status, resumed.reason).toBe("evaluated");
+    expect(resumed.current).toBe("");
+    expect(resumed.plans).toHaveLength(1);
+  });
+  it("keeps reading progress/current.md when the config is unreadable (#1579)", () => {
+    writeFileSync(join(cwd, "navori.config.json"), "{ not json");
+    expect(resumePlans(cwd).current).toBe(current);
+  });
   // Covers: R8
   it.each(["missing", "fail", "mismatch", "pass"])(
     "revalidates structured expected on resume (%s)",

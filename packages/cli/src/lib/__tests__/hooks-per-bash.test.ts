@@ -121,6 +121,8 @@ function fixtureConfig(): NavoriConfig {
     engines: ["claude"],
     preset: "custom",
     branchBase: "main",
+    // #1484: routing-watch (the Bash evidence lane) renders only with planTiers.
+    harness: { planTiers: true },
     qualityGate: { fast: "bun lint", full: "bun test" },
     plugins: { tgrep: { enabled: true } },
   });
@@ -185,6 +187,19 @@ describe("hooks per Bash call (R28)", () => {
   });
 
   // Covers: R28
+  it("without planTiers no routing-watch runs after a Bash success (#1484)", () => {
+    const off = buildClaudeSettings(
+      NavoriConfigSchema.parse({
+        name: "hooks-per-bash-off",
+        engines: ["claude"],
+        preset: "custom",
+      }),
+      [],
+    ) as Settings;
+    expect(paths(off, COMMANDS.plain).bPost).toBe(EXPECTED.bPost - 1);
+  });
+
+  // Covers: R28
   it("model-advisor no longer rides any PreToolUse registration", () => {
     const pre = (defaultSettings.hooks?.PreToolUse ?? []).flatMap((e) => e.hooks);
     expect(pre.some((h) => h.command.includes("model-advisor"))).toBe(false);
@@ -242,6 +257,7 @@ describe("hooks per Bash call, Codex (R11, R28)", () => {
     engines: ["codex"],
     preset: "custom",
     branchBase: "main",
+    harness: { planTiers: true },
     qualityGate: { fast: "bun lint", full: "bun test" },
     plugins: { tgrep: { enabled: true } },
   });

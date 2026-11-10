@@ -1,5 +1,7 @@
 # Delivery tasks template (`harness.masterPlan`, R35)
 
+Legacy parts only; a new part uses `spec.md` (`spec-bootstrap`).
+
 Organize work by deliveries, each with milestones, acceptance criteria, and tasks. Each task declares exact files, interfaces, pattern file, closed-list reads, pinned library versions, command and expected result, named test cases, and out-of-scope items; do not write function bodies in tasks.
 
 ## E1 — <delivery title>

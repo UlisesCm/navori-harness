@@ -30,3 +30,15 @@ export function buildAgentsIndexBlock(
     "",
   ].join("\n");
 }
+
+/**
+ * One short clause per agent for the root roster: the "Use ..." trigger
+ * sentence cut at its first comma (the full text stays in the agent file).
+ * Falls back to the first sentence when the description has no trigger.
+ * Shared by the AGENTS.md catalogs Codex and Pi write.
+ */
+export function compactAgentDescription(description: string): string {
+  const trigger = description.match(/(?:^|\. )(Use [^.]*)/)?.[1];
+  const clause = trigger ?? description.split(/\. /)[0] ?? description;
+  return (clause.split(",")[0] ?? clause).replace(/\.$/, "").trim();
+}

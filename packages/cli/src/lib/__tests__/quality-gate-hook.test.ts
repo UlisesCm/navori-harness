@@ -332,7 +332,9 @@ describe("quality-gate hook — runs from the repo root (#309)", () => {
     // 0035 D2: `$CLAUDE_PROJECT_DIR` under Claude, unchanged; the payload
     // cwd's git toplevel under Codex).
     expect(hook).toContain("gate_root=$(navori_worktree)");
-    expect(hook).toContain('cd "${gate_root:-${nv_project_dir:-}}" || {');
+    // #1541: the last fallback is `.`, never an empty `cd ""` (an error on
+    // bash 5.3, a no-op on bash <=5.2 and zsh).
+    expect(hook).toContain('cd "${gate_root:-${nv_project_dir:-.}}" || {');
   });
 
   it("resolves a root-relative gate even when invoked from a subdir", () => {

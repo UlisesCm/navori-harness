@@ -589,6 +589,9 @@ describe("audit explicit child capture action", () => {
     writeFileSync(join(repoDir, "navori.config.json"), "{}");
     const sources = join(home, ".codex", "sessions");
     mkdirSync(sources, { recursive: true, mode: 0o700 });
+    // The binding rejects a group- or world-writable ancestor of the rollout, and
+    // `mode` is masked by the host's umask: pin every fixture directory explicitly.
+    for (const dir of [canonical, home, join(home, ".codex"), sources]) chmodSync(dir, 0o700);
     const rootSource = join(sources, "rollout-fixture-root.jsonl");
     const child = join(sources, "rollout-fixture-child.jsonl");
     for (const [path, id, parent] of [
@@ -610,6 +613,7 @@ describe("audit explicit child capture action", () => {
         }) + "\n",
         { mode: 0o600 },
       );
+      chmodSync(path, 0o600);
     }
     const log = join(auditDir, "session-root.log");
     writeFileSync(
@@ -625,6 +629,8 @@ describe("audit explicit child capture action", () => {
       }) + "\n",
       { mode: 0o600 },
     );
+    chmodSync(auditDir, 0o700);
+    chmodSync(log, 0o600);
     return { log, child };
   }
 
@@ -1336,6 +1342,7 @@ describe("private CLI lifecycle and exports", () => {
       const path = join(auditDir, flag === "--disarm" ? ".armed" : "session-unsafe.log");
       const bytes = JSON.stringify({ event: "start", sessionId: "unsafe", cwd: repoDir }) + "\n";
       writeFileSync(path, bytes, { mode: 0o644 });
+      chmodSync(path, 0o644);
       expect(runAudit(flag === "--disarm" ? [flag] : [flag, "unsafe"]).status).toBe(2);
       expect(readFileSync(path, "utf8")).toBe(bytes);
       expect(statSync(path).mode & 0o777).toBe(0o644);
@@ -1371,11 +1378,13 @@ describe("private CLI lifecycle and exports", () => {
     markedSessionWithTranscript("output-private", "2026-08-25");
     const out = join(sandbox, "custom");
     mkdirSync(out, { mode: 0o755 });
+    chmodSync(out, 0o755);
     expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
     expect(statSync(out).mode & 0o777).toBe(0o755);
     chmodSync(out, 0o700);
     const target = join(out, "report.md");
     writeFileSync(target, "old-report", { mode: 0o644 });
+    chmodSync(target, 0o644);
     expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
     expect(readFileSync(target, "utf8")).toBe("old-report");
     expect(statSync(target).mode & 0o777).toBe(0o644);

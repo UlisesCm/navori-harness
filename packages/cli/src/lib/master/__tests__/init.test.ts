@@ -529,12 +529,17 @@ describe("runMasterInit — slug reuse (R22)", () => {
 });
 
 describe("navori master init — context guidance", () => {
-  it("prints the repo-relative raw/ path when the phase is context", async () => {
-    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    await master("init", "mvp");
+  // Spec 0063 T6: a v1 stage can no longer be opened; the message points to the v2 plan.
+  it("refuses to open a v1 stage and creates nothing", async () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.exitCode = undefined;
+    await master("init", "mvp", "--workflow", "legacy");
     const out = write.mock.calls.map((c) => String(c[0])).join("");
     write.mockRestore();
-    expect(out).toContain("specs/_master/01-mvp/context/raw/");
+    expect(process.exitCode).toBe(1);
+    expect(out).toContain("navori master migrate");
+    expect(existsSync(masterDirPath(cwd, SPECS_DIR))).toBe(false);
+    process.exitCode = undefined;
   });
 });
 
@@ -546,30 +551,18 @@ describe("navori master mode (R16, commands/master.ts)", () => {
     return raw;
   }
 
-  it("registers the mode for the first stage while phase is context", async () => {
+  // Spec 0063 T6: `mode` is refused and leaves state.json byte for byte.
+  it("refuses to register a mode and keeps state.json untouched", async () => {
     runMasterInit(cwd, "mvp");
-    process.exitCode = undefined;
-    await master("mode", "template");
-    expect(process.exitCode).toBeFalsy();
-    expect(stateOf("01-mvp").mode).toBe("template");
-  });
-
-  it("registers desde-cero for the first stage", async () => {
-    runMasterInit(cwd, "mvp");
+    const before = JSON.stringify(stateOf("01-mvp"));
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     process.exitCode = undefined;
     await master("mode", "desde-cero");
-    expect(process.exitCode).toBeFalsy();
-    expect(stateOf("01-mvp").mode).toBe("desde-cero");
-  });
-
-  it("names all three modes in the invalid-mode error", async () => {
-    runMasterInit(cwd, "mvp");
-    process.exitCode = undefined;
-    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    await master("mode", "not-a-mode");
     const out = write.mock.calls.map((c) => String(c[0])).join("");
     write.mockRestore();
-    expect(out).toContain('"desde-cero"');
+    expect(process.exitCode).toBe(1);
+    expect(out).toContain("navori master migrate");
+    expect(JSON.stringify(stateOf("01-mvp"))).toBe(before);
     process.exitCode = undefined;
   });
 

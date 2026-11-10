@@ -1,11 +1,12 @@
 ---
 name: context-intake
-description: Use when a manual context intake is needed for an active `$master-plan` stage. Converts raw project context to Markdown, records provenance, and builds intake and digest files. Not for starting or planning a master plan.
+description: Use when a manual context intake is needed for an active `/skill:master-plan` stage. Converts raw project context to Markdown, records provenance, and builds intake and digest files. Not for starting or planning a master plan.
+disable-model-invocation: true
 metadata:
   type: reference
 ---
 
-<!-- navori:managed id="context-intake" hash="dfee212c" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="context-intake" hash="adc72660" version="0.12.3" source="@navori/core" fmkeys="name,description,disable-model-invocation,metadata" -->
 # Intake manual de contexto
 
 Esta skill solo se ejecuta después de que el usuario la invoque explícitamente. Primero corre:
@@ -14,7 +15,7 @@ Esta skill solo se ejecuta después de que el usuario la invoque explícitamente
 navori master status --json
 ```
 
-Si hay **sin etapa activa**, detente sin mutaciones e indica al usuario que inicie `$master-plan`.
+Si hay **sin etapa activa**, detente sin mutaciones e indica al usuario que inicie `/skill:master-plan`.
 
 Para cada archivo de la etapa activa en `context/raw/`:
 

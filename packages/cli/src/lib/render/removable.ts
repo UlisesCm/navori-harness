@@ -5,6 +5,8 @@ import { parseFrontmatterFields, splitFrontmatter } from "./frontmatter.ts";
 import { readNavoriOwnership } from "../primitives/json-ownership.ts";
 import { isDowngrade } from "../primitives/semver.ts";
 import { stripNativeSignature } from "./native-hook.ts";
+import type { NavoriConfig } from "../config/config.ts";
+import { isSeededZone, normalizeZone, scaffoldKindOf } from "./scaffold.ts";
 import {
   computeManagedHash,
   extractManagedContent,
@@ -193,6 +195,70 @@ function hasUserWrittenText(content: string, expected: string): boolean {
   return actual.fields !== wanted.fields || actual.text !== wanted.text;
 }
 
+/** What cutting a file's managed blocks yields. */
+export type StripResult =
+  /** No navori marker at all (generated JSON): nothing to cut, the file is navori's whole. */
+  | { kind: "none" }
+  /** A marker is present but the blocks cannot be paired cleanly (orphan open or close,
+   *  overlapping blocks, a marker left after the cut): never cut, the file is kept whole. */
+  | { kind: "malformed" }
+  | { kind: "ok"; stripped: string };
+
+/**
+ * `content` of the file at `rel` with every managed block (plus the newline after
+ * it, LF or CRLF) cut out and everything else kept byte-for-byte. The marker
+ * syntax comes from the file kind (`scaffoldKindOf`), never from its bytes.
+ *
+ * Anything that does not pair cleanly is `malformed` rather than cut: widening the
+ * cut across an unclosed or duplicated marker would swallow the user's text, and
+ * leaving a marker behind means the file is not really stripped.
+ */
+export function stripManagedBlocks(rel: string, signed: string): StripResult {
+  // The native signature is navori's too, outside every block: cut it with them.
+  const content = stripNativeSignature(signed);
+  if (!/navori:managed(?!-)/.test(content)) return { kind: "none" };
+  const style = scaffoldKindOf(rel).style;
+  // An extension no engine writes markers into: never cut, the file stays whole.
+  if (style === null) return { kind: "malformed" };
+  const blocks = [...locateManagedBlocks(content, style)].sort((a, b) => a.openStart - b.openStart);
+  if (blocks.length === 0) return { kind: "malformed" };
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i]!.openStart < blocks[i - 1]!.closeEnd) return { kind: "malformed" };
+  }
+  let stripped = content;
+  for (const block of blocks.reverse()) {
+    let end = block.closeEnd;
+    if (content.startsWith("\r\n", end)) end += 2;
+    else if (content[end] === "\n") end += 1;
+    stripped = stripped.slice(0, block.openStart) + stripped.slice(end);
+  }
+  return /navori:managed(?!-)/.test(stripped) ? { kind: "malformed" } : { kind: "ok", stripped };
+}
+
+/**
+ * True when something other than navori's own scaffold sits in `stripped` (the
+ * file with its blocks cut): any non-blank line that is not a seeded line OF THIS
+ * FILE KIND, the leading frontmatter where its writer seeds it, or (hooks, skills,
+ * agents) an extension zone that is EXACTLY one the bundled assets seed — a comment
+ * of the user's there, or an edit inside the seeded one, keeps the file.
+ * Conservative on purpose — an unrecognised line counts as the user's,
+ * because the cost of the opposite mistake is a deleted file of theirs (#1604)
+ * while this one only leaves a block-free file behind.
+ */
+function hasUserTextOutside(rel: string, stripped: string, config: NavoriConfig): boolean {
+  const kind = scaffoldKindOf(rel);
+  let body = kind.frontmatter ? splitFrontmatter(stripped).body : stripped;
+  if (kind.seededZone) {
+    if (kind.shebang) body = body.replace(/^\s*#![^\n]*\n?/, "");
+    const text = normalizeZone(body);
+    return text !== "" && !isSeededZone(kind.seededZone, text, config);
+  }
+  return body.split("\n").some((line) => {
+    const t = line.trim();
+    return t !== "" && !kind.lines.has(t);
+  });
+}
+
 /** The three answers `navoriAuthorship` can give. Only `ours` may be deleted. */
 export type NavoriAuthorship = "ours" | "newer" | "foreign" | "modified";
 
@@ -289,6 +355,9 @@ export type KeepReason =
 export interface OrphanRemovalPlan {
   /** Files navori wrote — back these up, then delete them. */
   remove: string[];
+  /** Files navori wrote blocks into that also hold the user's own text: back up,
+   *  strip the managed blocks, keep the rest of the file (#1604). */
+  strip: string[];
   /** Paths left in place, with the reason, so the run can SAY what it spared
    *  instead of deleting a directory whose contents it never inspected. */
   keep: Array<{ path: string; reason: KeepReason }>;
@@ -330,6 +399,8 @@ function matchesPrefix(rel: string, prefixes: readonly string[]): boolean {
 export function planOrphanRemoval(
   cwd: string,
   paths: readonly string[],
+  /** Config the files were rendered with: the seeded extension zones are rendered with it to be told from user text. */
+  config: NavoriConfig,
   skip: readonly string[] = [],
   /**
    * Extra keep rule consulted for each regular file before the authorship test
@@ -341,7 +412,7 @@ export function planOrphanRemoval(
   // The list ships directory entries with a trailing slash (it doubles as a
   // .gitignore body); the prefix rule below wants them bare.
   const skipPrefixes = skip.map((s) => s.replace(/\/$/, ""));
-  const plan: OrphanRemovalPlan = { remove: [], keep: [] };
+  const plan: OrphanRemovalPlan = { remove: [], strip: [], keep: [] };
   const seenKeep = new Set<string>();
   const keep = (path: string, reason: KeepReason): void => {
     if (seenKeep.has(path)) return;
@@ -377,8 +448,14 @@ export function planOrphanRemoval(
         return;
       }
       const authorship = navoriAuthorship(join(cwd, rel));
-      if (authorship === "ours") plan.remove.push(rel);
-      else keep(rel, authorship);
+      if (authorship === "ours") {
+        // Removing an engine removes its blocks, not the user's text (#1604).
+        const cut = stripManagedBlocks(rel, readFileSync(join(cwd, rel), "utf-8"));
+        if (cut.kind === "malformed") keep(rel, "modified");
+        else if (cut.kind === "ok" && hasUserTextOutside(rel, cut.stripped, config))
+          plan.strip.push(rel);
+        else plan.remove.push(rel);
+      } else keep(rel, authorship);
       return;
     }
     if (!stats.isDirectory() || depth > MAX_DEPTH) {

@@ -114,16 +114,27 @@ la paridad.
    plugins opt-in) → Engine adapters. Cada capa compone sobre la anterior. *Por qué*: separa
    baseline universal de lo específico por stack/org/repo/engine sin duplicación.
 2. **Multi-engine desde día 1** — el core es engine-agnostic aunque solo se rendericen algunos
-   engines. *Por qué*: agregar un proveedor no debe reescribir el pipeline.
+   engines. *Por qué*: agregar un proveedor no debe reescribir el pipeline. Un engine puede
+   apoyarse en la capa base `agents-md`: `AGENTS.md` lleva la doctrina que comparten todos y cada
+   engine agrega solo lo suyo (Spec 0064).
 3. **Source of truth = `navori.config.json` checked-in** — `render` reconstruye desde ahí.
-   *Por qué*: reproducibilidad total; sin estado oculto.
+   *Por qué*: reproducibilidad total; sin estado oculto. Todo engine que se renderiza aparece en
+   `engines`, `agents-md` incluido; el único engine implícito es el fallback a `claude` que ya
+   existe cuando ningún valor de `engines` es válido. Solo `engines` decide la forma: con
+   `agents-md`, `CLAUDE.md` importa `AGENTS.md`; sin él, o con `codex`, queda la forma previa y
+   render lo avisa (Spec 0064).
 4. **Modelo híbrido de sync con marcadores** — `<!-- navori:managed ... -->` se sincroniza;
    todo lo de afuera es del usuario e intocable. `hash` detecta drift de contenido; `version`
    es la versión de navori que cambió por última vez el contenido del bloque (no la que lo
    renderizó), así que re-renderizar con un CLI más nuevo sobre contenido igual no toca el archivo.
    `harnessVersion` en `navori.config.json` es el registro a nivel repo de la última versión que
    aplicó un cambio real, y sostiene el anti-rollback (#1262). *Por qué*: regenerar idempotente sin
-   pisar trabajo manual ni ensuciar el diff.
+   pisar trabajo manual ni ensuciar el diff. Un bloque que se muda a otro archivo sale del
+   anterior solo si está intacto; si fue editado a mano se queda (`retired-kept`), y render y
+   doctor lo avisan sin quedar verdes. Sin `pi`, `AGENTS.md` omite ese id: es la única salida que
+   depende de otro archivo y no de la config. Un bloque mudado deja un marcador vacío para que un
+   CLI viejo no lo reinyecte, y doctor reporta un bloque duplicado en `AGENTS.md` y `CLAUDE.md`
+   (Spec 0064).
 5. **Render preview por default** — `render` no toca disco; `--apply` escribe, con backup previo
    y escritura atómica (fsync). *Por qué*: nunca sorprender al usuario con cambios en disco.
 6. **Plugins como bundles** — cada plugin trae hasta piezas opcionales (settings fragment,

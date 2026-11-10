@@ -12,6 +12,7 @@ const config = NavoriConfigSchema.parse({
   engines: ["claude", "codex"],
   preset: "custom",
   branchBase: "main",
+  harness: { planTiers: true },
   qualityGate: { fast: "bun lint", full: "bun run check" },
 });
 const canonicalPath = fileURLToPath(

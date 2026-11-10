@@ -14,7 +14,6 @@ import { readCliVersion } from "../../lib/render/bundled-assets.ts";
 import {
   CODEX_PROJECT_DOC_MAX_BYTES,
   CODEX_PROJECT_DOC_WARN_RATIO,
-  MARKER_PAIR_WORDS,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
 } from "../../lib/assets/doc-budgets.ts";
 
@@ -100,13 +99,12 @@ describe("scanDocBudget (#917)", () => {
     expect(lines.some((l) => l.includes(".claude/context/"))).toBe(true);
   });
 
-  // `tipado-fuerte` ships a 50-word source ceiling, +11 for the rendered marker
-  // pair (`MARKER_PAIR_WORDS`) = 61.
+  // `tipado-fuerte` ships a 42-word source ceiling; the rendered markers are not words (#1520).
   it("reports a file inside its budget with no violation", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
     const report = scanDocBudget(cwd, config())!;
-    expect(report.ceiling).toBe(61);
+    expect(report.ceiling).toBe(42);
     expect(report.overBy).toBe(0);
     expect(report.blocks.map((b) => [b.id, b.kind, b.over])).toEqual([
       ["tipado-fuerte", "static", false],
@@ -200,8 +198,8 @@ describe("scanDocBudget (#917)", () => {
       [block("tipado-fuerte", words(20)), block("engram-protocol", words(497))].join("\n\n"),
     );
     const report = scanDocBudget(cwd, config())!;
-    // Body + the marker pair, which is exactly the constant the ceilings add.
-    expect(report.unbudgetedWords).toBe(497 + MARKER_PAIR_WORDS);
+    // The body alone: the marker pair is not counted (#1520).
+    expect(report.unbudgetedWords).toBe(497);
     expect(report.managedWords!).toBeGreaterThan(report.ceiling!);
     // …and yet nothing is over budget: the only budgeted block fits.
     expect(report.overBy).toBe(0);

@@ -5,7 +5,7 @@ import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { MasterStateSchema, PartsSchema, type PartState } from "./schema.ts";
 import { activeStage, assertNoCloseInProgress, masterDirPath, readMasterIndex } from "./stages.ts";
-import { checkWorkplan } from "../plan/check.ts";
+import { checkV1DeliveryWorkplan } from "./slice.ts";
 import { WorkplanSchema, type Workplan } from "../plan/schema.ts";
 import { validateEvidence } from "../plan/evidence.ts";
 import { resolveStateRoot, stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
@@ -83,7 +83,7 @@ export function recordDeliveryCriterion(
     const feature = `delivery-${snapshot.slug}-${partId.toLowerCase()}`;
     const root = resolveStateRoot({ cwd, feature });
     const plan = readDeliveryWorkplan(root, feature);
-    if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature }).ok)
+    if (!plan.source || !checkV1DeliveryWorkplan(plan, root.cwd, feature).ok)
       throw new Error("source-backed plan requires current approved planning metadata");
     const id = Object.entries(plan.source.criterionMap).find(
       ([, value]) => value === qualifiedId,
@@ -182,7 +182,7 @@ export function deliveryPartProof(
         throw new Error(`${qualifiedId}: executable provenance required`);
       const root = resolveStateRoot({ cwd, feature: record.proof.feature });
       const plan = readDeliveryWorkplan(root, record.proof.feature);
-      if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature: record.proof.feature }).ok)
+      if (!plan.source || !checkV1DeliveryWorkplan(plan, root.cwd, record.proof.feature).ok)
         throw new Error("source-backed plan is stale or unapproved");
       const binding = captureDeliveryCriterion(
         root.cwd,

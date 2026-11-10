@@ -80,6 +80,14 @@ interface Registration {
   command: string;
 }
 type Sums = Record<string, Record<string, { totalMs: number; hooks: number }>>;
+type Shape = Record<string, Record<string, { hooks: number; execs: Record<string, number> }>>;
+interface ShapeMeasurement {
+  engine: string;
+  scenario: string;
+  event: string;
+  audit: "absent" | "root" | "active";
+  execs: Record<string, number>;
+}
 interface Sandbox {
   root: string;
   project: string;
@@ -121,8 +129,15 @@ interface BenchHooks {
   createSandbox: (sourceRoot?: string, options?: { requireDist?: boolean }) => Sandbox;
   isComparable: (loadavgBefore: number[], cpus: number) => boolean;
   parsePiRegistrations: (source: string, exists?: (script: string) => boolean) => Registration[];
-  BASH_BUDGET_MS: number;
-  evaluateBudget: (sums: Sums) => { ok: boolean; violations: string[] };
+  shapeOf: (measurements: ShapeMeasurement[]) => Shape;
+  evaluateShape: (
+    shape: Shape,
+    baseline: Shape,
+    hosts?: { baselineHost?: { jq: boolean }; host?: { jq: boolean } },
+  ) => { ok: boolean; violations: string[]; unchecked: string[] };
+  mergeShape: (baseline: Shape, shape: Shape) => Shape;
+  readShapeBaseline: (path?: string) => Shape;
+  readShapeHost: (path?: string) => { jq: boolean } | undefined;
   median: (values: number[]) => number;
   parseClaudeRegistrations: (settings: unknown) => Registration[];
   parseCodexRegistrations: (toml: string) => Registration[];
@@ -138,10 +153,13 @@ const scriptUrl = (name: string): string =>
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", name)).href;
 const hooksModule = (await import(scriptUrl("bench-hooks.mjs"))) as BenchHooks;
 const {
-  BASH_BUDGET_MS,
   countExecs,
   createSandbox,
-  evaluateBudget,
+  evaluateShape,
+  mergeShape,
+  readShapeBaseline,
+  readShapeHost,
+  shapeOf,
   isComparable: hooksComparable,
   median,
   parsePiRegistrations,
@@ -682,6 +700,9 @@ describe("bench scripts", () => {
     expect(() => hooksModule.parseBenchArgs(["--impl", "rust", "--root", "base"])).toThrow(
       /--root requires --impl shell/,
     );
+    expect(() => hooksModule.parseBenchArgs(["--impl", "rust", "--write-shape"])).toThrow(
+      /--write-shape requires --impl shell/,
+    );
     const fixture = nativeBenchFixture();
     try {
       for (const args of [
@@ -698,8 +719,8 @@ describe("bench scripts", () => {
         expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
         const report = JSON.parse(
           readFileSync(join(fixture.root, ".navori/state/bench/hooks-latest.json"), "utf8"),
-        ) as { budgetMs: number; measurements: { cpuMsMedian: number }[] };
-        expect(report.budgetMs).toBe(BASH_BUDGET_MS);
+        ) as { shapeVerdict: { ok: boolean }; measurements: { cpuMsMedian: number }[] };
+        expect(typeof report.shapeVerdict.ok).toBe("boolean");
         expect(report.measurements).toHaveLength(3);
         expect(report.measurements.every((row) => typeof row.cpuMsMedian === "number")).toBe(true);
       }
@@ -1061,7 +1082,7 @@ describe("bench scripts", () => {
   });
 
   // Covers: R27
-  it("bench:hooks suma por evento y falla sobre el presupuesto", () => {
+  it("bench:hooks suma por evento y falla solo cuando crece la forma", () => {
     const claude = parseClaudeRegistrations({
       hooks: {
         PreToolUse: [
@@ -1127,12 +1148,104 @@ describe("bench scripts", () => {
     ]);
     expect(sums.claude!.Bash).toEqual({ totalMs: 250, hooks: 2 });
     expect(sums.claude!.Edit).toEqual({ totalMs: 40, hooks: 1 });
-    expect(evaluateBudget(sums)).toEqual({ ok: true, violations: [] });
 
-    sums.codex!.Bash!.totalMs = BASH_BUDGET_MS + 1;
-    const over = evaluateBudget(sums);
-    expect(over.ok).toBe(false);
-    expect(over.violations).toEqual([expect.stringContaining("codex Bash")]);
+    // Shape: only Bash without an active audit, summed per engine and hook event.
+    const execs = (jq: number, git = 0): Record<string, number> => ({ jq, git });
+    const shape = shapeOf([
+      { engine: "codex", scenario: "Bash", event: "PreToolUse", audit: "root", execs: execs(1) },
+      { engine: "codex", scenario: "Bash", event: "PreToolUse", audit: "root", execs: execs(2) },
+      {
+        engine: "codex",
+        scenario: "Bash",
+        event: "PostToolUse",
+        audit: "root",
+        execs: execs(1, 1),
+      },
+      { engine: "codex", scenario: "Bash", event: "PreToolUse", audit: "active", execs: execs(9) },
+      { engine: "codex", scenario: "Edit", event: "PreToolUse", audit: "root", execs: execs(9) },
+    ]);
+    expect(shape).toEqual({
+      codex: {
+        PreToolUse: { hooks: 2, execs: { jq: 3, git: 0 } },
+        PostToolUse: { hooks: 1, execs: { jq: 1, git: 1 } },
+      },
+    });
+    const baseline: Shape = structuredClone(shape);
+
+    // Equal counts pass, whatever the wall or CPU time was.
+    const equal = evaluateShape(shape, baseline);
+    expect(equal.ok).toBe(true);
+    expect(equal.violations).toEqual([]);
+    // Engines the run did not measure are named, never silently passed.
+    expect(equal.unchecked).toEqual([
+      expect.stringContaining("claude: not measured"),
+      expect.stringContaining("pi: not measured"),
+    ]);
+
+    // Fewer execs is an improvement, not a failure.
+    const fewer = structuredClone(shape);
+    fewer.codex!.PreToolUse!.execs.jq = 2;
+    expect(evaluateShape(fewer, baseline).ok).toBe(true);
+
+    // One more exec of a counted program fails and names it.
+    const moreExecs = structuredClone(shape);
+    moreExecs.codex!.PreToolUse!.execs.jq = 4;
+    expect(evaluateShape(moreExecs, baseline)).toMatchObject({
+      ok: false,
+      violations: ["codex Bash PreToolUse: 4 jq execs > 3 in the baseline"],
+    });
+
+    // One more hook on the path fails too, as does a hook event the baseline does not have.
+    const moreHooks = structuredClone(shape);
+    moreHooks.codex!.PostToolUse!.hooks = 2;
+    moreHooks.codex!.PostToolUseFailure = { hooks: 1, execs: { jq: 0 } };
+    expect(evaluateShape(moreHooks, baseline).violations).toEqual([
+      "codex Bash PostToolUse: 2 hooks > 1 in the baseline",
+      "codex Bash PostToolUseFailure: 1 hooks > 0 in the baseline",
+    ]);
+
+    // A host without jq swaps each jq exec for a node exec: those counts go unchecked, named,
+    // while hook counts and the other programs stay gated.
+    const noJq = structuredClone(shape);
+    noJq.codex!.PreToolUse!.execs = { jq: 0, node: 3, git: 0 };
+    expect(evaluateShape(noJq, baseline).ok).toBe(false);
+    const hosts = { baselineHost: { jq: true }, host: { jq: false } };
+    const swapped = evaluateShape(noJq, baseline, hosts);
+    expect(swapped.ok).toBe(true);
+    expect(swapped.unchecked).toContainEqual(
+      expect.stringContaining(
+        "jq/node execs: the baseline was written with jq, this host runs without jq",
+      ),
+    );
+    noJq.codex!.PreToolUse!.execs.git = 1;
+    noJq.codex!.PostToolUse!.hooks = 2;
+    expect(evaluateShape(noJq, baseline, hosts).violations).toEqual([
+      "codex Bash PreToolUse: 1 git execs > 0 in the baseline",
+      "codex Bash PostToolUse: 2 hooks > 1 in the baseline",
+    ]);
+    // The same host keeps jq and node gated.
+    expect(
+      evaluateShape(moreExecs, baseline, { baselineHost: { jq: true }, host: { jq: true } }).ok,
+    ).toBe(false);
+
+    // An engine with no baseline row is reported as unchecked, not failed.
+    const fresh = evaluateShape(shape, {});
+    expect(fresh.ok).toBe(true);
+    expect(fresh.unchecked).toContainEqual(expect.stringContaining("codex: no baseline row"));
+
+    // Regenerating keeps the rows of engines this run did not measure.
+    const claudeRow = { PreToolUse: { hooks: 1, execs: { jq: 1 } } };
+    expect(mergeShape({ claude: claudeRow, codex: {} }, shape)).toEqual({
+      claude: claudeRow,
+      codex: shape.codex,
+    });
+
+    // The committed baseline parses and carries at least the engines this repo renders.
+    const committed = readShapeBaseline();
+    expect(Object.keys(committed)).toEqual(expect.arrayContaining(["claude", "pi"]));
+    expect(readShapeBaseline(join(tmpdir(), "navori-no-such-shape.json"))).toEqual({});
+    expect(readShapeHost()).toEqual({ jq: expect.any(Boolean) });
+    expect(readShapeHost(join(tmpdir(), "navori-no-such-shape.json"))).toBeUndefined();
   });
 
   // Covers: R1
@@ -1270,8 +1383,8 @@ describe("bench scripts", () => {
         selectHooks(registrations, scenario, engine),
       ),
     );
-    // The context consumer iterates only SCENARIOS: its 49 groups stay separate from supplements.
-    expect(original).toHaveLength(49);
+    // The context consumer iterates only SCENARIOS: its 29 groups (master-accept-confirm is Pi-registered only with masterPlan; this repo renders no Codex) stay separate from supplements.
+    expect(original).toHaveLength(29);
     const scenarios = [
       ...Object.keys(hooksModule.SCENARIOS),
       ...Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS ?? {}),
@@ -1319,7 +1432,7 @@ describe("bench scripts", () => {
         expect(existsSync(join(state, "bench-session"))).toBe(false);
         expect(readFileSync(join(state, "other-session"), "utf8")).toBe("preserved");
       }
-      for (const engine of ["claude", "codex", "pi"] as const) {
+      for (const engine of ["claude", "pi"] as const) {
         const close = selectHooks(registrations, "SessionEnd", engine).find((reg) =>
           reg.command.includes("audit-mode-close.sh"),
         )!;
@@ -1351,12 +1464,6 @@ describe("bench scripts", () => {
           writeFileSync(join(repo, "spool-bench-session", "consumed.json"), "{}");
         }
       }
-      const memory = selectHooks(registrations, "Memory", "codex");
-      expect(memory.some((reg) => reg.command.includes("engram-write-guard.sh"))).toBe(true);
-      const payload = JSON.parse(
-        readFileSync(hooksModule.writePayload(sandbox, "Memory", memory[0]!), "utf8"),
-      ) as { tool_name: string };
-      expect(new RegExp(memory[0]!.matcher!).test(payload.tool_name)).toBe(true);
       for (const args of [["--scenario"], ["--scenario", "unknown"]]) {
         const run = spawnSync(
           process.execPath,
@@ -1365,6 +1472,44 @@ describe("bench scripts", () => {
         );
         expect(run.status).toBe(2);
         expect(run.stderr).toContain("--scenario needs a known scenario name");
+      }
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  // Covers: R3
+  it("bench:hooks mide comandos Bash largos fuera de SCENARIOS y del presupuesto de 300 ms", () => {
+    const longScenarios = Object.keys(hooksModule.SUPPLEMENTAL_SCENARIOS).filter((name) =>
+      name.startsWith("BashLong"),
+    );
+    expect(longScenarios.sort()).toEqual([
+      "BashLong40kGrep",
+      "BashLong40kNoGrep",
+      "BashLong6kGrep",
+      "BashLong6kNoGrep",
+    ]);
+    // Not in SCENARIOS: bench-context and the `Bash` budget never see them.
+    expect(longScenarios.some((name) => name in hooksModule.SCENARIOS)).toBe(false);
+    const registrations = hooksModule.readRegistrations();
+    const sandbox = createSandbox();
+    try {
+      for (const name of longScenarios) {
+        const reg = selectHooks(registrations, name, "claude")[0]!;
+        const payload = JSON.parse(
+          readFileSync(hooksModule.writePayload(sandbox, name, reg), "utf8"),
+        ) as {
+          tool_name: string;
+          tool_input: { command: string };
+        };
+        const { command } = payload.tool_input;
+        const size = name.includes("40k") ? 40_000 : 6_000;
+        expect(command.length).toBeGreaterThan(size);
+        expect(command.length).toBeLessThan(size * 1.25);
+        expect(command).toContain("navori");
+        expect(command).toContain("master");
+        expect(command.includes("| grep")).toBe(name.endsWith("Grep") && !name.endsWith("NoGrep"));
+        expect(payload.tool_name).toBe("Bash");
       }
     } finally {
       sandbox.cleanup();

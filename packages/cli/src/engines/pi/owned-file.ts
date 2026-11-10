@@ -25,6 +25,8 @@ interface PiManifestBase {
     scribeOwnsMarkdown: boolean;
     /** Optional (pi-audit-mode): present only when audit.mode is "always". */
     auditMode?: "always";
+    /** Optional (#1579): present only when harness.sessionState is false. */
+    sessionState?: false;
   };
 }
 
@@ -81,6 +83,22 @@ export function ownsPiSource(content: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Header of the whole-file orchestrator doctrine; the extension strips it before injecting the body. */
+export const PI_ORCHESTRATOR_HEADER =
+  /^<!-- navori:managed-file id="pi-orchestrator" hash="([a-f0-9]{64})" -->\n/;
+
+/** Serialize the orchestrator doctrine Pi injects into the parent process only. */
+export function serializePiOrchestrator(markdown: string): string {
+  const body = markdown.trim() + "\n";
+  return `<!-- navori:managed-file id="pi-orchestrator" hash="${digest(body)}" -->\n${body}`;
+}
+
+/** Refuse to replace an orchestrator file changed since the last render. */
+export function ownsPiOrchestrator(content: string): boolean {
+  const match = PI_ORCHESTRATOR_HEADER.exec(content);
+  return match !== null && match[1] === digest(content.slice(match[0].length));
 }
 
 /** Serialize one agent with a YAML-comment ownership marker. */
@@ -301,8 +319,11 @@ export function ownsPiManifest(content: string): boolean {
       const keys = Object.keys(raw).sort().join(",");
       if (
         (keys !== "masterPlan,planTiers,scribeOwnsMarkdown" &&
-          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown") ||
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown" &&
+          keys !== "masterPlan,planTiers,scribeOwnsMarkdown,sessionState" &&
+          keys !== "auditMode,masterPlan,planTiers,scribeOwnsMarkdown,sessionState") ||
         (raw.auditMode !== undefined && raw.auditMode !== "always") ||
+        (raw.sessionState !== undefined && raw.sessionState !== false) ||
         typeof raw.planTiers !== "boolean" ||
         typeof raw.masterPlan !== "boolean" ||
         typeof raw.scribeOwnsMarkdown !== "boolean"
@@ -313,6 +334,7 @@ export function ownsPiManifest(content: string): boolean {
         masterPlan: raw.masterPlan,
         scribeOwnsMarkdown: raw.scribeOwnsMarkdown,
         ...(raw.auditMode === "always" ? { auditMode: "always" as const } : {}),
+        ...(raw.sessionState === false ? { sessionState: false as const } : {}),
       };
     }
     const common = { agents: record.agents, ...(controls ? { controls } : {}) };

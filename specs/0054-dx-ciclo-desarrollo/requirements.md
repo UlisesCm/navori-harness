@@ -173,8 +173,11 @@ Decisiones del usuario (2026-10-15):
   descartando los inválidos, de forma idempotente.
 - **R27** — The system SHALL ofrecer `bun run bench:hooks`, que mide la mediana de 3 corridas por
   hook, para Claude y Codex, con payloads representativos. Reporta la suma por evento (Bash, Edit,
-  Agent, SessionStart, UserPromptSubmit) y sale con código distinto de cero si una llamada Bash sin
-  audit supera 300 ms de proceso sumado.
+  Agent, SessionStart, UserPromptSubmit) y sale con código distinto de cero si, en una llamada Bash sin
+  audit, crece para algún engine y evento el número de hooks o de ejecuciones por programa contado
+  respecto de la línea base `scripts/js/bench-hooks-shape.json` (#1485). Las medianas de tiempo quedan
+  solo en el reporte; un engine no medido sale como no revisado, y la línea base se regenera a
+  propósito con `--write-shape`.
 
 ### F — Ciclo proporcional (absorbido de 0045 E4)
 

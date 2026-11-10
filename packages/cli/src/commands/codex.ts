@@ -370,6 +370,7 @@ export const codexCommand = defineCommand({
     name: "codex",
     description: "Codex-specific commands",
   },
+  // Frozen (#1484): no new features and no Rust port; the tests stay in CI.
   subCommands: {
     evaluation: () =>
       import("./codex-evaluation.ts").then((module) => module.codexEvaluationCommand),

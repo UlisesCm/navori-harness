@@ -5,6 +5,7 @@ import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
 import { RenderWriteError } from "../../lib/primitives/errors.ts";
 import { computeRenderPlan } from "../../lib/render/render-plan.ts";
+import { declaresClaudeLayer, layerOf, type Layer } from "../../lib/render/layers.ts";
 import { injectManagedSection } from "../../lib/render/marker.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
@@ -77,6 +78,40 @@ function buildWorkflowSection(): string {
   ].join("\n");
 }
 
+/** Rendered rule entries of the shared plan (engine-agnostic), the source of every prose block. */
+function renderedEntries(
+  config: NavoriConfig,
+  repoRoot: string,
+  isWorkspace: boolean,
+  engine: string,
+  transform?: (text: string) => string,
+): ReturnType<typeof computeRenderPlan>["entries"] {
+  // Workspace renders omit root-only blocks — same semantics as the Claude
+  // engine (#70): the tools that read these files merge/inherit the root file,
+  // so re-emitting the global blocks per workspace just duplicates context.
+  const plan = computeRenderPlan("", config, repoRoot, {
+    omitRootOnly: isWorkspace,
+    engine,
+    transform,
+  });
+  return plan.entries.filter((e) => e.newContent != null && e.status !== "removed-condition-false");
+}
+
+/**
+ * Rendered text of the named rule assets only (same plan, interpolation and transform as
+ * {@link buildHarnessProse}), in plan order. Lets an engine move a layer out of the shared file.
+ */
+export function buildAssetBlocks(
+  config: NavoriConfig,
+  repoRoot: string,
+  isWorkspace: boolean,
+  options: { engine: string; assetIds: ReadonlySet<string>; transform?: (text: string) => string },
+): string[] {
+  return renderedEntries(config, repoRoot, isWorkspace, options.engine, options.transform)
+    .filter((e) => options.assetIds.has(e.asset.id))
+    .map((e) => e.newContent!.trim());
+}
+
 /**
  * Build the managed body: core rule blocks + preset stack + skills + workflow.
  * Reuses `computeRenderPlan` (engine-agnostic) for the rule blocks and keeps
@@ -93,27 +128,40 @@ export function buildHarnessProse(
     engine: string;
     /** Omit the "Available skills" index (Codex lists `.agents/skills` natively). */
     omitSkillsIndex?: boolean;
+    /** Rewrites asset text before interpolation (see `computeRenderPlan`). */
+    transform?: (text: string) => string;
+    /** Rule assets left out of the body (an engine that carries them elsewhere). */
+    omitAssetIds?: ReadonlySet<string>;
+    /**
+     * Layered shape (spec 0064): keep exactly the blocks whose layer is listed, instead of the
+     * `includePluginBlocks` source filter. Only the `agents-md` engine passes it.
+     */
+    layers?: ReadonlySet<Layer>;
   },
 ): string {
-  // Workspace renders omit root-only blocks — same semantics as the Claude
-  // engine (#70): the tools that read these files merge/inherit the root file,
-  // so re-emitting the global blocks per workspace just duplicates context.
-  const plan = computeRenderPlan("", config, repoRoot, {
-    omitRootOnly: isWorkspace,
-    engine: options.engine,
-  });
   // Keep core rule blocks + the active preset's stack block (its source is the
   // preset id). Plugin-contributed blocks (engram, etc.) are Claude-specific and
   // dropped — other tools don't have that infra. The "orquestacion" block is
   // also Claude-only (it drives subagents via the Agent tool, which non-Claude
   // tools lack); its engine-agnostic core lives in the workflow section below.
-  const ruleBlocks = plan.entries
+  // A block that explicitly declares the Claude layer is dropped for every prose target.
+  const ruleBlocks = renderedEntries(
+    config,
+    repoRoot,
+    isWorkspace,
+    options.engine,
+    options.transform,
+  )
     .filter(
       (e) =>
-        e.newContent != null &&
-        e.status !== "removed-condition-false" &&
+        options.omitAssetIds?.has(e.asset.id) !== true &&
+        !declaresClaudeLayer(e) &&
         (options.includeOrchestration === true || e.asset.id !== "orquestacion") &&
-        (options.includePluginBlocks === true || e.source === "core" || e.source === config.preset),
+        (options.layers !== undefined
+          ? options.layers.has(layerOf(e, config.preset))
+          : options.includePluginBlocks === true ||
+            e.source === "core" ||
+            e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());
 
@@ -170,8 +218,16 @@ export interface ProseRenderSpec {
   includeOrchestration?: boolean;
   /** Full engines may retain plugin protocol blocks they can back with MCP. */
   includePluginBlocks?: boolean;
+  /** Omit the "Available skills" index (the engine lists `.agents/skills` natively). */
+  omitSkillsIndex?: boolean;
   /** Appends engine-owned sub-blocks (e.g. plugin extensions) to the harness body before it is injected. */
   extendBody?: (body: string) => string;
+  /** Rewrites navori's asset text before interpolation; `project.*` values stay verbatim. */
+  transform?: (text: string) => string;
+  /** Rule assets left out of the body (an engine that carries them elsewhere). */
+  omitAssetIds?: ReadonlySet<string>;
+  /** Layered shape: keep only the listed layers (see `buildHarnessProse`). */
+  layers?: ReadonlySet<Layer>;
   /** Engine id (`"agents-md"`, `"cursor"`, `"copilot"`): required so a prose file never renders the Claude-only `onClaude` branch by default. */
   engine: string;
 }
@@ -198,6 +254,10 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
     includeOrchestration: spec.includeOrchestration,
     includePluginBlocks: spec.includePluginBlocks,
     engine: spec.engine,
+    omitSkillsIndex: spec.omitSkillsIndex,
+    transform: spec.transform,
+    omitAssetIds: spec.omitAssetIds,
+    layers: spec.layers,
   });
   const body = spec.extendBody ? spec.extendBody(harnessBody) : harnessBody;
 

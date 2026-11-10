@@ -1,7 +1,13 @@
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { coreAgentEntries, deriveMcpToolEntries } from "../shared/engram-grant-policy.ts";
 import type { KnowledgeServerSpec } from "./knowledge-client.ts";
-import { PI_ROLE_NAMES, PI_ROLE_TOOLS, type PiRoleName } from "./role-tools.ts";
+import {
+  isPiParentRole,
+  PI_ROLE_NAMES,
+  PI_ROLE_TOOLS,
+  type PiParentRoleName,
+  type PiRoleName,
+} from "./role-tools.ts";
 
 /**
  * Pi children keep `--no-mcp`, so they reach codegraph and engram only through navori-owned
@@ -114,7 +120,14 @@ export function piKnowledgeGrants(plugins: readonly LoadedPlugin[]): PiKnowledge
   return grants;
 }
 
-/** The `--tools` / role-file list of a role: its base tools plus its knowledge grants. */
-export function piRoleTools(role: PiRoleName, grants: PiKnowledgeGrants): readonly string[] {
+/**
+ * The `--tools` / role-file list of a role: its base tools plus its knowledge grants. A parent role
+ * (`PI_PARENT_ROLES`) is never a child, so it gets none.
+ */
+export function piRoleTools(
+  role: PiRoleName | PiParentRoleName,
+  grants: PiKnowledgeGrants,
+): readonly string[] {
+  if (isPiParentRole(role)) return [];
   return [...PI_ROLE_TOOLS[role], ...(grants[role] ?? [])];
 }

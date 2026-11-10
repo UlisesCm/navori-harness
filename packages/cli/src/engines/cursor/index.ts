@@ -1,5 +1,6 @@
 import { type NavoriConfig } from "../../lib/config/config.ts";
 import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { CURSOR_HEADER, CURSOR_USER_SECTION } from "../../lib/render/scaffold.ts";
 
 /**
  * Cursor engine adapter. Emits a single project rule at
@@ -19,23 +20,6 @@ export type CursorEngineResult = ProseEngineResult;
 
 const MANAGED_ID = "navori-cursor";
 
-/**
- * `.mdc` frontmatter + title seeded before the managed block on first render.
- * `alwaysApply: true` means Cursor injects this rule into every request (no glob
- * scoping) — the harness context should always be present.
- */
-const HEADER =
-  "---\n" +
-  "description: Contexto y reglas del proyecto generados por navori.\n" +
-  "alwaysApply: true\n" +
-  "---\n\n" +
-  "# Navori — reglas del proyecto\n";
-/** User-owned section appended once, the first time the file is created. */
-const USER_SECTION =
-  "\n<!-- navori:user-section -->\n" +
-  "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n";
-
 export function renderCursorEngine(
   cwd: string,
   inputConfig: NavoriConfig,
@@ -47,8 +31,8 @@ export function renderCursorEngine(
     destRelPath: ".cursor/rules/navori.mdc",
     managedId: MANAGED_ID,
     engine: "cursor",
-    header: HEADER,
-    userSection: USER_SECTION,
+    header: CURSOR_HEADER,
+    userSection: CURSOR_USER_SECTION,
     dryRun: options.dryRun,
     repoRoot: options.repoRoot,
   });

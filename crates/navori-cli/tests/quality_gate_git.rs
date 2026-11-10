@@ -85,11 +85,11 @@ impl Scratch {
     fn install(&self, dir: &str) -> Result<PathBuf, Box<dyn Error>> {
         let dest = self.root.join(dir).join(SCRIPT);
         fs::create_dir_all(dest.parent().ok_or("parent")?)?;
-        // This repository's `.claude` copy of the hook carries no native-hook integrity marker, so
-        // the native host would defer it; the Claude lane is exercised with the marked `.codex`
-        // copy installed at the Claude path (the engine is read from the path, not the content).
-        let source = if dir == ".claude/hooks" {
-            ".codex/hooks"
+        // This repository no longer renders Codex (`dev` dropped it in 318d5eff). The Codex copy
+        // was byte-identical to the Pi one (same body, same non-JSON failure arm), so the Codex
+        // lane installs the Pi copy at the Codex path (the engine is read from the path).
+        let source = if dir == ".codex/hooks" {
+            ".pi/navori/hooks"
         } else {
             dir
         };

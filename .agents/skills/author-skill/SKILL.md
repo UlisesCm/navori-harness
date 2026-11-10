@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="author-skill" hash="0b5cfaef" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="author-skill" hash="ea564e60" version="0.12.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Authoring a skill
 
 A skill loads by its `description` and costs tokens on every activation, so it carries only what the model can't know: this repo's rules, version traps, failure modes, exact commands.
@@ -15,7 +15,7 @@ A skill loads by its `description` and costs tokens on every activation, so it c
 First fit wins (`docs/EXTENDING.md`):
 
 1. A repo rule on a topic a skill already covers → that skill's user-section.
-2. Knowledge no installed skill covers → a local skill at `.agents/skills/<id>/SKILL.md`, listed in `project.localSkills`. That path is Claude Code's; Codex and DeepSeek read their own skill directories.
+2. Knowledge no installed skill covers → a local skill at `.claude/skills/<id>/SKILL.md`, listed in `project.localSkills`. That path is Claude Code's; Codex and DeepSeek read their own skill directories.
 3. Stack knowledge reusable across repos → a local preset.
 4. A tool or MCP wrapper → a navori plugin. Only universal rules reach core.
 

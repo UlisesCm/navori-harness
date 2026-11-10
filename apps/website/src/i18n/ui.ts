@@ -223,7 +223,6 @@ export const ui = {
     "commands.status.desc": "At-a-glance snapshot: config, plugins, drift, and what to do next.",
     "commands.scan.desc": "Walks a monorepo and assigns a preset to each workspace.",
     "commands.registry.desc": "Which presets, plugins and engines this version ships.",
-    "commands.bench.desc": "Times render over N runs and reports p50/p95.",
     "commands.audit.desc":
       "How the harness actually ran: tokens per agent, and doctrine nobody followed.",
     "commands.workspace.desc": "Cross-repo config, and rendering the standard to every org repo.",
@@ -528,7 +527,6 @@ export const ui = {
     "commands.status.desc": "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
     "commands.scan.desc": "Recorre un monorepo y asigna preset a cada workspace.",
     "commands.registry.desc": "Qué presets, plugins y engines tiene disponible esta versión.",
-    "commands.bench.desc": "Mide render sobre N corridas y reporta p50/p95.",
     "commands.audit.desc":
       "Cómo corrió el harness de verdad: tokens por agente y doctrina que nadie siguió.",
     "commands.workspace.desc":
@@ -817,7 +815,6 @@ export const ui = {
     "commands.status.desc": "快速查看配置、插件、漂移与下一步操作。",
     "commands.scan.desc": "遍历 monorepo，为各工作区分配预设。",
     "commands.registry.desc": "列出当前版本包含的预设、插件与引擎。",
-    "commands.bench.desc": "对 render 运行 N 次计时，并报告 p50/p95。",
     "commands.audit.desc": "展示 harness 的真实执行：各智能体 token 用量与未遵守的规则。",
     "commands.workspace.desc": "跨仓库配置，并将组织标准渲染到所有仓库。",
     "commands.dominio.desc": "工作区知识库，保存跨仓库事实。",

@@ -138,6 +138,8 @@ function settle(child: ChildStub, answer = "done"): void {
 }
 
 const dirs: string[] = [];
+/** A secret-shaped token `redactSecrets` must hide from a child's stderr tail. */
+const FAKE_TOKEN = "sk-abcdefghijklmnopqrstuvwxyz";
 function freshDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "navori-pi-subagent-"));
   dirs.push(dir);
@@ -220,7 +222,8 @@ describe("Pi subagent resources", () => {
     writeFileSync(path, readFileSync(path, "utf8") + "user note\n");
     const changed = NavoriConfigSchema.parse({ ...config, harness: { scout: false } });
     const result = renderPiEngine(dir, changed);
-    expect(result.written).toEqual([]);
+    // AGENTS.md is the shared marker lane, outside the vetoed whole-file generation (#1512).
+    expect(result.written.filter((w) => w.path.startsWith(".pi/"))).toEqual([]);
     expect(result.warnings).toContain(
       "Pi generation was not committed because at least one owned destination collides or was edited.",
     );
@@ -332,9 +335,7 @@ describe("Pi extension executable policy", () => {
       child.emit("close", null);
       await expect(pending).resolves.toMatchObject({
         isError: true,
-        content: [
-          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
-        ],
+        content: [{ text: expect.stringContaining("Pi child cancelled by the parent") }],
         details: { outcome: "failed" },
       });
       expect(vi.getTimerCount()).toBe(0);
@@ -354,14 +355,21 @@ describe("Pi extension executable policy", () => {
       const child = runtime.calls[0]!.child;
       await vi.advanceTimersByTimeAsync(600_000);
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+      // #1498: the role deadline names itself and keeps the child's redacted stderr tail.
+      child.stderr.write(`provider stalled token=${FAKE_TOKEN}\n`);
       child.emit("close", null);
-      await expect(pending).resolves.toMatchObject({
+      const timedOut = await pending;
+      expect(timedOut).toMatchObject({
         isError: true,
         content: [
-          { text: expect.stringContaining("cancelled, timed out, or exceeded output limit") },
+          { text: expect.stringContaining("Pi child timed out after 10 min (scout role timeout)") },
         ],
-        details: { outcome: "failed" },
+        details: {
+          outcome: "failed",
+          failure: expect.stringContaining("Child stderr (tail, redacted):"),
+        },
       });
+      expect(JSON.stringify(timedOut)).not.toContain(FAKE_TOKEN);
       // The SIGKILL escalation outlives the leader's close, then releases itself.
       await vi.advanceTimersByTimeAsync(5_000);
       expect(vi.getTimerCount()).toBe(0);
@@ -627,6 +635,22 @@ describe("Pi child failure diagnostics", () => {
       childStop: { stopReason: "error", errorMessage: "invalid_grant: refresh failed" },
     });
     expect(String(result.details.failure)).toContain("invalid_grant");
+    expect(text).not.toContain("Working without children");
+  });
+
+  // Covers: R7
+  it("suggests another route only when the provider rejects the request (4xx other than 408/429)", async () => {
+    const suggestion = async (stopReason: string, errorMessage: string): Promise<boolean> => {
+      const result = await runScout([assistant({ stopReason, errorMessage }), settled]);
+      expect(result.isError).toBe(true);
+      return result.content[0]!.text.includes("Working without children");
+    };
+    expect(await suggestion("error", '400 {"type":"error"}')).toBe(true);
+    expect(await suggestion("error", "403 forbidden")).toBe(true);
+    expect(await suggestion("error", "429 rate limited")).toBe(false);
+    expect(await suggestion("error", "408 request timeout")).toBe(false);
+    expect(await suggestion("error", "529 overloaded")).toBe(false);
+    expect(await suggestion("aborted", "400 aborted by user")).toBe(false);
   });
 
   // Covers: R7
@@ -685,6 +709,30 @@ describe("Pi child failure diagnostics", () => {
     const tail = text.slice(text.indexOf("Child stderr (tail, redacted):\n"));
     expect(tail.endsWith("last line")).toBe(true);
     expect(tail.length).toBeLessThan(900);
+  });
+
+  // Covers: R7 (#1498): the tail reaches the parent without terminal control sequences.
+  it("strips ANSI, C0/C1 control and bidi override characters from the stderr tail", async () => {
+    const result = await runScout(
+      [assistant({ stopReason: "error", errorMessage: "boom" }), settled],
+      {
+        stderr:
+          "\u001b[31mred\u001b[0m bell\u0007 csi\u009b2J bidi\u202eevil\u2066x\u2069\r\nlast line\n",
+      },
+    );
+    const text = result.content[0]!.text;
+    const tail = text.slice(text.indexOf("Child stderr (tail, redacted):\n"));
+    expect(tail).toContain("red bell csi2J bidievilx\nlast line");
+    const unsafe = [...tail].filter((char) => {
+      const code = char.charCodeAt(0);
+      return (
+        (code < 0x20 && char !== "\n" && char !== "\t") ||
+        (code >= 0x7f && code <= 0x9f) ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069)
+      );
+    });
+    expect(unsafe).toEqual([]);
   });
 
   // Covers: R7

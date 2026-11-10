@@ -50,7 +50,7 @@ interface Tool {
   ) => Promise<ExecResult>;
 }
 
-const APPROVED = "navori master delivery-publication --delivery d1 --approved-by user";
+const APPROVED = "navori master accept S1 --approved-by user";
 
 interface Runtime {
   toolCall: ToolCall | undefined;
@@ -285,6 +285,26 @@ describe("Pi first-class approvals", () => {
     };
     expect(await rt.toolCall!(bash(APPROVED), failing)).toMatchObject({ block: true });
   });
+
+  // Covers: R5 — spec 0063: the QA verdicts of the v2 plan ask for the native confirmation.
+  it.each([
+    "navori master accept S1 --approved-by user",
+    "navori master reject S2 --notes a --approved-by user",
+  ])(
+    "master verdict asks for confirmation and declining blocks it: %s",
+    async (command: string) => {
+      const rt = load();
+      const accepted = interactive(rt, true);
+      await expect(rt.toolCall!(bash(command), accepted.ctx)).resolves.toBeUndefined();
+      expect(accepted.confirm).toHaveBeenCalledOnce();
+      expect(accepted.confirm.mock.calls[0]![0]).toContain(command);
+      const declined = interactive(rt, false);
+      const result = await rt.toolCall!(bash(command), declined.ctx);
+      expect(result).toMatchObject({ block: true });
+      expect(result!.reason).toMatch(/denied or cancelled/);
+      expect(declined.confirm).toHaveBeenCalledOnce();
+    },
+  );
 
   // Covers: R5
   it("object or state changed between prompt and use does not authorize", async () => {
@@ -613,7 +633,7 @@ async function scriptCall(
   relayed: Array<Record<string, unknown>> = [],
 ): Promise<{ block?: boolean; reason?: string } | undefined> {
   const handlers = loadScripts({
-    env: child ? { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" } : {},
+    env: child ? { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" } : {},
     send: (message, callback) => {
       relayed.push(message);
       callback(null);

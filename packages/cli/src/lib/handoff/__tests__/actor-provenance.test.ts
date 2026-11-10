@@ -193,6 +193,23 @@ describe("native delivery ownership", () => {
       expect(beginReview(options).status).toBe("error");
     },
   );
+  // #1556: the reviewer signs last — an APPROVED sidecar written but not sealed cannot sign.
+  it("refuses to sign over an unsealed approved sidecar and signs once it is sealed", () => {
+    const options = { cwd, feature: "demo", target: "main", dir: state(""), gate: "test" };
+    expect(attestHandoff(options)).toEqual({ status: "attested" });
+    actor(reviewerId, "reviewer");
+    const begun = beginReview(options);
+    if (begun.status !== "begun") throw new Error("begin failed");
+    writeFileSync(
+      state("review_demo.json"),
+      JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
+    );
+    const unsealed = signReceipt(options);
+    expect(unsealed.exitCode).toBe(1);
+    expect(unsealed.result.error).toContain("uncorrelated");
+    expect(sealReview({ ...options, nonce: begun.nonce }).status).toBe("validated");
+    expect(signReceipt(options).exitCode).toBe(0);
+  });
   // Covers: R5
   it("permits linked checkout delivery with the same common-dir but rejects an unrelated repository", () => {
     const original = cwd;

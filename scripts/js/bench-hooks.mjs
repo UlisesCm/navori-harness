@@ -33,8 +33,16 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  *   count  one run with shims on PATH (`jq`, `node`, `perl`, `git`, `navori`, `date`, `sed`,
  *          `grep`, `tr`, `head`, `tail`, `basename`) that log every exec: `execs` per program.
  * `navori` on PATH is a symlink to the LOCAL `packages/cli/dist/index.js`, not the global one.
- * Exits 1 when a Bash call WITHOUT an active audit costs more than 300 ms of CPU in either
- * engine, unless `--report-only`.
+ * Exits 1 when the SHAPE of a Bash call WITHOUT an active audit grows (#1485): per engine and
+ * hook event, more hooks run or more execs of a counted program than the committed baseline
+ * `bench-hooks-shape.json`, unless `--report-only`. Counts are deterministic; wall and CPU ms
+ * vary with machine load, so they are report-only. `--write-shape` rewrites the baseline rows of
+ * the engines this run measured (others are kept); an engine with no registrations in the
+ * measured checkout (e.g. no `.codex/`) is reported as not checked.
+ * The shape gate does not see work inside a single exec; the timing report remains for that.
+ * The baseline is hand-reviewed like `test-budget.json`: regenerate it on purpose, never to
+ * silence a red.
+ * TODO(scope): only the Bash scenario is gated; extend to SCENARIOS rows if one regresses.
  *
  * Hermetic: hooks run from a scratch copy of the hook trees in a scratch git repo, with scratch
  * HOME and NAVORI_AUDITS_ROOT. The repo is never written, except `.navori/state/bench/`.
@@ -61,15 +69,16 @@ import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
  * registers is an error, never an empty pass.
  *
  * Usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N]
- *          [--scenario NAME ...] [--hook NAME.sh ...] [--root DIR]
+ *          [--scenario NAME ...] [--hook NAME.sh ...] [--root DIR] [--write-shape]
  *        node scripts/js/bench-hooks.mjs --summarize <report.json> ...
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PAYLOADS = join(dirname(fileURLToPath(import.meta.url)), "bench-payloads");
-export const BASH_BUDGET_MS = 300;
 /** R17 budget for direct native invocation, measured as wall p95 in milliseconds. */
 export const RUST_P95_BUDGET_MS = 5;
+/** Committed shape baseline of the Bash scenario without an active audit. */
+export const SHAPE_BASELINE = join(dirname(fileURLToPath(import.meta.url)), "bench-hooks-shape.json");
 
 /** Tool name each scenario uses per engine, and the payload file it sends. */
 export const SCENARIOS = {
@@ -98,10 +107,29 @@ export const SUPPLEMENTAL_SCENARIOS = {
     events: ["PostToolUseFailure"],
     tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
   },
+  // Long multi-segment Bash commands (#1481), report only: they live outside SCENARIOS, so neither
+  // the shape gate (reads `Bash`) nor bench-context (iterates SCENARIOS) sees them.
+  ...Object.fromEntries(
+    ["6k", "40k"].flatMap((size) =>
+      ["grep", "nogrep"].map((filter) => [
+        `BashLong${size}${filter === "grep" ? "Grep" : "NoGrep"}`,
+        {
+          payload: `bash-long-${size}-${filter}.json`,
+          events: ["PreToolUse", "PostToolUse"],
+          tools: { claude: "Bash", codex: "Bash", pi: "Bash" },
+        },
+      ]),
+    ),
+  ),
   SessionEnd: { events: ["SessionEnd"] },
   Memory: {
     events: ["PreToolUse"],
     tools: { codex: "mcp__engram__mem_search" },
+  },
+  // #1445: Claude's web-tool hook (pii-egress-guard); the Bash half rides inside the destructive guard.
+  WebFetch: {
+    events: ["PreToolUse"],
+    tools: { claude: "WebFetch" },
   },
 };
 
@@ -196,6 +224,8 @@ export function parseCodexRegistrations(toml) {
  */
 export function selectHooks(registrations, scenario, engine) {
   const spec = SCENARIOS[scenario] ?? SUPPLEMENTAL_SCENARIOS[scenario];
+  // A scenario with a tool map only exists for the engines it names.
+  if (spec.tools && spec.tools[engine] === undefined) return [];
   const subject = spec.tools ? spec.tools[engine] : (spec.source ?? "");
   return registrations.filter((reg) => {
     if (reg.engine !== engine || !spec.events.includes(reg.event)) return false;
@@ -270,23 +300,132 @@ export function sumByEvent(measurements) {
 }
 
 /**
- * R27 budget: a Bash call without audit must stay at or under {@link BASH_BUDGET_MS}.
- *
- * @param {ReturnType<typeof sumByEvent>} sums
- * @param {number} [budgetMs]
- * @returns {{ ok: boolean, violations: string[] }}
+ * @typedef {{ hooks: number, execs: Record<string, number> }} ShapeRow
+ * @typedef {Record<string, Record<string, ShapeRow>>} Shape engine -> hook event -> row
  */
-export function evaluateBudget(sums, budgetMs = BASH_BUDGET_MS) {
+
+/** Engines the shape gate expects; any of them missing from a run is reported, never skipped silently. */
+export const SHAPE_ENGINES = ["claude", "codex", "pi"];
+
+/**
+ * Hooks parse JSON with jq and fall back to node when jq is not on PATH, one node exec per jq
+ * exec. Their counts depend on the host, so they are compared only when the host matches the
+ * baseline's.
+ */
+export const JSON_PARSERS = ["jq", "node"];
+
+/**
+ * @typedef {{ jq: boolean }} HostProfile programs on PATH that change which execs the hooks make
+ */
+
+/**
+ * The host facts the shape depends on, read from `path` like the sandbox shims are.
+ *
+ * @param {string} [path]
+ * @returns {HostProfile}
+ */
+export function hostProfile(path = process.env.PATH ?? "") {
+  return { jq: resolveProgram("jq", path) !== null };
+}
+
+/**
+ * R27 shape of a Bash call without an active audit (`audit === "root"`): per engine and hook
+ * event, how many hooks ran and how many execs of each counted program they made in total.
+ *
+ * @param {Array<Pick<Measurement, "engine" | "scenario" | "event" | "audit" | "execs">>} measurements
+ * @returns {Shape}
+ */
+export function shapeOf(measurements) {
+  /** @type {Shape} */
+  const shape = {};
+  for (const m of measurements) {
+    if (m.scenario !== "Bash" || m.audit !== "root") continue;
+    const row = ((shape[m.engine] ??= {})[m.event] ??= { hooks: 0, execs: {} });
+    row.hooks += 1;
+    for (const [program, n] of Object.entries(m.execs)) row.execs[program] = (row.execs[program] ?? 0) + n;
+  }
+  return shape;
+}
+
+/**
+ * R27 gate: fails only when a count grows against the baseline. A hook event absent from the
+ * baseline counts from zero. An engine the run did not measure, or one the baseline does not
+ * carry yet, is listed in `unchecked` instead of guessed. So are the JSON_PARSERS counts when
+ * the host's jq differs from the baseline's; hook counts and the other programs stay gated.
+ *
+ * @param {Shape} shape
+ * @param {Shape} baseline
+ * @param {{ baselineHost?: HostProfile, host?: HostProfile }} [hosts] both known, or no host check
+ * @returns {{ ok: boolean, violations: string[], unchecked: string[] }}
+ */
+export function evaluateShape(shape, baseline, { baselineHost, host } = {}) {
   const violations = [];
-  for (const [engine, scenarios] of Object.entries(sums)) {
-    const bash = scenarios.Bash;
-    if (bash && bash.totalMs > budgetMs) {
-      violations.push(
-        `${engine} Bash: ${bash.totalMs.toFixed(0)} ms > ${budgetMs} ms (${bash.hooks} hooks)`,
-      );
+  const unchecked = [];
+  const parsersDiffer = baselineHost !== undefined && host !== undefined && baselineHost.jq !== host.jq;
+  if (parsersDiffer) {
+    const where = (/** @type {boolean} */ on) => (on ? "with jq" : "without jq");
+    unchecked.push(
+      `${JSON_PARSERS.join("/")} execs: the baseline was written ${where(baselineHost.jq)}, this host runs ${where(host.jq)} (hooks fall back to node)`,
+    );
+  }
+  for (const engine of new Set([...SHAPE_ENGINES, ...Object.keys(baseline)])) {
+    if (!shape[engine]) unchecked.push(`${engine}: not measured in this run (no Bash registrations in the checkout)`);
+  }
+  for (const [engine, events] of Object.entries(shape)) {
+    const base = baseline[engine];
+    if (!base) {
+      unchecked.push(`${engine}: no baseline row (run with --write-shape to add it)`);
+      continue;
+    }
+    for (const [event, row] of Object.entries(events)) {
+      const expected = base[event] ?? { hooks: 0, execs: {} };
+      if (row.hooks > expected.hooks)
+        violations.push(`${engine} Bash ${event}: ${row.hooks} hooks > ${expected.hooks} in the baseline`);
+      for (const [program, n] of Object.entries(row.execs)) {
+        if (parsersDiffer && JSON_PARSERS.includes(program)) continue;
+        const allowed = expected.execs[program] ?? 0;
+        if (n > allowed) violations.push(`${engine} Bash ${event}: ${n} ${program} execs > ${allowed} in the baseline`);
+      }
     }
   }
-  return { ok: violations.length === 0, violations };
+  return { ok: violations.length === 0, violations, unchecked };
+}
+
+/**
+ * Baseline after `--write-shape`: the engines this run measured replace their rows, the rest
+ * stay, so a checkout without `.codex/` never drops the Codex row.
+ *
+ * @param {Shape} baseline
+ * @param {Shape} shape
+ * @returns {Shape}
+ */
+export function mergeShape(baseline, shape) {
+  return Object.fromEntries(
+    Object.entries({ ...baseline, ...shape }).sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+/**
+ * Reads the committed baseline; a missing file is an empty baseline (every engine unchecked).
+ *
+ * @param {string} [path]
+ * @returns {Shape}
+ */
+export function readShapeBaseline(path = SHAPE_BASELINE) {
+  if (!existsSync(path)) return {};
+  return JSON.parse(readFileSync(path, "utf8")).engines ?? {};
+}
+
+/**
+ * Host profile the baseline was written on; `undefined` when the file or the field is missing.
+ *
+ * @param {string} [path]
+ * @returns {HostProfile | undefined}
+ */
+export function readShapeHost(path = SHAPE_BASELINE) {
+  if (!existsSync(path)) return undefined;
+  const host = JSON.parse(readFileSync(path, "utf8")).host;
+  return typeof host?.jq === "boolean" ? { jq: host.jq } : undefined;
 }
 
 const PI_EVENTS = {
@@ -382,9 +521,10 @@ export function createSandbox(sourceRoot = REPO_ROOT, { requireDist = false } = 
   const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-bench-hooks-")));
   const project = join(root, "project");
   mkdirSync(project, { recursive: true });
-  for (const tree of [".claude/hooks", ".codex/hooks", ".pi/navori"]) {
-    if (existsSync(join(sourceRoot, tree)))
-      cpSync(join(sourceRoot, tree), join(project, tree), { recursive: true });
+  // `scripts/` holds what guard-destructive sources (guard-search-routing); without it the guard
+  // skips that pass and the bench under-reports it (`.pi/navori` already carries its own copy).
+  for (const tree of [".claude/hooks", ".claude/scripts", ".codex/hooks", ".codex/scripts", ".pi/navori"]) {
+    if (existsSync(join(sourceRoot, tree))) cpSync(join(sourceRoot, tree), join(project, tree), { recursive: true });
   }
   if (existsSync(join(sourceRoot, "navori.config.json"))) {
     copyFileSync(join(sourceRoot, "navori.config.json"), join(project, "navori.config.json"));
@@ -457,6 +597,8 @@ export function createSandbox(sourceRoot = REPO_ROOT, { requireDist = false } = 
  * @returns {{ wallMs: number, cpuMs: number, exitCode: number | null }}
  */
 function timeOnce(command, payloadPath, cwd, env) {
+  // LC_ALL would override LC_NUMERIC below, so its value drops to LANG (lowest precedence).
+  const { LC_ALL, ...rest } = env;
   const run = spawnSync(
     "bash",
     [
@@ -465,7 +607,14 @@ function timeOnce(command, payloadPath, cwd, env) {
     ],
     {
       cwd,
-      env: { ...env, BENCH_CMD: command, BENCH_PAYLOAD: payloadPath },
+      // LC_NUMERIC=C: under a comma-decimal locale (es_ES) `time` prints `0,012`, which the regex below rejects.
+      env: {
+        ...rest,
+        ...(LC_ALL ? { LANG: LC_ALL } : {}),
+        LC_NUMERIC: "C",
+        BENCH_CMD: command,
+        BENCH_PAYLOAD: payloadPath,
+      },
       encoding: "utf8",
     },
   );
@@ -574,11 +723,11 @@ export function isComparable(loadavgBefore, cpus) {
  */
 export function readRegistrations(sourceRoot = REPO_ROOT) {
   const piBindings = join(sourceRoot, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
+  // A checkout without Codex in `engines` has no `.codex/` tree: it registers no Codex hooks.
+  const codexConfig = join(sourceRoot, ".codex", "config.toml");
   return [
-    ...parseClaudeRegistrations(
-      JSON.parse(readFileSync(join(sourceRoot, ".claude", "settings.json"), "utf8")),
-    ),
-    ...parseCodexRegistrations(readFileSync(join(sourceRoot, ".codex", "config.toml"), "utf8")),
+    ...parseClaudeRegistrations(JSON.parse(readFileSync(join(sourceRoot, ".claude", "settings.json"), "utf8"))),
+    ...(existsSync(codexConfig) ? parseCodexRegistrations(readFileSync(codexConfig, "utf8")) : []),
     ...parsePiRegistrations(readFileSync(piBindings, "utf8"), (script) =>
       existsSync(join(sourceRoot, ".pi", "navori", "hooks", `${script}.sh`)),
     ),
@@ -687,8 +836,11 @@ function summarize(paths) {
  * @returns {string}
  */
 export function writePayload(sandbox, scenario, reg) {
-  const spec = SCENARIOS[scenario];
-  const payloadPath = join(sandbox.root, `${reg.engine}-${scenario}-${reg.event}.json`);
+  const spec = SCENARIOS[scenario] ?? SUPPLEMENTAL_SCENARIOS[scenario];
+  const payloadPath = join(
+    sandbox.root,
+    `${reg.engine}-${scenario}-${reg.event}.json`,
+  );
   const supplemental = {
     BashFailure: {
       session_id: "bench-session",
@@ -714,8 +866,15 @@ export function writePayload(sandbox, scenario, reg) {
       tool_name: "mcp__engram__mem_search",
       tool_input: { query: "benchmark fixture", response_format: "compact" },
     },
+    WebFetch: {
+      session_id: "bench-session",
+      cwd: sandbox.project,
+      hook_event_name: reg.event,
+      tool_name: "WebFetch",
+      tool_input: { url: "https://example.com/", prompt: "benchmark fixture" },
+    },
   }[scenario];
-  if (supplemental) {
+  if (supplemental && !spec.payload) {
     writeFileSync(payloadPath, JSON.stringify(supplemental) + "\n");
     return payloadPath;
   }
@@ -738,6 +897,7 @@ export function parseBenchArgs(argv) {
   let impl = "shell";
   let selectedImpl = false;
   let reportOnly = false;
+  let writeShape = false;
   let audit;
   let runs;
   let root;
@@ -755,6 +915,9 @@ export function parseBenchArgs(argv) {
       selectedImpl = true;
     } else if (arg === "--report-only") {
       reportOnly = true;
+    } else if (arg === "--write-shape") {
+      // Read by the shell run itself (`main`); validated against `--impl` below.
+      writeShape = true;
     } else if (arg === "--audit") {
       const value = argv[++index];
       if (audit !== undefined || !["absent", "root", "active"].includes(value)) {
@@ -789,6 +952,7 @@ export function parseBenchArgs(argv) {
   }
   if (audit !== undefined && impl !== "rust") throw new Error("--audit requires --impl rust");
   if (root !== undefined && impl === "rust") throw new Error("--root requires --impl shell");
+  if (writeShape && impl === "rust") throw new Error("--write-shape requires --impl shell");
   return {
     impl,
     reportOnly,
@@ -1039,7 +1203,10 @@ export async function main(argv) {
                 scenarioEnvironment(sandbox, scenario, reg, audit),
               ),
             );
-            const supplemental = Object.hasOwn(SUPPLEMENTAL_SCENARIOS, scenario);
+            // Payload-file scenarios (long Bash) are plain timing reports: no outcome capture.
+            const supplemental =
+              Object.hasOwn(SUPPLEMENTAL_SCENARIOS, scenario) &&
+              !SUPPLEMENTAL_SCENARIOS[scenario].payload;
             const counted = countOnce(
               reg.command,
               payloadPath,
@@ -1075,7 +1242,7 @@ export async function main(argv) {
   } finally {
     sandbox.cleanup();
   }
-  // The R27 budget keeps its meaning: a Bash call with the audit root present but no active log.
+  // CPU sums are report-only: they grow with machine load. The gate is the shape below.
   const sums = sumByEvent(
     measurements
       .filter((m) => m.audit === "root")
@@ -1085,7 +1252,11 @@ export async function main(argv) {
         medianMs: m.cpuMsMedian,
       })),
   );
-  const verdict = evaluateBudget(sums);
+  // R27 keeps its scenario: a Bash call with the audit root present but no active log.
+  const shape = shapeOf(measurements);
+  const baseline = readShapeBaseline();
+  const host = hostProfile();
+  const verdict = evaluateShape(shape, baseline, { baselineHost: readShapeHost(), host });
   const cpus = availableParallelism();
   const result = {
     generatedAt: new Date().toISOString(),
@@ -1098,7 +1269,8 @@ export async function main(argv) {
     runs,
     scenarios,
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    budgetMs: BASH_BUDGET_MS,
+    shape,
+    shapeVerdict: verdict,
     sums,
     measurements,
   };
@@ -1110,9 +1282,28 @@ export async function main(argv) {
   for (const [engine, scenarios] of Object.entries(sums)) {
     for (const [scenario, s] of Object.entries(scenarios)) {
       process.stdout.write(
-        `bench:hooks ${engine} ${scenario}: ${s.totalMs.toFixed(0)} ms cpu (${s.hooks} hooks)\n`,
+        `bench:hooks ${engine} ${scenario}: ${s.totalMs.toFixed(0)} ms cpu (${s.hooks} hooks, report-only)\n`,
       );
     }
+  }
+  for (const [engine, events] of Object.entries(shape)) {
+    for (const [event, row] of Object.entries(events)) {
+      const execs = Object.entries(row.execs)
+        .filter(([, n]) => n > 0)
+        .map(([program, n]) => `${program}=${n}`)
+        .join(" ");
+      process.stdout.write(`bench:hooks shape ${engine} Bash ${event}: ${row.hooks} hooks, execs ${execs || "none"}\n`);
+    }
+  }
+  for (const line of verdict.unchecked) process.stdout.write(`bench:hooks shape not checked: ${line}\n`);
+  if (argv.includes("--write-shape")) {
+    const engines = mergeShape(baseline, shape);
+    writeFileSync(
+      SHAPE_BASELINE,
+      `${JSON.stringify({ scenario: "Bash", audit: "root", regenerate: "bun run bench:hooks --report-only --runs 1 --scenario Bash --write-shape", host, engines }, null, 2)}\n`,
+    );
+    process.stdout.write(`bench:hooks shape baseline written: ${SHAPE_BASELINE}\n`);
+    return 0;
   }
   process.stdout.write(
     `bench:hooks measurements=${measurements.length} comparable=${result.comparable} ` +
@@ -1122,10 +1313,11 @@ export async function main(argv) {
     process.stderr.write("bench:hooks NOT comparable: the machine was not idle at the start\n");
   if (!verdict.ok) {
     process.stderr.write(
-      `bench:hooks over budget:\n${verdict.violations.map((v) => `  - ${v}`).join("\n")}\n`,
+      `bench:hooks shape grew over ${SHAPE_BASELINE}:\n${verdict.violations.map((v) => `  - ${v}`).join("\n")}\n`,
     );
     return reportOnly ? 0 : 1;
   }
+  process.stdout.write("bench:hooks shape: no count above the baseline\n");
   return 0;
 }
 

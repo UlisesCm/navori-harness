@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:61b275f85162a59b1c0d6cf4a4271714bf078517f3103f25ac570e1772970492 impl=sha256:115fd6c7a6905d704f7894c34667d840929f0ca92e7cb99160c78d0cd1826d6e
-# navori:managed start id="subagent-stop-handoff-base" hash="a01de31c" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:47b1548263dff22ad38de3f251e8555ea7a0e1f864318a6560d20e529b1c3eca impl=sha256:115fd6c7a6905d704f7894c34667d840929f0ca92e7cb99160c78d0cd1826d6e
+# navori:managed start id="subagent-stop-handoff-base" hash="3718112c" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -665,12 +665,12 @@ navori_audit_log() {
     def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
     {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed","fail-open"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(agent))|first)//"orchestrator")}
      + (if (.tool_use_id|invocation) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook","foreign-repo","foreign-gate","pii-egress","search-index-unavailable"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -851,12 +851,13 @@ navori_check_impl_json() {
   esac
 }
 
-# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had.
+# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had. The
+# optional `- ` prefix accepts the list item `navori handoff render` writes (#1554).
 navori_check_impl_md() {
   f="$1"
   if is_blank "$f"; then
     note "$f vacío"
-  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
+  elif ! grep -qiE '^([-*][[:space:]]+)?\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
     note "$f sin línea 'Status:'"
   fi
 }

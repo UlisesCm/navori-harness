@@ -5,7 +5,6 @@
  * the check detects the shape of a delivery, not its truth (D2).
  */
 import type { DeliveryThresholds } from "../config/schema.ts";
-import type { SpecDeliveryRef } from "../master/delivery-checks.ts";
 import { classifySpec, type SpecClassification } from "./classify.ts";
 import { allTasks, type ParsedTask, type ParsedTasks, type TasksFormat } from "./tasks.ts";
 
@@ -28,8 +27,6 @@ export type FindingRule =
   | "foundation-without-consumer"
   | "too-many-deliveries"
   | "completed-over-budget"
-  | "master-delivery-unmapped"
-  | "master-target-mismatch"
   | "legacy-format";
 
 export interface SpecFinding {
@@ -53,17 +50,8 @@ export interface SpecCheck {
 /** Effects that, alone, never change observable behavior (R12). */
 const NON_BEHAVIOR = new Set(["docs", "tests", "schema"]);
 
-/** Deliveries of the master-plan stage this spec belongs to (R22). */
-export interface MasterMapping {
-  deliveries: readonly SpecDeliveryRef[];
-  /** The repo's effective PR target (`prTarget ?? branchBase`). */
-  prTarget: string;
-}
-
 /**
- * Checks a parsed `tasks.md`. `master` is set only for a spec that is a part
- * of a master-plan stage in deliveries mode (R22): each `E<n>` must then map
- * to a delivery of `parts.json`.
+ * Checks a parsed `tasks.md`.
  *
  * `requirementIds` is `undefined` when `requirements.md` could not be read:
  * new-format validation fails, since requirement references cannot be checked.
@@ -74,7 +62,6 @@ export function checkSpec(
   parsed: ParsedTasks,
   thresholds: DeliveryThresholds,
   requirementIds: readonly string[] | undefined,
-  master?: MasterMapping | null,
 ): SpecCheck {
   const classification = classifySpec(parsed, thresholds);
   const findings: SpecFinding[] = [];
@@ -146,26 +133,6 @@ export function checkSpec(
 
   parsed.deliveries.forEach((delivery, index) => {
     claim(delivery.id, delivery.id, delivery.line);
-    if (master) {
-      const mapped = master.deliveries.find((ref) => ref.id === delivery.id);
-      if (!mapped) {
-        add(
-          "master-delivery-unmapped",
-          "error",
-          delivery.id,
-          `${delivery.id} is not a delivery of this part in parts.json (${master.deliveries.map((ref) => ref.id).join(", ")})`,
-          delivery.line,
-        );
-      } else if (mapped.prTarget !== master.prTarget) {
-        add(
-          "master-target-mismatch",
-          "warning",
-          delivery.id,
-          `${delivery.id} targets ${mapped.prTarget} in parts.json but the repo's prTarget is ${master.prTarget}`,
-          delivery.line,
-        );
-      }
-    }
     if (delivery.milestones.length === 0) {
       add(
         "delivery-without-milestone",

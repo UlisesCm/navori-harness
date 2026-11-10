@@ -74,6 +74,7 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       ["sudo -u me bash <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
       ["cat <<'EOF' | sh\ncp source CLAUDE.md\nEOF", 2],
       ["python3 - <<'EOF'\ncp source CLAUDE.md\nEOF", 2],
+      ["python3 - <<'EOF'\nx = 1\nEOF\ncp source CLAUDE.md", 2],
       ["cat <<EOF\n$(cp source CLAUDE.md)\nEOF", 2],
       ["cat <<< 'cp source CLAUDE.md'", 0],
       // `<<` as an arithmetic shift must never swallow the next line.
@@ -90,8 +91,8 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
       ["echo ${x:1 << 2}\n2}\ncp source CLAUDE.md", 2],
       ["cat <<'EOF'\ncp source CLAUDE.md", 2],
       ["echo '<<EOF'\ncp source CLAUDE.md", 2],
-      ["echo 'unclosed", 2],
-      ['echo "unclosed\nstill open', 2],
+      ["echo 'unclosed", 3],
+      ['echo "unclosed\nstill open', 3],
       ["cp source \\\nCLAUDE.md", 2],
     ];
     for (const [command, expected] of cases) {
@@ -112,6 +113,41 @@ describe.runIf(bashAvailable)("owned copy destinations across path spellings", (
           expected,
         );
       }
+    }
+  });
+
+  // #1497: a quote inside "$(...)" belongs to the substitution, not to the outer word.
+  it("tracks quotes inside a double-quoted command substitution", () => {
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      [`echo "$(grep '"' p)"`, 0],
+      [`echo "$(grep '"' p)"; true`, 0],
+      [`echo "$(grep '"')"; ls`, 0],
+      [`echo "$f: $(grep -o '"modelId":"[^"]*"' $p | sort -u)"`, 0],
+      [`echo "$( (grep '"' p) )"; ls`, 0],
+      [`echo "$(echo "$(grep '"' p)")"; ls`, 0],
+      [`echo "$(grep '"' p)"; cp a CLAUDE.md`, 2],
+      [`echo "$(grep '(' p)"; cp a CLAUDE.md`, 2],
+      [`echo "$(grep '"' p)" && mv CLAUDE.md x`, 2],
+      [`echo "a $(printf '%s' "$(grep '"' x)") b"; mv CLAUDE.md /tmp/a`, 2],
+      [`echo "$(grep '"' p"`, 3],
+      // Commands inside the substitution are checked too.
+      [`echo "$(grep '"' p; cp a CLAUDE.md)"`, 2],
+      [`echo "$(grep '"' p; mv CLAUDE.md /tmp/x)"`, 2],
+      [`echo "$(grep '"' p)" "$(cp a CLAUDE.md)"`, 2],
+      [`echo "$(cp a CLAUDE.md)"`, 2],
+      [`cp "$(echo src)" CLAUDE.md`, 2],
+      [`cp "$(grep -l '"' p)" CLAUDE.md`, 2],
+      ["git commit -m \"$(cat <<'EOF'\nfix: don't break (scope\nEOF\n)\"", 0],
+      ["git commit -m \"$(cat <<'EOF'\nfix: x\nEOF\n)\" && cp a CLAUDE.md", 2],
+    ];
+    for (const [command, expected] of cases) {
+      const result = spawnSync("bash", ["-c", script], {
+        env: { ...process.env, NAVORI_TEST_ROOT: "/repo", NAVORI_TEST_COMMAND: command },
+        encoding: "utf8",
+        timeout: 5_000,
+      });
+      expect(result.error, command).toBeUndefined();
+      expect(result.status, `${JSON.stringify(command)} ${result.stderr}`).toBe(expected);
     }
   });
 });

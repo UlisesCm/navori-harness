@@ -18,8 +18,6 @@ describe("prTarget of this repo (spec 0044)", () => {
     const rendered = [
       ".claude/agents/reviewer.md",
       ".claude/agents/publisher.md",
-      ".codex/agents/reviewer.toml",
-      ".codex/agents/publisher.toml",
       ".pi/agents/reviewer.md",
       ".pi/agents/publisher.md",
     ];

@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="plan-simple" hash="fc246c15" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="plan-simple" hash="3bbe0b11" version="0.12.4" source="@navori/core" fmkeys="name,description,metadata" -->
 # plan-simple — level-1 workplan
 
 ## Steps
@@ -35,7 +35,7 @@ metadata:
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
-   decisions); `progress/current.md` points at the workplan, it doesn't copy it. Acceptance evidence depends on the host's signal (Claude's main thread included): the routing-watch hook records it only when the host itself ran the exact `command` of that `A<n>`. `--progress A<n>=cumplido` is accepted only with that evidence, and `cumplido` without evidence is a `plan check` warning. A single owner runs `navori plan update` and must mark right after running the command on the same tree.
+   decisions). Acceptance evidence depends on the host's signal (Claude's main thread included): the routing-watch hook records it only when the host itself ran the exact `command` of that `A<n>`, verbatim from the root of the workplan's checkout: no pipe, redirection, env-var prefix or relative `cd` (on Pi, `cd <absolute worktree path> && <command>`). A rerun after a change records again, also for a `cumplido` criterion. `--progress A<n>=cumplido` is accepted only with that evidence, and `cumplido` without evidence is a `plan check` warning. A single owner runs `navori plan update` and must mark right after running the command on the same tree.
 6. A change outside the approved files is a decision: record it and ask the user before
    dispatching it.
 7. "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output."

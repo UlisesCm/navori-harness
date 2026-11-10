@@ -131,166 +131,48 @@ describe("context-intake — literal content contract (T16)", () => {
 });
 
 /**
- * Spec 0034 lote E, T18 — the model-invoked master-plan skill guards entry,
- * resumes the CLI-owned state machine, and leaves irreversible decisions to
- * the user. Literal checks protect the prose contracts that code cannot type.
- *
- * Covers: R1, R2, R7, R13, R16, R17, R18, R19, R20, R25, R26, R27, R28,
- * R33, R34, R40, R42, R44, R45, R46, R47, R48, R51, R52, R53, R55, R56,
- * R57, R58, R59, R60, R61, R62
+ * Spec 0063 T3 — the master-plan skill is the v2 flow in at most 600 words:
+ * explicit-request lock, user-only verdicts and the commit marks.
  */
-describe("master-plan — workflow contract (T18)", () => {
+describe("master-plan — v2 contract (0063 T3)", () => {
   const master = readSkill("master-plan");
   const { body, frontmatter } = parseAsset(master);
 
-  it("is a model-invoked reference skill with an explicit word budget", () => {
+  it("is a model-invoked reference skill capped at 600 words", () => {
     expect(master).not.toContain("disable-model-invocation:");
-    expect(master).toContain("type: reference");
-    expect(master).toMatch(/^  # .+\n  maxWords: \d+$/m);
-    expect(parseSkillFrontmatter(master).meta.maxWords).toBeGreaterThan(500);
     expect(frontmatter.name).toBe("master-plan");
+    expect(parseSkillFrontmatter(master).meta.maxWords).toBe(600);
+    expect(master.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(600);
   });
 
-  // Covers: R56
-  it("covers sdd.enabled false, confirmation variants and declares why it exceeds the cap", () => {
-    expect(body).toMatch(/`sdd\.enabled` es `false`[\s\S]*no lo ejecutes[\s\S]*AskUserQuestion/);
-    expect(body).toMatch(/“sí”, “dale”, “continúa”/);
-    expect(body).toMatch(/primer uso/i);
-    expect(master).toMatch(/^  # Excede el tope de 500[^\n]*sdd\.enabled[^\n]*$/m);
-    expect(parseSkillFrontmatter(master).meta.maxWords).toBeGreaterThan(500);
-  });
-
-  it("puts the explicit-request lock first and does not treat SessionStart as consent", () => {
-    const headings = body.match(/^## .+$/gm) ?? [];
-    expect(headings[0]).toMatch(/candado|pedido expl[ií]cito/i);
+  it("puts the explicit-request lock first and never treats SessionStart as consent", () => {
+    expect(body.match(/^## .+$/gm)?.[0]).toMatch(/explicit request/i);
     expect(body).toContain("/master-plan");
-    expect(body).toMatch(/s[ií], contin[uú]a/i);
-    expect(body).toContain("SessionStart");
-    expect(body).toMatch(
-      /SessionStart[^\n]*(?:no|nunca)[^\n]*(?:pedido|consentimiento|autorizaci[oó]n)/i,
-    );
+    expect(body).toMatch(/SessionStart line[^.]*never a request, consent or authorization/);
   });
 
-  it("checks prerequisites and announces the complete first-run workflow before init", () => {
-    expect(body).toContain("navori.config.json");
-    expect(body).toContain("navori doctor");
-    const notice = body.indexOf("## Aviso de inicio");
-    expect(notice).toBeGreaterThan(0);
-    expect(notice).toBeLessThan(body.indexOf("navori master init"));
-    const announcement = body.slice(notice, body.indexOf("navori master init"));
+  it("walks init, interview, check, spec, build, QA and the user's verdict", () => {
     for (const term of [
-      "harness.masterPlan",
-      "carpeta",
-      "contexto",
-      "convertir",
-      "código",
-      "architect",
-      "preguntas",
-      "MASTER.md",
-      "STATUS.md",
-      "tokens",
-      "AskUserQuestion",
+      "navori master init <slug>",
+      "actor → outcome",
+      "SPIDR",
+      "navori master check",
+      "navori spec check",
+      "slice/S<n>-<slug>",
+      "Slice: S<n>",
+      "[S<n>]",
+      "WIP is 1",
+      "navori master status --qa",
+      "--approved-by user",
+      "reject S2 --notes",
     ])
-      expect(announcement).toContain(term);
-    expect(announcement).toMatch(/slug/i);
-    expect(announcement).toMatch(/etapa nueva/i);
-    expect(announcement).toMatch(/última cerrada/i);
-    expect(announcement).toContain("nextPhase");
+      expect(body, term).toContain(term);
+    expect(body).toMatch(/never run `navori master accept` or `reject`/);
   });
 
-  it("routes active, new, and blocked stages without reopening an active one", () => {
-    expect(body).toContain("navori master status --json");
-    expect(body).toMatch(/fase actual/i);
-    expect(body).toMatch(/etapa activa/i);
-    expect(body).toMatch(/etapa nueva/i);
-    expect(body).toMatch(/plan maestro nuevo[\s\S]*sin (?:ejecutar|llamar) `?navori master init/i);
-    expect(body).toContain("navori master mode");
-    expect(body).toMatch(/template[\s\S]*en-curso/i);
-  });
-
-  // Covers: R51, R6
-  it("opens stages after confirmation, registering only the first-stage choice and inheriting later mode", () => {
-    const startup = body.slice(
-      body.indexOf("## Aviso de inicio"),
-      body.indexOf("## Procedimiento por fase"),
-    );
-    expect(startup).toMatch(
-      /despu[eé]s de confirmar[^.]*navori master init <slug>[^.]*primera[^.]*(?:posterior|siguiente)/i,
-    );
-    expect(startup).toMatch(
-      /primera[^\n]*pregunta[^\n]*modo `desde-cero`, `template` o `en-curso`/i,
-    );
-    const firstStage = startup.match(/Solo para la primera etapa[^.]*\./)?.[0] ?? "";
-    const laterStages = startup.match(/En etapas posteriores[^.]*\./)?.[0] ?? "";
-    expect(firstStage).toMatch(/registra la elección con `navori master mode`/);
-    expect(laterStages).toMatch(/(?:≥\s*2|>=\s*2|mayor o igual a 2)/);
-    expect(laterStages).toContain("`navori master init`");
-    expect(laterStages).toMatch(/hereda[^.]*automáticamente|automáticamente[^.]*hereda/);
-    expect(laterStages).toContain("`en-curso`");
-    expect(laterStages).toContain("sin preguntar");
-    expect(laterStages).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
-    expect(laterStages).not.toMatch(/registra[^.]*`en-curso`/);
-  });
-
-  // Covers: R5
-  it("enforces per-phase checks, delegated plans, deferred scope, and evidence-based synthesis", () => {
-    expect(body).toContain("navori master check");
-    expect(body).toContain("navori master advance");
-    expect(body).toContain("context-intake");
-    expect(body).toContain("context/CODEBASE.md");
-    expect(body).toContain("DIGEST.md");
-    expect(body).toContain("plans/plan1.md");
-    expect(body).toContain("plans/plan2.md");
-    expect(body).toContain("plans/plan3.md");
-    expect(body).toMatch(/mismo turno/i);
-    expect(body).toContain("architectContext");
-    expect(body).not.toContain("contextForArchitects");
-    expect(body).toContain("D<n>");
-    expect(body).toContain("[SUPUESTO]");
-    expect(body).toContain("[SIN VERIFICAR]");
-    expect(body).toContain("DECISIONS.md");
-    expect(body).toContain("AskUserQuestion");
-    expect(body).toContain("navori master check --fit");
-    expect(body).toMatch(/J1.J3/);
-    expect(body).toContain("Cambiar a spec");
-    expect(body).toContain("Seguir con el plan maestro");
-  });
-
-  it("requires rigorous plans and maps each part criterion into its spec", () => {
-    expect(body).toMatch(/checklist de rigor/i);
-    expect(body).toMatch(/adjetiv[oa]s? sin medida/i);
-    expect(body).toMatch(/criterios de aceptaci[oó]n observables/i);
-    expect(body).toContain("Spec de una parte");
-    expect(body).toContain("spec-bootstrap");
-    expect(body).toContain("P<n>.A<m>");
-    expect(body).toMatch(/R<n>/);
-    expect(body).toContain("navori master check --part");
-  });
-
-  it("creates only confirmed GitHub issues and records acceptance evidence", () => {
-    expect(body).toMatch(/solo GitHub/i);
-    expect(body).toContain("gh issue list --search");
-    expect(body).toContain("gh issue create");
-    expect(body).toContain("gh auth login");
-    expect(body).toMatch(/issue[^\n]*etapa/i);
-    expect(body).toContain("--accept");
-    expect(body).toContain("--approved-by");
-    expect(body).toMatch(/manual[\s\S]*AskUserQuestion[\s\S]*Aprobado/i);
-    expect(body).toMatch(/hu[eé]rfanos|atrasados/i);
-  });
-
-  it("asks for delivery, resolves unfinished parts, then closes, converts, or abandons", () => {
-    expect(body).toMatch(/parte por parte/i);
-    expect(body).toMatch(/hecho[\s\S]*descartada[\s\S]*diferida/i);
-    expect(body).toMatch(/confirmar la entrega/i);
-    expect(body).toContain("navori master close");
-    expect(body).toContain("close --convert");
-    expect(body.indexOf("close --convert")).toBeLessThan(body.lastIndexOf("spec-bootstrap"));
-    expect(body).toContain("DIGEST.md");
-    expect(body).toContain("CODEBASE.md");
-    expect(body).toContain("context/md/");
-    expect(body).toContain("close --abandon");
-    expect(body).toMatch(/AskUserQuestion[\s\S]*close --abandon/);
+  it("keeps no v1 doctrine", () => {
+    for (const term of ["architect", "DIGEST", "STATUS.md", "navori master advance", "deliveries"])
+      expect(body, term).not.toContain(term);
   });
 });
 
@@ -395,10 +277,15 @@ describe("plan skills — spec 0052 doctrine", () => {
     expect(text).toContain("update `level` and `classification` in the workplan");
   });
 
+  // #1524: master-plan is the only source of the literal approval word.
+  it("spec-bootstrap no fija una palabra de aprobación literal", () => {
+    expect(body("spec-bootstrap")).not.toMatch(/answers\s+["“]Approved["”]/);
+  });
+
   // Covers: R39
-  it("spec-bootstrap documenta la apertura sin entregas y el workplan de entrega de nivel 3", () => {
+  it("spec-bootstrap documenta el workplan de nivel 3 y el encargo `workplan: <feature>`", () => {
     const text = body("spec-bootstrap");
-    expect(text).toContain("A spec without deliveries opens with `workplan: <feature>`");
-    expect(text).toContain('a delivery\'s workplan is level 3 (`"level": 3`)');
+    expect(text).toContain("A level-3 workplan named `<feature>`");
+    expect(text).toContain("encargos open with `workplan: <feature>`");
   });
 });

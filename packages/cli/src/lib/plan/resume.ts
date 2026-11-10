@@ -30,11 +30,16 @@ export function resumePlans(cwd: string, budgetMs = 5000): ResumeResult {
   const deadline = Date.now() + Math.min(5000, Math.max(0, budgetMs));
   const result: ResumeResult = { status: "evaluated", current: "", plans: [] };
   try {
-    for (const name of [
-      "progress/current.md",
-      ".claude/progress/current.md",
-      ".codex/progress/current.md",
-    ]) {
+    // `harness.sessionState: false` (#1579) means no progress file to read; an unreadable config keeps today's behavior.
+    let sessionState = true;
+    try {
+      sessionState = readConfig(join(cwd, "navori.config.json")).harness?.sessionState !== false;
+    } catch {
+      sessionState = true;
+    }
+    for (const name of sessionState
+      ? ["progress/current.md", ".claude/progress/current.md", ".codex/progress/current.md"]
+      : []) {
       const path = join(cwd, name);
       if (existsSync(path) && statSync(path).size <= 65536) {
         result.current = readFileSync(path, "utf8");
