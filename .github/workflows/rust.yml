@@ -31,7 +31,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p navori-core --all-targets --features fault-injection --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --no-fail-fast
       # A7 (spec 0058): the `Fs` tests need the fault-injection layer, off in every other build.
       - run: cargo test -p navori-core --features fault-injection --test fs --locked
 

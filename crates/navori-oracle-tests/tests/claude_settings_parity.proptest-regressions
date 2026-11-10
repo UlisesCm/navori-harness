@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2933f3b378cde3db2741603df359560cc844e8569c9a0c3c42361f546124c906 # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"],\"qualityGate\":{\"fast\":\"pnpm lint\",\"full\":\"pnpm lint\"}}", synthetic = []

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 737d62d20a6c8e15a8c64efb7a286c5eae2852bb0b287ac3ab09fd4d49f3cabf # shrinks to config = Object {"effort": Object {}, "engines": Array [String("codex")], "models": Object {}}, body = None, main = None, agents = []

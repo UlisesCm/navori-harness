@@ -749,6 +749,24 @@ export function runCase(testCase, opts) {
   };
 }
 
+/**
+ * {@link runCase}, but a case whose setup throws (a fixture step the TS CLI now rejects) is one
+ * `setup` difference of that case, and the run goes on with the next one instead of aborting.
+ *
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string }} opts
+ * @returns {{ id: string, exit: number | null, differences: Difference[] }}
+ */
+export function runCaseOrSetupFailure(testCase, opts) {
+  try {
+    return runCase(testCase, opts);
+  } catch (error) {
+    for (const dir of ["w", "template"]) rmSync(join(opts.base, dir), { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    return { id: testCase.id, exit: null, differences: [{ kind: "setup", detail: message.split("\n")[0] }] };
+  }
+}
+
 /** `computeManagedHash(body)` (`marker.ts`): sha1 of the body with CRLF/CR folded and the end trimmed. */
 function managedHash(body) {
   const normalized = body.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
@@ -985,7 +1003,7 @@ export function main(argv) {
   const results = [];
   try {
     for (const testCase of cases) {
-      const result = runCase(testCase, { ts, rust, tsCli: dist, base });
+      const result = runCaseOrSetupFailure(testCase, { ts, rust, tsCli: dist, base });
       results.push(result);
       for (const d of result.differences) {
         process.stdout.write(`DIFF ${result.id} [${d.kind}] ${d.detail}\n`);

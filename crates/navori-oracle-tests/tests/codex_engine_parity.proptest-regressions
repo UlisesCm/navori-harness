@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bf2c460a56033e1228a8e038f08e8fdef803ab3509acfd4729375953c6765b9a # shrinks to text = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"codex\"],\"language\":\"es\",\"plugins\":{}}", first = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"codex\"],\"language\":\"es\",\"plugins\":{}}", rendered = false, catalog = None

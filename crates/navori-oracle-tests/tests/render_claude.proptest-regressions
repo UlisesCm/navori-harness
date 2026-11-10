@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 936fe5813a001ee7cff484f1c693bb962e7b520ed615e6555d746139eed4a6a6 # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, same_config = false
+cc 3fcb08fcc06bcceea2ffaf86f74b9ab873c842c8a98fa449c256f8be7e0e94c1 # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, same_config = false, extras = Extras { gitignore_mode: None, user_gitignore: 0, prettier: false, user_prettierignore: false, orphans: false }, canonical = false, json = false, force = false
+cc 772693f5188d3f489b5a3c64e3e031f7289d490342f3550dc446b417feec66be # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, floor = None, same_config = false
+cc 1e8d30250135e3e12ce716ccbf2b08aa843d00f54dd7eb807d7b451237814d02 # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, same_config = false, json = false, bulk = None
+cc 4aab841d5cd1c71015e45438238f54b956a6004cdc23d5d47ae3b4323745e24d # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, same_config = false, extras = Extras { gitignore_mode: None, user_gitignore: 0, prettier: false, user_prettierignore: false, orphans: false }, force = false
+cc 3504285b532fd3535cfd42c9d2b2a62ec650c8112bfde57f21cff36b65be19f8 # shrinks to config = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"claude\"]}", recipe = Recipe { baseline: None, restamp: None, edits: [] }, json = false, bulk = None, files = false

@@ -79,7 +79,7 @@ export const STEPS = [
   {
     name: "cargo test",
     cmd: "cargo",
-    args: ["test", "--workspace", "--exclude", TS_ORACLE_CRATE, "--locked"],
+    args: ["test", "--workspace", "--exclude", TS_ORACLE_CRATE, "--locked", "--no-fail-fast"],
   },
   { name: "cargo build", cmd: "cargo", args: ["build", "-p", "navori-cli", "--locked"] },
   {

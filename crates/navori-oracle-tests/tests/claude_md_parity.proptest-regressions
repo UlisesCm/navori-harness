@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0379ea026280998e8ba378c2bf79ae41848071b9fd85205ed285c15f3cabceba # shrinks to config = "{\"name\":\"demo\",\"engines\":[\"claude\"],\"preset\":\"custom\"}", recipe = Recipe { baseline: None, restamp: None, hand_edit: false, user_prose: 0, move_first: false, interleave: false, skills_index: None, legacy: None, context_edit: 0 }, skip = [], force = [], floor = None, same_config = false

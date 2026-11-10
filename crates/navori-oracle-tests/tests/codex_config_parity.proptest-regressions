@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 70e0d02e461efe4c1138896ca8348a94d9ac53758d3b09e4b0953ac54017495f # shrinks to config = Object {"engines": Array [String("codex")], "harness": Object {}, "hooks": Object {}, "qualityGate": Object {}}, plugins = [], ws = "", bytes = 0, main = None, catalog = None, with_cwd = false

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b8ad3deaf9803ba04ccce167ed821c91ee70b84aee5c8aa5d845966804f35366 # shrinks to text = "{\"name\":\"demo\",\"preset\":\"custom\",\"engines\":[\"codex\"],\"language\":\"es\",\"plugins\":{}}", agents_md = Missing, orchestrator = Missing

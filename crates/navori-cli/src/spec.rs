@@ -47,21 +47,21 @@ const SHARED_ARGS: &[ArgDef] = &[
 
 const CLASSIFY: CommandDef = CommandDef {
     name: "classify",
-    description: "Classify a spec as single (1 PR) or split (1 PR per delivery)",
+    description: "Classify a spec as single (1 PR) or split (1 PR per delivery); a one-page spec.md is always single",
     args: SHARED_ARGS,
     sub_commands: &[],
 };
 
 const CHECK: CommandDef = CommandDef {
     name: "check",
-    description: "Validate a spec's tasks.md: milestones, criteria, coverage, vertical deliveries",
+    description: "Validate a spec: a one-page spec.md (sections, caps, word limit) or a legacy tasks.md",
     args: SHARED_ARGS,
     sub_commands: &[],
 };
 
 const SPEC: CommandDef = CommandDef {
     name: "spec",
-    description: "Classify and validate a spec's tasks.md",
+    description: "Classify and validate a spec (spec.md, or legacy tasks.md)",
     args: &[],
     sub_commands: &[
         ("classify", CLASSIFY.description),

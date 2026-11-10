@@ -44,7 +44,7 @@ const STATUS: CommandDef = CommandDef {
 /// `navori master`: only usage, `--help` and unknown subcommands are its own (citty).
 const MASTER: CommandDef = CommandDef {
     name: "master",
-    description: "Master-plan project flow (spec 0034)",
+    description: "Master-plan project flow (v2 plan; v1 read-only)",
     args: &[],
     sub_commands: &[
         (
