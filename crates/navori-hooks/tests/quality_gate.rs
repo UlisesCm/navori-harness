@@ -299,3 +299,65 @@ fn the_destination_gate_outcome_follows_the_first_output_line() -> TestResult {
     assert!(String::from_utf8(none.stdout)?.contains("gave no verdict (/dest)"));
     Ok(())
 }
+
+/// A gate whose `cd` always fails with the given reason.
+struct CdFails(&'static str);
+
+impl Gate for CdFails {
+    fn on_path(&self, _: &str, _: &str) -> bool {
+        true
+    }
+    fn probe_hit(&self, _: &str) -> bool {
+        false
+    }
+    fn read(&self, _: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn cd_error(&self, _: &str) -> Result<Option<&'static str>, String> {
+        Ok(Some(self.0))
+    }
+}
+
+// Covers: R50
+#[test]
+fn an_unresolved_tree_enters_dot_and_sets_oldpwd() -> TestResult {
+    let present = Stub {
+        found: &["pnpm"],
+        hit: false,
+    };
+    let commit = payload("git commit -m x", "default");
+    let Step::Gate(_, run) = evaluate(
+        &commit,
+        &context(Engine::Claude, "{{x}}"),
+        &NoRepo,
+        &present,
+    )?
+    else {
+        return Err("expected a gate run".into());
+    };
+    // `cd .` keeps the logical PWD and records the previous one as OLDPWD.
+    assert_eq!(
+        (run.pwd.as_str(), run.oldpwd.as_deref()),
+        ("/work", Some("/work"))
+    );
+    // A failing `cd .` names `.`, as bash 5.3 does, and the gate never runs.
+    let broken = CdFails("No such file or directory");
+    let blocked = done(evaluate(
+        &commit,
+        &context(Engine::Claude, "{{x}}"),
+        &NoRepo,
+        &broken,
+    )?)?;
+    assert_eq!(blocked.verdict, Verdict::Block);
+    assert!(String::from_utf8(blocked.stderr.clone())?.contains(
+        ".claude/hooks/quality-gate-pre-commit.sh: line 1: cd: .: No such file or directory"
+    ));
+    assert_eq!(
+        audit(&blocked),
+        (
+            "block",
+            "no se pudo entrar al arbol del commit '.'; el gate no corrio"
+        )
+    );
+    Ok(())
+}

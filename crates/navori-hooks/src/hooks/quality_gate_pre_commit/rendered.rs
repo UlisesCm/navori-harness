@@ -8,7 +8,7 @@ const BLOCK_END: &str = "# navori:managed end id=\"qg-pre-commit-base\"";
 /// Where the user section starts in an unrendered asset (the corpus replays those bytes).
 const USER_SECTION: &str = "\n# navori:user-section\n";
 /// The `cd` that pins the gate to the tree being committed; Bash names its line on failure.
-const CD_LINE: &str = "  cd \"${gate_root:-${nv_project_dir:-}}\" || {";
+const CD_LINE: &str = "  cd \"${gate_root:-${nv_project_dir:-.}}\" || {";
 
 /// Values of the script that change verdicts. An unrendered copy holds its placeholder text,
 /// exactly as the shell assigns it.

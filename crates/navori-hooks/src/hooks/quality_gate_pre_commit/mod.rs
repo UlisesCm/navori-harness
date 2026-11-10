@@ -119,7 +119,7 @@ pub struct GateRun {
     pub command: String,
     /// The shell's logical working directory (`$PWD` after the `cd`).
     pub pwd: String,
-    /// `$OLDPWD` after the `cd`, `None` when no `cd` changed directory.
+    /// `$OLDPWD` after the `cd` (the previous `$PWD`).
     pub oldpwd: Option<String>,
 }
 
@@ -346,7 +346,7 @@ impl Run<'_, '_> {
         };
         let regex = trigger.regex(self.locale()).map_err(Failure)?;
         let gate_root = Facts::new(&self.host, self.repo, self.locale(), regex).worktree(&self.cmd);
-        let target = if gate_root.is_empty() {
+        let mut target = if gate_root.is_empty() {
             hook_input::project_dir(
                 self.context.engine,
                 self.host.claude_project_dir.as_deref(),
@@ -356,29 +356,29 @@ impl Run<'_, '_> {
         } else {
             gate_root
         };
+        // No tree resolved: the script's `${...:-.}` makes it `cd .` (bash 5.3 fails on `cd ""`).
+        if target.is_empty() {
+            ".".clone_into(&mut target);
+        }
         let pwd = self.host.pwd.clone();
-        let (here, oldpwd) = if target.is_empty() {
-            (pwd.clone(), None)
-        } else {
-            if target.starts_with('-') {
-                return Err(Failure("cd target looks like an option".to_owned()));
-            }
-            let here = logical(&pwd, &target);
-            if let Some(reason) = self.gate.cd_error(&here).map_err(Failure)? {
-                line(
-                    &mut self.stderr,
-                    &format!(
-                        "{}: line {}: cd: {target}: {reason}",
-                        self.context.script, self.context.rendered.cd_line
-                    ),
-                );
-                self.trap.block_reason = Some(format!(
-                    "no se pudo entrar al arbol del commit '{target}'; el gate no corrio"
-                ));
-                return Ok(self.done(2));
-            }
-            (here, Some(pwd))
-        };
+        if target.starts_with('-') {
+            return Err(Failure("cd target looks like an option".to_owned()));
+        }
+        let here = logical(&pwd, &target);
+        if let Some(reason) = self.gate.cd_error(&here).map_err(Failure)? {
+            line(
+                &mut self.stderr,
+                &format!(
+                    "{}: line {}: cd: {target}: {reason}",
+                    self.context.script, self.context.rendered.cd_line
+                ),
+            );
+            self.trap.block_reason = Some(format!(
+                "no se pudo entrar al arbol del commit '{target}'; el gate no corrio"
+            ));
+            return Ok(self.done(2));
+        }
+        let oldpwd = Some(pwd);
         let cap = self
             .context
             .rendered
