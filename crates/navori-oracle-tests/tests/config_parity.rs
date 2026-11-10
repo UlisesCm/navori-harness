@@ -294,6 +294,39 @@ fn gate_chain() -> BoxedStrategy<Doc> {
         .boxed()
 }
 
+/// `qualityGate.ci` (#1492): a strict object, so a stray key rejects the whole config.
+fn quality_gate_ci() -> BoxedStrategy<Doc> {
+    let paths = prop_oneof![
+        3 => Just(Doc::Arr(vec![s(".github/**")])),
+        1 => string_list(),
+    ]
+    .boxed();
+    object_of(
+        vec![
+            (
+                "workflow!",
+                either(one_of(&[".github/workflows/ci.yml", ""])),
+            ),
+            (
+                "jobs!",
+                either(
+                    prop_oneof![
+                        3 => Just(Doc::Arr(vec![s("checks"), s("test (1)")])),
+                        1 => string_list(),
+                    ]
+                    .boxed(),
+                ),
+            ),
+            ("label", either(one_of(&["full", ""]))),
+            ("untrustedPaths!", either(paths.clone())),
+            ("hookPaths!", either(paths)),
+            ("hooksCommand!", either(gate_chain())),
+            ("lable?", scalar()),
+        ],
+        0.6,
+    )
+}
+
 fn quality_gate() -> BoxedStrategy<Doc> {
     object_of(
         vec![
@@ -306,6 +339,7 @@ fn quality_gate() -> BoxedStrategy<Doc> {
             ("affected", either(gate_chain())),
             ("docs", either(gate_chain())),
             ("nativeHooks", either(boolean())),
+            ("ci", either(quality_gate_ci())),
             ("fsat", scalar()),
         ],
         0.6,
@@ -546,6 +580,8 @@ fn config_doc() -> BoxedStrategy<Doc> {
     let harness_extra = vec![
         ("planTiers", either(boolean())),
         ("masterPlan", either(boolean())),
+        ("authoring", either(boolean())),
+        ("sessionState", either(boolean())),
         (
             "compactAdviceTokens",
             either(
@@ -593,7 +629,12 @@ fn config_doc() -> BoxedStrategy<Doc> {
         (
             "hooks",
             either(object_of(
-                vec![("verifyOnStop", either(boolean())), ("onStop", scalar())],
+                vec![
+                    ("verifyOnStop", either(boolean())),
+                    ("modelAdvisor", either(boolean())),
+                    ("auditMode", either(boolean())),
+                    ("onStop", scalar()),
+                ],
                 0.5,
             )),
         ),
