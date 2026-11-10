@@ -11,6 +11,7 @@ interface Finding {
 interface Delegation {
   path: string[];
   flags?: string[];
+  subtree?: boolean;
   reason: string;
 }
 interface ShellHook {
@@ -53,6 +54,7 @@ interface PostCutover {
 interface Areas {
   PERMANENT_DELEGATION: Delegation[];
   permanentlyDelegated: (path: string[], flag?: string, list?: Delegation[]) => boolean;
+  validateDelegation: (list: Delegation[]) => void;
   PERMANENT_SHELL_HOOKS: ShellHook[];
   permanentShellHook: (id: string, list?: ShellHook[]) => boolean;
   hookInventory: () => string[];
@@ -268,11 +270,58 @@ describe("cutover-check (spec 0062 T8)", () => {
   });
 
   // Covers: R20
-  it("la lista de delegación permanente arranca vacía y cada entrada lleva motivo", () => {
+  it("la lista de delegación permanente declara master como subárbol y cada entrada lleva motivo", () => {
     for (const entry of areas.PERMANENT_DELEGATION) expect(entry.reason.trim()).not.toBe("");
+    expect(areas.PERMANENT_DELEGATION.map((e) => e.path.join(" "))).toEqual(["master"]);
+    expect(areas.PERMANENT_DELEGATION[0]?.subtree).toBe(true);
+    expect(() => areas.validateDelegation(areas.PERMANENT_DELEGATION)).not.toThrow();
+    // the real list covers master and any subcommand of it, and nothing else
+    expect(areas.permanentlyDelegated(["master"])).toBe(true);
+    expect(areas.permanentlyDelegated(["master", "close"])).toBe(true);
+    expect(areas.permanentlyDelegated(["master", "inventado"])).toBe(true);
+    expect(areas.permanentlyDelegated(["masterx"])).toBe(false);
+    expect(areas.permanentlyDelegated(["plan", "master"])).toBe(false);
+    expect(areas.permanentlyDelegated(["audit"])).toBe(false);
+  });
+
+  // Covers: R20
+  it("sin subtree la coincidencia sigue exacta; con subtree cubre segmentos completos", () => {
     const list = [{ path: ["codex", "trust"], flags: ["yes"], reason: "r" }];
     expect(areas.permanentlyDelegated(["codex", "trust"], "yes", list)).toBe(true);
     expect(areas.permanentlyDelegated(["codex", "trust"], undefined, list)).toBe(false);
     expect(areas.permanentlyDelegated(["codex"], undefined, list)).toBe(false);
+    // an entry without subtree covers its exact path, not its children
+    const exact = [{ path: ["doctor"], reason: "r" }];
+    expect(areas.permanentlyDelegated(["doctor"], undefined, exact)).toBe(true);
+    expect(areas.permanentlyDelegated(["doctor", "fix"], undefined, exact)).toBe(false);
+    // a subtree covers the path and its descendants by segments, never by string prefix
+    const tree = [{ path: ["codex", "trust"], subtree: true, reason: "r" }];
+    expect(areas.permanentlyDelegated(["codex", "trust"], undefined, tree)).toBe(true);
+    expect(areas.permanentlyDelegated(["codex", "trust", "x"], "any", tree)).toBe(true);
+    expect(areas.permanentlyDelegated(["codex"], undefined, tree)).toBe(false);
+    expect(areas.permanentlyDelegated(["codex", "trusted"], undefined, tree)).toBe(false);
+  });
+
+  // Covers: R20
+  it("subtree junto con flags en la misma entrada falla con un error claro", () => {
+    const bad = [{ path: ["master"], subtree: true, flags: ["json"], reason: "r" }];
+    expect(() => areas.validateDelegation(bad)).toThrow(/sets subtree and flags/);
+    expect(() => areas.permanentlyDelegated(["master"], undefined, bad)).toThrow(
+      /sets subtree and flags/,
+    );
+  });
+
+  // Covers: R20
+  it("el unport de un comando bajo una delegación permanente no cuenta como abierto", () => {
+    const input = ready();
+    delete input.delegation;
+    input.history.push({ date: "2026-11-10", op: "unport", id: "master close" });
+    input.history.push({ date: "2026-11-10", op: "unport", id: "master" });
+    expect(cutover.cutoverFindings(input)).toEqual([]);
+    // a command outside the subtree still blocks
+    input.history.push({ date: "2026-11-10", op: "unport", id: "masterx" });
+    expect(cutover.cutoverFindings(input)).toEqual([
+      { check: "unport", detail: "masterx (since 2026-11-10)" },
+    ]);
   });
 });

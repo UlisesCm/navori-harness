@@ -72,7 +72,7 @@ export function postCutoverBudget(host) {
  *   commands: Array<{ path: string[], flags: string[] }>,
  *   hooks: string[],
  *   history: HistoryEvent[],
- *   delegation?: ReadonlyArray<{ path: string[], flags?: string[], reason: string }>,
+ *   delegation?: ReadonlyArray<import("./rust-areas.mjs").Delegation>,
  *   shellHooks?: ReadonlyArray<{ hook: string, reason: string }>,
  *   bench: BenchReport | null,
  *   versionMs: number | null,
@@ -111,7 +111,11 @@ export function cutoverFindings(input) {
     input.history.filter((e) => e.op === "port" || e.op === "unport").map((e) => [e.id, e]),
   );
   for (const event of latest.values())
-    if (event.op === "unport" && !permanentShellHook(event.id, shellHooks))
+    if (
+      event.op === "unport" &&
+      !permanentShellHook(event.id, shellHooks) &&
+      !permanentlyDelegated(event.id.split(" "), undefined, delegation)
+    )
       findings.push({ check: "unport", detail: `${event.id} (since ${event.date})` });
   if (input.bench === null) {
     findings.push({ check: "R17", detail: "no bench:hooks --impl rust report" });

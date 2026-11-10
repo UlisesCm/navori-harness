@@ -74,12 +74,31 @@ export const AREAS = {
 
 /**
  * Spec 0060 D48 (R20 of 0062): subcommands and flags that stay delegated to the frozen TS after the
- * cutover, each with a one-line reason. An entry without `flags` delegates the whole subcommand;
- * with `flags`, only those flags of a subcommand the manifest declares. Entries arrive by PR and the
- * cross review validates them (F46).
- * @type {ReadonlyArray<{ path: string[], flags?: string[], reason: string }>}
+ * cutover, each with a one-line reason. An entry without `flags` delegates the whole subcommand
+ * (its exact path: a child is not covered); with `flags`, only those flags of a subcommand the
+ * manifest declares. `subtree: true` covers the path and every subcommand under it (compared by
+ * whole segments, so `master` does not cover `masterx`); it cannot be combined with `flags`.
+ * Entries arrive by PR and the cross review validates them (F46).
+ * @typedef {{ path: string[], flags?: string[], subtree?: boolean, reason: string }} Delegation
  */
-export const PERMANENT_DELEGATION = [];
+
+/**
+ * Throws when an entry mixes `subtree` with `flags`: a subtree has no per-flag meaning.
+ * @param {ReadonlyArray<Delegation>} list
+ */
+export function validateDelegation(list) {
+  for (const entry of list)
+    if (entry.subtree === true && entry.flags !== undefined)
+      throw new Error(
+        `PERMANENT_DELEGATION entry "${entry.path.join(" ")}" sets subtree and flags: a subtree covers every flag, drop one of them`,
+      );
+}
+
+/** @type {ReadonlyArray<Delegation>} */
+export const PERMANENT_DELEGATION = [
+  { path: ["master"], subtree: true, reason: "master plan v2 vive en TS por diseño (#1503, 0063)" },
+];
+validateDelegation(PERMANENT_DELEGATION);
 
 /**
  * Amendment of R20 (0062): hooks that keep their shell body in every engine after the cutover,
@@ -110,13 +129,16 @@ export function permanentShellHook(id, list = PERMANENT_SHELL_HOOKS) {
  * Whether `PERMANENT_DELEGATION` (or `list`) covers a subcommand, or one of its flags.
  * @param {string[]} path
  * @param {string} [flag]
- * @param {ReadonlyArray<{ path: string[], flags?: string[], reason: string }>} [list]
+ * @param {ReadonlyArray<Delegation>} [list]
  */
 export function permanentlyDelegated(path, flag, list = PERMANENT_DELEGATION) {
+  validateDelegation(list);
   const key = path.join(" ");
   return list.some(
     (entry) =>
-      entry.path.join(" ") === key &&
+      (entry.subtree === true
+        ? entry.path.length <= path.length && entry.path.every((segment, i) => path[i] === segment)
+        : entry.path.join(" ") === key) &&
       (entry.flags === undefined || (flag !== undefined && entry.flags.includes(flag))),
   );
 }
