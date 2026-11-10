@@ -1181,7 +1181,7 @@ fn reject_cumplido(out: &mut Output, id: &str, command: &str, json: bool) {
 
 fn update_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
     // An audit session records a rejected `cumplido`; an identified session needs git evidence.
-    if crate::master_write::audit_may_write() || evidence_session() {
+    if crate::audit_target::audit_may_write() || evidence_session() {
         return None;
     }
     let mut out = Output::default();
@@ -1349,7 +1349,7 @@ fn escalation_records_absent(root: &StateRoot, feature: &str) -> Option<()> {
 
 fn reset_command(feature: &str, options: &LeafOptions<'_>, root: &StateRoot) -> Option<Output> {
     // The reset ends with an audit event (`appendCliEvent`, T18).
-    if crate::master_write::audit_may_write() {
+    if crate::audit_target::audit_may_write() {
         return None;
     }
     let mut out = Output::default();
