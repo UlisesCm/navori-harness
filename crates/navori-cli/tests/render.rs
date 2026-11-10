@@ -12,6 +12,7 @@ use std::process::{Command as Process, Stdio};
 use navori_cli::render::{RenderArgs, admit, colorless, parse_args, registry_needs_refresh};
 use navori_cli::{dispatch, parser};
 use navori_core::manifest::{Command, Manifest};
+use navori_core::render::claude::NATIVE_CLAUDE_ENV;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -297,6 +298,7 @@ fn render_without_apply_performs_no_real_operation() -> TestResult {
             .env("HOME", &home)
             .env("NAVORI_BACKUP_ROOT", &backups)
             .env("NAVORI_TS_CLI", dir.join("missing/index.js"))
+            .env(NATIVE_CLAUDE_ENV, "1")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .output()
@@ -347,6 +349,72 @@ fn render_without_apply_performs_no_real_operation() -> TestResult {
     registry("old")?;
     let out = run(&["render", "--apply"])?;
     assert!(!String::from_utf8(out.stdout)?.contains("core: (embedded)"));
+    Ok(())
+}
+
+/// With `claude` among the engines, `render`, `sync --dry-run` and `remove` hand the run to the
+/// TS before any output or write, unless the test-only override is set. Each command runs twice
+/// on a fresh repo: without the variable the decoy TS CLI runs (exit 97, marker written, repo
+/// untouched); with it the run stays native (exit 0, the decoy never runs). The pair keeps a
+/// delegation unrelated to the guard from passing the test.
+#[test]
+fn claude_commands_delegate_without_the_test_override() -> TestResult {
+    let dir = scratch("claude-guard")?;
+    let decoy = dir.join("decoy.sh");
+    fs::write(&decoy, "#!/bin/sh\necho hit > \"$MARKER\"\nexit 97\n")?;
+    fs::set_permissions(&decoy, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    for (label, args) in [
+        ("render", &["render"][..]),
+        ("sync", &["sync", "--dry-run"]),
+        ("remove", &["remove", "tgrep", "--yes"]),
+    ] {
+        for forced in [false, true] {
+            let case = dir.join(format!("{label}-{forced}"));
+            let repo = case.join("repo");
+            let home = case.join("home");
+            let backups = case.join("backups");
+            let marker = case.join("marker");
+            for path in [&repo, &home.join(".navori"), &backups] {
+                fs::create_dir_all(path)?;
+            }
+            fs::write(
+                repo.join("navori.config.json"),
+                r#"{"name":"demo","preset":"custom","engines":["claude"],"language":"en","plugins":{"tgrep":{"enabled":true}}}"#,
+            )?;
+            let canonical = fs::canonicalize(&repo)?;
+            fs::write(
+                home.join(".navori/registry.json"),
+                format!(r#"{{"repos":[{{"path":{canonical:?},"name":"demo"}}]}}"#),
+            )?;
+            let before = snapshot(&repo)?;
+            let mut command = Process::new(env!("CARGO_BIN_EXE_navori-rust"));
+            command
+                .args(args)
+                .current_dir(&repo)
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("HOME", &home)
+                .env("NAVORI_BACKUP_ROOT", &backups)
+                .env("NAVORI_TS_CLI", &decoy)
+                .env("MARKER", &marker)
+                .env("NO_COLOR", "1")
+                .stdin(Stdio::null());
+            if forced {
+                command.env(NATIVE_CLAUDE_ENV, "1");
+            }
+            let out = command.output()?;
+            let stdout = String::from_utf8(out.stdout)?;
+            if forced {
+                assert_eq!(out.status.code(), Some(0), "{label} forced: {stdout}");
+                assert!(!marker.exists(), "{label} forced delegated");
+            } else {
+                assert_eq!(out.status.code(), Some(97), "{label}: {stdout}");
+                assert!(marker.exists(), "{label} did not delegate");
+                assert_eq!(before, snapshot(&repo)?, "{label} touched the repo");
+                assert!(snapshot(&backups)?.is_empty(), "{label} wrote backups");
+            }
+        }
+    }
     Ok(())
 }
 

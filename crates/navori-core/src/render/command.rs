@@ -365,6 +365,9 @@ pub struct RenderOptions {
     pub force: bool,
     /// `CLAUDE.md` block ids to overwrite despite a hand edit (`sync --accept-new`).
     pub force_ids: BTreeSet<String>,
+    /// Test-only: plan the Claude engine natively instead of delegating, as in [`PlanOptions`].
+    /// `false` (the default) keeps the guard.
+    pub native_claude: bool,
 }
 
 /// `runRenderCore(cwd, { dryRun: true, force })` on the root at `repo_root`, read through
@@ -752,6 +755,8 @@ pub fn plan_target(
         extra_observed: extra_observed.clone(),
         extra_classified: pi_classified.clone(),
         extra_excluded: pi_excluded.clone(),
+        // The one place `NATIVE_CLAUDE_ENV` is read: it covers render, sync and remove.
+        native_claude: options.native_claude || crate::render::claude::native_claude_forced(),
         ..PlanOptions::default()
     };
     // The target's seal without Claude: every other engine's observations.

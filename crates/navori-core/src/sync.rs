@@ -61,6 +61,9 @@ pub struct SyncFlags {
     pub keep_mine: bool,
     /// `--accept-new-files`.
     pub accept_new_files: bool,
+    /// Test-only, not a CLI flag: plan the Claude engine natively instead of delegating.
+    /// `false` (the default) keeps the guard.
+    pub native_claude: bool,
 }
 
 impl SyncFlags {
@@ -121,9 +124,11 @@ fn plan(
     config: &Config,
     repo_root: &Path,
     force_ids: BTreeSet<String>,
+    native_claude: bool,
 ) -> Result<TargetPlan, RenderError> {
     let options = RenderOptions {
         force_ids,
+        native_claude,
         ..RenderOptions::default()
     };
     plan_target(view, config, repo_root, &options)
@@ -499,9 +504,10 @@ fn apply_pass(
     repo_root: &Path,
     force_ids: BTreeSet<String>,
     accepted: &[&SyncConflict],
+    native_claude: bool,
 ) -> Result<Applied, RenderError> {
     let lang = config.lang();
-    let mut target = plan(view, config, repo_root, force_ids)?;
+    let mut target = plan(view, config, repo_root, force_ids, native_claude)?;
     let refreshed = refresh_accepted(view, config, &mut target, accepted)?;
     // `applyFileResolutions`: re-checked right before the write; a changed file is dropped.
     let mut files_applied = Vec::new();
@@ -815,7 +821,13 @@ pub fn run_sync(
 ) -> Result<SyncRun, RenderError> {
     let lang = config.lang();
     // `renderSyncTarget(target, true)`: the dry-run commit appends the Codex trust hint too.
-    let mut preview = plan(view, config, repo_root, BTreeSet::new())?;
+    let mut preview = plan(
+        view,
+        config,
+        repo_root,
+        BTreeSet::new(),
+        flags.native_claude,
+    )?;
     append_codex_trust_hints(config, repo_root, &mut preview.extra_engines)?;
     let conflicts = conflicts(&preview, view);
     let pending = target_writes(&preview);
@@ -848,7 +860,15 @@ pub fn run_sync(
         let mut stderr = String::new();
         if auto_apply && !blocked_yes {
             let accepted: &[&SyncConflict] = if accept_files { &resolvable_files } else { &[] };
-            let applied = apply_pass(apply, view, config, repo_root, force_ids, accepted)?;
+            let applied = apply_pass(
+                apply,
+                view,
+                config,
+                repo_root,
+                force_ids,
+                accepted,
+                flags.native_claude,
+            )?;
             if let Some(detail) = applied.files_error {
                 // `{ command, ok: false, reason: "write-failed", detail, backups }`, compact.
                 let value = object(vec![
@@ -998,7 +1018,15 @@ pub fn run_sync(
     if kept_resolvable > 0 {
         out.push_str(&clack.warn(&i18n::sync_file_conflicts_kept(lang, kept_resolvable)));
     }
-    let applied = match apply_pass(apply, view, config, repo_root, force_ids, &accepted) {
+    let applied = match apply_pass(
+        apply,
+        view,
+        config,
+        repo_root,
+        force_ids,
+        &accepted,
+        flags.native_claude,
+    ) {
         Ok(applied) => applied,
         // Before any write: still the TS's run.
         Err(RenderError::Delegate) => return Ok(SyncRun::Delegate),
