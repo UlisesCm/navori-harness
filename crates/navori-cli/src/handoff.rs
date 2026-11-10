@@ -847,9 +847,10 @@ fn check_review(
     feature: &str,
     since: Option<&str>,
     evidence: &EvidenceOptions<'_>,
+    target_from_stamp: bool,
     env: &navori_core::process::Env,
 ) -> Option<CheckResult> {
-    match check_review_handoff(root, feature, since, evidence, env).ok()? {
+    match check_review_handoff(root, feature, since, evidence, target_from_stamp, env).ok()? {
         ReviewCheck::Error(detail) => Some(CheckResult::error("reviewer", detail)),
         ReviewCheck::Failures(failures) => {
             let mut result = CheckResult::new("reviewer");
@@ -886,7 +887,16 @@ fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<
     };
     let env = navori_core::plan::evidence::process_env();
     let result = if options.get("produced-by") == Some("reviewer") {
-        check_review(&root, feature, options.get("since"), &evidence, &env)?
+        // `reviewTargetFromStamp`: neither `--target` nor `--for` was given.
+        let from_stamp = options.get("target").is_none() && options.get("for").is_none();
+        check_review(
+            &root,
+            feature,
+            options.get("since"),
+            &evidence,
+            from_stamp,
+            &env,
+        )?
     } else if options.parallel {
         let failure = if consumer == "scribe" && !legacy {
             // `bindings` reads the config again: its warnings would print once more per read.

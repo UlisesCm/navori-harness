@@ -526,8 +526,9 @@ fn gate_run(value: &JsValue) -> Option<GateRun> {
 pub enum SealedCheck {
     /// `missing`, `invalid` or `unknown-algorithm`.
     Failed(&'static str),
-    /// `sealed` or `changed-during-review`, with the verified evidence.
-    Verified(&'static str, Box<Evidence>),
+    /// `sealed` or `changed-during-review`, with the verified evidence and the target the begin
+    /// stamp recorded (the TS's `target`).
+    Verified(&'static str, Box<Evidence>, Option<String>),
 }
 
 impl SealedCheck {
@@ -535,7 +536,7 @@ impl SealedCheck {
     #[must_use]
     pub fn status(&self) -> &'static str {
         match self {
-            Self::Failed(s) | Self::Verified(s, _) => s,
+            Self::Failed(s) | Self::Verified(s, ..) => s,
         }
     }
 }
@@ -595,7 +596,11 @@ pub fn check_sealed_evidence(
     } else {
         "changed-during-review"
     };
-    Ok(SealedCheck::Verified(status, Box::new(evidence)))
+    Ok(SealedCheck::Verified(
+        status,
+        Box::new(evidence),
+        stamp.target.clone(),
+    ))
 }
 
 /// What `currentIdentity` needs from `EvidenceOptions`.
@@ -658,6 +663,8 @@ pub struct Correlation {
     pub correlation: &'static str,
     /// `evidence`, when it verified.
     pub evidence: Option<Box<Evidence>>,
+    /// `differs`: the identity fields that changed, set only for `changed-after-review`.
+    pub differs: Vec<&'static str>,
 }
 
 /// `correlateReview(root, sidecar, options)`: `checkSealedEvidence` plus the current identity.
@@ -675,14 +682,16 @@ pub fn correlate_review(
             return Ok(Correlation {
                 correlation: status,
                 evidence: None,
+                differs: Vec::new(),
             });
         }
-        SealedCheck::Verified(status, evidence) => (status, evidence),
+        SealedCheck::Verified(status, evidence, _) => (status, evidence),
     };
     let done = |correlation: &'static str, evidence: Box<Evidence>| {
         Ok(Correlation {
             correlation,
             evidence: Some(evidence),
+            differs: Vec::new(),
         })
     };
     if status == "changed-during-review" {
@@ -720,7 +729,21 @@ pub fn correlate_review(
     if same_identity(&current, &evidence.shape.identity) {
         done("correlated", evidence)
     } else {
-        done("changed-after-review", evidence)
+        let then = &evidence.shape.identity;
+        let differs = [
+            ("fingerprint", current.fingerprint != then.fingerprint),
+            ("base", current.base != then.base),
+            ("gate", current.gate != then.gate),
+            ("inputs", current.inputs != then.inputs),
+        ]
+        .into_iter()
+        .filter_map(|(field, changed)| changed.then_some(field))
+        .collect();
+        Ok(Correlation {
+            correlation: "changed-after-review",
+            evidence: Some(evidence),
+            differs,
+        })
     }
 }
 
