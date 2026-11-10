@@ -10,36 +10,36 @@ use crate::markers::{CommentStyle, locate_managed_blocks};
 
 /// `managedBlockCeilings()`: rendered block id → word ceiling, markers included.
 pub const CEILINGS: [(&str, usize); 30] = [
-    ("navori-agents", 4055),
-    ("arranque-sesion", 220),
-    ("cierre-sesion", 505),
-    ("code-discovery-routing", 171),
-    ("codex-cross-review", 191),
-    ("formato-respuesta", 161),
-    ("idioma-rol", 151),
-    ("intake-tickets", 306),
-    ("operaciones-seguras", 321),
-    ("orquestacion", 1261),
-    ("plan-maestro", 101),
-    ("planificacion", 435),
-    ("sdd", 279),
-    ("tipado-fuerte", 61),
-    ("acli-protocol", 91),
-    ("codegraph-search-v2", 116),
-    ("tgrep-search-v2", 126),
-    ("stack-astro", 71),
-    ("stack-background-worker", 296),
-    ("stack-bun-keystone", 266),
-    ("stack-express", 171),
-    ("stack-express-mongoose", 186),
-    ("stack-fastapi-python", 176),
-    ("stack-medusa", 81),
-    ("stack-monorepo-turbopnpm", 231),
-    ("stack-nestjs", 83),
-    ("stack-nextjs", 89),
-    ("stack-react-native-expo", 99),
-    ("stack-vite-react-ts", 243),
-    ("stack-vite-react-ts-mantine", 137),
+    ("navori-agents", 3142),
+    ("arranque-sesion", 200),
+    ("claude-apendice", 153),
+    ("code-discovery-routing", 159),
+    ("codex-cross-review", 146),
+    ("formato-respuesta", 150),
+    ("idioma-rol", 134),
+    ("intake-tickets", 272),
+    ("operaciones-seguras", 304),
+    ("orquestacion", 554),
+    ("plan-maestro", 87),
+    ("planificacion", 424),
+    ("sdd", 208),
+    ("tipado-fuerte", 42),
+    ("acli-protocol", 74),
+    ("codegraph-search-v2", 89),
+    ("tgrep-search-v2", 110),
+    ("stack-astro", 56),
+    ("stack-background-worker", 269),
+    ("stack-bun-keystone", 241),
+    ("stack-express", 153),
+    ("stack-express-mongoose", 163),
+    ("stack-fastapi-python", 155),
+    ("stack-medusa", 67),
+    ("stack-monorepo-turbopnpm", 210),
+    ("stack-nestjs", 68),
+    ("stack-nextjs", 73),
+    ("stack-react-native-expo", 82),
+    ("stack-vite-react-ts", 221),
+    ("stack-vite-react-ts-mantine", 120),
 ];
 
 /// `COMPUTED_BLOCK_FORMULAS`: block id → (`base`, `perRow`).
@@ -61,12 +61,44 @@ pub struct DocBudget {
     pub over_by: usize,
 }
 
-/// `countWords(body)`: `body.trim().split(/\s+/).length`, zero for blank text.
+/// `countWords(body)`: the navori markers become a space (`NAVORI_MARKER`, #1520), then
+/// `trim().split(/\s+/).length`, zero for blank text.
 #[must_use]
 pub fn count_words(body: &str) -> usize {
-    body.split(is_js_whitespace)
+    strip_navori_markers(body)
+        .split(is_js_whitespace)
         .filter(|word| !word.is_empty())
         .count()
+}
+
+/// `body.replace(/<!--\s*\/?navori:[\s\S]*?-->/g, " ")`: each match, leftmost first, becomes a
+/// space; a `<!--` that does not open a match is kept and the search resumes right after it.
+fn strip_navori_markers(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut kept = 0;
+    let mut from = 0;
+    while let Some(offset) = body[from..].find("<!--") {
+        let start = from + offset;
+        let after_open = start + "<!--".len();
+        let rest = body[after_open..].trim_start_matches(is_js_whitespace);
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        let matched = rest.strip_prefix("navori:").and_then(|tail| {
+            let tail_start = body.len() - tail.len();
+            tail.find("-->")
+                .map(|close| tail_start + close + "-->".len())
+        });
+        match matched {
+            Some(end) => {
+                out.push_str(&body[kept..start]);
+                out.push(' ');
+                kept = end;
+                from = end;
+            }
+            None => from = start + 1,
+        }
+    }
+    out.push_str(&body[kept..]);
+    out
 }
 
 fn ceiling(id: &str, rows: usize) -> Option<usize> {
@@ -122,5 +154,20 @@ mod tests {
         assert_eq!(count_words(""), 0);
         assert_eq!(count_words(" \n\t "), 0);
         assert_eq!(count_words("a b\u{a0}c\u{feff}d\n e"), 5);
+    }
+
+    #[test]
+    fn navori_markers_are_not_words() {
+        assert_eq!(
+            count_words(
+                "<!-- navori:managed id=\"x\" -->\nuno dos\n<!-- /navori:managed id=\"x\" -->"
+            ),
+            2
+        );
+        assert_eq!(count_words("a<!--navori:if sdd-->b"), 2);
+        assert_eq!(count_words("<!--\u{a0}/navori:if-->"), 0);
+        assert_eq!(count_words("<!-- otro --> x"), 4);
+        assert_eq!(count_words("<!-- <!-- navori:x --> y"), 2);
+        assert_eq!(count_words("<!-- navori: sin cierre"), 4);
     }
 }

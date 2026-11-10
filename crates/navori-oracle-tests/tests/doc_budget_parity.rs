@@ -55,7 +55,23 @@ fn ceiling_tables_match_the_ts() -> Result<(), String> {
 
 fn word() -> BoxedStrategy<String> {
     prop::sample::select(vec![
-        "palabra", "- item", "x", "\u{a0}", "\u{feff}", "\u{2028}", "\t", "", "ñandú", "\n",
+        "palabra",
+        "- item",
+        "x",
+        "\u{a0}",
+        "\u{feff}",
+        "\u{2028}",
+        "\t",
+        "",
+        "ñandú",
+        "\n",
+        // Render syntax `countWords` skips (#1520), and comments it must not.
+        "<!-- navori:if sdd -->",
+        "<!-- /navori:if -->",
+        "<!--navori:x",
+        "<!--",
+        "-->",
+        "<!-- otro -->",
     ])
     .prop_map(str::to_owned)
     .boxed()
