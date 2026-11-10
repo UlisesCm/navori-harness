@@ -10,6 +10,7 @@ ignores:
   # fixtures) and never touches it on disk. A new file must justify itself here.
   - "packages/cli/src/__tests__/audit-hooks.test.ts" # path literals inside hook payloads
   - "packages/cli/src/__tests__/home-isolation.test.ts" # fake homes fed to the leak describer
+  - "packages/cli/src/__tests__/hook-verdict-corpus-homes.test.ts" # allowlist of fictional homes, never on disk
   - "packages/cli/src/commands/__tests__/doctor-foreign-harness.test.ts" # foreign-harness path fixtures
   - "packages/cli/src/commands/__tests__/name-mismatch-doctor.test.ts" # doctor message fixtures
   - "packages/cli/src/commands/__tests__/workspace-link-doctor.test.ts" # doctor message fixtures
