@@ -59,10 +59,9 @@ fn hooks_de_sesion_en_shadow() -> Result<(), String> {
     let mut sections = Vec::new();
     let mut failures = Vec::new();
     for hook in HOOKS {
-        for (engine, dir) in [
-            (NativeEngine::Claude, ".claude"),
-            (NativeEngine::Codex, ".codex"),
-        ] {
+        // This repository renders Claude only for these hooks: `dev` dropped Codex from its
+        // engines (318d5eff). The Codex runner stays covered by the generic `wiring.snap`.
+        for (engine, dir) in [(NativeEngine::Claude, ".claude")] {
             let path = repo().join(dir).join("hooks").join(format!("{hook}.sh"));
             let text =
                 std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;

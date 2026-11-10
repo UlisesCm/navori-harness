@@ -38,6 +38,8 @@ impl Scratch {
     }
 
     /// Install the repository's rendered copy of the hook for `engine` (`.claude` or `.codex`).
+    /// This repository no longer renders Codex (`dev` dropped it in 318d5eff); its copy was
+    /// byte-identical to the Claude one, so the Codex lane installs that copy at its own path.
     fn install(&self, engine: &str) -> Result<PathBuf, Box<dyn Error>> {
         let dest = self
             .root
@@ -46,7 +48,7 @@ impl Scratch {
         fs::create_dir_all(dest.parent().ok_or("parent")?)?;
         fs::copy(
             workspace()
-                .join(engine)
+                .join(".claude")
                 .join("hooks/session-start-context.sh"),
             &dest,
         )?;
