@@ -41,7 +41,9 @@ fn read(path: &str) -> Result<Option<String>, Unmodeled> {
     String::from_utf8(bytes).map(Some).map_err(|_| Unmodeled)
 }
 
-/// `checkReviewHandoff({ cwd, dir, feature, since, evidenceOptions })` over a resolved root.
+/// `checkReviewHandoff({ cwd, dir, feature, since, evidenceOptions, targetFromStamp })` over a
+/// resolved root. `target_from_stamp` correlates against the target the review's begin stamp
+/// recorded, keeping the configured gate.
 ///
 /// # Errors
 /// [`Unmodeled`] where the TS's answer depends on something this port does not reproduce: a
@@ -52,6 +54,7 @@ pub fn check_review_handoff(
     feature: &str,
     since: Option<&str>,
     evidence: &EvidenceOptions<'_>,
+    target_from_stamp: bool,
     env: &Env,
 ) -> Result<ReviewCheck, Unmodeled> {
     let since_ms = since.map(|s| iso_utc_ms(s).ok_or(Unmodeled)).transpose()?;
@@ -96,14 +99,31 @@ pub fn check_review_handoff(
         ));
     }
     let sealed = check_sealed_evidence(root, &sidecar)?;
-    if correlate_review(root, &sidecar, Some(evidence), env)?.correlation != "correlated" {
+    let stamp_target = match (&sealed, target_from_stamp) {
+        (SealedCheck::Verified(_, _, Some(target)), true) => Some(target.as_str()),
+        _ => None,
+    };
+    let stamped = EvidenceOptions {
+        target: stamp_target.unwrap_or(evidence.target),
+        ..*evidence
+    };
+    let correlated = correlate_review(root, &sidecar, Some(&stamped), env)?;
+    if correlated.correlation != "correlated" {
+        let why = if correlated.differs.is_empty() {
+            String::new()
+        } else {
+            format!(": {} differs", correlated.differs.join(", "))
+        };
         failures.push((
             "evidence",
-            "review does not match the current independent delivery".to_owned(),
+            format!(
+                "review does not match the current independent delivery ({}{why})",
+                correlated.correlation
+            ),
         ));
     }
     match &sealed {
-        SealedCheck::Verified("sealed", found) => {
+        SealedCheck::Verified("sealed", found, _) => {
             if let (Some(since_ms), Some(text)) = (since_ms, since) {
                 let started = found.started_at();
                 if iso_utc_ms(started).ok_or(Unmodeled)? < since_ms {
