@@ -82,7 +82,7 @@ código Rust de la rama, sin build. Entran #1526, #1528 y #1529, que son posteri
 
 **Sin efecto en Rust:**
 - **Solo documentos o web:** #1581, #1594 (spec 0063), #1597, #1602 (spec 0064), #1614, #1616 y #1631.
-- **Solo pruebas, scripts o CI del repo:** #1595, #1601 y #1603 (`ci.yml`, conflicto del sync), #1606 (`check-test-preservation.mjs`: los PRs de retiro del paso 4 que borren pruebas TS tendrán que declararlo), #1613 (`test-affected.mjs`, `receipt-ci.ts`) y #1626 (Node 26.13 en `ci.yml`; `rust.yml` sigue en Node 24).
+- **Solo pruebas, scripts o CI del repo:** #1595, #1601 y #1603 (`ci.yml`, conflicto del sync), #1606 (`check-test-preservation.mjs`: los PRs de retiro del paso 4 que borren pruebas TS tendrán que declararlo), #1613 (`test-affected.mjs`, `receipt-ci.ts`) y #1626 (Node 26.13 en `ci.yml`; antes del sync `rust.yml` seguía en Node 24, y el sync lo pasa a `.nvmrc`).
 - **Config de este repo o release:** #1586, #1591 y #1630.
 - **Assets embebidos por `build.rs`:** #1588 (`orchestrator.md`), #1589 y #1605 (`reviewer.md`) y la parte de `publisher.md` de #1624. Cambian el render al reconstruir, no el código.
 - **Plan maestro v2, solo TS (delegación permanente):** #1615, #1624 y #1627 (`lib/masterplan/`, `commands/master.ts`), y la parte de comando de #1620 y #1621.
@@ -120,6 +120,10 @@ del CLI, la poda de #1604 con la firma nativa (`removable.ts`), `pii-egress-guar
 los workflows de Rust con `.nvmrc` (#1626) y las cinco pruebas de Rust que leían el espejo `.codex/` que
 `dev` borró. El corpus de `guard-destructive` es la unión (1233 casos, 6 de `pii-egress-guard`), y el shell
 da los 1233 iguales.
+
+**También entran con el sync, sin fila propia arriba:** #1512 (quita Codex de los motores de este repo,
+318d5eff; obliga a adaptar las pruebas que leían `.codex/` y deja sin fixture las paridades `codex_*`) y
+#1475 (`lib/master`, delegación permanente).
 
 **Pendiente, por paso** (rojos conocidos del sync; ninguno se porta aquí):
 

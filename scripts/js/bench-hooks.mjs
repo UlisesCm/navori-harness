@@ -897,6 +897,7 @@ export function parseBenchArgs(argv) {
   let impl = "shell";
   let selectedImpl = false;
   let reportOnly = false;
+  let writeShape = false;
   let audit;
   let runs;
   let root;
@@ -915,7 +916,8 @@ export function parseBenchArgs(argv) {
     } else if (arg === "--report-only") {
       reportOnly = true;
     } else if (arg === "--write-shape") {
-      // Read by the shell run itself; accepted here so the parser does not reject it.
+      // Read by the shell run itself (`main`); validated against `--impl` below.
+      writeShape = true;
     } else if (arg === "--audit") {
       const value = argv[++index];
       if (audit !== undefined || !["absent", "root", "active"].includes(value)) {
@@ -950,6 +952,7 @@ export function parseBenchArgs(argv) {
   }
   if (audit !== undefined && impl !== "rust") throw new Error("--audit requires --impl rust");
   if (root !== undefined && impl === "rust") throw new Error("--root requires --impl shell");
+  if (writeShape && impl === "rust") throw new Error("--write-shape requires --impl shell");
   return {
     impl,
     reportOnly,
