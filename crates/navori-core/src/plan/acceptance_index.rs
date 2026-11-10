@@ -47,6 +47,14 @@ fn spec_json(spec: &Expected) -> Option<JsValue> {
     Some(JsValue::Object(o))
 }
 
+/// `jsonEscape(command)`: the command exactly as `JSON.stringify` writes it inside a payload
+/// string, without the quotes. `None` where the TS's escaping is not certain.
+#[must_use]
+pub fn json_escape(command: &str) -> Option<String> {
+    let quoted = string(command).stringify(None)?;
+    Some(quoted[1..quoted.len() - 1].to_owned())
+}
+
 /// `/^workplan_.+\.json$/` (`.` is any non-line-terminator).
 fn is_workplan_name(name: &str) -> bool {
     name.strip_prefix("workplan_")
@@ -87,12 +95,10 @@ fn lines_for_dir(
         };
         let raw = parse(&text)?;
         let plan = schema(&raw)?;
+        // Cumplido criteria stay indexed (#1629): a rerun after a change must record fresh
+        // evidence, and a stale green never validates against a moved tree.
         for c in &plan.acceptance {
-            if plan.status(&c.id) == Some("cumplido") {
-                continue;
-            }
-            let escaped = string(&c.command).stringify(None)?;
-            let escaped = &escaped[1..escaped.len() - 1];
+            let escaped = json_escape(&c.command)?;
             out.index
                 .push_str(&format!("{escaped}\t{}\t{}\t{dir}\n", plan.feature, c.id));
             let spec = parse_expected(&c.expected)?;

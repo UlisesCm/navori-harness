@@ -889,16 +889,46 @@ fn candidate_problem(
     }
 }
 
-fn index_has_feature(root: &crate::state_files::StateRoot, feature: &str) -> bool {
-    let path = Path::new(&root.cwd).join(".navori/state/handoffs/acceptance-index");
-    std::fs::read(path)
-        .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .is_some_and(|text| {
-            text.split('\n')
-                .any(|l| l.split('\t').nth(1) == Some(feature))
-        })
+/// How the acceptance index (the file the evidence hook reads) covers one criterion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IndexCoverage {
+    NoFile,
+    NoLine,
+    DifferentCommand,
+    Ok,
 }
+
+/// `indexCoverage`: looks the criterion up by feature + id (columns 2, 3) and compares column 1
+/// with its escaped command. `None` where the TS's escaping is not certain.
+fn index_coverage(
+    root: &crate::state_files::StateRoot,
+    feature: &str,
+    id: &str,
+    command: &str,
+) -> Option<IndexCoverage> {
+    let path = Path::new(&root.cwd).join(".navori/state/handoffs/acceptance-index");
+    let Ok(bytes) = std::fs::read(path) else {
+        return Some(IndexCoverage::NoFile);
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let rows: Vec<Vec<&str>> = text
+        .split('\n')
+        .map(|line| line.split('\t').collect::<Vec<_>>())
+        .filter(|cols| cols.get(1) == Some(&feature) && cols.get(2) == Some(&id))
+        .collect();
+    if rows.is_empty() {
+        return Some(IndexCoverage::NoLine);
+    }
+    let escaped = crate::plan::acceptance_index::json_escape(command)?;
+    Some(if rows.iter().any(|cols| cols[0] == escaped) {
+        IndexCoverage::Ok
+    } else {
+        IndexCoverage::DifferentCommand
+    })
+}
+
+/// `VERBATIM_RULE`: why a command run from the host would not match.
+const VERBATIM_RULE: &str = "the hook matches the command verbatim — no pipe, redirection (`2>&1`), env-var prefix, subshell or relative `cd` around it";
 
 fn recorded(line: &EvidenceLine) -> JsValue {
     let mut o = crate::js_json::JsObject::new();
@@ -946,7 +976,7 @@ pub fn validate_evidence(git: &Git<'_>, input: &ValidateInput<'_>) -> Option<Evi
         .unwrap_or_else(|| root.cwd.clone());
     let rerun = |tree: &str| {
         format!(
-            "from {tree}, run exactly:\n         {command}\n       then: navori plan update {feature} --progress {id}=cumplido"
+            "from {tree}, run exactly:\n         {command}\n       verbatim from the root of that checkout — no pipe, redirection, env-var prefix or relative `cd` (on Pi: `cd {tree} && {command}`)\n       then: navori plan update {feature} --progress {id}=cumplido"
         )
     };
     let fail = |why: &str, fix: String| {
@@ -956,22 +986,27 @@ pub fn validate_evidence(git: &Git<'_>, input: &ValidateInput<'_>) -> Option<Evi
         })
     };
     if lines.is_empty() {
-        if !index_has_feature(root, feature) {
-            return fail(
-                "no run recorded",
-                format!(
-                    "the acceptance index has no line for {feature}, so no run could be recorded: run `navori plan render {feature}`, then rerun the command.\n       {}",
-                    rerun(&tree_root)
-                ),
-            );
-        }
-        return fail(
-            "no run recorded",
-            format!(
-                "{}\n       (large repos: the hook computes a tree fingerprint after the run and can be killed mid-way, leaving no line; rerun the command, or check the evidence log exists)",
+        let render = format!("navori plan render {feature}");
+        let cwd = &root.cwd;
+        let fix = match index_coverage(root, feature, id, command)? {
+            IndexCoverage::NoFile => format!(
+                "there is no acceptance index in {cwd}, so no run could be recorded: run `{render}` in {cwd}, then rerun the command.\n       {}",
                 rerun(&tree_root)
             ),
-        );
+            IndexCoverage::NoLine => format!(
+                "the acceptance index has no line for {id} of {feature}, so no run could be recorded: run `{render}`, then rerun the command.\n       {}",
+                rerun(&tree_root)
+            ),
+            IndexCoverage::DifferentCommand => format!(
+                "the acceptance index has a different command for {id} (the workplan was edited outside the CLI): run `{render}` to refresh it, then rerun the command.\n       {}",
+                rerun(&tree_root)
+            ),
+            IndexCoverage::Ok => format!(
+                "{}\n       ({VERBATIM_RULE}; a wrapped command records nothing. Large repos: the hook computes a tree fingerprint after the run and can be killed mid-way, leaving no line; rerun the command, or check the evidence log exists)",
+                rerun(&tree_root)
+            ),
+        };
+        return fail("no run recorded", fix);
     }
     let same: Vec<&EvidenceLine> = lines
         .iter()
@@ -979,7 +1014,15 @@ pub fn validate_evidence(git: &Git<'_>, input: &ValidateInput<'_>) -> Option<Evi
         .rev()
         .collect();
     if same.is_empty() {
-        return fail("recorded for a different command", rerun(&tree_root));
+        let fix = match lines.iter().find(|l| l.command.contains(command)) {
+            Some(wrapped) => format!(
+                "the recorded command wraps the criterion (`{}`): {VERBATIM_RULE}.\n       {}",
+                wrapped.command,
+                rerun(&tree_root)
+            ),
+            None => rerun(&tree_root),
+        };
+        return fail("recorded for a different command", fix);
     }
     let mut first: Option<Problem> = None;
     let mut memo = Vec::new();
