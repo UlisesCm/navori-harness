@@ -50,6 +50,8 @@ pub struct PiControls {
     pub scribe_owns_markdown: bool,
     /// `auditMode: "always"`.
     pub audit_always: bool,
+    /// `sessionState: false` (#1579): emitted only when `harness.sessionState` is false.
+    pub session_state_off: bool,
 }
 
 /// `PiManifestPayload` (v1 has no hooks, owned paths or rules).
@@ -293,6 +295,9 @@ fn canonical_object(payload: &PiManifest) -> JsObject {
         if controls.audit_always {
             c.insert("auditMode", JsValue::string("always"));
         }
+        if controls.session_state_off {
+            c.insert("sessionState", JsValue::Bool(false));
+        }
         out.insert("controls", JsValue::Object(c));
     }
     if payload.schema_version == 2 {
@@ -508,12 +513,19 @@ fn parse_owned_manifest(content: &str) -> Option<()> {
             let keys = sorted_keys(raw, &[])?;
             if keys != "masterPlan,planTiers,scribeOwnsMarkdown"
                 && keys != "auditMode,masterPlan,planTiers,scribeOwnsMarkdown"
+                && keys != "masterPlan,planTiers,scribeOwnsMarkdown,sessionState"
+                && keys != "auditMode,masterPlan,planTiers,scribeOwnsMarkdown,sessionState"
             {
                 return None;
             }
             let audit_always = match get(raw, "auditMode") {
                 None => false,
                 Some(value) if text(Some(value)).as_deref() == Some("always") => true,
+                Some(_) => return None,
+            };
+            let session_state_off = match get(raw, "sessionState") {
+                None => false,
+                Some(JsValue::Bool(false)) => true,
                 Some(_) => return None,
             };
             let flag = |key: &str| match get(raw, key) {
@@ -525,6 +537,7 @@ fn parse_owned_manifest(content: &str) -> Option<()> {
                 master_plan: flag("masterPlan")?,
                 scribe_owns_markdown: flag("scribeOwnsMarkdown")?,
                 audit_always,
+                session_state_off,
             })
         }
         Some(_) => return None,

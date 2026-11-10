@@ -24,7 +24,9 @@ use crate::render::frontmatter::strip_frontmatter;
 use crate::render::harness_plan::is_agent_enabled;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
 use crate::render::managed_file::parse_asset;
-use crate::render::pi_roles::{PI_KNOWLEDGE_READONLY, PiKnowledgeGrants, pi_knowledge_tool_name};
+use crate::render::pi_roles::{
+    PI_KNOWLEDGE_READONLY, PiKnowledgeGrants, is_pi_child_role, pi_knowledge_tool_name,
+};
 use crate::render::plan::condition_orchestration;
 use crate::render::plugins::LoadedPlugin;
 
@@ -617,7 +619,8 @@ pub fn mcp_role_diagnostics(
             }) else {
                 continue;
             };
-            if !roles.contains(&role) {
+            // A parent role runs in the parent session, where MCP is available.
+            if !roles.contains(&role) || !is_pi_child_role(&role) {
                 continue;
             }
             let covered = PI_KNOWLEDGE_READONLY

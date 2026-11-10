@@ -24,7 +24,10 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DIST = process.env.NAVORI_TS_CLI || join(REPO_ROOT, "packages", "cli", "dist", "index.js");
 const ASSET = join(REPO_ROOT, "crates", "navori-core", "assets", "pi", "extension.ts.in");
 
-/** `PI_ROLE_NAMES` and `PI_ROLE_TOOLS` of `engines/pi/role-tools.ts`. */
+/**
+ * `PI_ROLE_NAMES` and `PI_ROLE_TOOLS` of `engines/pi/role-tools.ts`: the dispatchable children only.
+ * A parent role (`PI_PARENT_ROLES`, #1496) never reaches `ROLE_TOOLS` in the extension.
+ */
 const ROLE_TOOLS = {
   scout: ["read", "grep", "find", "ls", "write"],
   implementer: ["read", "grep", "find", "ls", "bash", "edit", "write"],
@@ -32,7 +35,6 @@ const ROLE_TOOLS = {
   scribe: ["read", "grep", "find", "ls", "bash", "edit", "write"],
   auditor: ["read", "grep", "find", "ls", "bash", "write"],
   architect: ["read", "grep", "find", "ls", "bash", "write"],
-  publisher: ["read", "grep", "find", "ls", "bash"],
 };
 
 const CONFIG = {
