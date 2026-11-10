@@ -79,41 +79,6 @@
     { "path": ["dominio"], "flags": ["h", "help"] },
     { "path": ["tools", "notice"], "flags": ["ack"] },
     { "path": ["tools", "session-context"], "flags": ["notice-reserve"] },
-    { "path": ["master", "mode"], "flags": ["cwd", "h", "help", "stage"] },
-    { "path": ["master", "ux"], "flags": ["cwd", "h", "help", "stage"] },
-    {
-      "path": ["master", "close"],
-      "flags": ["abandon", "convert", "cwd", "h", "help", "reason", "stage"],
-      "when": { "engines": ["claude"] }
-    },
-    {
-      "path": ["master", "part"],
-      "flags": [
-        "accept",
-        "approved-by",
-        "command",
-        "cwd",
-        "h",
-        "help",
-        "issue",
-        "reason",
-        "result",
-        "spec",
-        "stage",
-        "state"
-      ]
-    },
-    { "path": ["master", "advance"], "flags": ["cwd", "h", "help", "stage"] },
-    {
-      "path": ["master", "check"],
-      "flags": ["cwd", "fit", "h", "help", "json", "part", "stage"]
-    },
-    { "path": ["master", "template"], "flags": ["cwd", "h", "help", "part"] },
-    {
-      "path": ["master", "status"],
-      "flags": ["cwd", "h", "help", "json", "line"]
-    },
-    { "path": ["master"], "flags": ["h", "help"] },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
     { "path": ["spec"], "flags": ["h", "help"] },
@@ -195,22 +160,6 @@
         "general-purpose-confirm-base": "sha256:a51c01bfedfc1a1aad2e8e360b84e88163d5be0352c742c360a3f27eff0543bf"
       },
       "impl": "sha256:d028a4db9825024108736fbe104e7aa3ffd152c4887794697f8348fe77a1bbaf"
-    },
-    "master-accept-confirm": {
-      "mode": "shadow",
-      "gating": true,
-      "blocks": {
-        "master-accept-confirm-base": "sha256:86e0ae009fef7acc742c6fe12cdced1cb557b83dd668b1380517d24d5a0fa9a2"
-      },
-      "impl": "sha256:1577f7d3a3f664f9be9686aa06afc19ce6365e20c324eda0a8e5a6f7f6f7aab3"
-    },
-    "master-plan-context": {
-      "mode": "shadow",
-      "gating": false,
-      "blocks": {
-        "master-plan-context-base": "sha256:cdc01d4a76835e5d814fb286e7096992b4f99ffe327403554c466bcb0c4cc6db"
-      },
-      "impl": "sha256:c48666eacc7deddb2392c8b151b88b6c77f0bcace85ed1e7d2af868b6aad0af0"
     },
     "implementer-no-markdown": {
       "mode": "shadow",

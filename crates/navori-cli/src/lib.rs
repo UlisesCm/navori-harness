@@ -17,11 +17,6 @@ pub mod hook_facts;
 pub mod implementer_no_markdown_hook;
 pub mod journal;
 pub(crate) mod js_path;
-pub mod master;
-pub mod master_close;
-pub mod master_plan_context_hook;
-pub mod master_read;
-pub mod master_write;
 pub mod model_advisor;
 pub(crate) mod native_io;
 pub mod notices;
@@ -178,42 +173,6 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["render"],
         run: render::run,
-    },
-    NativeCommand {
-        path: &["master", "status"],
-        run: master::run_status,
-    },
-    NativeCommand {
-        path: &["master", "mode"],
-        run: master_write::run_mode,
-    },
-    NativeCommand {
-        path: &["master", "ux"],
-        run: master_write::run_ux,
-    },
-    NativeCommand {
-        path: &["master", "close"],
-        run: master_close::run_close,
-    },
-    NativeCommand {
-        path: &["master", "part"],
-        run: master_write::run_part,
-    },
-    NativeCommand {
-        path: &["master", "advance"],
-        run: master_write::run_advance,
-    },
-    NativeCommand {
-        path: &["master", "check"],
-        run: master_read::run_check,
-    },
-    NativeCommand {
-        path: &["master", "template"],
-        run: master_read::run_template,
-    },
-    NativeCommand {
-        path: &["master"],
-        run: master::run_group,
     },
     NativeCommand {
         path: &["spec", "classify"],

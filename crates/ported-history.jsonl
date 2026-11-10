@@ -8,3 +8,14 @@
 {"date":"2026-10-29","op":"port","id":"session-start-context","reason":"hook en sombra; tools session-context responde no observado (0059 T14, D40)","pr":1452}
 {"date":"2026-10-29","op":"port","id":"subagent-stop-handoff","reason":"hook en sombra; capture-start difiere por modo (0059 T15, D31)","pr":1452}
 {"date":"2026-10-29","op":"port","id":"model-advisor","reason":"hook en sombra; codex-pretool-profile difiere por modo (0059 T16, D31)","pr":1452}
+{"date":"2026-11-10","op":"unport","id":"master mode","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master ux","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master close","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master part","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master advance","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master check","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master template","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master status","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master-accept-confirm","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master-plan-context","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
