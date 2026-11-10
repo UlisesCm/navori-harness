@@ -495,3 +495,125 @@ fn computed_entry(id: &str, status: AssetStatus) -> crate::render::block_plan::P
         new_content: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::render::collect::RepoView;
+    use crate::render::plan::CORE_MANAGED_ASSETS;
+
+    /// In-memory repo: regular files by repo-relative path.
+    struct Files(BTreeMap<String, String>);
+
+    impl RepoView for Files {
+        fn read(&self, rel: &str) -> Option<String> {
+            self.0.get(rel).cloned()
+        }
+
+        fn read_regular(&self, rel: &str) -> Option<String> {
+            self.read(rel)
+        }
+
+        fn exists(&self, rel: &str) -> bool {
+            self.0.contains_key(rel)
+        }
+
+        fn lexists(&self, rel: &str) -> bool {
+            self.exists(rel)
+        }
+
+        fn list_dir(&self, _rel: &str) -> Option<Vec<String>> {
+            None
+        }
+
+        fn symlink(&self, _rel: &str) -> Option<bool> {
+            Some(false)
+        }
+    }
+
+    /// A context file whose `id` block carries `version` (or none).
+    fn managed(id: &str, version: Option<&str>) -> String {
+        let version = version.map_or_else(String::new, |v| format!(" version=\"{v}\""));
+        format!(
+            "<!-- navori:managed id=\"{id}\" source=\"@navori/core\"{version} -->\nbody\n<!-- /navori:managed id=\"{id}\" -->\n"
+        )
+    }
+
+    fn plan_for(files: &[(&str, String)]) -> ClaudeMdPlan {
+        let view = Files(
+            files
+                .iter()
+                .map(|(rel, content)| ((*rel).to_owned(), content.clone()))
+                .collect(),
+        );
+        let config =
+            crate::js_json::parse(r#"{"name":"demo","preset":"custom","engines":["claude"]}"#)
+                .unwrap_or(JsValue::Null);
+        plan_claude_md(
+            &view,
+            &config,
+            &PathBuf::from("/nonexistent-repo"),
+            &PlanOptions::default(),
+        )
+        .unwrap_or_else(|_| panic!("plan_claude_md delegated"))
+    }
+
+    const PATHS: [&str; 2] = [
+        ".claude/context/40-cierre-sesion.md",
+        ".claude/context/cierre-sesion.md",
+    ];
+
+    #[test]
+    fn plan_has_no_cierre_sesion_asset() {
+        assert!(!CORE_MANAGED_ASSETS.iter().any(|a| a.id == "cierre-sesion"));
+        let plan = plan_for(&[]);
+        assert!(
+            plan.plan
+                .entries
+                .iter()
+                .all(|e| e.asset.id() != "cierre-sesion")
+        );
+        assert!(
+            plan.pending
+                .iter()
+                .all(|w| !w.rel_path.contains("cierre-sesion"))
+        );
+    }
+
+    #[test]
+    fn pristine_cierre_sesion_context_files_are_retired() {
+        for old in ["0.0.1", STAMP_VERSION] {
+            let files: Vec<(&str, String)> = PATHS
+                .iter()
+                .map(|p| (*p, managed("cierre-sesion", Some(old))))
+                .collect();
+            let plan = plan_for(&files);
+            for path in PATHS {
+                assert!(plan.removals.iter().any(|r| r == path), "{path} @ {old}");
+            }
+        }
+    }
+
+    #[test]
+    fn newer_or_markerless_cierre_sesion_files_are_kept() {
+        let cases = [
+            managed("cierre-sesion", Some("999.0.0")),
+            "# notas propias\n".to_owned(),
+            managed("cierre-sesion", None),
+            managed("otro-id", Some("0.0.1")),
+        ];
+        for content in cases {
+            let files: Vec<(&str, String)> = PATHS.iter().map(|p| (*p, content.clone())).collect();
+            let plan = plan_for(&files);
+            for path in PATHS {
+                assert!(
+                    !plan.removals.iter().any(|r| r == path),
+                    "{path} must be kept: {content}"
+                );
+            }
+        }
+    }
+}

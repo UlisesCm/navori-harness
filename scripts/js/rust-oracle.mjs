@@ -28,6 +28,9 @@ import { fileURLToPath } from "node:url";
  *   node scripts/js/rust-oracle.mjs --report <file>        also write the JSON report
  *   node scripts/js/rust-oracle.mjs --rust-bin <path>      use that binary and skip `cargo build`
  *   node scripts/js/rust-oracle.mjs --self-check           TS against itself: proves the harness is deterministic
+ *   node scripts/js/rust-oracle.mjs --native-claude        Rust side only: sets {@link NATIVE_CLAUDE_ENV}, so the guarded native Claude
+ *                                                          render runs instead of delegating; test-only, to measure how many guarded ids
+ *                                                          a G3/G7 PR fixes (the TS side and every setup step never see it)
  *
  * Prerequisite: `packages/cli/dist/` built (`bun run oracle:rust` runs `ensure-dist` first).
  *
@@ -66,15 +69,18 @@ export const MANIFEST_PATH = join(REPO_ROOT, "crates", "ported.json");
 const DEFAULT_DIST = join(REPO_ROOT, "packages", "cli", "dist", "index.js");
 const TS_VERSION_SOURCE = join(REPO_ROOT, "packages", "cli", "package.json");
 const CARGO_TOML = join(REPO_ROOT, "Cargo.toml");
+/** Test-only override of the Rust Claude render guard (`render::claude::NATIVE_CLAUDE_ENV`); only `--native-claude` sets it. */
+export const NATIVE_CLAUDE_ENV = "NAVORI_TEST_NATIVE_CLAUDE";
 const RUN_TIMEOUT_MS = 120_000;
 
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[] }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
+ *   `note`: free text for humans (e.g. why a case is not native); the runner ignores it.
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>>, calls?: string[] }} Outcome  `calls`: the stub calls, one JSON line each
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -633,7 +639,7 @@ function layout(work, testCase, opts) {
  * @param {string} work
  * @param {Runner} runner
  * @param {OracleCase} testCase
- * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string }} opts
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string, extraEnv?: Record<string, string> }} opts
  * @returns {Outcome}
  */
 function runOnce(work, runner, testCase, opts) {
@@ -653,7 +659,8 @@ function runOnce(work, runner, testCase, opts) {
       value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
     ]),
   );
-  const base = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
+  // `extraEnv` (the Rust side's `--native-claude`) goes last, so a case cannot switch it off.
+  const base = { ...hermeticEnv(work, opts.tsCli), ...caseEnv, ...(opts.extraEnv ?? {}) };
   const env = testCase.tools ? { ...base, ...stubEnv(work, testCase.tools, base.PATH) } : base;
   // A write-failure case: these directories are read-only during the run, then restored so the
   // snapshot and the cleanup can walk them.
@@ -689,7 +696,7 @@ function runOnce(work, runner, testCase, opts) {
  * Runs one case with both runners, sequentially on the same path, and compares.
  *
  * @param {OracleCase} testCase
- * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string }} opts
+ * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string, rustEnv?: Record<string, string> }} opts
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCase(testCase, opts) {
@@ -702,7 +709,11 @@ export function runCase(testCase, opts) {
     cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
   }
   const ts = runOnce(work, opts.ts, testCase, layoutOpts);
-  const rustOpts = testCase.native ? { ...layoutOpts, tsCli: decoyCli(opts.base) } : layoutOpts;
+  const rustOpts = {
+    ...layoutOpts,
+    ...(testCase.native ? { tsCli: decoyCli(opts.base) } : {}),
+    ...(opts.rustEnv ? { extraEnv: opts.rustEnv } : {}),
+  };
   const rust = runOnce(work, opts.rust, testCase, rustOpts);
   if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
   const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
@@ -719,7 +730,7 @@ export function runCase(testCase, opts) {
  * `setup` difference of that case, and the run goes on with the next one instead of aborting.
  *
  * @param {OracleCase} testCase
- * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string }} opts
+ * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string, rustEnv?: Record<string, string> }} opts
  * @returns {{ id: string, exit: number | null, differences: Difference[] }}
  */
 export function runCaseOrSetupFailure(testCase, opts) {
@@ -956,6 +967,8 @@ export function main(argv) {
     }
     rust = { cmd: resolve(bin), args: [], version: rustVersion() };
   }
+  // Rust side only; the TS side and the setup steps keep the hermetic env.
+  const rustEnv = argv.includes("--native-claude") ? { [NATIVE_CLAUDE_ENV]: "1" } : undefined;
   const only = flagValue(argv, "--only")?.split(",").filter(Boolean);
   const cases = loadCases().filter((c) => !only || only.some((part) => c.id.includes(part)));
   if (cases.length === 0) {
@@ -967,7 +980,7 @@ export function main(argv) {
   const results = [];
   try {
     for (const testCase of cases) {
-      const result = runCaseOrSetupFailure(testCase, { ts, rust, tsCli: dist, base });
+      const result = runCaseOrSetupFailure(testCase, { ts, rust, tsCli: dist, base, rustEnv });
       results.push(result);
       for (const d of result.differences) {
         process.stdout.write(`DIFF ${result.id} [${d.kind}] ${d.detail}\n`);
