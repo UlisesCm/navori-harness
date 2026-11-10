@@ -438,7 +438,26 @@ mod unknown_keys {
         }
     }
 
-    const QUALITY_GATE: Rule = rule(&["fast", "full", "scoped", "nativeHooks"]);
+    const QUALITY_GATE_CI: Rule = rule(&[
+        "workflow",
+        "jobs",
+        "label",
+        "untrustedPaths",
+        "hookPaths",
+        "hooksCommand",
+    ]);
+    const QUALITY_GATE: Rule = Rule {
+        children: &[("ci", &QUALITY_GATE_CI)],
+        ..rule(&[
+            "fast",
+            "full",
+            "scoped",
+            "affected",
+            "docs",
+            "nativeHooks",
+            "ci",
+        ])
+    };
     const MIGRATION: Rule = rule(&["legacy", "preferred", "domain"]);
     const MIGRATIONS: Rule = Rule {
         array_items: Some(&MIGRATION),
@@ -475,11 +494,20 @@ mod unknown_keys {
     };
     const DELIVERIES: Rule = rule(&["splitMinTasks", "splitMinLoc", "maxPrsPerSpec"]);
     const CODEX_MAP: Rule = rule(&["opus", "sonnet", "haiku"]);
+    const CODEX_PROFILES: Rule = Rule {
+        record_values: Some(&CODEX_PROFILE),
+        allow_extensions: true,
+        ..rule(&[])
+    };
+    const CODEX_PROFILE: Rule = rule(&["model", "effort"]);
     const PLUGIN: Rule = rule(&["enabled", "nativeHook"]);
     const ROOT: Rule = Rule {
         children: &[
             ("qualityGate", &QUALITY_GATE),
-            ("hooks", &rule(&["verifyOnStop"])),
+            (
+                "hooks",
+                &rule(&["verifyOnStop", "modelAdvisor", "auditMode"]),
+            ),
             ("audit", &rule(&["mode"])),
             (
                 "sdd",
@@ -508,13 +536,19 @@ mod unknown_keys {
                     "planTiers",
                     "codexIntegration",
                     "masterPlan",
+                    "authoring",
+                    "sessionState",
                     "compactAdviceTokens",
                 ]),
             ),
             (
                 "models",
                 &Rule {
-                    children: &[("codexMap", &CODEX_MAP), ("piMap", &CODEX_MAP)],
+                    children: &[
+                        ("codexMap", &CODEX_MAP),
+                        ("codexProfiles", &CODEX_PROFILES),
+                        ("piMap", &CODEX_MAP),
+                    ],
                     ..rule(&[
                         "orchestrator",
                         "implementer",
@@ -526,6 +560,7 @@ mod unknown_keys {
                         "architect",
                         "codexMap",
                         "piMap",
+                        "codexProfiles",
                     ])
                 },
             ),
@@ -551,6 +586,7 @@ mod unknown_keys {
                     ..rule(&[
                         "legacyPaths",
                         "criticalAreas",
+                        "criticalPaths",
                         "testRunner",
                         "posture",
                         "reviewRigor",
@@ -789,12 +825,35 @@ mod schema {
             .optional("affected", safe_gate_chain)?
             .optional("docs", safe_gate_chain)?
             .optional("nativeHooks", boolean)?
+            .optional("ci", quality_gate_ci)?
             .strip())
+    }
+
+    /// `z.array(z.string().min(1)).min(1)`.
+    fn non_empty_list(value: &JsValue) -> Parsed {
+        match non_empty_strings(value)? {
+            JsValue::Array(items) if items.is_empty() => Err(Invalid),
+            parsed => Ok(parsed),
+        }
+    }
+
+    /// `QualityGateCiSchema` (#1492): a strict object, so an unknown key fails the parse.
+    fn quality_gate_ci(value: &JsValue) -> Parsed {
+        Shape::new(value)?
+            .required("workflow", non_empty)?
+            .required("jobs", non_empty_list)?
+            .optional("label", non_empty)?
+            .required("untrustedPaths", non_empty_strings)?
+            .required("hookPaths", non_empty_strings)?
+            .required("hooksCommand", safe_gate_chain)?
+            .strict()
     }
 
     fn hooks(value: &JsValue) -> Parsed {
         Ok(Shape::new(value)?
             .defaulted("verifyOnStop", JsValue::Bool(false), boolean)?
+            .defaulted("modelAdvisor", JsValue::Bool(false), boolean)?
+            .defaulted("auditMode", JsValue::Bool(false), boolean)?
             .strip())
     }
 
@@ -889,10 +948,12 @@ mod schema {
             "planTiers",
             "codexIntegration",
             "masterPlan",
+            "authoring",
         ] {
             shape = shape.defaulted(key, JsValue::Bool(false), boolean)?;
         }
         Ok(shape
+            .defaulted("sessionState", JsValue::Bool(true), boolean)?
             .defaulted("compactAdviceTokens", JsValue::Number(175_000.0), |v| {
                 safe_integer_at_least(v, 0.0)
             })?
