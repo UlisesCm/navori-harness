@@ -67,7 +67,6 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
         ),
         ("operaciones-seguras", "en", true, None, Everyone),
         ("arranque-sesion", "en", true, None, Orchestrator),
-        ("cierre-sesion", "en", true, None, Orchestrator),
         ("sdd", "en", true, Some("sdd.enabled"), Everyone),
         ("intake-tickets", "en", true, None, Everyone),
         ("code-discovery-routing", "en", true, None, Everyone),

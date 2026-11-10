@@ -76,11 +76,19 @@ fn context_file_name(id: &str) -> String {
         "orquestacion" => 10,
         "agentes-disponibles" => 20,
         "arranque-sesion" => 30,
-        "cierre-sesion" => 40,
         _ => 90,
     };
     format!("{prefix:02}-{id}.md")
 }
+
+/// `RETIRED_CONTEXT_FILES`: context files of blocks that no longer ship, by marker id, as bare
+/// names under `.claude/context/`. The render only visits ids still in the plan, so a dropped
+/// block's file is removed here with the `blocks.exclude` criterion (marker id match, not
+/// newer-stamped). `cierre-sesion` (#1455): its doctrine now lives in `verify-before-done`.
+const RETIRED_CONTEXT_FILES: [(&str, &[&str]); 1] = [(
+    "cierre-sesion",
+    &["40-cierre-sesion.md", "cierre-sesion.md"],
+)];
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     match value {
@@ -351,6 +359,14 @@ pub fn plan_claude_md(
             collect_managed(view, &dest, &input, false, lang).map_err(|_| ClaudeMdDelegate)?;
         pending.extend(collected.write);
         skipped.extend(collected.skip);
+    }
+    for (id, names) in RETIRED_CONTEXT_FILES {
+        for name in names {
+            let path = format!("{CONTEXT_DIR}/{name}");
+            if removable(view, &path, id) {
+                removals.push(path);
+            }
+        }
     }
 
     // 1b: the retired skills index leaves CLAUDE.md only when pristine.
