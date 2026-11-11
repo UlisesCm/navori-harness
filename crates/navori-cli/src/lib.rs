@@ -17,6 +17,7 @@ pub mod hook_facts;
 pub mod implementer_no_markdown_hook;
 pub mod journal;
 pub(crate) mod js_path;
+pub mod migrations;
 pub mod model_advisor;
 pub(crate) mod native_io;
 pub mod notices;
@@ -237,6 +238,18 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["backup"],
         run: backup::run_group,
+    },
+    NativeCommand {
+        path: &["migrations", "list"],
+        run: migrations::run_list,
+    },
+    NativeCommand {
+        path: &["migrations", "restore"],
+        run: migrations::run_restore,
+    },
+    NativeCommand {
+        path: &["migrations"],
+        run: migrations::run_group,
     },
     NativeCommand {
         path: &["adopt"],
