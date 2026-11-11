@@ -155,6 +155,35 @@ pub fn owns_pi_source(content: &str) -> bool {
     hex_ok && hash == digest(body) && node_parses_typescript(content)
 }
 
+/// `serializePiOrchestrator` (#1617): the orchestrator doctrine Pi injects into the parent
+/// process only, as a whole file with a hash header.
+#[must_use]
+pub fn serialize_pi_orchestrator(markdown: &str) -> String {
+    let body = format!("{}\n", crate::posix::js_trim(markdown));
+    format!(
+        "<!-- navori:managed-file id=\"pi-orchestrator\" hash=\"{}\" -->\n{body}",
+        digest(&body)
+    )
+}
+
+/// `ownsPiOrchestrator`: `PI_ORCHESTRATOR_HEADER` and a hash that still matches the body, so a
+/// file changed since the last render is never replaced.
+#[must_use]
+pub fn owns_pi_orchestrator(content: &str) -> bool {
+    let Some(rest) =
+        content.strip_prefix("<!-- navori:managed-file id=\"pi-orchestrator\" hash=\"")
+    else {
+        return false;
+    };
+    let (Some(hash), Some(tail)) = (rest.get(..64), rest.get(64..)) else {
+        return false;
+    };
+    let Some(body) = tail.strip_prefix("\" -->\n") else {
+        return false;
+    };
+    hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) && hash == digest(body)
+}
+
 /// `serializePiAgent`.
 #[must_use]
 pub fn serialize_pi_agent(

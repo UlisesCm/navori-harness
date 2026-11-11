@@ -37,6 +37,7 @@ pub mod native_hook;
 pub mod native_hooks;
 pub mod nested_gitignore;
 pub mod owned_paths;
+pub mod pi_compat;
 pub mod pi_engine;
 pub mod pi_extension;
 pub mod pi_owned;

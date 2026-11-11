@@ -51,7 +51,7 @@ pub fn compact_agent_description(description: &str) -> String {
 }
 
 /// `buildAgentsIndexBlock(lang, agents, { withIntro: false })`.
-fn agents_index_block(lang: Lang, agents: &[(String, String)]) -> Option<String> {
+pub(crate) fn agents_index_block(lang: Lang, agents: &[(String, String)]) -> Option<String> {
     if agents.is_empty() {
         return None;
     }
