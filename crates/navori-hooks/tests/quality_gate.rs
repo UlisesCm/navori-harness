@@ -336,10 +336,7 @@ fn an_unresolved_tree_enters_dot_and_sets_oldpwd() -> TestResult {
         return Err("expected a gate run".into());
     };
     // `cd .` keeps the logical PWD and records the previous one as OLDPWD.
-    assert_eq!(
-        (run.pwd.as_str(), run.oldpwd.as_deref()),
-        ("/work", Some("/work"))
-    );
+    assert_eq!((run.pwd.as_str(), run.oldpwd.as_str()), ("/work", "/work"));
     // A failing `cd .` names `.`, as bash 5.3 does, and the gate never runs.
     let broken = CdFails("No such file or directory");
     let blocked = done(evaluate(

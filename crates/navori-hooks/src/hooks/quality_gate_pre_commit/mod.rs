@@ -120,7 +120,7 @@ pub struct GateRun {
     /// The shell's logical working directory (`$PWD` after the `cd`).
     pub pwd: String,
     /// `$OLDPWD` after the `cd` (the previous `$PWD`).
-    pub oldpwd: Option<String>,
+    pub oldpwd: String,
 }
 
 /// Where the decision stopped.
@@ -378,7 +378,7 @@ impl Run<'_, '_> {
             ));
             return Ok(self.done(2));
         }
-        let oldpwd = Some(pwd);
+        let oldpwd = pwd;
         let cap = self
             .context
             .rendered
