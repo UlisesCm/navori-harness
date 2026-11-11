@@ -34,6 +34,126 @@ fn output(bytes: &[u8]) -> Output {
     }
 }
 
+const BASH3_MESSAGES: &[u8] = b"messages-probe: /dev/null/navori-probe: Not a directory\n";
+const BASH5_MESSAGES: &[u8] = b"messages-probe: line 1: /dev/null/navori-probe: Not a directory\n";
+
+fn failed(code: Option<i32>, stdout: &[u8], stderr: &[u8]) -> Output {
+    Output {
+        code,
+        stdout: stdout.to_vec(),
+        stderr: stderr.to_vec(),
+    }
+}
+
+fn bootstrap(version: &[u8]) -> Vec<u8> {
+    let mut bytes = version.to_vec();
+    bytes.push(0);
+    for tool in Tool::ALL {
+        bytes.extend_from_slice(format!("{}\00\0/bin/{}\0", tool.name(), tool.name()).as_bytes());
+    }
+    bytes
+}
+
+/// Facts that pass every check up to the messages one; the first failure after it is jq being
+/// present but unaccredited.
+fn message_facts(version: &[u8], messages: Output) -> Facts {
+    Facts {
+        bootstrap: output(&bootstrap(version)),
+        system: output(b"Darwin\n"),
+        charmap: output(b"US-ASCII\n"),
+        text: output(b"not needed"),
+        messages,
+        jq: Some(output(b"jq-unknown\n")),
+        node: Some(output(b"v24.22.0\n")),
+    }
+}
+
+// Covers: R11, R13
+#[test]
+fn english_bash_diagnostics_are_eligible_per_dialect() -> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let p = plan(request(&env), Limits::default())?;
+    for (version, text) in [
+        (b"3.2.57(1)-release".as_slice(), BASH3_MESSAGES),
+        (b"5.3.0(1)-release".as_slice(), BASH5_MESSAGES),
+    ] {
+        assert!(
+            p.prepare(&message_facts(version, failed(Some(1), text, b"")))
+                .err()
+                .is_some_and(|error| error.0.contains("jq is present but unaccredited")),
+            "{version:?}"
+        );
+    }
+    Ok(())
+}
+
+// Covers: R11, R13
+#[test]
+fn translated_or_foreign_dialect_diagnostics_defer_to_the_shell()
+-> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let p = plan(request(&env), Limits::default())?;
+    let translated =
+        "messages-probe: línea 1: /dev/null/navori-probe: No es un directorio\n".as_bytes();
+    let cause = |version: &[u8], messages: Output| {
+        p.prepare(&message_facts(version, messages))
+            .err()
+            .map(|error| error.0)
+            .unwrap_or_default()
+    };
+    let bash5 = b"5.3.0(1)-release";
+    let bash3 = b"3.2.57(1)-release";
+    assert!(cause(bash5, failed(Some(1), translated, b"")).contains("translated"));
+    // Each dialect's text is wrong for the other one.
+    assert!(cause(bash5, failed(Some(1), BASH3_MESSAGES, b"")).contains("translated"));
+    assert!(cause(bash3, failed(Some(1), BASH5_MESSAGES, b"")).contains("translated"));
+    for broken in [
+        failed(Some(0), BASH5_MESSAGES, b""),
+        failed(None, BASH5_MESSAGES, b""),
+        failed(Some(1), BASH5_MESSAGES, b"stray"),
+        failed(Some(2), BASH5_MESSAGES, b""),
+    ] {
+        assert!(cause(bash5, broken).contains("messages probe failed"));
+    }
+    Ok(())
+}
+
+// Covers: R11, R13
+#[test]
+fn strict_utf8_locale_names_reach_the_probes_and_everything_else_is_unsupported() {
+    let plans = |pairs: &[(&str, &str)]| {
+        let mut env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/bin".into())];
+        env.extend(pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())));
+        plan(request(&env), Limits::default()).map(|_| ())
+    };
+    assert!(plans(&[("LANG", "es_ES.UTF-8"), ("LC_MESSAGES", "C")]).is_ok());
+    for name in ["es_MX.utf8", "fil_PH.UTF-8", "pt.UTF-8", "de_DE.UTF-8"] {
+        assert!(plans(&[("LANG", name)]).is_ok(), "{name}");
+        assert!(plans(&[("LC_CTYPE", name)]).is_ok(), "{name}");
+    }
+    for name in [
+        "es_ES",
+        "es_ES.ISO-8859-1",
+        "de_DE.UTF-8@euro",
+        "ES_es.UTF-8",
+        "x.UTF-8",
+        "abcd_EF.UTF-8",
+        "es_E.UTF-8",
+        "es_ESP.UTF-8",
+        "es_ES.UTF8",
+        ".UTF-8",
+    ] {
+        assert!(
+            plans(&[("LANG", name)])
+                .err()
+                .is_some_and(|error| error.0 == "unsupported locale"),
+            "{name}"
+        );
+    }
+    // LANGUAGE keeps the host ineligible, whatever the locale names say.
+    assert!(plans(&[("LANG", "es_ES.UTF-8"), ("LANGUAGE", "es")]).is_err());
+}
+
 // Covers: R11, R13
 #[test]
 fn metadata_locale_and_budget_rejections_do_not_need_a_script_or_process() {
@@ -154,6 +274,7 @@ fn only_the_exact_measured_jq_version_strings_are_accredited()
         charmap: output(b"US-ASCII\n"),
         // A wrong text fact makes an accredited jq fail at the next check, after the jq one.
         text: output(b"not needed"),
+        messages: failed(Some(1), BASH3_MESSAGES, b""),
         jq: Some(output(jq)),
         node: Some(output(b"v24.22.0\n")),
     };
@@ -211,6 +332,7 @@ fn unknown_present_jq_and_lookup_errors_never_become_node_fallback()
         system: output(b"Darwin\n"),
         charmap: output(b"US-ASCII\n"),
         text: output(b"not needed"),
+        messages: failed(Some(1), BASH3_MESSAGES, b""),
         jq: Some(output(b"jq-unknown\n")),
         node: Some(output(b"v24.22.0\n")),
     };

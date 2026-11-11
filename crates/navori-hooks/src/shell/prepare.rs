@@ -124,6 +124,8 @@ pub struct Facts {
     pub system: Output,
     pub charmap: Output,
     pub text: Output,
+    /// Bash's own diagnostic text under the caller's environment ([`MESSAGES`]).
+    pub messages: Output,
     pub jq: Option<Output>,
     pub node: Option<Output>,
 }
@@ -154,6 +156,42 @@ printf '\0'
 printf 'x\000y\n' | "$5"
 printf '\0%s' "${#1}"
 "#;
+/// Fixed diagnostic probe: Bash reports a failed redirection on stderr, folded into stdout so the
+/// text can be compared byte for byte. Run as `bash -c MESSAGES messages-probe` under the
+/// caller's environment; a translated catalog changes the text (e.g. "línea 1").
+///
+/// Accepted risk: facts are cached up to 24 h (`MAX_AGE_MS`) under a key of Bash, `PATH`, `LANG`
+/// and `LC_*`. Installing translation catalogs without changing any of those can replay a stale
+/// English answer. In shadow that only affects the language of stderr on degraded paths.
+pub const MESSAGES: &str = "exec 2>&1; : < /dev/null/navori-probe";
+
+/// English diagnostic the probe prints per dialect. Bash 5 prints `line N:` for `-c`; Bash 3.2
+/// (macOS) does not. The Bash 3 text was NOT measured on this host (only Bash 5.3 was); any
+/// other text fails closed.
+fn english_messages(shell: ShellDialect) -> &'static [u8] {
+    match shell {
+        ShellDialect::Bash5 => b"messages-probe: line 1: /dev/null/navori-probe: Not a directory\n",
+        ShellDialect::Bash3 => b"messages-probe: /dev/null/navori-probe: Not a directory\n",
+    }
+}
+
+/// Strict UTF-8 locale name: `<ll>[_<CC>].UTF-8|utf8` (2-3 lowercase, 2 uppercase ASCII);
+/// no `@modifier` and no other codeset.
+fn utf8_locale_name(value: &str) -> bool {
+    let Some(stem) = value
+        .strip_suffix(".UTF-8")
+        .or_else(|| value.strip_suffix(".utf8"))
+    else {
+        return false;
+    };
+    let (language, country) = match stem.split_once('_') {
+        Some((language, country)) => (language, Some(country)),
+        None => (stem, None),
+    };
+    (2..=3).contains(&language.len())
+        && language.bytes().all(|b| b.is_ascii_lowercase())
+        && country.is_none_or(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_uppercase()))
+}
 
 /// Reject unsupported metadata, modifiers and locale names before any process is launched.
 pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible> {
@@ -171,13 +209,17 @@ pub fn plan(request: Request<'_>, limits: Limits) -> Result<Plan<'_>, Ineligible
     environment(request.env)?;
     // `UTF-8` alone is macOS Terminal's default LC_CTYPE. Naming it is not trust: the charmap and
     // text probes still prove the real behavior (on glibc it is not a locale and fails there).
+    //
+    // Any strictly shaped UTF-8 name is also accepted (e.g. `es_ES.UTF-8`): the charmap, text and
+    // messages probes prove charmap, character classes and diagnostic language, and the corpus
+    // measurement showed no different verdicts with Spanish LC_CTYPE/LC_COLLATE.
     let known = |value: &OsStr| {
-        matches!(
-            value.to_str(),
-            Some(
+        value.to_str().is_some_and(|name| {
+            matches!(
+                name,
                 "" | "C" | "POSIX" | "en_US.UTF-8" | "en_US.utf8" | "C.UTF-8" | "C.utf8" | "UTF-8"
-            )
-        )
+            ) || utf8_locale_name(name)
+        })
     };
     for (key, value) in request.env {
         if (key == "LANG" || key.as_encoded_bytes().starts_with(b"LC_")) && !known(value) {
@@ -327,6 +369,16 @@ impl<'a> Plan<'a> {
     /// Select only existing accredited profiles after checking all original tool facts.
     pub fn prepare(&self, facts: &Facts) -> Result<Prepared<'a>, Ineligible> {
         let discovery = self.discover(&facts.bootstrap)?;
+        let messages = &facts.messages;
+        if messages.code != Some(1) || !messages.stderr.is_empty() {
+            return Err(Ineligible("messages probe failed".into()));
+        }
+        if messages.stdout != english_messages(discovery.shell) {
+            return Err(Ineligible(
+                "bash diagnostics are translated (LC_MESSAGES/LC_ALL); the shell lane answers"
+                    .into(),
+            ));
+        }
         let system = facts.system.bytes()?;
         let locale = if !self.utf8 {
             Locale::C

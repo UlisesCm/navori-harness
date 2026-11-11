@@ -6,6 +6,11 @@
 //! timestamps), the `PATH` and locale variables, and a 24 h age bound. Replayed facts still go
 //! through the pure planner, so the cache can only skip processes, never validation.
 //!
+//! Accepted risk: the Bash-messages fact is replayed for up to `MAX_AGE_MS`. Installing translation
+//! catalogs without changing `LANG`/`LC_*`, `PATH` or Bash can replay a stale English answer; in
+//! shadow that only affects the language of stderr on degraded paths. Schema 1 entries (without
+//! the messages fact) are misses.
+//!
 //! Storage is project-local under `.navori/state/rust-facts/`: a private directory (0700) of
 //! private files (0600) written with exclusive create + rename. Symlinked or group/other-writable
 //! locations are ignored and never written. Any doubt is a miss, and a miss probes the host.
@@ -27,7 +32,7 @@ use sha2::{Digest, Sha256};
 pub const MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
 /// A cache entry is a few KiB; anything larger is not ours.
 const MAX_ENTRY_BYTES: u64 = 256 * 1024;
-const SCHEMA: u64 = 1;
+const SCHEMA: u64 = 2;
 
 /// Project-local cache directory.
 pub struct FactsCache {
@@ -341,6 +346,7 @@ fn encode(
             "system": output_json(&facts.system),
             "charmap": output_json(&facts.charmap),
             "text": output_json(&facts.text),
+            "messages": output_json(&facts.messages),
             "jq": facts.jq.as_ref().map(output_json),
             "node": facts.node.as_ref().map(output_json),
         },
@@ -381,6 +387,7 @@ fn decode(value: &Value, key: &str, now_ms: u64) -> Option<Cached> {
             system: output_from(facts.get("system")?)?,
             charmap: output_from(facts.get("charmap")?)?,
             text: output_from(facts.get("text")?)?,
+            messages: output_from(facts.get("messages")?)?,
             jq: optional("jq")?,
             node: optional("node")?,
         },
