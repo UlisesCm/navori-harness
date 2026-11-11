@@ -103,7 +103,7 @@
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:ae09f92a67ec3e6c796fbcf64fb59828f040ae71f57334341f9d1bdb90116b21"
       },
-      "impl": "sha256:e415470839272794130160ab5f1db2a00b2dc18e121cbe217a77e58118f2045e"
+      "impl": "sha256:b1fb3ce3ed63bb0ea2d5f0bb7c6e17270814f443b1861983f90f38d325ed08b3"
     },
     "subagent-no-background": {
       "mode": "shadow",

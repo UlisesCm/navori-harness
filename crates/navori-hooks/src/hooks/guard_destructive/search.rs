@@ -66,15 +66,47 @@ impl Patterns {
     }
 }
 
-/// The sed continuation join and the awk splitter. awk prints each record without a newline,
-/// so the lines of a multi-line command run together; the quote state resets per line.
-fn segments(cmd: &str) -> String {
+/// The sed continuation join and the awk splitter of `guard-search-routing.sh` (#1509, #1596).
+///
+/// A newline outside quotes starts a command (`\n@C@`) like `;`, unless the line ended inside
+/// quotes or on a pipe, `&&`, `||` or `;` (`pend`): then a space joins the next line to the same
+/// segment. Quote state persists across lines; in double quotes `\` escapes the next character.
+/// A comment-only line outside quotes is skipped without closing `pend`. `|&` consumes the `&`.
+/// awk counts records, so the one empty piece after a final newline is not a record, and a
+/// comment-only first record still counts for `NR > 1`.
+pub fn segments(cmd: &str) -> String {
+    // The final newline ends the last record; it is not an empty record of its own.
+    let joined = cmd.strip_suffix('\n').unwrap_or(cmd).replace("\\\n", " ");
     let mut out = String::new();
-    for line in cmd.replace("\\\n", " ").split('\n') {
-        let mut quote: Option<char> = None;
-        let mut chars = line.chars().peekable();
-        while let Some(c) = chars.next() {
+    let mut quote: Option<char> = None;
+    let mut pend = false;
+    for (index, line) in joined.split('\n').enumerate() {
+        if quote.is_none() && line.trim_start_matches([' ', '\t']).starts_with('#') {
+            continue;
+        }
+        if index > 0 {
+            if quote.is_some() || pend {
+                out.push(' ');
+            } else {
+                out.push_str("\n@C@");
+            }
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            let next = chars.get(i + 1).copied();
+            i += 1;
             if let Some(q) = quote {
+                pend = false;
+                if q == '"' && c == '\\' {
+                    out.push(c);
+                    if let Some(n) = next {
+                        out.push(n);
+                    }
+                    i += 1;
+                    continue;
+                }
                 if c == q {
                     quote = None;
                 }
@@ -84,15 +116,31 @@ fn segments(cmd: &str) -> String {
             match c {
                 '\'' | '"' => {
                     quote = Some(c);
+                    pend = false;
                     out.push(c);
                 }
-                '|' | '&' if chars.peek() == Some(&c) => {
-                    chars.next();
+                '|' | '&' if next == Some(c) => {
+                    i += 1;
+                    pend = true;
                     out.push_str("\n@C@");
                 }
-                ';' => out.push_str("\n@C@"),
-                '|' => out.push_str("\n@P@"),
-                other => out.push(other),
+                ';' => {
+                    pend = true;
+                    out.push_str("\n@C@");
+                }
+                '|' => {
+                    if next == Some('&') {
+                        i += 1;
+                    }
+                    pend = true;
+                    out.push_str("\n@P@");
+                }
+                other => {
+                    if other != ' ' && other != '\t' {
+                        pend = false;
+                    }
+                    out.push(other);
+                }
             }
         }
     }
