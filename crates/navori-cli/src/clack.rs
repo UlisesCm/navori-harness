@@ -38,19 +38,12 @@ pub(crate) fn width(text: &str) -> Option<usize> {
         .sum()
 }
 
-/// `S_INFO`, `S_SUCCESS`, `S_STEP_SUBMIT`, `S_WARN` and `S_ERROR`.
-#[allow(
-    dead_code,
-    reason = "the `p.log` commands (backup, migrations) arrive with E3 of spec 0060"
-)]
+/// `S_BAR`, `S_INFO` and `S_WARN`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Symbol {
     Bar,
     Info,
-    Success,
-    Step,
     Warn,
-    Error,
 }
 
 impl Symbol {
@@ -58,10 +51,7 @@ impl Symbol {
         match self {
             Self::Bar => "│",
             Self::Info => "●",
-            Self::Success => "◆",
-            Self::Step => "◇",
             Self::Warn => "▲",
-            Self::Error => "■",
         }
     }
 }
@@ -89,7 +79,6 @@ impl Clack {
 
     /// `p.log.message(text, { symbol })` (and `info`, `warn`, ...): a bar line, then the first
     /// line after the symbol and the rest after a bar; empty lines keep only their symbol.
-    #[allow(dead_code, reason = "its first callers arrive with E3 of spec 0060")]
     pub(crate) fn log(&mut self, symbol: Symbol, text: &str) {
         let mut lines = vec!["│".to_owned()];
         for (index, line) in text.split('\n').enumerate() {

@@ -1065,6 +1065,35 @@ describe("rust oracle", () => {
     ).toBeUndefined();
   });
 
+  // Covers: R73
+  it("backup nativo en cada subcomando", () => {
+    const cases = oracle.loadCases();
+    const groups: Record<string, string[]> = {
+      backup: ["list", "restore", "prune"],
+    };
+    for (const [group, subs] of Object.entries(groups)) {
+      const mine = cases.filter((c) => c.id.startsWith(`${group}:`));
+      expect(mine.some((c) => c.args.length === 2 && c.args[1] === "--help" && c.native)).toBe(
+        true,
+      );
+      for (const sub of subs) {
+        const native = mine.filter((c) => c.args[1] === sub && c.native);
+        expect(
+          native.some((c) => c.args.includes("--help") || c.args.includes("-h")),
+          sub,
+        ).toBe(true);
+        expect(
+          native.some((c) => !c.args.includes("--help") && !c.args.includes("-h")),
+          sub,
+        ).toBe(true);
+      }
+    }
+    // An interactive confirm stays with the TS.
+    for (const id of ["backup:restore-confirm-delegates"]) {
+      expect(cases.find((c) => c.id === id)?.native, id).toBeUndefined();
+    }
+  });
+
   // Covers: R7
   it("selectsNative lee argv como el parser y el manifiesto", () => {
     const manifest = {
