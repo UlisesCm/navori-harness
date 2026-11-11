@@ -50,6 +50,7 @@ const VERDICTS: &[&str] = &[
     "compact-advice",
     "gate-started",
     "gate-killed",
+    "fail-open",
 ];
 const TOOLS: &[&str] = &[
     "Bash",
@@ -76,6 +77,8 @@ const REASONS: &[&str] = &[
     "native-hook",
     "foreign-repo",
     "foreign-gate",
+    "pii-egress",
+    "search-index-unavailable",
 ];
 
 /// Engine supplied to the existing metadata bridge, never inferred from a log header.

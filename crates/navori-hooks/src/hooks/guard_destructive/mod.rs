@@ -162,7 +162,7 @@ pub fn decide(
         }
         search::Search::FailOpen => {
             verdict = "fail-open";
-            reason = "search index unavailable".to_owned();
+            reason = "search-index-unavailable".to_owned();
         }
         search::Search::Pass => {}
     }

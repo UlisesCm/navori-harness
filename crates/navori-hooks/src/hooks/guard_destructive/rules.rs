@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::copy_dest::{self, Inputs};
+use super::copy_dest::{self, CopyDest, Inputs};
 use super::discard;
 use super::pi;
 use super::{Outcome, Rendered, length};
@@ -27,6 +27,10 @@ const MANAGED_DIR: &str =
     r"\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules";
 const MANAGED_PI: &str = r"|\.pi/extensions/navori\.ts|\.pi/navori\.json|\.pi/navori/[^[:space:];&|]+|\.pi/agents/(scout|implementer|reviewer|scribe|auditor|architect|publisher)\.md";
 const MANAGED_REWRITE: &str = "shell rewrite of a navori-managed file \u{2014} edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead";
+
+const UNPARSED_QUOTING: &str = "could not parse the quoting of this command, so it cannot rule out a write to a navori-managed file. To write a file (handoff, notes) use the Write/Edit tool; for a managed file, edit its source asset and run navori render --apply";
+const UNPARSED_ROUTE: &str =
+    "Write/Edit tool (or edit the asset + navori render --apply if it is a managed file)";
 
 /// `managed_path` for one engine: Pi adds the exact names Navori writes under `.pi/`.
 fn managed_path(pi: bool) -> String {
@@ -422,12 +426,25 @@ pub(super) fn evaluate(
         pwd: &host.pwd,
         owned: &rendered.owned_paths,
     };
-    if rendered.owned_paths != "-" && !copy_dest::safe(&live, &inputs) {
-        return Ok(block(
-            MANAGED_REWRITE,
-            "managed-rewrite",
-            Some("navori render --apply"),
-        ));
+    if rendered.owned_paths != "-" {
+        match copy_dest::verdict(&live, &inputs) {
+            CopyDest::Safe => {}
+            // Same verdict and reason, honest message and route: the quoting was unreadable.
+            CopyDest::Unparsed => {
+                return Ok(block(
+                    UNPARSED_QUOTING,
+                    "managed-rewrite",
+                    Some(UNPARSED_ROUTE),
+                ));
+            }
+            CopyDest::ManagedRewrite => {
+                return Ok(block(
+                    MANAGED_REWRITE,
+                    "managed-rewrite",
+                    Some("navori render --apply"),
+                ));
+            }
+        }
     }
     // 6c. The Pi arm.
     let mut ask = None;

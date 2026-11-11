@@ -1,9 +1,12 @@
 //! `navori_copy_dest_safe` (`_partials/copy-dest.sh`): exact render-owned copy/move/install/link
-//! destinations. A byte-wise (`LC_ALL=C`) transcription of the partial's awk program, including
-//! its quirks: tokens of an earlier segment stay readable past the current count, and paths are
-//! normalized lexically with no filesystem access.
+//! destinations. A byte-wise (`LC_ALL=C`) transcription of the partial's awk program (as of dev
+//! commit `f7ae33c0`, which reads `"$(...)"` substitutions and exits 3 on unreadable quoting),
+//! including its quirks: tokens of an earlier segment stay readable past the current count, the
+//! substitution stack and quote state persist across input lines, and paths are normalized
+//! lexically with no filesystem access.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 const PROJECT_BRACED: &[u8] = b"${CLAUDE_PROJECT_DIR}";
 const PROJECT_PLAIN: &[u8] = b"$CLAUDE_PROJECT_DIR";
@@ -19,6 +22,26 @@ pub struct Inputs<'a> {
     pub pwd: &'a str,
     /// `NV_COPY_OWNED` — `nv_owned_paths`, newline-separated.
     pub owned: &'a str,
+}
+
+/// The partial's exit status: `exit (bad ? 2 : qbad ? 3 : 0)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyDest {
+    /// Exit 0: no copy writes an exact render-owned path.
+    Safe,
+    /// Exit 2: a confirmed (or unsupported-form) write onto a render-owned path.
+    ManagedRewrite,
+    /// Exit 3: unreadable quoting, so a write cannot be ruled out.
+    Unparsed,
+}
+
+/// One parked `"$(` context (awk `subp[sd]`, `sbuf[sd]`, `snt[sd]`, `stok[sd,*]`).
+struct Frame {
+    subp: usize,
+    sbuf: Vec<u8>,
+    snt: usize,
+    // Shared, not cloned: parking tokens is a refcount bump per token, never a byte copy.
+    stok: Vec<Rc<[u8]>>,
 }
 
 fn starts_with(p: &[u8], prefix: &[u8]) -> bool {
@@ -49,12 +72,17 @@ struct Program {
     files: HashSet<Vec<u8>>,
     dirs: HashSet<Vec<u8>>,
     // awk arrays keep their entries: a shorter segment can still read an older token.
-    tok: Vec<Vec<u8>>,
+    tok: Vec<Rc<[u8]>>,
     nt: usize,
     args: Vec<Vec<u8>>,
     buf: Vec<u8>,
     have: bool,
     bad: bool,
+    qbad: bool,
+    quote: Option<u8>,
+    escape: bool,
+    // Lives across records, like the awk's `sd`/`subp`/`sbuf`/`snt`/`stok` globals.
+    stack: Vec<Frame>,
 }
 
 impl Program {
@@ -123,15 +151,13 @@ impl Program {
     }
 
     fn token(&self, i: usize) -> &[u8] {
-        self.tok
-            .get(i.wrapping_sub(1))
-            .map_or(&[][..], Vec::as_slice)
+        self.tok.get(i.wrapping_sub(1)).map_or(&[][..], |t| &**t)
     }
 
     fn word(&mut self) {
         if self.have {
             self.nt += 1;
-            let buf = std::mem::take(&mut self.buf);
+            let buf: Rc<[u8]> = Rc::from(std::mem::take(&mut self.buf));
             if self.tok.len() < self.nt {
                 self.tok.push(buf);
             } else {
@@ -146,6 +172,32 @@ impl Program {
         self.word();
         self.check();
         self.nt = 0;
+    }
+
+    /// awk `enter(text)`: park the outer word and its tokens for a `"$(` substitution.
+    fn enter(&mut self, text: Vec<u8>) {
+        self.stack.push(Frame {
+            subp: 0,
+            sbuf: text,
+            snt: self.nt,
+            stok: self.tok[..self.nt].to_vec(),
+        });
+        self.buf.clear();
+        self.have = false;
+        self.nt = 0;
+    }
+
+    /// awk `leave()`: restore the parked tokens (only `tok[..snt]`; later entries persist).
+    fn leave(&mut self) {
+        let Some(frame) = self.stack.pop() else {
+            return;
+        };
+        self.nt = frame.snt;
+        for (slot, saved) in self.tok.iter_mut().zip(frame.stok) {
+            *slot = saved;
+        }
+        self.buf = frame.sbuf;
+        self.have = true;
     }
 
     fn copy_word(token: &[u8]) -> bool {
@@ -449,33 +501,50 @@ impl Program {
         }
     }
 
-    fn line(&mut self, line: &[u8], state: &mut (Option<u8>, bool)) {
-        let (quote, escape) = state;
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one transcription of the partial's per-record loop"
+    )]
+    fn line(&mut self, line: &[u8]) {
         let len = line.len();
         let mut pos = 0;
         while pos < len {
             let c = line[pos];
-            if *escape {
+            if self.escape {
                 self.buf.push(c);
                 self.have = true;
-                *escape = false;
+                self.escape = false;
                 pos += 1;
                 continue;
             }
-            if c == b'\\' && *quote != Some(b'\'') {
-                if *quote == Some(b'"') && pos + 1 < len && !b"$`\"\\".contains(&line[pos + 1]) {
+            if c == b'\\' && self.quote != Some(b'\'') {
+                if self.quote == Some(b'"') && pos + 1 < len && !b"$`\"\\".contains(&line[pos + 1])
+                {
                     self.buf.push(c);
                     self.have = true;
                     pos += 1;
                     continue;
                 }
-                *escape = true;
+                self.escape = true;
                 pos += 1;
                 continue;
             }
-            if let Some(q) = *quote {
+            if self.quote == Some(b'"') && line[pos..].starts_with(TOPLEVEL) {
+                self.buf.extend_from_slice(TOPLEVEL);
+                self.have = true;
+                pos += TOPLEVEL.len();
+                continue;
+            }
+            if self.quote == Some(b'"') && c == b'$' && line.get(pos + 1) == Some(&b'(') {
+                let text = [self.buf.as_slice(), b"$("].concat();
+                self.enter(text);
+                self.quote = None;
+                pos += 2;
+                continue;
+            }
+            if let Some(q) = self.quote {
                 if c == q {
-                    *quote = None;
+                    self.quote = None;
                 } else {
                     self.buf.push(c);
                 }
@@ -483,8 +552,43 @@ impl Program {
                 pos += 1;
                 continue;
             }
+            if !self.stack.is_empty() {
+                // A heredoc body is free text: back to the outer double quote. Only one `<` is
+                // consumed; the second is read inside the quote.
+                if c == b'<' && line.get(pos + 1) == Some(&b'<') {
+                    self.segment();
+                    while !self.stack.is_empty() {
+                        self.leave();
+                    }
+                    self.quote = Some(b'"');
+                    self.buf.push(c);
+                    self.have = true;
+                    pos += 1;
+                    continue;
+                }
+                if c == b'(' {
+                    // Falls through: `(` still ends a segment below.
+                    if let Some(frame) = self.stack.last_mut() {
+                        frame.subp += 1;
+                    }
+                } else if c == b')' {
+                    match self.stack.last_mut() {
+                        // Falls through: `)` still ends a segment below.
+                        Some(frame) if frame.subp > 0 => frame.subp -= 1,
+                        _ => {
+                            self.segment();
+                            self.leave();
+                            self.quote = Some(b'"');
+                            self.buf.push(c);
+                            self.have = true;
+                            pos += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
             if c == b'\'' || c == b'"' {
-                *quote = Some(c);
+                self.quote = Some(c);
                 self.have = true;
                 pos += 1;
                 continue;
@@ -532,13 +636,15 @@ impl Program {
                         pos += 1;
                         continue;
                     }
-                    if matches!(rc, b' ' | b'\t' | b';' | b'&' | b'|') {
+                    if matches!(rc, b' ' | b'\t' | b';' | b'&' | b'|')
+                        || (!self.stack.is_empty() && rc == b')')
+                    {
                         break;
                     }
                     pos += 1;
                 }
                 if rq.is_some() {
-                    self.bad = true;
+                    self.qbad = true;
                 }
                 continue;
             }
@@ -556,9 +662,10 @@ impl Program {
             self.have = true;
             pos += 1;
         }
-        if *escape {
-            *escape = false;
-        } else if quote.is_some() {
+        // awk: the escape is dropped at the end of a record, so a dangling `\` is exit 0.
+        if self.escape {
+            self.escape = false;
+        } else if self.quote.is_some() {
             self.buf.push(b'\n');
             self.have = true;
         } else {
@@ -567,9 +674,9 @@ impl Program {
     }
 }
 
-/// True when no copy/move/install/link writes an exact render-owned path (awk exit 0).
+/// `navori_copy_dest_safe`'s exit status for `live`: `ManagedRewrite` (2) wins over `Unparsed` (3).
 #[must_use]
-pub fn safe(live: &str, inputs: &Inputs<'_>) -> bool {
+pub fn verdict(live: &str, inputs: &Inputs<'_>) -> CopyDest {
     let mut root = if inputs.root.is_empty() {
         inputs.pwd
     } else {
@@ -591,6 +698,10 @@ pub fn safe(live: &str, inputs: &Inputs<'_>) -> bool {
         buf: Vec::new(),
         have: false,
         bad: false,
+        qbad: false,
+        quote: None,
+        escape: false,
+        stack: Vec::new(),
     };
     root = program.slashes(&root);
     let cwd = program.slashes(inputs.cwd.as_bytes());
@@ -619,14 +730,53 @@ pub fn safe(live: &str, inputs: &Inputs<'_>) -> bool {
     }
     // The heredoc feeds `$live` plus a newline; awk reads one record per line.
     let input = format!("{}\n", live.trim_end_matches('\n'));
-    let mut state = (None, false);
     let body = &input.as_bytes()[..input.len() - 1];
     for line in body.split(|b| *b == b'\n') {
-        program.line(line, &mut state);
+        program.line(line);
     }
-    if state.0.is_some() || state.1 {
-        program.bad = true;
+    if program.quote.is_some() || program.escape || !program.stack.is_empty() {
+        program.qbad = true;
     }
     program.segment();
-    !program.bad
+    if program.bad {
+        CopyDest::ManagedRewrite
+    } else if program.qbad {
+        CopyDest::Unparsed
+    } else {
+        CopyDest::Safe
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CopyDest, Inputs, verdict};
+
+    fn run(live: &str) -> CopyDest {
+        verdict(
+            live,
+            &Inputs {
+                root: "/tmp/proj",
+                cwd: "/tmp/proj",
+                pwd: "/tmp",
+                owned: "owned.txt",
+            },
+        )
+    }
+
+    #[test]
+    fn a_confirmed_rewrite_wins_over_unreadable_quoting() {
+        assert_eq!(run("cp -Q a b \"x"), CopyDest::ManagedRewrite);
+        assert_eq!(run("cp a \"x"), CopyDest::Unparsed);
+    }
+
+    #[test]
+    fn the_substitution_stack_lives_across_lines() {
+        assert_eq!(run("echo \"$(cp -Q a b\n)\""), CopyDest::ManagedRewrite);
+        assert_eq!(run("echo \"$(echo hi\n"), CopyDest::Unparsed);
+    }
+
+    #[test]
+    fn a_dangling_escape_is_safe() {
+        assert_eq!(run("cp a \\"), CopyDest::Safe);
+    }
 }

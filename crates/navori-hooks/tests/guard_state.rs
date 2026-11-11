@@ -244,7 +244,7 @@ fn compare(
                 "block" if want.stderr.starts_with("[navori] Commit BLOCKED") => {
                     "ratchet".to_owned()
                 }
-                "block" => format!("block/{}", decision.reason),
+                "block" | "fail-open" => format!("{}/{}", decision.verdict, decision.reason),
                 verdict => verdict.to_owned(),
             });
         }
@@ -713,7 +713,7 @@ fn search_lane_matches_the_rendered_copy_for_every_tgrep_state() -> TestResult {
     }
     for label in [
         "block/content search routed to the index",
-        "fail-open",
+        "fail-open/search-index-unavailable",
         "allow",
         "skip",
     ] {
