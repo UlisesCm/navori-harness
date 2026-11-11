@@ -152,3 +152,8 @@ entienda `spec.md`. Se quita en el PR de `spec.md` (#1483).
 (`navori-core/src/spec/onepage.rs`) y el FIX de un `tasks.md` ausente propone `spec.md`, como el TS; la condición
 de `prTarget`/`branchBase` sale de `spec.rs`. Salen del oráculo `repo-specs:*` (14) y `spec:*` (4). Un `spec.md`
 que no es un archivo regular sigue delegando `spec check` al TS.
+
+**Tras el paso 4c:** el Rust de `role-guard` y `engram-write-guard` sale del binario (host de Codex
+`governance_hook.rs`, los dos hooks, `shell/role_case.rs` y `agent_governance.rs`), junto con sus entradas de
+`ported.json`. Los dos hooks siguen en shell (`PERMANENT_SHELL_HOOKS`) y el render de Codex no cambia. Como el
+hash `impl` cubre `shell/`, el resto de hooks se vuelve a firmar con `rust:hooks-sync`, sin cambio de comportamiento.

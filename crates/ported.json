@@ -103,7 +103,7 @@
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:ae09f92a67ec3e6c796fbcf64fb59828f040ae71f57334341f9d1bdb90116b21"
       },
-      "impl": "sha256:b1fb3ce3ed63bb0ea2d5f0bb7c6e17270814f443b1861983f90f38d325ed08b3"
+      "impl": "sha256:7148b5cee94eda64bdadddd9ec47bc7d4d892e390d90787a7a368fc1de5e7ef2"
     },
     "subagent-no-background": {
       "mode": "shadow",
@@ -111,7 +111,7 @@
       "blocks": {
         "subagent-no-background-base": "sha256:7a66430b90ea3006bfa6f7c3e9643e8c0de8532e7029bb6712e9adab2d4ee119"
       },
-      "impl": "sha256:59b15694c07d6bff251707a6bcc3fb04a054017a82da0c6db3a2f3c565f80f32"
+      "impl": "sha256:ad66ccf1108d87ae29db84c4b71fcad4c986f3e23ab7dcd19fca6342fc3a3d62"
     },
     "quality-gate-pre-commit": {
       "mode": "shadow",
@@ -119,7 +119,7 @@
       "blocks": {
         "qg-pre-commit-base": "sha256:afa3b41f46d37ba5881816702e1cdd4f692d6e1c06c81086ee8d8c5109737025"
       },
-      "impl": "sha256:89643830bf3080f312de30c56725babdebeba2ec4af53a70eae5151d71640043"
+      "impl": "sha256:ba145806a078bcab7afb4531063da3760115f8cd35837c67f0c7164a24c88e5e"
     },
     "plan-gate": {
       "mode": "shadow",
@@ -127,7 +127,7 @@
       "blocks": {
         "plan-gate-base": "sha256:a189e8f4d1921bfa2d6fb2e22722e0ac476245d40298a11eba23182a162c636b"
       },
-      "impl": "sha256:55731b716a35135d64d7f2b194a8651d53e9804a4b7a7f9ceb7e3243e74249b6"
+      "impl": "sha256:73f9e22832ce27d4b3c976cddb3aff74224226db1c452f732352987aa3036aaa"
     },
     "session-start-context": {
       "mode": "shadow",
@@ -135,7 +135,7 @@
       "blocks": {
         "session-start-context-base": "sha256:1375d62cc3a3fd22ca8a6f84b1d9c63d6f9696648b308b81a1cbc2d744e3578c"
       },
-      "impl": "sha256:5a33aff99c1a36a4e36631736f4b37b216e506868f9409fd3eabda6c12f09c02"
+      "impl": "sha256:06edd304aebcf2e08056864108126b2979859d7d311e742f44bd70c61140c345"
     },
     "subagent-stop-handoff": {
       "mode": "shadow",
@@ -143,7 +143,7 @@
       "blocks": {
         "subagent-stop-handoff-base": "sha256:76644a2563e07c75229dd738f66acffe0a9311c94070b0caa49267be054310b0"
       },
-      "impl": "sha256:97adbe13bf932972a5c7f84bd1adecba925cc3eb2c55d4cdce9597c1ce5eaad8"
+      "impl": "sha256:7516037a15df944a3f9baea71d94f51b7f222f256760e479684461ebb62b14dd"
     },
     "model-advisor": {
       "mode": "shadow",
@@ -151,7 +151,7 @@
       "blocks": {
         "model-advisor-base": "sha256:c7beeedd2c3d7d088b774b52bff13b4fabae0c279532f69eb5a0ae31d6916a30"
       },
-      "impl": "sha256:c0f0cd7f44dcc9c28a61845f5006cd5407581e1ba0fd58904a817e7c6125755e"
+      "impl": "sha256:ff276aa34d8810e95d6905e58834a1570de74c0030101862c3a39c99c88803f5"
     },
     "general-purpose-confirm": {
       "mode": "shadow",
@@ -159,7 +159,7 @@
       "blocks": {
         "general-purpose-confirm-base": "sha256:a51c01bfedfc1a1aad2e8e360b84e88163d5be0352c742c360a3f27eff0543bf"
       },
-      "impl": "sha256:3743fa41694e470a7255c4dceba13ec490e68cae7ad8b56edb241662e0980f28"
+      "impl": "sha256:4a1104d60997efe484dbfd4f5af297b0503e5642580cbbfb1d13249789635806"
     },
     "implementer-no-markdown": {
       "mode": "shadow",
@@ -167,7 +167,7 @@
       "blocks": {
         "implementer-no-markdown-base": "sha256:ce00753f3e660e1510d91f2577841e57dcfba9df8006f84b2a0d3a38d9d71a7b"
       },
-      "impl": "sha256:60d74154cf90c9fb8802cb3eb5cdcccb8016300fed1ca6e2e3fa4378db0d9cb8"
+      "impl": "sha256:0586f85db91eabcf0dfc0c6b4abff1942d3b61a756e8505503cddc6ab1d5f676"
     },
     "comment-draft-confirm": {
       "mode": "shadow",
@@ -175,7 +175,7 @@
       "blocks": {
         "comment-draft-confirm-base": "sha256:1802adfc799603cf0d22ce9197f38ca4e7c0409239bad1f674712bddd1d83173"
       },
-      "impl": "sha256:1c80f853da6ae27c4da0cbf863515e3e62f6c94173b88cb490116c26c3c87ff9"
+      "impl": "sha256:192ca21519d5eff450fe058740e99bbdfa67b32cfa97049f77415627fb900cbf"
     },
     "pr-publisher-confirm": {
       "mode": "shadow",
@@ -183,23 +183,7 @@
       "blocks": {
         "pr-publisher-confirm-base": "sha256:9dab29bb39731d62b2f67011b6afd2b0fb4ec4b26e089ef817ed7fbc1b9a13d3"
       },
-      "impl": "sha256:ac09a33373c8f176d49b295acee77c172d9115a12fea8f244d303152189d8750"
-    },
-    "role-guard": {
-      "mode": "shadow",
-      "gating": true,
-      "blocks": {
-        "role-guard-base": "sha256:b275e543f105f6ea5e65fe09fa566f3aa7432b771273bd937702c0470a3921d1"
-      },
-      "impl": "sha256:ef05b165934e4afe6e596a135e83b7ca196ee6269ee55ea2cf8eab72aa99b994"
-    },
-    "engram-write-guard": {
-      "mode": "shadow",
-      "gating": true,
-      "blocks": {
-        "engram-write-guard-base": "sha256:cb25b563136fb7ac184f2340ee2e26fa08dcdc57a7301943e98df9df8ba29556"
-      },
-      "impl": "sha256:0170b6daa3e3b23482d28c92023edc3a980a076d99849329586ffafefdcf9d53"
+      "impl": "sha256:0b5dc87eb19cbdb864ba9b5f0a7e86fcee5f74379f6224f70cab468e3201cef7"
     }
   }
 }

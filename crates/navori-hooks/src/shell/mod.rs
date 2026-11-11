@@ -11,7 +11,6 @@ pub mod payload;
 pub mod prepare;
 pub(crate) mod ratchet;
 pub mod repo;
-pub mod role_case;
 pub mod subcommand;
 
 /// Shell text/character-count convention, supplied instead of inspecting LC_ALL.
