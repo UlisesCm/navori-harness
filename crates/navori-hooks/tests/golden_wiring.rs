@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 use navori_core::manifest::HookMode;
 use navori_core::render::native_hook::{NativeEngine, NativeShell, native_runner_shell};
 
+#[path = "support/codex_render.rs"]
+mod codex_render;
+
 const HOOKS: [&str; 3] = [
     "session-start-context",
     "subagent-stop-handoff",
@@ -59,10 +62,17 @@ fn hooks_de_sesion_en_shadow() -> Result<(), String> {
     let mut sections = Vec::new();
     let mut failures = Vec::new();
     for hook in HOOKS {
-        // This repository renders Claude only for these hooks: `dev` dropped Codex from its
-        // engines (318d5eff). The Codex runner stays covered by the generic `wiring.snap`.
-        for (engine, dir) in [(NativeEngine::Claude, ".claude")] {
-            let path = repo().join(dir).join("hooks").join(format!("{hook}.sh"));
+        // This repository no longer renders Codex (`dev` dropped it in 318d5eff): its lane reads
+        // the Codex mirror rendered for this test binary.
+        for (engine, dir, root) in [
+            (NativeEngine::Claude, ".claude", repo()),
+            (
+                NativeEngine::Codex,
+                ".codex",
+                codex_render::codex_root()?.to_path_buf(),
+            ),
+        ] {
+            let path = root.join(dir).join("hooks").join(format!("{hook}.sh"));
             let text =
                 std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             if !text.starts_with("# navori:native-hook v=1 file=sha256:") {

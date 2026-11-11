@@ -9,6 +9,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "../../navori-hooks/tests/support/codex_render.rs"]
+mod codex_render;
+
 use navori_cli::hook::{Mode, run_with};
 use navori_core::integrity::script_hash;
 use navori_core::manifest::Manifest;
@@ -49,21 +52,20 @@ fn install(project: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     ENGINES
         .iter()
         .map(|engine| {
-            // This repository no longer renders Codex (`dev` dropped it in 318d5eff). Its copy
-            // differed from Claude's only in the native-failure arm, which is re-signed here and
-            // never reached, so the Codex lane installs the Claude copy at the Codex path.
-            let rendered_engine = if *engine == ".codex" {
-                ".claude"
+            // This repository no longer renders Codex (`dev` dropped it in 318d5eff): its lane
+            // reads the Codex mirror rendered for this test binary.
+            let rendered_root = if *engine == ".codex" {
+                codex_render::codex_root()?.to_path_buf()
             } else {
-                engine
+                workspace().to_path_buf()
             };
-            let routing = fs::read(workspace().join(rendered_engine).join(ROUTING))?;
+            let routing = fs::read(rendered_root.join(engine).join(ROUTING))?;
             let dest = project.join(engine).join(ROUTING);
             fs::create_dir_all(dest.parent().ok_or("scripts")?)?;
             fs::write(&dest, &routing)?;
             let rendered = fs::read_to_string(
-                workspace()
-                    .join(rendered_engine)
+                rendered_root
+                    .join(engine)
                     .join("hooks/guard-destructive.sh"),
             )?;
             // A checkout copy may already carry the renderer's signature: sign its body again

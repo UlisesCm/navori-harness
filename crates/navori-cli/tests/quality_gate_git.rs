@@ -9,6 +9,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "../../navori-hooks/tests/support/codex_render.rs"]
+mod codex_render;
+
 type TestResult = Result<(), Box<dyn Error>>;
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
@@ -85,15 +88,14 @@ impl Scratch {
     fn install(&self, dir: &str) -> Result<PathBuf, Box<dyn Error>> {
         let dest = self.root.join(dir).join(SCRIPT);
         fs::create_dir_all(dest.parent().ok_or("parent")?)?;
-        // This repository no longer renders Codex (`dev` dropped it in 318d5eff). The Codex copy
-        // was byte-identical to the Pi one (same body, same non-JSON failure arm), so the Codex
-        // lane installs the Pi copy at the Codex path (the engine is read from the path).
-        let source = if dir == ".codex/hooks" {
-            ".pi/navori/hooks"
+        // This repository no longer renders Codex (`dev` dropped it in 318d5eff): the Codex lane
+        // installs the copy of the Codex mirror rendered for this test binary.
+        let rendered = if dir == ".codex/hooks" {
+            codex_render::codex_root()?
         } else {
-            dir
+            workspace()
         };
-        fs::copy(workspace().join(source).join(SCRIPT), &dest)?;
+        fs::copy(rendered.join(dir).join(SCRIPT), &dest)?;
         Ok(dest)
     }
 

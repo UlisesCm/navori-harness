@@ -7,6 +7,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "support/codex_render.rs"]
+mod codex_render;
+
 use navori_hooks::hooks::guard_destructive::{Rendered, ask_answer, decide};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
@@ -856,11 +859,12 @@ fn progress_ratchet_matches_the_rendered_copies_over_real_repositories() -> Test
         ".claude/hooks/guard-destructive.sh",
         "proj/.claude/hooks/guard-destructive.sh",
     )?;
-    // This repository no longer renders Codex (`dev` dropped it in 318d5eff); its copy differed
-    // from Claude's only in the native-failure arm, so the Claude copy runs at the Codex path.
+    // This repository no longer renders Codex (`dev` dropped it in 318d5eff): the Codex lane
+    // runs the copy of the Codex mirror rendered for this test binary (an absolute source).
+    let rendered = codex_render::codex_root()?.join(".codex/hooks/guard-destructive.sh");
     let codex = install_with_lane(
         &scratch,
-        ".claude/hooks/guard-destructive.sh",
+        rendered.to_str().ok_or("codex render path is not UTF-8")?,
         "codexhost/.codex/hooks/guard-destructive.sh",
     )?;
     let proj = scratch.path("proj");
