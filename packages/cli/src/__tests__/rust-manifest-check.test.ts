@@ -67,6 +67,19 @@ it("quitar una entrada sin unport falla, incluso con un registro antiguo", (): v
   expect(checks.checkHistory(after, before, unport, `${unport}\n${event("port")}`)).toEqual([]);
 });
 
+// Covers: R10
+it("un unport con delegación permanente no avisa a los 14 días; uno temporal sí", (): void => {
+  const ids = ["master ux", "role-guard", "render"];
+  const before: Manifest = {
+    commands: manifest(["master ux", "render"]).commands,
+    hooks: { "role-guard": { blocks: {}, impl: "sha256:0" } },
+  };
+  const unports = ids.map((id: string): string => event("unport", id)).join("\n");
+  expect(checks.checkHistory(before, manifest([]), "", unports, Date.parse("2026-01-16"))).toEqual([
+    "render has been unported for more than 14 days",
+  ]);
+});
+
 const withMode = (mode: string | undefined): Manifest => ({
   commands: [],
   hooks: mode === undefined ? {} : { example: { mode, blocks: {}, impl: "sha256:0" } },

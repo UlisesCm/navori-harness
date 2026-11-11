@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandHookIncludes } from "../../packages/cli/src/lib/render/hook-includes.ts";
+import { permanentShellHook, permanentlyDelegated } from "./rust-areas.mjs";
 
 const MANIFEST = "crates/ported.json";
 const HISTORY = "crates/ported-history.jsonl";
@@ -141,10 +142,14 @@ export function checkHistory(before, after, previousText, currentText, now = Dat
     if ((event.op === "unport") === active.has(id))
       throw new Error(`history disagrees with manifest for ${id}`);
   }
+  // A permanent unport (#1642) is not pending debt: same lists as `cutover-check`.
   return [...latest.values()]
     .filter(
       (event) =>
-        event.op === "unport" && now - Date.parse(`${event.date}T00:00:00Z`) > 14 * 86_400_000,
+        event.op === "unport" &&
+        !permanentShellHook(event.id) &&
+        !permanentlyDelegated(event.id.split(" ")) &&
+        now - Date.parse(`${event.date}T00:00:00Z`) > 14 * 86_400_000,
     )
     .map((event) => `${event.id} has been unported for more than 14 days`);
 }
