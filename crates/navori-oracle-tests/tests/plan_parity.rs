@@ -5,7 +5,7 @@ mod support;
 
 use navori_core::config;
 use navori_core::render::plan::{
-    Audience, CORE_MANAGED_ASSETS, condition_orchestration, resolve_asset_path,
+    Audience, CORE_MANAGED_ASSETS, Layer, condition_orchestration, resolve_asset_path,
 };
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -23,7 +23,7 @@ fn prelude() -> String {
 static NODE: Shared = Shared::new(
     prelude,
     "switch (request.op) {\n\
-       case 'assets': return p.CORE_MANAGED_ASSETS.map((a) => [a.id, a.relPath, a.condition ?? null, a.baseLanguage ?? 'es', a.rootOnly === true, a.audience ?? null]);\n\
+       case 'assets': return p.CORE_MANAGED_ASSETS.map((a) => [a.id, a.relPath, a.condition ?? null, a.baseLanguage ?? 'es', a.rootOnly === true, a.audience ?? null, a.layer ?? null]);\n\
        case 'path': {\n\
          const asset = p.CORE_MANAGED_ASSETS.find((a) => a.id === request.id);\n\
          const r = p.resolveAssetPath(asset, request.lang);\n\
@@ -50,6 +50,11 @@ fn core_asset_table_and_language_paths_match() -> Result<(), String> {
                 a.base_language,
                 a.root_only,
                 (a.audience == Audience::Orchestrator).then_some("orchestrator"),
+                a.layer.map(|layer| match layer {
+                    Layer::Shared => "shared",
+                    Layer::Claude => "claude",
+                    Layer::Orchestrator => "orchestrator",
+                }),
             ])
         })
         .collect();
@@ -86,6 +91,9 @@ fn piece() -> BoxedStrategy<String> {
         "unknownKey",
         "constructor",
         "masterPlan",
+        "onLayered",
+        "authoring",
+        "sessionState",
     ]);
     prop_oneof![
         2 => keys.clone().prop_map(|k| format!("<!-- navori:if {k} -->")),
@@ -103,7 +111,15 @@ fn content() -> BoxedStrategy<String> {
     let balanced = prop::collection::vec(
         (
             prop::sample::select(vec!["if", "if-not"]),
-            prop::sample::select(vec!["planTiers", "auditor", "onCodex", "sdd", "x"]),
+            prop::sample::select(vec![
+                "planTiers",
+                "auditor",
+                "onCodex",
+                "sdd",
+                "x",
+                "onLayered",
+                "authoring",
+            ]),
             prop::sample::select(vec!["\nA\n", "B", "\n", ""]),
         ),
         0..4,
@@ -131,16 +147,26 @@ fn config_value() -> BoxedStrategy<Value> {
         prop::option::of(any::<bool>()),
         prop::option::of(any::<bool>()),
         prop::option::of(any::<bool>()),
+        prop::option::of(any::<bool>()),
+        prop::sample::select(vec![
+            vec!["claude"],
+            vec!["agents-md"],
+            vec!["agents-md", "pi"],
+            vec!["pi", "claude"],
+        ]),
     )
-        .prop_map(|(plan, auditor, sdd)| {
-            let mut config = json!({ "name": "r", "engines": ["claude"], "preset": "node" });
-            if plan.is_some() || auditor.is_some() {
+        .prop_map(|(plan, auditor, sdd, authoring, engines)| {
+            let mut config = json!({ "name": "r", "engines": engines, "preset": "node" });
+            if plan.is_some() || auditor.is_some() || authoring.is_some() {
                 let mut harness = json!({});
                 if let Some(plan) = plan {
                     harness["planTiers"] = json!(plan);
                 }
                 if let Some(auditor) = auditor {
                     harness["auditor"] = json!(auditor);
+                }
+                if let Some(authoring) = authoring {
+                    harness["authoring"] = json!(authoring);
                 }
                 config["harness"] = harness;
             }
@@ -160,7 +186,7 @@ proptest! {
     fn condition_orchestration_matches(
         content in content(),
         raw in config_value(),
-        engine in prop::sample::select(vec!["claude", "codex", "pi", "cursor"]),
+        engine in prop::sample::select(vec!["claude", "codex", "pi", "cursor", "agents-md"]),
     ) {
         let parsed = config::read(raw.to_string().as_bytes())
             .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;

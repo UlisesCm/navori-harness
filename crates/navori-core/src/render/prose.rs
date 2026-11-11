@@ -24,7 +24,7 @@ use crate::render::harness_plan::{
 };
 use crate::render::interpolate::sanitize_project_value;
 use crate::render::library_skills::library_skill_label;
-use crate::render::plan::CORE_SOURCE_ID;
+use crate::render::plan::{CORE_SOURCE_ID, Layer};
 use crate::render::presets::{AssetRoot, LoadedPreset, load_preset};
 use crate::{i18n, posix};
 
@@ -94,6 +94,9 @@ pub struct ProseOptions<'a> {
     pub include_plugin_blocks: bool,
     /// Omit the "Available skills" index (Codex lists `.agents/skills` natively).
     pub omit_skills_index: bool,
+    /// Layered shape (spec 0064): keep exactly the blocks of these layers instead of the
+    /// `include_plugin_blocks` source filter. Only the `agents-md` engine passes it.
+    pub layers: Option<&'a [Layer]>,
     /// `setMarkerFloorVersion`.
     pub ambient_floor: Option<&'a str>,
 }
@@ -418,11 +421,19 @@ pub fn build_harness_prose(
         plan.entries
             .iter()
             .filter(|entry| {
+                // A block that explicitly declares the Claude layer is dropped for every prose
+                // target.
                 entry.status != AssetStatus::RemovedConditionFalse
+                    && !entry.declares_claude_layer()
                     && (options.include_orchestration || entry.asset.id() != "orquestacion")
-                    && (options.include_plugin_blocks
-                        || entry.source == "core"
-                        || preset.as_deref() == Some(entry.source.as_str()))
+                    && match options.layers {
+                        Some(layers) => layers.contains(&entry.layer_of(preset.as_deref())),
+                        None => {
+                            options.include_plugin_blocks
+                                || entry.source == "core"
+                                || preset.as_deref() == Some(entry.source.as_str())
+                        }
+                    }
             })
             .filter_map(|entry| entry.new_content.as_deref())
             .map(|body| posix::js_trim(body).to_owned()),
@@ -560,4 +571,44 @@ pub fn plan_prose_file(
         }
     }
     Ok(plan)
+}
+
+/// `renderAgentsMdEngine` (spec 0064): the layered, neutral `AGENTS.md`. It keeps the shared layer
+/// plus the project's own rules (`contexto-proyecto`); the orchestrator layer stays only without
+/// Pi, which hands that doctrine to its parent through `.pi/navori/orchestrator.md`. Whatever is
+/// Claude-specific is never written here.
+///
+/// # Errors
+/// [`ProseDelegate`] wherever the TS throws or Rust does not model the plan.
+pub fn plan_agents_md_engine(
+    view: &dyn RepoView,
+    input_config: &JsValue,
+    repo_root: &Path,
+    options: ProseOptions<'_>,
+) -> Result<ProsePlan, ProseDelegate> {
+    let with_pi = matches!(get(input_config, "engines"), Some(JsValue::Array(engines))
+        if engines.iter().any(|e| matches!(e, JsValue::String(s) if s.is("pi"))));
+    let layers: &[Layer] = if with_pi {
+        &[Layer::Shared]
+    } else {
+        &[Layer::Shared, Layer::Orchestrator]
+    };
+    let lang = Lang::resolve(text(get(input_config, "language")).as_deref());
+    let project_context = crate::render::claude_md::contexto_proyecto_body(input_config, lang)
+        .map_err(|_| ProseDelegate)?;
+    let extend = |body: String| match &project_context {
+        Some(context) => format!("{body}\n{context}"),
+        None => body,
+    };
+    plan_prose_file(
+        view,
+        input_config,
+        repo_root,
+        AGENTS_MD,
+        ProseOptions {
+            layers: Some(layers),
+            ..options
+        },
+        Some(&extend),
+    )
 }

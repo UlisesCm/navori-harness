@@ -20,6 +20,18 @@ pub enum Audience {
     Orchestrator,
 }
 
+/// `Layer` (`lib/render/layers.ts`, spec 0064): which file carries a rendered block once
+/// `AGENTS.md` is the shared source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layer {
+    /// Neutral text every reader can act on.
+    Shared,
+    /// True only on Claude Code (its tools, paths and permission model).
+    Claude,
+    /// Doctrine for the main agent, which a child never receives.
+    Orchestrator,
+}
+
 /// `CoreManagedAsset`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoreManagedAsset {
@@ -35,6 +47,8 @@ pub struct CoreManagedAsset {
     pub root_only: bool,
     /// Destination audience.
     pub audience: Audience,
+    /// Explicit layer (`"claude"` keeps the block out of every prose engine).
+    pub layer: Option<Layer>,
 }
 
 /// `CORE_MANAGED_ASSETS`, in emission order.
@@ -70,6 +84,8 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
         ("sdd", "en", true, Some("sdd.enabled"), Everyone),
         ("intake-tickets", "en", true, None, Everyone),
         ("code-discovery-routing", "en", true, None, Everyone),
+        // Spec 0064: what is true only on Claude Code; only `CLAUDE.md` carries it.
+        ("claude-apendice", "en", true, None, Everyone),
     ]
     .into_iter()
     .map(
@@ -81,6 +97,7 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
             base_language,
             root_only,
             audience,
+            layer: (id == "claude-apendice").then_some(Layer::Claude),
         },
     )
     .collect()
@@ -234,11 +251,12 @@ fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     }
 }
 
-/// `HARNESS_DEFAULTS[key] ?? true`: only the four opt-in flags default to off.
+/// `HARNESS_DEFAULTS[key] ?? true` (`HarnessSchema.parse({})`): only the opt-in flags default to
+/// off; `authoring` joined them in #1484.
 fn harness_default(key: &str) -> bool {
     !matches!(
         key,
-        "scribeOwnsMarkdown" | "planTiers" | "codexIntegration" | "masterPlan"
+        "scribeOwnsMarkdown" | "planTiers" | "codexIntegration" | "masterPlan" | "authoring"
     )
 }
 
@@ -256,6 +274,13 @@ pub fn condition_orchestration(
             "onCodex" => engine == "codex",
             "onClaude" => engine == "claude",
             "onPi" => engine == "pi",
+            // The layered shape (spec 0064): Claude, or `agents-md` next to Pi.
+            "onLayered" => {
+                engine == "claude"
+                    || (engine == "agents-md"
+                        && matches!(get(config, "engines"), Some(JsValue::Array(engines))
+                            if engines.iter().any(|e| matches!(e, JsValue::String(s) if s.is("pi")))))
+            }
             "sdd" => {
                 get(config, "sdd").and_then(|sdd| get(sdd, "enabled"))
                     != Some(&JsValue::Bool(false))

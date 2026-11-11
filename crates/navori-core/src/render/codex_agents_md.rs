@@ -92,6 +92,7 @@ pub fn agents_md_body(
             include_plugin_blocks: true,
             omit_skills_index: true,
             ambient_floor,
+            ..ProseOptions::default()
         },
     )
     .map_err(|_| CodexDelegate)?;

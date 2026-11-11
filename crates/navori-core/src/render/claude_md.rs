@@ -151,8 +151,9 @@ fn agents_index_body(config: &JsValue, lang: Lang) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// `buildContextoProyectoBody`.
-fn contexto_proyecto_body(
+/// `buildContextoProyectoBody` (`engines/shared/project-context.ts`): `CLAUDE.md` and the layered
+/// `AGENTS.md` carry the same project rules.
+pub(crate) fn contexto_proyecto_body(
     config: &JsValue,
     lang: Lang,
 ) -> Result<Option<String>, ClaudeMdDelegate> {

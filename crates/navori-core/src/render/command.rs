@@ -44,7 +44,9 @@ use crate::render::native_hooks::embedded_native_hooks;
 use crate::render::nested_gitignore::{NESTED_GITIGNORE_DIRS, plan_nested_gitignore};
 use crate::render::pi_engine::{PiEngineInput, PiEnginePlan, pi_observed, pi_seal, plan_pi_engine};
 use crate::render::plugins::load_enabled_plugins;
-use crate::render::prose::{ProseOptions, ProsePlan, plan_prose_file, prose_spec};
+use crate::render::prose::{
+    AGENTS_MD, ProseOptions, ProsePlan, plan_agents_md_engine, plan_prose_file, prose_spec,
+};
 use crate::render::report::{
     Clack, claude_md_section, downgrade_section, engine_files_section, lang_fallback_section,
     status_symbol, unchanged_engine_files, written,
@@ -820,6 +822,9 @@ pub fn plan_target(
             entry.codex = Some(codex);
         } else if engine == "agents-md" && has_codex {
             entry.plan.warnings = vec![i18n::agents_md_redundant_with_codex(lang).to_owned()];
+        } else if engine == AGENTS_MD.engine {
+            entry.plan = plan_agents_md_engine(view, &config.data, repo_root, prose_options)
+                .map_err(|_| RenderError::Delegate)?;
         } else if let Some(spec) = prose_spec(engine) {
             entry.plan = plan_prose_file(view, &config.data, repo_root, spec, prose_options, None)
                 .map_err(|_| RenderError::Delegate)?;
