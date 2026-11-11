@@ -13,6 +13,7 @@ use navori_core::config;
 use navori_core::js_json::JsValue;
 use navori_core::spec::check::{self, SpecCheck};
 use navori_core::spec::classify::{self, Classification, DEFAULT_THRESHOLDS, Thresholds};
+use navori_core::spec::onepage::check_one_page;
 use navori_core::spec::tasks::{self, ParsedTasks};
 use navori_core::spec::{is_spec_name, requirement_ids};
 
@@ -246,7 +247,13 @@ fn thresholds(config: Option<&config::Config>) -> Option<Thresholds> {
     })
 }
 
-/// A resolved spec (`SpecContext`).
+/// Config and spec directory, resolved before choosing the spec format (`SpecLocation`).
+struct SpecLocation {
+    dir: String,
+    thresholds: Thresholds,
+}
+
+/// A resolved legacy `tasks.md` spec (`SpecContext`).
 struct SpecContext {
     tasks_path: String,
     dir: String,
@@ -289,26 +296,15 @@ fn fail(out: &mut Output, feature: &str, failure: &Failure, json: bool) {
     out.code = 1;
 }
 
-/// `loadSpec`: `Ok` with the context, `Err(())` once the failure is in `out`, `None` to delegate.
-fn load_spec(
+/// `locateSpec`: `Ok` with the location, `Err(())` once the failure is in `out`, `None` to
+/// delegate.
+fn locate_spec(
     out: &mut Output,
     feature: &str,
     cwd: &str,
     json: bool,
-) -> Option<Result<SpecContext, ()>> {
+) -> Option<Result<SpecLocation, ()>> {
     let config = read_config(cwd)?;
-    // Removed with spec.md support (#1483): configs without prTarget/branchBase go to the TS.
-    if let Some(config) = &config
-        && !matches!(
-            (
-                member(Some(&config.data), "prTarget"),
-                member(Some(&config.data), "branchBase"),
-            ),
-            (Some(JsValue::String(_)), _) | (None, Some(JsValue::String(_)))
-        )
-    {
-        return None;
-    }
     if let Some(config) = &config {
         for warning in &config.warnings {
             out.stderr.push_str(warning);
@@ -341,17 +337,38 @@ fn load_spec(
         fail(out, feature, &failure, json);
         return Some(Err(()));
     }
+    Some(Ok(SpecLocation { dir, thresholds }))
+}
+
+/// `existsSync(join(dir, "spec.md"))`: `Some(is_file)` when it exists. Like `existsSync`, any
+/// error reads as absent.
+fn spec_md(dir: &str) -> Option<bool> {
+    std::fs::metadata(js_resolve(&[dir, "spec.md"]))
+        .ok()
+        .map(|meta| meta.is_file())
+}
+
+/// `loadSpec`: `Ok` with the context, `Err(())` once the failure is in `out`, `None` to delegate.
+fn load_spec(
+    out: &mut Output,
+    base: SpecLocation,
+    feature: &str,
+    cwd: &str,
+    json: bool,
+) -> Option<Result<SpecContext, ()>> {
+    let SpecLocation { dir, thresholds } = base;
     let tasks_file = js_resolve(&[&dir, "tasks.md"]);
     let tasks_path = js_relative(cwd, &tasks_file);
     let text = match std::fs::read(&tasks_file) {
         Ok(bytes) => String::from_utf8(bytes).ok()?,
         Err(error) => {
             let message = node_read_error(&error, &tasks_file)?;
+            let spec_path = js_relative(cwd, &js_resolve(&[&dir, "spec.md"]));
             let failure = Failure {
                 what: format!("cannot read {tasks_path}"),
                 why: format!("expected {tasks_path} ({message})"),
                 fix: format!(
-                    "create {tasks_path} (see the spec-bootstrap skill) or check the spec name"
+                    "create {spec_path} (see the spec-bootstrap skill) or check the spec name"
                 ),
             };
             fail(out, feature, &failure, json);
@@ -485,10 +502,115 @@ fn js_number(n: f64) -> String {
     navori_core::js_json::number_to_js(n)
 }
 
+/// `runOnePageCheck`: findings of a one-page `spec.md`; `None` for a file the TS would not read
+/// as text (not a regular file, or not UTF-8).
+fn one_page_check(out: &mut Output, feature: &str, cwd: &str, dir: &str, json: bool) -> Option<()> {
+    let file = js_resolve(&[dir, "spec.md"]);
+    let path = js_relative(cwd, &file);
+    let text = String::from_utf8(std::fs::read(&file).ok()?).ok()?;
+    let result = check_one_page(&text)?;
+    let where_ = |line: Option<usize>| line.map_or_else(|| path.clone(), |n| format!("{path}:{n}"));
+    let (errors, warnings): (Vec<_>, Vec<_>) = result
+        .findings
+        .iter()
+        .partition(|f| f.severity == check::Severity::Error);
+    for f in &warnings {
+        out.stderr.push_str(&format!(
+            "WARN:  [{}] {} — {}\n",
+            f.rule,
+            where_(f.line),
+            f.message
+        ));
+    }
+    if json {
+        json_line(
+            out,
+            &object(vec![
+                ("formatVersion", JsValue::Number(FORMAT_VERSION)),
+                ("feature", string(feature)),
+                ("format", string("onepage")),
+                ("ok", JsValue::Bool(result.ok)),
+                ("words", number(result.words)),
+                ("findings", findings_value(&result.findings)),
+            ]),
+        );
+    } else {
+        out.stdout.push_str(&format!(
+            "{feature}: {} — {} error(s), {} warning(s), {} words\n",
+            if result.ok { "ok" } else { "findings" },
+            errors.len(),
+            warnings.len(),
+            result.words
+        ));
+    }
+    if !errors.is_empty() {
+        let why = errors
+            .iter()
+            .map(|f| format!("[{}] {} — {}", f.rule, where_(f.line), f.message))
+            .collect::<Vec<_>>()
+            .join("\n       ");
+        print_failure(
+            out,
+            &Failure {
+                what: format!("{path} has {} error finding(s)", errors.len()),
+                why,
+                fix: "correct each finding in spec.md, then run `navori spec check` again"
+                    .to_owned(),
+            },
+        );
+        out.code = 2;
+    }
+    Some(())
+}
+
+/// The `findings` array of the `--json` output.
+fn findings_value(findings: &[check::Finding]) -> JsValue {
+    JsValue::Array(
+        findings
+            .iter()
+            .map(|f| {
+                let mut entries = vec![
+                    ("rule", string(f.rule)),
+                    ("severity", string(f.severity.as_str())),
+                    ("where", string(&f.where_)),
+                    ("message", string(&f.message)),
+                ];
+                if let Some(line) = f.line {
+                    entries.push(("line", number(line)));
+                }
+                object(entries)
+            })
+            .collect(),
+    )
+}
+
 /// `spec classify`.
 fn classify_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
     let mut out = Output::default();
-    let spec = match load_spec(&mut out, feature, cwd, json)? {
+    let base = match locate_spec(&mut out, feature, cwd, json)? {
+        Ok(base) => base,
+        Err(()) => return Some(out),
+    };
+    if spec_md(&base.dir).is_some() {
+        if json {
+            json_line(
+                &mut out,
+                &object(vec![
+                    ("formatVersion", JsValue::Number(FORMAT_VERSION)),
+                    ("feature", string(feature)),
+                    ("format", string("onepage")),
+                    ("shape", string("single")),
+                    ("prCount", number(1)),
+                ]),
+            );
+        } else {
+            out.stdout.push_str(&format!(
+                "{feature}: single (1 PR) — one-page spec, one slice\n"
+            ));
+        }
+        return Some(out);
+    }
+    let spec = match load_spec(&mut out, base, feature, cwd, json)? {
         Ok(spec) => spec,
         Err(()) => return Some(out),
     };
@@ -539,7 +661,20 @@ fn classify_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
 /// `spec check`.
 fn check_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
     let mut out = Output::default();
-    let spec = match load_spec(&mut out, feature, cwd, json)? {
+    let base = match locate_spec(&mut out, feature, cwd, json)? {
+        Ok(base) => base,
+        Err(()) => return Some(out),
+    };
+    match spec_md(&base.dir) {
+        Some(true) => {
+            one_page_check(&mut out, feature, cwd, &base.dir, json)?;
+            return Some(out);
+        }
+        // `readFileSync` of a directory or a special file throws or blocks: the TS's to answer.
+        Some(false) => return None,
+        None => {}
+    }
+    let spec = match load_spec(&mut out, base, feature, cwd, json)? {
         Ok(spec) => spec,
         Err(()) => return Some(out),
     };
@@ -571,22 +706,6 @@ fn check_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
         }
     }
     if json {
-        let findings = result
-            .findings
-            .iter()
-            .map(|f| {
-                let mut entries = vec![
-                    ("rule", string(f.rule)),
-                    ("severity", string(f.severity.as_str())),
-                    ("where", string(&f.where_)),
-                    ("message", string(&f.message)),
-                ];
-                if let Some(line) = f.line {
-                    entries.push(("line", number(line)));
-                }
-                object(entries)
-            })
-            .collect();
         let mut classification = classification_entries(&result.classification);
         classification.push(("error", error_value(&result.classification)));
         json_line(
@@ -603,7 +722,7 @@ fn check_command(feature: &str, cwd: &str, json: bool) -> Option<Output> {
                         ("functionalDelivery", string("unverified")),
                     ]),
                 ),
-                ("findings", JsValue::Array(findings)),
+                ("findings", findings_value(&result.findings)),
                 ("classification", object(classification)),
             ]),
         );

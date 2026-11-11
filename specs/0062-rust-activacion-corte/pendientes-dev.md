@@ -147,3 +147,8 @@ queda en `PERMANENT_DELEGATION` como subárbol (`subtree: true`) y sus hooks sig
 conserva una condición del R22 retirado: un repo cuyo config no declara `prTarget` ni `branchBase` sigue
 delegando al TS (`crates/navori-cli/src/spec.rs`, en `load_spec`), para que la salida no cambie mientras el Rust no
 entienda `spec.md`. Se quita en el PR de `spec.md` (#1483).
+
+**Tras el PR de `spec.md` (#1483):** `spec check` y `spec classify` nativos leen el `spec.md` de una página
+(`navori-core/src/spec/onepage.rs`) y el FIX de un `tasks.md` ausente propone `spec.md`, como el TS; la condición
+de `prTarget`/`branchBase` sale de `spec.rs`. Salen del oráculo `repo-specs:*` (14) y `spec:*` (4). Un `spec.md`
+que no es un archivo regular sigue delegando `spec check` al TS.

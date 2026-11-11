@@ -1,9 +1,10 @@
 //! `lib/spec` in Rust (spec 0060 T5): the `tasks.md` parser, classification and structural
-//! check that `navori spec` runs. Pure functions; the command lives in `navori-cli`.
+//! check, and the one-page `spec.md` check (#1483), that `navori spec` runs. Pure functions; the command lives in `navori-cli`.
 
 pub mod check;
 pub mod classify;
 pub mod locate;
+pub mod onepage;
 pub mod tasks;
 pub mod text;
 
