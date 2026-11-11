@@ -16,6 +16,7 @@ pub mod copy_dest;
 mod discard;
 pub mod entry;
 mod pi;
+pub mod pii_bash;
 pub(crate) mod rendered;
 mod rules;
 pub mod search;
