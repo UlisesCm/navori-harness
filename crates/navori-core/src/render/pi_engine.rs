@@ -17,6 +17,7 @@ use crate::js_json::JsValue;
 use crate::manifest::Hook;
 use crate::markers::{CommentStyle, InjectStatus};
 use crate::render::claude_settings::collect_shell_permission_rules;
+use crate::render::codex_agents_md::{agents_index_block, compact_agent_description};
 use crate::render::collect::{
     PendingWrite, RepoView, SkippedFile, collect_managed, read_if_exists,
 };
@@ -28,10 +29,12 @@ use crate::render::managed_file::{RenderManagedFileInput, parse_asset};
 use crate::render::native_hook::NativeEngine;
 use crate::render::native_hooks::{NativeHooksInput, finalize_native_hooks};
 use crate::render::owned_paths::OwnedPaths;
+use crate::render::pi_compat::adapt_harness_text_for_pi;
 use crate::render::pi_extension::render_pi_extension;
 use crate::render::pi_owned::{
     PI_MANIFEST_SCHEMA, PiControls, PiManifest, PiManifestHook, owns_pi_agent, owns_pi_manifest,
-    owns_pi_source, pi_manifest_schema_version, serialize_pi_agent, serialize_pi_manifest,
+    owns_pi_orchestrator, owns_pi_source, pi_manifest_schema_version, serialize_pi_agent,
+    serialize_pi_manifest, serialize_pi_orchestrator,
 };
 use crate::render::pi_projection::{
     PI_MAP_MIGRATION_WARNING, PiDelegate, active_pi_hook_bindings, apply_pi_skill_sub_blocks,
@@ -43,13 +46,15 @@ use crate::render::pi_projection::{
 use crate::render::pi_roles::{
     is_pi_child_role, is_pi_rendered_role, pi_knowledge_grants, pi_role_tools,
 };
-use crate::render::plan::{CORE_SOURCE_ID, condition_orchestration};
+use crate::render::plan::{Audience, CORE_MANAGED_ASSETS, CORE_SOURCE_ID, condition_orchestration};
 use crate::render::plugin_scripts::{
     ScriptEngine, plugin_script_collisions, plugin_script_placements,
 };
 use crate::render::plugins::{LoadedPlugin, load_disabled_plugins, load_enabled_plugins};
 use crate::render::presets::load_preset;
-use crate::render::prose::{AGENTS_MD, ProseOptions, ProsePlan, plan_prose_file};
+use crate::render::prose::{
+    AGENTS_MD, ProseOptions, ProsePlan, ProseSpec, build_asset_blocks, plan_prose_file,
+};
 use crate::render::removable::{Authorship, navori_authorship};
 use crate::render::retirements::PendingRemoval;
 use crate::render::sub_blocks::{
@@ -58,6 +63,7 @@ use crate::render::sub_blocks::{
 
 const EXTENSION: &str = ".pi/extensions/navori.ts";
 const MANIFEST: &str = ".pi/navori.json";
+const ORCHESTRATOR: &str = ".pi/navori/orchestrator.md";
 
 /// What the Pi engine plans.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -129,6 +135,8 @@ struct Request {
     extra_vars: Option<BTreeMap<String, String>>,
     chmod_exec: bool,
     guard: bool,
+    /// `adaptHarnessTextForPi` over the asset (the skills Pi writes).
+    adapt: bool,
 }
 
 /// The shared prepare of `pi_observed` and `plan_pi_engine`.
@@ -151,6 +159,7 @@ struct Prepared<'a> {
     resource_skipped: Vec<SkippedFile>,
     pi_pending: Vec<PendingWrite>,
     agent_removals: Vec<PendingRemoval>,
+    orchestrator_removals: Vec<PendingRemoval>,
     needs_context: bool,
 }
 
@@ -200,6 +209,43 @@ fn skipped(rel: &str, reason: &str, status: InjectStatus) -> SkippedFile {
         markerless_resolution: None,
         chmod_exec: false,
     }
+}
+
+/// `ORCHESTRATOR_LAYER_IDS`: the core assets that declare the orchestrator audience.
+fn orchestrator_layer_ids() -> Vec<&'static str> {
+    CORE_MANAGED_ASSETS
+        .iter()
+        .filter(|asset| asset.audience == Audience::Orchestrator)
+        .map(|asset| asset.id)
+        .collect()
+}
+
+/// `buildOrchestratorDoctrine`: the orchestrator layer as Pi's parent-only doctrine (its managed
+/// assets, the agent catalog and the plugin orchestrator sub-blocks), in Pi's vocabulary.
+fn build_orchestrator_doctrine(
+    config: &JsValue,
+    repo_root: &Path,
+    plugins: &[LoadedPlugin],
+    descriptions: &[(String, String)],
+    floor: Option<&str>,
+    lang: Lang,
+) -> Result<String, PiDelegate> {
+    let mut blocks = build_asset_blocks(
+        config,
+        repo_root,
+        "pi",
+        &orchestrator_layer_ids(),
+        Some(adapt_harness_text_for_pi),
+    )
+    .map_err(|_| PiDelegate)?;
+    let compact: Vec<(String, String)> = descriptions
+        .iter()
+        .map(|(id, description)| (id.clone(), compact_agent_description(description)))
+        .collect();
+    if let Some(catalog) = agents_index_block(lang, &compact) {
+        blocks.push(catalog);
+    }
+    extend_with_orchestrator_blocks(&blocks.join("\n\n"), plugins, config, floor)
 }
 
 #[allow(clippy::too_many_lines, reason = "one TS function, step for step")]
@@ -261,6 +307,7 @@ fn prepare<'a>(
                 extra_vars: None,
                 chmod_exec: false,
                 guard: false,
+                adapt: true,
             });
         }
     }
@@ -284,6 +331,7 @@ fn prepare<'a>(
             }),
             chmod_exec: true,
             guard,
+            adapt: false,
         });
     }
     let collisions = plugin_script_collisions(&enabled);
@@ -303,6 +351,7 @@ fn prepare<'a>(
                 extra_vars: Some(BTreeMap::new()),
                 chmod_exec: script.script.exec,
                 guard: false,
+                adapt: false,
             });
         }
     }
@@ -401,6 +450,11 @@ fn prepare<'a>(
     let rule_strings =
         |items: &[JsValue]| -> Vec<String> { items.iter().filter_map(|i| text(Some(i))).collect() };
     let mut owned_paths = vec![MANIFEST.to_owned(), EXTENSION.to_owned()];
+    // The orchestrator layer lives in its own whole-file resource unless Codex carries it.
+    let writes_orchestrator = !codex;
+    if writes_orchestrator {
+        owned_paths.push(ORCHESTRATOR.to_owned());
+    }
     owned_paths.extend(roles.iter().map(|r| format!(".pi/agents/{r}.md")));
     owned_paths.extend(hooks.iter().map(|h| h.path.clone()));
     let manifest = serialize_pi_manifest(&PiManifest {
@@ -430,6 +484,7 @@ fn prepare<'a>(
         (MANIFEST.to_owned(), manifest),
         (EXTENSION.to_owned(), extension),
     ];
+    let mut descriptions: Vec<(String, String)> = Vec::new();
     for agent in plan.agents.iter().filter(|a| admitted(&a.id)) {
         let parsed = parse_asset(
             &asset_text(&agent.asset).map_err(|_| PiDelegate)?,
@@ -444,6 +499,7 @@ fn prepare<'a>(
             &config,
             &InterpolateOptions::default(),
         );
+        descriptions.push((agent.id.clone(), description.clone()));
         let instructions = interpolate(
             &condition_orchestration(&parsed.managed_body, &config, "pi")
                 .map_err(|_| PiDelegate)?,
@@ -475,11 +531,30 @@ fn prepare<'a>(
         );
         resources.push((format!(".pi/agents/{}.md", agent.id), content));
     }
+    if writes_orchestrator {
+        let doctrine = build_orchestrator_doctrine(
+            &config,
+            cwd,
+            &enabled,
+            &descriptions,
+            input.ambient_floor,
+            lang,
+        )?;
+        resources.insert(
+            2,
+            (
+                ORCHESTRATOR.to_owned(),
+                serialize_pi_orchestrator(&doctrine),
+            ),
+        );
+    }
     let owned = |rel: &str, content: &str| -> bool {
         if rel == MANIFEST {
             owns_pi_manifest(content)
         } else if rel == EXTENSION {
             owns_pi_source(content)
+        } else if rel == ORCHESTRATOR {
+            owns_pi_orchestrator(content)
         } else {
             rel.strip_prefix(".pi/agents/")
                 .and_then(|r| r.strip_suffix(".md"))
@@ -592,6 +667,26 @@ fn prepare<'a>(
             }
         }
     }
+    // Codex carries the layer in its AGENTS.md: retire Pi's own copy, only if it is ours.
+    let mut orchestrator_removals = Vec::new();
+    if !writes_orchestrator && view.lexists(ORCHESTRATOR) {
+        if view
+            .read_regular(ORCHESTRATOR)
+            .is_some_and(|content| owns_pi_orchestrator(&content))
+        {
+            orchestrator_removals.push(PendingRemoval {
+                rel_path: ORCHESTRATOR.to_owned(),
+                recursive: false,
+            });
+        } else {
+            collided = true;
+            resource_skipped.push(skipped(
+                ORCHESTRATOR,
+                "Pi orphan ownership mismatch; preserved user file.",
+                InjectStatus::UserModifiedSkipped,
+            ));
+        }
+    }
     if collided {
         warnings.push("Pi generation was not committed because at least one owned destination collides or was edited.".to_owned());
     }
@@ -624,6 +719,7 @@ fn prepare<'a>(
         resource_skipped,
         pi_pending,
         agent_removals,
+        orchestrator_removals,
         needs_context,
     })
 }
@@ -740,7 +836,7 @@ pub fn plan_pi_engine(
             version: STAMP_VERSION,
             config: &p.config,
             extra_vars: extra_vars.unwrap_or_default(),
-            transform: None,
+            transform: request.adapt.then_some(&adapt_harness_text_for_pi),
             engine: Some("pi"),
             force_overwrite: false,
             ambient_floor: p.floor,
@@ -896,24 +992,31 @@ pub fn plan_pi_engine(
         removals
             .into_iter()
             .chain(std::mem::take(&mut p.agent_removals))
+            .chain(std::mem::take(&mut p.orchestrator_removals))
             .collect()
     };
     let context = if p.needs_context {
-        extend_with_orchestrator_blocks("", &p.enabled, &p.config, p.floor)?;
-        let plugins = p.enabled.clone();
-        let config = p.config.clone();
-        let floor = p.floor;
-        let extend = move |body: String| {
-            extend_with_orchestrator_blocks(&body, &plugins, &config, floor).unwrap_or(body)
+        let project_context = crate::render::claude_md::contexto_proyecto_body(&p.config, p.lang)
+            .map_err(|_| PiDelegate)?;
+        let extend = |body: String| match &project_context {
+            Some(context) => format!("{body}\n{context}"),
+            None => body,
         };
+        let orchestrator_ids = orchestrator_layer_ids();
         Some(
             plan_prose_file(
                 view,
                 input.config,
                 p.cwd,
-                AGENTS_MD,
+                ProseSpec {
+                    engine: "pi",
+                    ..AGENTS_MD
+                },
                 ProseOptions {
                     include_plugin_blocks: true,
+                    omit_skills_index: true,
+                    omit_asset_ids: &orchestrator_ids,
+                    transform: Some(adapt_harness_text_for_pi),
                     ambient_floor: p.floor,
                     ..ProseOptions::default()
                 },

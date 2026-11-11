@@ -442,14 +442,17 @@ pub fn role_plugin_prose(
     Ok(prose)
 }
 
-/// `subBlockBody`: the plugin skill without frontmatter, interpolated.
+/// `subBlockBody`: the plugin skill without frontmatter, conditioned for Pi and interpolated.
 fn sub_block_body(
     plugin: &LoadedPlugin,
     path: &str,
     config: &JsValue,
 ) -> Result<String, PiDelegate> {
+    let conditioned =
+        condition_orchestration(strip_frontmatter(plugin_text(plugin, path)?), config, "pi")
+            .map_err(|_| PiDelegate)?;
     Ok(interpolate(
-        strip_frontmatter(plugin_text(plugin, path)?),
+        &conditioned,
         config,
         &InterpolateOptions::default(),
     ))

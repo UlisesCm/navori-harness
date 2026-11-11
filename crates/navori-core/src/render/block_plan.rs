@@ -254,6 +254,9 @@ pub struct PlanOptions {
     /// Test-only: plan the Claude engine natively instead of delegating (see
     /// `render::claude::NATIVE_CLAUDE_ENV`). `false` (the default) keeps the guard.
     pub native_claude: bool,
+    /// `options.transform`: rewrites navori's asset text before `{{...}}` interpolation, so the
+    /// `project.*` values reach the output verbatim (Pi's vocabulary adapter).
+    pub transform: Option<fn(&str) -> String>,
 }
 
 fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
@@ -317,8 +320,16 @@ struct Planner<'a> {
 }
 
 impl Planner<'_> {
+    /// `interpolate(transform(raw), config)`.
     fn interpolate(&self, raw: &str) -> String {
-        interpolate(raw, &self.config, &InterpolateOptions::default())
+        match self.options.transform {
+            Some(transform) => interpolate(
+                &transform(raw),
+                &self.config,
+                &InterpolateOptions::default(),
+            ),
+            None => interpolate(raw, &self.config, &InterpolateOptions::default()),
+        }
     }
 
     fn remove(&mut self, id: &str) -> bool {

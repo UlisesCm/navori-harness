@@ -357,6 +357,7 @@ proptest! {
             extra_classified: Vec::new(),
             extra_excluded: Vec::new(),
             native_claude: false,
+            transform: None,
         };
         let rust = compute_render_plan(&existing, &parsed, &ROOT, &options).and_then(|plan| {
             let order = canonical_managed_order(&parsed, &ROOT, omit_root_only, &["agentes-disponibles"])?;

@@ -80,7 +80,7 @@ fn config() -> BoxedStrategy<String> {
             r#"{"implementer":"sonnet","reviewer":"opus","piMap":{"sonnet":"anthropic/claude-sonnet"}}"#,
             r#"{"implementer":"opus","codexMap":{"opus":"gpt-6-sol"}}"#,
         ])),
-        pick(&[r#"["pi"]"#, r#"["pi","agents-md"]"#]),
+        pick(&[r#"["pi"]"#, r#"["pi","agents-md"]"#, r#"["pi","codex"]"#]),
         prop::option::of(pick(&[r#","audit":{"mode":"always"}"#, r#","hooks":{"verifyOnStop":true}"#])),
     )
         .prop_map(|(preset, states, harness, gate, models, engines, extra)| {
@@ -114,6 +114,10 @@ enum Edit {
     ForeignExtension,
     OrphanAgent,
     HookBlock,
+    /// The orchestrator file edited by hand (a retirement beside Codex keeps it).
+    Orchestrator,
+    /// The orchestrator path replaced by a symlink.
+    OrchestratorLink,
 }
 
 fn apply_edit(root: &Path, edit: Edit) -> Result<(), TestCaseError> {
@@ -136,6 +140,16 @@ fn apply_edit(root: &Path, edit: Edit) -> Result<(), TestCaseError> {
             &root.join(".pi/agents/publisher.md"),
             "---\nname: publisher\n---\nmine\n",
         ),
+        Edit::Orchestrator => append(".pi/navori/orchestrator.md", "mine\n"),
+        Edit::OrchestratorLink => {
+            let path = root.join(".pi/navori/orchestrator.md");
+            if path.exists() {
+                std::fs::remove_file(&path).map_err(fail)?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink("../../navori.config.json", &path).map_err(fail)?;
+            }
+            Ok(())
+        }
         Edit::HookBlock => {
             let path = root.join(".pi/navori/hooks/comment-draft-confirm.sh");
             match std::fs::read_to_string(&path) {
@@ -208,7 +222,7 @@ proptest! {
     #[test]
     fn pi_engine_matches_prepare_pi_engine(
         text in config(), first in config(), rendered in any::<bool>(),
-        edit in prop::sample::select(vec![Edit::None, Edit::Agent, Edit::Manifest, Edit::ForeignExtension, Edit::OrphanAgent, Edit::HookBlock]),
+        edit in prop::sample::select(vec![Edit::None, Edit::Agent, Edit::Manifest, Edit::ForeignExtension, Edit::OrphanAgent, Edit::HookBlock, Edit::Orchestrator, Edit::OrchestratorLink]),
     ) {
         let root = ROOT.join(CASE.fetch_add(1, Ordering::Relaxed).to_string());
         let _ = std::fs::remove_dir_all(&root);
