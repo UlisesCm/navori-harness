@@ -150,7 +150,13 @@ fn config() -> BoxedStrategy<String> {
         ),
         field(
             "hooks",
-            pick(&[r#"{"verifyOnStop":true}"#, r#"{"verifyOnStop":false}"#]),
+            pick(&[
+                r#"{"verifyOnStop":true}"#,
+                r#"{"verifyOnStop":false}"#,
+                r#"{"modelAdvisor":true}"#,
+                r#"{"modelAdvisor":false,"auditMode":true}"#,
+                r#"{"auditMode":false,"verifyOnStop":true}"#,
+            ]),
         ),
         field(
             "packageManager",

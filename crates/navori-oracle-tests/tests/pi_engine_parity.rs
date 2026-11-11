@@ -74,6 +74,8 @@ fn config() -> BoxedStrategy<String> {
             r#"{"planTiers":true,"masterPlan":true}"#,
             r#"{"scribeOwnsMarkdown":true}"#,
             r#"{"scribeOwnsMarkdown":true,"scribe":false,"publisher":false}"#,
+            r#"{"authoring":true,"scribeOwnsMarkdown":true}"#,
+            r#"{"planTiers":true,"codexIntegration":true}"#,
         ])),
         prop::option::of(pick(&[r#"{"full":"bun check","fast":"bun run check:fast"}"#])),
         prop::option::of(pick(&[
@@ -81,7 +83,7 @@ fn config() -> BoxedStrategy<String> {
             r#"{"implementer":"opus","codexMap":{"opus":"gpt-6-sol"}}"#,
         ])),
         pick(&[r#"["pi"]"#, r#"["pi","agents-md"]"#, r#"["pi","codex"]"#]),
-        prop::option::of(pick(&[r#","audit":{"mode":"always"}"#, r#","hooks":{"verifyOnStop":true}"#])),
+        prop::option::of(pick(&[r#","audit":{"mode":"always"}"#, r#","audit":{"mode":"opt-in"}"#, r#","hooks":{"modelAdvisor":true,"auditMode":true}"#, r#","hooks":{"verifyOnStop":true}"#])),
     )
         .prop_map(|(preset, states, harness, gate, models, engines, extra)| {
             let plugins: Vec<String> = ["engram", "codegraph", "gh", "tgrep"]

@@ -10,12 +10,17 @@ use sha2::{Digest as _, Sha256};
 use crate::content_identity::hex;
 use crate::js_json::{JsObject, JsValue};
 use crate::render::block_plan::truthy;
+use crate::render::harness_plan::is_hook_enabled;
 use crate::render::plugins::LoadedPlugin;
 
 /// When a registration applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum When {
     Always,
+    /// `isHookEnabled(config, id)` (`hook-registrations.ts:151/174/184`).
+    Hook(&'static str),
+    /// `config.hooks?.modelAdvisor === true` (`hook-registrations.ts:108`).
+    ModelAdvisor,
     QualityGateFast,
     ScribeOwnsMarkdown,
     VerifyOnStop,
@@ -105,7 +110,8 @@ static REGISTRATIONS: &[Registration] = &[
         10,
         "navori: model advisor",
     )
-    .args("codex-session-start"),
+    .args("codex-session-start")
+    .when(When::ModelAdvisor),
     row(
         "session-start-context",
         "SessionStart",
@@ -134,7 +140,8 @@ static REGISTRATIONS: &[Registration] = &[
         Some("^(Bash|apply_patch|spawn_agent)$"),
         10,
         "navori: routing check",
-    ),
+    )
+    .when(When::Hook("routing-watch")),
     row(
         "subagent-stop-handoff",
         "SubagentStop",
@@ -149,14 +156,16 @@ static REGISTRATIONS: &[Registration] = &[
         None,
         10,
         "navori: audit-mode",
-    ),
+    )
+    .when(When::Hook("audit-mode-trigger")),
     row(
         "audit-mode-close",
         "SessionEnd",
         None,
         3,
         "navori: audit-mode close",
-    ),
+    )
+    .when(When::Hook("audit-mode-close")),
     row(
         "worktree-reclaim",
         "SessionStart",
@@ -281,6 +290,8 @@ fn applies(when: When, config: &JsValue) -> bool {
     let at = |section: &str, key: &str| get(config, section).and_then(|s| get(s, key));
     match when {
         When::Always => true,
+        When::Hook(id) => is_hook_enabled(config, id, None),
+        When::ModelAdvisor => at("hooks", "modelAdvisor") == Some(&JsValue::Bool(true)),
         When::QualityGateFast => at("qualityGate", "fast").is_some_and(truthy),
         When::ScribeOwnsMarkdown => at("harness", "scribeOwnsMarkdown").is_some_and(truthy),
         When::VerifyOnStop => at("hooks", "verifyOnStop").is_some_and(truthy),

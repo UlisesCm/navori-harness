@@ -51,15 +51,27 @@ fn section(entries: Vec<(&str, Option<Value>)>) -> Value {
 }
 
 fn config() -> impl Strategy<Value = Value> {
-    (flag(), flag(), flag(), flag(), flag(), flag()).prop_map(
-        |(fast, scribe, stop, master, tiers, codex)| {
+    let audit_mode = prop_oneof![
+        2 => Just(None),
+        1 => Just(Some(json!("always"))),
+        1 => Just(Some(json!("opt-in"))),
+    ];
+    (
+        (flag(), flag(), flag(), flag(), flag(), flag()),
+        (flag(), flag(), audit_mode),
+    )
+        .prop_map(
+        |((fast, scribe, stop, master, tiers, codex), (advisor, audit_flag, audit))| {
             json!({
                 "qualityGate": section(vec![("fast", fast)]),
                 "harness": section(vec![
                     ("scribeOwnsMarkdown", scribe), ("masterPlan", master), ("planTiers", tiers),
                     ("codexIntegration", codex),
                 ]),
-                "hooks": section(vec![("verifyOnStop", stop)]),
+                "hooks": section(vec![
+                    ("verifyOnStop", stop), ("modelAdvisor", advisor), ("auditMode", audit_flag),
+                ]),
+                "audit": section(vec![("mode", audit)]),
             })
         },
     )

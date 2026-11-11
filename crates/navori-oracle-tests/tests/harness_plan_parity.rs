@@ -98,6 +98,10 @@ fn config() -> BoxedStrategy<String> {
         field("publisher", flag()),
         field("architect", flag()),
         field("planTiers", flag()),
+        field("scribeOwnsMarkdown", flag()),
+        field("authoring", flag()),
+        field("masterPlan", flag()),
+        field("codexIntegration", flag()),
     ]);
     let project = object(vec![
         field(
@@ -133,7 +137,17 @@ fn config() -> BoxedStrategy<String> {
         ),
         field(
             "hooks",
-            pick(&[r#"{"verifyOnStop":true}"#, r#"{"verifyOnStop":false}"#]),
+            pick(&[
+                r#"{"verifyOnStop":true}"#,
+                r#"{"verifyOnStop":false}"#,
+                r#"{"modelAdvisor":true}"#,
+                r#"{"modelAdvisor":false,"auditMode":true}"#,
+                r#"{"auditMode":false,"verifyOnStop":true}"#,
+            ]),
+        ),
+        field(
+            "audit",
+            pick(&[r#"{"mode":"always"}"#, r#"{"mode":"opt-in"}"#]),
         ),
     ]
     .prop_map(|fields| {
