@@ -488,7 +488,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                     |bytes| evaluate(bytes, &ShadowLane),
                 );
                 if let Some((journal, root, receipt)) = &observation {
-                    journal.complete(root, receipt, observed.comparison, payload);
+                    journal.complete(root, receipt, observed.comparison);
                 }
                 let verdict = match observed.shell.code() {
                     0 => Verdict::Permit,
@@ -606,7 +606,7 @@ impl ShadowJournal for Unavailable {
         None
     }
 
-    fn complete(&self, _: &Path, _: &str, _: shadow::Comparison, _: &[u8]) {}
+    fn complete(&self, _: &Path, _: &str, _: shadow::Comparison) {}
 }
 
 /// Script and dependency bytes, or None when any of them cannot be read.

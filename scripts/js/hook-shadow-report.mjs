@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeRecords } from "../../packages/cli/src/lib/rust-shadow/report.ts";
+import { decodeJournal } from "../../packages/cli/src/lib/rust-shadow/report.ts";
 import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.ts";
 
 /**
@@ -62,8 +62,11 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
   const windowMs = windowDays * DAY_MS;
   const rows = [];
   for (const [hook, descriptor] of Object.entries(hooks)) {
-    const decoded = [journals[hook] ?? []].flat().map((bytes) => decodeRecords(bytes));
-    const records = decoded.every((part) => part !== null) ? decoded.flat() : null;
+    const decoded = [journals[hook] ?? []].flat().map((bytes) => decodeJournal(bytes));
+    const valid = decoded.every((part) => part !== null);
+    const records = valid ? decoded.flatMap((part) => part.records) : null;
+    // Journals written before the payload was dropped: informational, the file is safe to delete.
+    const legacyPayloadRows = valid ? decoded.reduce((sum, part) => sum + part.legacyPayloadRows, 0) : 0;
     const problems = [];
     if (records === null) problems.push("journal is invalid or unavailable");
     const begins = new Map();
@@ -81,6 +84,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         divergences: 0,
         pending: 0,
         unobserved: 0,
+        legacyPayloadRows,
         spanDays: 0,
         problems: [...problems],
       };
@@ -123,6 +127,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         divergences: 0,
         pending: 0,
         unobserved: 0,
+        legacyPayloadRows,
         spanDays: 0,
         problems: ["no engine renders the native block for this hook"],
         ok: false,
@@ -158,6 +163,9 @@ function format(report) {
       `${status} ${row.hook} [${row.engine}] ${row.gating ? "gating" : "advisory"} ` +
         `calls=${row.invocations} divergences=${row.divergences} pending=${row.pending} ` +
         `unobserved=${row.unobserved} span=${row.spanDays.toFixed(1)}d` +
+        (row.legacyPayloadRows > 0
+          ? ` legacyPayloadRows=${row.legacyPayloadRows} (delete this journal)`
+          : "") +
         (row.problems.length ? ` — ${row.problems.join("; ")}` : ""),
     );
   }

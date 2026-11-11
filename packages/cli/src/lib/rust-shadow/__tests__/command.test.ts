@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { completeFromInput, decodePayload, parseEngines } from "../command.ts";
+import { completeFromInput, parseEngines } from "../command.ts";
+import { FAKE_ID, leakCount } from "./leak-variants.ts";
 import { begin } from "../journal.ts";
 import { recordSchema } from "../journal.schema.ts";
 
@@ -33,16 +34,6 @@ function rows(): unknown[] {
 
 describe("rust-shadow machine bridge", () => {
   // Covers: R11
-  it("decodes only canonical base64 and an absent payload as empty bytes", () => {
-    expect(decodePayload(undefined)).toEqual(new Uint8Array());
-    expect(decodePayload(Buffer.from([0, 255, 10]).toString("base64"))).toEqual(
-      new Uint8Array([0, 255, 10]),
-    );
-    expect(decodePayload("AA=")).toBeNull();
-    expect(decodePayload("not base64!")).toBeNull();
-  });
-
-  // Covers: R11
   it("accepts only known engines for the report", () => {
     expect(parseEngines("claude,pi")).toEqual(["claude", "pi"]);
     expect(parseEngines("claude,cursor")).toBeNull();
@@ -56,25 +47,40 @@ describe("rust-shadow machine bridge", () => {
     for (const input of [
       "not json",
       JSON.stringify({ receipt: ack.receipt, comparison: MATCH, extra: true }),
-      JSON.stringify({ receipt: ack.receipt, comparison: MATCH, payloadBase64: "AA=" }),
+      JSON.stringify({ receipt: ack.receipt, comparison: { ...MATCH, shellCode: 4 } }),
     ]) {
       expect(completeFromInput(root, input)).toEqual({ ok: false, reason: "invalid" });
     }
-    const diverged = { ...MATCH, stderrDiffers: true };
+    const diverged = { ...MATCH, stderrDiffers: true, shellCode: 2, nativeCode: 0 };
     expect(
-      completeFromInput(
-        root,
-        JSON.stringify({
-          receipt: ack.receipt,
-          comparison: diverged,
-          payloadBase64: Buffer.from("{}").toString("base64"),
-        }),
-      ),
+      completeFromInput(root, JSON.stringify({ receipt: ack.receipt, comparison: diverged })),
     ).toEqual({ ok: true });
-    expect(rows()).toMatchObject([
-      { kind: "begin" },
-      { kind: "complete", comparison: diverged, payloadBase64: "e30=" },
-    ]);
+    expect(rows()).toMatchObject([{ kind: "begin" }, { kind: "complete", comparison: diverged }]);
+  });
+
+  // Covers: R11, R12
+  it("ignores a payload sent by a legacy binary: not validated, not decoded, not written", () => {
+    const ack = begin(root, { hook: "guard", engine: "pi", implementation: IMPL });
+    if (!ack.ok) throw new Error(`begin refused: ${ack.reason}`);
+    const command = `curl -s 'https://api.example.test/?u=${FAKE_ID}'`;
+    const real = Buffer.from(
+      JSON.stringify({ tool_input: { command }, cwd: "/tmp/ficticio" }),
+    ).toString("base64");
+    const diverged = { ...MATCH, codeDiffers: true };
+    // A real payload, a non-canonical one and a non-string value all travel the same way.
+    for (const payloadBase64 of [real, "AA=", "not base64!", 42, null]) {
+      expect(
+        completeFromInput(
+          root,
+          JSON.stringify({ receipt: ack.receipt, comparison: diverged, payloadBase64 }),
+        ),
+      ).toEqual({ ok: true });
+    }
+    const stored = readFileSync(join(root, ".navori/state/rust-shadow/guard.jsonl"));
+    expect(leakCount(stored)).toBe(0);
+    expect(stored.includes(Buffer.from(real))).toBe(false);
+    expect(stored.includes("payloadBase64")).toBe(false);
+    for (const row of rows()) expect(row).not.toHaveProperty("payloadBase64");
   });
 
   // Covers: R11, R13

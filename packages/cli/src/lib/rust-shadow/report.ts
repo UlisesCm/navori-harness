@@ -1,6 +1,6 @@
 import {
   expectedSchema,
-  recordSchema,
+  readRecordSchema,
   timeSchema,
   diverged,
   MAX_LINE_BYTES,
@@ -27,10 +27,29 @@ export interface EngineReport {
 }
 export type Report =
   | { available: false; ready: false; reason: "invalid" | "unavailable" }
-  | { available: true; ready: boolean; hook: string; currentImpl: string; engines: EngineReport[] };
+  | {
+      available: true;
+      ready: boolean;
+      hook: string;
+      currentImpl: string;
+      engines: EngineReport[];
+      /** Completions that still carry a legacy `payloadBase64`; delete that journal. */
+      legacyPayloadRows: number;
+    };
+
+/** Rows plus how many legacy completions carried a payload (dropped from the parsed rows). */
+export interface DecodedJournal {
+  records: ShadowRecord[];
+  legacyPayloadRows: number;
+}
 
 /** Bounded lossless UTF-8 JSONL parsing, with no line/tail repair or omitted rows. */
 export function decodeRecords(bytes: Uint8Array): ShadowRecord[] | null {
+  return decodeJournal(bytes)?.records ?? null;
+}
+
+/** `decodeRecords` that also counts legacy payload rows; the payload itself is never returned. */
+export function decodeJournal(bytes: Uint8Array): DecodedJournal | null {
   if (bytes.byteLength > MAX_LOG_BYTES) return null;
   const buffer = Buffer.from(bytes);
   if (buffer.length && buffer[buffer.length - 1] !== 10) return null;
@@ -38,15 +57,20 @@ export function decodeRecords(bytes: Uint8Array): ShadowRecord[] | null {
   if (!Buffer.from(text, "utf8").equals(buffer)) return null;
   const lines = text.length ? text.slice(0, -1).split("\n") : [];
   const records: ShadowRecord[] = [];
+  let legacyPayloadRows = 0;
   try {
     for (const line of lines) {
       if (Buffer.byteLength(line, "utf8") + 1 > MAX_LINE_BYTES) return null;
       const raw: unknown = JSON.parse(line);
-      const record = recordSchema.safeParse(raw);
+      const record = readRecordSchema.safeParse(raw);
       if (!record.success) return null;
-      records.push(record.data);
+      if (record.data.kind === "complete") {
+        const { payloadBase64, ...rest } = record.data;
+        if (payloadBase64 !== undefined) legacyPayloadRows++;
+        records.push(rest);
+      } else records.push(record.data);
     }
-    return records;
+    return { records, legacyPayloadRows };
   } catch {
     return null;
   }
@@ -67,8 +91,9 @@ export function analyze(bytes: Uint8Array, expected: unknown, nowMs: number): Re
   const configuration = expectedSchema.safeParse(expected);
   if (!configuration.success || !timeSchema.safeParse(nowMs).success)
     return { available: false, ready: false, reason: "invalid" };
-  const rows = decodeRecords(bytes);
-  if (rows === null) return { available: false, ready: false, reason: "invalid" };
+  const decoded = decodeJournal(bytes);
+  if (decoded === null) return { available: false, ready: false, reason: "invalid" };
+  const rows = decoded.records;
   const starts = new Map<string, Receipt>();
   const ends = new Map<string, Completion>();
   const wanted = configuration.data;
@@ -130,5 +155,12 @@ export function analyze(bytes: Uint8Array, expected: unknown, nowMs: number): Re
         engine.pending === 0 &&
         engine.spanMs >= MIN_SPAN_MS,
     );
-  return { available: true, ready, hook: wanted.hook, currentImpl: wanted.currentImpl, engines };
+  return {
+    available: true,
+    ready,
+    hook: wanted.hook,
+    currentImpl: wanted.currentImpl,
+    engines,
+    legacyPayloadRows: decoded.legacyPayloadRows,
+  };
 }

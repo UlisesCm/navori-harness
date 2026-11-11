@@ -594,7 +594,23 @@ cada llamada.
      JSON `ask`; Codex/Pi con compuerta reciben 2; advisory recibe 1. Se descarta stdout parcial
      antes de emitir ese fallo. Normalizar todo a 1 permitiría un fallo abierto en Claude.
   4. Registra cada divergencia en `.navori/state/rust-shadow/<hook>.jsonl`, que es local y está en
-     `.gitignore`. El payload solo se guarda en las divergencias, nunca se sube a CI ni al repo.
+     `.gitignore`, y nunca se sube a CI ni al repo.
+
+     **Enmienda (11 nov, decisión del dueño del proyecto por protección de datos):** el payload,
+     stdout y stderr del hook nunca se guardan en el journal. Cada completion lleva solo las
+     banderas de comparación (`nativeFailed`, `shellFailed`, `codeDiffers`, `stdoutDiffers`,
+     `stderrDiffers`, `nativeUnobserved`). En una divergencia agrega `shellCode` y `nativeCode`,
+     códigos de protocolo de un enum cerrado (0..3), cada uno solo si esa lane terminó.
+     - Sin hash del payload: los ids aleatorios por llamada impiden agrupar, y un hash solo del
+       comando se revierte por diccionario.
+     - Sin opt-in para guardar el payload: sería un PR aparte, local y apagado por defecto.
+     - Pérdida de diagnóstico declarada: el replay y el fuzz usan payloads sintéticos y no
+       reproducen un comando real. Para reproducir una divergencia real hay que capturar el
+       payload a mano, fuera del journal.
+     - Journals viejos: la lectura acepta filas con `payloadBase64` sin inspeccionarlo y el
+       reporte las cuenta en `legacyPayloadRows`; se borran con
+       `rm <checkout>/.navori/state/rust-shadow/*.jsonl`. Borrarlos también borra la evidencia de
+       sombra acumulada (readiness) y reinicia la ventana de observación de este D9.
 
   Si Rust falla en sombra, se registra como divergencia y decide el shell igual.
 - **Paso de `shadow` a `active`:** un PR propio que cambia `mode` y exige:

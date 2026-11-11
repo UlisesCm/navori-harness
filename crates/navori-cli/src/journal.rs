@@ -25,9 +25,9 @@ pub trait ShadowJournal {
         engine: Engine,
         implementation: &str,
     ) -> Option<String>;
-    /// Record the comparison of an acknowledged observation. Payload bytes are kept only when
-    /// the comparison diverged; an unrecorded completion leaves the begin pending.
-    fn complete(&self, root: &Path, receipt: &str, comparison: Comparison, payload: &[u8]);
+    /// Record the comparison of an acknowledged observation. No payload, stdout or stderr byte
+    /// ever reaches the journal; an unrecorded completion leaves the begin pending.
+    fn complete(&self, root: &Path, receipt: &str, comparison: Comparison);
 }
 
 /// Journal backed by the TS CLI resolved like delegation (`NAVORI_TS_CLI`, checkout, `PATH`).
@@ -91,7 +91,7 @@ impl ShadowJournal for CliJournal {
         receipt(&output.stdout)
     }
 
-    fn complete(&self, root: &Path, receipt: &str, comparison: Comparison, payload: &[u8]) {
+    fn complete(&self, root: &Path, receipt: &str, comparison: Comparison) {
         let Ok(mut child) = self
             .command("complete", root)
             .stdin(Stdio::piped())
@@ -100,7 +100,7 @@ impl ShadowJournal for CliJournal {
         else {
             return;
         };
-        let document = completion(receipt, comparison, payload);
+        let document = completion(receipt, comparison);
         if let Some(mut input) = child.stdin.take() {
             let _ = input.write_all(document.as_bytes());
         }
@@ -129,9 +129,10 @@ pub fn receipt(stdout: &[u8]) -> Option<String> {
     (value.get("kind")? == "begin").then(|| text.to_owned())
 }
 
-/// `complete` stdin document; the payload travels only for a divergence.
+/// `complete` stdin document. It carries comparison flags and, for a divergence only, the
+/// closed protocol codes of each lane; never the hook payload or any output byte.
 #[must_use]
-pub fn completion(receipt: &str, comparison: Comparison, payload: &[u8]) -> String {
+pub fn completion(receipt: &str, comparison: Comparison) -> String {
     // Only an unobserved call names the flag, so a journal writer that predates it keeps
     // accepting every other completion.
     let unobserved = if comparison.native_unobserved {
@@ -139,45 +140,24 @@ pub fn completion(receipt: &str, comparison: Comparison, payload: &[u8]) -> Stri
     } else {
         ""
     };
-    let flags = format!(
-        r#"{{"nativeFailed":{},"shellFailed":{},"codeDiffers":{},"stdoutDiffers":{},"stderrDiffers":{}{unobserved}}}"#,
+    // Codes only on a divergence: a matching completion stays valid for an older writer.
+    let mut codes = String::new();
+    if comparison.diverged() {
+        if let Some(code) = comparison.shell_code {
+            codes.push_str(&format!(r#","shellCode":{code}"#));
+        }
+        if let Some(code) = comparison.native_code {
+            codes.push_str(&format!(r#","nativeCode":{code}"#));
+        }
+    }
+    format!(
+        r#"{{"receipt":{receipt},"comparison":{{"nativeFailed":{},"shellFailed":{},"codeDiffers":{},"stdoutDiffers":{},"stderrDiffers":{}{unobserved}{codes}}}}}"#,
         comparison.native_failed,
         comparison.shell_failed,
         comparison.code_differs,
         comparison.stdout_differs,
         comparison.stderr_differs,
-    );
-    if comparison.diverged() {
-        format!(
-            r#"{{"receipt":{receipt},"comparison":{flags},"payloadBase64":"{}"}}"#,
-            base64(payload)
-        )
-    } else {
-        format!(r#"{{"receipt":{receipt},"comparison":{flags}}}"#)
-    }
-}
-
-/// Standard padded base64, the canonical form the CLI round-trips.
-#[must_use]
-pub fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            chunk.get(1).copied().unwrap_or(0),
-            chunk.get(2).copied().unwrap_or(0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for (index, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if index <= chunk.len() {
-                out.push(char::from(ALPHABET[((n >> shift) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    )
 }
 
 /// Project root that owns an engine root (`.claude`, `.codex` or `.pi/navori`).

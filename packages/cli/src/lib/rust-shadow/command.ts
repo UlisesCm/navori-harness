@@ -10,19 +10,15 @@ import { engineSchema } from "./journal.schema.ts";
  * Every verb prints one JSON line on stdout and exits 0 only on an acknowledged result.
  */
 
-/** `complete` input read from stdin; payload bytes travel only when the comparison diverged. */
+/**
+ * `complete` input read from stdin. A native binary that predates the payload-free journal still
+ * sends `payloadBase64`: it is neither validated nor decoded nor written, only tolerated.
+ */
 const completionInputSchema = z.strictObject({
   receipt: z.unknown(),
   comparison: z.unknown(),
-  payloadBase64: z.string().optional(),
+  payloadBase64: z.unknown().optional(),
 });
-
-/** Decoded payload, or null when the base64 is not canonical (a lossy decode is never accepted). */
-export function decodePayload(base64: string | undefined): Uint8Array | null {
-  if (base64 === undefined) return new Uint8Array();
-  const bytes = Buffer.from(base64, "base64");
-  return bytes.toString("base64") === base64 ? new Uint8Array(bytes) : null;
-}
 
 /** `complete` over a raw stdin document; invalid input is a refusal, never an exception. */
 export function completeFromInput(root: string, input: string): ReturnType<typeof complete> {
@@ -34,9 +30,7 @@ export function completeFromInput(root: string, input: string): ReturnType<typeo
   }
   const checked = completionInputSchema.safeParse(parsed);
   if (!checked.success) return { ok: false, reason: "invalid" };
-  const payload = decodePayload(checked.data.payloadBase64);
-  if (payload === null) return { ok: false, reason: "invalid" };
-  return complete(root, checked.data.receipt, checked.data.comparison, payload);
+  return complete(root, checked.data.receipt, checked.data.comparison);
 }
 
 /** Comma-separated engines exactly as `report` requires them, or null when any is unknown. */

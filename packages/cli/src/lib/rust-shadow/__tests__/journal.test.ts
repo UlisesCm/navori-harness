@@ -26,6 +26,8 @@ import {
   type ShadowRecord,
 } from "../journal.schema.ts";
 import { analyze, MIN_SPAN_MS } from "../report.ts";
+import { completeFromInput } from "../command.ts";
+import { leakCount, leakPayload, payloadEncodings } from "./leak-variants.ts";
 
 const IMPL = `sha256:${"a".repeat(64)}`;
 const OLD = `sha256:${"b".repeat(64)}`;
@@ -158,7 +160,7 @@ if(races!==3)throw new Error('expected three directory races, got '+races);`;
   it("acknowledges all forty completions from each of two genuinely simultaneous process writers", async () => {
     const module = await childModule();
     const source = `const {begin,complete} = await import(process.argv[1]); let finished=0;
-for(let i=0;i<40;i++){const started=begin(process.argv[2],${JSON.stringify(IDENTITY)});if(!started.ok)throw new Error('begin unavailable');if(complete(process.argv[2],started.receipt,${JSON.stringify(MATCH)},Buffer.alloc(0)).ok)finished++;}
+for(let i=0;i<40;i++){const started=begin(process.argv[2],${JSON.stringify(IDENTITY)});if(!started.ok)throw new Error('begin unavailable');if(complete(process.argv[2],started.receipt,${JSON.stringify(MATCH)}).ok)finished++;}
 if(finished!==40)throw new Error('finished '+finished);`;
     const children = [0, 1].map(() =>
       spawn(process.execPath, ["--input-type=module", "-e", source, module, root], {
@@ -177,7 +179,7 @@ if(finished!==40)throw new Error('finished '+finished);`;
     }
   });
   // Covers: R11, R19
-  it("acknowledges appended begin before completion and keeps match payloads out of every row", () => {
+  it("acknowledges appended begin before completion and writes no payload in any row", () => {
     const started = begin(root, IDENTITY);
     expect(started.ok).toBe(true);
     if (!started.ok) throw new Error(started.reason);
@@ -187,11 +189,8 @@ if(finished!==40)throw new Error('finished '+finished);`;
       ready: false,
       engines: [{ pending: 1, complete: 0 }],
     });
-    const payload = Buffer.from("sensitive synthetic input\0\xff");
-    expect(complete(root, started.receipt, MATCH, payload)).toEqual({ ok: true });
+    expect(complete(root, started.receipt, MATCH)).toEqual({ ok: true });
     const stored = readFileSync(file(), "utf8");
-    expect(stored).not.toContain(payload.toString("base64"));
-    expect(stored).not.toContain("sensitive synthetic input");
     expect(stored).not.toContain("payload");
     expect(stored.trimEnd().split("\n")).toHaveLength(2);
     expect(statSync(file()).mode & 0o777).toBe(0o600);
@@ -208,7 +207,7 @@ if(finished!==40)throw new Error('finished '+finished);`;
     const unobserved = { ...MATCH, nativeUnobserved: true as const };
     const started = begin(root, IDENTITY);
     if (!started.ok) throw new Error(started.reason);
-    expect(complete(root, started.receipt, unobserved, Buffer.from("x"))).toEqual({ ok: true });
+    expect(complete(root, started.receipt, unobserved)).toEqual({ ok: true });
     expect(readFileSync(file(), "utf8")).not.toContain("payloadBase64");
     expect(report(root, EXPECTED)).toMatchObject({
       available: true,
@@ -218,55 +217,113 @@ if(finished!==40)throw new Error('finished '+finished);`;
     const failed = begin(root, IDENTITY);
     if (!failed.ok) throw new Error(failed.reason);
     const shell = { ...unobserved, shellFailed: true };
-    expect(complete(root, failed.receipt, shell, Buffer.from("x"))).toEqual({ ok: true });
+    expect(complete(root, failed.receipt, shell)).toEqual({ ok: true });
     expect(report(root, EXPECTED)).toMatchObject({ engines: [{ divergences: 1, unobserved: 1 }] });
   });
 
   // Covers: R11, R12
-  it("stores exact binary base64 only on divergences, including either runtime failure", () => {
-    const payload = Buffer.from([0, 255, 10, 13, 128]);
+  it("stores only flags and protocol codes on a divergence, including either runtime failure", () => {
     for (const key of Object.keys(MATCH) as (keyof typeof MATCH)[]) {
       const started = begin(root, IDENTITY);
       if (!started.ok) throw new Error(started.reason);
-      expect(complete(root, started.receipt, { ...MATCH, [key]: true }, payload)).toEqual({
-        ok: true,
-      });
+      const comparison = { ...MATCH, [key]: true, shellCode: 2 as const, nativeCode: 0 as const };
+      expect(complete(root, started.receipt, comparison)).toEqual({ ok: true });
     }
     const rows = readFileSync(file(), "utf8")
       .trimEnd()
       .split("\n")
       .map((line) => recordSchema.parse(JSON.parse(line)));
-    for (const row of rows) {
-      if (row.kind === "begin") expect(row).not.toHaveProperty("payloadBase64");
-      else expect(Buffer.from(row.payloadBase64 ?? "", "base64")).toEqual(payload);
-    }
+    for (const row of rows) expect(row).not.toHaveProperty("payloadBase64");
+    expect(rows[1]).toMatchObject({ comparison: { shellCode: 2, nativeCode: 0 } });
     const summary = report(root, EXPECTED);
-    expect(summary).toMatchObject({ available: true, ready: false, engines: [{ divergences: 5 }] });
+    expect(summary).toMatchObject({
+      available: true,
+      ready: false,
+      legacyPayloadRows: 0,
+      engines: [{ divergences: 5 }],
+    });
     expect(JSON.stringify(summary)).not.toContain("payload");
   });
 
   // Covers: R11, R12
-  it("round-trips a four-MiB divergent payload and refuses oversized payloads without throwing", () => {
+  it("refuses a payload or an out-of-protocol code in a written completion", () => {
     const started = begin(root, IDENTITY);
     if (!started.ok) throw new Error(started.reason);
-    const payload = Buffer.alloc(4 * 1024 * 1024, 255);
-    const comparison = { ...MATCH, stdoutDiffers: true };
-    expect(complete(root, started.receipt, comparison, payload)).toEqual({ ok: true });
-    const lines = readFileSync(file(), "utf8").trimEnd().split("\n");
-    const end = recordSchema.parse(JSON.parse(lines[1] ?? "null"));
-    if (end.kind !== "complete") throw new Error("invalid fixture completion");
-    expect(Buffer.from(end.payloadBase64 ?? "", "base64").equals(payload)).toBe(true);
-    expect(report(root, EXPECTED)).toMatchObject({
+    const original = readFileSync(file());
+    for (const comparison of [
+      { ...MATCH, payloadBase64: "e30=" },
+      { ...MATCH, codeDiffers: true, shellCode: 255 },
+      { ...MATCH, codeDiffers: true, nativeCode: -1 },
+      { ...MATCH, codeDiffers: true, shellCode: "2" },
+    ])
+      expect(complete(root, started.receipt, comparison)).toEqual({ ok: false, reason: "invalid" });
+    expect(readFileSync(file()).equals(original)).toBe(true);
+  });
+
+  // Covers: R11, R19
+  it("reads legacy rows with payloadBase64, counts them and never returns the payload", () => {
+    const rows = observations(1, 0);
+    const [start, end] = rows;
+    const legacy = {
+      ...end,
+      comparison: { ...MATCH, codeDiffers: true },
+      payloadBase64: Buffer.from("legacy synthetic payload").toString("base64"),
+    };
+    const summary = analyze(bytes([start, legacy]), EXPECTED, NOW);
+    expect(summary).toMatchObject({
       available: true,
-      ready: false,
+      legacyPayloadRows: 1,
       engines: [{ complete: 1, divergences: 1 }],
     });
-    const original = readFileSync(file());
-    expect(complete(root, started.receipt, comparison, Buffer.alloc(MAX_LINE_BYTES))).toEqual({
-      ok: false,
-      reason: "limit",
+    expect(JSON.stringify(summary)).not.toContain(legacy.payloadBase64);
+    // A legacy match row (payload without divergence) is no longer a contradiction either.
+    expect(analyze(bytes([start, { ...end, payloadBase64: "AA==" }]), EXPECTED, NOW)).toMatchObject(
+      { available: true, legacyPayloadRows: 1, engines: [{ matched: 1 }] },
+    );
+    expect(analyze(bytes(rows), EXPECTED, NOW)).toMatchObject({ legacyPayloadRows: 0 });
+  });
+
+  // Covers: R11, R12
+  it("writes no identifier variant to the journal bytes", () => {
+    const comparison = {
+      ...MATCH,
+      codeDiffers: true,
+      shellCode: 2 as const,
+      nativeCode: 0 as const,
+    };
+    const started = begin(root, IDENTITY);
+    if (!started.ok) throw new Error(started.reason);
+    // The legacy stdin document is the one path that can carry a payload to the writer.
+    const input = JSON.stringify({
+      receipt: started.receipt,
+      comparison,
+      payloadBase64: Buffer.from(leakPayload()).toString("base64"),
     });
-    expect(readFileSync(file()).equals(original)).toBe(true);
+    expect(completeFromInput(root, input)).toEqual({ ok: true });
+    expect(leakCount(readFileSync(file()))).toBe(0);
+    // Positive control: the real payload in every encoding would have been seen.
+    for (const encoded of payloadEncodings()) expect(leakCount(encoded)).toBeGreaterThan(0);
+  });
+
+  // Covers: R11, R12
+  it("accepts protocol codes on write only for a divergence", () => {
+    const codes = { shellCode: 2 as const, nativeCode: 0 as const };
+    const row = (comparison: object): unknown => ({
+      schema: 1,
+      id: randomUUID(),
+      hook: "guard",
+      engine: "pi",
+      implementation: IMPL,
+      timeMs: 1,
+      kind: "complete",
+      comparison,
+    });
+    expect(recordSchema.safeParse(row({ ...MATCH, ...codes })).success).toBe(false);
+    expect(recordSchema.safeParse(row({ ...MATCH, shellCode: 0 })).success).toBe(false);
+    expect(recordSchema.safeParse(row({ ...MATCH, codeDiffers: true, ...codes })).success).toBe(
+      true,
+    );
+    expect(recordSchema.safeParse(row(MATCH)).success).toBe(true);
   });
 
   // Covers: R11, R12
@@ -283,21 +340,17 @@ if(finished!==40)throw new Error('finished '+finished);`;
     }
     const started = begin(root, IDENTITY);
     if (!started.ok) throw new Error(started.reason);
-    expect(
-      complete(root, { ...started.receipt, id: randomUUID() }, MATCH, Buffer.alloc(0)).ok,
-    ).toBe(true);
+    expect(complete(root, { ...started.receipt, id: randomUUID() }, MATCH).ok).toBe(true);
     expect(report(root, EXPECTED)).toMatchObject({ available: false, ready: false });
     history([started.receipt]);
-    expect(
-      complete(root, started.receipt, { ...MATCH, stdout: "secret" }, Buffer.alloc(0)).ok,
-    ).toBe(false);
-    expect(complete(root, started.receipt, MATCH, "not bytes").ok).toBe(false);
-    expect(complete(root, started.receipt, MATCH, Buffer.alloc(0)).ok).toBe(true);
+    expect(complete(root, started.receipt, { ...MATCH, stdout: "secret" }).ok).toBe(false);
+    expect(complete(root, started.receipt, { ...MATCH, shellCode: 4 }).ok).toBe(false);
+    expect(complete(root, started.receipt, MATCH).ok).toBe(true);
     expect(report(root, EXPECTED)).toMatchObject({ available: true, engines: [{ complete: 1 }] });
-    expect(complete(root, started.receipt, MATCH, Buffer.alloc(0)).ok).toBe(true);
+    expect(complete(root, started.receipt, MATCH).ok).toBe(true);
     expect(report(root, EXPECTED)).toMatchObject({ available: false, ready: false });
     unlinkSync(file());
-    expect(complete(root, started.receipt, MATCH, Buffer.alloc(0)).ok).toBe(false);
+    expect(complete(root, started.receipt, MATCH).ok).toBe(false);
     expect(existsSync(file())).toBe(false);
   });
 
@@ -330,14 +383,9 @@ if(finished!==40)throw new Error('finished '+finished);`;
     const started = begin(root, IDENTITY);
     if (!started.ok) throw new Error(started.reason);
     const original = readFileSync(file());
-    expect(
-      complete(
-        root,
-        started.receipt,
-        { ...MATCH, nativeFailed: true },
-        Buffer.alloc(MAX_LINE_BYTES),
-      ).ok,
-    ).toBe(false);
+    expect(complete(root, started.receipt, { ...MATCH, nativeFailed: true, shellCode: 9 }).ok).toBe(
+      false,
+    );
     expect(readFileSync(file())).toEqual(original);
     expect(report(root, EXPECTED)).toMatchObject({
       available: true,
@@ -440,9 +488,8 @@ if(finished!==40)throw new Error('finished '+finished);`;
       [start, { ...end, timeMs: NOW - 1 }],
       [{ ...start, timeMs: NOW + 1 }],
       [{ ...start, extra: true }],
-      [start, { ...end, payloadBase64: "AA==" }],
-      [start, { ...end, comparison: { ...MATCH, codeDiffers: true } }],
-      [start, { ...end, comparison: { ...MATCH, codeDiffers: true }, payloadBase64: "AB==" }],
+      [start, { ...end, payloadBase64: 7 }],
+      [start, { ...end, comparison: { ...MATCH, shellCode: 4 } }],
     ]) {
       expect(analyze(bytes(bad), EXPECTED, NOW)).toMatchObject({ available: false, ready: false });
     }
@@ -480,7 +527,7 @@ if (process.argv[3] === 'pause') {
 }
 const started = begin(process.argv[2], ${JSON.stringify(IDENTITY)});
 if(!started.ok) throw new Error('begin unavailable');
-const done=complete(process.argv[2],started.receipt,${JSON.stringify(MATCH)},Buffer.from('never persist this'));
+const done=complete(process.argv[2],started.receipt,${JSON.stringify(MATCH)});
 if(!done.ok) throw new Error('complete unavailable');
 process.stdout.write('done\\n');`;
     const children: ChildProcessWithoutNullStreams[] = [];
