@@ -379,11 +379,24 @@ pub fn collect_cached<'a>(
         env,
         deadline,
     )?;
+    // Always probed: a non-English host can name an English locale and still translate Bash.
+    let messages = probe(
+        &bash,
+        &[
+            "-c".into(),
+            prepare::MESSAGES.into(),
+            "messages-probe".into(),
+        ],
+        cwd,
+        env,
+        deadline,
+    )?;
     let facts = Facts {
         bootstrap,
         system,
         charmap,
         text,
+        messages,
         jq,
         node,
     };

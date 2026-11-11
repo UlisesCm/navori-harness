@@ -157,3 +157,11 @@ que no es un archivo regular sigue delegando `spec check` al TS.
 `governance_hook.rs`, los dos hooks, `shell/role_case.rs` y `agent_governance.rs`), junto con sus entradas de
 `ported.json`. Los dos hooks siguen en shell (`PERMANENT_SHELL_HOOKS`) y el render de Codex no cambia. Como el
 hash `impl` cubre `shell/`, el resto de hooks se vuelve a firmar con `rust:hooks-sync`, sin cambio de comportamiento.
+
+## Pendiente posterior a 0.13: locale de mensajes (opción 2)
+
+Hoy (opción 1) un host cuyos diagnósticos de Bash salen traducidos se difiere al shell: la sonda de mensajes de
+`prepare.rs` exige el texto inglés antes de leer stdin. Mejora para después de 0.13: que el nativo tome de esa misma
+sonda el texto localizado (formato `línea N` y strerror de ENOENT, ENOTDIR y EACCES) y lo use en
+`subagent_stop_handoff/mod.rs:307` y `:513` y en `quality_gate_pre_commit/mod.rs:371`, para evaluar esos hosts con
+identidad byte a byte. Exige un catálogo por errno y un dialecto por locale que el corpus todavía no cubre.

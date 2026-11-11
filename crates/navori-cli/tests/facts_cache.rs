@@ -54,6 +54,11 @@ fn facts() -> Facts {
         system: output(b"Darwin\n"),
         charmap: output(b"UTF-8\n"),
         text: output(&[0, 0xff, b'\n']),
+        messages: Output {
+            code: Some(1),
+            stdout: b"messages-probe: line 1: x: Not a directory\n".to_vec(),
+            stderr: Vec::new(),
+        },
         jq: None,
         node: Some(Output {
             code: None,
@@ -87,6 +92,9 @@ fn entries_round_trip_only_while_fresh_and_for_their_own_key() -> TestResult {
     assert_eq!(cached.tools, tools());
     assert_eq!(cached.facts.bootstrap.stdout, facts().bootstrap.stdout);
     assert_eq!(cached.facts.text.stdout, vec![0, 0xff, b'\n']);
+    assert_eq!(cached.facts.messages.code, Some(1));
+    assert_eq!(cached.facts.messages.stdout, facts().messages.stdout);
+    assert!(cached.facts.messages.stderr.is_empty());
     assert!(cached.facts.jq.is_none());
     let node = cached.facts.node.ok_or("node")?;
     assert_eq!((node.code, node.stderr), (None, b"killed".to_vec()));
@@ -107,6 +115,32 @@ fn entries_round_trip_only_while_fresh_and_for_their_own_key() -> TestResult {
         2,
         "no temporary file is left behind"
     );
+    Ok(())
+}
+
+// Covers: R17
+#[test]
+fn a_schema_1_entry_without_messages_is_a_miss() -> TestResult {
+    let temp = Temp::new()?;
+    let cache = FactsCache::in_project(&temp.0);
+    let now = now_ms().ok_or("clock")?;
+    cache.store("k", &facts(), &tools(), now);
+    let path = entry(&temp, "k");
+    let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    assert_eq!(value["schema"], 2);
+    assert!(cache.load("k", now).is_some());
+    // Same entry shaped as the previous version: schema 1, no messages fact.
+    value["schema"] = 1.into();
+    value["facts"]
+        .as_object_mut()
+        .ok_or("facts")?
+        .remove("messages");
+    fs::write(&path, value.to_string())?;
+    assert!(cache.load("k", now).is_none(), "schema 1 entry");
+    // Schema 1 label alone is also refused, and schema 2 without messages is refused.
+    value["schema"] = 2.into();
+    fs::write(&path, value.to_string())?;
+    assert!(cache.load("k", now).is_none(), "schema 2 missing messages");
     Ok(())
 }
 
