@@ -21,3 +21,7 @@
 {"date":"2026-11-10","op":"unport","id":"master-plan-context","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
 {"date":"2026-11-11","op":"unport","id":"role-guard","reason":"role-guard retirado del binario; queda como hook shell permanente (#1503)","pr":1659}
 {"date":"2026-11-11","op":"unport","id":"engram-write-guard","reason":"engram-write-guard retirado del binario; queda como hook shell permanente (#1503)","pr":1659}
+{"date":"2026-11-11","op":"port","id":"backup list","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup restore","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup prune","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
