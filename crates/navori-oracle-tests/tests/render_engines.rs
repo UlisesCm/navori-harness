@@ -14,8 +14,8 @@ use std::sync::LazyLock;
 use navori_core::config;
 use navori_core::render::collect::DiskView;
 use navori_core::render::prose::{
-    AGENTS_MD, COPILOT, CURSOR, ProseOptions, ProsePlan, ProseSpec, plan_prose_file,
-    summarize_trigger,
+    AGENTS_MD, COPILOT, CURSOR, ProseOptions, ProsePlan, ProseSpec, plan_agents_md_engine,
+    plan_prose_file, summarize_trigger,
 };
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -77,8 +77,12 @@ fn plan(
         ambient_floor: floor,
         ..ProseOptions::default()
     };
-    plan_prose_file(&DiskView(root), &read.data, root, spec, options, None)
-        .map_err(|_| format!("{} delegated", spec.engine))
+    if spec == AGENTS_MD {
+        plan_agents_md_engine(&DiskView(root), &read.data, root, options)
+    } else {
+        plan_prose_file(&DiskView(root), &read.data, root, spec, options, None)
+    }
+    .map_err(|_| format!("{} delegated", spec.engine))
 }
 
 // --- golden -------------------------------------------------------------------------------

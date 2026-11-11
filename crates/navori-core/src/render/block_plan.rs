@@ -18,7 +18,7 @@ use crate::markers::{
 use crate::render::assets;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
 use crate::render::plan::{
-    Audience, CORE_MANAGED_ASSETS, CORE_SOURCE_ID, CoreManagedAsset, EXCLUDABLE_BLOCK_IDS,
+    Audience, CORE_MANAGED_ASSETS, CORE_SOURCE_ID, CoreManagedAsset, EXCLUDABLE_BLOCK_IDS, Layer,
     condition_orchestration, resolve_asset_path,
 };
 use crate::render::plugins::{PluginLoadError, RETIRED_PLUGIN_BLOCKS, load_plugin, retired_plugin};
@@ -72,6 +72,8 @@ pub enum PlanAsset {
         dir: String,
         /// File under the plugin root.
         path: String,
+        /// `layer: "shared"` in the manifest (spec 0064).
+        shared: bool,
     },
     /// A block the engine computes from config; the TS `relPath` is `(computed)`.
     Computed {
@@ -98,6 +100,43 @@ impl PlanAsset {
             | Self::Computed { id }
             | Self::Retired { id, .. } => id,
         }
+    }
+
+    /// `asset.layer`: the explicit layer a core or plugin asset declares.
+    #[must_use]
+    pub fn layer(&self) -> Option<Layer> {
+        match self {
+            Self::Core(asset) => asset.layer,
+            Self::Plugin { shared: true, .. } => Some(Layer::Shared),
+            _ => None,
+        }
+    }
+}
+
+impl PlanEntry {
+    /// `layerOf(entry, presetId)`: `audience` wins, then an explicit layer, then provenance (core and
+    /// the active preset are shared; an undeclared plugin block reads as Claude-specific).
+    #[must_use]
+    pub fn layer_of(&self, preset_id: Option<&str>) -> Layer {
+        if matches!(&self.asset, PlanAsset::Core(asset) if asset.audience == Audience::Orchestrator)
+        {
+            return Layer::Orchestrator;
+        }
+        if let Some(layer) = self.asset.layer() {
+            return layer;
+        }
+        if self.source == "core" || preset_id == Some(self.source.as_str()) {
+            Layer::Shared
+        } else {
+            Layer::Claude
+        }
+    }
+
+    /// `declaresClaudeLayer`: only an explicit `layer: "claude"` outside the orchestrator audience.
+    #[must_use]
+    pub fn declares_claude_layer(&self) -> bool {
+        matches!(&self.asset, PlanAsset::Core(asset)
+            if asset.audience != Audience::Orchestrator && asset.layer == Some(Layer::Claude))
     }
 }
 
@@ -562,6 +601,7 @@ impl Planner<'_> {
                     id: entry.id.clone(),
                     dir: plugin.dir.clone(),
                     path: entry.path.clone(),
+                    shared: entry.shared,
                 };
                 if enabled {
                     let raw = utf8(assets::plugin(&plugin.dir, &entry.path).ok_or(PlanDelegate)?)?;

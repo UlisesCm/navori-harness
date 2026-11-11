@@ -209,6 +209,9 @@ pub struct PluginAsset {
     pub id: String,
     /// Normalized path under the plugin root (`assets::plugin(plugin, path)`).
     pub path: String,
+    /// `layer: "shared"` (spec 0064): the block is neutral, so the layered `agents-md` engine
+    /// carries it.
+    pub shared: bool,
 }
 
 /// `scriptAssets[]`.
@@ -303,6 +306,7 @@ fn managed_entry(value: &JsValue) -> Parsed {
         .required("id", present)?
         .required("file", present)?
         .optional("recommendedAgent", present)?
+        .optional("layer", present)?
         .strip())
 }
 
@@ -536,6 +540,12 @@ pub fn plugin_from_manifest(dir: &str, text: &str) -> Result<LoadedPlugin, Plugi
             Ok(PluginAsset {
                 id: required_text(entry, "id")?,
                 path: contain(&required_text(entry, "file")?)?,
+                // `z.enum(["shared"]).optional()`: any other value is the TS's to reject.
+                shared: match field(entry, "layer") {
+                    None => false,
+                    Some(_) if field_text(entry, "layer").as_deref() == Some("shared") => true,
+                    Some(_) => return Err(PluginLoadError::Delegate),
+                },
             })
         })
         .collect::<Result<Vec<_>, PluginLoadError>>()?;
