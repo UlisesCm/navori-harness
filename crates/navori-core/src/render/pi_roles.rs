@@ -5,25 +5,45 @@ use crate::js_json::JsValue;
 use crate::render::codex_policies::core_agent_entries;
 use crate::render::plugins::LoadedPlugin;
 
-/// `PI_ROLE_NAMES`, in order.
-pub const PI_ROLE_NAMES: [&str; 7] = [
+/// `PI_ROLE_NAMES`: the dispatchable child roles, in order.
+pub const PI_ROLE_NAMES: [&str; 6] = [
     "scout",
     "implementer",
     "reviewer",
     "scribe",
     "auditor",
     "architect",
-    "publisher",
 ];
 
-/// `PI_ROLE_TOOLS[role]`; `None` for a role Pi does not render.
+/// `PI_PARENT_ROLES` (#1496): rendered as `.pi/agents/<role>.md` with `tools: []` for the parent
+/// session to follow, never dispatched as a child.
+pub const PI_PARENT_ROLES: [&str; 1] = ["publisher"];
+
+/// `isPiChildRole`.
+#[must_use]
+pub fn is_pi_child_role(role: &str) -> bool {
+    PI_ROLE_NAMES.contains(&role)
+}
+
+/// `isPiParentRole`.
+#[must_use]
+pub fn is_pi_parent_role(role: &str) -> bool {
+    PI_PARENT_ROLES.contains(&role)
+}
+
+/// `isPiRenderedRole`: Pi renders `.pi/agents/<id>.md` for a child or a parent role.
+#[must_use]
+pub fn is_pi_rendered_role(role: &str) -> bool {
+    is_pi_child_role(role) || is_pi_parent_role(role)
+}
+
+/// `PI_ROLE_TOOLS[role]`; `None` for a role that is not a dispatchable child.
 #[must_use]
 pub fn pi_role_base_tools(role: &str) -> Option<&'static [&'static str]> {
     Some(match role {
         "scout" => &["read", "grep", "find", "ls", "write"],
         "implementer" | "scribe" => &["read", "grep", "find", "ls", "bash", "edit", "write"],
         "reviewer" | "auditor" | "architect" => &["read", "grep", "find", "ls", "bash", "write"],
-        "publisher" => &["read", "grep", "find", "ls", "bash"],
         _ => return None,
     })
 }
@@ -142,9 +162,12 @@ pub fn pi_knowledge_grants(plugins: &[LoadedPlugin]) -> Option<PiKnowledgeGrants
     Some(grants)
 }
 
-/// `piRoleTools(role, grants)`: base tools plus the role's knowledge grants.
+/// `piRoleTools(role, grants)`: base tools plus the role's knowledge grants; a parent role gets none.
 #[must_use]
 pub fn pi_role_tools(role: &str, grants: &PiKnowledgeGrants) -> Vec<String> {
+    if is_pi_parent_role(role) {
+        return Vec::new();
+    }
     let mut tools: Vec<String> = pi_role_base_tools(role)
         .unwrap_or_default()
         .iter()

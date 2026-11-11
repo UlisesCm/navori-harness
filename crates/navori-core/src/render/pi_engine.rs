@@ -40,7 +40,9 @@ use crate::render::pi_projection::{
     pi_installed_plugin_scripts, pi_map_migration_pending, prefix_knowledge_names,
     role_plugin_prose,
 };
-use crate::render::pi_roles::{pi_knowledge_grants, pi_role_base_tools, pi_role_tools};
+use crate::render::pi_roles::{
+    is_pi_child_role, is_pi_rendered_role, pi_knowledge_grants, pi_role_tools,
+};
 use crate::render::plan::{CORE_SOURCE_ID, condition_orchestration};
 use crate::render::plugin_scripts::{
     ScriptEngine, plugin_script_collisions, plugin_script_placements,
@@ -351,7 +353,7 @@ fn prepare<'a>(
     }
 
     let scribe = flag(&config, "harness", "scribeOwnsMarkdown");
-    let admitted = |id: &str| pi_role_base_tools(id).is_some() && (id != "scribe" || scribe);
+    let admitted = |id: &str| is_pi_rendered_role(id) && (id != "scribe" || scribe);
     let roles: Vec<String> = plan
         .agents
         .iter()
@@ -361,7 +363,7 @@ fn prepare<'a>(
     let mut warnings: Vec<String> = plan
         .agents
         .iter()
-        .filter(|a| pi_role_base_tools(&a.id).is_none())
+        .filter(|a| !is_pi_rendered_role(&a.id))
         .map(|a| {
             format!(
                 "Pi subagent role {} is unsupported and was not rendered.",
@@ -403,13 +405,20 @@ fn prepare<'a>(
     owned_paths.extend(hooks.iter().map(|h| h.path.clone()));
     let manifest = serialize_pi_manifest(&PiManifest {
         schema_version: 2,
-        agents: roles.clone(),
+        // Parent roles are rendered but never dispatchable, so the manifest does not list them.
+        agents: roles
+            .iter()
+            .filter(|r| is_pi_child_role(r))
+            .cloned()
+            .collect(),
         controls: Some(PiControls {
             plan_tiers: flag(&config, "harness", "planTiers"),
             master_plan: flag(&config, "harness", "masterPlan"),
             scribe_owns_markdown: scribe,
             audit_always: text(get(&config, "audit").and_then(|a| get(a, "mode"))).as_deref()
                 == Some("always"),
+            session_state_off: get(&config, "harness").and_then(|h| get(h, "sessionState"))
+                == Some(&JsValue::Bool(false)),
         }),
         hooks,
         owned_paths,
@@ -561,7 +570,7 @@ fn prepare<'a>(
             let Some(role) = name.strip_suffix(".md") else {
                 continue;
             };
-            if roles.iter().any(|r| r == role) || pi_role_base_tools(role).is_none() {
+            if roles.iter().any(|r| r == role) || !is_pi_rendered_role(role) {
                 continue;
             }
             let rel = format!(".pi/agents/{name}");

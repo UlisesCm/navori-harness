@@ -34,7 +34,7 @@ static NODE: Shared = Shared::new(
        case 'extension': return o.serializePiSource(x.renderPiExtensionSource(request.ids, request.grants));\n\
        case 'agent': { const a = o.serializePiAgent(request.agent); return [a, o.ownsPiAgent(a, request.agent.name), o.ownsPiAgent(request.tampered ?? a, request.agent.name)]; }\n\
        case 'manifest': { const c = request.manifest.controls;\n\
-         if (c) request.manifest.controls = { planTiers: c.planTiers, masterPlan: c.masterPlan, scribeOwnsMarkdown: c.scribeOwnsMarkdown, ...(c.auditMode ? { auditMode: c.auditMode } : {}) };\n\
+         if (c) request.manifest.controls = { planTiers: c.planTiers, masterPlan: c.masterPlan, scribeOwnsMarkdown: c.scribeOwnsMarkdown, ...(c.auditMode ? { auditMode: c.auditMode } : {}), ...(c.sessionState === false ? { sessionState: false } : {}) };\n\
          const m = o.serializePiManifest(request.manifest); return [m, o.ownsPiManifest(m), o.piManifestSchemaVersion(m)]; }\n\
        case 'owns': return [o.ownsPiManifest(request.text), o.piManifestSchemaVersion(request.text), o.ownsPiSource(request.text)];\n\
      }",
@@ -160,7 +160,13 @@ fn manifest() -> impl Strategy<Value = PiManifest> {
             prop::sample::select(vec!["scout", "reviewer", "implementer", "Zed"]),
             0..4,
         ),
-        prop::option::of((any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>())),
+        prop::option::of((
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+        )),
         prop::collection::vec(hook, 0..3),
         prop::collection::vec(
             prop::sample::select(vec![
@@ -180,11 +186,20 @@ fn manifest() -> impl Strategy<Value = PiManifest> {
                 schema_version: version,
                 agents: agents.into_iter().map(str::to_owned).collect(),
                 controls: controls.map(
-                    |(plan_tiers, master_plan, scribe_owns_markdown, audit_always)| PiControls {
+                    |(
                         plan_tiers,
                         master_plan,
                         scribe_owns_markdown,
                         audit_always,
+                        session_state_off,
+                    )| {
+                        PiControls {
+                            plan_tiers,
+                            master_plan,
+                            scribe_owns_markdown,
+                            audit_always,
+                            session_state_off,
+                        }
                     },
                 ),
                 hooks: if version == 2 { hooks } else { Vec::new() },
@@ -213,6 +228,9 @@ fn manifest_json(m: &PiManifest) -> Value {
         let mut controls = json!({ "planTiers": c.plan_tiers, "masterPlan": c.master_plan, "scribeOwnsMarkdown": c.scribe_owns_markdown });
         if c.audit_always {
             controls["auditMode"] = json!("always");
+        }
+        if c.session_state_off {
+            controls["sessionState"] = json!(false);
         }
         out["controls"] = controls;
     }
