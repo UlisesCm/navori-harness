@@ -346,8 +346,15 @@ impl<'a> Plan<'a> {
         {
             return Err(Ineligible("locale charmap was not accredited".into()));
         }
+        // Exact strings only: each was measured against the shell extraction (official 1.7,
+        // 1.7.1 and 1.8.1, plus the Ubuntu 24.04 build that reports `jq-1.7` and the distro
+        // 1.8.1). The string does not identify the build, so a behavior probe must replace
+        // this list before any hook is promoted to `active`.
         let jq = check_version(&discovery, Tool::Jq, facts.jq.as_ref(), |v| {
-            matches!(v, b"jq-1.7\n" | b"jq-1.7.1-apple\n")
+            matches!(
+                v,
+                b"jq-1.7\n" | b"jq-1.7.1\n" | b"jq-1.7.1-apple\n" | b"jq-1.8.1\n"
+            )
         })?;
         let node = check_version(&discovery, Tool::Node, facts.node.as_ref(), stable_node)?;
         if facts.text.bytes()? != expected_text(locale) {
