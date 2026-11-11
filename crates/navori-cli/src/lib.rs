@@ -9,7 +9,6 @@ pub mod dominio;
 pub mod dominio_inject;
 pub mod facts_cache;
 pub mod gate_probe;
-pub mod governance_hook;
 pub mod handoff;
 pub mod help;
 pub mod hook;
