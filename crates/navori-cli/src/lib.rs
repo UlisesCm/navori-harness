@@ -25,6 +25,7 @@ pub mod parser;
 pub mod plan;
 pub mod plan_gate;
 pub mod plan_gate_hook;
+pub mod preset;
 pub mod publish_confirm_hook;
 pub mod quality_gate;
 pub mod remove;
@@ -250,6 +251,14 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["migrations"],
         run: migrations::run_group,
+    },
+    NativeCommand {
+        path: &["preset", "init"],
+        run: preset::run_init,
+    },
+    NativeCommand {
+        path: &["preset"],
+        run: preset::run_group,
     },
     NativeCommand {
         path: &["adopt"],

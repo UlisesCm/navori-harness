@@ -1066,11 +1066,12 @@ describe("rust oracle", () => {
   });
 
   // Covers: R73
-  it("backup y migrations nativos en cada subcomando", () => {
+  it("backup, migrations y preset nativos en cada subcomando", () => {
     const cases = oracle.loadCases();
     const groups: Record<string, string[]> = {
       backup: ["list", "restore", "prune"],
       migrations: ["list", "restore"],
+      preset: ["init"],
     };
     for (const [group, subs] of Object.entries(groups)) {
       const mine = cases.filter((c) => c.id.startsWith(`${group}:`));
