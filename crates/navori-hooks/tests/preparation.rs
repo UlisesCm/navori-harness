@@ -139,6 +139,64 @@ fn capture_contracts_are_exact_unique_and_not_an_assumed_line_184() {
 
 // Covers: R11, R13
 #[test]
+fn only_the_exact_measured_jq_version_strings_are_accredited()
+-> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let p = plan(request(&env), Limits::default())?;
+    let mut bootstrap = b"3.2.57(1)-release\0".to_vec();
+    for tool in Tool::ALL {
+        bootstrap
+            .extend_from_slice(format!("{}\00\0/bin/{}\0", tool.name(), tool.name()).as_bytes());
+    }
+    let facts = |jq: &[u8]| Facts {
+        bootstrap: output(&bootstrap),
+        system: output(b"Darwin\n"),
+        charmap: output(b"US-ASCII\n"),
+        // A wrong text fact makes an accredited jq fail at the next check, after the jq one.
+        text: output(b"not needed"),
+        jq: Some(output(jq)),
+        node: Some(output(b"v24.22.0\n")),
+    };
+    let unaccredited = |jq: &[u8]| {
+        p.prepare(&facts(jq))
+            .err()
+            .is_some_and(|error| error.0.contains("jq is present but unaccredited"))
+    };
+    for accepted in [
+        b"jq-1.7\n".as_slice(),
+        b"jq-1.7.1\n".as_slice(),
+        b"jq-1.7.1-apple\n".as_slice(),
+        b"jq-1.8.1\n".as_slice(),
+    ] {
+        assert!(!unaccredited(accepted), "{accepted:?} must be accredited");
+        assert!(
+            p.prepare(&facts(accepted))
+                .err()
+                .is_some_and(|error| error.0.contains("legacy text behavior differs"))
+        );
+    }
+    for rejected in [
+        b"jq-1.6\n".as_slice(),
+        b"jq-1.7.0\n".as_slice(),
+        b"jq-1.8.0\n".as_slice(),
+        b"jq-1.8.2\n".as_slice(),
+        b"jq-1.9.0\n".as_slice(),
+        b"jq-1.7.1-dirty\n".as_slice(),
+        b"jq-1.8.1-4ubuntu2\n".as_slice(),
+        b"jq-1.8.1".as_slice(),
+        b"jq-1.8.1\n\n".as_slice(),
+        b" jq-1.8.1\n".as_slice(),
+    ] {
+        assert!(
+            unaccredited(rejected),
+            "{rejected:?} must stay unaccredited"
+        );
+    }
+    Ok(())
+}
+
+// Covers: R11, R13
+#[test]
 fn unknown_present_jq_and_lookup_errors_never_become_node_fallback()
 -> Result<(), Box<dyn std::error::Error>> {
     let env = environment();
