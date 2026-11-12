@@ -642,6 +642,21 @@ pub fn build_claude_settings(
             )],
         ),
     );
+    // #1445: web tools only; always registered (the Bash half lives in guard-destructive).
+    merge_into(
+        &mut s,
+        registration(
+            pre,
+            Some("WebFetch|WebSearch"),
+            vec![hook(
+                pre,
+                "pii-egress-guard",
+                None,
+                10.0,
+                "navori: pii-egress-guard",
+            )],
+        ),
+    );
     if flag(config, "harness", "scribeOwnsMarkdown") {
         merge_into(
             &mut s,

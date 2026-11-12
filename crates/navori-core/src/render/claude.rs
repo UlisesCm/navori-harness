@@ -197,7 +197,8 @@ pub fn plan_claude_engine(
     // (c) conditional hooks/skills are rendered when the TS does not (audit-mode-*,
     //     model-advisor, routing-watch, master-*, implementer-no-markdown, skills plan-simple,
     //     plan-advanced, dominio, author-skill) and settings.json gets extra hook entries (G3);
-    // (d) pii-egress-guard.sh is missing (1c).
+    // (d) pii-egress-guard render (plan + settings registration) is done (1c); its native
+    //     runtime is a separate PR.
     // Removing it also returns `retired-context:*` to `native: true` (see pendientes-dev.md).
     if !options.native_claude {
         return Err(ClaudeEngineDelegate);
