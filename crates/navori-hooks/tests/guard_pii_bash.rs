@@ -1339,8 +1339,13 @@ fn same_grep_calls(locale: Locale) -> TestResult {
     };
     let shell_calls = pii_only(&theirs.log)?;
     let native_calls = pii_only(&ours.log)?;
-    // The shim is really in `PATH` on both sides; the call-by-call comparison below is the check.
-    assert!(!shell_calls.is_empty(), "the shim saw no `_pii_has` call");
+    // A measured floor (438 calls on this corpus): the shim is in `PATH` and the corpus still
+    // reaches `_pii_has`; the call-by-call comparison below is the parity check.
+    assert!(
+        shell_calls.len() >= 400,
+        "the shim saw too few `_pii_has` calls: {}",
+        shell_calls.len()
+    );
     let first = shell_calls
         .iter()
         .zip(&native_calls)

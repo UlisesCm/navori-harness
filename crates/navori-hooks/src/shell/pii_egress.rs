@@ -11,7 +11,7 @@
 //! leaves only as a [`Code`], an enum with no data (and as the argument of the host's `grep`, as
 //! in the shell). There is no regex built from it (a `Regex` prints its pattern in `Debug`) and
 //! no error that carries bytes is ever formatted: the byte handling below has no
-//! `FromUtf8Error` to leak. The three guards against a panic that would print a slice are the
+//! `FromUtf8Error` to leak. The guards against a panic that would print a slice are the two
 //! `deny` lints at the top of this file.
 //!
 //! # Failure contract
