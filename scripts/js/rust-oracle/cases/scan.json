@@ -1,7 +1,76 @@
 {
   "schema": 1,
   "cases": [
-    { "id": "fresh-init:scan", "fixture": "fresh-init", "args": ["scan"] },
-    { "id": "monorepo:scan", "fixture": "monorepo", "args": ["scan"] }
+    { "id": "fresh-init:scan", "fixture": "fresh-init", "args": ["scan"], "native": true },
+    { "id": "monorepo:scan", "fixture": "monorepo", "args": ["scan"], "native": true },
+    { "id": "scan:no-config", "fixture": "empty", "args": ["scan"], "native": true },
+    { "id": "scan:cwd", "fixture": "monorepo", "args": ["scan", "--cwd", "."], "native": true },
+    {
+      "id": "scan:no-patterns",
+      "fixture": "monorepo",
+      "files": { "package.json": "{\"name\":\"mono\",\"private\":true}\n" },
+      "args": ["scan", "--yes"],
+      "native": true
+    },
+    {
+      "id": "scan:no-package-dirs",
+      "fixture": "monorepo",
+      "files": { "package.json": "{\"name\":\"mono\",\"workspaces\":[\"tools/*\"]}\n", "tools/a/readme.txt": "" },
+      "args": ["scan"],
+      "native": true
+    },
+    {
+      "id": "scan:orphans-en",
+      "fixture": "monorepo",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"mono\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"custom\",\n  \"language\": \"en\",\n  \"monorepo\": {\n    \"enabled\": true,\n    \"tool\": \"npm\",\n    \"workspaces\": [\n      { \"name\": \"api\", \"path\": \"apps/api\" },\n      { \"name\": \"web\", \"path\": \"apps/web\" },\n      { \"name\": \"gone\", \"path\": \"apps/gone\" },\n      { \"name\": \"old\", \"path\": \"libs/old\" }\n    ]\n  }\n}\n"
+      },
+      "args": ["scan"],
+      "native": true
+    },
+    {
+      "id": "scan:yes-adds",
+      "fixture": "monorepo",
+      "files": {
+        "package.json": "{\"name\":\"mono\",\"workspaces\":{\"packages\":[\"apps/*\",\"packages/*\",\"!apps/skip\"]}}\n",
+        "apps/admin/package.json": "{\"name\":\"@mono/Admin Panel\",\"dependencies\":{\"next\":\"15.0.0\",\"zod\":\"3.0.0\",\"moment\":\"2.0.0\",\"dayjs\":\"1.0.0\",\"tailwindcss\":\"^3.4.0\"}}\n",
+        "apps/admin/src/a.ts": "import m from 'moment';\n",
+        "apps/legacy/package.json": "{\"name\":\"legacy\",\"dependencies\":{\"moment\":\"2\",\"dayjs\":\"1\",\"date-fns\":\"3\",\"redux\":\"4\",\"@reduxjs/toolkit\":\"2\"}}\n",
+        "apps/jobs/package.json": "{\"dependencies\":{\"express\":\"4.0.0\",\"bullmq\":\"5.0.0\"}}\n",
+        "apps/jobs/.maestro/flow.yaml": "",
+        "apps/.hidden/package.json": "{\"name\":\"hidden\"}\n",
+        "packages/ui/package.json": "{\"name\":\"\",\"devDependencies\":{\"@mantine/core\":\"7\",\"vite\":\"5\"}}\n",
+        "packages/empty/readme.txt": ""
+      },
+      "args": ["scan", "--yes"],
+      "native": true
+    },
+    {
+      "id": "scan:yes-pnpm-en",
+      "fixture": "monorepo",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"mono\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"language\": \"en\",\n  \"preset\": \"express-mongoose\",\n  \"monorepo\": { \"enabled\": true, \"tool\": \"pnpm\" }\n}\n",
+        "pnpm-workspace.yaml": "packages:\n  - 'apps/*'   # apps\n\n  - \"libs/*\"\nonlyBuiltDependencies:\n  - esbuild\n",
+        "libs/core/package.json": "{\"name\":\"core\",\"dependencies\":{\"express\":\"4.0.0\",\"mongoose\":\"8.0.0\"}}\n",
+        "libs/infra/package.json": "{\"name\":\"infra\"}\n",
+        "libs/infra/turbo.json": "{}\n",
+        "libs/infra/pnpm-lock.yaml": ""
+      },
+      "args": ["scan", "--yes"],
+      "native": true
+    },
+    {
+      "id": "scan:new-without-yes-delegates",
+      "fixture": "monorepo",
+      "files": { "apps/admin/package.json": "{\"name\":\"admin\"}\n" },
+      "stdin": "",
+      "args": ["scan"]
+    },
+    {
+      "id": "scan:python-workspace-delegates",
+      "fixture": "monorepo",
+      "files": { "apps/py/package.json": "{\"name\":\"py\"}\n", "apps/py/pyproject.toml": "[project]\nname = \"py\"\n" },
+      "args": ["scan", "--yes"]
+    }
   ]
 }
