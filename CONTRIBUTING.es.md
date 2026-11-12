@@ -251,6 +251,13 @@ siguen siendo solo TypeScript.
   si no, corre el shell renderizado. `NAVORI_HOOK_IMPL=shell` fuerza el shell y
   `NAVORI_HOOK_IMPL=rust` fuerza la evaluación nativa, que falla en vez de diferir. Las
   observaciones de sombra quedan en `.navori/state/rust-shadow/` (`navori tools rust-shadow report`).
+  Cada llamada guarda un `begin` y un `complete` con banderas de comparación; solo en una
+  divergencia se agregan `shellCode`/`nativeCode`. El payload, stdout y stderr del hook nunca se
+  guardan, así que el journal no basta para diagnosticar una divergencia real: el replay y el fuzz
+  son sintéticos, y para reproducirla hay que capturar el payload a mano, fuera del journal. Si el
+  reporte muestra `legacyPayloadRows` > 0, borra los journals viejos que aún traen payload con
+  `rm <checkout>/.navori/state/rust-shadow/*.jsonl`. Eso borra también la evidencia de sombra
+  acumulada (readiness) y reinicia la ventana de observación de D9.
 - **Sincronizar con `dev`:** merge, nunca rebase. Crea la rama desde `origin/migration/rust`, corre
   `git merge origin/dev` y abre el PR contra `migration/rust`. El job `freshness` de CI falla si
   falta un commit de primer padre de `dev` con más de 7 días.

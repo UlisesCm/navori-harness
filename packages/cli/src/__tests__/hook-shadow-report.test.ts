@@ -10,6 +10,7 @@ interface Row {
   engine: string;
   ok: boolean;
   invocations: number;
+  legacyPayloadRows: number;
   problems: string[];
 }
 interface Report {
@@ -44,11 +45,11 @@ const comparison = (differs: boolean): Record<string, boolean> => ({
   stderrDiffers: false,
 });
 
-/** One completed observation, `ageDays` before NOW; a divergence carries its payload. */
+/** One completed observation, `ageDays` before NOW; `legacy` adds the payload old binaries wrote. */
 function journal(
   hook: string,
   engine: string,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean }[],
+  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[],
 ): Uint8Array {
   const lines: string[] = [];
   for (const call of calls) {
@@ -62,7 +63,7 @@ function journal(
         timeMs: NOW - call.ageDays * DAY + 5,
         kind: "complete",
         comparison: comparison(call.differs === true),
-        ...(call.differs ? { payloadBase64: "e30=" } : {}),
+        ...(call.legacy ? { payloadBase64: "e30=" } : {}),
       }),
     );
   }
@@ -71,7 +72,7 @@ function journal(
 
 const run = (
   gating: boolean,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean }[] | undefined,
+  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[] | undefined,
   approved: string[] = [],
 ): Report =>
   shadow.buildReport({
@@ -171,4 +172,21 @@ it("solo una línea activate con no-shadow-traffic aprueba la falta de tráfico"
   expect(
     shadow.approvedWithoutTraffic(line("no-shadow-traffic", "activate", "other"), "example"),
   ).toEqual([]);
+});
+
+// Covers: R81
+it("las filas legacy con payloadBase64 se leen, se cuentan y nunca se devuelven", (): void => {
+  const clean = [{ ageDays: 8 }, { ageDays: 1 }];
+  expect(run(true, clean).rows[0]?.legacyPayloadRows).toBe(0);
+  const mixed = run(true, [
+    ...clean,
+    { ageDays: 2, differs: true, legacy: true },
+    { ageDays: 3, legacy: true },
+  ]);
+  expect(mixed.rows[0]?.legacyPayloadRows).toBe(2);
+  expect(mixed.rows[0]?.invocations).toBe(3);
+  expect(JSON.stringify(mixed)).not.toContain("e30=");
+  // A legacy divergence still turns the report red; the count is informational.
+  expect(mixed.ok).toBe(false);
+  expect(run(true, [...clean, { ageDays: 3, legacy: true }]).ok).toBe(true);
 });

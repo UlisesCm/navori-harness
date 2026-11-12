@@ -110,7 +110,12 @@
 - **原生 hook：** `ported.json` 中的 hook 仅在 `PATH` 中有 `navori-rust` 时以原生方式运行；否则运行
   渲染出的 shell。`NAVORI_HOOK_IMPL=shell` 强制使用 shell，`NAVORI_HOOK_IMPL=rust` 强制原生评估，
   无法评估时直接失败而不是回退。影子观测记录在 `.navori/state/rust-shadow/`
-  （`navori tools rust-shadow report`）。
+  （`navori tools rust-shadow report`）。每次调用记录一条 `begin` 和一条带比较标志的 `complete`；
+  仅在出现分歧时附加 `shellCode`/`nativeCode`。hook 的 payload、stdout 和 stderr 从不保存，因此
+  journal 本身无法诊断真实分歧：replay 和 fuzz 使用合成输入，要复现真实分歧需在 journal 之外手动
+  捕获 payload。若报告显示 `legacyPayloadRows` > 0，用
+  `rm <checkout>/.navori/state/rust-shadow/*.jsonl` 删除仍带 payload 的旧 journal。
+  这也会删除已累积的影子证据（readiness），并重新开始 D9 的观测窗口。
 - **与 `dev` 同步：** 只用 merge，不用 rebase。从 `origin/migration/rust` 建分支，运行
   `git merge origin/dev`，并向 `migration/rust` 发起 PR。若缺少超过 7 天的 `dev` 第一父提交，CI
   的 `freshness` job 会失败。

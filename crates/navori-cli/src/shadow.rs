@@ -43,6 +43,10 @@ pub struct Comparison {
     pub stdout_differs: bool,
     /// Stderr bytes differ.
     pub stderr_differs: bool,
+    /// Terminal protocol code (0, 1 or 2) of the shell lane, when it finished within the protocol.
+    pub shell_code: Option<u8>,
+    /// Terminal protocol code (0, 1 or 2) of the native lane, when it evaluated successfully.
+    pub native_code: Option<u8>,
 }
 
 impl Comparison {
@@ -120,6 +124,8 @@ where
         code_differs: compared && native.code() != shell.code(),
         stdout_differs: compared && native.stdout() != shell.stdout(),
         stderr_differs: compared && native.stderr() != shell.stderr(),
+        shell_code: shell_succeeded.then(|| shell.code()),
+        native_code: native_succeeded.then(|| native.code()),
     };
     ShadowResult { shell, comparison }
 }

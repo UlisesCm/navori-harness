@@ -157,6 +157,10 @@ la validación base64 canónica evita el desbordamiento de pila de la regex ante
 Pendientes el bridge Rust, la resolución de registros reales y el comando público de reporte;
 estas pruebas sintéticas no acreditan uso vivo ni completan T26/A9.
 
+Nota: el journal ya no guarda `payloadBase64` (enmienda de D9 paso 4 en `design.md`). El
+diagnóstico de una divergencia real ya no sale del journal: el replay y el fuzz son sintéticos, y
+reproducirla exige capturar el payload a mano, fuera del journal.
+
 T26 cerrado: elegibilidad antes de stdin conectada al registro nativo (#1406), journal acusado
 antes de stdin y completado tras el shell (#1406), caché de hechos del host (#1409) y entrada
 `mode: "shadow"` en `ported.json` con el render de Claude y Pi. La sombra sólo corre donde

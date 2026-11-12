@@ -1401,7 +1401,7 @@ mod journal_bridge {
     use super::*;
     use navori_cli::hook::run_with_journal;
     use navori_cli::journal::{
-        CliJournal, ShadowJournal, base64, completion, engine_name, project_root, receipt,
+        CliJournal, ShadowJournal, completion, engine_name, project_root, receipt,
     };
     use navori_cli::shadow::Comparison;
     use navori_hooks::runner::Engine;
@@ -1414,13 +1414,15 @@ mod journal_bridge {
         code_differs: false,
         stdout_differs: false,
         stderr_differs: false,
+        shell_code: None,
+        native_code: None,
     };
 
     #[derive(Default)]
     struct Recording {
         refuse: bool,
         begun: RefCell<Vec<(PathBuf, String, &'static str, String)>>,
-        completed: RefCell<Vec<(String, Comparison, Vec<u8>)>>,
+        completed: RefCell<Vec<(String, Comparison)>>,
     }
 
     impl ShadowJournal for Recording {
@@ -1440,10 +1442,10 @@ mod journal_bridge {
             (!self.refuse).then(|| "{\"kind\":\"begin\"}".to_owned())
         }
 
-        fn complete(&self, _: &Path, receipt: &str, comparison: Comparison, payload: &[u8]) {
+        fn complete(&self, _: &Path, receipt: &str, comparison: Comparison) {
             self.completed
                 .borrow_mut()
-                .push((receipt.to_owned(), comparison, payload.to_vec()));
+                .push((receipt.to_owned(), comparison));
         }
     }
 
@@ -1456,17 +1458,7 @@ mod journal_bridge {
 
     // Covers: R11
     #[test]
-    fn wire_helpers_encode_canonical_base64_and_strict_documents() {
-        for (input, expected) in [
-            (&b""[..], ""),
-            (b"f", "Zg=="),
-            (b"fo", "Zm8="),
-            (b"foo", "Zm9v"),
-            (b"foob", "Zm9vYg=="),
-            (b"\0\xff\n", "AP8K"),
-        ] {
-            assert_eq!(base64(input), expected);
-        }
+    fn wire_helpers_encode_strict_documents_without_payload() {
         assert_eq!(
             receipt(b"{\"kind\":\"begin\",\"id\":\"x\"}\n").as_deref(),
             Some("{\"kind\":\"begin\",\"id\":\"x\"}")
@@ -1480,14 +1472,36 @@ mod journal_bridge {
             assert_eq!(receipt(bad), None);
         }
         assert_eq!(
-            completion("{}", MATCH, b"secret"),
+            completion("{}", MATCH),
             r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false}}"#
         );
+        // A divergence names the closed protocol codes of each lane and nothing else.
         let diverged = Comparison {
             stderr_differs: true,
+            shell_code: Some(2),
+            native_code: Some(0),
             ..MATCH
         };
-        assert!(completion("{}", diverged, b"{}").ends_with(r#""payloadBase64":"e30="}"#));
+        assert_eq!(
+            completion("{}", diverged),
+            r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":true,"shellCode":2,"nativeCode":0}}"#
+        );
+        // A lane that did not finish leaves its code out; a match never carries codes.
+        let native_failed = Comparison {
+            native_failed: true,
+            shell_code: Some(1),
+            ..MATCH
+        };
+        assert_eq!(
+            completion("{}", native_failed),
+            r#"{"receipt":{},"comparison":{"nativeFailed":true,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false,"shellCode":1}}"#
+        );
+        let matched = Comparison {
+            shell_code: Some(0),
+            native_code: Some(0),
+            ..MATCH
+        };
+        assert_eq!(completion("{}", matched), completion("{}", MATCH));
         // Covers: R50 (D40): an unobserved lane names its flag and carries no payload.
         let unobserved = Comparison {
             native_unobserved: true,
@@ -1495,7 +1509,7 @@ mod journal_bridge {
         };
         assert!(!unobserved.diverged());
         assert_eq!(
-            completion("{}", unobserved, b"secret"),
+            completion("{}", unobserved),
             r#"{"receipt":{},"comparison":{"nativeFailed":false,"shellFailed":false,"codeDiffers":false,"stdoutDiffers":false,"stderrDiffers":false,"nativeUnobserved":true}}"#
         );
         assert_eq!(
@@ -1558,14 +1572,17 @@ mod journal_bridge {
             &mut stderr,
         );
         // The shell permits; the native fixture blocks: the host sees the shell, the journal
-        // records the divergence with the payload that reproduces it.
+        // records the divergence without the payload.
         assert_eq!(code, 0);
         assert!(stdout.is_empty() && stderr.is_empty());
         let completed = journal.completed.borrow();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].0, "{\"kind\":\"begin\"}");
         assert!(completed[0].1.code_differs && completed[0].1.diverged());
-        assert_eq!(completed[0].2, b"{\"tool\":1}");
+        assert_eq!(
+            (completed[0].1.shell_code, completed[0].1.native_code),
+            (Some(0), Some(2))
+        );
         Ok(())
     }
 
@@ -1606,7 +1623,7 @@ mod journal_bridge {
             stdout_differs: true,
             ..MATCH
         };
-        journal.complete(Path::new("/repo"), &receipt, diverged, b"\0payload");
+        journal.complete(Path::new("/repo"), &receipt, diverged);
         assert_eq!(
             journal.begin(
                 Path::new("relative"),
@@ -1626,10 +1643,253 @@ mod journal_bridge {
             format!(
                 "{}argv:tools rust-shadow complete --root /repo\nstdin:{}\n{}",
                 begin("/repo"),
-                completion(&receipt, diverged, b"\0payload"),
+                completion(&receipt, diverged),
                 begin("relative")
             )
         );
+        Ok(())
+    }
+
+    /// Fictitious identifier; it never appears in an assertion message.
+    const FAKE_ID: &str = "ana.ficticia+qa@example.test";
+    const PII_CHILD: &str = "NAVORI_PII_SHADOW_CHILD";
+    const PII_CLI: &str = "NAVORI_PII_FAKE_CLI";
+
+    fn workspace() -> &'static Path {
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+    }
+
+    fn b64(bytes: &[u8], alphabet: &[u8; 64]) -> String {
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk
+                .iter()
+                .enumerate()
+                .fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+            for index in 0..=chunk.len() {
+                out.push(char::from(
+                    alphabet[((n >> (18 - 6 * index)) & 63) as usize],
+                ));
+            }
+        }
+        out
+    }
+
+    fn hex(text: &str, upper: bool) -> String {
+        text.bytes()
+            .map(|b| {
+                if upper {
+                    format!("{b:02X}")
+                } else {
+                    format!("{b:02x}")
+                }
+            })
+            .collect()
+    }
+
+    /// Every spelling of `id` a payload leak could take. Base64 is taken at the three byte
+    /// alignments and trimmed of the edge characters that depend on neighbouring bytes.
+    fn variants(id: &str) -> Vec<Vec<u8>> {
+        const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let encoded = id.replace('@', "%40");
+        let mut found: Vec<Vec<u8>> = [
+            id.to_owned(),
+            id.to_uppercase(),
+            encoded.clone(),
+            id.replace('+', "%2B"),
+            encoded.replace('+', "%2B"),
+            encoded.replace('+', "%2b"),
+            id.replace('@', "\\u0040"),
+            id.replace('+', "\\u002b"),
+            "ana.ficticia".to_owned(),
+            "example.test".to_owned(),
+            hex(id, false),
+            hex(id, true),
+        ]
+        .into_iter()
+        .map(String::into_bytes)
+        .collect();
+        for alphabet in [STD, URL] {
+            for filler in 0..3 {
+                let mut bytes = vec![b'x'; filler];
+                bytes.extend_from_slice(id.as_bytes());
+                let text = b64(&bytes, alphabet);
+                found.push(text.as_bytes()[4..text.len() - 4].to_vec());
+            }
+        }
+        found
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// The hook payload the shadow run reads: a PII request that the shell lane blocks.
+    fn pii_payload(project: &Path) -> String {
+        let command = format!("curl -s 'https://api.example.test/lookup?u={FAKE_ID}'");
+        serde_json::json!({
+            "session_id":"s1", "cwd":project, "hook_event_name":"PreToolUse",
+            "tool_name":"Bash", "tool_input":{"command":command}
+        })
+        .to_string()
+    }
+
+    /// The whole payload as a leak could write it: clear, base64, base64url, hex, URL-encoded.
+    fn payload_encodings(payload: &str) -> Vec<Vec<u8>> {
+        const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        vec![
+            payload.as_bytes().to_vec(),
+            b64(payload.as_bytes(), STD).into_bytes(),
+            b64(payload.as_bytes(), URL).into_bytes(),
+            hex(payload, false).into_bytes(),
+            hex(payload, true).into_bytes(),
+            payload.replace('@', "%40").replace('+', "%2B").into_bytes(),
+        ]
+    }
+
+    /// Child half: a real shadow run of the rendered guard-destructive behind a recording CLI.
+    fn pii_child(project: &Path) -> TestResult {
+        use navori_cli::hook::NATIVE_HOOKS;
+        let script = project.join(".claude/hooks/guard-destructive.sh");
+        let implementation = navori_hooks::compiled::implementation_hash("guard-destructive")
+            .ok_or("compiled hash")?;
+        let manifest = Manifest::parse(
+            &serde_json::json!({
+                "schema":2, "commands":[], "hooks":{"guard-destructive":{
+                    "mode":"shadow", "gating":true,
+                    "blocks":{"guard-destructive-base":HASH, "tgrep-search-lane":HASH},
+                    "deps":{"scripts/guard-search-routing.sh":HASH}, "impl":implementation
+                }}
+            })
+            .to_string(),
+        )?;
+        let journal = CliJournal::from_locations(&navori_cli::delegate::Locations {
+            ts_cli: Some(std::env::var_os(PII_CLI).ok_or("fake CLI path")?),
+            checkout_dist: PathBuf::from("/nonexistent/index.js"),
+            path: std::env::var_os("PATH"),
+            self_exe: None,
+        })
+        .ok_or("TS CLI not resolved")?;
+        let payload = pii_payload(project);
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let code = run_with_journal(
+            &argv(&script),
+            &manifest,
+            &*NATIVE_HOOKS,
+            Mode::Auto,
+            Some(&journal),
+            &mut payload.as_bytes(),
+            &mut stdout,
+            &mut stderr,
+        );
+        // The shell lane blocks the PII request; the host sees only that verdict.
+        assert_eq!(code, 2);
+        Ok(())
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn a_pii_divergence_in_shadow_leaves_no_identifier_in_the_journal() -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+        if let Some(project) = std::env::var_os(PII_CHILD) {
+            return pii_child(Path::new(&project));
+        }
+        let scratch = Scratch::new()?;
+        let project = fs::canonicalize(&scratch.0)?;
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&project)
+                .status()?
+                .success()
+        );
+        // Install the rendered Claude copy of guard-destructive, signed for the compiled hash.
+        let routing_rel = "scripts/guard-search-routing.sh";
+        let routing = fs::read(workspace().join(".claude").join(routing_rel))?;
+        let routing_dest = project.join(".claude").join(routing_rel);
+        fs::create_dir_all(routing_dest.parent().ok_or("scripts")?)?;
+        fs::write(&routing_dest, &routing)?;
+        let zero = "0".repeat(64);
+        let implementation = navori_hooks::compiled::implementation_hash("guard-destructive")
+            .ok_or("compiled hash")?;
+        let rendered = fs::read_to_string(workspace().join(".claude/hooks/guard-destructive.sh"))?;
+        let body = match rendered.split_once('\n') {
+            Some((first, body)) if first.starts_with("# navori:native-hook ") => body,
+            _ => rendered.as_str(),
+        };
+        let unsigned =
+            format!("# navori:native-hook v=1 file=sha256:{zero} impl={implementation}\n{body}");
+        let hash = script_hash(unsigned.as_bytes(), &[&routing]).ok_or("metadata")?;
+        let script = project.join(".claude/hooks/guard-destructive.sh");
+        fs::create_dir_all(script.parent().ok_or("hooks")?)?;
+        fs::write(&script, unsigned.replacen(&zero, &hash[7..], 1))?;
+        let audits = project.join("audits");
+        fs::create_dir_all(audits.join("p"))?;
+        fs::set_permissions(&audits, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(audits.join("p"), fs::Permissions::from_mode(0o700))?;
+        // The Rust -> CLI boundary: a stand-in that records everything it receives and
+        // acknowledges begin. The TS writer is covered by command.test.ts and journal.test.ts.
+        let log = project.join("cli.log");
+        let cli = project.join("fake-navori");
+        let fake = format!(
+            "#!/bin/sh\nprintf 'argv:%s\\n' \"$*\" >> '{0}'\nprintf 'stdin:' >> '{0}'\ncat >> '{0}'\nprintf '\\n' >> '{0}'\n[ \"$3\" = begin ] && printf '{{\"kind\":\"begin\",\"id\":\"r1\"}}\\n'\nexit 0\n",
+            log.display()
+        );
+        fs::write(&cli, fake)?;
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+        let output = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "journal_bridge::a_pii_divergence_in_shadow_leaves_no_identifier_in_the_journal",
+                "--nocapture",
+            ])
+            .current_dir(&project)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &project)
+            .env("LC_ALL", "C")
+            .env("CLAUDE_PROJECT_DIR", &project)
+            .env("NAVORI_AUDITS_ROOT", &audits)
+            .env("NAVORI_PERSONAL_IDS", FAKE_ID)
+            .env(PII_CHILD, &project)
+            .env(PII_CLI, &cli)
+            .output()?;
+        assert!(output.status.success(), "child failed: {}", output.status);
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+
+        // Everything the CLI received: one begin and one complete, comparison flags only.
+        let bytes = fs::read(&log)?;
+        let text = String::from_utf8(bytes.clone())?;
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].starts_with("argv:tools rust-shadow begin --root "));
+        assert!(lines[0].contains(" --hook guard-destructive "));
+        assert_eq!(lines[1], "stdin:");
+        assert!(lines[2].starts_with("argv:tools rust-shadow complete --root "));
+        let document: serde_json::Value =
+            serde_json::from_str(lines[3].strip_prefix("stdin:").ok_or("stdin")?)?;
+        assert!(document.get("payloadBase64").is_none());
+        assert_eq!(document["comparison"]["codeDiffers"], true);
+        assert_eq!(document["comparison"]["shellCode"], 2);
+        assert_eq!(document["comparison"]["nativeCode"], 0);
+        let spellings = variants(FAKE_ID);
+        let leaks = spellings
+            .iter()
+            .filter(|needle| contains(&bytes, needle))
+            .count();
+        assert_eq!(
+            leaks, 0,
+            "identifier variants found in what the CLI received"
+        );
+        // Positive control: the real payload, in each encoding a leak could use, is seen.
+        for encoded in payload_encodings(&pii_payload(&project)) {
+            assert!(
+                spellings.iter().any(|needle| contains(&encoded, needle)),
+                "an encoding of the real payload goes unseen by the search"
+            );
+        }
         Ok(())
     }
 }

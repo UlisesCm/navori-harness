@@ -15,7 +15,6 @@ import {
   identitySchema,
   rootSchema,
   timeSchema,
-  diverged,
   MAX_LINE_BYTES,
   MAX_LOG_BYTES,
   type Receipt,
@@ -90,35 +89,19 @@ export function begin(root: unknown, identity: unknown): BeginAck {
 }
 
 /** Append a structural completion; report alone establishes binding and evidence readiness. */
-export function complete(
-  root: unknown,
-  receipt: unknown,
-  comparison: unknown,
-  payloadBytes: unknown,
-): CompleteAck {
+export function complete(root: unknown, receipt: unknown, comparison: unknown): CompleteAck {
   const start = beginSchema.safeParse(receipt);
   const flags = comparisonSchema.safeParse(comparison);
   const now = timeSchema.safeParse(Date.now());
-  if (
-    !start.success ||
-    !flags.success ||
-    !now.success ||
-    !(payloadBytes instanceof Uint8Array) ||
-    now.data < start.data.timeMs
-  )
+  if (!start.success || !flags.success || !now.success || now.data < start.data.timeMs)
     return { ok: false, reason: "invalid" };
   const target = location(root, start.data.hook);
   if (!target) return { ok: false, reason: "invalid" };
-  if (diverged(flags.data) && Math.ceil(payloadBytes.byteLength / 3) * 4 > MAX_LINE_BYTES)
-    return { ok: false, reason: "limit" };
   const end = completeSchema.safeParse({
     ...start.data,
     kind: "complete",
     timeMs: now.data,
     comparison: flags.data,
-    ...(diverged(flags.data)
-      ? { payloadBase64: Buffer.from(payloadBytes).toString("base64") }
-      : {}),
   });
   if (!end.success) return { ok: false, reason: "invalid" };
   return append(target, JSON.stringify(end.data) + "\n");

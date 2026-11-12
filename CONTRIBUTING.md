@@ -120,6 +120,13 @@ stay TypeScript-only.
   otherwise the rendered shell runs. `NAVORI_HOOK_IMPL=shell` forces the shell and
   `NAVORI_HOOK_IMPL=rust` forces native evaluation, failing instead of deferring. Shadow
   observations land in `.navori/state/rust-shadow/` (`navori tools rust-shadow report`).
+  Each call records a `begin` and a `complete` with comparison flags; only a divergence adds
+  `shellCode`/`nativeCode`. The hook's payload, stdout and stderr are never stored, so the journal
+  cannot diagnose a real divergence on its own: replay and fuzz are synthetic, and reproducing it
+  means capturing the payload by hand, outside the journal. If the report shows
+  `legacyPayloadRows` > 0, delete the old journals that still carry a payload with
+  `rm <checkout>/.navori/state/rust-shadow/*.jsonl`. This also deletes the accumulated shadow
+  evidence (readiness) and restarts the D9 observation window.
 - **Sync with `dev`:** merge, never rebase. Branch from `origin/migration/rust`, run
   `git merge origin/dev` and open the PR against `migration/rust`. CI `freshness` fails when a
   first-parent `dev` commit older than 7 days is missing.

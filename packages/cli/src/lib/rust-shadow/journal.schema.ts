@@ -33,6 +33,8 @@ export const identitySchema = z.strictObject({
   engine: engineSchema,
   implementation: implementationSchema,
 });
+/** Closed hook protocol exit codes (0 permit, 1 error, 2 block, 3 stdin untouched). */
+const protocolCodeSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
 /** Closed comparison summaries never contain raw stdout/stderr or payload. */
 export const comparisonSchema = z.strictObject({
   /** Spec 0059 D40: the native lane stopped at a branch with effects; nothing was compared. */
@@ -42,6 +44,9 @@ export const comparisonSchema = z.strictObject({
   codeDiffers: z.boolean(),
   stdoutDiffers: z.boolean(),
   stderrDiffers: z.boolean(),
+  /** Protocol code of each lane, only on a divergence and only when that lane finished. */
+  shellCode: protocolCodeSchema.optional(),
+  nativeCode: protocolCodeSchema.optional(),
 });
 export type Comparison = z.infer<typeof comparisonSchema>;
 export type Identity = z.infer<typeof identitySchema>;
@@ -61,24 +66,33 @@ export function diverged(comparison: Comparison): boolean {
 const common = { schema: z.literal(1), id: z.uuid(), ...identitySchema.shape, timeMs: timeSchema };
 /** Acknowledged observation start; payload is forbidden by the strict shape. */
 export const beginSchema = z.strictObject({ ...common, kind: z.literal("begin") });
-const base64Schema = z
-  .string()
-  .max(MAX_LINE_BYTES)
-  // Canonical round-trip rejects malformed padding/characters without regex stack growth.
-  .refine((value: string): boolean => Buffer.from(value, "base64").toString("base64") === value);
-const completeBaseSchema = z.strictObject({
+const completeShape = {
   ...common,
   kind: z.literal("complete"),
   comparison: comparisonSchema,
-  payloadBase64: base64Schema.optional(),
+};
+/** Written completion: the payload is forbidden by the strict shape. */
+export const completeSchema = z
+  .strictObject(completeShape)
+  .refine(
+    ({ comparison }: { comparison: Comparison }): boolean =>
+      diverged(comparison) ||
+      (comparison.shellCode === undefined && comparison.nativeCode === undefined),
+    { message: "protocol codes only on a divergence" },
+  );
+/**
+ * Read-side completion. Rows written before the payload was dropped may still carry
+ * `payloadBase64`: it is accepted so old evidence stays readable, never inspected, and counted
+ * by the report so the journal can be deleted.
+ */
+const completeReadSchema = z.strictObject({
+  ...completeShape,
+  payloadBase64: z.string().max(MAX_LINE_BYTES).optional(),
 });
-/** Payload bytes exist exactly when a completed observation diverged. */
-export const completeSchema = completeBaseSchema.refine(
-  (row: z.infer<typeof completeBaseSchema>): boolean =>
-    diverged(row.comparison) === (row.payloadBase64 !== undefined),
-);
-/** Strict versioned wire records. */
+/** Strict versioned wire records (write side). */
 export const recordSchema = z.discriminatedUnion("kind", [beginSchema, completeSchema]);
+/** Records as they may exist on disk, including legacy completions. */
+export const readRecordSchema = z.discriminatedUnion("kind", [beginSchema, completeReadSchema]);
 /** Required registrations are authoritative inputs, never inferred from the journal. */
 export const expectedSchema = z.strictObject({
   hook: hookSchema,
