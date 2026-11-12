@@ -75,6 +75,7 @@ fn engine_scope(id: &str) -> Option<&'static [&'static str]> {
         }
         "master-plan-context" => Some(&["claude", "codex"]),
         "role-guard" | "engram-write-guard" => Some(&["codex"]),
+        "pii-egress-guard" => Some(&["claude"]),
         _ => None,
     }
 }
@@ -429,6 +430,7 @@ pub fn resolve_harness_plan(
             "master-plan-context",
             "master-accept-confirm",
             "role-guard",
+            "pii-egress-guard",
             "engram-write-guard",
         ]
         .into_iter()
