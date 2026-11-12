@@ -369,6 +369,25 @@ pub fn purge_old_backups(
     Ok(pruned)
 }
 
+/// `new Date(ms).toISOString()`: `TimeClip` truncates toward zero; `None` out of range.
+#[must_use]
+pub fn iso_from_ms(ms: f64) -> Option<String> {
+    if !ms.is_finite() {
+        return None;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "TimeClip truncates toward zero"
+    )]
+    let ms = ms.trunc() as i64;
+    Some(
+        jiff::Timestamp::from_millisecond(ms)
+            .ok()?
+            .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

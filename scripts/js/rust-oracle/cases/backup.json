@@ -1,6 +1,29 @@
 {
   "schema": 1,
   "cases": [
-    { "id": "fresh-init:backup-list", "fixture": "fresh-init", "args": ["backup", "list"] }
+    { "id": "fresh-init:backup-list", "fixture": "fresh-init", "args": ["backup", "list"] },
+    {"id": "backup:group-no-command", "fixture": "empty", "mask": ["version"], "args": ["backup"], "native": true},
+    {"id": "backup:group-help", "fixture": "empty", "mask": ["version"], "args": ["backup", "--help"], "native": true},
+    {"id": "backup:group-unknown", "fixture": "empty", "mask": ["version"], "args": ["backup", "nope"], "native": true},
+    {"id": "backup:list-help", "fixture": "empty", "args": ["backup", "list", "--help"], "native": true},
+    {"id": "backup:restore-help", "fixture": "empty", "args": ["backup", "restore", "--help"], "native": true},
+    {"id": "backup:prune-help", "fixture": "empty", "args": ["backup", "prune", "--help"], "native": true},
+    {"id": "backup:restore-missing-timestamp", "fixture": "empty", "args": ["backup", "restore", "--yes"], "native": true},
+    {"id": "backup:list-empty", "fixture": "empty", "args": ["backup", "list"], "native": true},
+    {"id": "backup:list-empty-json", "fixture": "empty", "args": ["backup", "list", "--json"], "native": true},
+    {"id": "backup:list", "fixture": "aged-backups", "args": ["backup", "list"], "native": true},
+    {"id": "backup:list-limit", "fixture": "aged-backups", "args": ["backup", "list", "--limit", "2"], "native": true},
+    {"id": "backup:list-limit-zero", "fixture": "aged-backups", "args": ["backup", "list", "--limit=0"], "native": true},
+    {"id": "backup:list-limit-hex-delegates", "fixture": "aged-backups", "args": ["backup", "list", "--limit", "0x2"]},
+    {"id": "backup:prune", "fixture": "aged-backups", "args": ["backup", "prune"], "native": true},
+    {"id": "backup:prune-days", "fixture": "aged-backups", "args": ["backup", "prune", "--days", "3"], "native": true},
+    {"id": "backup:prune-max-mb", "fixture": "aged-backups", "args": ["backup", "prune", "--max-mb=0"], "native": true},
+    {"id": "backup:prune-nothing", "fixture": "empty", "args": ["backup", "prune"], "native": true},
+    {"id": "backup:prune-nothing-aged", "fixture": "aged-backups", "args": ["backup", "prune", "--days", "100", "--max-mb", "99999"], "native": true},
+    {"id": "backup:restore", "fixture": "aged-backups", "args": ["backup", "restore", "x-2026-01-01T00-00-00-000-p1-2", "--yes"], "native": true},
+    {"id": "backup:restore-cwd", "fixture": "aged-backups", "args": ["backup", "restore", "x-2026-01-01T00-00-00-000-p1-0", "--yes", "--cwd", "sub"], "native": true},
+    {"id": "backup:restore-not-a-backup-name", "fixture": "aged-backups", "args": ["backup", "restore", "my-project", "--yes"], "native": true},
+    {"id": "backup:restore-missing", "fixture": "aged-backups", "args": ["backup", "restore", "nope", "--yes"], "native": true},
+    {"id": "backup:restore-confirm-delegates", "fixture": "aged-backups", "args": ["backup", "restore", "x-2026-01-01T00-00-00-000-p1-2"]}
   ]
 }
