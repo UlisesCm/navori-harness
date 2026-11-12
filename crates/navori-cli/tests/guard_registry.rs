@@ -240,8 +240,9 @@ fn el_registro_de_produccion_responde_como_cada_copia_renderizada() -> TestResul
     if let Some(project) = std::env::var_os(CHILD) {
         return child(Path::new(&project));
     }
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("guard-registry-{}", std::process::id()));
+    // Outside the checkout: under `/.claude/worktrees/` the audit transport would map the
+    // project's cwd to the parent repository (as the shell and the TS do).
+    let root = std::env::temp_dir().join(format!("navori-guard-registry-{}", std::process::id()));
     if root.exists() {
         fs::remove_dir_all(&root)?;
     }
