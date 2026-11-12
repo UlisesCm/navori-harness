@@ -1,11 +1,11 @@
-//! Spec 0057 T28 (R11): `copy_dest::safe` against the real `navori_copy_dest_safe` awk program.
+//! Spec 0057 T28 (R11): `copy_dest::verdict` against the real `navori_copy_dest_safe` awk program.
 
 use std::error::Error;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use navori_hooks::hooks::guard_destructive::copy_dest::{Inputs, safe};
+use navori_hooks::hooks::guard_destructive::copy_dest::{CopyDest, Inputs, verdict};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -18,7 +18,7 @@ fn shell_verdicts(
     cwd: &str,
     pwd: &str,
     lives: &[String],
-) -> Result<Vec<bool>, Box<dyn Error>> {
+) -> Result<Vec<CopyDest>, Box<dyn Error>> {
     let partial = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../packages/core/core-assets/hooks/_partials/copy-dest.sh");
     let script = r#"
@@ -27,7 +27,7 @@ source "$1"
 nv_project_dir=$2
 nv_owned_paths=$3
 while IFS= read -r -d '' live; do
-  if navori_copy_dest_safe; then echo safe; else echo unsafe; fi
+  navori_copy_dest_safe; echo $?
 done
 "#;
     let mut child = Command::new("bash")
@@ -49,7 +49,14 @@ done
     child.stdin.take().ok_or("stdin")?.write_all(&input)?;
     let output = child.wait_with_output()?;
     let text = String::from_utf8(output.stdout)?;
-    Ok(text.lines().map(|line| line == "safe").collect())
+    text.lines()
+        .map(|line| match line {
+            "0" => Ok(CopyDest::Safe),
+            "2" => Ok(CopyDest::ManagedRewrite),
+            "3" => Ok(CopyDest::Unparsed),
+            other => Err(format!("unexpected shell exit status {other:?}").into()),
+        })
+        .collect()
 }
 
 fn handwritten() -> Vec<String> {
@@ -113,6 +120,34 @@ fn handwritten() -> Vec<String> {
         "cp",
         "cp a",
         "",
+        // "$(...)" substitutions (#1515): the commands inside are checked as segments of their own.
+        "echo \"$(cp -Q a b)\"",
+        "echo \"$(cp a AGENTS.md)\"",
+        "git commit -m \"$(cp -Q x y; echo \"z\")\"",
+        "echo \"$(cp -Q a b 2>/dev/null)\"",
+        "git commit -m \"$(cat <<EOF\nmsg\nEOF\n)\"; cp -Q a b",
+        "git commit -m \"$(cat <<EOF\nit's\nEOF\n)\"",
+        "echo \"$(a \"$(cp x AGENTS.md)\")\"",
+        "echo \"$(a \"$(cp -Q x y)\" ; cp -Q a b)\"",
+        "echo \"$(cp a \"$(git rev-parse --show-toplevel)/AGENTS.md\")\"",
+        "echo \"$(echo \"(\" ) $(cp -Q a b)\"",
+        "cp a \"$(echo \\\")\" ; cp -Q a b",
+        "echo \"$((1+2))\"",
+        "echo \"$( ( cp a AGENTS.md ) )\"",
+        "echo \"$(cat <<<x)\" ; cp -Q a b",
+        // The substitution stack lives across lines.
+        "echo \"$(cp -Q a b\n)\"",
+        "echo \"$(cp a\nAGENTS.md)\"",
+        "echo \"$(echo hi\n)\"\ncp a AGENTS.md",
+        "echo \"$(echo hi\n",
+        // Unreadable quoting: exit 3 unless a confirmed rewrite (exit 2) wins.
+        "cp a \"unterminated",
+        "echo \"$(cp a b",
+        "cat x > \"unterminated",
+        "cp -Q a b \"unterminated",
+        "echo \"$(cp a AGENTS.md \"",
+        // A dangling escape is dropped at the end of the record: exit 0.
+        "cp a \\",
     ]
     .iter()
     .map(|s| (*s).to_owned())
@@ -165,6 +200,13 @@ fn generated(count: usize) -> Vec<String> {
         "-u",
         "root",
         ".agents/skills",
+        "\"$(",
+        ")\"",
+        ")",
+        "(",
+        "<<",
+        "\"",
+        "2>/dev/null",
     ];
     let mut seed: u64 = 0x5eed_0057;
     let mut next = || {
@@ -214,15 +256,40 @@ fn copy_dest_matches_the_shell_partial_for_handwritten_and_generated_commands() 
         let mismatches: Vec<String> = lives
             .iter()
             .zip(&expected)
-            .filter(|(live, shell)| safe(live, &inputs) != **shell)
-            .map(|(live, shell)| format!("{root}|{cwd}: shell safe={shell}: {live:?}"))
+            .filter(|(live, shell)| verdict(live, &inputs) != **shell)
+            .map(|(live, shell)| format!("{root}|{cwd}: shell {shell:?}: {live:?}"))
             .collect();
         assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
-        assert!(
-            expected.iter().any(|s| !s),
-            "the battery must exercise blocks"
-        );
+        for each in [CopyDest::Safe, CopyDest::ManagedRewrite, CopyDest::Unparsed] {
+            assert!(
+                expected.contains(&each),
+                "the battery must exercise {each:?}"
+            );
+        }
     }
     std::fs::remove_dir_all(&scratch)?;
     Ok(())
+}
+
+/// Parking tokens at every `"$(` must not copy their bytes: 2000 words, then 2000 substitutions.
+/// The bound is ~50x the measured cost, so a loaded machine does not flake while a per-token byte
+/// clone (quadratic allocation) would still trip it.
+#[test]
+fn many_substitutions_after_many_words_stay_fast() {
+    let words = "w ".repeat(2000);
+    let subs = "\"$(x)\" ".repeat(2000);
+    let live = format!("echo {words}{subs}");
+    let inputs = Inputs {
+        root: "/tmp/proj",
+        cwd: "/tmp/proj",
+        pwd: "/tmp",
+        owned: OWNED,
+    };
+    let started = std::time::Instant::now();
+    assert_eq!(verdict(&live, &inputs), CopyDest::Safe);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "took {:?}",
+        started.elapsed()
+    );
 }

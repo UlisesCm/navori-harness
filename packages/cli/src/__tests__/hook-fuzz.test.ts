@@ -382,6 +382,8 @@ describe("deterministic live hook fuzzing", () => {
       "of=/dev/sda",
       "> CLAUDE.md",
       "cp x .claude/settings.json",
+      '"$(cp',
+      'cp a "unterminated',
       "pi --no-extensions",
       "engram delete",
       "git reset --hard",

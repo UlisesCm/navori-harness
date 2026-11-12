@@ -134,6 +134,9 @@ const GUARD_CORES = [
   "echo x > CLAUDE.md", "printf y >> AGENTS.md", "sed -i '' s/a/b/ .claude/settings.json", "tee .codex/config.toml",
   "cat a > @REPO@/.claude/hooks/guard-destructive.sh", "cp x .claude/settings.json", "mv a AGENTS.md",
   "install -m 644 f .claude/agents/scout.md", "ln -sf a CLAUDE.md", "cp CLAUDE.md /tmp/x", "echo x > notes.md",
+  // 6d inside "$(...)" and unreadable quoting (#1515, #1569).
+  "echo \"$(cp x .claude/settings.json)\"", "git commit -m \"$(cp x AGENTS.md; echo \"y\")\"",
+  "echo \"$(cat <<EOF\nx\nEOF\n)\"", "cp a \"unterminated", "echo \"$(cp a b",
   // 6c: the Pi control plane and shared rules.
   "pi --no-extensions", "echo x > .pi/settings.json", "engram delete obs-1", "pi --version",
   // 7: whole-tree discards, from here and from elsewhere.

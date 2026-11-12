@@ -231,6 +231,84 @@ fn metadata_matches_the_real_shell_partial_without_human_content() -> TestResult
     Ok(())
 }
 
+/// The quoted labels of the jq array that precedes `anchor` in `audit-log.sh` (anchored by
+/// content, not by line number, so a reformat of the jq does not break it).
+fn shell_labels(source: &str, anchor: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let end = source
+        .find(anchor)
+        .ok_or("anchor missing in audit-log.sh")?;
+    let start = source[..end].rfind('[').ok_or("array start")?;
+    let labels: Vec<String> = source[start..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+    if labels.len() < 8 {
+        return Err(format!("suspiciously short label list for {anchor}: {labels:?}").into());
+    }
+    Ok(labels)
+}
+
+// Covers: R11
+#[test]
+fn every_verdict_and_reason_label_of_the_shell_allowlists_is_recorded_alike() -> TestResult {
+    let temp = TempDir::new()?;
+    temp.write("project/session-session-1.log", "marker\n", 0o600)?;
+    let source =
+        fs::read_to_string(repo()?.join("packages/core/core-assets/hooks/_partials/audit-log.sh"))?;
+    let verdicts = shell_labels(&source, "|index($verdict)")?;
+    let reasons = shell_labels(&source, "|index($reason)")?;
+    // An unknown label must collapse to the same fallback on both sides.
+    let unknown = "not-a-label";
+    let raw = json!({"session_id":"session-1"}).to_string();
+    let parsed = HookPayload::parse(raw.as_bytes()).ok_or("parse")?;
+    let mut cases = Vec::new();
+    for verdict in verdicts.iter().map(String::as_str).chain([unknown]) {
+        cases.push(HookLabels {
+            verdict,
+            reason: None,
+            ..labels("allow")
+        });
+    }
+    for reason in reasons.iter().map(String::as_str).chain([unknown]) {
+        cases.push(HookLabels {
+            reason: Some(reason),
+            ..labels("block")
+        });
+    }
+    for observation in cases {
+        let native = metadata(temp.root(), &parsed, observation)?;
+        let shell = shell_metadata(raw.as_bytes(), observation)?;
+        assert_eq!(
+            native.as_json(),
+            shell,
+            "verdict {:?} reason {:?}",
+            observation.verdict,
+            observation.reason
+        );
+    }
+    // The labels the search lane and PII lane emit are recorded as themselves, never collapsed.
+    for (verdict, reason) in [
+        ("fail-open", "search-index-unavailable"),
+        ("block", "pii-egress"),
+    ] {
+        let native = metadata(
+            temp.root(),
+            &parsed,
+            HookLabels {
+                verdict,
+                reason: Some(reason),
+                ..labels("allow")
+            },
+        )?;
+        let value: Value = serde_json::from_str(native.as_json())?;
+        assert_eq!(value["verdict"], verdict);
+        assert_eq!(value["reason"], reason);
+    }
+    Ok(())
+}
+
 // Covers: R11
 #[test]
 fn activity_avoids_clock_work_when_off_and_handles_a_late_log_with_zero_ms() -> TestResult {
