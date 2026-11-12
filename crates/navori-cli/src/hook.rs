@@ -364,6 +364,8 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
+    // Anchor for any shadow deadline: before preparation and the journal acknowledgement.
+    let started = std::time::Instant::now();
     if mode == Mode::Shell {
         return 3;
     }
@@ -458,15 +460,21 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
             else {
                 return defer(mode, "shadow project root unavailable", stderr);
             };
-            let Some(receipt) = journal.begin(
+            let deadline = shadow::deadline_for(&invocation.id, started);
+            match journal.begin_until(
                 root,
                 &invocation.id,
                 invocation.engine,
                 handler.implementation,
-            ) else {
-                return defer(mode, "shadow journal unavailable", stderr);
-            };
-            Some((journal, root, receipt))
+                deadline,
+            ) {
+                Some(receipt) => Some((journal, root, receipt)),
+                // Deferring now would hand the call to the shell with no deadline left: the host
+                // would kill it and approve. Go on unobserved; the expired deadline keeps the
+                // shell from starting and the runner answers with its fail-safe.
+                None if deadline.is_some_and(|at| std::time::Instant::now() >= at) => None,
+                None => return defer(mode, "shadow journal unavailable", stderr),
+            }
         }
         _ => None,
     };
@@ -476,7 +484,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
         || Ok(true),
         |payload| {
             if let Some((cwd, env)) = shell_environment {
-                let observed = shadow::run(
+                let observed = shadow::run_until(
                     context,
                     payload,
                     shadow::ShellInvocation {
@@ -485,10 +493,16 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                         cwd,
                         env,
                     },
+                    shadow::deadline_for(&invocation.id, started),
                     |bytes| evaluate(bytes, &ShadowLane),
                 );
                 if let Some((journal, root, receipt)) = &observation {
-                    journal.complete(root, receipt, observed.comparison);
+                    journal.complete_until(
+                        root,
+                        receipt,
+                        observed.comparison,
+                        shadow::deadline_for(&invocation.id, started),
+                    );
                 }
                 let verdict = match observed.shell.code() {
                     0 => Verdict::Permit,
