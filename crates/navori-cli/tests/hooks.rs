@@ -25,14 +25,18 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Result<Self, Box<dyn Error>> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
-            "hook-entry-{}-{}",
+        // Outside the checkout: the audit transport maps a cwd under `/.claude/worktrees/` to
+        // its parent repository (as the shell and the TS do), so a scratch under the target
+        // directory of a checkout in an agent worktree would audit under the wrong repo.
+        let root = std::env::temp_dir().join(format!(
+            "navori-hook-entry-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.parent().ok_or("scratch parent")?)?;
         fs::create_dir(&root)?;
-        Ok(Self(root))
+        // The temporary directory may sit behind a symlink (macOS `/var`): keep the real path.
+        Ok(Self(fs::canonicalize(&root)?))
     }
 
     fn script(&self, engine: &str, deps: &[&[u8]]) -> Result<PathBuf, Box<dyn Error>> {
