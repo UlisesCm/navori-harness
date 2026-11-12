@@ -136,12 +136,12 @@
       "id": "scan:unmodeled-locale-delegates",
       "fixture": "monorepo",
       "files": {
-        "apps/alpha/package.json": "{\"name\":\"alpha\"}\n",
-        "apps/beta/package.json": "{\"name\":\"beta\"}\n"
+        "apps/aa/package.json": "{\"name\":\"aa\"}\n",
+        "apps/z/package.json": "{\"name\":\"z\"}\n"
       },
-      "env": { "LANG": "da_DK.UTF-8" },
+      "env": { "LC_ALL": "da_DK.UTF-8" },
       "args": ["scan", "--yes"],
-      "note": "an unmodeled default locale changes localeCompare: Rust delegates"
+      "note": "an unmodeled default locale changes localeCompare (Danish sorts aa after z): Rust delegates"
     },
     {
       "id": "write-failure:scan-yes",

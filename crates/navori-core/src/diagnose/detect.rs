@@ -645,6 +645,17 @@ mod tests {
 
     // Covers: R73
     #[test]
+    fn non_utf8_names_sort_by_raw_bytes_not_lossy() {
+        // Both names decode lossily to U+FFFD; only the raw bytes (0xFF > 0xEF) order them.
+        let raw = OsStr::from_bytes(b"\xff").to_os_string();
+        let replacement = OsString::from("\u{fffd}");
+        let mut names = vec![raw.clone(), replacement.clone()];
+        names.sort_by(|a, b| byte_order(a, b));
+        assert_eq!(names, [replacement, raw]);
+    }
+
+    // Covers: R73
+    #[test]
     fn count_walk_cut_follows_byte_order() {
         let root = temp("walk-order");
         for (name, text) in [
