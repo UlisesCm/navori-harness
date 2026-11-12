@@ -43,6 +43,15 @@ static NODE: Shared = Shared::new(
      }",
 );
 
+/// Every role Pi renders as `.pi/agents/<role>.md`: the child roles, then the parent ones.
+fn rendered_roles() -> Vec<&'static str> {
+    PI_ROLE_NAMES
+        .iter()
+        .chain(PI_PARENT_ROLES.iter())
+        .copied()
+        .collect()
+}
+
 fn fail(error: impl ToString) -> TestCaseError {
     TestCaseError::fail(error.to_string())
 }
@@ -80,10 +89,14 @@ proptest! {
         let reply = NODE.ask(&json!({ "op": "grants", "plugins": plugins })).map_err(TestCaseError::fail)?;
         prop_assert_eq!(&reply, &grants_json(&grants));
         // `piRoleTools` for every rendered role: a child gets its base tools plus its grants, a
-        // parent role (`PI_PARENT_ROLES`) gets `tools: []` whatever the grants say.
-        let roles: Vec<&str> = PI_ROLE_NAMES.iter().chain(PI_PARENT_ROLES.iter()).copied().collect();
-        let tools: Vec<Vec<String>> = roles.iter().map(|role| pi_role_tools(role, &grants)).collect();
-        let reply = NODE.ask(&json!({ "op": "roleTools", "roles": roles, "grants": reply })).map_err(TestCaseError::fail)?;
+        // parent role (`PI_PARENT_ROLES`) gets `tools: []` whatever the grants say. Real grants
+        // never name a parent, so each one also gets a synthetic grant here: only the parent
+        // early return keeps it out.
+        let roles = rendered_roles();
+        let mut with_parents = grants.clone();
+        with_parents.extend(PI_PARENT_ROLES.iter().map(|role| ((*role).to_owned(), vec!["navori_mem_search".to_owned()])));
+        let tools: Vec<Vec<String>> = roles.iter().map(|role| pi_role_tools(role, &with_parents)).collect();
+        let reply = NODE.ask(&json!({ "op": "roleTools", "roles": roles, "grants": grants_json(&with_parents) })).map_err(TestCaseError::fail)?;
         prop_assert_eq!(reply, json!(tools));
         // The extension itself is compared against `dist` by the oracle's Pi cases: rendered from
         // the sources, `serializeAnonymousFunction` gives other bytes than the bundle (D29).
@@ -109,7 +122,7 @@ proptest! {
     // Covers: R68
     #[test]
     fn pi_agent_matches_owned_file_ts(
-        role in prop::sample::select(PI_ROLE_NAMES.iter().chain(PI_PARENT_ROLES.iter()).copied().collect::<Vec<_>>()),
+        role in prop::sample::select(rendered_roles()),
         description in text_piece(), instructions in text_piece(),
         model in prop::option::of(prop::sample::select(vec!["anthropic/claude", "", "x/y:thinking"])),
         tools in prop::collection::vec(prop::sample::select(vec!["read", "bash", "navori_mem_search"]), 0..4),
