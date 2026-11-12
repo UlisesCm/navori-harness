@@ -472,3 +472,41 @@ pub fn resolve_harness_plan(
         .collect();
     plan
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{GATED_HOOK_IDS, is_hook_enabled};
+    use crate::js_json::{JsValue, parse};
+    use crate::render::assets;
+
+    /// A malformed config parses to `null`, which fails the "on" assertions below.
+    fn config(text: &str) -> JsValue {
+        parse(text).unwrap_or(JsValue::Null)
+    }
+
+    /// `GATED_HOOK_IDS` lists exactly the hooks `is_hook_enabled` gates. The candidates are every
+    /// bundled `core-assets/hooks/*.sh`, independent of any flag, so a hook that gains a gated arm
+    /// without being listed (or a listed id that is not gated) fails here.
+    #[test]
+    fn gated_hook_ids_match_the_predicates() {
+        const HOOKS: &str = "packages/core/core-assets/hooks/";
+        let mut gated: Vec<&str> = assets::under(HOOKS)
+            .filter_map(|(path, _)| path.strip_prefix(HOOKS)?.strip_suffix(".sh"))
+            .filter(|id| !id.contains('/'))
+            .filter(|id| !is_hook_enabled(&JsValue::Null, id, None))
+            .collect();
+        gated.sort_unstable();
+        let mut listed = GATED_HOOK_IDS.to_vec();
+        listed.sort_unstable();
+        assert_eq!(gated, listed);
+        let on = config(
+            r#"{"harness":{"scribeOwnsMarkdown":true,"masterPlan":true,"planTiers":true},"hooks":{"modelAdvisor":true,"auditMode":true}}"#,
+        );
+        for id in GATED_HOOK_IDS {
+            assert!(
+                is_hook_enabled(&on, id, None),
+                "{id} is off with every opt-in"
+            );
+        }
+    }
+}
