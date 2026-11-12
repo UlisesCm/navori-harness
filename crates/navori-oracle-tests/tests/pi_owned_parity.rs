@@ -10,7 +10,9 @@ use navori_core::render::pi_owned::{
     PiControls, PiManifest, PiManifestHook, owns_pi_agent, owns_pi_manifest, owns_pi_source,
     pi_manifest_schema_version, serialize_pi_agent, serialize_pi_manifest,
 };
-use navori_core::render::pi_roles::{PI_ROLE_NAMES, pi_knowledge_grants};
+use navori_core::render::pi_roles::{
+    PI_PARENT_ROLES, PI_ROLE_NAMES, pi_knowledge_grants, pi_role_tools,
+};
 use navori_core::render::plugins::load_enabled_plugins;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -31,6 +33,7 @@ static NODE: Shared = Shared::new(
     prelude,
     "switch (request.op) {\n\
        case 'grants': return k.piKnowledgeGrants(p.loadEnabledPlugins(request.plugins).loaded);\n\
+       case 'roleTools': return request.roles.map((role) => k.piRoleTools(role, request.grants));\n\
        case 'extension': return o.serializePiSource(x.renderPiExtensionSource(request.ids, request.grants));\n\
        case 'agent': { const a = o.serializePiAgent(request.agent); return [a, o.ownsPiAgent(a, request.agent.name), o.ownsPiAgent(request.tampered ?? a, request.agent.name)]; }\n\
        case 'manifest': { const c = request.manifest.controls;\n\
@@ -76,6 +79,12 @@ proptest! {
         let grants = pi_knowledge_grants(&loaded.loaded).ok_or_else(|| fail("grants"))?;
         let reply = NODE.ask(&json!({ "op": "grants", "plugins": plugins })).map_err(TestCaseError::fail)?;
         prop_assert_eq!(&reply, &grants_json(&grants));
+        // `piRoleTools` for every rendered role: a child gets its base tools plus its grants, a
+        // parent role (`PI_PARENT_ROLES`) gets `tools: []` whatever the grants say.
+        let roles: Vec<&str> = PI_ROLE_NAMES.iter().chain(PI_PARENT_ROLES.iter()).copied().collect();
+        let tools: Vec<Vec<String>> = roles.iter().map(|role| pi_role_tools(role, &grants)).collect();
+        let reply = NODE.ask(&json!({ "op": "roleTools", "roles": roles, "grants": reply })).map_err(TestCaseError::fail)?;
+        prop_assert_eq!(reply, json!(tools));
         // The extension itself is compared against `dist` by the oracle's Pi cases: rendered from
         // the sources, `serializeAnonymousFunction` gives other bytes than the bundle (D29).
         let rust = render_pi_extension(&ids.into_iter().map(str::to_owned).collect::<Vec<_>>(), &grants);
@@ -100,7 +109,7 @@ proptest! {
     // Covers: R68
     #[test]
     fn pi_agent_matches_owned_file_ts(
-        role in prop::sample::select(PI_ROLE_NAMES.to_vec()),
+        role in prop::sample::select(PI_ROLE_NAMES.iter().chain(PI_PARENT_ROLES.iter()).copied().collect::<Vec<_>>()),
         description in text_piece(), instructions in text_piece(),
         model in prop::option::of(prop::sample::select(vec!["anthropic/claude", "", "x/y:thinking"])),
         tools in prop::collection::vec(prop::sample::select(vec!["read", "bash", "navori_mem_search"]), 0..4),
