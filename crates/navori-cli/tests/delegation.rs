@@ -132,14 +132,14 @@ fn a_js_target_runs_through_node_and_warns_once_on_version_mismatch() -> TestRes
         .env("PATH", &bin)
         .env("NAVORI_TS_CLI", pkg.join("dist/index.js"))
         .env("OUT", &out_file)
-        .args(["status", "--json"])
+        .args(["doctor", "--json"])
         .output()?;
 
     assert_eq!(output.status.code(), Some(7));
     let node_args = fs::read_to_string(&out_file)?;
     assert_eq!(
         node_args,
-        format!("{}\nstatus\n--json\n", pkg.join("dist/index.js").display())
+        format!("{}\ndoctor\n--json\n", pkg.join("dist/index.js").display())
     );
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
