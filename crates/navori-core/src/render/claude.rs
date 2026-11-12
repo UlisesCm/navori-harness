@@ -167,17 +167,6 @@ fn place(
     }
 }
 
-/// Test-only override of the Claude render guard: `1` plans the Claude engine natively.
-/// Read by the oracle (`--native-claude`) and the binary tests; no user flow sets or suggests
-/// it, and it disappears with the guard in [`plan_claude_engine`].
-pub const NATIVE_CLAUDE_ENV: &str = "NAVORI_TEST_NATIVE_CLAUDE";
-
-/// Whether [`NATIVE_CLAUDE_ENV`] is exactly `1` (test-only, see the constant).
-#[must_use]
-pub fn native_claude_forced() -> bool {
-    std::env::var_os(NATIVE_CLAUDE_ENV).is_some_and(|value| value == "1")
-}
-
 /// Plans a full Claude render of the repo at `repo_root` (read through `view`).
 ///
 /// # Errors
@@ -189,20 +178,6 @@ pub fn plan_claude_engine(
     repo_root: &Path,
     options: &PlanOptions,
 ) -> Result<ClaudeEnginePlan, ClaudeEngineDelegate> {
-    // Guard: the native Claude render still differs from the TS, so it delegates unless a test
-    // forces it. Remove it when G7a, G3 and S1's 1c (pii-egress-guard) land:
-    // (a) CLAUDE.md lacks the `claude-apendice` block and the layers (G7a);
-    // (b) agent bodies differ (architect.md, orchestrator.md, agentes-disponibles, review-diff)
-    //     and scribe.md is rendered when the TS does not (G7);
-    // (c) conditional hooks/skills are rendered when the TS does not (audit-mode-*,
-    //     model-advisor, routing-watch, master-*, implementer-no-markdown, skills plan-simple,
-    //     plan-advanced, dominio, author-skill) and settings.json gets extra hook entries (G3);
-    // (d) pii-egress-guard render (plan + settings registration) is done (1c); its native
-    //     runtime is a separate PR.
-    // Removing it also returns `retired-context:*` to `native: true` (see pendientes-dev.md).
-    if !options.native_claude {
-        return Err(ClaudeEngineDelegate);
-    }
     let config = effective_config(input_config);
     let lang = Lang::resolve(text(&config, "language").as_deref());
     let floor = options.ambient_floor.as_deref();

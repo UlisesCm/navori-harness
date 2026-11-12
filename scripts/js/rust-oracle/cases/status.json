@@ -11,11 +11,11 @@
     { "id": "status:cwd-json", "fixture": "fresh-init", "args": ["status", "--json", "--cwd", "."], "native": true },
     { "id": "status:en-warnings", "fixture": "claude-en", "args": ["status"], "native": true },
     { "id": "status:en-warnings-json", "fixture": "claude-en", "args": ["status", "--json"], "native": true },
-    { "id": "status:drift-invariants", "fixture": "drifted-block", "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
-    { "id": "status:drift-invariants-json", "fixture": "drifted-block", "args": ["status", "--json"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
-    { "id": "status:drift-downgrade-json", "fixture": "foreign-blocks", "args": ["status", "--json"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
-    { "id": "status:en-rendered-warnings", "fixture": "claude-en", "setup": [["render", "--apply"]], "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
-    { "id": "status:user-content-codex", "fixture": "user-content", "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:drift-invariants", "fixture": "drifted-block", "args": ["status"], "native": true },
+    { "id": "status:drift-invariants-json", "fixture": "drifted-block", "args": ["status", "--json"], "native": true },
+    { "id": "status:drift-downgrade-json", "fixture": "foreign-blocks", "args": ["status", "--json"], "native": true },
+    { "id": "status:en-rendered-warnings", "fixture": "claude-en", "setup": [["render", "--apply"]], "args": ["status"], "native": true },
+    { "id": "status:user-content-codex", "fixture": "user-content", "args": ["status"], "native": true },
     { "id": "status:prose-engines", "fixture": "multi-engine", "args": ["status"], "native": true },
     { "id": "status:pi-engines", "fixture": "multi-engine-pi", "args": ["status", "--json"], "native": true },
     {
@@ -59,14 +59,14 @@
       "fixture": "fresh-init",
       "setup": [["render", "--apply"]],
       "args": ["status"],
-      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+      "native": true
     },
     {
       "id": "status:rendered-uncommitted-json",
       "fixture": "fresh-init",
       "setup": [["render", "--apply"]],
       "args": ["status", "--json"],
-      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+      "native": true
     },
     {
       "id": "status:distribution-native",
@@ -86,7 +86,7 @@
       ],
       "args": ["status"],
       "native": true,
-      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+      "note": "without CLAUDE.md: the uncommitted and unpushed distribution rows on their own"
     },
     {
       "id": "status:distribution-native-json",
@@ -106,7 +106,7 @@
       ],
       "args": ["status", "--json"],
       "native": true,
-      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+      "note": "without CLAUDE.md: the uncommitted and unpushed distribution rows on their own"
     },
     {
       "id": "status:pending-without-claude-engine",
@@ -138,7 +138,7 @@
         { "write": ".claude/scratch.txt", "content": "two\n" }
       ],
       "args": ["status"],
-      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+      "native": true
     },
     {
       "id": "status:distribution-unpushed-json",
@@ -155,7 +155,7 @@
         { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] }
       ],
       "args": ["status", "--json"],
-      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+      "native": true
     },
     {
       "id": "status:distribution-behind",

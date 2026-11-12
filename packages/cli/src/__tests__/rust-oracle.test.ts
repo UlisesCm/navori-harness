@@ -73,7 +73,6 @@ interface Oracle {
   antiRollbackCases: (cliVersion: string) => OracleCase[];
   ANTI_ROLLBACK_LEVELS: string[];
   ANTI_ROLLBACK_OPS: string[];
-  NATIVE_CLAUDE_ENV: string;
   runCase: (
     testCase: OracleCase,
     opts: {
@@ -81,7 +80,6 @@ interface Oracle {
       rust: Runner;
       tsCli: string;
       base: string;
-      rustEnv?: Record<string, string>;
     },
   ) => { id: string; exit: number | null; differences: Difference[] };
   runCaseOrSetupFailure: (
@@ -91,7 +89,6 @@ interface Oracle {
       rust: Runner;
       tsCli: string;
       base: string;
-      rustEnv?: Record<string, string>;
     },
   ) => { id: string; exit: number | null; differences: Difference[] };
 }
@@ -237,30 +234,7 @@ describe("rust oracle", () => {
     ]);
   });
 
-  // The Claude render guard's test-only override reaches the Rust side only.
-  it("--native-claude pone la variable solo en el lado Rust y sin ella no hay diferencia", () => {
-    const dir = tmp();
-    const base = tmp();
-    expect(oracle.NATIVE_CLAUDE_ENV).toBe("NAVORI_TEST_NATIVE_CLAUDE");
-    const body = `printf '%s' "\${NAVORI_TEST_NATIVE_CLAUDE:-unset}"`;
-    const run = (rustEnv?: Record<string, string>) =>
-      oracle.runCase(
-        { id: "env", fixture: "empty", args: [] },
-        {
-          ts: stub(dir, "ts.sh", body),
-          rust: stub(dir, "rust.sh", body),
-          tsCli: "/unused/index.js",
-          base,
-          rustEnv,
-        },
-      );
-    expect(run().differences).toEqual([]);
-    expect(run({ [oracle.NATIVE_CLAUDE_ENV]: "1" }).differences).toMatchObject([
-      { kind: "stdout" },
-    ]);
-  });
-
-  it("los casos aceptan una nota y retired-context queda no nativo con ella", () => {
+  it("los casos aceptan una nota y retired-context es nativo con la máscara de procedencia", () => {
     const dir = mkdtempSync(join(tmpdir(), "oracle-note-"));
     try {
       const noted = { id: "x:note", fixture: "empty", args: ["status"], note: "texto libre" };
@@ -278,8 +252,8 @@ describe("rust oracle", () => {
       "retired-context:render-json",
     ]);
     for (const c of retired) {
-      expect(c.native, c.id).toBe(false);
-      expect(c.note?.length, c.id).toBeGreaterThan(0);
+      expect(c.native, c.id).toBe(true);
+      expect(c.mask, c.id).toEqual(["provenance"]);
     }
   });
 
@@ -484,12 +458,9 @@ describe("rust oracle", () => {
             `${label} --json`,
           ).toBe(true);
         }
-        // `render` names the core it read; that line is masked on the TS side. A case behind the
-        // Claude guard (`native: false` with a `note`) delegates, so both sides print the TS's
-        // line and nothing is masked.
+        // `render` names the core it read; that line is masked on the TS side.
         if (command.path.join(" ") === "render") {
-          for (const c of mine.filter((m) => !(m.native === false && m.note)))
-            expect(c.mask, c.id).toContain("provenance");
+          for (const c of mine) expect(c.mask, c.id).toContain("provenance");
         }
         languages.add(config.language ?? "es");
       }

@@ -251,9 +251,6 @@ pub struct PlanOptions {
     pub extra_classified: Vec<(String, bool)>,
     /// Paths a vetoed engine generation excludes from the seal (`inventory.exclude`).
     pub extra_excluded: Vec<String>,
-    /// Test-only: plan the Claude engine natively instead of delegating (see
-    /// `render::claude::NATIVE_CLAUDE_ENV`). `false` (the default) keeps the guard.
-    pub native_claude: bool,
     /// `options.transform`: rewrites navori's asset text before `{{...}}` interpolation, so the
     /// `project.*` values reach the output verbatim (Pi's vocabulary adapter).
     pub transform: Option<fn(&str) -> String>,
