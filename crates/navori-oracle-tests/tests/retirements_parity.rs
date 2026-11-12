@@ -12,12 +12,15 @@ use std::sync::LazyLock;
 use navori_core::STAMP_VERSION;
 use navori_core::config;
 use navori_core::js_json::JsValue;
-use navori_core::markers::{InjectOptions, MarkerMeta, inject_managed_section};
+use navori_core::markers::{CommentStyle, InjectOptions, MarkerMeta, inject_managed_section};
+use navori_core::render::assets;
 use navori_core::render::claude_files::collect_claude_files;
 use navori_core::render::collect::DiskView;
 use navori_core::render::context::Lang;
 use navori_core::render::harness_files::{collect_harness_files, filter_inventory};
 use navori_core::render::harness_plan::resolve_harness_plan;
+use navori_core::render::managed_file::{RenderManagedFileInput, render_managed_file};
+use navori_core::render::plan::CORE_SOURCE_ID;
 use navori_core::render::plugins::{RETIRED_PLUGINS, load_disabled_plugins, load_enabled_plugins};
 use navori_core::render::presets::load_preset;
 use navori_core::render::removable::navori_authorship;
@@ -463,6 +466,168 @@ proptest! {
             Some(_) if ts.get("threw").is_some() => prop_assert!(sub_blocks_delegate(&root, &config), "ts threw: {}", ts),
             Some(rust) => prop_assert!(ts["report"] == rust, "{}\n{}\n{:?}", first_difference(&ts["report"], &rust), config, shapes),
             None => prop_assert!(ts.get("threw").is_some() || leftover, "rust declined, ts: {} for {}", ts, config),
+        }
+    }
+}
+
+// ---- Step 8.7f (#1484): gated units retired only when pristine. ----
+
+/// The gated workflow skills (`GATED_WORKFLOW_SKILL_FLAGS`).
+const GATED_SKILLS: [&str; 4] = ["plan-simple", "plan-advanced", "dominio", "author-skill"];
+
+/// The gated hooks (`GATED_HOOK_PREDICATES`).
+const GATED_HOOKS: [&str; 7] = [
+    "implementer-no-markdown",
+    "master-plan-context",
+    "master-accept-confirm",
+    "routing-watch",
+    "model-advisor",
+    "audit-mode-trigger",
+    "audit-mode-close",
+];
+
+/// What sits at a gated unit's path.
+#[derive(Debug, Clone, Copy)]
+enum Gated {
+    Absent,
+    /// The flags-on render, byte for byte.
+    Pristine,
+    /// The render plus text the user wrote after it.
+    Edited,
+    /// The render stamped by a newer navori.
+    Newer,
+    /// A file navori never wrote.
+    Foreign,
+    /// The render, with a sibling file in its skill directory.
+    Sibling,
+}
+
+fn gated_state() -> BoxedStrategy<Gated> {
+    prop_oneof![
+        2 => Just(Gated::Absent),
+        4 => Just(Gated::Pristine),
+        2 => Just(Gated::Edited),
+        1 => Just(Gated::Newer),
+        1 => Just(Gated::Foreign),
+        1 => Just(Gated::Sibling),
+    ]
+    .boxed()
+}
+
+/// The core asset rendered into an empty destination with every opt-in on: what a flags-on
+/// render wrote.
+fn flags_on_render(asset: &str, marker: &str, style: CommentStyle) -> Result<String, String> {
+    let bytes = assets::core(&format!("core-assets/{asset}"))
+        .ok_or_else(|| format!("no core asset {asset}"))?;
+    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let parsed = config::read(
+        br#"{"name":"demo","engines":["claude"],"preset":"custom","language":"es","project":{},"harness":{"planTiers":true,"authoring":true,"scribeOwnsMarkdown":true,"masterPlan":true},"hooks":{"modelAdvisor":true,"auditMode":true}}"#,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let config = config::effective_config(&parsed.data);
+    let rendered = render_managed_file(&RenderManagedFileInput {
+        asset: text,
+        style,
+        existing: None,
+        managed_id: marker,
+        source: CORE_SOURCE_ID,
+        version: STAMP_VERSION,
+        config: &config,
+        extra_vars: std::collections::BTreeMap::new(),
+        transform: None,
+        engine: Some("claude"),
+        force_overwrite: false,
+        ambient_floor: None,
+    })
+    .map_err(|_| format!("{asset} does not render"))?;
+    Ok(rendered.content)
+}
+
+/// Writes `rel` in `state`; `dir_skill` units list the sibling file's directory.
+fn place_gated(root: &Path, rel: &str, content: &str, state: Gated) {
+    match state {
+        Gated::Absent => {}
+        Gated::Pristine => write(root, rel, content),
+        Gated::Edited => write(root, rel, &format!("{content}\nmine\n")),
+        Gated::Newer => write(
+            root,
+            rel,
+            &content.replace(
+                &format!("version=\"{STAMP_VERSION}\""),
+                "version=\"999.0.0\"",
+            ),
+        ),
+        Gated::Foreign => write(root, rel, "# mine\n"),
+        Gated::Sibling => {
+            write(root, rel, content);
+            if let Some(parent) = Path::new(rel).parent() {
+                write(root, &parent.join("notes.md").to_string_lossy(), "mine\n");
+            }
+        }
+    }
+}
+
+fn gated_config() -> BoxedStrategy<String> {
+    (
+        prop::collection::vec(prop::bool::ANY, 6),
+        prop::bool::weighted(0.2),
+        prop::collection::vec(pick(&GATED_SKILLS), 0..3),
+    )
+        .prop_map(|(flags, audit_always, local)| {
+            format!(
+                r#"{{"name":"demo","engines":["claude"],"preset":"custom","language":"es","project":{{"localSkills":{}}},"harness":{{"planTiers":{},"authoring":{},"scribeOwnsMarkdown":{},"masterPlan":{}}},"hooks":{{"modelAdvisor":{},"auditMode":{}}}{}}}"#,
+                json!(local),
+                flags[0],
+                flags[1],
+                flags[2],
+                flags[3],
+                flags[4],
+                flags[5],
+                if audit_always { r#","audit":{"mode":"always"}"# } else { "" },
+            )
+        })
+        .boxed()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    // Covers: R41
+    #[test]
+    fn gated_retirements_match(
+        config in gated_config(),
+        skill_states in prop::collection::vec(gated_state(), GATED_SKILLS.len() * 2),
+        hook_states in prop::collection::vec(gated_state(), GATED_HOOKS.len()),
+        scribe_state in gated_state(),
+    ) {
+        let root = BASE.join("gated");
+        let _ = std::fs::remove_dir_all(&root);
+        for (index, id) in GATED_SKILLS.iter().enumerate() {
+            let content = flags_on_render(&format!("skills/{id}.md"), id, CommentStyle::Html).map_err(TestCaseError::fail)?;
+            // A flat file has no directory to share: a sibling there is just the render.
+            let flat = match skill_states[index * 2] {
+                Gated::Sibling => Gated::Pristine,
+                other => other,
+            };
+            place_gated(&root, &format!(".claude/skills/{id}.md"), &content, flat);
+            let dir = skill_states[index * 2 + 1];
+            place_gated(&root, &format!(".claude/skills/{id}/SKILL.md"), &content, dir);
+        }
+        for (id, state) in GATED_HOOKS.iter().zip(&hook_states) {
+            let marker = format!("{id}-base");
+            let content = flags_on_render(&format!("hooks/{id}.sh"), &marker, CommentStyle::Shell).map_err(TestCaseError::fail)?;
+            place_gated(&root, &format!(".claude/hooks/{id}.sh"), &content, *state);
+        }
+        let scribe = flags_on_render("agents/scribe.md", "scribe-base", CommentStyle::Html).map_err(TestCaseError::fail)?;
+        place_gated(&root, ".claude/agents/scribe.md", &scribe, scribe_state);
+        write(&root, "navori.config.json", &config);
+        let ts = NODE
+            .ask(&json!({ "op": "render", "root": root.to_string_lossy() }))
+            .map_err(TestCaseError::fail)?;
+        match rust_plan(&root, &config, false) {
+            Some(_) if ts.get("threw").is_some() => prop_assert!(false, "ts threw: {}", ts),
+            Some(rust) => prop_assert!(ts["report"] == rust, "{}\n{}", first_difference(&ts["report"], &rust), config),
+            None => prop_assert!(false, "rust declined for {}", config),
         }
     }
 }

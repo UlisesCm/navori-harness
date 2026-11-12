@@ -108,7 +108,7 @@ fn is_true(config: &JsValue, section: &str, key: &str) -> bool {
 
 /// `GATED_WORKFLOW_SKILL_FLAGS` (`harness-plan.ts:111-116`): workflow skills behind an opt-in
 /// `harness.<flag>`; `master-plan` and `context-intake` stay ungated.
-const GATED_WORKFLOW_SKILL_FLAGS: [(&str, &str); 4] = [
+pub const GATED_WORKFLOW_SKILL_FLAGS: [(&str, &str); 4] = [
     ("plan-simple", "planTiers"),
     ("plan-advanced", "planTiers"),
     ("dominio", "authoring"),
@@ -122,6 +122,18 @@ fn is_workflow_skill_enabled(config: &JsValue, id: &str) -> bool {
         .find(|(skill, _)| *skill == id)
         .is_none_or(|(_, flag)| is_true(config, "harness", flag))
 }
+
+/// The keys of `GATED_HOOK_PREDICATES` (`harness-plan.ts:124-136`), in declaration order: the
+/// hooks [`is_hook_enabled`] gates. The retirement of step 8.7f walks them.
+pub const GATED_HOOK_IDS: [&str; 7] = [
+    "implementer-no-markdown",
+    "master-plan-context",
+    "master-accept-confirm",
+    "routing-watch",
+    "model-advisor",
+    "audit-mode-trigger",
+    "audit-mode-close",
+];
 
 /// `isHookEnabled` (`harness-plan.ts:124-142`, `GATED_HOOK_PREDICATES`): whether hook `id` is
 /// written for `config`; ungated hooks always are. `model-advisor` also stays for Codex with
