@@ -1396,6 +1396,9 @@ pub fn render_json(cwd: &str, plan: &RenderPlan) -> JsValue {
         ("orphanedWorkspaces", JsValue::Array(Vec::new())),
         ("orphanedEngineOutputs", orphaned),
         ("prunedEngineOutputs", JsValue::Array(Vec::new())),
+        // #1604 (`commands/render.ts:1847`): files a prune kept without their managed blocks.
+        // Empty here: `--prune` delegates to the TS.
+        ("strippedEngineOutputs", JsValue::Array(Vec::new())),
         ("keptEngineOutputs", JsValue::Array(Vec::new())),
         ("gitignore", ignore_json(plan.gitignore.as_ref(), false)),
         (
