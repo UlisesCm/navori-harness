@@ -234,6 +234,18 @@ fn golden_sections() -> Result<BTreeMap<String, (bool, String)>, String> {
             lines.push(line);
         }
     }
+    // Every `===== FILE:` header must yield one section: a parse slip shows up here instead of
+    // as a confusing missing/extra diff.
+    let headers = text
+        .split('\n')
+        .filter(|line| line.starts_with("===== FILE: "))
+        .count();
+    if headers == 0 || sections.len() != headers {
+        return Err(format!(
+            "{} golden sections parsed from {headers} headers",
+            sections.len()
+        ));
+    }
     Ok(sections)
 }
 
@@ -252,9 +264,6 @@ fn claude_tree_matches_the_golden_snap() -> Result<(), String> {
         .iter()
         .map(|w| (w.rel_path.clone(), (w.chmod_exec, normalize(&w.content))))
         .collect();
-    if golden.len() < 50 {
-        return Err(format!("only {} golden sections parsed", golden.len()));
-    }
     let missing: Vec<&String> = golden
         .keys()
         .filter(|f| !rendered.contains_key(*f))
