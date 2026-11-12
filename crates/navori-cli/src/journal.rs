@@ -7,13 +7,17 @@
 
 use std::ffi::OsString;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc::RecvTimeoutError;
+use std::thread;
+use std::time::Instant;
 
 use navori_hooks::runner::Engine;
 
 use crate::delegate::{self, Locations};
-use crate::shadow::Comparison;
+use crate::shadow::{self, Comparison};
 
 /// Where shadow observations are acknowledged before stdin and recorded afterwards.
 pub trait ShadowJournal {
@@ -28,6 +32,89 @@ pub trait ShadowJournal {
     /// Record the comparison of an acknowledged observation. No payload, stdout or stderr byte
     /// ever reaches the journal; an unrecorded completion leaves the begin pending.
     fn complete(&self, root: &Path, receipt: &str, comparison: Comparison);
+    /// [`Self::begin`] that must answer by `deadline` (`None`: unbounded). Journals that cannot
+    /// bound themselves keep the unbounded call.
+    fn begin_until(
+        &self,
+        root: &Path,
+        hook: &str,
+        engine: Engine,
+        implementation: &str,
+        _deadline: Option<Instant>,
+    ) -> Option<String> {
+        self.begin(root, hook, engine, implementation)
+    }
+    /// [`Self::complete`] that is abandoned at `deadline` (`None`: unbounded).
+    fn complete_until(
+        &self,
+        root: &Path,
+        receipt: &str,
+        comparison: Comparison,
+        _deadline: Option<Instant>,
+    ) {
+        self.complete(root, receipt, comparison);
+    }
+}
+
+/// Run `command` to completion, or until `deadline`, whichever comes first. With a deadline the
+/// child leads its own process group and the whole group is killed at expiry; stdin is written
+/// on a detached thread so a child that never reads cannot block. Returns the exit status and,
+/// when `capture` is set, stdout; `None` on spawn failure or expiry.
+fn run_bounded(
+    mut command: Command,
+    input: Option<Vec<u8>>,
+    capture: bool,
+    deadline: Option<Instant>,
+) -> Option<(ExitStatus, Vec<u8>)> {
+    if deadline.is_some_and(|at| Instant::now() >= at) {
+        return None;
+    }
+    command
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(if capture {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+    if deadline.is_some() {
+        command.process_group(0);
+    }
+    let mut child = command.spawn().ok()?;
+    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
+        thread::spawn(move || {
+            let _ = stdin.write_all(&bytes);
+        });
+    }
+    let output = child.stdout.take().map(shadow::drain);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if deadline.is_some_and(|at| Instant::now() >= at) => {
+                shadow::kill_group(&mut child, &[]);
+                return None;
+            }
+            Ok(None) => thread::sleep(shadow::POLL),
+            Err(_) => {
+                shadow::kill_group(&mut child, &[]);
+                return None;
+            }
+        }
+    };
+    let stdout = match output {
+        None => Vec::new(),
+        Some(receiver) => match shadow::collect(&receiver, deadline) {
+            Ok(bytes) => bytes,
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                shadow::kill_group(&mut child, &[]);
+                return None;
+            }
+        },
+    };
+    Some((status, stdout))
 }
 
 /// Journal backed by the TS CLI resolved like delegation (`NAVORI_TS_CLI`, checkout, `PATH`).
@@ -72,39 +159,51 @@ impl ShadowJournal for CliJournal {
         engine: Engine,
         implementation: &str,
     ) -> Option<String> {
-        let output = self
-            .command("begin", root)
-            .args([
-                OsString::from("--hook"),
-                hook.into(),
-                "--engine".into(),
-                engine_name(engine).into(),
-                "--impl".into(),
-                implementation.into(),
-            ])
-            .stdin(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        receipt(&output.stdout)
+        self.begin_until(root, hook, engine, implementation, None)
     }
 
     fn complete(&self, root: &Path, receipt: &str, comparison: Comparison) {
-        let Ok(mut child) = self
-            .command("complete", root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-        else {
-            return;
-        };
-        let document = completion(receipt, comparison);
-        if let Some(mut input) = child.stdin.take() {
-            let _ = input.write_all(document.as_bytes());
+        self.complete_until(root, receipt, comparison, None);
+    }
+
+    fn begin_until(
+        &self,
+        root: &Path,
+        hook: &str,
+        engine: Engine,
+        implementation: &str,
+        deadline: Option<Instant>,
+    ) -> Option<String> {
+        let mut command = self.command("begin", root);
+        command.args([
+            OsString::from("--hook"),
+            hook.into(),
+            "--engine".into(),
+            engine_name(engine).into(),
+            "--impl".into(),
+            implementation.into(),
+        ]);
+        let (status, stdout) = run_bounded(command, None, true, deadline)?;
+        if !status.success() {
+            return None;
         }
-        let _ = child.wait();
+        receipt(&stdout)
+    }
+
+    fn complete_until(
+        &self,
+        root: &Path,
+        receipt: &str,
+        comparison: Comparison,
+        deadline: Option<Instant>,
+    ) {
+        let document = completion(receipt, comparison).into_bytes();
+        let _ = run_bounded(
+            self.command("complete", root),
+            Some(document),
+            false,
+            deadline,
+        );
     }
 }
 

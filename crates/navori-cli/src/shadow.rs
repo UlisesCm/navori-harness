@@ -5,10 +5,30 @@
 //! valid shell verdict; shell transport/protocol failures use the existing runner's D6 policy.
 
 use std::ffi::OsString;
-use std::io::{self, Write};
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::io::{self, Read, Write};
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
+use std::time::{Duration, Instant};
+
+/// Wall-clock budget per shadow hook, anchored at the start of the hook process. A hook without
+/// an entry has no deadline. Each budget must stay below the lowest timeout the renders register
+/// for that hook, so the host never kills the process while it could still answer safely.
+pub const SHADOW_DEADLINES: &[(&str, Duration)] =
+    &[("guard-destructive", Duration::from_millis(8500))];
+
+/// Absolute expiry for `hook`, counted from `start`; `None` when the hook has no deadline.
+#[must_use]
+pub fn deadline_for(hook: &str, start: Instant) -> Option<Instant> {
+    SHADOW_DEADLINES
+        .iter()
+        .find(|(id, _)| *id == hook)
+        .and_then(|(_, budget)| start.checked_add(*budget))
+}
+
+pub(crate) const POLL: Duration = Duration::from_millis(5);
 
 use navori_hooks::runner::{self, Context, Evaluation, Failure, Response, Verdict};
 
@@ -89,21 +109,42 @@ pub fn run<H>(
 where
     H: FnOnce(&[u8]) -> Result<Evaluation, Failure>,
 {
+    run_until(context, payload, invocation, None, native)
+}
+
+/// [`run`] with an absolute expiry for the shell lane. Past it the shell process group is killed
+/// and the lane fails like any shell transport failure (safe response, `shell_failed`); when the
+/// expiry already passed after the native lane, the shell never starts.
+#[must_use]
+pub fn run_until<H>(
+    context: Context<'_>,
+    payload: &[u8],
+    invocation: ShellInvocation<'_>,
+    deadline: Option<Instant>,
+    native: H,
+) -> ShadowResult
+where
+    H: FnOnce(&[u8]) -> Result<Evaluation, Failure>,
+{
     let mut native_succeeded = false;
-    let mut native_unobserved = false;
-    let mut native_input = payload;
-    let native = runner::run(
-        context,
-        &mut native_input,
-        || Ok(true),
-        |bytes| {
-            let evaluated = native(bytes).inspect_err(|failure| {
-                native_unobserved = failure.is_unobserved();
-            })?;
-            native_succeeded = true;
-            Ok(evaluated)
-        },
-    );
+    // Past the deadline on entry (an expired journal begin): the native lane would only add time
+    // before the fail-safe, and its comparison would be thrown away. It does not run.
+    let mut native_unobserved = deadline.is_some_and(|at| Instant::now() >= at);
+    let native = (!native_unobserved).then(|| {
+        let mut native_input = payload;
+        runner::run(
+            context,
+            &mut native_input,
+            || Ok(true),
+            |bytes| {
+                let evaluated = native(bytes).inspect_err(|failure| {
+                    native_unobserved = failure.is_unobserved();
+                })?;
+                native_succeeded = true;
+                Ok(evaluated)
+            },
+        )
+    });
     let mut shell_succeeded = false;
     let mut shell_input = payload;
     let shell = runner::run(
@@ -111,7 +152,7 @@ where
         &mut shell_input,
         || Ok(true),
         |bytes| {
-            let evaluated = shell_once(&invocation, bytes)?;
+            let evaluated = shell_once(&invocation, bytes, deadline)?;
             shell_succeeded = true;
             Ok(evaluated)
         },
@@ -121,18 +162,90 @@ where
         native_unobserved,
         native_failed: compared && !native_succeeded,
         shell_failed: !shell_succeeded,
-        code_differs: compared && native.code() != shell.code(),
-        stdout_differs: compared && native.stdout() != shell.stdout(),
-        stderr_differs: compared && native.stderr() != shell.stderr(),
+        code_differs: compared && native.as_ref().is_some_and(|n| n.code() != shell.code()),
+        stdout_differs: compared
+            && native
+                .as_ref()
+                .is_some_and(|n| n.stdout() != shell.stdout()),
+        stderr_differs: compared
+            && native
+                .as_ref()
+                .is_some_and(|n| n.stderr() != shell.stderr()),
         shell_code: shell_succeeded.then(|| shell.code()),
-        native_code: native_succeeded.then(|| native.code()),
+        native_code: native
+            .as_ref()
+            .filter(|_| native_succeeded)
+            .map(|n| n.code()),
     };
     ShadowResult { shell, comparison }
 }
 
-/// Write stdin concurrently while both output pipes are drained by wait_with_output.
-fn shell_once(invocation: &ShellInvocation<'_>, payload: &[u8]) -> Result<Evaluation, Failure> {
-    let mut child = Command::new("bash")
+/// Captured shell process result.
+struct Captured {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+/// SIGKILL the whole process group `child` leads (it was spawned with `process_group(0)`), so a
+/// grandchild holding the pipes cannot outlive the deadline. Falls back to the child alone.
+pub(crate) fn kill_group(child: &mut Child, env: &[(OsString, OsString)]) {
+    let pgid = child.id();
+    let kill = crate::quality_gate::resolve(env, "kill", "/")
+        .or_else(|| {
+            ["/usr/bin/kill", "/bin/kill"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from("kill"));
+    let group_killed = Command::new(kill)
+        .args(["-KILL", "--", &format!("-{pgid}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !group_killed {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+/// Drain `pipe` on its own thread; the bytes arrive on the returned channel at EOF.
+pub(crate) fn drain<P: Read + Send + 'static>(mut pipe: P) -> mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        let _ = sender.send(bytes);
+    });
+    receiver
+}
+
+pub(crate) fn collect(
+    receiver: &mpsc::Receiver<Vec<u8>>,
+    deadline: Option<Instant>,
+) -> Result<Vec<u8>, RecvTimeoutError> {
+    match deadline {
+        None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        Some(at) => receiver.recv_timeout(at.saturating_duration_since(Instant::now())),
+    }
+}
+
+/// Run the shell in its own process group. Stdin is written and both outputs drained on detached
+/// threads, so neither a child that never reads nor a grandchild holding a pipe can keep this
+/// function from returning at `deadline`.
+fn run_shell(
+    invocation: &ShellInvocation<'_>,
+    payload: &[u8],
+    deadline: Option<Instant>,
+) -> Result<(Captured, Option<io::Error>), Failure> {
+    if deadline.is_some_and(|at| Instant::now() >= at) {
+        return Err(Failure("shadow shell deadline already expired".to_owned()));
+    }
+    let mut command = Command::new("bash");
+    command
         .arg(invocation.script)
         .args(invocation.args)
         .current_dir(invocation.cwd)
@@ -141,32 +254,62 @@ fn shell_once(invocation: &ShellInvocation<'_>, payload: &[u8]) -> Result<Evalua
         .env("NAVORI_HOOK_IMPL", "shell")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Its own group only when a deadline may kill it: without one, nothing changes.
+    if deadline.is_some() {
+        command.process_group(0);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| Failure(format!("shadow shell spawn failed: {error}")))?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(Failure("shadow shell stdin unavailable".to_owned()));
+    let (Some(mut stdin), Some(stdout), Some(stderr)) =
+        (child.stdin.take(), child.stdout.take(), child.stderr.take())
+    else {
+        kill_group(&mut child, invocation.env);
+        return Err(Failure("shadow shell pipes unavailable".to_owned()));
     };
-    let (output, input_result) = thread::scope(|scope| {
-        let writer =
-            match thread::Builder::new().spawn_scoped(scope, move || stdin.write_all(payload)) {
-                Ok(writer) => writer,
-                Err(error) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(Failure(format!("shadow stdin thread failed: {error}")));
-                }
-            };
-        let output = child.wait_with_output();
-        let input_result = writer
-            .join()
-            .map_err(|_| Failure("shadow stdin writer panicked".to_owned()))?;
-        let output =
-            output.map_err(|error| Failure(format!("shadow shell output failed: {error}")))?;
-        Ok((output, input_result))
-    })?;
+    let (written, write_result) = mpsc::channel();
+    let bytes = payload.to_vec();
+    thread::spawn(move || {
+        let _ = written.send(stdin.write_all(&bytes));
+    });
+    let (out, err) = (drain(stdout), drain(stderr));
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if deadline.is_some_and(|at| Instant::now() >= at) => {
+                kill_group(&mut child, invocation.env);
+                return Err(Failure("shadow shell exceeded its deadline".to_owned()));
+            }
+            Ok(None) => thread::sleep(POLL),
+            Err(error) => {
+                kill_group(&mut child, invocation.env);
+                return Err(Failure(format!("shadow shell wait failed: {error}")));
+            }
+        }
+    };
+    let (Ok(stdout), Ok(stderr)) = (collect(&out, deadline), collect(&err, deadline)) else {
+        kill_group(&mut child, invocation.env);
+        return Err(Failure("shadow shell output not closed in time".to_owned()));
+    };
+    // Best effort: a writer still blocked here only means the shell never read its input.
+    let input_error = write_result.try_recv().ok().and_then(Result::err);
+    Ok((
+        Captured {
+            status,
+            stdout,
+            stderr,
+        },
+        input_error,
+    ))
+}
+
+fn shell_once(
+    invocation: &ShellInvocation<'_>,
+    payload: &[u8],
+    deadline: Option<Instant>,
+) -> Result<Evaluation, Failure> {
+    let (output, input_result) = run_shell(invocation, payload, deadline)?;
     let verdict = match output.status.code() {
         Some(0) => Verdict::Permit,
         Some(1) => Verdict::Error,
@@ -179,7 +322,7 @@ fn shell_once(invocation: &ShellInvocation<'_>, payload: &[u8]) -> Result<Evalua
         }
     };
     // Legacy hooks may stop reading early; EPIPE with a valid verdict is normal shell behavior.
-    if let Err(error) = input_result
+    if let Some(error) = input_result
         && error.kind() != io::ErrorKind::BrokenPipe
     {
         return Err(Failure(format!("shadow stdin write failed: {error}")));
