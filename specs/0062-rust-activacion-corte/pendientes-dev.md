@@ -165,3 +165,18 @@ Hoy (opción 1) un host cuyos diagnósticos de Bash salen traducidos se difiere 
 sonda el texto localizado (formato `línea N` y strerror de ENOENT, ENOTDIR y EACCES) y lo use en
 `subagent_stop_handoff/mod.rs:307` y `:513` y en `quality_gate_pre_commit/mod.rs:371`, para evaluar esos hosts con
 identidad byte a byte. Exige un catálogo por errno y un dialecto por locale que el corpus todavía no cubre.
+
+## Diferido: medición en macOS (BSD grep y Bash 3.2)
+
+Queda pendiente y no bloquea 0.13. Mientras no se mida en un Mac real, esos hosts siguen en shell:
+
+- **Plegado de mayúsculas de BSD grep** para la lane PII de `guard-destructive` (1b). La tabla de plegado se mide
+  contra GNU `grep -iF`, y macOS trae BSD grep, que pliega de otra forma. Hasta medirlo, un host macOS con locale
+  UTF-8 no es elegible para la lane PII nativa: responde el shell.
+- **Texto inglés de los diagnósticos de Bash 3.2** (`/bin/bash` de macOS) para la sonda de mensajes del perfil de
+  locale (opción 1, `prepare.rs`). El texto esperado es el de Bash 5. Con Bash 3.2 el hook se difiere al shell hasta
+  medir el texto real.
+
+Para medirlo hace falta un Mac con `/usr/bin/grep` (BSD) y `/bin/bash` 3.2. Se corren el generador de la tabla de
+plegado de 1b (#1667), adaptado a BSD grep, y la sonda `exec 2>&1; : < /dev/null/navori-probe`, y se compara el
+resultado con la tabla y el texto de Linux.
