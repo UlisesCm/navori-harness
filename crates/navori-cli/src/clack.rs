@@ -38,11 +38,12 @@ pub(crate) fn width(text: &str) -> Option<usize> {
         .sum()
 }
 
-/// `S_BAR`, `S_INFO` and `S_WARN`.
+/// `S_BAR`, `S_INFO`, `S_SUCCESS` and `S_WARN`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Symbol {
     Bar,
     Info,
+    Success,
     Warn,
 }
 
@@ -51,6 +52,7 @@ impl Symbol {
         match self {
             Self::Bar => "│",
             Self::Info => "●",
+            Self::Success => "◆",
             Self::Warn => "▲",
         }
     }

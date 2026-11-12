@@ -84,6 +84,8 @@
     { "path": ["migrations", "list"], "flags": ["h", "help", "json", "limit"] },
     { "path": ["migrations", "restore"], "flags": ["cwd", "h", "help", "yes"] },
     { "path": ["migrations"], "flags": ["h", "help", "json", "limit"] },
+    { "path": ["preset", "init"], "flags": ["cwd", "h", "help"] },
+    { "path": ["preset"], "flags": ["h", "help"] },
     { "path": ["tools", "notice"], "flags": ["ack"] },
     { "path": ["tools", "session-context"], "flags": ["notice-reserve"] },
     { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },

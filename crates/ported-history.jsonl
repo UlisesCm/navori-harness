@@ -28,3 +28,5 @@
 {"date":"2026-11-11","op":"port","id":"migrations list","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
 {"date":"2026-11-11","op":"port","id":"migrations restore","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
 {"date":"2026-11-11","op":"port","id":"migrations","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
+{"date":"2026-11-11","op":"port","id":"preset init","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
+{"date":"2026-11-11","op":"port","id":"preset","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
