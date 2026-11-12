@@ -108,7 +108,7 @@ fn is_true(config: &JsValue, section: &str, key: &str) -> bool {
 
 /// `GATED_WORKFLOW_SKILL_FLAGS` (`harness-plan.ts:111-116`): workflow skills behind an opt-in
 /// `harness.<flag>`; `master-plan` and `context-intake` stay ungated.
-const GATED_WORKFLOW_SKILL_FLAGS: [(&str, &str); 4] = [
+pub const GATED_WORKFLOW_SKILL_FLAGS: [(&str, &str); 4] = [
     ("plan-simple", "planTiers"),
     ("plan-advanced", "planTiers"),
     ("dominio", "authoring"),
@@ -122,6 +122,18 @@ fn is_workflow_skill_enabled(config: &JsValue, id: &str) -> bool {
         .find(|(skill, _)| *skill == id)
         .is_none_or(|(_, flag)| is_true(config, "harness", flag))
 }
+
+/// The keys of `GATED_HOOK_PREDICATES` (`harness-plan.ts:124-136`), in declaration order: the
+/// hooks [`is_hook_enabled`] gates. The retirement of step 8.7f walks them.
+pub const GATED_HOOK_IDS: [&str; 7] = [
+    "implementer-no-markdown",
+    "master-plan-context",
+    "master-accept-confirm",
+    "routing-watch",
+    "model-advisor",
+    "audit-mode-trigger",
+    "audit-mode-close",
+];
 
 /// `isHookEnabled` (`harness-plan.ts:124-142`, `GATED_HOOK_PREDICATES`): whether hook `id` is
 /// written for `config`; ungated hooks always are. `model-advisor` also stays for Codex with
@@ -459,4 +471,42 @@ pub fn resolve_harness_plan(
         })
         .collect();
     plan
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GATED_HOOK_IDS, is_hook_enabled};
+    use crate::js_json::{JsValue, parse};
+    use crate::render::assets;
+
+    /// A malformed config parses to `null`, which fails the "on" assertions below.
+    fn config(text: &str) -> JsValue {
+        parse(text).unwrap_or(JsValue::Null)
+    }
+
+    /// `GATED_HOOK_IDS` lists exactly the hooks `is_hook_enabled` gates. The candidates are every
+    /// bundled `core-assets/hooks/*.sh`, independent of any flag, so a hook that gains a gated arm
+    /// without being listed (or a listed id that is not gated) fails here.
+    #[test]
+    fn gated_hook_ids_match_the_predicates() {
+        const HOOKS: &str = "packages/core/core-assets/hooks/";
+        let mut gated: Vec<&str> = assets::under(HOOKS)
+            .filter_map(|(path, _)| path.strip_prefix(HOOKS)?.strip_suffix(".sh"))
+            .filter(|id| !id.contains('/'))
+            .filter(|id| !is_hook_enabled(&JsValue::Null, id, None))
+            .collect();
+        gated.sort_unstable();
+        let mut listed = GATED_HOOK_IDS.to_vec();
+        listed.sort_unstable();
+        assert_eq!(gated, listed);
+        let on = config(
+            r#"{"harness":{"scribeOwnsMarkdown":true,"masterPlan":true,"planTiers":true},"hooks":{"modelAdvisor":true,"auditMode":true}}"#,
+        );
+        for id in GATED_HOOK_IDS {
+            assert!(
+                is_hook_enabled(&on, id, None),
+                "{id} is off with every opt-in"
+            );
+        }
+    }
 }
