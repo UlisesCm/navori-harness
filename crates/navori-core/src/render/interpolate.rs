@@ -211,6 +211,22 @@ fn built_in_vars(
     let native_hooks = get(config, "qualityGate")
         .and_then(|gate| get(gate, "nativeHooks"))
         .is_some_and(|value| *value == JsValue::Bool(true));
+    // `harness.sessionState === false` (#1579): off leaves the file list an empty quoted word and
+    // the post-compaction sentence without the progress file. Never blank, like the TS.
+    let session_state_off = get(config, "harness")
+        .and_then(|harness| get(harness, "sessionState"))
+        .is_some_and(|value| *value == JsValue::Bool(false));
+    let (progress_files, compact_summary_tail) = if session_state_off {
+        (
+            r#""""#,
+            ", con las decisiones y los bugs con causa raíz de esta sesión.",
+        )
+    } else {
+        (
+            r#""progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md""#,
+            " y/o anota en progress/current.md las decisiones y los bugs con causa raíz de esta sesión.",
+        )
+    };
     let mut vars: BTreeMap<String, String> = [
         ("harness.compactAdviceTokens", number_to_js(compact)),
         (
@@ -223,6 +239,8 @@ fn built_in_vars(
         ),
         ("navori.scopedGate", scoped),
         ("navori.progressGuardLane", guard_lane.to_owned()),
+        ("navori.progressFiles", progress_files.to_owned()),
+        ("navori.compactSummaryTail", compact_summary_tail.to_owned()),
         (
             "navori.nonImplementerRoles",
             NON_IMPLEMENTER_ROLES.to_owned(),
