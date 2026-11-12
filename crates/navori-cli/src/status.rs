@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(distribution_summary(&report, Status(Lang::Es)), "");
     }
 
-    // Covers: R76
+    // Covers: R73
     #[test]
     fn kv_pads_keys_to_the_widest() {
         assert_eq!(

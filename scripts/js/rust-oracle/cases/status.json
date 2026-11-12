@@ -69,6 +69,57 @@
       "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
     },
     {
+      "id": "status:distribution-native",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] },
+        { "git": ["rm", "-q", "CLAUDE.md"] },
+        { "write": ".claude/notes.txt", "content": "two\n" }
+      ],
+      "args": ["status"],
+      "native": true,
+      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+    },
+    {
+      "id": "status:distribution-native-json",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] },
+        { "git": ["rm", "-q", "CLAUDE.md"] },
+        { "write": ".claude/notes.txt", "content": "two\n" }
+      ],
+      "args": ["status", "--json"],
+      "native": true,
+      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+    },
+    {
+      "id": "status:pending-without-claude-engine",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"agents-md\"],\n  \"preset\": \"custom\",\n  \"plugins\": {}\n}\n",
+        "CLAUDE.md": "# x\n"
+      },
+      "args": ["status", "--json"],
+      "native": true,
+      "note": "a non-Claude engine with a CLAUDE.md: the native render answers, so the pending count comes from pending_changes"
+    },
+    {
       "id": "status:distribution-unpushed-en",
       "fixture": "fresh-init",
       "files": {
