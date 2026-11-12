@@ -61,6 +61,7 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
             true,
             Some("harness.planTiers"),
             Orchestrator,
+            None,
         ),
         (
             "plan-maestro",
@@ -68,28 +69,37 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
             true,
             Some("harness.masterPlan"),
             Orchestrator,
+            None,
         ),
-        ("orquestacion", "en", true, None, Orchestrator),
-        ("idioma-rol", "es", true, None, Everyone),
-        ("formato-respuesta", "es", true, None, Everyone),
+        ("orquestacion", "en", true, None, Orchestrator, None),
+        ("idioma-rol", "es", true, None, Everyone, None),
+        ("formato-respuesta", "es", true, None, Everyone, None),
         (
             "tipado-fuerte",
             "en",
             false,
             Some("project.typedLanguage"),
             Everyone,
+            None,
         ),
-        ("operaciones-seguras", "en", true, None, Everyone),
-        ("arranque-sesion", "en", true, None, Orchestrator),
-        ("sdd", "en", true, Some("sdd.enabled"), Everyone),
-        ("intake-tickets", "en", true, None, Everyone),
-        ("code-discovery-routing", "en", true, None, Everyone),
+        ("operaciones-seguras", "en", true, None, Everyone, None),
+        ("arranque-sesion", "en", true, None, Orchestrator, None),
+        ("sdd", "en", true, Some("sdd.enabled"), Everyone, None),
+        ("intake-tickets", "en", true, None, Everyone, None),
+        ("code-discovery-routing", "en", true, None, Everyone, None),
         // Spec 0064: what is true only on Claude Code; only `CLAUDE.md` carries it.
-        ("claude-apendice", "en", true, None, Everyone),
+        (
+            "claude-apendice",
+            "en",
+            true,
+            None,
+            Everyone,
+            Some(Layer::Claude),
+        ),
     ]
     .into_iter()
     .map(
-        |(id, base_language, root_only, condition, audience)| CoreManagedAsset {
+        |(id, base_language, root_only, condition, audience, layer)| CoreManagedAsset {
             id,
             // Built once for the process lifetime, like the TS module constant.
             rel_path: Box::leak(format!("core-assets/managed/{id}.md").into_boxed_str()),
@@ -97,7 +107,7 @@ pub static CORE_MANAGED_ASSETS: LazyLock<Vec<CoreManagedAsset>> = LazyLock::new(
             base_language,
             root_only,
             audience,
-            layer: (id == "claude-apendice").then_some(Layer::Claude),
+            layer,
         },
     )
     .collect()
