@@ -24,7 +24,7 @@ use crate::render::harness_plan::{
 };
 use crate::render::interpolate::sanitize_project_value;
 use crate::render::library_skills::library_skill_label;
-use crate::render::plan::{CORE_SOURCE_ID, Layer};
+use crate::render::plan::{CORE_SOURCE_ID, Layer, engines_include};
 use crate::render::presets::{AssetRoot, LoadedPreset, load_preset};
 use crate::{i18n, posix};
 
@@ -630,8 +630,7 @@ pub fn plan_agents_md_engine(
     repo_root: &Path,
     options: ProseOptions<'_>,
 ) -> Result<ProsePlan, ProseDelegate> {
-    let with_pi = matches!(get(input_config, "engines"), Some(JsValue::Array(engines))
-        if engines.iter().any(|e| matches!(e, JsValue::String(s) if s.is("pi"))));
+    let with_pi = engines_include(input_config, "pi");
     let layers: &[Layer] = if with_pi {
         &[Layer::Shared]
     } else {

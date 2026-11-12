@@ -27,7 +27,7 @@ use crate::render::managed_file::parse_asset;
 use crate::render::pi_roles::{
     PI_KNOWLEDGE_READONLY, PiKnowledgeGrants, is_pi_child_role, pi_knowledge_tool_name,
 };
-use crate::render::plan::condition_orchestration;
+use crate::render::plan::{condition_orchestration, engines_include};
 use crate::render::plugins::LoadedPlugin;
 
 /// The TS would throw, or resolves something Rust leaves to it.
@@ -760,7 +760,7 @@ pub fn pi_map_migration_pending(config: &JsValue) -> bool {
     let models = get(config, "models");
     let pi_map = models.and_then(|m| get(m, "piMap"));
     let codex_map = models.and_then(|m| get(m, "codexMap"));
-    let renders_pi = matches!(get(config, "engines"), Some(JsValue::Array(e)) if e.iter().any(|x| matches!(x, JsValue::String(s) if s.is("pi"))));
+    let renders_pi = engines_include(config, "pi");
     renders_pi
         && matches!(pi_map, None | Some(JsValue::Undefined))
         && matches!(codex_map, Some(JsValue::Object(map)) if map.entries().iter().any(|(_, v)| !matches!(v, JsValue::Undefined)))
