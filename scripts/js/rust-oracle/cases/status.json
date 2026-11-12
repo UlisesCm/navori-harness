@@ -3,6 +3,197 @@
   "cases": [
     { "id": "empty:status", "fixture": "empty", "args": ["status"] },
     { "id": "fresh-init:status", "fixture": "fresh-init", "args": ["status"] },
-    { "id": "fresh-init:status-with-stdin", "fixture": "fresh-init", "args": ["status"], "stdin": "ignored input\n" }
+    { "id": "fresh-init:status-with-stdin", "fixture": "fresh-init", "args": ["status"], "stdin": "ignored input\n" },
+    { "id": "status:no-config-native", "fixture": "empty", "args": ["status"], "native": true },
+    { "id": "status:no-config-json", "fixture": "empty", "args": ["status", "--json"], "native": true },
+    { "id": "status:fresh-native", "fixture": "fresh-init", "args": ["status"], "native": true },
+    { "id": "status:json", "fixture": "fresh-init", "args": ["status", "--json"], "native": true },
+    { "id": "status:cwd-json", "fixture": "fresh-init", "args": ["status", "--json", "--cwd", "."], "native": true },
+    { "id": "status:en-warnings", "fixture": "claude-en", "args": ["status"], "native": true },
+    { "id": "status:en-warnings-json", "fixture": "claude-en", "args": ["status", "--json"], "native": true },
+    { "id": "status:drift-invariants", "fixture": "drifted-block", "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:drift-invariants-json", "fixture": "drifted-block", "args": ["status", "--json"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:drift-downgrade-json", "fixture": "foreign-blocks", "args": ["status", "--json"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:en-rendered-warnings", "fixture": "claude-en", "setup": [["render", "--apply"]], "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:user-content-codex", "fixture": "user-content", "args": ["status"], "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted" },
+    { "id": "status:prose-engines", "fixture": "multi-engine", "args": ["status"], "native": true },
+    { "id": "status:pi-engines", "fixture": "multi-engine-pi", "args": ["status", "--json"], "native": true },
+    {
+      "id": "status:missing-plugin-en",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"custom\",\n  \"language\": \"en\",\n  \"plugins\": { \"engram\": { \"enabled\": true }, \"nope\": { \"enabled\": true }, \"tgrep\": { \"enabled\": false } }\n}\n"
+      },
+      "args": ["status"],
+      "native": true
+    },
+    {
+      "id": "status:missing-plugin-json",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"custom\",\n  \"plugins\": { \"nope\": { \"enabled\": true } }\n}\n"
+      },
+      "args": ["status", "--json"],
+      "native": true
+    },
+    {
+      "id": "status:missing-preset",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"no-such-preset\",\n  \"language\": \"es\"\n}\n"
+      },
+      "args": ["status"],
+      "native": true
+    },
+    {
+      "id": "status:missing-preset-json",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"no-such-preset\"\n}\n"
+      },
+      "args": ["status", "--json"],
+      "native": true
+    },
+    {
+      "id": "status:rendered-uncommitted",
+      "fixture": "fresh-init",
+      "setup": [["render", "--apply"]],
+      "args": ["status"],
+      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+    },
+    {
+      "id": "status:rendered-uncommitted-json",
+      "fixture": "fresh-init",
+      "setup": [["render", "--apply"]],
+      "args": ["status", "--json"],
+      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+    },
+    {
+      "id": "status:distribution-native",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] },
+        { "git": ["rm", "-q", "CLAUDE.md"] },
+        { "write": ".claude/notes.txt", "content": "two\n" }
+      ],
+      "args": ["status"],
+      "native": true,
+      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+    },
+    {
+      "id": "status:distribution-native-json",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] },
+        { "git": ["rm", "-q", "CLAUDE.md"] },
+        { "write": ".claude/notes.txt", "content": "two\n" }
+      ],
+      "args": ["status", "--json"],
+      "native": true,
+      "note": "without CLAUDE.md the guarded Claude render is not needed, so the uncommitted and unpushed distribution rows run native while the guard lasts"
+    },
+    {
+      "id": "status:pending-without-claude-engine",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"agents-md\"],\n  \"preset\": \"custom\",\n  \"plugins\": {}\n}\n",
+        "CLAUDE.md": "# x\n"
+      },
+      "args": ["status", "--json"],
+      "native": true,
+      "note": "a non-Claude engine with a CLAUDE.md: the native render answers, so the pending count comes from pending_changes"
+    },
+    {
+      "id": "status:distribution-unpushed-en",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"custom\",\n  \"language\": \"en\",\n  \"branchBase\": \"main\",\n  \"plugins\": {}\n}\n"
+      },
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] },
+        { "write": ".claude/scratch.txt", "content": "two\n" }
+      ],
+      "args": ["status"],
+      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+    },
+    {
+      "id": "status:distribution-unpushed-json",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "write": ".claude/notes.txt", "content": "one\n" },
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "local"] }
+      ],
+      "args": ["status", "--json"],
+      "note": "delegates while the native Claude render is guarded (render::claude::NATIVE_CLAUDE_ENV): status needs its pending count; goes native when the guard is lifted"
+    },
+    {
+      "id": "status:distribution-behind",
+      "fixture": "fresh-init",
+      "setup": [
+        ["render", "--apply"],
+        { "git": ["add", "-A"] },
+        { "git": ["commit", "-q", "--no-gpg-sign", "-m", "render"] },
+        { "git": ["init", "-q", "--bare", "../remote.git"] },
+        { "git": ["remote", "add", "origin", "../remote.git"] },
+        { "git": ["push", "-q", "-u", "origin", "main"] },
+        { "git": ["checkout", "-q", "-b", "feat", "HEAD~1"] }
+      ],
+      "args": ["status"],
+      "native": true
+    },
+    {
+      "id": "status:gitignored-harness",
+      "fixture": "fresh-init",
+      "files": {
+        "navori.config.json": "{\n  \"name\": \"x\",\n  \"version\": \"1.0.0\",\n  \"engines\": [\"claude\"],\n  \"preset\": \"custom\",\n  \"gitignoreHarness\": \"local\",\n  \"plugins\": {}\n}\n"
+      },
+      "args": ["status", "--json"],
+      "native": true
+    },
+    { "id": "status:native-hooks-delegates", "fixture": "self-hosted", "args": ["status"] },
+    { "id": "status:monorepo-delegates", "fixture": "monorepo", "args": ["status", "--json"] },
+    {
+      "id": "status:codex-dir-delegates",
+      "fixture": "codex",
+      "setup": [["render", "--apply"]],
+      "args": ["status"]
+    },
+    {
+      "id": "status:corrupt-settings-delegates",
+      "fixture": "fresh-init",
+      "files": { ".claude/settings.json": "{ not json\n" },
+      "args": ["status"]
+    }
   ]
 }

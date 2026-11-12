@@ -1223,3 +1223,194 @@ pub const fn agents_md_redundant_with_codex(lang: Lang) -> &'static str {
         }
     }
 }
+
+/// `common.noConfig(path)`.
+#[must_use]
+pub fn common_no_config(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::Es => format!("No hay navori.config.json en {path}. Corre 'navori init' primero."),
+        Lang::En => format!("No navori.config.json at {path}. Run 'navori init' first."),
+    }
+}
+
+/// `tc(lang).status`: the strings `status` (and `doctor`'s footer) print.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Status(pub Lang);
+
+impl Status {
+    fn es(self) -> bool {
+        self.0 == Lang::Es
+    }
+
+    fn pick(self, es: &'static str, en: &'static str) -> &'static str {
+        if self.es() { es } else { en }
+    }
+
+    /// `nextRender`.
+    #[must_use]
+    pub fn next_render(self) -> &'static str {
+        self.pick(
+            "Corre 'navori render --apply' para generar los archivos de los engines configurados.",
+            "Run 'navori render --apply' to generate files for the configured engines.",
+        )
+    }
+
+    /// `nextMissingPlugins(count)`.
+    #[must_use]
+    pub fn next_missing_plugins(self, count: usize) -> String {
+        if self.es() {
+            format!("Resuelve {count} plugin(s) faltante(s): instálalos o quítalos del config.")
+        } else {
+            format!(
+                "Resolve {count} missing plugin(s): install them or remove them from the config."
+            )
+        }
+    }
+
+    /// `nextContentDrift`.
+    #[must_use]
+    pub fn next_content_drift(self) -> &'static str {
+        self.pick(
+            "Corre 'navori sync --interactive' para resolver bloques editados a mano.",
+            "Run 'navori sync --interactive' to resolve manually edited blocks.",
+        )
+    }
+
+    /// `nextDowngradeDrift`.
+    #[must_use]
+    pub fn next_downgrade_drift(self) -> &'static str {
+        self.pick(
+            "Tu CLI navori está desactualizado (los bloques en disco son más nuevos): actualízalo con 'npm i -g navori@latest'. Render no los retrocede.",
+            "Your navori CLI is out of date (on-disk blocks are newer): update it with 'npm i -g navori@latest'. Render won't roll them back.",
+        )
+    }
+
+    /// `nextRenderPending(count)`.
+    #[must_use]
+    pub fn next_render_pending(self, count: usize) -> String {
+        if self.es() {
+            format!(
+                "Un render cambiaría {count} archivo(s)/bloque(s): corre 'navori render' para previsualizar y 'navori render --apply' para aplicar."
+            )
+        } else {
+            format!(
+                "A render would change {count} file(s)/block(s): run 'navori render' to preview and 'navori render --apply' to apply."
+            )
+        }
+    }
+
+    /// `renderPendingRow(count)`.
+    #[must_use]
+    pub fn render_pending_row(self, count: usize) -> String {
+        if self.es() {
+            format!("{count} por escribir/borrar (ver 'navori render')")
+        } else {
+            format!("{count} to write/remove (see 'navori render')")
+        }
+    }
+
+    /// `allCurrent`.
+    #[must_use]
+    pub fn all_current(self) -> &'static str {
+        self.pick(
+            "Todo al día — sin acciones pendientes.",
+            "Everything is up to date — no pending actions.",
+        )
+    }
+
+    /// `none`.
+    #[must_use]
+    pub fn none(self) -> &'static str {
+        self.pick("(ninguno)", "(none)")
+    }
+
+    /// `present`.
+    #[must_use]
+    pub fn present(self) -> &'static str {
+        self.pick("presente", "present")
+    }
+
+    /// `missing`.
+    #[must_use]
+    pub fn missing(self) -> &'static str {
+        self.pick("faltante", "missing")
+    }
+
+    /// `statusTitle(cwd)`.
+    #[must_use]
+    pub fn status_title(self, cwd: &str) -> String {
+        if self.es() {
+            format!("Estado · {cwd}")
+        } else {
+            format!("Status · {cwd}")
+        }
+    }
+
+    /// `nextStepsTitle`.
+    #[must_use]
+    pub fn next_steps_title(self) -> &'static str {
+        self.pick("Próximos pasos", "Next steps")
+    }
+
+    /// `issuesFound`.
+    #[must_use]
+    pub fn issues_found(self) -> &'static str {
+        self.pick("Se encontraron problemas", "Issues found")
+    }
+
+    /// `ok`.
+    #[must_use]
+    pub const fn ok(self) -> &'static str {
+        "OK"
+    }
+
+    /// `distributionRow(parts)`.
+    #[must_use]
+    pub fn distribution_row(self, parts: &str) -> String {
+        if self.es() {
+            format!("{parts} — detalle en 'navori doctor'")
+        } else {
+            format!("{parts} — details in 'navori doctor'")
+        }
+    }
+
+    /// `distributionRowUncommitted(files)`.
+    #[must_use]
+    pub fn distribution_row_uncommitted(self, files: usize) -> String {
+        if self.es() {
+            format!("{files} sin commitear")
+        } else {
+            format!("{files} uncommitted")
+        }
+    }
+
+    /// `distributionRowUnpushed(commits)`.
+    #[must_use]
+    pub fn distribution_row_unpushed(self, commits: u64) -> String {
+        if self.es() {
+            format!("{commits} sin pushear")
+        } else {
+            format!("{commits} unpushed")
+        }
+    }
+
+    /// `distributionRowVsBase(files, ref)`.
+    #[must_use]
+    pub fn distribution_row_vs_base(self, files: usize, base: &str) -> String {
+        if self.es() {
+            format!("{files} difieren vs {base}")
+        } else {
+            format!("{files} differ vs {base}")
+        }
+    }
+
+    /// `distributionRowBehind(commits, ref)`.
+    #[must_use]
+    pub fn distribution_row_behind(self, commits: u64, base: &str) -> String {
+        if self.es() {
+            format!("{commits} commit(s) detrás de {base}")
+        } else {
+            format!("{commits} commit(s) behind {base}")
+        }
+    }
+}

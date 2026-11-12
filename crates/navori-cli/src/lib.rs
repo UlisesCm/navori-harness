@@ -34,6 +34,7 @@ pub mod scan;
 pub mod session_start;
 pub mod shadow;
 pub mod spec;
+pub mod status;
 pub mod subagent_stop;
 pub mod sync;
 pub mod tools;
@@ -276,6 +277,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["scan"],
         run: scan::run,
+    },
+    NativeCommand {
+        path: &["status"],
+        run: status::run,
     },
 ];
 
