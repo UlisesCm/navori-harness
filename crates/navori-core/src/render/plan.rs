@@ -251,6 +251,12 @@ fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     }
 }
 
+/// `config.engines?.includes(engine)`: an absent or non-array `engines` includes nothing.
+pub(crate) fn engines_include(config: &JsValue, engine: &str) -> bool {
+    matches!(get(config, "engines"), Some(JsValue::Array(engines))
+        if engines.iter().any(|e| matches!(e, JsValue::String(s) if s.is(engine))))
+}
+
 /// `HARNESS_DEFAULTS[key] ?? true` (`HarnessSchema.parse({})`): only the opt-in flags default to
 /// off; `authoring` joined them in #1484.
 fn harness_default(key: &str) -> bool {
@@ -276,10 +282,7 @@ pub fn condition_orchestration(
             "onPi" => engine == "pi",
             // The layered shape (spec 0064): Claude, or `agents-md` next to Pi.
             "onLayered" => {
-                engine == "claude"
-                    || (engine == "agents-md"
-                        && matches!(get(config, "engines"), Some(JsValue::Array(engines))
-                            if engines.iter().any(|e| matches!(e, JsValue::String(s) if s.is("pi")))))
+                engine == "claude" || (engine == "agents-md" && engines_include(config, "pi"))
             }
             "sdd" => {
                 get(config, "sdd").and_then(|sdd| get(sdd, "enabled"))
