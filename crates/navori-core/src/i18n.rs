@@ -1285,6 +1285,53 @@ impl Status {
         )
     }
 
+    /// `nextReorder`.
+    #[must_use]
+    pub fn next_reorder(self) -> &'static str {
+        self.pick(
+            "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.",
+            "Run 'navori render --apply' to reorder CLAUDE.md blocks into canonical order.",
+        )
+    }
+
+    /// `nextInterleaved(lead)`.
+    #[must_use]
+    pub fn next_interleaved(self, lead: &str) -> String {
+        if self.es() {
+            format!(
+                "Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último{lead}; luego corre 'navori render --apply' para reordenarlos."
+            )
+        } else {
+            format!(
+                "Move your text between managed CLAUDE.md blocks above the first block or below the last{lead}; then run 'navori render --apply' to reorder them."
+            )
+        }
+    }
+
+    /// `nextInterleavedLead(id, pos, total)`.
+    #[must_use]
+    pub fn next_interleaved_lead(self, id: &str, pos: usize, total: usize) -> String {
+        if self.es() {
+            format!(" (p.ej. '{id}' está en posición {pos} de {total} y debería ir 1º)")
+        } else {
+            format!(" (e.g. '{id}' is at position {pos} of {total} and should be 1st)")
+        }
+    }
+
+    /// `nextLegacyAgents(count, names)`.
+    #[must_use]
+    pub fn next_legacy_agents(self, count: usize, names: &str) -> String {
+        if self.es() {
+            format!(
+                "Archiva o borra {count} agente(s) legacy ({names}); navori ya provee sus equivalentes canónicos."
+            )
+        } else {
+            format!(
+                "Archive or delete {count} legacy agent(s) ({names}); navori already provides their canonical replacements."
+            )
+        }
+    }
+
     /// `nextRenderPending(count)`.
     #[must_use]
     pub fn next_render_pending(self, count: usize) -> String {
