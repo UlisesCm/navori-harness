@@ -4,6 +4,7 @@
 //! hook's decision.
 
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::io::{self, Read, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -33,7 +34,10 @@ pub enum Capture {
 }
 
 /// One call, spelled as the shell runs it.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Debug` is written by hand and leaves out `args`, `env` and the bytes of `input`: they can
+/// carry what the caller must never print (an identifier, the environment).
+#[derive(Clone, Copy)]
 pub struct Call<'a> {
     /// The `navori` that `PATH` resolves, as `command -v` prints it.
     pub program: &'a Path,
@@ -49,6 +53,17 @@ pub struct Call<'a> {
     pub capture: Capture,
     /// Wall-time bound, `None` when the shell waits as long as the call runs (`$(…)`).
     pub timeout: Option<Duration>,
+}
+
+impl fmt::Debug for Call<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Call")
+            .field("program", &self.program)
+            .field("cwd", &self.cwd)
+            .field("capture", &self.capture)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How the call ended.
@@ -123,9 +138,12 @@ pub fn substitution(output: &[u8]) -> &[u8] {
 /// command cannot run.
 pub fn run(call: &Call<'_>) -> io::Result<Finished> {
     let mut command = Command::new(call.program);
+    // Left alone when it already is the process's own: no `chdir` for nothing.
+    if std::env::current_dir().ok().as_deref() != Some(call.cwd) {
+        command.current_dir(call.cwd);
+    }
     command
         .args(call.args)
-        .current_dir(call.cwd)
         .env_clear()
         .envs(call.env.iter().map(|(name, value)| (name, value)));
     command.stdin(match call.input {
@@ -202,6 +220,8 @@ fn wait(child: &mut Child, timeout: Option<Duration>) -> io::Result<(ExitStatus,
         return Ok((child.wait()?, false));
     };
     let deadline = Instant::now() + timeout;
+    // Backoff from 50 µs: a call that ends at once is not charged a fixed 2 ms.
+    let mut pause = Duration::from_micros(50);
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok((status, false));
@@ -210,6 +230,7 @@ fn wait(child: &mut Child, timeout: Option<Duration>) -> io::Result<(ExitStatus,
             child.kill()?;
             return Ok((child.wait()?, true));
         }
-        thread::sleep(Duration::from_millis(2));
+        thread::sleep(pause);
+        pause = (pause * 2).min(Duration::from_millis(2));
     }
 }

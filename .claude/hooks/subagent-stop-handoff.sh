@@ -1,4 +1,4 @@
-# navori:native-hook v=1 file=sha256:62b4ae0d451ab2cb1074d9aff74a34585dc614f5d3b66470042fbd5add50b466 impl=sha256:0315ed5c05fdff785f70a575df29bf278a374706eb656997f7783d1481491114
+# navori:native-hook v=1 file=sha256:11f5ca967f4b57a6a282f0ff189f73edaea37995a040de43dbfcb7aafaea1d48 impl=sha256:ce142bdbfd325b6b0147ef77b403d3eada8e7cec8916ee34228163068edffb0b
 # navori:managed start id="subagent-stop-handoff-base" hash="3718112c" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
