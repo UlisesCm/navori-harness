@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="00b9718a" version="0.12.4" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="9c904439" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -590,6 +590,7 @@ navori_audit_reason=""
 navori_pi_ask=""
 navori_audit_on_exit() {
   navori_audit_code=$?
+  [ -z "${nv_watch:-}" ] || kill "$nv_watch" 2>/dev/null || true
   # A command every block rule let through but an `ask` rule matched is answered here, after the
   # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
   # backslashes and control characters are dropped so the JSON below needs no escaping step.
@@ -609,6 +610,53 @@ if [ -z "$cmd" ]; then
   navori_audit_reason="sin comando que inspeccionar"
   exit 0
 fi
+
+# OWN DEADLINE (#1671) — fail CLOSED when the inspection runs long. The host kills this hook at
+# 10s and treats a kill (exit 137) as a non-blocking error, i.e. it APPROVES. So a watchdog
+# process with a shorter deadline (default 8s) signals USR1 to this shell FIRST; the handler
+# exits 2 (block). Only then does the watchdog KILL our descendants (a long awk/sed would
+# otherwise keep the shell waiting). Killing before signalling would exit 137 = approval.
+# NAVORI_GUARD_DEADLINE can only LOWER the deadline (integer 1..8; anything else is ignored):
+# a higher value would sit at or past the host timeout and re-open the fail-open window, and
+# an environment the caller controls must never be able to disarm the guard.
+# The watchdog is a separate `$BASH -c` process (not a subshell: bash 3.2 has no $BASHPID),
+# detached from stdin/stdout/stderr so the host never waits for it. A `sleep` that cannot run
+# (a stripped PATH) disarms the watchdog instead of firing at once: the rules still evaluate.
+# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which reaps it; what
+# runs before this point is the linear payload extraction. The TERM from that trap can be lost
+# when this shell exits within milliseconds of the launch (measured on bash 3.2), so the
+# watchdog also sleeps in 1s steps and leaves as soon as this shell is gone. At the deadline it
+# checks that its parent is still this shell (without `ps` it cannot tell, and signals anyway:
+# fail closed).
+nv_deadline=8
+case "${NAVORI_GUARD_DEADLINE:-}" in
+  [1-8]) nv_deadline="$NAVORI_GUARD_DEADLINE" ;;
+esac
+# Works before block() exists; the EXIT trap records the verdict. No reason code: the audit
+# allowlist (_partials/audit-log.sh, HOOK_REASON_CODES) has none for a deadline yet.
+nv_on_deadline() {
+  echo "[navori] BLOCKED by guard-destructive: inspection did not finish within ${nv_deadline}s — nothing was approved" >&2
+  navori_audit_verdict="block"
+  navori_audit_reason=""
+  exit 2
+}
+trap nv_on_deadline USR1
+"${BASH:-bash}" -c '
+  trap "kill \"\$s\" 2>/dev/null; exit 0" TERM
+  i=0
+  while [ "$i" -lt "$2" ]; do
+    sleep 1 & s=$!; wait "$s" || exit 0
+    kill -0 "$1" 2>/dev/null || exit 0
+    i=$((i + 1))
+  done
+  pp=$(ps -o ppid= -p "$$" 2>/dev/null | tr -d " ") || pp=""
+  [ -z "$pp" ] || [ "$pp" = "$1" ] || exit 0
+  kill -USR1 "$1" 2>/dev/null || exit 0
+  ps -A -o pid= -o ppid= | awk -v root="$1" -v self="$$" "
+    { parent[\$1]=\$2 } END { for (p in parent) { q=p; while ((q in parent) && q!=root && q!=self && q>1) q=parent[q]; if (q==root && p!=root && p!=self) print p } }" |
+    while read -r p; do kill -KILL "$p" 2>/dev/null || true; done
+' nv-guard-deadline "$$" "$nv_deadline" </dev/null >/dev/null 2>&1 &
+nv_watch=$!
 
 # branchBase is shell-quoted at render time via the shq: marker (#197): a
 # hostile branchBase in navori.config.json lands here as an inert literal,
@@ -744,10 +792,10 @@ block() {
 
 # BOUNDED WORK (#511) — the guard runs under a wall-clock timeout it does NOT
 # control (10s, set by navori in build-settings.ts's GUARD_HOOK_DEST config —
-# not a Claude Code default, which is 600s for command hooks), and being
-# KILLED is indistinguishable from approving: the hook says nothing and the
-# tool call proceeds. So a guard cannot defend itself by handling the
-# timeout; it has to never get near it. Two halves, both load-bearing:
+# not a Claude Code default, which is 600s for command hooks). Being KILLED by
+# the host approves the call, so since #1671 the guard has its own shorter deadline
+# (see "OWN DEADLINE" above) that blocks instead. That is the backstop; it
+# should never fire, so the guard still has to stay far from it. Two halves:
 #
 #   1. every pass below is LINEAR in what it reads — `sed`/`grep`, never a bash
 #      `${var//pat/repl}` and never a bash string builder inside a loop. Both
