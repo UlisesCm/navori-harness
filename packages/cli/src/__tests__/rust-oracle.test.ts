@@ -1066,10 +1066,11 @@ describe("rust oracle", () => {
   });
 
   // Covers: R73
-  it("backup nativo en cada subcomando", () => {
+  it("backup y migrations nativos en cada subcomando", () => {
     const cases = oracle.loadCases();
     const groups: Record<string, string[]> = {
       backup: ["list", "restore", "prune"],
+      migrations: ["list", "restore"],
     };
     for (const [group, subs] of Object.entries(groups)) {
       const mine = cases.filter((c) => c.id.startsWith(`${group}:`));
@@ -1089,7 +1090,7 @@ describe("rust oracle", () => {
       }
     }
     // An interactive confirm stays with the TS.
-    for (const id of ["backup:restore-confirm-delegates"]) {
+    for (const id of ["backup:restore-confirm-delegates", "migrations:restore-confirm-delegates"]) {
       expect(cases.find((c) => c.id === id)?.native, id).toBeUndefined();
     }
   });
