@@ -20,7 +20,7 @@ use crate::render::context::Lang;
 use crate::render::frontmatter::strip_frontmatter;
 use crate::render::interpolate::{InterpolateOptions, interpolate};
 use crate::render::managed_file::RenderManagedFileInput;
-use crate::render::plan::CORE_SOURCE_ID;
+use crate::render::plan::{CORE_SOURCE_ID, condition_orchestration};
 use crate::render::plugins::LoadedPlugin;
 use crate::render::prose::{ProseOptions, build_harness_prose};
 
@@ -111,8 +111,12 @@ pub fn agents_md_body(
             let raw = assets::plugin(&plugin.dir, &skill.path)
                 .and_then(|bytes| std::str::from_utf8(bytes).ok())
                 .ok_or(CodexDelegate)?;
+            // `conditionOrchestration(..., "codex")` before `interpolate`, as `buildAgentsMd` does;
+            // `pluginExtraVars(config)` is `{}`.
+            let conditioned = condition_orchestration(strip_frontmatter(raw), config, "codex")
+                .map_err(|_| CodexDelegate)?;
             let sub_block = adapt(&interpolate(
-                strip_frontmatter(raw),
+                &conditioned,
                 config,
                 &InterpolateOptions::default(),
             ))?;
