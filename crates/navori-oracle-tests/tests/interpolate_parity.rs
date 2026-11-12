@@ -56,6 +56,8 @@ const PATHS: &[&str] = &[
     "navori.nativeHooks",
     "navori.nonImplementerRoles",
     "navori.progressSoftCapBytes",
+    "navori.progressFiles",
+    "navori.compactSummaryTail",
     "piPermissionRules",
     "navoriOwnedPaths",
     "extra.key",
@@ -141,9 +143,10 @@ fn config_json() -> BoxedStrategy<Value> {
         prop::option::of(prop::sample::select(vec![0.0, 175_000.0, 42.0])),
         prop::sample::select(vec!["es", "en"]),
         any::<bool>(),
+        prop::sample::select(vec![None, Some(json!(true)), Some(json!(false))]),
     )
         .prop_map(
-            |(fast, full, native, legacy, critical, custom, compact, language, scoped)| {
+            |(fast, full, native, legacy, critical, custom, compact, language, scoped, session)| {
                 let mut config = json!({
                     "name": "my-repo",
                     "engines": ["claude"],
@@ -176,6 +179,13 @@ fn config_json() -> BoxedStrategy<Value> {
                 if let Some(compact) = compact {
                     config["harness"] =
                         json!({ "compactAdviceTokens": compact, "planTiers": true });
+                }
+                // `harness.sessionState`: only a strict `false` turns the progress file off.
+                if let Some(session) = session {
+                    if config["harness"].is_null() {
+                        config["harness"] = json!({});
+                    }
+                    config["harness"]["sessionState"] = session;
                 }
                 config
             },
