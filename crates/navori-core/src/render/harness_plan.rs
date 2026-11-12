@@ -69,8 +69,11 @@ pub const WORKFLOW_SKILLS: [&str; 11] = [
 /// `WORKFLOW_SKILL_ENGINES` and `HOOK_ENGINES`: units that ship only to the engines listed.
 fn engine_scope(id: &str) -> Option<&'static [&'static str]> {
     match id {
-        "master-plan" | "context-intake" | "master-plan-context" => Some(&["claude", "codex"]),
-        "master-accept-confirm" => Some(&["claude", "codex", "pi"]),
+        // `roster.ts:145-146`: the master-plan skills ship to Pi too; its context hook does not.
+        "master-plan" | "context-intake" | "master-accept-confirm" => {
+            Some(&["claude", "codex", "pi"])
+        }
+        "master-plan-context" => Some(&["claude", "codex"]),
         "role-guard" | "engram-write-guard" => Some(&["codex"]),
         _ => None,
     }
@@ -98,11 +101,63 @@ fn text(value: Option<&JsValue>) -> Option<String> {
     }
 }
 
-/// `isAgentEnabled`: `architect` always; an explicit `harness.<key>` wins; agents default on.
+/// `config.<section>?.<key> === true` (strict: truthy non-booleans do not count).
+fn is_true(config: &JsValue, section: &str, key: &str) -> bool {
+    get(config, section).and_then(|s| get(s, key)) == Some(&JsValue::Bool(true))
+}
+
+/// `GATED_WORKFLOW_SKILL_FLAGS` (`harness-plan.ts:111-116`): workflow skills behind an opt-in
+/// `harness.<flag>`; `master-plan` and `context-intake` stay ungated.
+const GATED_WORKFLOW_SKILL_FLAGS: [(&str, &str); 4] = [
+    ("plan-simple", "planTiers"),
+    ("plan-advanced", "planTiers"),
+    ("dominio", "authoring"),
+    ("author-skill", "authoring"),
+];
+
+/// `isWorkflowSkillEnabled` (`harness-plan.ts:144-147`).
+fn is_workflow_skill_enabled(config: &JsValue, id: &str) -> bool {
+    GATED_WORKFLOW_SKILL_FLAGS
+        .iter()
+        .find(|(skill, _)| *skill == id)
+        .is_none_or(|(_, flag)| is_true(config, "harness", flag))
+}
+
+/// `isHookEnabled` (`harness-plan.ts:124-142`, `GATED_HOOK_PREDICATES`): whether hook `id` is
+/// written for `config`; ungated hooks always are. `model-advisor` also stays for Codex with
+/// `harness.codexIntegration`.
+#[must_use]
+pub fn is_hook_enabled(config: &JsValue, id: &str, engine: Option<&str>) -> bool {
+    let audit = || {
+        is_true(config, "hooks", "auditMode")
+            || text(get(config, "audit").and_then(|a| get(a, "mode"))).as_deref() == Some("always")
+    };
+    match id {
+        "implementer-no-markdown" => is_true(config, "harness", "scribeOwnsMarkdown"),
+        "master-plan-context" | "master-accept-confirm" => is_true(config, "harness", "masterPlan"),
+        "routing-watch" => is_true(config, "harness", "planTiers"),
+        "model-advisor" => {
+            is_true(config, "hooks", "modelAdvisor")
+                || (engine == Some("codex") && is_true(config, "harness", "codexIntegration"))
+        }
+        "audit-mode-trigger" | "audit-mode-close" => audit(),
+        _ => true,
+    }
+}
+
+/// `isAgentEnabled` (`harness-assets.ts:118-130`): `architect` always; `scribe` only with
+/// `harness.scribeOwnsMarkdown` (truthy); then an explicit `harness.<key>` wins; agents default on.
 #[must_use]
 pub fn is_agent_enabled(config: &JsValue, key: &str) -> bool {
     if key == "architect" {
         return true;
+    }
+    if key == "scribe"
+        && !get(config, "harness")
+            .and_then(|h| get(h, "scribeOwnsMarkdown"))
+            .is_some_and(truthy)
+    {
+        return false;
     }
     match get(config, "harness").and_then(|harness| get(harness, key)) {
         None | Some(JsValue::Undefined) => true,
@@ -314,7 +369,7 @@ pub fn resolve_harness_plan(
         WORKFLOW_SKILLS
             .iter()
             .filter(|id| !(sdd_off && **id == "spec-bootstrap"))
-            .filter(|id| in_engine_scope(id, engine))
+            .filter(|id| in_engine_scope(id, engine) && is_workflow_skill_enabled(config, id))
             .map(|id| unit(id, format!("skills/{id}.md"), (*id).to_owned())),
     );
     let mut seen: BTreeSet<String> = plan.skills.iter().map(|s| s.id.clone()).collect();
@@ -390,6 +445,7 @@ pub fn resolve_harness_plan(
     }
     plan.hooks = hooks
         .into_iter()
+        .filter(|id| is_hook_enabled(config, id, engine))
         .map(|id| {
             let managed = if id == "quality-gate-pre-commit" {
                 "qg-pre-commit-base".to_owned()

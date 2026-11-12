@@ -1254,9 +1254,11 @@ fn compare_command(root: &Path, config: &str, json: bool, force: bool) -> Result
 // Covers: R42
 #[test]
 fn native_wiring_verifies_in_shadow_and_active() -> Result<(), String> {
-    // `plan-gate` is planned only with `harness.planTiers` and `quality-gate-pre-commit` only with
-    // `qualityGate.fast`: every hook of the manifest must be installed for this check to see it.
-    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}},"harness":{"planTiers":true},"qualityGate":{"fast":"bun run fast","full":"bun run check"}}"#;
+    // `plan-gate` is planned only with `harness.planTiers`, `implementer-no-markdown` only with
+    // `harness.scribeOwnsMarkdown` and `model-advisor` only with `hooks.modelAdvisor` (#1484), and
+    // `quality-gate-pre-commit` only with `qualityGate.fast`: every hook of the manifest must be
+    // installed for this check to see it.
+    const CONFIG: &str = r#"{"name":"demo","preset":"custom","engines":["claude"],"plugins":{"tgrep":{"enabled":true}},"harness":{"planTiers":true,"scribeOwnsMarkdown":true},"hooks":{"modelAdvisor":true},"qualityGate":{"fast":"bun run fast","full":"bun run check"}}"#;
     let root = BASE.join("modes");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::create_dir_all(&root);

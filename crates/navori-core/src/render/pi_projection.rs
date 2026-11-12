@@ -21,7 +21,7 @@ use crate::render::codex_skills::skill_inject_target;
 use crate::render::collect::{PendingWrite, RepoView, read_if_exists};
 use crate::render::context::Lang;
 use crate::render::frontmatter::strip_frontmatter;
-use crate::render::harness_plan::is_agent_enabled;
+use crate::render::harness_plan::{is_agent_enabled, is_hook_enabled};
 use crate::render::interpolate::{InterpolateOptions, interpolate};
 use crate::render::managed_file::parse_asset;
 use crate::render::pi_roles::{
@@ -59,6 +59,8 @@ pub struct PiHookBinding {
 #[derive(Clone, Copy)]
 enum When {
     Always,
+    /// `isHookEnabled(config, id)` (`hook-bindings.ts:115/163/181`).
+    Hook(&'static str),
     QualityGateFast,
     Publisher,
     ScribeOwnsMarkdown,
@@ -133,7 +135,7 @@ const BINDINGS: [(PiHookBinding, When); 12] = [
             10_000,
             false,
         ),
-        When::Always,
+        When::Hook("master-accept-confirm"),
     ),
     (
         row(
@@ -185,7 +187,7 @@ const BINDINGS: [(PiHookBinding, When); 12] = [
             10_000,
             true,
         ),
-        When::Always,
+        When::Hook("routing-watch"),
     ),
     (
         row(
@@ -211,7 +213,7 @@ const BINDINGS: [(PiHookBinding, When); 12] = [
             3_000,
             false,
         ),
-        When::Always,
+        When::Hook("audit-mode-close"),
     ),
     (
         row(
@@ -281,6 +283,7 @@ pub fn active_pi_hook_bindings(config: &JsValue) -> Vec<PiHookBinding> {
         .iter()
         .filter(|(_, when)| match when {
             When::Always => true,
+            When::Hook(id) => is_hook_enabled(config, id, None),
             When::QualityGateFast => {
                 truthy(get(config, "qualityGate").and_then(|g| get(g, "fast")))
             }

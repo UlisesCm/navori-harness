@@ -9,7 +9,7 @@ use crate::js_json::{self, JsObject, JsValue};
 use crate::manifest::Hook;
 use crate::render::assets;
 use crate::render::block_plan::truthy;
-use crate::render::harness_plan::{HarnessPlan, is_agent_enabled};
+use crate::render::harness_plan::{HarnessPlan, is_agent_enabled, is_hook_enabled};
 use crate::render::interpolate::{InterpolateOptions, interpolate};
 use crate::render::native_hook::{NativeEngine, NativeShell, native_runner_shell, quote};
 use crate::render::plugins::LoadedPlugin;
@@ -680,23 +680,26 @@ pub fn build_claude_settings(
             )]),
         )])])
     };
-    merge_into(
-        &mut s,
-        object(vec![(
-            "hooks",
-            object(vec![
-                (
-                    "SessionStart",
-                    advisor("SessionStart", "claude-session-start"),
-                ),
-                (
-                    "PostModelSwitch",
-                    advisor("PostModelSwitch", "claude-post-model-switch"),
-                ),
-                ("Stop", advisor("Stop", "claude-stop")),
-            ]),
-        )]),
-    );
+    // build-settings.ts:445
+    if is_hook_enabled(config, "model-advisor", None) {
+        merge_into(
+            &mut s,
+            object(vec![(
+                "hooks",
+                object(vec![
+                    (
+                        "SessionStart",
+                        advisor("SessionStart", "claude-session-start"),
+                    ),
+                    (
+                        "PostModelSwitch",
+                        advisor("PostModelSwitch", "claude-post-model-switch"),
+                    ),
+                    ("Stop", advisor("Stop", "claude-stop")),
+                ]),
+            )]),
+        );
+    }
     if flag(config, "harness", "masterPlan") {
         let session = registration(
             "SessionStart",
@@ -826,20 +829,23 @@ pub fn build_claude_settings(
             )],
         ),
     );
-    merge_into(
-        &mut s,
-        registration(
-            post,
-            Some("Bash|Edit|Write|NotebookEdit|Agent|Task"),
-            vec![hook(
+    // build-settings.ts:729
+    if is_hook_enabled(config, "routing-watch", None) {
+        merge_into(
+            &mut s,
+            registration(
                 post,
-                "routing-watch",
-                Some("claude-post-tool-use"),
-                30.0,
-                "navori: routing check",
-            )],
-        ),
-    );
+                Some("Bash|Edit|Write|NotebookEdit|Agent|Task"),
+                vec![hook(
+                    post,
+                    "routing-watch",
+                    Some("claude-post-tool-use"),
+                    30.0,
+                    "navori: routing check",
+                )],
+            ),
+        );
+    }
     if flag(config, "qualityGate", "fast") {
         merge_into(
             &mut s,
@@ -880,49 +886,42 @@ pub fn build_claude_settings(
             )],
         ),
     );
-    merge_into(
-        &mut s,
-        object(vec![(
-            "hooks",
-            object(vec![
-                (
+    // build-settings.ts:818
+    if is_hook_enabled(config, "audit-mode-trigger", None) {
+        merge_into(
+            &mut s,
+            registration(
+                "UserPromptSubmit",
+                None,
+                vec![hook(
                     "UserPromptSubmit",
-                    JsValue::Array(vec![object(vec![(
-                        "hooks",
-                        JsValue::Array(vec![hook(
-                            "UserPromptSubmit",
-                            "audit-mode-trigger",
-                            None,
-                            10.0,
-                            "navori: audit-mode",
-                        )]),
-                    )])]),
-                ),
-                (
-                    "SessionEnd",
-                    JsValue::Array(vec![object(vec![(
-                        "hooks",
-                        JsValue::Array(vec![
-                            hook(
-                                "SessionEnd",
-                                "audit-mode-close",
-                                None,
-                                10.0,
-                                "navori: audit-mode close",
-                            ),
-                            hook(
-                                "SessionEnd",
-                                "worktree-reclaim",
-                                None,
-                                30.0,
-                                "navori: reclaim worktrees",
-                            ),
-                        ]),
-                    )])]),
-                ),
-            ]),
-        )]),
-    );
+                    "audit-mode-trigger",
+                    None,
+                    10.0,
+                    "navori: audit-mode",
+                )],
+            ),
+        );
+    }
+    // build-settings.ts:841: only `audit-mode-close` is gated; `worktree-reclaim` stays.
+    let mut session_end = Vec::new();
+    if is_hook_enabled(config, "audit-mode-close", None) {
+        session_end.push(hook(
+            "SessionEnd",
+            "audit-mode-close",
+            None,
+            10.0,
+            "navori: audit-mode close",
+        ));
+    }
+    session_end.push(hook(
+        "SessionEnd",
+        "worktree-reclaim",
+        None,
+        30.0,
+        "navori: reclaim worktrees",
+    ));
+    merge_into(&mut s, registration("SessionEnd", None, session_end));
     merge_into(
         &mut s,
         registration(
