@@ -8,6 +8,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "../../navori-hooks/tests/support/codex_render.rs"]
+mod codex_render;
+
 type TestResult = Result<(), Box<dyn Error>>;
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
@@ -38,18 +41,21 @@ impl Scratch {
     }
 
     /// Install the repository's rendered copy of the hook for `engine` (`.claude` or `.codex`).
-    /// This repository no longer renders Codex (`dev` dropped it in 318d5eff); its copy was
-    /// byte-identical to the Claude one, so the Codex lane installs that copy at its own path.
+    /// This repository no longer renders Codex (`dev` dropped it in 318d5eff): the Codex lane
+    /// installs the copy of the Codex mirror rendered for this test binary.
     fn install(&self, engine: &str) -> Result<PathBuf, Box<dyn Error>> {
         let dest = self
             .root
             .join(engine)
             .join("hooks/session-start-context.sh");
         fs::create_dir_all(dest.parent().ok_or("parent")?)?;
-        fs::copy(
+        let rendered = if engine == ".codex" {
+            codex_render::codex_root()?
+        } else {
             workspace()
-                .join(".claude")
-                .join("hooks/session-start-context.sh"),
+        };
+        fs::copy(
+            rendered.join(engine).join("hooks/session-start-context.sh"),
             &dest,
         )?;
         Ok(dest)
