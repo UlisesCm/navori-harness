@@ -6,7 +6,9 @@
 //! new and orphan lists, a current config, and `--yes` writing the new workspaces. A run that
 //! would prompt (new workspaces without `--yes`), colored output, a config Rust does not model,
 //! and any workspace input [`detect_project`] or the patterns port do not model, are handed to the
-//! TS before any output or effect.
+//! TS before any output or effect. The one exception is the `--yes` config write: it is the only
+//! boundary after an attempted effect, and a failed write (atomic rename, config untouched) also
+//! delegates, since the output is buffered and nothing has been emitted.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -378,14 +380,9 @@ fn scan(cwd: &str, yes: bool) -> Option<Output> {
     let written = write_config(&data).ok()?;
     push_warnings(&mut clack.out, &config, 3);
     let mut fs = RealFs::default();
-    if write_file_atomic(&mut fs, Path::new(&config_path), &written).is_err() {
-        clack
-            .out
-            .stderr
-            .push_str("navori-rust: cannot write navori.config.json\n");
-        clack.out.code = 1;
-        return Some(clack.out);
-    }
+    // The only boundary after an attempted effect: the write is an atomic rename, so a failure
+    // leaves the config intact and the TS re-runs the scan; nothing was emitted yet.
+    write_file_atomic(&mut fs, Path::new(&config_path), &written).ok()?;
     clack.log(Symbol::Success, &text.added(added.len(), &config_path));
     clack.outro(text.render_hint());
     Some(clack.out)

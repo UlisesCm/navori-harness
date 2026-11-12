@@ -9,6 +9,8 @@
 //! `git config --get remote.origin.url` runs through a [`ProcessRunner`] (D42).
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -515,8 +517,9 @@ const SKIP_DIRS: &[&str] = &[
 const MAX_FILES: usize = 12_000;
 
 /// `countDepImports(projectRoot, depNames)`: per dep, how many source files hold a quoted
-/// specifier equal to it or one of its subpaths. Directory order is the OS's, as Node's
-/// `readdirSync`, so the `MAX_FILES` cut lands on the same files.
+/// specifier equal to it or one of its subpaths. Entries are visited in byte order of their raw
+/// names, as Node's `readdirSync` (libuv `scandir`) returns them in any locale, so the
+/// `MAX_FILES` cut lands on the same files.
 #[must_use]
 pub fn count_dep_imports(root: &Path, dep_names: &[&str]) -> HashMap<String, usize> {
     let mut counts: HashMap<String, usize> =
@@ -526,6 +529,11 @@ pub fn count_dep_imports(root: &Path, dep_names: &[&str]) -> HashMap<String, usi
     counts
 }
 
+/// Orders directory entry names by their raw bytes (`readdirSync` order, never the lossy name).
+fn byte_order(a: &OsStr, b: &OsStr) -> std::cmp::Ordering {
+    a.as_bytes().cmp(b.as_bytes())
+}
+
 fn count_walk(dir: &Path, deps: &[&str], budget: &mut usize, counts: &mut HashMap<String, usize>) {
     if *budget == 0 {
         return;
@@ -533,17 +541,20 @@ fn count_walk(dir: &Path, deps: &[&str], budget: &mut usize, counts: &mut HashMa
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    for entry in entries {
+    let mut found: Vec<(OsString, Option<std::fs::FileType>)> = entries
+        .filter_map(|e| {
+            let e = e.ok()?;
+            Some((e.file_name(), e.file_type().ok()))
+        })
+        .collect();
+    found.sort_by(|a, b| byte_order(&a.0, &b.0));
+    for (raw, kind) in found {
         if *budget == 0 {
             return;
         }
-        let Ok(entry) = entry else {
+        let Some(kind) = kind else {
             continue;
         };
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        let raw = entry.file_name();
         // Node decodes a non-UTF-8 name lossily, so the path it rebuilds names nothing.
         let exact = raw.to_str().is_some();
         let name = raw.to_string_lossy();
@@ -618,6 +629,44 @@ mod tests {
 
     fn no_git() -> RecordedRunner {
         RecordedRunner::new(Vec::new())
+    }
+
+    // Covers: R73
+    #[test]
+    fn entry_names_sort_by_raw_bytes() {
+        let mut names: Vec<OsString> = ["é", "alpha", "_b", "Zeta", "B", "delta", "oscar"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        names.sort_by(|a, b| byte_order(a, b));
+        let sorted: Vec<&str> = names.iter().filter_map(|n| n.to_str()).collect();
+        assert_eq!(sorted, ["B", "Zeta", "_b", "alpha", "delta", "oscar", "é"]);
+    }
+
+    // Covers: R73
+    #[test]
+    fn count_walk_cut_follows_byte_order() {
+        let root = temp("walk-order");
+        for (name, text) in [
+            ("z", "import 'dep';"),
+            ("a", "import 'dep';"),
+            ("m", "x"),
+            ("B", "import 'dep';"),
+        ] {
+            write(&root, &format!("{name}.ts"), text);
+        }
+        write(&root, "sub/c.ts", "x");
+        let count = |budget: usize| {
+            let mut left = budget;
+            let mut counts = HashMap::new();
+            count_walk(&root, &["dep"], &mut left, &mut counts);
+            counts.get("dep").copied().unwrap_or(0)
+        };
+        // Byte order: B.ts, a.ts, m.ts, sub/c.ts, z.ts; only z.ts is last.
+        assert_eq!(count(2), 2);
+        assert_eq!(count(4), 2);
+        assert_eq!(count(5), 3);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // Covers: R73

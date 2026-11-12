@@ -92,7 +92,7 @@ fn is_plain_id(id: &str) -> bool {
 
 /// `ResolvedPreset`: where a preset id's manifest lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedPreset {
+pub(crate) enum ResolvedPreset {
     /// `.navori/presets/<id>/<id>.json` under the repo root; the directory is the asset root.
     Local(PathBuf),
     /// The bundled `core-assets/presets/<id>.json`, its bytes.
@@ -104,7 +104,7 @@ pub enum ResolvedPreset {
 ///
 /// # Errors
 /// An id that would leave `.navori/presets/` (the TS normalizes it; Rust does not model that).
-pub fn resolve_preset(
+pub(crate) fn resolve_preset(
     id: &str,
     repo_root: &Path,
 ) -> Result<Option<ResolvedPreset>, PresetDelegate> {
