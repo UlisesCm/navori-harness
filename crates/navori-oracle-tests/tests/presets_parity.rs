@@ -5,8 +5,11 @@ mod support;
 
 use std::path::PathBuf;
 
+use navori_core::diagnose::detect::detect_project;
+use navori_core::process::RealRunner;
 use navori_core::render::library_skills::{
-    LIBRARY_SKILLS, REMOVED_LIB_SKILL_SUCCESSORS, REMOVED_LIB_SKILLS,
+    LIBRARY_SKILL_SIGNALS, LIBRARY_SKILLS, MIGRATION_PAIRS, MIN_ADOPTION_FILES,
+    MIN_PREFERRED_RATIO, REMOVED_LIB_SKILL_SUCCESSORS, REMOVED_LIB_SKILLS,
 };
 use navori_core::render::presets::{AssetRoot, dropped_libraries_warnings, load_preset};
 use proptest::prelude::*;
@@ -15,18 +18,33 @@ use serde_json::{Value, json};
 use support::{Shared, cli_module};
 
 fn prelude() -> String {
-    format!(
-        "const p = await import({:?});\nconst l = await import({:?});\nconst b = await import({:?});\n\
+    let detect = format!(
+        "\nconst d = await import({:?});",
+        cli_module("lib/diagnose/detect.ts")
+    );
+    detect
+        + &format!(
+            "const p = await import({:?});\nconst l = await import({:?});\nconst b = await import({:?});\n\
          const fs = await import('node:fs');\nconst path = await import('node:path');",
-        cli_module("lib/config/presets.ts"),
-        cli_module("lib/assets/library-skills.ts"),
-        cli_module("lib/render/bundled-assets.ts"),
-    )
+            cli_module("lib/config/presets.ts"),
+            cli_module("lib/assets/library-skills.ts"),
+            cli_module("lib/render/bundled-assets.ts"),
+        )
 }
 
 static NODE: Shared = Shared::new(
     prelude,
-    "if (request.op === 'registry') return [l.LIBRARY_SKILLS.map((s) => [s.id, s.label]), l.REMOVED_LIB_SKILLS, Object.entries(l.REMOVED_LIB_SKILL_SUCCESSORS)];\n\
+    "if (request.op === 'signals') return [l.LIBRARY_SKILLS.map((s) => [s.id, s.deps, s.paths ?? [], s.minMajor ?? null]), l.MIGRATION_PAIRS.map((m) => [m.legacy, m.preferred, m.domain]), l.MIN_ADOPTION_FILES, l.MIN_PREFERRED_RATIO];\n\
+     if (request.op === 'detect') {\n\
+       fs.rmSync(request.dir, { recursive: true, force: true });\n\
+       for (const [rel, text] of request.files) {\n\
+         fs.mkdirSync(path.dirname(path.join(request.dir, rel)), { recursive: true });\n\
+         fs.writeFileSync(path.join(request.dir, rel), text);\n\
+       }\n\
+       const r = d.detectProject(request.dir);\n\
+       return { name: r.name, framework: r.stack.framework, libraries: r.libraries, migrations: r.migrations, preset: r.suggestedPreset, gap: r.suggestedPresetGap };\n\
+     }\n\
+     if (request.op === 'registry') return [l.LIBRARY_SKILLS.map((s) => [s.id, s.label]), l.REMOVED_LIB_SKILLS, Object.entries(l.REMOVED_LIB_SKILL_SUCCESSORS)];\n\
      if (request.op === 'bundled') return fs.readdirSync(path.join(b.getCoreRoot(), 'core-assets/presets')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();\n\
      if (request.local !== null) {\n\
        const dir = path.join(request.root, '.navori/presets', request.id);\n\
@@ -180,4 +198,339 @@ proptest! {
         let rust = rust_load("my-preset", &root);
         prop_assert_eq!(ts, rust, "{}", text);
     }
+}
+
+// Covers: R41
+#[test]
+fn detection_signals_and_migration_tables_match() -> Result<(), String> {
+    let ts = NODE.ask(&json!({ "op": "signals" }))?;
+    let signals: Vec<Value> = LIBRARY_SKILL_SIGNALS
+        .iter()
+        .map(|s| json!([s.id, s.deps, s.paths, s.min_major]))
+        .collect();
+    let pairs: Vec<Value> = MIGRATION_PAIRS
+        .iter()
+        .map(|(legacy, preferred, domain)| json!([legacy, preferred, domain]))
+        .collect();
+    let rust = json!([signals, pairs, MIN_ADOPTION_FILES, MIN_PREFERRED_RATIO]);
+    if ts != rust {
+        return Err(format!(
+            "detection tables drifted from library-skills.ts\nts   {ts}\nrust {rust}"
+        ));
+    }
+    Ok(())
+}
+
+/// One `detectProject` case: a directory name, its `package.json` and any further files.
+struct DetectCase {
+    dir: &'static str,
+    package_json: Value,
+    files: Vec<(String, String)>,
+}
+
+fn case(dir: &'static str, package_json: Value) -> DetectCase {
+    DetectCase {
+        dir,
+        package_json,
+        files: Vec::new(),
+    }
+}
+
+fn with_files(mut c: DetectCase, files: &[(&str, &str)]) -> DetectCase {
+    c.files.extend(
+        files
+            .iter()
+            .map(|(p, t)| ((*p).to_owned(), (*t).to_owned())),
+    );
+    c
+}
+
+fn deps(names: &[&str]) -> Value {
+    let map: serde_json::Map<String, Value> = names
+        .iter()
+        .map(|n| ((*n).to_owned(), json!("^1.0.0")))
+        .collect();
+    json!({ "name": "@acme/My App", "dependencies": map })
+}
+
+/// `count` source files importing `dep`.
+fn imports(dep: &str, count: usize) -> Vec<(String, String)> {
+    let slug = dep.replace(['@', '/'], "_");
+    (0..count)
+        .map(|i| {
+            (
+                format!("src/{slug}{i}.ts"),
+                format!("import x from \"{dep}\";\n"),
+            )
+        })
+        .collect()
+}
+
+fn detect_cases() -> Vec<DetectCase> {
+    // Every framework candidate `detect.rs` models, one directory each.
+    let frameworks = [
+        ("next", "fw-next"),
+        ("@nestjs/core", "fw-nest"),
+        ("@medusajs/medusa", "fw-medusa"),
+        ("@keystone-6/core", "fw-keystone"),
+        ("expo", "fw-expo"),
+        ("react-native", "fw-rn"),
+        ("remix", "fw-remix"),
+        ("astro", "fw-astro"),
+        ("@sveltejs/kit", "fw-kit"),
+        ("@builder.io/qwik", "fw-qwik"),
+        ("solid-js", "fw-solid"),
+        ("@tauri-apps/api", "fw-tauri"),
+        ("electron", "fw-electron"),
+        ("svelte", "fw-svelte"),
+        ("vue", "fw-vue"),
+        ("vite", "fw-vite"),
+        ("react", "fw-react"),
+        ("@angular/core", "fw-angular"),
+        ("fastify", "fw-fastify"),
+        ("hono", "fw-hono"),
+        ("elysia", "fw-elysia"),
+        ("express", "fw-express"),
+    ];
+    let mut cases: Vec<DetectCase> = frameworks
+        .iter()
+        .map(|(dep, dir)| case(dir, deps(&[dep])))
+        .collect();
+    cases.push(case("no-deps", json!({ "name": "plain" })));
+    cases.push(case(
+        "nameless",
+        json!({ "dependencies": { "react": "18" } }),
+    ));
+    // Priority between frameworks, and the UI / state / worker / mongoose refinements.
+    let combos: &[(&'static str, &[&str])] = &[
+        ("prio-next-react", &["react", "next", "vite"]),
+        ("prio-vite-react", &["react", "vite"]),
+        ("prio-express-fastify", &["express", "fastify"]),
+        ("next-apollo", &["next", "@apollo/client"]),
+        ("next-redux", &["next", "@reduxjs/toolkit", "redux"]),
+        ("vite-mantine", &["vite", "react", "@mantine/core"]),
+        ("vite-mui", &["vite", "@mui/material"]),
+        ("ui-tailwind-tamagui", &["tailwindcss", "tamagui"]),
+        ("ui-radix", &["@radix-ui/themes", "react"]),
+        ("state-zustand", &["zustand", "jotai", "valtio"]),
+        ("state-query", &["@tanstack/react-query", "react"]),
+        ("express-mongoose", &["express", "mongoose"]),
+        ("express-bullmq", &["express", "bullmq"]),
+        (
+            "express-worker-mongoose",
+            &["express", "bullmq", "mongoose"],
+        ),
+        ("worker-only", &["agenda"]),
+        ("worker-only-2", &["kafkajs", "amqplib"]),
+        ("worker-with-react", &["react", "node-cron"]),
+        (
+            "worker-misc",
+            &["sqs-consumer", "rhea", "bree", "cron", "bee-queue", "bull"],
+        ),
+        ("worker-amqp-cm", &["amqp-connection-manager"]),
+        (
+            "libs-mixed",
+            &[
+                "react-router-dom",
+                "axios",
+                "socket.io",
+                "socket.io-client",
+                "zod",
+            ],
+        ),
+        ("libs-redux", &["@reduxjs/toolkit", "redux", "react"]),
+    ];
+    cases.extend(combos.iter().map(|(dir, names)| case(dir, deps(names))));
+    // devDependencies / peerDependencies and the version gate of `minMajor`.
+    cases.push(case(
+        "dev-and-peer",
+        json!({ "name": "d", "devDependencies": { "vite": "^5" }, "peerDependencies": { "react": "*" } }),
+    ));
+    for (dir, range) in [
+        ("tw-v3", "^3.4.1"),
+        ("tw-v4", "^4.0.0"),
+        ("tw-tilde", "~3.9.0"),
+        ("tw-latest", "latest"),
+        ("tw-workspace", "workspace:*"),
+        ("tw-gte", ">=4"),
+    ] {
+        cases.push(case(
+            dir,
+            json!({ "name": "t", "dependencies": { "tailwindcss": range } }),
+        ));
+    }
+    cases.push(case(
+        "tw-deps-wins",
+        json!({ "name": "t", "dependencies": { "tailwindcss": "^4.0.0" }, "devDependencies": { "tailwindcss": "^3.0.0" } }),
+    ));
+    cases.push(with_files(
+        case("path-signal", json!({ "name": "m" })),
+        &[(".maestro/flow.yaml", "appId: x\n")],
+    ));
+    // Package manager (`packageManager`, then lockfile order) only shows through the preset:
+    // a turbo monorepo is `monorepo-turbopnpm` only when pnpm is detected.
+    for (dir, pm, lock) in [
+        ("pm-pnpm-field", Some("pnpm@9.0.0"), None),
+        ("pm-yarn-field", Some("yarn@4"), Some("pnpm-lock.yaml")),
+        (
+            "pm-unknown-field-lock",
+            Some("deno@1"),
+            Some("pnpm-lock.yaml"),
+        ),
+        ("pm-npm-lock", None, Some("package-lock.json")),
+        ("pm-yarn-lock", None, Some("yarn.lock")),
+        ("pm-bun-lock", None, Some("bun.lock")),
+        ("pm-bun-lockb", None, Some("bun.lockb")),
+        ("pm-pnpm-lock", None, Some("pnpm-lock.yaml")),
+    ] {
+        let mut pkg = json!({ "name": "p", "dependencies": { "express": "4" } });
+        if let Some(pm) = pm {
+            pkg["packageManager"] = json!(pm);
+        }
+        let mut c = with_files(case(dir, pkg), &[("turbo.json", "{}")]);
+        if let Some(lock) = lock {
+            c.files.push((lock.to_owned(), String::new()));
+        }
+        cases.push(c);
+    }
+    // Monorepo tools.
+    let ws = json!({ "name": "root", "dependencies": { "react": "18" } });
+    let pnpm_ws = ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n");
+    cases.push(with_files(
+        case("mono-pnpm", ws.clone()),
+        &[pnpm_ws, ("packages/a/package.json", "{}")],
+    ));
+    cases.push(with_files(
+        case("mono-turbo-pnpm", ws.clone()),
+        &[
+            pnpm_ws,
+            ("turbo.json", "{}"),
+            ("packages/a/package.json", "{}"),
+        ],
+    ));
+    cases.push(with_files(
+        case("mono-turbo-npm", ws.clone()),
+        &[("turbo.json", "{}"), ("package-lock.json", "")],
+    ));
+    cases.push(with_files(
+        case("mono-nx", ws.clone()),
+        &[("nx.json", "{}")],
+    ));
+    cases.push(with_files(
+        case("mono-rush", ws.clone()),
+        &[("rush.json", "{}")],
+    ));
+    cases.push(with_files(
+        case("mono-lerna", ws.clone()),
+        &[("lerna.json", "{}")],
+    ));
+    cases.push(with_files(
+        case("mono-pnpm-empty", ws.clone()),
+        &[("pnpm-workspace.yaml", "")],
+    ));
+    let mut npm_ws = ws.clone();
+    npm_ws["workspaces"] = json!(["packages/*"]);
+    cases.push(with_files(
+        case("mono-npm-workspaces", npm_ws),
+        &[("packages/a/package.json", "{}")],
+    ));
+    // A `Cargo.toml` beside `package.json`: the Rust stack wins and Node deps are ignored.
+    cases.push(with_files(
+        case("rust-with-node", deps(&["react", "zod"])),
+        &[("Cargo.toml", "[package]\nname = \"crate-name\"\n")],
+    ));
+    cases.push(with_files(
+        case(
+            "rust-nameless-pkg",
+            json!({ "dependencies": { "react": "18" } }),
+        ),
+        &[("Cargo.toml", "[package]\nname = \"Crate_Name\"\n")],
+    ));
+    cases.push(with_files(
+        case("rust-mono", ws),
+        &[
+            ("Cargo.toml", "[package]\nname = \"c\"\n"),
+            ("nx.json", "{}"),
+        ],
+    ));
+    // Migrations: presence only, then the dominance gate over import counts.
+    cases.push(case(
+        "mig-presence",
+        deps(&["moment", "dayjs", "yup", "zod", "antd", "@mantine/core"]),
+    ));
+    cases.push(case(
+        "mig-both-preferred",
+        deps(&["moment", "dayjs", "date-fns", "joi", "@hapi/joi", "zod"]),
+    ));
+    cases.push(case("mig-no-target", deps(&["moment", "formik"])));
+    cases.push(case(
+        "mig-chakra-redux",
+        deps(&[
+            "@chakra-ui/react",
+            "@mantine/core",
+            "redux",
+            "@reduxjs/toolkit",
+        ]),
+    ));
+    // (dir, deps, [(dep, importing files)])
+    type Gated<'a> = (&'static str, &'a [&'a str], &'a [(&'a str, usize)]);
+    let gated: &[Gated<'_>] = &[
+        (
+            "mig-gated-out",
+            &["moment", "dayjs"],
+            &[("moment", 8), ("dayjs", 1)],
+        ),
+        (
+            "mig-adopted",
+            &["moment", "dayjs", "date-fns"],
+            &[("moment", 4), ("date-fns", 3), ("dayjs", 1)],
+        ),
+        ("mig-ratio-edge", &["yup", "zod"], &[("yup", 6), ("zod", 3)]),
+        (
+            "mig-ratio-below",
+            &["yup", "zod"],
+            &[("yup", 7), ("zod", 3)],
+        ),
+        ("mig-legacy-unused", &["yup", "zod"], &[("zod", 1)]),
+    ];
+    for (dir, names, usage) in gated {
+        let mut c = case(dir, deps(names));
+        for (dep, count) in *usage {
+            c.files.extend(imports(dep, *count));
+        }
+        cases.push(c);
+    }
+    cases
+}
+
+// Covers: R41
+#[test]
+fn detect_project_matches_for_every_modeled_stack() -> Result<(), String> {
+    let env: Vec<(std::ffi::OsString, std::ffi::OsString)> = std::env::vars_os().collect();
+    let base = temp_root("detect").join("cases");
+    for c in detect_cases() {
+        let dir = base.join(c.dir);
+        let mut files = vec![("package.json".to_owned(), c.package_json.to_string())];
+        files.extend(c.files.iter().cloned());
+        let ts = NODE.ask(&json!({ "op": "detect", "dir": dir, "files": files }))?;
+        let project = detect_project(&dir, &RealRunner, &env)
+            .map_err(|_| format!("{}: detect.rs declined (Unmodeled)", c.dir))?;
+        let migrations: Vec<Value> = project
+            .migrations
+            .iter()
+            .map(|m| json!({ "legacy": m.legacy, "preferred": m.preferred, "domain": m.domain }))
+            .collect();
+        let rust = json!({
+            "name": project.name,
+            "framework": project.framework,
+            "libraries": project.libraries,
+            "migrations": migrations,
+            "preset": project.suggested_preset,
+            "gap": project.suggested_preset_gap,
+        });
+        if ts != rust {
+            return Err(format!("{}:\nts   {ts}\nrust {rust}", c.dir));
+        }
+    }
+    Ok(())
 }

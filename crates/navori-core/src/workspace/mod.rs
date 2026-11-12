@@ -3,4 +3,5 @@
 
 pub mod dominio;
 pub mod dominio_store;
+pub mod patterns;
 pub mod registry;

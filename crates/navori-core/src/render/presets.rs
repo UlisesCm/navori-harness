@@ -90,11 +90,24 @@ fn is_plain_id(id: &str) -> bool {
     !id.is_empty() && !id.contains(['/', '\\']) && id != "." && id != ".."
 }
 
-/// `loadPreset`: `Ok(None)` for `custom` or an id with no manifest.
+/// `ResolvedPreset`: where a preset id's manifest lives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResolvedPreset {
+    /// `.navori/presets/<id>/<id>.json` under the repo root; the directory is the asset root.
+    Local(PathBuf),
+    /// The bundled `core-assets/presets/<id>.json`, its bytes.
+    Bundled(&'static [u8]),
+}
+
+/// `resolvePreset(id, repoRoot)`: the local manifest first, then the bundled one; `Ok(None)` for
+/// `custom` or an id with neither.
 ///
 /// # Errors
-/// Any preset the TS would reject, or one Rust does not model.
-pub fn load_preset(id: &str, repo_root: &Path) -> Result<Option<LoadedPreset>, PresetDelegate> {
+/// An id that would leave `.navori/presets/` (the TS normalizes it; Rust does not model that).
+pub(crate) fn resolve_preset(
+    id: &str,
+    repo_root: &Path,
+) -> Result<Option<ResolvedPreset>, PresetDelegate> {
     if id == "custom" {
         return Ok(None);
     }
@@ -102,14 +115,32 @@ pub fn load_preset(id: &str, repo_root: &Path) -> Result<Option<LoadedPreset>, P
         return Err(PresetDelegate);
     }
     let local_dir = repo_root.join(".navori/presets").join(id);
-    let local_json = local_dir.join(format!("{id}.json"));
-    let (bytes, asset_root) = if local_json.exists() {
-        let bytes = std::fs::read(&local_json).map_err(|_| PresetDelegate)?;
-        (bytes, AssetRoot::Local(local_dir))
-    } else if let Some(bytes) = assets::core(&format!("core-assets/presets/{id}.json")) {
-        (bytes.to_vec(), AssetRoot::Bundled)
-    } else {
-        return Ok(None);
+    if local_dir.join(format!("{id}.json")).exists() {
+        return Ok(Some(ResolvedPreset::Local(local_dir)));
+    }
+    Ok(assets::core(&format!("core-assets/presets/{id}.json")).map(ResolvedPreset::Bundled))
+}
+
+/// `presetExists(id)`: `custom`, or an id with a BUNDLED manifest (local presets do not count).
+#[must_use]
+pub fn preset_exists(id: &str) -> bool {
+    id == "custom"
+        || (is_plain_id(id) && assets::core(&format!("core-assets/presets/{id}.json")).is_some())
+}
+
+/// `loadPreset`: `Ok(None)` for `custom` or an id with no manifest.
+///
+/// # Errors
+/// Any preset the TS would reject, or one Rust does not model.
+pub fn load_preset(id: &str, repo_root: &Path) -> Result<Option<LoadedPreset>, PresetDelegate> {
+    let (bytes, asset_root) = match resolve_preset(id, repo_root)? {
+        None => return Ok(None),
+        Some(ResolvedPreset::Local(local_dir)) => {
+            let local_json = local_dir.join(format!("{id}.json"));
+            let bytes = std::fs::read(&local_json).map_err(|_| PresetDelegate)?;
+            (bytes, AssetRoot::Local(local_dir))
+        }
+        Some(ResolvedPreset::Bundled(bytes)) => (bytes.to_vec(), AssetRoot::Bundled),
     };
     let text = std::str::from_utf8(&bytes).map_err(|_| PresetDelegate)?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
