@@ -8,21 +8,23 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
+use std::time::{Duration, Instant};
 
-use navori_hooks::hooks::guard_destructive::pii_bash::{check, gate};
+use navori_hooks::hooks::guard_destructive::pii_bash::{check, eligible, gate};
 use navori_hooks::runner::{self, Context, Engine, Evaluation, Verdict};
 use navori_hooks::shell::Locale;
 use navori_hooks::shell::inert::{self, Rules};
 use navori_hooks::shell::pii_egress::{
-    Code, EmailRead, Folding, Secret, is_local, read_user_email, stderr,
+    Code, EmailRead, HostGrep, Matcher, Secret, Unverifiable, is_local, read_user_email, stderr,
 };
+use navori_hooks::shell::subcommand::{Call, Capture, Input};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -62,19 +64,6 @@ fn partials() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/core-assets/hooks/_partials")
 }
 
-/// The environment `git config user.email` and the shell see: nothing from the host.
-fn hermetic(command: &mut Command, locale: Locale, dir: &Path) {
-    command
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("LC_ALL", locale_name(locale))
-        .env("HOME", dir)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CEILING_DIRECTORIES", dir.parent().unwrap_or(dir))
-        .current_dir(dir);
-}
-
 fn configure_email(command: &mut Command, email: Option<&[u8]>) {
     match email {
         Some(bytes) => command
@@ -101,18 +90,92 @@ impl Drop for Scratch {
     }
 }
 
+/// A `grep` in front of the real one in `PATH`: it logs every call (argv and the hash of stdin, in
+/// hex) to `PII_GREP_LOG` and then runs `/usr/bin/grep` on the same stdin and arguments.
+const LOGGING_GREP: &str = r#"#!/bin/bash
+tmp=$(mktemp)
+cat >"$tmp"
+{
+  printf '%s\0' "$@" | od -An -v -tx1 | tr -d ' \n'
+  printf ' %s\n' "$(sha256sum <"$tmp" | cut -d' ' -f1)"
+} >>"$PII_GREP_LOG"
+/usr/bin/grep "$@" <"$tmp"
+rc=$?
+rm -f "$tmp"
+exit "$rc"
+"#;
+
+/// A directory with a `grep` in it, and the log that `grep` writes when it is the logging one.
+struct Shim {
+    dir: PathBuf,
+    log: PathBuf,
+}
+
+impl Shim {
+    fn grep(&self) -> PathBuf {
+        self.dir.join("grep")
+    }
+}
+
+/// Install `body` as `grep` in a fresh directory under `scratch`.
+fn shim(scratch: &Path, name: &str, body: &str) -> Result<Shim, Box<dyn Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch.join(format!("shim-{name}"));
+    fs::create_dir_all(&dir)?;
+    let program = dir.join("grep");
+    fs::write(&program, body)?;
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    let log = dir.join("calls.log");
+    fs::write(&log, "")?;
+    Ok(Shim { dir, log })
+}
+
+/// The program `grep` of the hermetic host: the shim when there is one, else `/usr/bin/grep`.
+fn grep_program(shim: Option<&Shim>) -> PathBuf {
+    shim.map_or_else(|| PathBuf::from("/usr/bin/grep"), Shim::grep)
+}
+
+/// The native side's `HostGrep` environment: the one the shell child runs under.
+fn host_env(locale: Locale, dir: &Path, shim: Option<&Shim>) -> Vec<(OsString, OsString)> {
+    let mut command = Command::new("true");
+    hermetic(&mut command, locale, dir, shim);
+    command
+        .get_envs()
+        .filter_map(|(name, value)| Some((name.to_owned(), value?.to_owned())))
+        .collect()
+}
+
+/// Every field travels as hex (`-` when empty), one case per line, and is decoded under
+/// `LC_ALL=C`: no locale decides where a field ends (bash 5.2 `read -d ''` in UTF-8 eats the NUL
+/// after an incomplete sequence). The case's locale is restored only around the lane. The
+/// sentinel proves the loop ran to the end.
 const SCRIPT: &str = r#"
 set -euo pipefail
 block() { exit 1; }
 source "$1/inert-skeleton.sh"
 source "$1/pii-egress.sh"
 source "$1/pii-egress-bash.sh"
+_case_locale=$LC_ALL
+LC_ALL=C
+unhex() {
+  local hex=$1 chunk piece i out=''
+  if [ "$hex" = - ]; then hex=''; fi
+  # In chunks: one loop over a long field is quadratic in bash.
+  while [ -n "$hex" ]; do
+    chunk=${hex:0:512}
+    hex=${hex:512}
+    piece=''
+    for ((i = 0; i < ${#chunk}; i += 2)); do piece+="\\x${chunk:i:2}"; done
+    printf -v piece '%b' "$piece"
+    out+=$piece
+  done
+  printf -v "$2" '%s' "$out"
+}
 exec 3<&0 0</dev/null
-while IFS= read -r -u 3 -d '' cmd; do
-  IFS= read -r -u 3 -d '' hasmail
-  IFS= read -r -u 3 -d '' email
-  IFS= read -r -u 3 -d '' hasids
-  IFS= read -r -u 3 -d '' ids
+while IFS=' ' read -r -u 3 hcmd hasmail hemail hasids hids; do
+  unhex "$hcmd" cmd
+  unhex "$hemail" email
+  unhex "$hids" ids
   if [ "$hasmail" = 1 ]; then
     export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0="$email"
   else
@@ -122,32 +185,61 @@ while IFS= read -r -u 3 -d '' cmd; do
   # Not exported: a real hook gets it in the environment, but one past MAX_ARG_STRLEN could
   # never be set there, and the children would not start.
   if [ "$hasids" = 1 ]; then NAVORI_PERSONAL_IDS=$ids; else unset NAVORI_PERSONAL_IDS; fi
+  LC_ALL=$_case_locale
   set +e
   ( set -e; navori_inert_skeleton; navori_pii_bash_lane ) 2>&1
   rc=$?
   set -e
+  LC_ALL=C
   printf '\0%s\0' "$rc"
 done
+printf 'SENTINEL\0'
 "#;
+
+fn hex(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return "-".to_owned();
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The hermetic environment of the host, plus the logging `grep` first in `PATH` when given.
+fn hermetic(command: &mut Command, locale: Locale, dir: &Path, shim: Option<&Shim>) {
+    let path = shim.map_or_else(
+        || "/usr/bin:/bin".to_owned(),
+        |shim| format!("{}:/usr/bin:/bin", shim.dir.display()),
+    );
+    command
+        .env_clear()
+        .env("PATH", path)
+        .env("LC_ALL", locale_name(locale))
+        .env("HOME", dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CEILING_DIRECTORIES", dir.parent().unwrap_or(dir))
+        .current_dir(dir);
+    if let Some(shim) = shim {
+        command.env("PII_GREP_LOG", &shim.log);
+    }
+}
 
 /// What the real partials say for every case: `(stderr and stdout, exit status)`.
 fn shell_verdicts(
     cases: &[Case],
     locale: Locale,
     dir: &Path,
+    shim: Option<&Shim>,
 ) -> Result<Vec<(String, u8)>, Box<dyn Error>> {
-    let mut input = Vec::new();
+    let mut input = String::new();
     for case in cases {
-        for field in [
-            case.cmd.as_bytes(),
-            if case.email.is_some() { b"1" } else { b"0" },
-            case.email.as_deref().unwrap_or_default(),
-            if case.ids.is_some() { b"1" } else { b"0" },
-            case.ids.as_deref().unwrap_or_default().as_bytes(),
-        ] {
-            input.extend_from_slice(field);
-            input.push(0);
-        }
+        input.push_str(&format!(
+            "{} {} {} {} {}\n",
+            hex(case.cmd.as_bytes()),
+            u8::from(case.email.is_some()),
+            hex(case.email.as_deref().unwrap_or_default()),
+            u8::from(case.ids.is_some()),
+            hex(case.ids.as_deref().unwrap_or_default().as_bytes()),
+        ));
     }
     let mut shell = Command::new("bash");
     shell
@@ -156,50 +248,73 @@ fn shell_verdicts(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    hermetic(&mut shell, locale, dir);
+    hermetic(&mut shell, locale, dir, shim);
     let mut child = shell.spawn()?;
     let mut stdin = child.stdin.take().ok_or("stdin")?;
     // The cases can outgrow the pipe while bash is still writing its answers.
-    let writer = thread::spawn(move || stdin.write_all(&input));
+    let writer = thread::spawn(move || stdin.write_all(input.as_bytes()));
     let output = child.wait_with_output()?;
     writer.join().map_err(|_| "writer panicked")??;
-    // Per case: its output, NUL, its status, NUL.
-    let mut tokens = output.stdout.split(|&b| b == 0);
-    let mut verdicts = Vec::new();
-    while let (Some(text), Some(status)) = (tokens.next(), tokens.next()) {
-        let status = String::from_utf8(status.to_vec())?.parse::<u8>()?;
-        verdicts.push((String::from_utf8(text.to_vec())?, status));
+    if !output.status.success() {
+        return Err(format!("the harness shell exited with {:?}", output.status.code()).into());
     }
-    if verdicts.len() != cases.len() {
+    // Per case: its output, NUL, its status, NUL; then the sentinel, NUL.
+    let tokens: Vec<&[u8]> = output.stdout.split(|&b| b == 0).collect();
+    let end = cases.len() * 2;
+    if tokens.len() != end + 2 || tokens[end] != b"SENTINEL" || !tokens[end + 1].is_empty() {
         return Err("the shell did not answer every case".into());
+    }
+    let mut verdicts = Vec::new();
+    for pair in tokens[..end].chunks(2) {
+        let status = String::from_utf8(pair[1].to_vec())?.parse::<u8>()?;
+        verdicts.push((String::from_utf8(pair[0].to_vec())?, status));
     }
     Ok(verdicts)
 }
 
-/// The native verdict of one case, exactly as `guard-destructive` will compose it.
-fn native_code(case: &Case, locale: Locale, dir: &Path) -> Result<Code, Box<dyn Error>> {
+/// The native verdict of one case, exactly as `guard-destructive` will compose it, with the
+/// host's `grep` (or the shim) behind the matcher.
+fn native_code(
+    case: &Case,
+    locale: Locale,
+    dir: &Path,
+    shim: Option<&Shim>,
+) -> Result<Code, Box<dyn Error>> {
     if !gate(&case.cmd, locale) {
         return Ok(Code::Clean);
     }
+    let program = grep_program(shim);
+    let env = host_env(locale, dir, shim);
+    let mut matcher = HostGrep::new(Some(&program), dir, &env);
+    native_with(case, locale, dir, shim, &mut matcher)
+}
+
+fn native_with(
+    case: &Case,
+    locale: Locale,
+    dir: &Path,
+    shim: Option<&Shim>,
+    matcher: &mut dyn Matcher,
+) -> Result<Code, Box<dyn Error>> {
     let rules = Rules::get(locale)?;
     let skeleton = inert::skeleton(&case.cmd, rules)?;
-    let folding = Folding::for_locale(locale).ok_or("no folding for the locale")?;
     let ids = case.ids.as_deref().map(Secret::new);
-    Ok(check(
+    check(
         &case.cmd,
         &skeleton,
         rules,
         locale,
-        &folding,
+        matcher,
         || {
             let mut git = Command::new("git");
             git.args(["config", "user.email"]);
-            hermetic(&mut git, locale, dir);
+            hermetic(&mut git, locale, dir, shim);
             configure_email(&mut git, case.email.as_deref());
             read_user_email(&mut git)
         },
         ids.as_ref(),
-    ))
+    )
+    .ok_or_else(|| "the lane is not eligible for the locale".into())
 }
 
 fn expected(code: Code) -> (String, u8) {
@@ -756,11 +871,11 @@ fn differential(locale: Locale) -> TestResult {
     let scratch = Scratch::new(locale_name(locale))?;
     let cases = all_cases(locale)?;
     assert!(cases.len() >= MIN_CASES);
-    let shell = shell_verdicts(&cases, locale, &scratch.0)?;
+    let shell = shell_verdicts(&cases, locale, &scratch.0, None)?;
     let mut codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut diverging = Vec::new();
     for (index, (case, real)) in cases.iter().zip(&shell).enumerate() {
-        let code = native_code(case, locale, &scratch.0)?;
+        let code = native_code(case, locale, &scratch.0, None)?;
         *codes.entry(format!("{code:?}")).or_default() += 1;
         if &expected(code) != real {
             diverging.push(index);
@@ -799,39 +914,68 @@ fn contains_ci(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
+/// Whether `shown` holds the secret or its `%40` form (secrets under 8 bytes are too common to
+/// tell a leak from a coincidence).
+fn leaks(shown: &[u8], secret: &[u8]) -> bool {
+    let encoded = String::from_utf8_lossy(secret).replace('@', "%40");
+    secret.len() >= 8 && (contains_ci(shown, secret) || contains_ci(shown, encoded.as_bytes()))
+}
+
+/// Everything a caller or a log can see of one verdict: its `Debug`, its message, and the
+/// `Debug` of every type that ever holds the secrets, a [`Call`] with them in its argv,
+/// environment and stdin included.
+fn shown(code: Code, secrets: &[Vec<u8>]) -> Vec<u8> {
+    let mut shown = format!("{code:?}|{}|{:?}", stderr(code), Unverifiable).into_bytes();
+    for secret in secrets {
+        shown.extend(format!("{:?}", Secret::new(secret.clone())).bytes());
+        shown.extend(format!("{:?}", EmailRead::Present(Secret::new(secret.clone()))).bytes());
+        let args = [OsString::from("-e"), OsStr::from_bytes(secret).to_owned()];
+        let env = [(OsString::from("X"), OsStr::from_bytes(secret).to_owned())];
+        let call = Call {
+            program: Path::new("/usr/bin/grep"),
+            args: &args,
+            cwd: Path::new("/"),
+            env: &env,
+            input: Input::Bytes(secret),
+            capture: Capture::Discard,
+            timeout: None,
+        };
+        shown.extend(format!("{call:?}").bytes());
+    }
+    shown.extend(format!("{:?}{:?}", EmailRead::Absent, EmailRead::Unreadable).bytes());
+    shown
+}
+
+fn secrets_of(case: &Case) -> Vec<Vec<u8>> {
+    let mut secrets: Vec<Vec<u8>> = case
+        .ids
+        .iter()
+        .flat_map(|ids| ids.split([',', '\n']))
+        .map(|id| id.trim().as_bytes().to_vec())
+        .collect();
+    secrets.extend(case.email.clone());
+    secrets
+}
+
 #[test]
 fn never_echo() -> TestResult {
     let mut checked = 0;
     for locale in [Locale::C, Locale::GnuUtf8] {
         let scratch = Scratch::new("echo")?;
         for case in handwritten().into_iter().chain(corpus_cases(locale)?) {
-            let code = native_code(&case, locale, &scratch.0)?;
-            let mut secrets: Vec<Vec<u8>> = case
-                .ids
-                .iter()
-                .flat_map(|ids| ids.split([',', '\n']))
-                .map(|id| id.trim().as_bytes().to_vec())
-                .collect();
-            secrets.extend(case.email.clone());
-            let mut shown = format!("{code:?}|{}", stderr(code)).into_bytes();
-            for secret in &secrets {
-                shown.extend(format!("{:?}", Secret::new(secret.clone())).bytes());
-                shown.extend(
-                    format!("{:?}", EmailRead::Present(Secret::new(secret.clone()))).bytes(),
-                );
-            }
-            shown.extend(format!("{:?}{:?}", EmailRead::Absent, EmailRead::Unreadable).bytes());
+            let code = native_code(&case, locale, &scratch.0, None)?;
+            let secrets = secrets_of(&case);
+            let shown = shown(code, &secrets);
             for secret in secrets.iter().filter(|secret| secret.len() >= 8) {
-                let encoded = String::from_utf8_lossy(secret).replace('@', "%40");
                 assert!(
-                    !contains_ci(&shown, secret) && !contains_ci(&shown, encoded.as_bytes()),
+                    !leaks(&shown, secret),
                     "the identifier of a case reaches a message ({})",
                     locale_name(locale)
                 );
                 checked += 1;
             }
             // The lane is deterministic, so a second pass over the same call agrees.
-            assert_eq!(code, native_code(&case, locale, &scratch.0)?);
+            assert_eq!(code, native_code(&case, locale, &scratch.0, None)?);
         }
         assert_eq!(format!("{:?}", Secret::new("x")), "Secret(<redacted>)");
     }
@@ -839,11 +983,539 @@ fn never_echo() -> TestResult {
     Ok(())
 }
 
+/// One request to an external host, with the fictitious identifier configured as both sources.
+fn request() -> Case {
+    case(
+        "curl https://api.example.test/x",
+        Some(ID.as_bytes()),
+        Some(ID),
+    )
+}
+
+/// The verdict of [`request`] with `program` behind the matcher, and what was shown of it.
+fn through(
+    program: Option<&Path>,
+    scratch: &Scratch,
+    shim: Option<&Shim>,
+) -> Result<Code, Box<dyn Error>> {
+    let locale = Locale::GnuUtf8;
+    let env = host_env(locale, &scratch.0, shim);
+    let mut matcher = HostGrep::new(program, &scratch.0, &env);
+    let case = request();
+    let code = native_with(&case, locale, &scratch.0, shim, &mut matcher)?;
+    let shown = shown(code, &secrets_of(&case));
+    assert!(
+        !leaks(&shown, ID.as_bytes()),
+        "a failure path echoes the identifier"
+    );
+    Ok(code)
+}
+
+#[test]
+fn a_grep_that_cannot_answer_is_unverifiable() -> TestResult {
+    let scratch = Scratch::new("fail")?;
+    // No `grep` resolved, and a path that is not a program.
+    assert_eq!(through(None, &scratch, None)?, Code::Unverified);
+    assert_eq!(
+        through(Some(Path::new("/nonexistent/navori-grep")), &scratch, None)?,
+        Code::Unverified
+    );
+    // Whatever the child says, every status but 0 and 1 is "could not verify"; and a shim that
+    // writes the argv to both streams shows the lane keeps them out of its answer.
+    let echo = "#!/bin/sh\nprintf '%s\\n' \"$@\"\nprintf '%s\\n' \"$@\" >&2\n";
+    for (name, tail, expected) in [
+        ("rc0", "exit 0", Code::GitEmail),
+        ("rc1", "exit 1", Code::Clean),
+        ("rc2", "exit 2", Code::Unverified),
+        ("rc3", "exit 3", Code::Unverified),
+        ("rc127", "exit 127", Code::Unverified),
+        ("rc255", "exit 255", Code::Unverified),
+        ("signal", "kill -KILL $$", Code::Unverified),
+    ] {
+        let shim = shim(&scratch.0, name, &format!("{echo}{tail}\n"))?;
+        let program = shim.grep();
+        assert_eq!(
+            through(Some(&program), &scratch, Some(&shim))?,
+            expected,
+            "grep that ends with {name}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn grep_output_goes_nowhere() -> TestResult {
+    let scratch = Scratch::new("streams")?;
+    let body = "#!/bin/sh\nreadlink /proc/$$/fd/1 /proc/$$/fd/2 >>\"$PII_GREP_LOG\"\nexit 1\n";
+    let shim = shim(&scratch.0, "streams", body)?;
+    let program = shim.grep();
+    assert_eq!(through(Some(&program), &scratch, Some(&shim))?, Code::Clean);
+    let log = fs::read_to_string(&shim.log)?;
+    assert!(!log.is_empty());
+    assert!(log.lines().all(|line| line == "/dev/null"));
+    Ok(())
+}
+
+/// Whether process `pid` still exists (a reaped child has no `/proc` entry).
+fn alive(pid: &str) -> bool {
+    Path::new("/proc").join(pid).exists()
+}
+
+#[test]
+fn a_grep_that_sleeps_is_cut_off_and_reaped() -> TestResult {
+    let scratch = Scratch::new("sleep")?;
+    let shim = shim(
+        &scratch.0,
+        "sleep",
+        "#!/bin/sh\necho $$ >\"$PII_GREP_LOG\"\nexec sleep 30\n",
+    )?;
+    let program = shim.grep();
+    let started = Instant::now();
+    let code = through(Some(&program), &scratch, Some(&shim))?;
+    let took = started.elapsed();
+    assert_eq!(code, Code::Unverified);
+    assert!(took < Duration::from_secs(6), "the bound did not hold");
+    assert!(
+        took >= Duration::from_secs(3),
+        "the bound is the cap, not less"
+    );
+    let pid = fs::read_to_string(&shim.log)?;
+    assert!(!pid.trim().is_empty());
+    assert!(!alive(pid.trim()), "the child outlived the lane");
+    Ok(())
+}
+
+#[test]
+fn the_bound_is_cumulative_over_the_calls_of_one_evaluation() -> TestResult {
+    let scratch = Scratch::new("budget")?;
+    // Each call is within any per-call bound; three of them (the identifier and its two forms)
+    // together are not.
+    let shim = shim(
+        &scratch.0,
+        "budget",
+        "#!/bin/sh\necho $$ >>\"$PII_GREP_LOG\"\nsleep 1.5\nexit 1\n",
+    )?;
+    let program = shim.grep();
+    let locale = Locale::GnuUtf8;
+    let env = host_env(locale, &scratch.0, Some(&shim));
+    let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+    let started = Instant::now();
+    let results = [
+        matcher.has(b"abcd", "x"),
+        matcher.has(b"abcd", "x"),
+        matcher.has(b"abcd", "x"),
+        matcher.has(b"abcd", "x"),
+    ];
+    let took = started.elapsed();
+    assert_eq!(
+        results,
+        [Ok(false), Ok(false), Err(Unverifiable), Err(Unverifiable)]
+    );
+    assert!(took < Duration::from_secs(6), "the bound did not hold");
+    let pids = fs::read_to_string(&shim.log)?;
+    assert_eq!(pids.lines().count(), 3, "the spent bound launches nothing");
+    assert!(pids.lines().all(|pid| !alive(pid)));
+    Ok(())
+}
+
+#[test]
+fn an_argument_too_long_for_exec_is_unverifiable() -> TestResult {
+    let scratch = Scratch::new("e2big")?;
+    let locale = Locale::C;
+    let env = host_env(locale, &scratch.0, None);
+    let program = PathBuf::from("/usr/bin/grep");
+    // Far above any `MAX_ARG_STRLEN`: the spawn fails and nothing is guessed.
+    let big = "a".repeat(4 << 20);
+    let long = case("curl https://api.example.test/a", None, Some(&big));
+    let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+    assert_eq!(
+        native_with(&long, locale, &scratch.0, None, &mut matcher)?,
+        Code::Unverified
+    );
+    // The same lane, with a needle that fits, answers.
+    let fits = case("curl https://api.example.test/aaaa", None, Some("AAAA"));
+    let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+    assert_eq!(
+        native_with(&fits, locale, &scratch.0, None, &mut matcher)?,
+        Code::PersonalIds
+    );
+    Ok(())
+}
+
+#[test]
+fn nothing_to_look_for_never_starts_grep() -> TestResult {
+    let scratch = Scratch::new("nogrep")?;
+    let locale = Locale::GnuUtf8;
+    let env = host_env(locale, &scratch.0, None);
+    // An external request, and no identifier of four characters: Clean even with no `grep`.
+    for (email, ids) in [
+        (None, None),
+        (Some(&b"ab"[..]), Some(" , ,x")),
+        (None, Some(",,")),
+    ] {
+        let case = case("curl https://api.example.test/x", email, ids);
+        let mut matcher = HostGrep::new(None, &scratch.0, &env);
+        assert_eq!(
+            native_with(&case, locale, &scratch.0, None, &mut matcher)?,
+            Code::Clean
+        );
+    }
+    // Identifiers, but a command that is no request, or one to a local host: no `grep` either.
+    let shim = shim(
+        &scratch.0,
+        "never",
+        "#!/bin/sh\necho called >>\"$PII_GREP_LOG\"\n",
+    )?;
+    let program = shim.grep();
+    let env = host_env(locale, &scratch.0, Some(&shim));
+    for cmd in [
+        "echo hi",
+        "ls dev.fixture@example.test",
+        "curl http://localhost/x",
+        "git status",
+    ] {
+        let case = case(cmd, Some(ID.as_bytes()), Some(ID));
+        let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+        assert_eq!(
+            native_with(&case, locale, &scratch.0, Some(&shim), &mut matcher)?,
+            Code::Clean
+        );
+    }
+    assert_eq!(fs::read_to_string(&shim.log)?, "");
+    // The request with identifiers is what starts it.
+    let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+    let _ = native_with(&request(), locale, &scratch.0, Some(&shim), &mut matcher)?;
+    assert!(!fs::read_to_string(&shim.log)?.is_empty());
+    Ok(())
+}
+
+/// A matcher that records what it is asked and answers from a script.
+struct Recorder {
+    asked: Vec<Vec<u8>>,
+    answers: Vec<Result<bool, Unverifiable>>,
+}
+
+impl Matcher for Recorder {
+    fn has(&mut self, needle: &[u8], _text: &str) -> Result<bool, Unverifiable> {
+        self.asked.push(needle.to_vec());
+        if self.answers.is_empty() {
+            Ok(false)
+        } else {
+            self.answers.remove(0)
+        }
+    }
+}
+
+#[test]
+fn forms_are_asked_in_the_shell_order_with_no_shortcut() -> TestResult {
+    let scratch = Scratch::new("forms")?;
+    let locale = Locale::C;
+    let ask = |ids: &str| -> Result<Vec<String>, Box<dyn Error>> {
+        let mut recorder = Recorder {
+            asked: Vec::new(),
+            answers: Vec::new(),
+        };
+        let case = case("curl https://api.example.test/x", None, Some(ids));
+        native_with(&case, locale, &scratch.0, None, &mut recorder)?;
+        Ok(recorder
+            .asked
+            .iter()
+            .map(|needle| String::from_utf8_lossy(needle).into_owned())
+            .collect())
+    };
+    // A plain identifier: its two forms are equal to it and are asked all the same.
+    assert_eq!(ask("abcd")?, ["abcd", "abcd", "abcd"]);
+    assert_eq!(ask("a+b@c d")?, ["a+b@c d", "a%2Bb%40c%20d", "a+b@c+d"]);
+    // Each entry in order, one hit stops the rest, a failure stops with it.
+    assert_eq!(
+        ask("abcd, efgh")?,
+        ["abcd", "abcd", "abcd", "efgh", "efgh", "efgh"]
+    );
+    let mut recorder = Recorder {
+        asked: Vec::new(),
+        answers: vec![Ok(false), Ok(true)],
+    };
+    let two = case("curl https://api.example.test/x", None, Some("abcd,efgh"));
+    assert_eq!(
+        native_with(&two, locale, &scratch.0, None, &mut recorder)?,
+        Code::PersonalIds
+    );
+    assert_eq!(recorder.asked.len(), 2);
+    let mut recorder = Recorder {
+        asked: Vec::new(),
+        answers: vec![Err(Unverifiable)],
+    };
+    assert_eq!(
+        native_with(&two, locale, &scratch.0, None, &mut recorder)?,
+        Code::Unverified
+    );
+    assert_eq!(recorder.asked.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn the_lane_is_not_eligible_under_the_bsd_locale() -> TestResult {
+    assert!(eligible(Locale::C));
+    assert!(eligible(Locale::GnuUtf8));
+    assert!(!eligible(Locale::Utf8));
+    let rules = Rules::get(Locale::Utf8)?;
+    let cmd = "curl https://api.example.test/x";
+    let skeleton = inert::skeleton(cmd, rules)?;
+    let mut recorder = Recorder {
+        asked: Vec::new(),
+        answers: Vec::new(),
+    };
+    let ids = Secret::new(ID);
+    let code = check(
+        cmd,
+        &skeleton,
+        rules,
+        Locale::Utf8,
+        &mut recorder,
+        || panic!("the email is not read for a lane that does not run"),
+        Some(&ids),
+    );
+    assert_eq!(code, None);
+    assert!(recorder.asked.is_empty());
+    Ok(())
+}
+
+#[test]
+fn folding_controls_follow_the_host_not_the_shell_script() -> TestResult {
+    let scratch = Scratch::new("controls")?;
+    let verdict = |locale: Locale, id: &str, text: &str| -> Result<Code, Box<dyn Error>> {
+        let case = case(
+            &format!("curl https://api.example.test/?u={text}"),
+            None,
+            Some(id),
+        );
+        native_code(&case, locale, &scratch.0, None)
+    };
+    let (lower, upper) = (
+        "pr\u{e9}nom.fixture@example.test",
+        "PR\u{c9}NOM.FIXTURE@EXAMPLE.TEST",
+    );
+    // é/É fold in a UTF-8 locale and are different bytes in C.
+    assert_eq!(verdict(Locale::GnuUtf8, lower, upper)?, Code::PersonalIds);
+    assert_eq!(verdict(Locale::GnuUtf8, upper, lower)?, Code::PersonalIds);
+    assert_eq!(verdict(Locale::C, lower, upper)?, Code::Clean);
+    // A/a fold in both.
+    let (a, upper_a) = ("abcd.fixture@example.test", "ABCD.FIXTURE@EXAMPLE.TEST");
+    assert_eq!(verdict(Locale::GnuUtf8, a, upper_a)?, Code::PersonalIds);
+    assert_eq!(verdict(Locale::C, a, upper_a)?, Code::PersonalIds);
+    Ok(())
+}
+
+/// `-qiF`, NUL, `-e`, NUL: the head of the argv of every `_pii_has`, in the shim's hex.
+const PII_ARGV: &str = "2d716946002d6500";
+
+/// The same `FOLD_PAIRS`, call by call, through a logging `grep` on each side: the shell and the
+/// native lane must launch the same programs with the same argv and stdin, in the same order.
+fn same_grep_calls(locale: Locale) -> TestResult {
+    let scratch = Scratch::new(&format!("calls-{}", locale_name(locale)))?;
+    let mut cases = handwritten();
+    cases.extend(generated(200));
+    let theirs = shim(&scratch.0, "shell", LOGGING_GREP)?;
+    let ours = shim(&scratch.0, "native", LOGGING_GREP)?;
+    let shell = shell_verdicts(&cases, locale, &scratch.0, Some(&theirs))?;
+    let mut diverging = Vec::new();
+    for (index, (case, real)) in cases.iter().zip(&shell).enumerate() {
+        if expected(native_code(case, locale, &scratch.0, Some(&ours))?) != *real {
+            diverging.push(index);
+        }
+    }
+    assert!(diverging.is_empty(), "cases {diverging:?} diverge");
+    // The inert skeleton calls `grep` too, for its own purposes; the lane's are `-qiF -e`.
+    let pii_only = |log: &Path| -> Result<Vec<String>, Box<dyn Error>> {
+        Ok(fs::read_to_string(log)?
+            .lines()
+            .filter(|line| line.starts_with(PII_ARGV))
+            .map(str::to_owned)
+            .collect())
+    };
+    let shell_calls = pii_only(&theirs.log)?;
+    let native_calls = pii_only(&ours.log)?;
+    assert!(shell_calls.len() > 500, "the shim saw too few calls");
+    let first = shell_calls
+        .iter()
+        .zip(&native_calls)
+        .position(|(left, right)| left != right);
+    assert_eq!(first, None, "the calls differ at this one");
+    assert_eq!(shell_calls.len(), native_calls.len());
+    Ok(())
+}
+
+#[test]
+fn grep_calls_match_the_shell_in_c() -> TestResult {
+    same_grep_calls(Locale::C)
+}
+
+#[test]
+fn grep_calls_match_the_shell_in_c_utf8() -> TestResult {
+    same_grep_calls(Locale::GnuUtf8)
+}
+
+const ISOLATED: &str = r#"
+set -euo pipefail
+block() { exit 1; }
+source "$1/inert-skeleton.sh"
+source "$1/pii-egress.sh"
+source "$1/pii-egress-bash.sh"
+cmd=$2
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0="$PII_TEST_EMAIL"
+unset PII_TEST_EMAIL NAVORI_PERSONAL_IDS
+set +e
+( set -e; navori_inert_skeleton; navori_pii_bash_lane ) 2>&1
+rc=$?
+printf '\0%s' "$rc"
+"#;
+
+/// One invocation of the shell for one case: the email in an environment variable and the command
+/// as an argument, so no stdin framing can touch an incomplete UTF-8 sequence.
+fn shell_isolated(
+    cmd: &str,
+    email: &[u8],
+    locale: Locale,
+    dir: &Path,
+) -> Result<(String, u8), Box<dyn Error>> {
+    let mut shell = Command::new("bash");
+    shell
+        .args(["-c", ISOLATED, "pii"])
+        .arg(partials())
+        .arg(cmd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hermetic(&mut shell, locale, dir, None);
+    shell.env("PII_TEST_EMAIL", OsStr::from_bytes(email));
+    let output = shell.output()?;
+    if !output.status.success() {
+        return Err("the isolated shell failed".into());
+    }
+    let at = output
+        .stdout
+        .iter()
+        .rposition(|&b| b == 0)
+        .ok_or("no status")?;
+    let status = String::from_utf8(output.stdout[at + 1..].to_vec())?.parse::<u8>()?;
+    Ok((String::from_utf8(output.stdout[..at].to_vec())?, status))
+}
+
+/// An email that is not valid UTF-8 (a byte, or a sequence that stops short) against a text that
+/// holds the character it starts: what each locale says, written down, not taken from the shell.
+/// `(text, email, in C.UTF-8, in C)`.
+const INCOMPLETE: &[(&str, &[u8], Code, Code)] = &[
+    (
+        "fixture.jos\u{9876}x",
+        b"fixture.jos\xe9",
+        Code::GitEmail,
+        Code::GitEmail,
+    ),
+    (
+        "FIXTURE.JOS\u{9876}x",
+        b"fixture.jos\xe9",
+        Code::GitEmail,
+        Code::GitEmail,
+    ),
+    (
+        "fixture.jos\u{e9}",
+        b"fixture.jos\xe9",
+        Code::Clean,
+        Code::Clean,
+    ),
+    (
+        "fixture.jos\u{e9}",
+        b"fixture.jos\xc3",
+        Code::GitEmail,
+        Code::GitEmail,
+    ),
+    ("fixture.josx", b"fixture.jos\xe9", Code::Clean, Code::Clean),
+    (
+        "fixture.jos\u{9876}",
+        b"fixture.jos\xe9\xa1",
+        Code::GitEmail,
+        Code::GitEmail,
+    ),
+    (
+        "fixture.jos\u{9876}",
+        b"fixture.jos\xe9\xa1\xb6",
+        Code::GitEmail,
+        Code::GitEmail,
+    ),
+    (
+        "fixture.jos\u{9876}x",
+        b"fixture.jos\xe9x",
+        Code::Clean,
+        Code::Clean,
+    ),
+    ("fix\u{9876}ture", b"fix\xe9ture", Code::Clean, Code::Clean),
+];
+
+#[test]
+fn an_incomplete_utf8_email_is_decided_one_invocation_at_a_time() -> TestResult {
+    let scratch = Scratch::new("incomplete")?;
+    let mut wrong = Vec::new();
+    for locale in [Locale::GnuUtf8, Locale::C] {
+        for (index, (text, email, in_utf8, in_c)) in INCOMPLETE.iter().enumerate() {
+            let want = if locale == Locale::C { *in_c } else { *in_utf8 };
+            let cmd = format!("curl https://api.example.test/{text}");
+            let real = shell_isolated(&cmd, email, locale, &scratch.0)?;
+            let ours = native_code(&case(&cmd, Some(email), None), locale, &scratch.0, None)?;
+            if real != expected(want) || expected(ours) != real {
+                wrong.push((locale_name(locale), index, want, ours));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "unexpected verdicts (locale, case, expected, native): {wrong:?}"
+    );
+    Ok(())
+}
+
+/// The text of `_pii_has` and `_pii_hits`, which the native lane reproduces call for call.
+const PII_HAS: &str = r#"_pii_has() {
+  local _rc=0
+  grep -qiF -e "$1" <<<"$2" >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -le 1 ] || exit 1
+  [ "$_rc" -eq 0 ]
+}
+
+# Does the text carry identifier $1 in any of its forms?
+_pii_hits() {
+  local _id="$1" _t="$2" _enc
+  _pii_has "$_id" "$_t" && return 0
+  _enc="${_id//@/%40}"
+  _enc="${_enc//+/%2B}"
+  _enc="${_enc// /%20}"
+  _pii_has "$_enc" "$_t" && return 0
+  _enc="${_id// /+}"
+  _pii_has "$_enc" "$_t" && return 0
+  return 1
+}
+"#;
+
+#[test]
+fn pii_has_spelling() -> TestResult {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for path in [
+        "packages/core/core-assets/hooks/_partials/pii-egress.sh",
+        ".claude/hooks/guard-destructive.sh",
+        ".pi/navori/hooks/guard-destructive.sh",
+    ] {
+        let text = fs::read_to_string(root.join(path))?;
+        assert!(
+            text.contains(PII_HAS),
+            "{path} spells _pii_has or _pii_hits differently from the native lane"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn panic_in_the_lane_is_unverified_and_silent() -> TestResult {
     let locale = Locale::GnuUtf8;
     let rules = Rules::get(locale)?;
-    let folding = Folding::for_locale(locale).ok_or("folding")?;
     let cmd = "curl https://api.example.test/x";
     let skeleton = inert::skeleton(cmd, rules)?;
     let context = Context {
@@ -852,7 +1524,12 @@ fn panic_in_the_lane_is_unverified_and_silent() -> TestResult {
         gating: true,
     };
     let ids = Secret::new(ID);
-    for message in [format!("boom {ID}"), "boom".to_owned()] {
+    // The lane panics reading the email, or asking `grep`, with a message that holds the id.
+    for (in_matcher, message) in [
+        (false, format!("boom {ID}")),
+        (false, "boom".to_owned()),
+        (true, format!("boom {ID}")),
+    ] {
         let seen = Cell::new(None);
         let mut payload: &[u8] = b"";
         let response = runner::run(
@@ -860,16 +1537,33 @@ fn panic_in_the_lane_is_unverified_and_silent() -> TestResult {
             &mut payload,
             || Ok(true),
             |_| {
+                let mut panicking = Panicking(message.clone());
+                let mut quiet = Recorder {
+                    asked: Vec::new(),
+                    answers: Vec::new(),
+                };
+                let matcher: &mut dyn Matcher = if in_matcher {
+                    &mut panicking
+                } else {
+                    &mut quiet
+                };
                 let code = check(
                     cmd,
                     &skeleton,
                     rules,
                     locale,
-                    &folding,
-                    || -> EmailRead { panic!("{message}") },
+                    matcher,
+                    || -> EmailRead {
+                        if in_matcher {
+                            EmailRead::Absent
+                        } else {
+                            panic!("{message}")
+                        }
+                    },
                     Some(&ids),
                 );
-                seen.set(Some(code));
+                seen.set(code);
+                let code = code.unwrap_or(Code::Unverified);
                 Ok(Evaluation {
                     verdict: Verdict::Block,
                     stdout: Vec::new(),
@@ -887,26 +1581,35 @@ fn panic_in_the_lane_is_unverified_and_silent() -> TestResult {
     Ok(())
 }
 
+/// A matcher that panics with a message of its own.
+struct Panicking(String);
+
+impl Matcher for Panicking {
+    fn has(&mut self, _needle: &[u8], _text: &str) -> Result<bool, Unverifiable> {
+        panic!("{}", self.0)
+    }
+}
+
 #[test]
-fn panic_in_the_lane_never_becomes_an_error_outside_a_capture() {
+fn panic_in_the_lane_never_becomes_an_error_outside_a_capture() -> TestResult {
     // Outside `runner::run` the default hook would print the message, so this one has none.
     let locale = Locale::C;
-    let Some(folding) = Folding::for_locale(locale) else {
-        return;
-    };
-    let Ok(rules) = Rules::get(locale) else {
-        return;
+    let rules = Rules::get(locale)?;
+    let mut recorder = Recorder {
+        asked: Vec::new(),
+        answers: Vec::new(),
     };
     let code = check(
         "curl https://api.example.test/x",
         "curl https://api.example.test/x\n",
         rules,
         locale,
-        &folding,
+        &mut recorder,
         || -> EmailRead { std::panic::resume_unwind(Box::new(())) },
         None,
     );
-    assert_eq!(code, Code::Unverified);
+    assert_eq!(code, Some(Code::Unverified));
+    Ok(())
 }
 
 fn shell_email(script: &str) -> EmailRead {
@@ -923,13 +1626,13 @@ fn read_user_email_follows_the_shell() -> TestResult {
     for value in [&b"dev.fixture@example.test"[..], b"jos\xe9@example.test"] {
         let mut git = Command::new("git");
         git.args(["config", "user.email"]);
-        hermetic(&mut git, Locale::GnuUtf8, &scratch.0);
+        hermetic(&mut git, Locale::GnuUtf8, &scratch.0, None);
         configure_email(&mut git, Some(value));
         assert_eq!(read_user_email(&mut git), present(value));
     }
     let mut git = Command::new("git");
     git.args(["config", "user.email"]);
-    hermetic(&mut git, Locale::GnuUtf8, &scratch.0);
+    hermetic(&mut git, Locale::GnuUtf8, &scratch.0, None);
     configure_email(&mut git, None);
     assert_eq!(read_user_email(&mut git), EmailRead::Absent);
     // The exit status is ignored: a program that writes and fails keeps its output.

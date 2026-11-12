@@ -8,39 +8,43 @@
 //! # The identifier never leaves this module
 //!
 //! It enters as a [`Secret`] (bytes, redacted `Debug`, no `Display`) or as an [`EmailRead`], and
-//! leaves only as a [`Code`], an enum with no data. There is no regex built from it (a `Regex`
-//! prints its pattern in `Debug`) and no error that carries bytes is ever formatted: the byte
-//! handling below has no `FromUtf8Error` to leak. The three guards against a panic that would
-//! print a slice are the `deny` lints at the top of this file.
+//! leaves only as a [`Code`], an enum with no data (and as the argument of the host's `grep`, as
+//! in the shell). There is no regex built from it (a `Regex` prints its pattern in `Debug`) and
+//! no error that carries bytes is ever formatted: the byte handling below has no
+//! `FromUtf8Error` to leak. The three guards against a panic that would print a slice are the
+//! `deny` lints at the top of this file.
 //!
 //! # Failure contract
 //!
 //! [`Code::Unverified`] is every status other than 0, 41 and 42 of the shell's subshell: the
-//! caller denies ("could not verify"). It is also what an unreadable email, an identifier
-//! `grep` could not even be launched with (one argument longer than the kernel's
-//! `MAX_ARG_STRLEN`) and, in `guard_destructive::pii_bash`, a panic of the lane become.
+//! caller denies ("could not verify"). It is also what an unreadable email, a `grep` that cannot
+//! answer (see [`HostGrep`]) and, in `guard_destructive::pii_bash`, a panic of the lane become.
 //!
 //! # Matching
 //!
-//! `grep -qiF -e ID` of the partial, reproduced byte for byte under [`Locale::C`] (ASCII folding
-//! over bytes) and [`Locale::GnuUtf8`] (the measured, asymmetric table of [`super::case_fold`]).
-//! A pattern byte that is not valid UTF-8 matches that very byte; a match starts at a character
-//! boundary of the text and may end inside a character (measured with GNU grep 3.12). BSD
-//! `grep` has not been measured: [`Folding::for_locale`] answers `None` for [`Locale::Utf8`] and
-//! the caller must not run this rule there.
+//! This module folds nothing. `_pii_has` is `grep -qiF -e ID <<<TEXT`, and so is [`HostGrep`]:
+//! the same program, arguments, stdin and environment, in the same order and as many times as the
+//! shell runs it (no shortcut for an identifier equal to its encoded form). What `grep -i`
+//! matches is whatever the host's `grep` and locale data say, by construction, on any glibc and
+//! with any `grep`. [`Matcher`] is the seam: the lane asks "is this needle in this text?".
+//! Only [`Locale::C`] and [`Locale::GnuUtf8`] are measured (the lane's own text handling has
+//! not been run under bash 3.2 or BSD tools): the caller must not run the rule under
+//! [`Locale::Utf8`].
 #![deny(clippy::string_slice, clippy::indexing_slicing)]
 
-use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt;
+use std::os::unix::ffi::OsStringExt;
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use super::Locale;
-use super::case_fold::COUNTERPARTS;
+use super::subcommand::{self, Call, Capture, Input};
 
-/// Longest single argument `execve` accepts on Linux (`MAX_ARG_STRLEN`, NUL included): `grep`
-/// cannot be launched with a longer identifier, and the shell then answers "could not verify".
-const GREP_ARG_MAX: usize = 131_072;
+/// Total wall time the `grep` calls of one evaluation of the lane may take. The shell has no
+/// bound (the host kills the hook at 10 s); this one is deliberately tighter and fails closed.
+const GREP_BUDGET: Duration = Duration::from_secs(4);
 
 /// Bytes of a personal identifier. `Debug` is redacted; there is no `Display` or `Serialize`.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -132,27 +136,79 @@ pub fn stderr(code: Code) -> &'static str {
     }
 }
 
-/// How `grep -i` folds case in a locale.
+/// `grep` could not answer: the shell's "could not verify" (`exit 1` of `_pii_has`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Folding(Mode);
+pub struct Unverifiable;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    /// `LC_ALL=C`: bytes, ASCII letters only.
-    Ascii,
-    /// glibc UTF-8: the measured table of [`COUNTERPARTS`].
-    Table,
+/// `_pii_has`: is `needle` in `text`, ignoring case? The needle is an identifier, so no
+/// implementor derives `Debug`.
+pub trait Matcher {
+    /// Whether `text` holds `needle` (`grep -qiF -e NEEDLE <<<TEXT`).
+    ///
+    /// # Errors
+    /// [`Unverifiable`] when the answer could not be obtained.
+    fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable>;
 }
 
-impl Folding {
-    /// The folding of `locale`, or `None` when it has not been measured (BSD UTF-8): the caller
-    /// must then leave the rule to the shell.
+/// The host's `grep`, called as `_pii_has` calls it: `grep -qiF -e NEEDLE` with the text and a
+/// newline (the here-string's) on stdin, output discarded, in the shell's working directory and
+/// environment ([`subcommand::child_env`]).
+///
+/// Status 0 is a match and 1 is none. Anything else is [`Unverifiable`]: no program, a spawn
+/// failure (`E2BIG` included), status 2 or more, a signal, or the cumulative bound of four
+/// seconds spent (the child is then killed and waited for). `grep` is launched only inside
+/// [`Matcher::has`], so an evaluation with nothing to look for never starts one.
+pub struct HostGrep<'a> {
+    program: Option<&'a Path>,
+    cwd: &'a Path,
+    env: &'a [(OsString, OsString)],
+    budget: Duration,
+}
+
+impl<'a> HostGrep<'a> {
+    /// `program` is the `grep` the caller resolved (`None`: it did not resolve), `cwd` the
+    /// shell's working directory and `env` the hook's environment.
     #[must_use]
-    pub fn for_locale(locale: Locale) -> Option<Self> {
-        match locale {
-            Locale::C => Some(Self(Mode::Ascii)),
-            Locale::GnuUtf8 => Some(Self(Mode::Table)),
-            Locale::Utf8 => None,
+    pub fn new(program: Option<&'a Path>, cwd: &'a Path, env: &'a [(OsString, OsString)]) -> Self {
+        Self {
+            program,
+            cwd,
+            env,
+            budget: GREP_BUDGET,
+        }
+    }
+}
+
+impl Matcher for HostGrep<'_> {
+    fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
+        let program = self.program.ok_or(Unverifiable)?;
+        if self.budget.is_zero() {
+            return Err(Unverifiable);
+        }
+        let mut stdin = Vec::with_capacity(text.len() + 1);
+        stdin.extend_from_slice(text.as_bytes());
+        stdin.push(b'\n');
+        let args = [
+            OsString::from("-qiF"),
+            OsString::from("-e"),
+            OsString::from_vec(needle.to_vec()),
+        ];
+        let env = subcommand::child_env(self.env, self.cwd.as_os_str(), None, program, &[]);
+        let started = Instant::now();
+        let finished = subcommand::run(&Call {
+            program,
+            args: &args,
+            cwd: self.cwd,
+            env: &env,
+            input: Input::Bytes(&stdin),
+            capture: Capture::Discard,
+            timeout: Some(self.budget),
+        });
+        self.budget = self.budget.saturating_sub(started.elapsed());
+        match finished {
+            Ok(done) if !done.timed_out && done.status == 0 => Ok(true),
+            Ok(done) if !done.timed_out && done.status == 1 => Ok(false),
+            _ => Err(Unverifiable),
         }
     }
 }
@@ -161,14 +217,14 @@ impl Folding {
 #[derive(Debug, Clone, Copy)]
 enum Unit {
     Char(char),
-    Byte(u8),
+    Byte,
 }
 
 /// The unit that starts at byte `at` and its length; `None` at the end. A byte that is not
-/// part of a valid sequence is a unit of its own, as bash counts and `grep` matches it.
+/// part of a valid sequence is a unit of its own, as bash counts it.
 fn unit_at(bytes: &[u8], at: usize) -> Option<(Unit, usize)> {
     let rest = bytes.get(at..)?;
-    let first = *rest.first()?;
+    rest.first()?;
     let window = rest.get(..rest.len().min(4)).unwrap_or(rest);
     let valid = match std::str::from_utf8(window) {
         Ok(_) => window,
@@ -179,7 +235,7 @@ fn unit_at(bytes: &[u8], at: usize) -> Option<(Unit, usize)> {
         .and_then(|text| text.chars().next())
     {
         Some(c) => Some((Unit::Char(c), c.len_utf8())),
-        None => Some((Unit::Byte(first), 1)),
+        None => Some((Unit::Byte, 1)),
     }
 }
 
@@ -219,195 +275,10 @@ fn trim_space(bytes: &[u8], locale: Locale) -> &[u8] {
         .unwrap_or_default()
 }
 
-/// Whether a pattern character `p` matches the text character `t`: the measured relation, which
-/// is not symmetric.
-fn folds(p: char, t: char) -> bool {
-    p == t
-        || COUNTERPARTS
-            .binary_search_by_key(&p, |&(key, _)| key)
-            .ok()
-            .and_then(|i| COUNTERPARTS.get(i))
-            .is_some_and(|(_, set)| set.contains(t))
-}
-
-/// A representative per connected class of [`COUNTERPARTS`]: if `p` matches `t`, both share it.
-/// It lets a linear scan find a superset of the matches, which `matches_at` then confirms.
-fn canon(c: char) -> char {
-    static CLASSES: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
-        let mut index: HashMap<char, usize> = HashMap::new();
-        let mut chars: Vec<char> = Vec::new();
-        let mut edges: Vec<(usize, usize)> = Vec::new();
-        let mut slot = |c: char, chars: &mut Vec<char>| {
-            *index.entry(c).or_insert_with(|| {
-                chars.push(c);
-                chars.len() - 1
-            })
-        };
-        for (pattern, set) in &COUNTERPARTS {
-            let from = slot(*pattern, &mut chars);
-            for t in set.chars() {
-                edges.push((from, slot(t, &mut chars)));
-            }
-        }
-        let mut parent: Vec<usize> = (0..chars.len()).collect();
-        fn root(parent: &mut [usize], mut i: usize) -> usize {
-            while let Some(&up) = parent.get(i) {
-                if up == i {
-                    break;
-                }
-                let grand = parent.get(up).copied().unwrap_or(up);
-                if let Some(entry) = parent.get_mut(i) {
-                    *entry = grand;
-                }
-                i = grand;
-            }
-            i
-        }
-        for (a, b) in edges {
-            let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
-            if let Some(entry) = parent.get_mut(ra.max(rb)) {
-                *entry = ra.min(rb);
-            }
-        }
-        let mut least: HashMap<usize, char> = HashMap::new();
-        for (i, &c) in chars.iter().enumerate() {
-            let r = root(&mut parent, i);
-            least
-                .entry(r)
-                .and_modify(|best| *best = (*best).min(c))
-                .or_insert(c);
-        }
-        let mut classes = HashMap::new();
-        for (i, &c) in chars.iter().enumerate() {
-            let r = root(&mut parent, i);
-            classes.insert(c, least.get(&r).copied().unwrap_or(c));
-        }
-        classes
-    });
-    CLASSES.get(&c).copied().unwrap_or(c)
-}
-
-fn kmp_failure(pattern: &[u32]) -> Vec<usize> {
-    let mut failure = vec![0; pattern.len()];
-    let mut k = 0;
-    for i in 1..pattern.len() {
-        let current = pattern.get(i);
-        while k > 0 && pattern.get(k) != current {
-            k = failure.get(k - 1).copied().unwrap_or(0);
-        }
-        if pattern.get(k) == current {
-            k += 1;
-        }
-        if let Some(entry) = failure.get_mut(i) {
-            *entry = k;
-        }
-    }
-    failure
-}
-
-/// Knuth-Morris-Pratt over `text`: calls `confirm` with the index of the item where each match
-/// of the non-empty `pattern` starts, and stops at the first `true`. Linear in both lengths.
-fn kmp_any(
-    pattern: &[u32],
-    text: impl Iterator<Item = u32>,
-    mut confirm: impl FnMut(usize) -> bool,
-) -> bool {
-    let failure = kmp_failure(pattern);
-    let mut k = 0;
-    for (i, item) in text.enumerate() {
-        while k > 0 && pattern.get(k) != Some(&item) {
-            k = failure.get(k - 1).copied().unwrap_or(0);
-        }
-        if pattern.get(k) == Some(&item) {
-            k += 1;
-        }
-        if k == pattern.len() {
-            if confirm(i + 1 - k) {
-                return true;
-            }
-            k = failure.get(k - 1).copied().unwrap_or(0);
-        }
-    }
-    false
-}
-
-/// Exact check of the pattern at byte `at` of the text (a character boundary).
-fn matches_at(units: &[Unit], text: &str, at: usize) -> bool {
-    let bytes = text.as_bytes();
-    let mut pos = at;
-    for unit in units {
-        match *unit {
-            Unit::Byte(b) => {
-                if bytes.get(pos) != Some(&b) {
-                    return false;
-                }
-                pos += 1;
-            }
-            Unit::Char(p) => {
-                let Some(t) = text.get(pos..).and_then(|rest| rest.chars().next()) else {
-                    return false;
-                };
-                if !folds(p, t) {
-                    return false;
-                }
-                pos += t.len_utf8();
-            }
-        }
-    }
-    true
-}
-
-// TODO(perf): the confirmation of a candidate re-reads the whole pattern, so an identifier of
-// ~100k characters made of case-folding oddities (U+1C80..U+1C88) against an adversarial text is
-// quadratic. Only the user's own identifiers reach it; index the class of each unit if it ever
-// matters.
-fn find_table(units: &[Unit], text: &str) -> bool {
-    let head: Vec<u32> = units
-        .iter()
-        .map_while(|unit| match unit {
-            Unit::Char(c) => Some(u32::from(canon(*c))),
-            Unit::Byte(_) => None,
-        })
-        .collect();
-    if head.is_empty() {
-        return text
-            .char_indices()
-            .any(|(at, _)| matches_at(units, text, at));
-    }
-    let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
-    kmp_any(&head, text.chars().map(|c| u32::from(canon(c))), |begin| {
-        starts
-            .get(begin)
-            .is_some_and(|&at| matches_at(units, text, at))
-    })
-}
-
-fn find_ascii(pattern: &[u8], text: &[u8]) -> bool {
-    let key = |b: &u8| u32::from(b.to_ascii_lowercase());
-    let pattern: Vec<u32> = pattern.iter().map(key).collect();
-    kmp_any(&pattern, text.iter().map(key), |_| true)
-}
-
-/// `grep` could not complete: the shell's "could not verify".
-struct Unverifiable;
-
-/// `_pii_has`: `grep -qiF -e PATTERN <<<TEXT`.
-fn has(pattern: &[u8], text: &str, folding: Folding) -> Result<bool, Unverifiable> {
-    if pattern.len() >= GREP_ARG_MAX {
-        return Err(Unverifiable);
-    }
-    if pattern.is_empty() {
-        return Ok(true);
-    }
-    Ok(match folding.0 {
-        Mode::Ascii => find_ascii(pattern, text.as_bytes()),
-        Mode::Table => find_table(&units(pattern), text),
-    })
-}
-
-/// `_pii_hits`: the identifier, or one of its encoded forms, in the text.
-fn hits(id: &[u8], text: &str, folding: Folding) -> Result<bool, Unverifiable> {
-    if has(id, text, folding)? {
+/// `_pii_hits`: the identifier, or one of its encoded forms, in the text. Three calls at most,
+/// in the shell's order, and no shortcut: a form equal to the identifier is still asked.
+fn hits(id: &[u8], text: &str, matcher: &mut dyn Matcher) -> Result<bool, Unverifiable> {
+    if matcher.has(id, text)? {
         return Ok(true);
     }
     let mut percent = Vec::with_capacity(id.len());
@@ -422,7 +293,7 @@ fn hits(id: &[u8], text: &str, folding: Folding) -> Result<bool, Unverifiable> {
         plus.push(if b == b' ' { b'+' } else { b });
     }
     for form in [percent, plus] {
-        if form != id && has(&form, text, folding)? {
+        if matcher.has(&form, text)? {
             return Ok(true);
         }
     }
@@ -434,14 +305,14 @@ fn hits(id: &[u8], text: &str, folding: Folding) -> Result<bool, Unverifiable> {
 /// `email` runs first and always (the shell forks `git config` here, once, and only for a
 /// request that already is external): the caller keeps it lazy. The protocol string is the
 /// shell's, built over bytes: one `g:EMAIL` line, then one `e:ID` per trimmed entry of the
-/// comma-separated `ids`, each of at least four characters.
+/// comma-separated `ids`, each of at least four characters. `matcher` is asked only for those.
 #[must_use]
 pub fn verdict(
     texts: &str,
     email: impl FnOnce() -> EmailRead,
     ids: Option<&Secret>,
     locale: Locale,
-    folding: &Folding,
+    matcher: &mut dyn Matcher,
 ) -> Code {
     let mut protocol: Vec<u8> = Vec::new();
     match email() {
@@ -475,7 +346,7 @@ pub fn verdict(
             ),
             None => (line, line),
         };
-        match hits(value, texts, *folding) {
+        match hits(value, texts, matcher) {
             Err(Unverifiable) => return Code::Unverified,
             Ok(true) if source == b"g" => return Code::GitEmail,
             Ok(true) => return Code::PersonalIds,

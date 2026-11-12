@@ -22,7 +22,7 @@ use regex::Regex;
 use super::tr;
 use crate::shell::Locale;
 use crate::shell::inert::{self, Rules};
-use crate::shell::pii_egress::{Code, EmailRead, Folding, Secret, is_local, verdict};
+use crate::shell::pii_egress::{Code, EmailRead, Matcher, Secret, is_local, verdict};
 
 /// The cheap gate of `navori_pii_bash_lane`: pure text, no process. HTTPie (`http https xh xhs`)
 /// matches only as a whole word: after the start, a blank, one of ``; & | ( ` ``, `'` or a path
@@ -133,7 +133,7 @@ fn run(
     skeleton: &str,
     rules: &Rules,
     locale: Locale,
-    folding: &Folding,
+    matcher: &mut dyn Matcher,
     email: impl FnOnce() -> EmailRead,
     ids: Option<&Secret>,
 ) -> Code {
@@ -164,27 +164,41 @@ fn run(
     if texts.is_empty() {
         return Code::Clean;
     }
-    verdict(&texts, email, ids, locale, folding)
+    verdict(&texts, email, ids, locale, matcher)
 }
 
-/// `navori_pii_bash_check`: what the lane decides for a command that passed [`gate`].
+/// Whether the lane may run under `locale`: only the glibc ones (`C`, C.UTF-8). `Utf8` is BSD
+/// (macOS, bash 3.2), where the rest of the lane has not been measured: the caller leaves the
+/// rule to the shell.
+#[must_use]
+pub fn eligible(locale: Locale) -> bool {
+    locale != Locale::Utf8
+}
+
+/// `navori_pii_bash_check`: what the lane decides for a command that passed [`gate`], or
+/// `None` when the lane is not eligible under `locale` (see [`eligible`]); nothing has run then.
 ///
 /// `skeleton` is the command's inert skeleton (the caller's own `inert::skeleton`). `email` is
 /// lazy: it runs only for a request to an external host that has no inline `git config
-/// user.email`. A panic anywhere in here is [`Code::Unverified`], never an `Err` and never a
-/// message.
+/// user.email`. `matcher` is asked only once an identifier is configured. A panic anywhere in
+/// here is [`Code::Unverified`], never an `Err` and never a message.
 #[must_use]
 pub fn check(
     cmd: &str,
     skeleton: &str,
     rules: &Rules,
     locale: Locale,
-    folding: &Folding,
+    matcher: &mut dyn Matcher,
     email: impl FnOnce() -> EmailRead,
     ids: Option<&Secret>,
-) -> Code {
-    panic::catch_unwind(AssertUnwindSafe(|| {
-        run(cmd, skeleton, rules, locale, folding, email, ids)
-    }))
-    .unwrap_or(Code::Unverified)
+) -> Option<Code> {
+    if !eligible(locale) {
+        return None;
+    }
+    Some(
+        panic::catch_unwind(AssertUnwindSafe(|| {
+            run(cmd, skeleton, rules, locale, matcher, email, ids)
+        }))
+        .unwrap_or(Code::Unverified),
+    )
 }
