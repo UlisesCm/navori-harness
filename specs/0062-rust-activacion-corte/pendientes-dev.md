@@ -139,6 +139,7 @@ da los 1233 iguales.
 | 3 | `parser::root_help` y `surface:--help`: el Rust lista `bench`, que `dev` dejó tras un flag | #1502 |
 | 3 (guarda) | Hecho: la guarda de Claude en render se quitó con G7a, G3, el 1c y las vars de navori (K2) ya en `migration/rust`; `retired-context` volvió a `native: true` con máscara de procedencia | #1647 |
 | 3 (Codex) | 12 paridades `codex_*`: Codex está congelado; decidir si se retiran | #1618 (parcial) |
+| 3 (Codex, seguimiento) | `codex_skills.rs` (`sub_block_body`) no pasa el sub-bloque por `condition_orchestration(…, "codex")` antes de interpolar, y `codexSubBlockBody` (`engines/codex/index.ts:182-189`) sí lo hace. Hoy no cambia ninguna salida, porque ningún plugin inyecta en `.claude/skills/*`. Se arregla si alguno llega a hacerlo; Codex sigue congelado. Es el mismo hueco que #1691 cerró en el AGENTS.md de Codex | #1691 (revisión) |
 | `spec` | `repo-specs:*`, `spec:*`, `spec-deliveries:*` y `surface:spec_--help` | #1483, #1628 |
 | 4a | `master_hooks` (1) y el oráculo de `master`, que aborta en el setup `master close` (v1 de solo lectura) | #1620, #1621, #1628 |
 
