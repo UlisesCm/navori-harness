@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::config::Config;
+use crate::diagnose::doctor_local::{LegacyAgent, OrderReport};
 use crate::i18n::Status;
 use crate::js_json::JsValue;
 use crate::markers::{CommentStyle, compute_managed_hash, extract_managed_content, prose_lines};
@@ -545,7 +546,7 @@ pub fn read_rendered_text(cwd: &Path, engines: &[String]) -> Result<String, Unmo
     Ok(parts.join("\n"))
 }
 
-/// `HealthState`: what `suggestNextSteps` reads. `doctor` adds its order and legacy-agent inputs.
+/// `HealthState`: what `suggestNextSteps` reads; `doctor`'s extra inputs are [`DoctorHealth`].
 #[derive(Debug, Clone, Copy)]
 pub struct HealthState<'a> {
     /// `claudeMdExists`.
@@ -558,9 +559,29 @@ pub struct HealthState<'a> {
     pub render_pending: Option<usize>,
 }
 
-/// `suggestNextSteps(state, lang)`.
+/// The `HealthState` inputs only `doctor` passes (`orderReport`, `legacyAgents`); `status` leaves
+/// them absent.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DoctorHealth<'a> {
+    /// `orderReport`: `CLAUDE.md` blocks out of canonical order.
+    pub order_report: Option<&'a OrderReport>,
+    /// `legacyAgents`: legacy agent files a canonical agent supersedes.
+    pub legacy_agents: &'a [LegacyAgent],
+}
+
+/// `suggestNextSteps(state, lang)` without the doctor-only inputs.
 #[must_use]
 pub fn suggest_next_steps(state: &HealthState<'_>, lang: Lang) -> Vec<String> {
+    suggest_doctor_next_steps(state, DoctorHealth::default(), lang)
+}
+
+/// `suggestNextSteps(state, lang)` with `orderReport` and `legacyAgents`.
+#[must_use]
+pub fn suggest_doctor_next_steps(
+    state: &HealthState<'_>,
+    doctor: DoctorHealth<'_>,
+    lang: Lang,
+) -> Vec<String> {
     let ts = Status(lang);
     let mut steps = Vec::new();
     if !state.claude_md_exists {
@@ -578,6 +599,27 @@ pub fn suggest_next_steps(state: &HealthState<'_>, lang: Lang) -> Vec<String> {
         .any(|d| matches!(d.kind, DriftKind::Downgrade | DriftKind::Harness))
     {
         steps.push(ts.next_downgrade_drift().to_owned());
+    }
+    if let Some(order) = doctor.order_report {
+        if order.interleaved {
+            let lead = order
+                .misplaced_first
+                .as_ref()
+                .map_or_else(String::new, |mf| {
+                    ts.next_interleaved_lead(&mf.id, mf.current_pos, mf.total)
+                });
+            steps.push(ts.next_interleaved(&lead));
+        } else {
+            steps.push(ts.next_reorder().to_owned());
+        }
+    }
+    if !doctor.legacy_agents.is_empty() {
+        let names: Vec<&str> = doctor
+            .legacy_agents
+            .iter()
+            .map(|l| l.legacy_name.as_str())
+            .collect();
+        steps.push(ts.next_legacy_agents(doctor.legacy_agents.len(), &names.join(", ")));
     }
     if let Some(pending) = state.render_pending
         && pending > 0
@@ -653,6 +695,68 @@ mod tests {
         assert_eq!(
             suggest_next_steps(&idle, Lang::Es),
             ["Todo al día — sin acciones pendientes."]
+        );
+    }
+
+    // Covers: R76
+    #[test]
+    fn doctor_next_steps_add_order_and_legacy_agents_before_render_pending() {
+        use crate::diagnose::doctor_local::MisplacedFirst;
+        let state = HealthState {
+            claude_md_exists: true,
+            missing_plugins: 0,
+            drifts: &[],
+            render_pending: Some(1),
+        };
+        let order = OrderReport {
+            current: vec!["b".to_owned(), "a".to_owned()],
+            expected: vec!["a".to_owned(), "b".to_owned()],
+            interleaved: true,
+            misplaced_first: Some(MisplacedFirst {
+                id: "a".to_owned(),
+                current_pos: 2,
+                total: 2,
+            }),
+        };
+        let legacy = [
+            LegacyAgent {
+                legacy_name: "sdd-leader".to_owned(),
+                canonical: "orchestrator".to_owned(),
+            },
+            LegacyAgent {
+                legacy_name: "deep-auditor".to_owned(),
+                canonical: "auditor".to_owned(),
+            },
+        ];
+        let doctor = DoctorHealth {
+            order_report: Some(&order),
+            legacy_agents: &legacy,
+        };
+        assert_eq!(
+            suggest_doctor_next_steps(&state, doctor, Lang::En),
+            [
+                "Move your text between managed CLAUDE.md blocks above the first block or below the last (e.g. 'a' is at position 2 of 2 and should be 1st); then run 'navori render --apply' to reorder them.",
+                "Archive or delete 2 legacy agent(s) (sdd-leader, deep-auditor); navori already provides their canonical replacements.",
+                "A render would change 1 file(s)/block(s): run 'navori render' to preview and 'navori render --apply' to apply.",
+            ]
+        );
+        let plain = OrderReport {
+            interleaved: false,
+            ..order
+        };
+        let doctor = DoctorHealth {
+            order_report: Some(&plain),
+            legacy_agents: &[],
+        };
+        let idle = HealthState {
+            render_pending: None,
+            ..state
+        };
+        assert_eq!(
+            suggest_doctor_next_steps(&idle, doctor, Lang::Es),
+            [
+                "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden can\u{f3}nico."
+            ]
         );
     }
 
