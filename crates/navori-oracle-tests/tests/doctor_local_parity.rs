@@ -546,6 +546,19 @@ fn order_and_malformed_markers() -> Result<(), String> {
         case("claude-md-swapped", json!({}))
             .file("CLAUDE.md", swapped)
             .hits(&["managedOrder"]),
+        // Out of order with user prose between the blocks: `interleaved` (health.ts:1096).
+        case("claude-md-interleaved", json!({}))
+            .file("CLAUDE.md", [block(last, ""), "user prose\n".to_owned(), block(first, "")].concat())
+            .hits(&["managedOrder"]),
+        // In order with prose between: nothing to report.
+        case("claude-md-ordered-with-prose", json!({}))
+            .file("CLAUDE.md", [block(first, ""), "user prose\n".to_owned(), block(last, "")].concat()),
+        // An id outside the canonical order sorts after every canonical one.
+        case("claude-md-unknown-id-first", json!({}))
+            .file("CLAUDE.md", [block("user-custom-block", ""), block(first, "")].concat())
+            .hits(&["managedOrder"]),
+        case("claude-md-unknown-id-last", json!({}))
+            .file("CLAUDE.md", [block(first, ""), block("user-custom-block", "")].concat()),
         case("malformed-unterminated", json!({})).hits(&["malformed"]).file(
             "CLAUDE.md",
             "<!-- navori:managed id=\"a\" hash=\"x\"\ntext\n<!-- /navori:managed id=\"a\" -->\n",
@@ -881,6 +894,11 @@ fn local_skills() -> Result<(), String> {
             .file(".claude/skills/alpha/SKILL.md", "---\nname: alpha\n---\n")
             .file(".agents/skills/alpha/SKILL.md", "mine, not navori's\n"),
         case("skills-unsafe-id", skills(&["../evil", "a/b"])),
+        // An id the harness plan already renders is skipped, not reported missing.
+        case("skills-in-plan", skills(&["verify-before-done", "alpha"])).hits(&["localSkills"]),
+        // A bundled preset feeds the plan.
+        case("skills-bundled-preset", json!({ "preset": "nextjs", "project": { "localSkills": ["verify-before-done", "alpha"] } }))
+            .hits(&["localSkills"]),
     ])
 }
 
