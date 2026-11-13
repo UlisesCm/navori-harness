@@ -40,8 +40,8 @@ struct Frame {
     subp: usize,
     sbuf: Vec<u8>,
     snt: usize,
-    // Shared, not cloned: parking tokens is a refcount bump per token, never a byte copy.
-    stok: Vec<Rc<[u8]>>,
+    /// Start of this frame's section of `Program::undo`.
+    log_start: usize,
 }
 
 fn starts_with(p: &[u8], prefix: &[u8]) -> bool {
@@ -83,6 +83,19 @@ struct Program {
     escape: bool,
     // Lives across records, like the awk's `sd`/`subp`/`sbuf`/`snt`/`stok` globals.
     stack: Vec<Frame>,
+    // Copy-on-write undo log: `(slot, previous value)` for every slot overwritten while a frame is
+    // open, so `enter` is O(1) and `leave` restores only what the interior clobbered.
+    undo: Vec<(usize, Rc<[u8]>)>,
+    // Scratch for deduping `undo` on `leave` (slot -> epoch last seen).
+    stamp: Vec<u64>,
+    epoch: u64,
+    // Test-only reference: the original full-copy enter/leave, compared against `tok`.
+    #[cfg(test)]
+    ref_tok: Vec<Rc<[u8]>>,
+    #[cfg(test)]
+    ref_stack: Vec<Vec<Rc<[u8]>>>,
+    #[cfg(test)]
+    leaves: usize,
 }
 
 impl Program {
@@ -158,9 +171,22 @@ impl Program {
         if self.have {
             self.nt += 1;
             let buf: Rc<[u8]> = Rc::from(std::mem::take(&mut self.buf));
+            #[cfg(test)]
+            {
+                if self.ref_tok.len() < self.nt {
+                    self.ref_tok.push(buf.clone());
+                } else {
+                    self.ref_tok[self.nt - 1] = buf.clone();
+                }
+            }
             if self.tok.len() < self.nt {
                 self.tok.push(buf);
             } else {
+                // A slot past `tok.len()` is past every parked `snt`, so only existing slots need
+                // an undo entry.
+                if !self.stack.is_empty() {
+                    self.undo.push((self.nt, Rc::clone(&self.tok[self.nt - 1])));
+                }
                 self.tok[self.nt - 1] = buf;
             }
         }
@@ -176,11 +202,13 @@ impl Program {
 
     /// awk `enter(text)`: park the outer word and its tokens for a `"$(` substitution.
     fn enter(&mut self, text: Vec<u8>) {
+        #[cfg(test)]
+        self.ref_stack.push(self.ref_tok[..self.nt].to_vec());
         self.stack.push(Frame {
             subp: 0,
             sbuf: text,
             snt: self.nt,
-            stok: self.tok[..self.nt].to_vec(),
+            log_start: self.undo.len(),
         });
         self.buf.clear();
         self.have = false;
@@ -193,11 +221,37 @@ impl Program {
             return;
         };
         self.nt = frame.snt;
-        for (slot, saved) in self.tok.iter_mut().zip(frame.stok) {
-            *slot = saved;
+        // Oldest entry per slot wins; the same pass dedupes what an enclosing frame will need.
+        let range = self.undo.split_off(frame.log_start);
+        self.epoch += 1;
+        let mut kept = Vec::new();
+        for (slot, old) in range {
+            if self.stamp.len() < slot {
+                self.stamp.resize(slot, 0);
+            }
+            if self.stamp[slot - 1] == self.epoch {
+                continue;
+            }
+            self.stamp[slot - 1] = self.epoch;
+            if slot <= frame.snt {
+                self.tok[slot - 1] = Rc::clone(&old);
+            }
+            kept.push((slot, old));
+        }
+        if !self.stack.is_empty() {
+            self.undo.extend(kept);
         }
         self.buf = frame.sbuf;
         self.have = true;
+        #[cfg(test)]
+        {
+            let saved = self.ref_stack.pop().unwrap_or_default();
+            for (slot, value) in self.ref_tok.iter_mut().zip(saved) {
+                *slot = value;
+            }
+            self.leaves += 1;
+            assert_eq!(self.tok, self.ref_tok, "tok diverged after leave");
+        }
     }
 
     fn copy_word(token: &[u8]) -> bool {
@@ -232,6 +286,8 @@ impl Program {
         reason = "one transcription of the partial's check()"
     )]
     fn check(&mut self) {
+        #[cfg(test)]
+        assert_eq!(self.tok, self.ref_tok, "tok diverged before check");
         if self.nt == 0 {
             return;
         }
@@ -677,6 +733,17 @@ impl Program {
 /// `navori_copy_dest_safe`'s exit status for `live`: `ManagedRewrite` (2) wins over `Unparsed` (3).
 #[must_use]
 pub fn verdict(live: &str, inputs: &Inputs<'_>) -> CopyDest {
+    let program = execute(live, inputs);
+    if program.bad {
+        CopyDest::ManagedRewrite
+    } else if program.qbad {
+        CopyDest::Unparsed
+    } else {
+        CopyDest::Safe
+    }
+}
+
+fn execute(live: &str, inputs: &Inputs<'_>) -> Program {
     let mut root = if inputs.root.is_empty() {
         inputs.pwd
     } else {
@@ -702,6 +769,15 @@ pub fn verdict(live: &str, inputs: &Inputs<'_>) -> CopyDest {
         quote: None,
         escape: false,
         stack: Vec::new(),
+        undo: Vec::new(),
+        stamp: Vec::new(),
+        epoch: 0,
+        #[cfg(test)]
+        ref_tok: Vec::new(),
+        #[cfg(test)]
+        ref_stack: Vec::new(),
+        #[cfg(test)]
+        leaves: 0,
     };
     root = program.slashes(&root);
     let cwd = program.slashes(inputs.cwd.as_bytes());
@@ -738,13 +814,7 @@ pub fn verdict(live: &str, inputs: &Inputs<'_>) -> CopyDest {
         program.qbad = true;
     }
     program.segment();
-    if program.bad {
-        CopyDest::ManagedRewrite
-    } else if program.qbad {
-        CopyDest::Unparsed
-    } else {
-        CopyDest::Safe
-    }
+    program
 }
 
 #[cfg(test)]
@@ -778,5 +848,99 @@ mod tests {
     #[test]
     fn a_dangling_escape_is_safe() {
         assert_eq!(run("cp a \\"), CopyDest::Safe);
+    }
+
+    /// Deterministic LCG, so the generated commands never depend on the clock.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self, bound: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from((self.0 >> 33) % bound as u64).unwrap_or(0)
+        }
+    }
+
+    /// The program asserts, after every `leave` and before every `check`, that its copy-on-write
+    /// `tok` equals the original full-copy implementation fed the same trace.
+    #[test]
+    fn copy_on_write_tokens_match_the_full_copy_reference() {
+        const FRAGMENTS: &[&str] = &[
+            "a",
+            "b",
+            "cp",
+            "mv",
+            "-f",
+            "x=1",
+            "env",
+            "-u",
+            " ",
+            " ",
+            " ",
+            " ",
+            "\t",
+            "; ",
+            " && ",
+            " | ",
+            "\n",
+            "\"",
+            "\"$(",
+            "\"$(",
+            "\"$(",
+            ")",
+            ")",
+            "\"",
+            "'",
+            "(",
+            "{",
+            "}",
+            "owned.txt",
+            "$CLAUDE_PROJECT_DIR/owned.txt",
+            "<<",
+            ">",
+            "\\",
+            "$(git rev-parse --show-toplevel)",
+        ];
+        let inputs = Inputs {
+            root: "/tmp/proj",
+            cwd: "/tmp/proj",
+            pwd: "/tmp",
+            owned: "owned.txt",
+        };
+        let mut rng = Lcg(0x5EED);
+        let mut leaves = 0;
+        for case in 0..600 {
+            let mut cmd = String::new();
+            // Structured cases: words, then nested `"$(` up to four levels with inner segments.
+            if case % 2 == 0 {
+                let depth = 1 + rng.next(4);
+                for _ in 0..rng.next(6) {
+                    cmd.push_str("w ");
+                }
+                for _ in 0..depth {
+                    cmd.push_str("\"$(");
+                    for _ in 0..rng.next(5) {
+                        cmd.push_str(FRAGMENTS[rng.next(FRAGMENTS.len())]);
+                        cmd.push('w');
+                    }
+                }
+                for _ in 0..depth {
+                    cmd.push_str(")\"");
+                    for _ in 0..rng.next(4) {
+                        cmd.push_str(" v");
+                    }
+                }
+            } else {
+                for _ in 0..(5 + rng.next(40)) {
+                    cmd.push_str(FRAGMENTS[rng.next(FRAGMENTS.len())]);
+                }
+            }
+            let program = super::execute(&cmd, &inputs);
+            assert_eq!(program.tok, program.ref_tok, "final tok for {cmd:?}");
+            leaves += program.leaves;
+        }
+        assert!(leaves > 500, "generator must exercise leave(): {leaves}");
     }
 }
