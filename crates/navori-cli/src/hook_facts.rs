@@ -20,7 +20,7 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
 };
 
 use navori_hooks::hooks::guard_destructive::Rendered;
-use navori_hooks::hooks::guard_destructive::entry::{self, Context};
+use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline};
 use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::repo::System;
 
@@ -143,8 +143,13 @@ pub fn prepare_guard_destructive<'a>(
             ..Host::default()
         },
     };
+    // A value that is not UTF-8 is ignored, as the script's `case` ignores anything but 1..8.
+    let deadline = Deadline::from_env(
+        prepare::env_value(snapshot.env, "NAVORI_GUARD_DEADLINE").and_then(|value| value.to_str()),
+        snapshot.started,
+    );
     Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
-        entry::evaluate(payload, &context, &System)
+        entry::evaluate_until(payload, &context, &System, deadline)
     }))
 }
 
