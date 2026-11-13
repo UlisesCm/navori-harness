@@ -693,6 +693,36 @@ fn retired_plugins() -> Result<(), String> {
             );
         }
     }
+    for (_, retired) in RETIRED_PLUGINS {
+        for block_id in retired.block_ids {
+            cases.push(
+                case("retired-plugin-block-ids", json!({}))
+                    .hits(&["retiredPlugins"])
+                    .file("CLAUDE.md", block(block_id, "")),
+            );
+        }
+    }
+    for (_, _, entries) in navori_core::render::plugins::RETIRED_PLUGIN_SUB_BLOCKS {
+        for (id, target) in *entries {
+            let Some(rest) = target.strip_prefix(".claude/skills/") else {
+                continue;
+            };
+            let codex = format!(".agents/skills/{}", rest);
+            cases.push(
+                case("retired-sub-block-codex-skill", json!({}))
+                    .hits(&["retiredPlugins"])
+                    .file(codex, block(id, "")),
+            );
+        }
+    }
+    if let Some((_, retired)) = RETIRED_PLUGINS.iter().find(|(_, r)| !r.assets.is_empty()) {
+        let asset = retired.assets[0];
+        cases.push(
+            case("retired-script-delegates", json!({}))
+                .delegates(&["retiredPlugins"])
+                .file(asset, "#!/bin/sh\n"),
+        );
+    }
     run_all(cases)
 }
 
