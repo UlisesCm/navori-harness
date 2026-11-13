@@ -29,6 +29,8 @@ pub struct Snapshot<'a> {
     pub env: &'a [(OsString, OsString)],
     /// Working directory of this invocation.
     pub cwd: &'a Path,
+    /// When the hook started, before preparation: the anchor of a hook's own deadline.
+    pub started: std::time::Instant,
 }
 
 /// What a prepared evaluation may ask of the runtime while it decides.
@@ -437,6 +439,7 @@ pub fn run_with_journal<R: Read, W: Write, E: Write>(
                 source: &source,
                 env,
                 cwd,
+                started,
             };
             match prepare(&invocation, snapshot) {
                 Ok(evaluator) => Some(evaluator),

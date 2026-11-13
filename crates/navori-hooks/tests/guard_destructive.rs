@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-use navori_hooks::hooks::guard_destructive::entry::{self, Context};
+use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline};
 use navori_hooks::hooks::guard_destructive::{
     Outcome, Rendered, ask_answer, block_stderr, evaluate,
 };
@@ -413,5 +414,88 @@ fn veredictos_sin_cambio_tras_mover_los_parciales_a_shell() -> TestResult {
     );
     // The corpus verdicts themselves are pinned by `cada_regla_…` above, by the Rust replay and
     // by the fuzz (A1), which run unchanged before and after the move.
+    Ok(())
+}
+
+/// The shipped asset's rendered values and a context nothing in the host reaches.
+fn plain_context() -> Result<Context<'static>, Box<dyn Error>> {
+    let source = fs::read_to_string(
+        workspace().join("packages/core/core-assets/hooks/guard-destructive.sh"),
+    )?;
+    Ok(Context {
+        engine: Engine::Claude,
+        profile: Profile {
+            extractor: Extractor::JqAndNode,
+            locale: Locale::Utf8,
+        },
+        capture: CaptureContext {
+            shell: ShellDialect::Bash3,
+            script: Path::new("guard-destructive.sh"),
+            input_line: 1,
+            fallback_line: 1,
+        },
+        rendered: Rendered::from_script(&source).ok_or("rendered assignments")?,
+        host: Host::default(),
+    })
+}
+
+/// `started` this long ago, so a deadline can be expired without waiting for it.
+fn ago(seconds: u64) -> Result<Instant, Box<dyn Error>> {
+    Ok(Instant::now()
+        .checked_sub(Duration::from_secs(seconds))
+        .ok_or("clock too close to its origin")?)
+}
+
+const HARMLESS: &[u8] = br#"{"tool_name":"Bash","tool_input":{"command":"echo hi"}}"#;
+
+/// #1671: past its own deadline the guard blocks, with the message of the shell's
+/// `nv_on_deadline`, no command and no reason code; never a permit.
+#[test]
+fn deadline_expired_blocks_even_a_harmless_command() -> TestResult {
+    let context = plain_context()?;
+    let live = Deadline::from_env(None, Instant::now());
+    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, live)?;
+    assert_eq!(evaluation.verdict, Verdict::Permit);
+
+    let expired = Deadline::from_env(Some("3"), ago(4)?);
+    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, expired)?;
+    assert_eq!(evaluation.verdict, Verdict::Block);
+    assert!(evaluation.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(evaluation.stderr)?,
+        "[navori] BLOCKED by guard-destructive: inspection did not finish within 3s — nothing was approved\n"
+    );
+    let label = evaluation.audit.ok_or("audit label")?;
+    assert_eq!((label.verdict, label.reason.as_str()), ("block", ""));
+    Ok(())
+}
+
+/// NAVORI_GUARD_DEADLINE only lowers the deadline: one digit 1..8, anything else keeps 8s.
+#[test]
+fn deadline_variable_can_only_lower_it() -> TestResult {
+    let context = plain_context()?;
+    let started = ago(9)?;
+    for value in [
+        None,
+        Some("9"),
+        Some("0"),
+        Some("08"),
+        Some("12"),
+        Some("-1"),
+        Some(" 3"),
+        Some(""),
+    ] {
+        let deadline = Deadline::from_env(value, started);
+        let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, deadline)?;
+        assert_eq!(evaluation.verdict, Verdict::Block, "{value:?}");
+        assert!(
+            String::from_utf8(evaluation.stderr)?.contains("within 8s"),
+            "{value:?} must keep the 8s default"
+        );
+    }
+    // Lowered and not reached yet: the rules answer.
+    let lowered = Deadline::from_env(Some("5"), ago(1)?);
+    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, lowered)?;
+    assert_eq!(evaluation.verdict, Verdict::Permit);
     Ok(())
 }
