@@ -49,6 +49,28 @@ fn case(cmd: &str, email: Option<&[u8]>, ids: Option<&str>) -> Case {
     }
 }
 
+/// Whether the native lane answers Unverifiable for `case` before any `grep`: an identifier
+/// that is not valid UTF-8 in a UTF-8 locale (`pii_egress::verdict`). Only the email can be
+/// invalid here (`ids` is a `String`); four characters is the protocol's own floor.
+fn invalid_identifier(case: &Case, locale: Locale) -> bool {
+    locale != Locale::C
+        && case.email.as_deref().is_some_and(|email| {
+            std::str::from_utf8(email).is_err()
+                && String::from_utf8_lossy(email).chars().count() >= 4
+        })
+}
+
+/// `major.minor` of the `bash` the shell side runs.
+fn bash_version() -> Result<String, Box<dyn Error>> {
+    let output = Command::new("bash")
+        .args([
+            "-c",
+            "printf '%s.%s' \"${BASH_VERSINFO[0]}\" \"${BASH_VERSINFO[1]}\"",
+        ])
+        .output()?;
+    Ok(String::from_utf8(output.stdout)?)
+}
+
 fn with_ids(cmd: &str) -> Case {
     case(cmd, None, Some(ID))
 }
@@ -874,18 +896,30 @@ fn differential(locale: Locale) -> TestResult {
     let shell = shell_verdicts(&cases, locale, &scratch.0, None)?;
     let mut codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut diverging = Vec::new();
+    let mut invalid = 0;
     for (index, (case, real)) in cases.iter().zip(&shell).enumerate() {
         let code = native_code(case, locale, &scratch.0, None)?;
         *codes.entry(format!("{code:?}")).or_default() += 1;
-        if &expected(code) != real {
+        // The deliberate divergence: no parity with the shell, the native answer is fixed.
+        if invalid_identifier(case, locale) {
+            invalid += 1;
+            if code != Code::Unverified {
+                diverging.push(index);
+            }
+        } else if &expected(code) != real {
             diverging.push(index);
         }
     }
     println!(
-        "differential {}: {} cases, codes {codes:?}, {} diverging",
+        "differential {}: {} cases, codes {codes:?}, {} with an invalid identifier, {} diverging",
         locale_name(locale),
         cases.len(),
+        invalid,
         diverging.len()
+    );
+    assert!(
+        locale == Locale::C || invalid > 0,
+        "the corpus no longer reaches an invalid identifier in a UTF-8 locale"
     );
     assert!(
         diverging.is_empty(),
@@ -1319,6 +1353,8 @@ fn same_grep_calls(locale: Locale) -> TestResult {
     let scratch = Scratch::new(&format!("calls-{}", locale_name(locale)))?;
     let mut cases = handwritten();
     cases.extend(generated(200));
+    // Those never reach `grep` natively by design; an_incomplete_utf8_email_* covers them.
+    cases.retain(|case| !invalid_identifier(case, locale));
     let theirs = shim(&scratch.0, "shell", LOGGING_GREP)?;
     let ours = shim(&scratch.0, "native", LOGGING_GREP)?;
     let shell = shell_verdicts(&cases, locale, &scratch.0, Some(&theirs))?;
@@ -1412,8 +1448,10 @@ fn shell_isolated(
 }
 
 /// An email that is not valid UTF-8 (a byte, or a sequence that stops short) against a text that
-/// holds the character it starts: what each locale says, written down, not taken from the shell.
-/// `(text, email, in C.UTF-8, in C)`.
+/// holds the character it starts: what the shell says, written down, not taken from it.
+/// `(text, email, Bash 5.3 in C.UTF-8, in C)`. In C.UTF-8 the native lane answers Unverifiable
+/// for every one of them without calling `grep`; Bash 5.2 answers a hit for those whose email
+/// ends in an incomplete sequence (its `read` swallows the newline, see `pii_egress::verdict`).
 const INCOMPLETE: &[(&str, &[u8], Code, Code)] = &[
     (
         "fixture.jos\u{9876}x",
@@ -1464,18 +1502,59 @@ const INCOMPLETE: &[(&str, &[u8], Code, Code)] = &[
 #[test]
 fn an_incomplete_utf8_email_is_decided_one_invocation_at_a_time() -> TestResult {
     let scratch = Scratch::new("incomplete")?;
+    let calls = shim(&scratch.0, "incomplete", LOGGING_GREP)?;
+    // The written-down shell column is Bash 5.3's; 5.2 differs (the documented divergence).
+    let shell_is_52 = bash_version()? == "5.2";
     let mut wrong = Vec::new();
+    let mut shell_wrong = Vec::new();
+    let mut grep_called = Vec::new();
     for locale in [Locale::GnuUtf8, Locale::C] {
         for (index, (text, email, in_utf8, in_c)) in INCOMPLETE.iter().enumerate() {
-            let want = if locale == Locale::C { *in_c } else { *in_utf8 };
             let cmd = format!("curl https://api.example.test/{text}");
             let real = shell_isolated(&cmd, email, locale, &scratch.0)?;
-            let ours = native_code(&case(&cmd, Some(email), None), locale, &scratch.0, None)?;
-            if real != expected(want) || expected(ours) != real {
-                wrong.push((locale_name(locale), index, want, ours));
+            if locale == Locale::C {
+                let ours = native_code(&case(&cmd, Some(email), None), locale, &scratch.0, None)?;
+                if real != expected(*in_c) || expected(ours) != real {
+                    wrong.push((locale_name(locale), index, *in_c, ours));
+                }
+                continue;
+            }
+            if !shell_is_52 && real != expected(*in_utf8) {
+                shell_wrong.push((index, *in_utf8, real.clone()));
+            }
+            let this = case(&cmd, Some(email), None);
+            let before = fs::read_to_string(&calls.log)?.len();
+            let ours = native_code(&this, locale, &scratch.0, Some(&calls))?;
+            if !invalid_identifier(&this, locale) {
+                // A complete sequence (U+9876 spelled out) is plain UTF-8: parity holds.
+                if expected(ours) != real {
+                    wrong.push((locale_name(locale), index, *in_utf8, ours));
+                }
+                continue;
+            }
+            if ours != Code::Unverified {
+                wrong.push((locale_name(locale), index, Code::Unverified, ours));
+            }
+            // Unverifiable before any `grep`: the lane never asked the logging one.
+            let asked = fs::read_to_string(&calls.log)?;
+            if asked
+                .get(before..)
+                .unwrap_or_default()
+                .lines()
+                .any(|line| line.starts_with(PII_ARGV))
+            {
+                grep_called.push(index);
             }
         }
     }
+    assert!(
+        grep_called.is_empty(),
+        "grep was called for invalid identifiers {grep_called:?}"
+    );
+    assert!(
+        shell_wrong.is_empty(),
+        "the shell (Bash 5.3+) no longer answers what the table says: {shell_wrong:?}"
+    );
     assert!(
         wrong.is_empty(),
         "unexpected verdicts (locale, case, expected, native): {wrong:?}"

@@ -335,6 +335,20 @@ pub fn verdict(
             protocol.push(b'\n');
         }
     }
+    // An identifier that is not valid UTF-8 in a UTF-8 locale is not checked: it is
+    // Unverifiable (deny), before any `grep`. Deliberate divergence from the shell, whose answer
+    // depends on the Bash version: Bash 5.2's `read` swallows the newline after an incomplete
+    // sequence, so the line carries a `\n`, `grep -e` gets an empty pattern that matches any
+    // text, and the next identifier is merged into that line and never looked for. 5.3 splits
+    // correctly. The native lane cannot tell 5.2 from 5.3, and copying either would copy a
+    // false negative somewhere; failing closed has none.
+    if locale != Locale::C
+        && protocol
+            .split(|&b| b == b'\n')
+            .any(|line| std::str::from_utf8(line).is_err())
+    {
+        return Code::Unverified;
+    }
     for line in protocol
         .split(|&b| b == b'\n')
         .filter(|line| !line.is_empty())
