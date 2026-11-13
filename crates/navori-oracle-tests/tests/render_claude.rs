@@ -89,70 +89,46 @@ fn plan_with(
     let options = PlanOptions {
         ambient_floor: floor.map(str::to_owned),
         native_hooks,
-        native_claude: true,
         ..PlanOptions::default()
     };
     plan_claude_engine(&DiskView(root), &read.data, root, &options).ok()
 }
 
-/// The Claude render guard: without `native_claude` every entry point delegates, with it the
-/// plan is native, and a repo without Claude is untouched by the guard.
+/// Claude renders natively at every entry point: the engine plan, `render` and `sync
+/// --dry-run` never hand the run to the TS.
 #[test]
-fn claude_render_delegates_unless_native_is_forced() -> Result<(), String> {
-    let root = BASE.join("guard");
+fn claude_render_is_native_at_every_entry_point() -> Result<(), String> {
+    let root = BASE.join("native");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::create_dir_all(&root);
     let claude = r#"{"name":"demo","preset":"custom","engines":["claude"]}"#;
     let read = config::read(claude.as_bytes()).map_err(|e| format!("{e:?}"))?;
     let view = DiskView(&root);
 
-    assert!(plan_claude_engine(&view, &read.data, &root, &PlanOptions::default()).is_err());
-    let forced = PlanOptions {
-        native_claude: true,
-        ..PlanOptions::default()
-    };
-    assert!(plan_claude_engine(&view, &read.data, &root, &forced).is_ok());
-
-    assert!(plan_render(&view, &read, &root, &RenderOptions::default()).is_err());
-    let forced = RenderOptions {
-        native_claude: true,
-        ..RenderOptions::default()
-    };
-    assert!(plan_render(&view, &read, &root, &forced).is_ok());
-
-    let sync = |native_claude: bool| {
-        let flags = SyncFlags {
-            dry_run: true,
-            native_claude,
-            ..SyncFlags::default()
-        };
-        let mut fs = RecordingFs::default();
-        let mut store = BackupStore::new(Err("no backups in a dry run".to_owned()), 0);
-        let now = local_now();
-        let mut apply = Apply {
-            fs: &mut fs,
-            backups: &mut store,
-            now: &now,
-        };
-        run_sync(
-            &view,
-            &read,
-            &root,
-            flags,
-            Clack { unicode: true },
-            &mut apply,
-        )
-    };
-    assert!(matches!(
-        sync(false),
-        Ok(SyncRun::Delegate) | Err(navori_core::render::command::RenderError::Delegate)
-    ));
-    assert!(matches!(sync(true), Ok(SyncRun::Done { .. })));
-
-    // Other engines never meet the guard.
-    let codex = r#"{"name":"demo","preset":"custom","engines":["agents-md"]}"#;
-    let read = config::read(codex.as_bytes()).map_err(|e| format!("{e:?}"))?;
+    assert!(plan_claude_engine(&view, &read.data, &root, &PlanOptions::default()).is_ok());
     assert!(plan_render(&view, &read, &root, &RenderOptions::default()).is_ok());
+
+    let flags = SyncFlags {
+        dry_run: true,
+        ..SyncFlags::default()
+    };
+    let mut fs = RecordingFs::default();
+    let mut store = BackupStore::new(Err("no backups in a dry run".to_owned()), 0);
+    let now = local_now();
+    let mut apply = Apply {
+        fs: &mut fs,
+        backups: &mut store,
+        now: &now,
+    };
+    let sync = run_sync(
+        &view,
+        &read,
+        &root,
+        flags,
+        Clack { unicode: true },
+        &mut apply,
+    );
+    assert!(matches!(sync, Ok(SyncRun::Done { .. })));
     Ok(())
 }
 
@@ -776,7 +752,6 @@ fn compare_sync(root: &Path, config: &str, json: bool, bulk: Option<&str>) -> Re
         json,
         accept_new: bulk == Some("accept-new"),
         keep_mine: bulk == Some("keep-mine"),
-        native_claude: true,
         ..SyncFlags::default()
     };
     let mut fs = RecordingFs::default();
@@ -883,7 +858,6 @@ fn rust_command(root: &Path, config: &str, json: bool, force: bool) -> Option<(S
     let read = config::read(config.as_bytes()).ok()?;
     let options = RenderOptions {
         force,
-        native_claude: true,
         ..RenderOptions::default()
     };
     let plan = plan_render(&DiskView(root), &read, root, &options).ok()?;
@@ -999,7 +973,6 @@ fn compare_sync_apply(
         accept_new: bulk == Some("accept-new"),
         keep_mine: bulk == Some("keep-mine"),
         accept_new_files: files,
-        native_claude: true,
         ..SyncFlags::default()
     };
     let mut fs = RealFs::default();
@@ -1145,7 +1118,6 @@ fn compare_apply(
     let read = config::read(config.as_bytes()).map_err(|e| format!("{e:?}"))?;
     let options = RenderOptions {
         force,
-        native_claude: true,
         ..RenderOptions::default()
     };
     if plan_render(&DiskView(root), &read, root, &options).is_err() {
