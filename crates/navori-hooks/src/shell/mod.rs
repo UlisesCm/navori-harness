@@ -8,6 +8,7 @@ pub mod hook_input;
 pub mod inert;
 pub(crate) mod landing;
 pub mod payload;
+pub mod pii_egress;
 pub mod prepare;
 pub(crate) mod ratchet;
 pub mod repo;
