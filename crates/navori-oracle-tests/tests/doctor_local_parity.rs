@@ -425,15 +425,37 @@ fn node_dir() -> String {
         .unwrap_or_default()
 }
 
+/// A reply with no finding: `null`, `false`, `[]`, or an object whose every field is trivial
+/// (`hookScripts`, `retiredPlugins` and `localSkills` always reply with an object of lists).
+fn is_trivial(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => true,
+        Value::Array(items) => items.is_empty(),
+        Value::Object(fields) => fields.values().all(is_trivial),
+        _ => false,
+    }
+}
+
+/// Runs one case and removes its scratch directory when it passes (a failure keeps it to inspect).
 fn check(case: &Case) -> Result<(), String> {
     let (root, home) = case.write()?;
+    let result = check_in(case, &root, &home);
+    if result.is_ok()
+        && let Some(base) = root.parent()
+    {
+        let _ = std::fs::remove_dir_all(base);
+    }
+    result
+}
+
+fn check_in(case: &Case, root: &Path, home: &Path) -> Result<(), String> {
     let cli = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/src/index.ts");
     let ts = NODE.ask(&json!({
         "dir": root, "home": home, "nodeDir": node_dir(), "doctor": case.doctor,
         "cli": cli.canonicalize().map_err(|e| e.to_string())?,
     }))?;
     let mut failures = Vec::new();
-    for (scan, rust) in rust_scans(case, &root)? {
+    for (scan, rust) in rust_scans(case, root)? {
         let declared = case.delegates.contains(&scan);
         match rust {
             Err(Unmodeled) if declared => {}
@@ -448,9 +470,7 @@ fn check(case: &Case) -> Result<(), String> {
                     continue;
                 };
                 let (ts_v, rust_v) = (strip(ok.clone()), strip(rust));
-                let trivial = matches!(&ts_v, Value::Null | Value::Bool(false))
-                    || ts_v.as_array().is_some_and(Vec::is_empty);
-                if trivial && case.hits.contains(&scan) {
+                if is_trivial(&ts_v) && case.hits.contains(&scan) {
                     failures.push(format!("{scan}: expected a finding, ts replied {ts_v}"));
                 }
                 if ts_v != rust_v {
