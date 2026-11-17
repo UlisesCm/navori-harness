@@ -108,7 +108,7 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "guard-destructive-base": "sha256:394ee4650cc754f17db95ffa52f4f79cf693c627a5fed22387b877951723389d",
+        "guard-destructive-base": "sha256:b0b23cfa94c7eed1ca27f3628b763fcee54042de22a70698410d3de1f74fd2a6",
         "tgrep-search-lane": "sha256:40c5028ff66f79e674daa948e7ad0c5e5a21fe1001cdcd8054179b3a66d0d484"
       },
       "deps": {
