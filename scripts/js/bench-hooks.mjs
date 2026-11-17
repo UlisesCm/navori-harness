@@ -964,28 +964,43 @@ export function parseBenchArgs(argv) {
   };
 }
 
+/** A registration's mode argument, e.g. model-advisor's `claude-stop`: one literal word. */
+const MODE_ARGUMENT = "(?: ([a-z][a-z0-9-]*))?";
+const GUARD_EXEC = new RegExp(`bash -n "\\$f" 2>/dev/null && exec bash "\\$f"${MODE_ARGUMENT}; `);
+const NATIVE_WRAPPER = new RegExp(
+  `hook --via-command '[A-Za-z]+' "\\$f"(?: --shadow)?${MODE_ARGUMENT}; then `,
+);
+
 /**
- * Whether a registered command runs `<directory>/<hook>` with no hook-specific arguments, in one
- * of the shapes navori renders: the plain `bash "<dir>/<hook>"`, Claude's parse guard
- * (`exec bash "$f";`) or Claude's native wrapper (`hook --via-command '<Event>' "$f" [--shadow];`).
- * Anything else could carry argv the native timing would not reproduce, so it is rejected.
+ * The hook arguments a registered command passes to `<directory>/<hook>`, in one of the shapes
+ * navori renders: the plain `bash "<dir>/<hook>"`, Claude's parse guard
+ * (`exec bash "$f" [<mode>];`) or Claude's native wrapper
+ * (`hook --via-command '<Event>' "$f" [--shadow] [<mode>];`). A mode is one literal word and
+ * every form in the command must pass the same one. Anything else could carry argv the native
+ * timing would not reproduce, so it returns null.
  *
  * @param {string} command
  * @param {string} directory
  * @param {string} hook
- * @returns {boolean}
+ * @returns {string[] | null}
  */
-export function argumentFreeInvocation(command, directory, hook) {
-  if (command === `bash "${directory}/${hook}"`) return true;
+export function invocationArgs(command, directory, hook) {
+  if (command === `bash "${directory}/${hook}"`) return [];
   // Codex resolves the hook from the repo top level.
-  if (command === `bash "$(git rev-parse --show-toplevel)/${directory}/${hook}"`) return true;
+  if (command === `bash "$(git rev-parse --show-toplevel)/${directory}/${hook}"`) return [];
   const prefix = `f="$CLAUDE_PROJECT_DIR/${directory}/${hook}"; `;
-  if (!command.startsWith(prefix)) return false;
+  if (!command.startsWith(prefix)) return null;
   const uses = command.split('"$f"').length - 1;
-  const guard = /bash -n "\$f" 2>\/dev\/null && exec bash "\$f"; /.test(command);
-  const wrapper = /hook --via-command '[A-Za-z]+' "\$f"(?: --shadow)?; then /.test(command);
-  // Every use of "$f" must be one of the argument-free forms above, never `"$f" <args>`.
-  return (guard && uses === 2) || (wrapper && uses === (guard ? 3 : 1));
+  const guard = GUARD_EXEC.exec(command);
+  const wrapper = NATIVE_WRAPPER.exec(command);
+  // Every use of "$f" must be one of the forms above, never `"$f" <other args>`.
+  const verified =
+    (guard !== null && uses === 2) || (wrapper !== null && uses === (guard !== null ? 3 : 1));
+  if (!verified) return null;
+  const modes = new Set([guard, wrapper].filter((match) => match !== null).map((m) => m[1]));
+  if (modes.size !== 1) return null;
+  const [mode] = modes;
+  return mode === undefined ? [] : [mode];
 }
 
 /** Nearest-rank p95 in the same units as the samples.
@@ -998,7 +1013,7 @@ export function p95(values) {
 }
 
 /** Time native process startup and verdict directly, without a Bash wrapper or CPU estimate.
- * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv }} options
+ * @param {{ binary: string, script: string, input: string, event?: string, cwd?: string, env?: NodeJS.ProcessEnv, args?: string[] }} options
  * @returns {{ wallMs: number, exitCode: number }}
  */
 export function timeRustOnce(options) {
@@ -1063,9 +1078,10 @@ async function benchRust({ scenarios, hooks, runs, reportOnly, audit = "absent" 
             codex: ".codex/hooks",
             pi: ".pi/navori/hooks",
           }[engine];
-          if (!argumentFreeInvocation(reg.command, directory, hook)) {
+          const args = invocationArgs(reg.command, directory, hook);
+          if (args === null) {
             throw new Error(
-              `native registration unsupported: ${engine}/${hook} has no verified argument-free invocation`,
+              `native registration unsupported: ${engine}/${hook} has no verified invocation`,
             );
           }
           const script = native.resolveHook(hook, engine);
@@ -1078,6 +1094,7 @@ async function benchRust({ scenarios, hooks, runs, reportOnly, audit = "absent" 
               event: reg.event,
               cwd: sandbox.project,
               env: scenarioEnvironment(sandbox, scenario, reg, audit),
+              args,
             }),
           );
           const runsMs = timed.map((time) => time.wallMs);
