@@ -103,7 +103,8 @@ validateDelegation(PERMANENT_DELEGATION);
 /**
  * Amendment of R20 (0062): hooks that keep their shell body in every engine after the cutover,
  * outside the manifest. Their Rust leaves the binary (#1503); `cutover:check` does not count them
- * as missing nor their unport as open. Any other hook or unport still blocks.
+ * as missing nor their unport as open. Any other hook or unport still blocks. An entry whose reason
+ * says "diferido" stays in shell for 0.13 only and is revisited after it (its issue tracks it).
  * @type {ReadonlyArray<{ hook: string, reason: string }>}
  */
 export const PERMANENT_SHELL_HOOKS = [
@@ -114,6 +115,26 @@ export const PERMANENT_SHELL_HOOKS = [
   { hook: "stop-verify-reminder", reason: "frozen behind its flag in dev (#1503)" },
   { hook: "role-guard", reason: "Codex only, frozen; its Rust leaves the binary (#1503)" },
   { hook: "engram-write-guard", reason: "Codex only, frozen; its Rust leaves the binary (#1503)" },
+  {
+    hook: "managed-drift-watch",
+    reason:
+      "advisory and cheap (~15 ms); a port would duplicate the render's managed-block hash in a critical area (0.13 cutover, point 9)",
+  },
+  {
+    hook: "worktree-reclaim",
+    reason:
+      "SessionEnd, bound by gh and git; deletes worktrees in the user's repo, so a port is risk without gain (0.13 cutover, point 9)",
+  },
+  {
+    hook: "routing-watch",
+    reason:
+      "diferido después de 0.13; routing-watch corre en cada Bash/Edit/Write/Agent (~76 ms) y portarlo exige paridad byte a byte con lib/plan/evidence.ts; revisar con los datos de R17 (#1701)",
+  },
+  {
+    hook: "bash-outcome-watch",
+    reason:
+      "diferido después de 0.13; comparte con routing-watch el parcial bash-outcome, que exige paridad byte a byte con lib/plan/evidence.ts; revisar con los datos de R17 (#1701)",
+  },
 ];
 
 /**

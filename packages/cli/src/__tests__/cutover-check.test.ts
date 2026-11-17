@@ -147,21 +147,32 @@ describe("cutover-check (spec 0062 T8)", () => {
       { check: "unport", detail: "model-advisor (since 2026-11-10)" },
     ]);
 
-    // The list is explicit: the five hooks frozen by #1503 plus the two Codex-only guards,
+    // The list is explicit: the five hooks frozen by #1503, the two Codex-only guards, the two
+    // kept in shell for good by the cutover's point 9 and the two deferred past 0.13 (#1701),
     // every one a real core hook with a reason.
     expect(areas.PERMANENT_SHELL_HOOKS.map((e) => e.hook).sort()).toEqual([
       "audit-mode-close",
       "audit-mode-trigger",
+      "bash-outcome-watch",
       "engram-write-guard",
+      "managed-drift-watch",
       "master-accept-confirm",
       "master-plan-context",
       "role-guard",
+      "routing-watch",
       "stop-verify-reminder",
+      "worktree-reclaim",
     ]);
     const inventory = areas.hookInventory();
+    const deferred = ["bash-outcome-watch", "routing-watch"];
     for (const entry of areas.PERMANENT_SHELL_HOOKS) {
       expect(inventory).toContain(entry.hook);
-      expect(entry.reason).toContain("#1503");
+      expect(entry.reason).not.toBe("");
+      // A deferred entry says so and points at the issue that revisits it.
+      if (deferred.includes(entry.hook)) {
+        expect(entry.reason).toMatch(/^diferido después de 0\.13;/);
+        expect(entry.reason).toContain("#1701");
+      }
     }
     expect(areas.permanentShellHook("guard-destructive")).toBe(false);
   });
