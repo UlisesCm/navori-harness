@@ -96,7 +96,7 @@ interface Sandbox {
   cleanup: () => void;
 }
 interface BenchHooks {
-  argumentFreeInvocation: (command: string, directory: string, hook: string) => boolean;
+  invocationArgs: (command: string, directory: string, hook: string) => string[] | null;
   parseBenchArgs: (argv: string[]) => {
     impl: "shell" | "rust";
     runs: number;
@@ -364,12 +364,41 @@ describe("bench scripts", () => {
   });
 
   // Covers: R17
+  it("bench Rust pasa al hook nativo el modo de la registration (model-advisor)", () => {
+    const fixture = nativeBenchFixture();
+    try {
+      const command =
+        'f="$CLAUDE_PROJECT_DIR/.claude/hooks/probe.sh"; bash -n "$f" 2>/dev/null && exec bash "$f" claude-session-start; exit 1';
+      writeFileSync(
+        join(fixture.root, ".claude/settings.json"),
+        JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ command }] }] } }),
+      );
+      const run = fixture.run();
+      expect(run.stderr).not.toContain("native registration unsupported");
+      const calls = readFileSync(join(fixture.root, "native.jsonl"), "utf8").trim().split("\n");
+      expect(calls.length).toBeGreaterThan(0);
+      for (const line of calls) {
+        const call = JSON.parse(line) as { argv: string[] };
+        expect(call.argv).toEqual([
+          "hook",
+          "--via-command",
+          "SessionStart",
+          join(fixture.root, ".claude/hooks/probe.sh"),
+          "claude-session-start",
+        ]);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  // Covers: R17
   it("bench Rust rechaza registrations con argv no acreditado aun con report-only", () => {
     const commands = [
       'bash ".claude/hooks/probe.sh" claude-session-start',
       'bash ".claude/hooks/probe.sh" claude-post-model-switch',
       'bash ".claude/hooks/probe.sh" claude-stop',
-      'f="$CLAUDE_PROJECT_DIR/.claude/hooks/probe.sh"; bash -n "$f" 2>/dev/null && exec bash "$f" claude-session-start; exit 1',
+      'f="$CLAUDE_PROJECT_DIR/.claude/hooks/probe.sh"; bash -n "$f" 2>/dev/null && exec bash "$f" $MODE; exit 1',
     ];
     for (const command of commands) {
       const fixture = nativeBenchFixture();
@@ -492,8 +521,10 @@ describe("bench scripts", () => {
 
   // Covers: R17
   // Covers: R17
-  it("bench --impl rust solo acepta las invocaciones sin argumentos que navori renderiza", () => {
-    const accept = hooksModule.argumentFreeInvocation;
+  it("bench --impl rust solo acepta las invocaciones que navori renderiza, con su modo", () => {
+    const args = hooksModule.invocationArgs;
+    const accept = (command: string, d: string, h: string): boolean =>
+      args(command, d, h)?.length === 0;
     const dir = ".claude/hooks";
     const hook = "probe.sh";
     const prefix = `f="$CLAUDE_PROJECT_DIR/${dir}/${hook}"; `;
@@ -504,15 +535,25 @@ describe("bench scripts", () => {
     expect(accept(`${prefix}${wrapper}\n${guard}`, dir, hook)).toBe(true);
     expect(accept(prefix + wrapper.replace(" --shadow", ""), dir, hook)).toBe(true);
     expect(accept(`bash "$(git rev-parse --show-toplevel)/${dir}/${hook}"`, dir, hook)).toBe(true);
+    // model-advisor: the mode word reaches the native hook, as the rendered command passes it.
+    const modeGuard = guard.replace('exec bash "$f";', 'exec bash "$f" claude-stop;');
+    const modeWrapper = wrapper.replace("--shadow;", "--shadow claude-stop;");
+    expect(args(prefix + modeGuard, dir, hook)).toEqual(["claude-stop"]);
+    expect(args(`${prefix}${modeWrapper}\n${modeGuard}`, dir, hook)).toEqual(["claude-stop"]);
     for (const command of [
       `bash "$(git rev-parse --show-toplevel)/${dir}/${hook}" codex`,
       `bash "$(pwd)/${dir}/${hook}"`,
-      prefix + guard.replace('exec bash "$f";', 'exec bash "$f" claude-stop;'),
       `${prefix}${wrapper}\n${guard} "$f" extra`,
       `f="$CLAUDE_PROJECT_DIR/${dir}/other.sh"; ${guard}`,
       `bash "${dir}/${hook}" arg`,
+      // The wrapper and the guard must pass the same mode.
+      `${prefix}${modeWrapper}\n${guard}`,
+      `${prefix}${wrapper}\n${modeGuard}`,
+      // Only one literal word: no expansions, quotes or a second argument.
+      prefix + guard.replace('exec bash "$f";', 'exec bash "$f" $MODE;'),
+      prefix + guard.replace('exec bash "$f";', 'exec bash "$f" claude-stop extra;'),
     ]) {
-      expect(accept(command, dir, hook), command).toBe(false);
+      expect(args(command, dir, hook), command).toBeNull();
     }
   });
 
