@@ -221,7 +221,6 @@ pub(super) fn evaluate(
         });
     }
     let rules = Rules::get(locale)?;
-    let patterns = Patterns::get(locale)?;
     let size = length(cmd, locale);
     if size > CMD_MAX {
         return Ok(block(
@@ -262,6 +261,10 @@ pub(super) fn evaluate(
             }
         }
     }
+    // Compiled only past the fast path: building these regexes is most of a short command's cost
+    // (~6 of ~9 ms), and a command the fast path skips never reads them. They are static, so the
+    // only error is an invalid pattern, which no input can trigger.
+    let patterns = Patterns::get(locale)?;
     let live = inert::live(cmd, &skeleton, rules);
     let scan = inert::scan(&live, rules);
     let segments = inert::segments(&scan, rules);
