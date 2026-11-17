@@ -1,13 +1,19 @@
 //! The rendered script end to end: `payload_load` and `cmd=$(extract_cmd)`, `hook-input`'s
 //! project directory, then [`decide`] and the exit trap's audit category.
 
+use std::ffi::OsString;
+use std::fmt;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use super::pii_bash::HostProbe;
 use super::{Rendered, decide};
 use crate::runner::{AuditLabel, Engine, Evaluation, Failure, Verdict};
 use crate::shell::capture::{self, CaptureContext};
 use crate::shell::hook_input::{self, Host};
 use crate::shell::payload::{self, Profile};
+use crate::shell::pii_egress::Secret;
+use crate::shell::prepare;
 use crate::shell::repo::Repo;
 
 /// Hosts that register guard-destructive.
@@ -43,6 +49,48 @@ pub struct Context<'a> {
     pub rendered: Rendered,
     /// Environment facts; `project_dir` and `cwd` are filled in from the payload.
     pub host: Host,
+    /// What the PII-egress lane reads from the host.
+    pub pii: Pii<'a>,
+}
+
+/// The host facts of the PII-egress lane, fixed before stdin. `Debug` is written by hand and
+/// prints nothing: `env` is the whole environment and `ids` an identifier.
+#[derive(Clone, Default)]
+pub struct Pii<'a> {
+    /// The hook's complete environment (the `grep` and `git` calls run in it).
+    pub env: &'a [(OsString, OsString)],
+    /// `command -v grep`.
+    pub grep: Option<PathBuf>,
+    /// `command -v git`.
+    pub git: Option<PathBuf>,
+    /// `NAVORI_PERSONAL_IDS`, as raw bytes.
+    pub ids: Option<Secret>,
+}
+
+impl<'a> Pii<'a> {
+    /// Read `NAVORI_PERSONAL_IDS` from `env` as raw bytes: a value that is not UTF-8 is still an
+    /// identifier. `grep` and `git` are the resolved programs.
+    #[must_use]
+    pub fn from_env(
+        env: &'a [(OsString, OsString)],
+        grep: Option<PathBuf>,
+        git: Option<PathBuf>,
+    ) -> Self {
+        let ids = prepare::env_value(env, "NAVORI_PERSONAL_IDS")
+            .map(|value| Secret::new(value.as_encoded_bytes()));
+        Self {
+            env,
+            grep,
+            git,
+            ids,
+        }
+    }
+}
+
+impl fmt::Debug for Pii<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Pii(<redacted>)")
+    }
 }
 
 /// `nv_deadline` of the script (#1671): its default and ceiling, 2s under the host's 10s kill.
@@ -79,6 +127,12 @@ impl Deadline {
         Instant::now() >= self.at
     }
 
+    /// The instant past which nothing new may be launched.
+    #[must_use]
+    pub fn at(self) -> Instant {
+        self.at
+    }
+
     /// `nv_on_deadline`: the block without a command (it may not be extracted yet) and with no
     /// reason code, since the audit allowlist has none for a deadline.
     fn evaluation(self) -> Evaluation {
@@ -113,7 +167,7 @@ pub fn evaluate_until(
     if deadline.expired() {
         return Ok(deadline.evaluation());
     }
-    let result = evaluate(payload, context, repo);
+    let result = evaluate_with(payload, context, repo, Some(deadline.at()));
     if deadline.expired() {
         return Ok(deadline.evaluation());
     }
@@ -131,6 +185,16 @@ pub fn evaluate(
     context: &Context<'_>,
     repo: &dyn Repo,
 ) -> Result<Evaluation, Failure> {
+    evaluate_with(payload, context, repo, None)
+}
+
+/// [`evaluate`], with the instant past which the PII lane launches nothing.
+fn evaluate_with(
+    payload: &[u8],
+    context: &Context<'_>,
+    repo: &dyn Repo,
+    until: Option<Instant>,
+) -> Result<Evaluation, Failure> {
     let captured = payload::capture(payload);
     let fields = payload::extract(&captured, &FIELDS, context.profile)?;
     let field = |index: usize| fields.values.get(index).cloned().unwrap_or_default();
@@ -146,6 +210,14 @@ pub fn evaluate(
         repo,
     );
     host.cwd = cwd;
+    let probe = HostProbe {
+        env: context.pii.env,
+        grep: context.pii.grep.as_deref(),
+        git: context.pii.git.as_deref(),
+        pwd: Path::new(&host.pwd),
+        ids: context.pii.ids.as_ref(),
+        until,
+    };
     let decision = decide(
         &cmd,
         &context.rendered,
@@ -153,6 +225,7 @@ pub fn evaluate(
         &host,
         repo,
         context.profile.locale,
+        &probe,
     )
     .map_err(Failure)?;
     Ok(Evaluation {

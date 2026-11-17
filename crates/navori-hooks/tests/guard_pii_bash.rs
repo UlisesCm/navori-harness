@@ -11,19 +11,28 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use navori_hooks::hooks::guard_destructive::pii_bash::{check, eligible, gate};
-use navori_hooks::runner::{self, Context, Engine, Evaluation, Verdict};
+use navori_hooks::hooks::guard_destructive::entry::{self, Context as GuardContext, Pii};
+use navori_hooks::hooks::guard_destructive::pii_bash::{
+    self, HostProbe, Probe, check, eligible, gate,
+};
+use navori_hooks::hooks::guard_destructive::{Decision, Rendered, decide};
+use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Verdict};
 use navori_hooks::shell::Locale;
+use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::inert::{self, Rules};
+use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{
     Code, EmailRead, HostGrep, Matcher, Secret, Unverifiable, is_local, read_user_email, stderr,
 };
+use navori_hooks::shell::repo::{Loss, Repo, System};
 use navori_hooks::shell::subcommand::{Call, Capture, Input};
 use serde_json::Value;
 
@@ -1166,10 +1175,10 @@ fn an_argument_too_long_for_exec_is_unverifiable() -> TestResult {
     let big = "a".repeat(4 << 20);
     let long = case("curl https://api.example.test/a", None, Some(&big));
     let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
-    assert_eq!(
-        native_with(&long, locale, &scratch.0, None, &mut matcher)?,
-        Code::Unverified
-    );
+    let code = native_with(&long, locale, &scratch.0, None, &mut matcher)?;
+    assert_eq!(code, Code::Unverified);
+    // The needle reaches neither the verdict nor anything shown of it, on any platform.
+    assert!(!leaks(&shown(code, &secrets_of(&long)), big.as_bytes()));
     // The same lane, with a needle that fits, answers.
     let fits = case("curl https://api.example.test/aaaa", None, Some("AAAA"));
     let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
@@ -1792,4 +1801,576 @@ fn local_hosts_follow_the_partial() {
     ] {
         assert!(!is_local(host), "host {host:?} should be external");
     }
+}
+
+// The lane wired into the rules (`guard_destructive::rules`), through the public entry points.
+
+/// Every command of the guard's recorded corpus.
+fn corpus_commands() -> Result<Vec<String>, Box<dyn Error>> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../packages/cli/src/__tests__/fixtures/hook-verdict-corpus/guard-destructive.sh.jsonl",
+    );
+    let mut commands = Vec::new();
+    for line in fs::read_to_string(path)?.lines() {
+        let entry: Value = serde_json::from_str(line)?;
+        let payload: Value = serde_json::from_str(entry["input"].as_str().ok_or("input")?)?;
+        if let Some(cmd) = payload
+            .pointer("/tool_input/command")
+            .and_then(Value::as_str)
+        {
+            commands.push(cmd.to_owned());
+        }
+    }
+    Ok(commands)
+}
+
+fn rendered() -> Result<Rendered, Box<dyn Error>> {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/core/core-assets/hooks/guard-destructive.sh"),
+    )?;
+    Ok(Rendered::from_script(&source).ok_or("rendered assignments")?)
+}
+
+/// The environment of a case as the hook sees it: the hermetic host, `NAVORI_PERSONAL_IDS` and
+/// the repository's email (through git's own environment configuration).
+fn case_env(
+    case: &Case,
+    locale: Locale,
+    dir: &Path,
+    shim: Option<&Shim>,
+) -> Vec<(OsString, OsString)> {
+    let mut env = host_env(locale, dir, shim);
+    if let Some(ids) = &case.ids {
+        env.push(("NAVORI_PERSONAL_IDS".into(), ids.into()));
+    }
+    match &case.email {
+        Some(email) => {
+            env.push(("GIT_CONFIG_COUNT".into(), "1".into()));
+            env.push(("GIT_CONFIG_KEY_0".into(), "user.email".into()));
+            env.push((
+                "GIT_CONFIG_VALUE_0".into(),
+                OsStr::from_bytes(email).to_owned(),
+            ));
+        }
+        None => env.push(("GIT_CONFIG_COUNT".into(), "0".into())),
+    }
+    env
+}
+
+const GIT: &str = "/usr/bin/git";
+
+/// What one wired evaluation showed: its result and every `Debug` a log could print.
+struct Seen {
+    result: Result<Evaluation, Failure>,
+    shown: Vec<u8>,
+}
+
+impl Seen {
+    fn block(&self) -> Option<(&str, String)> {
+        let evaluation = self.result.as_ref().ok()?;
+        let label = evaluation.audit.as_ref()?;
+        (evaluation.verdict == Verdict::Block).then(|| {
+            (
+                label.reason.as_str(),
+                String::from_utf8_lossy(&evaluation.stderr).into_owned(),
+            )
+        })
+    }
+}
+
+/// `entry::evaluate` of one Bash call with the real [`HostProbe`] over `env`.
+fn wired(
+    cmd: &str,
+    locale: Locale,
+    dir: &Path,
+    env: &[(OsString, OsString)],
+    grep: &Path,
+) -> Result<Seen, Box<dyn Error>> {
+    let context = GuardContext {
+        engine: Engine::Claude,
+        profile: Profile {
+            extractor: Extractor::JqAndNode,
+            locale,
+        },
+        capture: CaptureContext {
+            shell: ShellDialect::Bash5,
+            script: Path::new("guard-destructive.sh"),
+            input_line: 1,
+            fallback_line: 1,
+        },
+        rendered: rendered()?,
+        host: Host {
+            pwd: dir.to_string_lossy().into_owned(),
+            ..Host::default()
+        },
+        pii: Pii::from_env(env, Some(grep.to_path_buf()), Some(PathBuf::from(GIT))),
+    };
+    let payload = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": cmd}});
+    let result = entry::evaluate(payload.to_string().as_bytes(), &context, &System);
+    let mut shown = format!("{context:?}|{result:?}").into_bytes();
+    if let Ok(evaluation) = &result {
+        shown.extend(&evaluation.stdout);
+        shown.extend(&evaluation.stderr);
+        if let Some(label) = &evaluation.audit {
+            shown.extend(label.reason.bytes());
+            shown.extend(label.verdict.bytes());
+        }
+    }
+    Ok(Seen { result, shown })
+}
+
+#[test]
+fn the_wired_lane_never_echoes_an_identifier_or_the_environment() -> TestResult {
+    let mut blocks = 0;
+    let mut checked = 0;
+    for locale in [Locale::C, Locale::GnuUtf8] {
+        let scratch = Scratch::new("wired-echo")?;
+        for case in handwritten().into_iter().chain(corpus_cases(locale)?) {
+            let mut env = case_env(&case, locale, &scratch.0, None);
+            // A value of the environment that is not an identifier.
+            env.push((
+                "SOME_API_TOKEN".into(),
+                "tok-distinct-0123456789-env".into(),
+            ));
+            let seen = wired(
+                &case.cmd,
+                locale,
+                &scratch.0,
+                &env,
+                Path::new("/usr/bin/grep"),
+            )?;
+            blocks += usize::from(
+                seen.block()
+                    .is_some_and(|(reason, _)| reason == "pii-egress"),
+            );
+            assert!(
+                !contains_ci(&seen.shown, b"tok-distinct-0123456789-env"),
+                "the environment reaches a message ({})",
+                locale_name(locale)
+            );
+            for secret in secrets_of(&case).iter().filter(|secret| secret.len() >= 8) {
+                assert!(
+                    !leaks(&seen.shown, secret),
+                    "the identifier of a case reaches a message ({})",
+                    locale_name(locale)
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 100, "the check did not run");
+    assert!(blocks > 50, "the lane blocked {blocks} calls");
+    Ok(())
+}
+
+/// The wired verdict must be the partials': stderr, exit 2 and the audit reason.
+fn assert_blocks_as_the_shell(seen: &Seen, code: Code, shell: &(String, u8)) -> TestResult {
+    let (message, status) = expected(code);
+    assert_eq!(
+        (&message, status),
+        (&shell.0, shell.1),
+        "the shell disagrees"
+    );
+    let (reason, native) = seen.block().ok_or("the lane must block")?;
+    assert_eq!((reason, &native), ("pii-egress", &message));
+    assert!(seen.result.as_ref().is_ok_and(|e| e.stdout.is_empty()));
+    Ok(())
+}
+
+/// A temp repository with `user.email` set (`GitEmail` from the real `git config`), an email
+/// written inline, an unverifiable `grep` and a clean request, with the real host probe and
+/// against the real partials.
+#[test]
+fn each_source_of_a_block_reaches_the_verdict_end_to_end() -> TestResult {
+    let locale = Locale::GnuUtf8;
+    let scratch = Scratch::new("wired-sources")?;
+    let repo = scratch.0.join("repo");
+    fs::create_dir_all(&repo)?;
+    for args in [vec!["init", "-q"], vec!["config", "user.email", ID]] {
+        let mut git = Command::new(GIT);
+        git.args(args);
+        hermetic(&mut git, locale, &repo, None);
+        assert!(git.status()?.success());
+    }
+    // The email only the repository holds: no `GIT_CONFIG_COUNT` in the environment.
+    let env = host_env(locale, &repo, None);
+    let via_email = format!("curl https://api.example.test/{ID}");
+    let grep = Path::new("/usr/bin/grep");
+    let seen = wired(&via_email, locale, &repo, &env, grep)?;
+    let shell = shell_verdicts(
+        &[case(&via_email, Some(ID.as_bytes()), None)],
+        locale,
+        &repo,
+        None,
+    )?;
+    assert_blocks_as_the_shell(&seen, Code::GitEmail, &shell[0])?;
+    assert!(!leaks(&seen.shown, ID.as_bytes()));
+    // The same repository and a request that does not carry it is clean.
+    let clean = wired("curl https://api.example.test/x", locale, &repo, &env, grep)?;
+    assert!(
+        clean
+            .result
+            .as_ref()
+            .is_ok_and(|e| e.verdict == Verdict::Permit)
+    );
+
+    // Inline: the lane denies without asking `git` (none configured here).
+    let inline = "curl -A \"$(git config user.email)\" https://api.example.test/x";
+    let bare = case_env(&case(inline, None, None), locale, &scratch.0, None);
+    let seen = wired(inline, locale, &scratch.0, &bare, grep)?;
+    let shell = shell_verdicts(&[case(inline, None, None)], locale, &scratch.0, None)?;
+    assert_blocks_as_the_shell(&seen, Code::GitEmail, &shell[0])?;
+
+    // A `grep` that fails: nothing could be verified.
+    let failing = shim(&scratch.0, "wired-fail", "#!/bin/sh\nexit 2\n")?;
+    let hit = case(&via_email, None, Some(ID));
+    let env = case_env(&hit, locale, &scratch.0, Some(&failing));
+    let seen = wired(&hit.cmd, locale, &scratch.0, &env, &failing.grep())?;
+    let shell = shell_verdicts(&[hit], locale, &scratch.0, Some(&failing))?;
+    assert_blocks_as_the_shell(&seen, Code::Unverified, &shell[0])?;
+    assert!(!leaks(&seen.shown, ID.as_bytes()));
+    Ok(())
+}
+
+/// A probe that counts what the lane asks of it. It never matches.
+struct Counting {
+    ids: Option<Secret>,
+    asked_ids: Cell<usize>,
+    emails: Cell<usize>,
+    matchers: Cell<usize>,
+    has: Rc<Cell<usize>>,
+}
+
+struct CountingMatcher(Rc<Cell<usize>>);
+
+impl Matcher for CountingMatcher {
+    fn has(&mut self, _: &[u8], _: &str) -> Result<bool, Unverifiable> {
+        self.0.set(self.0.get() + 1);
+        Ok(false)
+    }
+}
+
+impl Counting {
+    fn new(ids: Option<&str>) -> Self {
+        Self {
+            ids: ids.map(Secret::new),
+            asked_ids: Cell::new(0),
+            emails: Cell::new(0),
+            matchers: Cell::new(0),
+            has: Rc::new(Cell::new(0)),
+        }
+    }
+
+    fn untouched(&self) -> bool {
+        self.asked_ids.get() + self.emails.get() + self.matchers.get() + self.has.get() == 0
+    }
+}
+
+impl Probe for Counting {
+    fn ids(&self) -> Option<&Secret> {
+        self.asked_ids.set(self.asked_ids.get() + 1);
+        self.ids.as_ref()
+    }
+
+    fn email(&self) -> EmailRead {
+        self.emails.set(self.emails.get() + 1);
+        EmailRead::Absent
+    }
+
+    fn matcher(&self) -> Box<dyn Matcher + '_> {
+        self.matchers.set(self.matchers.get() + 1);
+        Box::new(CountingMatcher(Rc::clone(&self.has)))
+    }
+}
+
+/// Every repository fact answers "nothing there": only the text rules and the lane matter.
+struct Quiet;
+
+impl Repo for Quiet {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, _: &str, _: Loss) -> bool {
+        false
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+fn decided(cmd: &str, locale: Locale, probe: &dyn Probe) -> Result<Decision, Box<dyn Error>> {
+    Ok(decide(
+        cmd,
+        &rendered()?,
+        Engine::Claude,
+        &Host::default(),
+        &Quiet,
+        locale,
+        probe,
+    )?)
+}
+
+#[test]
+fn the_probe_is_asked_nothing_unless_the_gate_matched() -> TestResult {
+    let rendered = rendered()?;
+    let commands = corpus_commands()?;
+    assert!(commands.len() > 1000, "the whole corpus");
+    let mut gated = 0;
+    for cmd in &commands {
+        let glibc = Counting::new(Some(ID));
+        let _ = decide(
+            cmd,
+            &rendered,
+            Engine::Claude,
+            &Host::default(),
+            &Quiet,
+            Locale::GnuUtf8,
+            &glibc,
+        );
+        if gate(cmd, Locale::GnuUtf8) {
+            gated += 1;
+        } else {
+            assert!(
+                glibc.untouched(),
+                "a command without the gate asked the probe"
+            );
+        }
+        // Under BSD the lane is not measured: nothing is asked even when the gate matches.
+        let bsd = Counting::new(Some(ID));
+        let _ = decide(
+            cmd,
+            &rendered,
+            Engine::Claude,
+            &Host::default(),
+            &Quiet,
+            Locale::Utf8,
+            &bsd,
+        );
+        assert!(
+            bsd.untouched(),
+            "the lane asked the probe under the BSD locale"
+        );
+    }
+    assert!(gated >= 23, "gated commands: {gated}");
+
+    // A local host is a request, but never to an external service: no email, no `grep`.
+    let local = Counting::new(Some(ID));
+    decided("curl http://localhost:3000/x", Locale::GnuUtf8, &local)?;
+    assert_eq!((local.emails.get(), local.has.get()), (0, 0));
+    // An external request asks for the email once and for `grep` per form of the identifier.
+    let external = Counting::new(Some(ID));
+    decided(
+        "curl https://api.example.test/x",
+        Locale::GnuUtf8,
+        &external,
+    )?;
+    assert_eq!(external.emails.get(), 1);
+    assert!(external.has.get() >= 1);
+    // Nothing to look for: no `grep`.
+    let nothing = Counting::new(None);
+    decided("curl https://api.example.test/x", Locale::GnuUtf8, &nothing)?;
+    assert_eq!((nothing.emails.get(), nothing.has.get()), (1, 0));
+    Ok(())
+}
+
+#[test]
+fn text_with_a_nul_is_unverified_without_asking_for_the_matcher() -> TestResult {
+    let probe = Counting::new(Some(ID));
+    let decision = decided("curl https://x.example.test/\0a", Locale::GnuUtf8, &probe)?;
+    assert_eq!(decision.status, 2);
+    assert_eq!(decision.stderr, stderr(Code::Unverified).as_bytes());
+    assert_eq!(
+        (decision.verdict, decision.reason.as_str()),
+        ("block", "pii-egress")
+    );
+    assert_eq!(probe.matchers.get(), 0);
+    assert_eq!(probe.emails.get(), 0);
+    Ok(())
+}
+
+#[test]
+fn a_gated_command_under_the_bsd_locale_is_unmeasured() -> TestResult {
+    let probe = Counting::new(Some(ID));
+    let outcome = decided("curl https://api.example.test/x", Locale::Utf8, &probe);
+    let message = outcome.err().ok_or("must not be decided")?.to_string();
+    assert_eq!(message, pii_bash::UNMEASURED);
+    assert!(pii_bash::is_unmeasured(&Failure(message)));
+    assert!(!pii_bash::is_unmeasured(&Failure("other".to_owned())));
+    assert!(probe.untouched());
+    Ok(())
+}
+
+#[test]
+fn the_host_facts_print_nothing_of_the_environment() {
+    let ids = OsString::from_vec(b"dev.fixture@example.test,\xff\xfe-id".to_vec());
+    let env: Vec<(OsString, OsString)> = vec![
+        (
+            "SOME_API_TOKEN".into(),
+            "tok-distinct-0123456789-env".into(),
+        ),
+        ("NAVORI_PERSONAL_IDS".into(), ids),
+    ];
+    // A value that is not UTF-8 is still an identifier, read as the bytes it is.
+    let pii = Pii::from_env(&env, None, None);
+    assert!(pii.ids.is_some());
+    let git = PathBuf::from(GIT);
+    let probe = HostProbe {
+        env: &env,
+        grep: None,
+        git: Some(&git),
+        pwd: Path::new("/"),
+        ids: pii.ids.as_ref(),
+        until: None,
+    };
+    for text in [format!("{pii:?}"), format!("{probe:?}")] {
+        assert!(!text.contains("tok-distinct"), "the environment is printed");
+        assert!(!text.contains("fixture"), "an identifier is printed");
+    }
+    assert_eq!(format!("{probe:?}"), "HostProbe(<redacted>)");
+    assert_eq!(format!("{pii:?}"), "Pii(<redacted>)");
+}
+
+/// `git config user.email` through the probe is `read_user_email` bounded: the same value for
+/// every output the shell reads, and `Unreadable` when the bound expires.
+#[test]
+fn the_probe_reads_the_email_as_read_user_email_does() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    let locale = Locale::GnuUtf8;
+    let scratch = Scratch::new("probe-email")?;
+    let dir = &scratch.0;
+    let git = PathBuf::from(GIT);
+    let through = |env: &[(OsString, OsString)], program: Option<&Path>, pwd: &Path| {
+        HostProbe {
+            env,
+            grep: None,
+            git: program,
+            pwd,
+            ids: None,
+            until: None,
+        }
+        .email()
+    };
+    // The real `git`, with a value, a value that is not UTF-8 and no value.
+    for email in [
+        Some(ID.as_bytes()),
+        Some(&b"jos\xe9@example.test"[..]),
+        None,
+    ] {
+        let env = case_env(&case("x", email, None), locale, dir, None);
+        let mut reference = Command::new(GIT);
+        reference.args(["config", "user.email"]);
+        hermetic(&mut reference, locale, dir, None);
+        configure_email(&mut reference, email);
+        assert_eq!(
+            through(&env, Some(&git), dir),
+            read_user_email(&mut reference)
+        );
+    }
+    // Programs that write what `shell_email` pins: newlines, a failing status, a NUL, stderr, stdin.
+    let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+    for (index, body) in [
+        "printf a@b.cc; exit 1",
+        "printf 'a@b.cc\\n\\n\\n'",
+        "printf 'a\\nb@c.dd\\n'",
+        "printf '\\n\\n'",
+        "exit 3",
+        "printf 'jos\\351'",
+        "printf 'ab\\000cd'",
+        "if read x; then printf bad; fi",
+        "echo err >&2; printf ok.ok",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let program = dir.join(format!("git-{index}"));
+        fs::write(&program, format!("#!/bin/sh\n{body}\n"))?;
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+        let mut reference = Command::new(&program);
+        reference
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .current_dir(dir);
+        assert_eq!(
+            through(&env, Some(&program), dir),
+            read_user_email(&mut reference),
+            "program {index}"
+        );
+    }
+    // A `git` that cannot be started, none resolved, or a directory that is gone: absent.
+    let missing = Path::new("/nonexistent/navori-git");
+    let mut reference = Command::new(missing);
+    assert_eq!(
+        through(&env, Some(missing), dir),
+        read_user_email(&mut reference)
+    );
+    assert_eq!(through(&env, None, dir), EmailRead::Absent);
+    assert_eq!(
+        through(&env, Some(&git), &dir.join("gone")),
+        EmailRead::Absent
+    );
+
+    // The bound is the deadline's remainder: a `git` that sleeps is cut off and denies.
+    let sleeper = dir.join("git-sleep");
+    fs::write(&sleeper, "#!/bin/sh\nexec sleep 30\n")?;
+    fs::set_permissions(&sleeper, fs::Permissions::from_mode(0o755))?;
+    let probe = HostProbe {
+        env: &env,
+        grep: None,
+        git: Some(&sleeper),
+        pwd: dir,
+        ids: None,
+        until: Some(Instant::now() + Duration::from_secs(1)),
+    };
+    let started = Instant::now();
+    assert_eq!(probe.email(), EmailRead::Unreadable);
+    assert!(started.elapsed() < Duration::from_secs(3), "unbounded");
+    Ok(())
+}
+
+/// A needle whose encoded form does not fit one argument (`MAX_ARG_STRLEN`, a Linux limit): the
+/// `@` entry fits, its `%40` form (three times as long) does not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_needle_whose_encoded_form_exceeds_one_argument_is_unverifiable() -> TestResult {
+    let scratch = Scratch::new("e2big-form")?;
+    let locale = Locale::C;
+    let env = host_env(locale, &scratch.0, None);
+    let program = PathBuf::from("/usr/bin/grep");
+    let long = case(
+        "curl https://api.example.test/a",
+        None,
+        Some(&"@".repeat(44_000)),
+    );
+    let mut matcher = HostGrep::new(Some(&program), &scratch.0, &env);
+    let code = native_with(&long, locale, &scratch.0, None, &mut matcher)?;
+    assert_eq!(code, Code::Unverified);
+    for secret in secrets_of(&long) {
+        assert!(!leaks(&shown(code, &secrets_of(&long)), &secret));
+    }
+    Ok(())
 }

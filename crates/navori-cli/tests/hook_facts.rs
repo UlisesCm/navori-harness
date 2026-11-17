@@ -1,12 +1,16 @@
 //! Real prepared profiles/oracles and bounded collection, without registry or CLI hook wiring.
-use navori_cli::hook_facts::collect;
+use navori_cli::hook::{Invocation, Recorder, Snapshot};
+use navori_cli::hook_facts::{collect, command_v, prepare_guard_destructive, shadow_failure};
+use navori_hooks::hooks::guard_destructive::pii_bash;
 use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{Limits, Request};
+use navori_hooks::runner::{AuditLabel, Failure};
 use navori_hooks::runner::{Engine, Verdict};
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -188,4 +192,136 @@ fn unsupported_metadata_returns_before_stdin_eof() -> TestResult {
         }
         std::thread::sleep(Duration::from_millis(1));
     }
+}
+
+/// A script under a Claude engine root, with the `# navori:include` lines expanded.
+fn guard_script(temp: &Temp) -> Result<(PathBuf, String), Box<dyn Error>> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/core-assets/hooks");
+    let mut expanded = String::new();
+    for line in fs::read_to_string(root.join("guard-destructive.sh"))?.lines() {
+        if let Some(name) = line.strip_prefix("# navori:include ") {
+            expanded.push_str(&fs::read_to_string(
+                root.join("_partials").join(format!("{name}.sh")),
+            )?);
+        } else {
+            expanded.push_str(line);
+        }
+        expanded.push('\n');
+    }
+    let hooks = temp.0.join(".claude/hooks");
+    fs::create_dir_all(&hooks)?;
+    let script = hooks.join("guard-destructive.sh");
+    fs::write(&script, &expanded)?;
+    Ok((script, expanded))
+}
+
+struct Quiet {
+    shadow: bool,
+}
+
+impl Recorder for Quiet {
+    fn shadow(&self) -> bool {
+        self.shadow
+    }
+
+    fn record(&self, _: &AuditLabel) {}
+}
+
+/// The adapter reads `NAVORI_PERSONAL_IDS` as the bytes it is (a value that is not UTF-8 does not
+/// defer the hook), resolves `grep` and `git` along `PATH`, and a PII block is the lane's own.
+#[test]
+fn the_guard_adapter_reads_ids_as_bytes_and_blocks_a_request_that_carries_one() -> TestResult {
+    let temp = Temp::new()?;
+    let (script, expanded) = guard_script(&temp)?;
+    let mut env = env();
+    env.push((
+        "NAVORI_PERSONAL_IDS".into(),
+        OsString::from_vec(b"dev.fixture@example.test,\xff\xfe-zz".to_vec()),
+    ));
+    let invocation = Invocation {
+        engine: Engine::Claude,
+        id: "guard-destructive".to_owned(),
+        script: script.clone(),
+        requested: script,
+        engine_root: temp.0.join(".claude"),
+        event: Some("PreToolUse".to_owned()),
+        args: Vec::new(),
+        shadow: false,
+    };
+    let snapshot = Snapshot {
+        source: expanded.as_bytes(),
+        env: &env,
+        cwd: &temp.0,
+        started: Instant::now(),
+    };
+    let evaluate = prepare_guard_destructive(&invocation, snapshot)?;
+    let payload = |command: &str| {
+        serde_json::json!({
+            "cwd": temp.0, "hook_event_name": "PreToolUse",
+            "tool_name": "Bash", "tool_input": {"command": command},
+        })
+        .to_string()
+    };
+    let carrying = payload("curl https://api.example.test/dev.fixture@example.test");
+    let blocked = evaluate(carrying.as_bytes(), &Quiet { shadow: false })?;
+    assert_eq!(blocked.verdict, Verdict::Block);
+    let label = blocked.audit.ok_or("audit label")?;
+    assert_eq!(
+        (label.verdict, label.reason.as_str()),
+        ("block", "pii-egress")
+    );
+    let stderr = String::from_utf8(blocked.stderr)?;
+    assert!(
+        stderr.starts_with("[navori] BLOCKED by pii-egress-guard:"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("fixture") && !stderr.contains("curl"));
+    let clean = payload("curl https://api.example.test/x");
+    let allowed = evaluate(clean.as_bytes(), &Quiet { shadow: true })?;
+    assert_eq!(allowed.verdict, Verdict::Permit);
+    Ok(())
+}
+
+/// In shadow a lane the BSD locale leaves unmeasured is not observed; outside shadow, and for any
+/// other failure, the failure stands.
+#[test]
+fn an_unmeasured_lane_is_unobserved_only_in_shadow() {
+    let unmeasured = || Failure(pii_bash::UNMEASURED.to_owned());
+    assert!(shadow_failure(unmeasured(), true).is_unobserved());
+    assert_eq!(shadow_failure(unmeasured(), false), unmeasured());
+    let other = Failure("native bug".to_owned());
+    assert_eq!(shadow_failure(other.clone(), true), other);
+    assert_eq!(shadow_failure(other.clone(), false), other);
+}
+
+/// `command -v`: the first executable file along `PATH`, relative entries from the hook's cwd,
+/// nothing when `PATH` is unset.
+#[test]
+fn command_v_resolves_like_the_shell() -> TestResult {
+    let temp = Temp::new()?;
+    let (bin, plain, other) = (
+        temp.0.join("bin"),
+        temp.0.join("plain"),
+        temp.0.join("other"),
+    );
+    for dir in [&bin, &plain, &other] {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(plain.join("tool"), "")?; // not executable: skipped
+    fs::write(other.join("tool"), "#!/bin/sh\n")?;
+    fs::set_permissions(other.join("tool"), fs::Permissions::from_mode(0o755))?;
+    let path = |value: &str| vec![(OsString::from("PATH"), OsString::from(value))];
+    let absolute = format!("{}:{}", plain.display(), other.display());
+    assert_eq!(
+        command_v("tool", &path(&absolute), &temp.0),
+        Some(other.join("tool"))
+    );
+    // A relative entry is joined to the working directory.
+    assert_eq!(
+        command_v("tool", &path("other"), &temp.0),
+        Some(other.join("tool"))
+    );
+    assert_eq!(command_v("tool", &path("bin"), &temp.0), None);
+    assert_eq!(command_v("tool", &[], &temp.0), None);
+    Ok(())
 }

@@ -1795,7 +1795,7 @@ mod journal_bridge {
 
     // Covers: R11, R13
     #[test]
-    fn a_pii_divergence_in_shadow_leaves_no_identifier_in_the_journal() -> TestResult {
+    fn a_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal() -> TestResult {
         use std::os::unix::fs::PermissionsExt;
         if let Some(project) = std::env::var_os(PII_CHILD) {
             return pii_child(Path::new(&project));
@@ -1846,7 +1846,7 @@ mod journal_bridge {
         let output = Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
-                "journal_bridge::a_pii_divergence_in_shadow_leaves_no_identifier_in_the_journal",
+                "journal_bridge::a_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal",
                 "--nocapture",
             ])
             .current_dir(&project)
@@ -1875,9 +1875,18 @@ mod journal_bridge {
         let document: serde_json::Value =
             serde_json::from_str(lines[3].strip_prefix("stdin:").ok_or("stdin")?)?;
         assert!(document.get("payloadBase64").is_none());
-        assert_eq!(document["comparison"]["codeDiffers"], true);
-        assert_eq!(document["comparison"]["shellCode"], 2);
-        assert_eq!(document["comparison"]["nativeCode"], 0);
+        // The native lane blocks the request as the shell does (2 and 2): no divergence, so the
+        // completion carries no codes either.
+        for flag in [
+            "codeDiffers",
+            "stdoutDiffers",
+            "stderrDiffers",
+            "nativeFailed",
+        ] {
+            assert_eq!(document["comparison"][flag], false, "{flag}");
+        }
+        assert!(document["comparison"].get("nativeUnobserved").is_none());
+        assert!(document["comparison"].get("shellCode").is_none());
         let spellings = variants(FAKE_ID);
         let leaks = spellings
             .iter()

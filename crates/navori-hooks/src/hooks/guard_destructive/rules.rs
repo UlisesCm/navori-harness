@@ -8,6 +8,7 @@ use regex::Regex;
 use super::copy_dest::{self, CopyDest, Inputs};
 use super::discard;
 use super::pi;
+use super::pii_bash::{self, Lane, Probe};
 use super::{Outcome, Rendered, length};
 use crate::runner::Engine;
 use crate::shell::Locale;
@@ -214,6 +215,7 @@ pub(super) fn evaluate(
     host: &Host,
     repo: &dyn Repo,
     locale: Locale,
+    probe: &dyn Probe,
 ) -> Result<Outcome, String> {
     if cmd.is_empty() {
         return Ok(Outcome::Skip {
@@ -235,6 +237,12 @@ pub(super) fn evaluate(
         Ok(skeleton) => skeleton,
         Err(message) => return Ok(block(message, "oversize", Some(SPLIT_ROUTE))),
     };
+    // The PII-egress lane runs before the fast path, as in the script.
+    match pii_bash::lane(cmd, &skeleton, rules, locale, probe) {
+        Some(Lane::Pass) => {}
+        Some(Lane::Deny(code)) => return Ok(Outcome::PiiEgress { code }),
+        None => return Err(pii_bash::UNMEASURED.to_owned()),
+    }
     let mut copy_only = false;
     if size <= FAST_MAX {
         let fast: String = cmd
