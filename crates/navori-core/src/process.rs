@@ -138,6 +138,29 @@ fn stop(child: &mut Child) {
     let _ = child.wait();
 }
 
+/// `hasBinary(name)` (`lib/primitives/which.ts`): an executable regular file along `env`'s `PATH`,
+/// empty entries skipped and relative ones read from `base`, the process's working directory. The
+/// mode bits stand in for `access(X_OK)`, which also weighs the file's owner.
+#[must_use]
+pub fn has_binary(env: &Env, base: &Path, name: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    let Some(path) = env
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "PATH")
+        .map(|(_, v)| v)
+    else {
+        return false;
+    };
+    path.to_string_lossy()
+        .split(':')
+        .filter(|dir| !dir.is_empty())
+        .any(|dir| {
+            std::fs::metadata(base.join(dir).join(name))
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+}
+
 /// One child process: the arguments of [`run`].
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
