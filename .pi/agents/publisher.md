@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="491b0f34a4e2e3f94cf5006e74081a87482fdf71f8e3cab5e59531562a85bc3e"
+# navori:managed-file id="pi-agent-publisher" hash="27194b8900547cb889a373b2499dd9cceb80de278cc9b42975c42d6f69deeb34"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use when the cycle ends in a commit, a push or a PR."
 tools: []
@@ -197,7 +197,7 @@ Nothing blocks on it; a ceiling belongs in an explicit deterministic cap, not he
 - ❌ Do not attempt `--force` pushes to `dev` or another protected branch; `guard-destructive` blocks them.
 - ❌ Do not attempt `--no-verify` unless the user explicitly asks; `guard-destructive` blocks it.
 - ❌ Never ask for a merge or approve the PR yourself. Your job ends with the URL.
-- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English), except the `Closes #<N>` keyword.
+- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = neutral Spanish, `conventional` = English), except the `Closes #<N>` keyword.
 - ✅ A new pattern or non-obvious decision missing from `impl_<feature>.md` goes in a "Decisions" section of the body.
 - ❌ More than 25 unrelated files in `--stat` → flag it and ask before one mixed PR. Never `gh pr create --web`.
 

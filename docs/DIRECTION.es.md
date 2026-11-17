@@ -252,7 +252,7 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
 
    Lo que no se deduce del comando —los disparadores del re-render del espejo, el golden snapshot,
    y qué cuenta como cambio doc-only— está en `CONTRIBUTING.md`.
-4. **Commits**: Conventional, español MX, atómicos.
+4. **Commits**: Conventional, español neutro, atómicos.
 5. **Branching/PR**: cada ticket en branch nueva con base `dev` y PR a `dev`; `main` solo recibe
    releases desde `dev` por merge commit (`branchBase`/`prTarget` en `navori.config.json`). Nunca
    commitees el harness local de un repo `/bonum`.
