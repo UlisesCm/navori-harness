@@ -66,6 +66,11 @@ static NODE: Shared = Shared::new(
 for (const k of ['CI', 'NAVORI_NO_UPDATE_NOTIFIER', 'NAVORI_AUDITS_ROOT', 'CLAUDE_CONFIG_DIR', 'NAVORI_BACKUP_ROOT']) delete process.env[k];
 process.env.HOME = request.home;
 process.env.PATH = request.path;
+// `os.homedir()` falls back to the passwd entry (the real home) without HOME: pin it to the stub,
+// or to '' (what `safeHomedir` rejects) for the no-HOME case, so no scan can reach the real home.
+const osm = (await import('node:os')).default;
+osm.homedir = () => (request.noHome ? '' : request.home);
+mm.syncBuiltinESMExports();
 for (const [k, v] of Object.entries(request.env)) process.env[k] = v;
 if (request.noHome) delete process.env.HOME;
 process.chdir(request.cwd);
@@ -134,7 +139,7 @@ struct Case {
     env: Vec<(&'static str, String)>,
     /// Environment variables only Rust sees (their bytes are not valid UTF-8).
     env_raw: Vec<(&'static str, Vec<u8>)>,
-    /// `PATH` entries; defaults to `{base}/bin`, `/usr/bin`, `/bin`.
+    /// `PATH` entries; defaults to `{base}/bin` and `{base}/sys` (only the base utilities, linked).
     path: Vec<String>,
     /// Both sides run without `HOME`.
     no_home: bool,
@@ -164,7 +169,7 @@ fn case(name: &'static str, config: Value) -> Case {
         modes: Vec::new(),
         env: Vec::new(),
         env_raw: Vec::new(),
-        path: vec!["{base}/bin".into(), "/usr/bin".into(), "/bin".into()],
+        path: vec!["{base}/bin".into(), "{base}/sys".into()],
         no_home: false,
         probe: None,
         current: "1.0.0",
@@ -172,6 +177,22 @@ fn case(name: &'static str, config: Value) -> Case {
         delegates: &[],
         hits: &[],
     }
+}
+
+/// Links only the utilities the stubs and scans need into `dir`, so the test `PATH` never reaches
+/// a real `gh`, `engram` or any other binary of the machine running the tests.
+fn link_base_utilities(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    for name in ["du", "yes", "head", "git"] {
+        let found = ["/usr/bin", "/bin"]
+            .iter()
+            .map(|d| Path::new(d).join(name))
+            .find(|p| p.is_file());
+        if let Some(real) = found {
+            std::os::unix::fs::symlink(real, dir.join(name)).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// `{ plugins: { <id>: { enabled: true }, … } }`.
@@ -319,6 +340,7 @@ impl Case {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         std::fs::create_dir_all(machine.base.join("bin")).map_err(|e| e.to_string())?;
+        link_base_utilities(&machine.base.join("sys"))?;
         let mut config = json!({ "name": "proj", "preset": "custom", "engines": ["claude"] });
         if let (Some(base), Some(extra)) = (config.as_object_mut(), self.config.as_object()) {
             for (k, v) in extra {
@@ -637,9 +659,17 @@ fn rust_scans(case: &Case, machine: &Machine) -> Result<Vec<Scan>, String> {
             || machine.home.join(".navori").join("backups"),
             |(_, v)| PathBuf::from(machine.fill(v)),
         );
+    // Without HOME and `NAVORI_BACKUP_ROOT` the TS `backupRoot()` throws: no root to hand the scan, so
+    // the caller delegates (the core takes the root as an input).
+    let no_backup_root = case.no_home && !case.env.iter().any(|(k, _)| *k == "NAVORI_BACKUP_ROOT");
     out.push((
         "disk",
-        scan_disk_usage(&host, &machine.root, &backup_root).map(|v| {
+        if no_backup_root {
+            Err(Unmodeled)
+        } else {
+            scan_disk_usage(&host, &machine.root, &backup_root)
+        }
+        .map(|v| {
             Value::Array(
                 v.into_iter()
                     .map(|i| {
@@ -847,10 +877,10 @@ fn missing_external_tools() -> Result<(), String> {
             .link("bin/tgrep", "{base}/real/tgrep"),
         // Empty and relative `PATH` entries: relative ones read from the process directory.
         case("relative-path-entry", plugins(&["tgrep"]))
-            .path(&["", "relbin", "/usr/bin"])
+            .path(&["", "relbin", "{base}/sys"])
             .exec_file("cwd/relbin/tgrep", say("tgrep 1.0.0").as_str()),
         case("relative-path-miss", plugins(&["tgrep"]))
-            .path(&["relbin", "/usr/bin"])
+            .path(&["relbin", "{base}/sys"])
             .hits(&["missingTools"]),
         case("empty-path", plugins(&["tgrep"]))
             .path(&[])
@@ -1519,7 +1549,9 @@ fn workspace_link() -> Result<(), String> {
             .delegates(&["link", "dead", "drift"]),
         case("no-home", json!({ "workspace": "team" }))
             .no_home()
-            .delegates(&["claudeMd", "audit", "link", "dead", "drift", "updates"]),
+            .delegates(&[
+                "disk", "claudeMd", "audit", "link", "dead", "drift", "updates",
+            ]),
     ])
 }
 
