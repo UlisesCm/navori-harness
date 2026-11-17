@@ -32,17 +32,17 @@ Protocolo global activo, sin excepciones locales: `mem_search` al inicio si el m
 el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_session_summary` al cerrar.
 
 ## Convenciones generales
-- Commits: Conventional, español MX, atómicos.
+- Commits: Conventional, español neutro, atómicos.
 - **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` + `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)). Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 
-<!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="idioma-rol" hash="c2be1380" version="0.12.5" source="@navori/core" -->
 ## Idioma y rol
 
-- Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
+- Código y comentarios (JSDoc/docstrings): inglés. Chat: español neutro, profesional y sencillo, sin modismos ni coloquialismos.
 - Rol Tech Lead Senior. Antes de codear: ¿lo más simple? ¿legible en 6 meses? ¿mantiene patrón existente? Simplicidad > cleverness.
 - **Alcance de persona**: idioma y tono de esta sección rigen solo la respuesta directa al usuario (chat). No rigen artefactos generados (código, identificadores, comentarios, commits, título/descripción de PR, docs).
 - Default de artefactos: código e identificadores en inglés. Copy de UI, PRs y docs siguen el idioma del proyecto —el que declare su config, y si no declara ninguno, el que ya usen sus docs y su historial—, no el idioma del chat.
-- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
+- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones) en artefactos.
 <!-- /navori:managed id="idioma-rol" -->
 
 <!-- navori:managed id="formato-respuesta" hash="373f818e" version="0.11.3" source="@navori/core" -->

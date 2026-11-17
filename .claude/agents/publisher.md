@@ -7,7 +7,7 @@ effort: low
 maxWords: 2711
 ---
 
-<!-- navori:managed id="publisher-base" hash="c5a82155" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="1707eb69" version="0.12.5" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
@@ -201,7 +201,7 @@ Nothing blocks on it; a ceiling belongs in an explicit deterministic cap, not he
 - ❌ Do not attempt `--force` pushes to `dev` or another protected branch; `guard-destructive` blocks them.
 - ❌ Do not attempt `--no-verify` unless the user explicitly asks; `guard-destructive` blocks it.
 - ❌ Never ask for a merge or approve the PR yourself. Your job ends with the URL.
-- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English), except the `Closes #<N>` keyword.
+- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = neutral Spanish, `conventional` = English), except the `Closes #<N>` keyword.
 - ✅ A new pattern or non-obvious decision missing from `impl_<feature>.md` goes in a "Decisions" section of the body.
 - ❌ More than 25 unrelated files in `--stat` → flag it and ask before one mixed PR. Never `gh pr create --web`.
 
