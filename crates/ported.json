@@ -11,6 +11,7 @@
     { "path": ["adopt"], "flags": ["apply", "cwd"] },
     { "path": ["scan"], "flags": ["cwd", "yes"] },
     { "path": ["status"], "flags": ["cwd", "json"] },
+    { "path": ["doctor"], "flags": ["cwd", "strict"] },
     {
       "path": ["sync"],
       "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],

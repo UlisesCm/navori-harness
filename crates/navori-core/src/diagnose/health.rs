@@ -18,6 +18,7 @@ use crate::js_json::JsValue;
 use crate::markers::{CommentStyle, compute_managed_hash, extract_managed_content, prose_lines};
 use crate::render::claude_md::has_monorepo_workspaces;
 use crate::render::context::Lang;
+use crate::render::ignore_files::{ENGINE_OUTPUTS as OWNED_OUTPUTS, engine_owned_paths};
 use crate::render::nested_gitignore::EPHEMERAL_HARNESS_PATHS;
 use crate::render::plugins::{LoadedPlugin, PluginsLoadResult};
 use crate::semver::is_downgrade;
@@ -477,6 +478,51 @@ pub fn scan_duplicate_markers(
     Ok(out)
 }
 
+/// `OrphanedEngineOutput`: the paths a disabled engine left on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanedEngineOutput {
+    /// The disabled engine that produced these paths.
+    pub engine: String,
+    /// Repo-relative paths on disk owned only by the disabled engines.
+    pub paths: Vec<String>,
+}
+
+/// `scanOrphanedEngineOutputs(cwd, config)`: on-disk outputs owned only by engines that are no
+/// longer in `config.engines`. A path an enabled engine also owns (`AGENTS.md`) is kept, and each
+/// path is reported once.
+///
+/// # Errors
+/// `engines` that is not an array of strings.
+pub fn scan_orphaned_engine_outputs(
+    cwd: &Path,
+    config: &Config,
+) -> Result<Vec<OrphanedEngineOutput>, Unmodeled> {
+    let enabled = configured_engines(&config.data).ok_or(Unmodeled)?;
+    let owned_by_enabled: Vec<String> = enabled
+        .iter()
+        .flat_map(|engine| engine_owned_paths(engine))
+        .collect();
+    let mut out = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for (engine, _) in OWNED_OUTPUTS {
+        if enabled.iter().any(|e| e == engine) {
+            continue;
+        }
+        let paths: Vec<String> = engine_owned_paths(engine)
+            .into_iter()
+            .filter(|p| !owned_by_enabled.contains(p) && !seen.contains(p) && cwd.join(p).exists())
+            .collect();
+        seen.extend(paths.iter().cloned());
+        if !paths.is_empty() {
+            out.push(OrphanedEngineOutput {
+                engine: engine.to_owned(),
+                paths,
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// `collectText`: `.md`/`.json`/`.sh` text under `dir`, skipping `node_modules`, `.git` and the
 /// ephemeral harness directories (relative to `cwd`). Symlinks are neither files nor directories.
 fn collect_text(cwd: &Path, dir: &Path, parts: &mut Vec<String>) -> Result<(), Unmodeled> {
@@ -758,6 +804,47 @@ mod tests {
                 "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden can\u{f3}nico."
             ]
         );
+    }
+
+    // Covers: R73
+    #[test]
+    fn orphans_are_outputs_of_disabled_engines_not_owned_by_an_enabled_one() -> Result<(), Unmodeled>
+    {
+        let dir = std::env::temp_dir().join(format!("navori-orphans-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".codex")).map_err(|_| Unmodeled)?;
+        std::fs::create_dir_all(dir.join(".cursor")).map_err(|_| Unmodeled)?;
+        std::fs::write(dir.join("AGENTS.md"), "x").map_err(|_| Unmodeled)?;
+        let config = |text: &str| -> Result<Config, Unmodeled> {
+            Ok(Config {
+                data: crate::js_json::parse(text).ok_or(Unmodeled)?,
+                warnings: Vec::new(),
+            })
+        };
+        let found = scan_orphaned_engine_outputs(&dir, &config(r#"{"engines":["claude"]}"#)?)?;
+        let kept =
+            scan_orphaned_engine_outputs(&dir, &config(r#"{"engines":["claude","agents-md"]}"#)?)?;
+        let _ = std::fs::remove_dir_all(&dir);
+        let rows: Vec<(&str, Vec<&str>)> = found
+            .iter()
+            .map(|o| {
+                (
+                    o.engine.as_str(),
+                    o.paths.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("codex", vec![".codex", "AGENTS.md"]),
+                ("cursor", vec![".cursor"]),
+            ]
+        );
+        let kept_engines: Vec<&str> = kept.iter().map(|o| o.engine.as_str()).collect();
+        assert_eq!(kept_engines, ["codex", "cursor"]);
+        assert_eq!(kept[0].paths, [".codex"]);
+        Ok(())
     }
 
     // Covers: R76
