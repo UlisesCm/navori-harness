@@ -12,6 +12,7 @@ interface Delegation {
   path: string[];
   flags?: string[];
   subtree?: boolean;
+  unless?: string[];
   reason: string;
 }
 interface ShellHook {
@@ -290,6 +291,8 @@ describe("cutover-check (spec 0062 T8)", () => {
       "ticket",
       "registry",
       "doctor",
+      "backup restore",
+      "migrations restore",
     ]);
     for (const entry of areas.PERMANENT_DELEGATION.slice(0, 5)) expect(entry.subtree).toBe(true);
     expect(areas.PERMANENT_DELEGATION[5]?.flags).toEqual(["json"]);
@@ -308,6 +311,24 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(areas.permanentlyDelegated(["doctor"], "json")).toBe(true);
     expect(areas.permanentlyDelegated(["doctor"], "strict")).toBe(false);
     expect(areas.permanentlyDelegated(["doctor", "fix"], "json")).toBe(false);
+  });
+
+  // Covers: R20 (T24)
+  it("restore sin --yes queda delegado en tiempo de ejecución con motivo, sin excusar el subcomando ni sus banderas", () => {
+    for (const path of ["backup restore", "migrations restore"]) {
+      const entry = areas.PERMANENT_DELEGATION.find((e) => e.path.join(" ") === path);
+      expect(entry?.unless).toEqual(["yes"]);
+      expect(entry?.reason).toContain("prompt interactivo de clack");
+      expect(areas.permanentlyDelegated(path.split(" "))).toBe(false);
+      expect(areas.permanentlyDelegated(path.split(" "), "yes")).toBe(false);
+      expect(areas.permanentlyDelegated(path.split(" "), "cwd")).toBe(false);
+    }
+    expect(() =>
+      areas.validateDelegation([{ path: ["x"], unless: ["yes"], flags: ["json"], reason: "r" }]),
+    ).toThrow(/unless/);
+    expect(() =>
+      areas.validateDelegation([{ path: ["x"], unless: ["yes"], subtree: true, reason: "r" }]),
+    ).toThrow(/unless/);
   });
 
   // Covers: R20

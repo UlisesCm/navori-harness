@@ -185,7 +185,8 @@ y `worktree-reclaim` deciden en Rust en `shadow`. Empieza ya: no escribe por el 
 multi-engine.
 - **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
 - [ ] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
-- [ ] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"
+- [x] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"
+  - Cerrado (2026-11-18, decisión de Ulises en #262, opción A): `backup restore` y `migrations restore` son nativos con `--yes`. Sin `--yes` delegan para siempre al TS, que confirma con el prompt interactivo de clack (`p.confirm`). Los dos quedan en `PERMANENT_DELEGATION` como entradas `unless: ["yes"]` con ese motivo; los casos `backup:restore-confirm-delegates` y `migrations:restore-confirm-delegates` comprueban la delegación.
 - [ ] **T25** (R70, R71, R74) — `managed-drift-watch` y `worktree-reclaim` en `shadow`; las eliminaciones de `worktree-reclaim` pasan por la capa `Fs` en modo registro durante la sombra · effect: behavior · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E3 cubren cada clase de veredicto y modo por engine"
 
 ### M9 — Instalación, actualización, workspaces y Codex
