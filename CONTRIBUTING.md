@@ -156,6 +156,6 @@ So a new partial without a behavior test fails the suite; it does not pass silen
 
 ## Commits and PRs
 
-- Commits: Conventional, Mexican Spanish, atomic (`feat|fix|chore|docs(scope): mensaje`).
+- Commits: Conventional, neutral Spanish, atomic (`feat|fix|chore|docs(scope): mensaje`).
 - Start each ticket on a new branch based on `dev`, and open a PR to `dev` (CI runs format, lint, and typecheck, but not tests). Merge `dev` into `main` through a PR using a merge commit, not squash; that PR must pass the full gate.
 - Do not commit the local harness (`CLAUDE.md`, `.claude/`) in a `/bonum` repo.

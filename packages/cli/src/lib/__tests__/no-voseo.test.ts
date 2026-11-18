@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Lint guard (#81): the harness ships in Mexican Spanish, which uses "tú"
+ * Lint guard (#81): the harness ships in neutral Spanish, which uses "tú"
  * (corre / quítalo / aquí), never Rioplatense voseo (corré / quitalo / acá).
  * These forms crept into doctor/render strings and the agent user-sections;
  * this test fails the build if any come back — in rendered templates OR in the
@@ -23,7 +23,7 @@ const SCAN_DIRS = [
   join(REPO_ROOT, "packages/cli/src"),
 ];
 
-// Each entry: the forbidden Rioplatense form and its Mexican replacement (for
+// Each entry: the forbidden Rioplatense form and its neutral replacement (for
 // the failure message). Matched as whole words, accent-aware, case-insensitive.
 const VOSEO: Array<[string, string]> = [
   ["acá", "aquí"],

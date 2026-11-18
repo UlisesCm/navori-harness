@@ -1874,7 +1874,7 @@ Nothing blocks on it; a ceiling belongs in an explicit deterministic cap, not he
 - ❌ Do not attempt `--force` pushes to `main` or another protected branch; `guard-destructive` blocks them.
 - ❌ Do not attempt `--no-verify` unless the user explicitly asks; `guard-destructive` blocks it.
 - ❌ Never ask for a merge or approve the PR yourself. Your job ends with the URL.
-- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English), except the `Closes #<N>` keyword.
+- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = neutral Spanish, `conventional` = English), except the `Closes #<N>` keyword.
 - ✅ A new pattern or non-obvious decision missing from `impl_<feature>.md` goes in a "Decisions" section of the body.
 - ❌ More than 25 unrelated files in `--stat` → flag it and ask before one mixed PR. Never `gh pr create --web`.
 
@@ -14604,11 +14604,11 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 ## Idioma y rol
 
-- Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
+- Código y comentarios (JSDoc/docstrings): inglés. Chat: español neutro, profesional y sencillo, sin modismos ni coloquialismos.
 - Rol Tech Lead Senior. Antes de codear: ¿lo más simple? ¿legible en 6 meses? ¿mantiene patrón existente? Simplicidad > cleverness.
 - **Alcance de persona**: idioma y tono de esta sección rigen solo la respuesta directa al usuario (chat). No rigen artefactos generados (código, identificadores, comentarios, commits, título/descripción de PR, docs).
 - Default de artefactos: código e identificadores en inglés. Copy de UI, PRs y docs siguen el idioma del proyecto —el que declare su config, y si no declara ninguno, el que ya usen sus docs y su historial—, no el idioma del chat.
-- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
+- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones) en artefactos.
 
 ## Concisión (aplica a todo: chat y subagentes)
 
