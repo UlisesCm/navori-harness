@@ -1658,6 +1658,40 @@ mod journal_bridge {
     const FAKE_ID: &str = "ana.ficticia+qa@example.test";
     const PII_CHILD: &str = "NAVORI_PII_SHADOW_CHILD";
     const PII_CLI: &str = "NAVORI_PII_FAKE_CLI";
+    const PII_KIND: &str = "NAVORI_PII_SHADOW_KIND";
+
+    /// Which PII hook a shadow run exercises.
+    #[derive(Clone, Copy)]
+    enum Kind {
+        /// The Bash lane of guard-destructive.
+        Bash,
+        /// pii-egress-guard on a `WebSearch`.
+        Web,
+    }
+
+    impl Kind {
+        fn hook(self) -> &'static str {
+            match self {
+                Self::Bash => "guard-destructive",
+                Self::Web => "pii-egress-guard",
+            }
+        }
+
+        fn name(self) -> &'static str {
+            match self {
+                Self::Bash => "bash",
+                Self::Web => "web",
+            }
+        }
+
+        fn from_env() -> Self {
+            if std::env::var_os(PII_KIND).is_some_and(|kind| kind == "web") {
+                Self::Web
+            } else {
+                Self::Bash
+            }
+        }
+    }
 
     fn workspace() -> &'static Path {
         Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -1730,7 +1764,14 @@ mod journal_bridge {
     }
 
     /// The hook payload the shadow run reads: a PII request that the shell lane blocks.
-    fn pii_payload(project: &Path) -> String {
+    fn pii_payload(project: &Path, kind: Kind) -> String {
+        if matches!(kind, Kind::Web) {
+            return serde_json::json!({
+                "session_id":"s1", "cwd":project, "hook_event_name":"PreToolUse",
+                "tool_name":"WebSearch", "tool_input":{"query":format!("who is {FAKE_ID}")}
+            })
+            .to_string();
+        }
         let command = format!("curl -s 'https://api.example.test/lookup?u={FAKE_ID}'");
         serde_json::json!({
             "session_id":"s1", "cwd":project, "hook_event_name":"PreToolUse",
@@ -1754,20 +1795,25 @@ mod journal_bridge {
     }
 
     /// Child half: a real shadow run of the rendered guard-destructive behind a recording CLI.
-    fn pii_child(project: &Path) -> TestResult {
+    fn pii_child(project: &Path, kind: Kind) -> TestResult {
         use navori_cli::hook::NATIVE_HOOKS;
-        let script = project.join(".claude/hooks/guard-destructive.sh");
-        let implementation = navori_hooks::compiled::implementation_hash("guard-destructive")
-            .ok_or("compiled hash")?;
+        let hook = kind.hook();
+        let script = project.join(format!(".claude/hooks/{hook}.sh"));
+        let implementation =
+            navori_hooks::compiled::implementation_hash(hook).ok_or("compiled hash")?;
+        let entry = match kind {
+            Kind::Bash => serde_json::json!({
+                "mode":"shadow", "gating":true,
+                "blocks":{"guard-destructive-base":HASH, "tgrep-search-lane":HASH},
+                "deps":{"scripts/guard-search-routing.sh":HASH}, "impl":implementation
+            }),
+            Kind::Web => serde_json::json!({
+                "mode":"shadow", "gating":true,
+                "blocks":{"pii-egress-guard-base":HASH}, "impl":implementation
+            }),
+        };
         let manifest = Manifest::parse(
-            &serde_json::json!({
-                "schema":2, "commands":[], "hooks":{"guard-destructive":{
-                    "mode":"shadow", "gating":true,
-                    "blocks":{"guard-destructive-base":HASH, "tgrep-search-lane":HASH},
-                    "deps":{"scripts/guard-search-routing.sh":HASH}, "impl":implementation
-                }}
-            })
-            .to_string(),
+            &serde_json::json!({"schema":2, "commands":[], "hooks":{hook:entry}}).to_string(),
         )?;
         let journal = CliJournal::from_locations(&navori_cli::delegate::Locations {
             ts_cli: Some(std::env::var_os(PII_CLI).ok_or("fake CLI path")?),
@@ -1776,7 +1822,7 @@ mod journal_bridge {
             self_exe: None,
         })
         .ok_or("TS CLI not resolved")?;
-        let payload = pii_payload(project);
+        let payload = pii_payload(project, kind);
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let code = run_with_journal(
             &argv(&script),
@@ -1796,10 +1842,31 @@ mod journal_bridge {
     // Covers: R11, R13
     #[test]
     fn a_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal() -> TestResult {
-        use std::os::unix::fs::PermissionsExt;
         if let Some(project) = std::env::var_os(PII_CHILD) {
-            return pii_child(Path::new(&project));
+            return pii_child(Path::new(&project), Kind::from_env());
         }
+        pii_shadow_case(
+            Kind::Bash,
+            "journal_bridge::a_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal",
+        )
+    }
+
+    /// The web half: pii-egress-guard blocks a `WebSearch` with the identifier in shadow and the
+    /// journal learns only the comparison flags.
+    #[test]
+    fn a_web_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal() -> TestResult {
+        if let Some(project) = std::env::var_os(PII_CHILD) {
+            return pii_child(Path::new(&project), Kind::from_env());
+        }
+        pii_shadow_case(
+            Kind::Web,
+            "journal_bridge::a_web_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal",
+        )
+    }
+
+    fn pii_shadow_case(kind: Kind, test: &str) -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+        let hook = kind.hook();
         let scratch = Scratch::new()?;
         let project = fs::canonicalize(&scratch.0)?;
         assert!(
@@ -1809,24 +1876,29 @@ mod journal_bridge {
                 .status()?
                 .success()
         );
-        // Install the rendered Claude copy of guard-destructive, signed for the compiled hash.
-        let routing_rel = "scripts/guard-search-routing.sh";
-        let routing = fs::read(workspace().join(".claude").join(routing_rel))?;
-        let routing_dest = project.join(".claude").join(routing_rel);
-        fs::create_dir_all(routing_dest.parent().ok_or("scripts")?)?;
-        fs::write(&routing_dest, &routing)?;
+        // Install the rendered Claude copy of the hook, signed for the compiled hash.
+        let mut deps: Vec<Vec<u8>> = Vec::new();
+        if matches!(kind, Kind::Bash) {
+            let routing_rel = "scripts/guard-search-routing.sh";
+            let routing = fs::read(workspace().join(".claude").join(routing_rel))?;
+            let routing_dest = project.join(".claude").join(routing_rel);
+            fs::create_dir_all(routing_dest.parent().ok_or("scripts")?)?;
+            fs::write(&routing_dest, &routing)?;
+            deps.push(routing);
+        }
+        let deps: Vec<&[u8]> = deps.iter().map(Vec::as_slice).collect();
         let zero = "0".repeat(64);
-        let implementation = navori_hooks::compiled::implementation_hash("guard-destructive")
-            .ok_or("compiled hash")?;
-        let rendered = fs::read_to_string(workspace().join(".claude/hooks/guard-destructive.sh"))?;
+        let implementation =
+            navori_hooks::compiled::implementation_hash(hook).ok_or("compiled hash")?;
+        let rendered = fs::read_to_string(workspace().join(format!(".claude/hooks/{hook}.sh")))?;
         let body = match rendered.split_once('\n') {
             Some((first, body)) if first.starts_with("# navori:native-hook ") => body,
             _ => rendered.as_str(),
         };
         let unsigned =
             format!("# navori:native-hook v=1 file=sha256:{zero} impl={implementation}\n{body}");
-        let hash = script_hash(unsigned.as_bytes(), &[&routing]).ok_or("metadata")?;
-        let script = project.join(".claude/hooks/guard-destructive.sh");
+        let hash = script_hash(unsigned.as_bytes(), &deps).ok_or("metadata")?;
+        let script = project.join(format!(".claude/hooks/{hook}.sh"));
         fs::create_dir_all(script.parent().ok_or("hooks")?)?;
         fs::write(&script, unsigned.replacen(&zero, &hash[7..], 1))?;
         let audits = project.join("audits");
@@ -1844,11 +1916,7 @@ mod journal_bridge {
         fs::write(&cli, fake)?;
         fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
         let output = Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "journal_bridge::a_pii_block_in_shadow_agrees_and_leaves_no_identifier_in_the_journal",
-                "--nocapture",
-            ])
+            .args(["--exact", test, "--nocapture"])
             .current_dir(&project)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
@@ -1858,6 +1926,7 @@ mod journal_bridge {
             .env("NAVORI_AUDITS_ROOT", &audits)
             .env("NAVORI_PERSONAL_IDS", FAKE_ID)
             .env(PII_CHILD, &project)
+            .env(PII_KIND, kind.name())
             .env(PII_CLI, &cli)
             .output()?;
         assert!(output.status.success(), "child failed: {}", output.status);
@@ -1869,7 +1938,7 @@ mod journal_bridge {
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 4);
         assert!(lines[0].starts_with("argv:tools rust-shadow begin --root "));
-        assert!(lines[0].contains(" --hook guard-destructive "));
+        assert!(lines[0].contains(&format!(" --hook {hook} ")));
         assert_eq!(lines[1], "stdin:");
         assert!(lines[2].starts_with("argv:tools rust-shadow complete --root "));
         let document: serde_json::Value =
@@ -1897,7 +1966,7 @@ mod journal_bridge {
             "identifier variants found in what the CLI received"
         );
         // Positive control: the real payload, in each encoding a leak could use, is seen.
-        for encoded in payload_encodings(&pii_payload(&project)) {
+        for encoded in payload_encodings(&pii_payload(&project, kind)) {
             assert!(
                 spellings.iter().any(|needle| contains(&encoded, needle)),
                 "an encoding of the real payload goes unseen by the search"

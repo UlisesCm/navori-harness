@@ -22,6 +22,7 @@ pub mod model_advisor;
 pub(crate) mod native_io;
 pub mod notices;
 pub mod parser;
+pub mod pii_egress_guard_hook;
 pub mod plan;
 pub mod plan_gate;
 pub mod plan_gate_hook;

@@ -87,7 +87,7 @@ fn pre_tool_use(_: &[OsString]) -> Option<&'static str> {
 
 /// Compiled implementations. Listing one here enables nothing: the embedded manifest must also
 /// select the hook (R7), and a missing build hash never matches a manifest entry.
-pub static NATIVE_HOOKS: LazyLock<[NativeHook; 11]> = LazyLock::new(|| {
+pub static NATIVE_HOOKS: LazyLock<[NativeHook; 12]> = LazyLock::new(|| {
     [
         NativeHook {
             id: "subagent-no-background",
@@ -167,6 +167,14 @@ pub static NATIVE_HOOKS: LazyLock<[NativeHook; 11]> = LazyLock::new(|| {
                 .unwrap_or_default(),
             handler: Handler::Prepared(subagent_stop::prepare),
             phase: navori_hooks::hooks::subagent_stop_handoff::phase,
+            tool: None,
+        },
+        NativeHook {
+            id: "pii-egress-guard",
+            implementation: navori_hooks::compiled::implementation_hash("pii-egress-guard")
+                .unwrap_or_default(),
+            handler: Handler::Prepared(crate::pii_egress_guard_hook::prepare),
+            phase: pre_tool_use,
             tool: None,
         },
         NativeHook {

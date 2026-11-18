@@ -1,5 +1,19 @@
-# navori:managed start id="pii-egress-guard-base" hash="3aef1989" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:f7380fb82c0939b594d6291bdb84e42bd3834f8a268f79486e3883f10f6198c7 impl=sha256:dcb66bace698b2b32c0dea4df780301ed209ede13e3b765691c9582be3e58326
+# navori:managed start id="pii-egress-guard-base" hash="bfec6aa1" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: pii-egress-guard native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: pii-egress-guard could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: pii-egress-guard native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(WebFetch|WebSearch) guard — the web half of "never send the user's personal data
 # to an external service" (#1445). The Bash half is a lane inside `guard-destructive`

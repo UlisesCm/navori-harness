@@ -164,6 +164,7 @@ pub struct HostGrep<'a> {
     cwd: &'a Path,
     env: &'a [(OsString, OsString)],
     budget: Duration,
+    until: Option<Instant>,
 }
 
 impl<'a> HostGrep<'a> {
@@ -176,14 +177,27 @@ impl<'a> HostGrep<'a> {
             cwd,
             env,
             budget: GREP_BUDGET,
+            until: None,
         }
+    }
+
+    /// Also bound every call by the time left to `until`: a `grep` already running when the
+    /// instant arrives is killed at it (fail closed), not left to its own budget.
+    #[must_use]
+    pub fn until(mut self, until: Option<Instant>) -> Self {
+        self.until = until;
+        self
     }
 }
 
 impl Matcher for HostGrep<'_> {
     fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
         let program = self.program.ok_or(Unverifiable)?;
-        if self.budget.is_zero() {
+        let timeout = self.until.map_or(self.budget, |until| {
+            self.budget
+                .min(until.saturating_duration_since(Instant::now()))
+        });
+        if timeout.is_zero() {
             return Err(Unverifiable);
         }
         let mut stdin = Vec::with_capacity(text.len() + 1);
@@ -203,7 +217,7 @@ impl Matcher for HostGrep<'_> {
             env: &env,
             input: Input::Bytes(&stdin),
             capture: Capture::Discard,
-            timeout: Some(self.budget),
+            timeout: Some(timeout),
         });
         self.budget = self.budget.saturating_sub(started.elapsed());
         match finished {
@@ -516,7 +530,7 @@ impl Probe for HostProbe<'_> {
 
     fn matcher(&self) -> Box<dyn Matcher + '_> {
         Box::new(Until {
-            inner: HostGrep::new(self.grep, self.pwd, self.env),
+            inner: HostGrep::new(self.grep, self.pwd, self.env).until(self.until),
             until: self.until,
         })
     }
