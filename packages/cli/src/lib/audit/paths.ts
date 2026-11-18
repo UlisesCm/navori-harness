@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { NavoriError } from "../primitives/errors.ts";
 import { safeHomedir } from "../primitives/home.ts";
+import { sleepSync } from "../primitives/lockfile.ts";
 import { AUDIT_READ_LIMITS, type AuditReadDiagnostics } from "./model.ts";
 
 /** Env var that redirects the whole audit store (logs AND generated reports). */
@@ -66,6 +67,12 @@ export function auditRootRepairCommand(root: string): string {
   const quoted = "'" + root.replaceAll("'", "'\\''") + "'";
   return `find ${quoted} -type d -exec chmod 700 {} + && find ${quoted} -type f -exec chmod 600 {} +`;
 }
+
+/** Time source of the tail re-check; an object so tests can drive it without real waits. */
+export const tailClock = {
+  now: (): number => performance.now(),
+  sleep: sleepSync,
+};
 
 export type PrivateAuditReason =
   | "unsafe"
@@ -256,11 +263,57 @@ export function createPrivateAuditFile(
   }
 }
 
+/** Quiet window and hard cap for a tail that is not yet newline-terminated. */
+const TAIL_POLL_MS = 1;
+const TAIL_QUIET_MS = 20;
+const TAIL_CAP_MS = 200;
+
+/**
+ * Size of the log once its tail is a complete line (0 when empty).
+ *
+ * Another process mid-`write()` can expose a size that cuts its line, because
+ * Linux publishes `i_size` per page while copying and neither fstat nor pread
+ * takes the inode lock (#1717). So a non-newline tail is re-read every 1 ms:
+ * accepted as soon as it ends in `\n`, refused as "incomplete-tail" when size
+ * and last byte stay unchanged for 20 ms (corrupt) or 200 ms elapse in total,
+ * and refused as "changed" if the file shrinks. The happy path is one fstat +
+ * one pread, with no clock read and no sleep.
+ *
+ * Residual risk: a foreign writer stalled mid-line for more than 20 ms still
+ * yields a false refusal (as before, but it now needs a much longer stall). It
+ * does not cover a writer that crashes mid-write after this check (pre-existing).
+ */
+function settledAuditSize(fd: number): number {
+  const tail = Buffer.alloc(1);
+  const lastByte = (size: number): number | undefined =>
+    readSync(fd, tail, 0, 1, size - 1) === 1 ? tail[0] : undefined;
+  let size = fstatSync(fd).size;
+  if (size === 0) return 0;
+  let last = lastByte(size);
+  if (last === 10) return size;
+  const start = tailClock.now();
+  let changedAt = start;
+  for (;;) {
+    const now = tailClock.now();
+    if (now - changedAt >= TAIL_QUIET_MS || now - start >= TAIL_CAP_MS)
+      throw new PrivateAuditFault("incomplete-tail");
+    tailClock.sleep(TAIL_POLL_MS);
+    const next = fstatSync(fd).size;
+    if (next < size) throw new PrivateAuditFault("changed");
+    const nextLast = lastByte(next);
+    if (nextLast === 10) return next;
+    if (next !== size || nextLast !== last) changedAt = tailClock.now();
+    size = next;
+    last = nextLast;
+  }
+}
+
 /** Append one complete JSONL batch to the validated fd, preserving any partial
- * suffix on short write. Never truncate/repair; subsequent writers refuse it. */
+ * suffix on short write. A callback receives the settled size: bytes past it
+ * may belong to another writer still in flight. Never truncate/repair; subsequent writers refuse it. */
 export function appendPrivateAuditFile(
   path: string,
-  data: string | Uint8Array | ((fd: number) => string | Uint8Array),
+  data: string | Uint8Array | ((fd: number, settledSize: number) => string | Uint8Array),
   options: PrivateAuditOptions = {},
 ): PrivateAuditResult<number> {
   let fd: number | undefined;
@@ -271,13 +324,8 @@ export function appendPrivateAuditFile(
     regularAuditFile(expected);
     fd = openSync(path, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW);
     auditGuard(path, fd, expected, parents);
-    const stat = fstatSync(fd);
-    if (stat.size) {
-      const tail = Buffer.alloc(1);
-      if (readSync(fd, tail, 0, 1, stat.size - 1) !== 1 || tail[0] !== 10)
-        throw new PrivateAuditFault("incomplete-tail");
-    }
-    const content = typeof data === "function" ? data(fd) : data;
+    const settledSize = settledAuditSize(fd);
+    const content = typeof data === "function" ? data(fd, settledSize) : data;
     const bytes = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
     if (bytes.byteLength && bytes[bytes.byteLength - 1] !== 10)
       throw new PrivateAuditFault("incomplete-tail");
