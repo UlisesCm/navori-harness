@@ -1461,3 +1461,783 @@ impl Status {
         }
     }
 }
+
+/// `tc(lang).doctor` (and the one `tc(lang).engine` string `doctor` prints): only the keys the
+/// native `doctor` sections use, copied from `lib/i18n.ts` by a generator so both languages stay
+/// byte-identical to the TS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Doctor(pub Lang);
+
+impl Doctor {
+    fn es(self) -> bool {
+        self.0 == Lang::Es
+    }
+
+    fn pick(self, es: &'static str, en: &'static str) -> &'static str {
+        if self.es() { es } else { en }
+    }
+
+    /// `doctor.noConfigRunInit`.
+    #[must_use]
+    pub fn no_config_run_init(self, a: &str) -> String {
+        if self.es() {
+            format!("No hay navori.config.json en {a}. Corre 'navori init' primero.")
+        } else {
+            format!("No navori.config.json at {a}. Run 'navori init' first.")
+        }
+    }
+
+    /// `doctor.configNoteTitle`.
+    #[must_use]
+    pub fn config_note_title(self, a: &str) -> String {
+        let _ = self;
+        format!("Config · {a}")
+    }
+
+    /// `doctor.fsChecksTitle`.
+    #[must_use]
+    pub fn fs_checks_title(self) -> &'static str {
+        self.pick("Filesystem checks", "Filesystem checks")
+    }
+
+    /// `doctor.managedBlocksTitle`.
+    #[must_use]
+    pub fn managed_blocks_title(self, a: &str) -> String {
+        if self.es() {
+            format!("Bloques managed en CLAUDE.md · {a}")
+        } else {
+            format!("Managed blocks in CLAUDE.md · {a}")
+        }
+    }
+
+    /// `doctor.noVersion`.
+    #[must_use]
+    pub fn no_version(self) -> &'static str {
+        self.pick("(sin versión)", "(no version)")
+    }
+
+    /// `doctor.unknownSource`.
+    #[must_use]
+    pub fn unknown_source(self) -> &'static str {
+        self.pick("(fuente desconocida)", "(unknown source)")
+    }
+
+    /// `doctor.missingPlugins`.
+    #[must_use]
+    pub fn missing_plugins(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("Plugins declarados en config pero no cargables ({a}):\n{b}")
+        } else {
+            format!("Plugins declared in config but not loadable ({a}):\n{b}")
+        }
+    }
+
+    /// `doctor.missingPreset`.
+    #[must_use]
+    pub fn missing_preset(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Preset '{a}' declarado en config pero no existe (ni local en .navori/presets/{a}/ ni bundled) — el render cae al baseline (sin los extras del preset). Corre 'navori preset init {a}', 'navori configure', o usa un preset válido / 'custom'."
+            )
+        } else {
+            format!(
+                "Preset '{a}' declared in config but does not exist (neither local in .navori/presets/{a}/ nor bundled) — render falls back to the baseline (without the preset extras). Run 'navori preset init {a}', 'navori configure', or use a valid preset / 'custom'."
+            )
+        }
+    }
+
+    /// `doctor.presetOverride`.
+    #[must_use]
+    pub fn preset_override(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Preset local '{a}' (.navori/presets/{a}/) sombrea el preset oficial del mismo nombre — se usa el local. Renómbralo si el override no es intencional."
+            )
+        } else {
+            format!(
+                "Local preset '{a}' (.navori/presets/{a}/) shadows the official preset of the same name — the local one is used. Rename it if the override is unintentional."
+            )
+        }
+    }
+
+    /// `doctor.placeholderName`.
+    #[must_use]
+    pub fn placeholder_name(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "El name '{a}' parece un placeholder de scaffold (probablemente heredado del package.json sin renombrar). Edita \"name\" en navori.config.json si no es el nombre real del repo."
+            )
+        } else {
+            format!(
+                "The name '{a}' looks like a scaffold placeholder (probably carried over from an un-renamed package.json). Edit \"name\" in navori.config.json if it isn't the repo's real name."
+            )
+        }
+    }
+
+    /// `doctor.nameMismatch`.
+    #[must_use]
+    pub fn name_mismatch(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "El name '{a}' en navori.config.json no coincide con el directorio del repo ('{b}') — probablemente un harness copiado de otro repo sin actualizar el nombre. Edita \"name\" a '{c}' (la forma kebab-case del directorio, la única que acepta el esquema) si no es intencional."
+            )
+        } else {
+            format!(
+                "The name '{a}' in navori.config.json doesn't match the repo directory ('{b}') — likely a harness copied from another repo without updating the name. Edit \"name\" to '{c}' (the directory's kebab-case form, the only shape the schema accepts) if it isn't intentional."
+            )
+        }
+    }
+
+    /// `doctor.orphanedEngineOutputsTitle`.
+    #[must_use]
+    pub fn orphaned_engine_outputs_title(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Outputs huérfanos de engines desactivados · {a} ('navori render --prune --apply' borra de ahí solo los archivos que escribió navori)"
+            )
+        } else {
+            format!(
+                "Orphaned outputs from disabled engines · {a} ('navori render --prune --apply' deletes only the files navori wrote in there)"
+            )
+        }
+    }
+
+    /// `doctor.orphanedEngineOutputRow`.
+    #[must_use]
+    pub fn orphaned_engine_output_row(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "— del engine '{a}' (no está en engines); el prune solo borra lo que lleve marcador de navori"
+            )
+        } else {
+            format!(
+                "— from disabled engine '{a}' (not in engines); the prune only deletes what carries navori's marker"
+            )
+        }
+    }
+
+    /// `doctor.retiredAssetsTitle`.
+    #[must_use]
+    pub fn retired_assets_title(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Archivos de ids retirados en disco · {a} ('navori render --apply' borra los que sean de navori; los ajenos, editados o de una versión más nueva se conservan)"
+            )
+        } else {
+            format!(
+                "Retired-id files still on disk · {a} ('navori render --apply' deletes the ones navori wrote; foreign, modified or newer-version ones are kept)"
+            )
+        }
+    }
+
+    /// `doctor.retiredPluginsTitle`.
+    #[must_use]
+    pub fn retired_plugins_title(self, a: &str) -> String {
+        if self.es() {
+            format!("Restos de plugins retirados · {a} (avisos; no afectan el veredicto de doctor)")
+        } else {
+            format!(
+                "Retired plugin leftovers · {a} (warnings; they do not affect the doctor verdict)"
+            )
+        }
+    }
+
+    /// `doctor.retiredPluginBlockRow`.
+    #[must_use]
+    pub fn retired_plugin_block_row(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "— bloque '{a}' de un plugin retirado; 'render --apply' lo quita si no lo editaste"
+            )
+        } else {
+            format!(
+                "— block '{a}' from a retired plugin; 'render --apply' removes it if you did not edit it"
+            )
+        }
+    }
+
+    /// `doctor.retiredAssetRow`.
+    #[must_use]
+    pub fn retired_asset_row_delete(self, a: &str) -> String {
+        if self.es() {
+            format!("— sucesor: {a} (se borra en el próximo 'render --apply')")
+        } else {
+            format!("— successor: {a} (removed on the next 'render --apply')")
+        }
+    }
+
+    /// `doctor.retiredAssetRow`.
+    #[must_use]
+    pub fn retired_asset_row_newer(self, a: &str) -> String {
+        if self.es() {
+            format!("— sucesor: {a} (se conserva: escrito por una versión más nueva)")
+        } else {
+            format!("— successor: {a} (kept: written by a newer version)")
+        }
+    }
+
+    /// `doctor.retiredAssetRow`.
+    #[must_use]
+    pub fn retired_asset_row_modified(self, a: &str) -> String {
+        if self.es() {
+            format!("— sucesor: {a} (se conserva: archivo managed editado)")
+        } else {
+            format!("— successor: {a} (kept: user-edited managed file)")
+        }
+    }
+
+    /// `doctor.retiredAssetRow`.
+    #[must_use]
+    pub fn retired_asset_row_foreign(self, a: &str) -> String {
+        if self.es() {
+            format!("— sucesor: {a} (se conserva: ajeno, sin marcador de navori)")
+        } else {
+            format!("— successor: {a} (kept: foreign, no navori marker)")
+        }
+    }
+
+    /// `doctor.missingPresetFiles`.
+    #[must_use]
+    pub fn missing_preset_files(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "Extras del preset '{a}' sin archivo ({b}) — el render fallará al leerlos; créalos o quítalos del manifest:\n{c}"
+            )
+        } else {
+            format!(
+                "Extras of preset '{a}' with no file ({b}) — render will fail reading them; create or remove them from the manifest:\n{c}"
+            )
+        }
+    }
+
+    /// `doctor.missingPresetFileRow`.
+    #[must_use]
+    pub fn missing_preset_file_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— falta {a}")
+        } else {
+            format!("— missing {a}")
+        }
+    }
+
+    /// `doctor.missingLocalSkills`.
+    #[must_use]
+    pub fn missing_local_skills(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Skills project-local declarados sin archivo ({a}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n{b}"
+            )
+        } else {
+            format!(
+                "Project-local skills declared with no file ({a}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.missingLocalSkillRow`.
+    #[must_use]
+    pub fn missing_local_skill_row(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "— falta .claude/skills/{a}/SKILL.md (el directorio no es opcional: un .md suelto no carga)"
+            )
+        } else {
+            format!(
+                "— missing .claude/skills/{a}/SKILL.md (the directory is not optional: a loose .md never loads)"
+            )
+        }
+    }
+
+    /// `doctor.unknownLibraries`.
+    #[must_use]
+    pub fn unknown_libraries(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Ids en project.libraries que el registro no conoce ({a}) — su guía no se renderiza y el render borra su skill de disco. Corre 'navori refresh' para re-detectar:\n{b}"
+            )
+        } else {
+            format!(
+                "Ids in project.libraries the registry doesn't know ({a}) — their guidance is not rendered and render deletes their skill from disk. Run 'navori refresh' to re-detect:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.unknownLibraryRemovedRow`.
+    #[must_use]
+    pub fn unknown_library_removed_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— retirada del registro; sucesoras: {a}")
+        } else {
+            format!("— retired from the registry; successors: {a}")
+        }
+    }
+
+    /// `doctor.unknownLibraryRemovedRow`.
+    #[must_use]
+    pub fn unknown_library_removed_row_bare(self) -> &'static str {
+        self.pick("— retirada del registro", "— retired from the registry")
+    }
+
+    /// `doctor.unknownLibraryUnknownRow`.
+    #[must_use]
+    pub fn unknown_library_unknown_row(self) -> &'static str {
+        self.pick(
+            "— desconocida para esta versión del CLI",
+            "— unknown to this CLI version",
+        )
+    }
+
+    /// `doctor.excludedBlocksTitle`.
+    #[must_use]
+    pub fn excluded_blocks_title(self, a: &str) -> String {
+        if self.es() {
+            format!("Bloques core excluidos · {a} (blocks.exclude)")
+        } else {
+            format!("Excluded core blocks · {a} (blocks.exclude)")
+        }
+    }
+
+    /// `doctor.excludedBlockRow`.
+    #[must_use]
+    pub fn excluded_block_row(self) -> &'static str {
+        self.pick(
+            "— no se renderiza; si existía, se quita en el próximo render",
+            "— not rendered; removed on next render if it was present",
+        )
+    }
+
+    /// `doctor.nonExcludableBlocks`.
+    #[must_use]
+    pub fn non_excludable_blocks(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Ids en blocks.exclude que NO son excluibles ({a}) — solo 'orquestacion' y 'sdd' pueden excluirse; estos bloques se siguen renderizando. Quítalos de blocks.exclude:\n{b}"
+            )
+        } else {
+            format!(
+                "Ids in blocks.exclude that are NOT excludable ({a}) — only 'orquestacion' and 'sdd' can be excluded; these blocks still render. Drop them from blocks.exclude:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.nonExcludableBlockRow`.
+    #[must_use]
+    pub fn non_excludable_block_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— '{a}' no es excluible; el bloque permanece")
+        } else {
+            format!("— '{a}' is not excludable; the block stays")
+        }
+    }
+
+    /// `doctor.unknownExcludedBlocks`.
+    #[must_use]
+    pub fn unknown_excluded_blocks(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Ids en blocks.exclude que no son bloques core conocidos ({a}) — probablemente un typo; no excluyen nada. Corrígelos o quítalos de blocks.exclude:\n{b}"
+            )
+        } else {
+            format!(
+                "Ids in blocks.exclude that are not known core blocks ({a}) — likely a typo; they exclude nothing. Fix or drop them from blocks.exclude:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.unknownExcludedBlockRow`.
+    #[must_use]
+    pub fn unknown_excluded_block_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— '{a}' no coincide con ningún bloque core")
+        } else {
+            format!("— '{a}' matches no core block")
+        }
+    }
+
+    /// `doctor.driftContentRow`.
+    #[must_use]
+    pub fn drift_content_row(self, a: &str) -> String {
+        let _ = self;
+        format!("({a}, content edited)")
+    }
+
+    /// `doctor.driftHarnessRow`.
+    #[must_use]
+    pub fn drift_harness_row(self) -> &'static str {
+        self.pick(
+            "(harnessVersion en navori.config.json, adelantado)",
+            "(harnessVersion in navori.config.json, ahead)",
+        )
+    }
+
+    /// `doctor.drift`.
+    #[must_use]
+    pub fn drift(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!("Drift detectado ({a}) — {b}:\n{c}")
+        } else {
+            format!("Drift detected ({a}) — {b}:\n{c}")
+        }
+    }
+
+    /// `doctor.driftHintContent`.
+    #[must_use]
+    pub fn drift_hint_content(self) -> &'static str {
+        self.pick(
+            "corre 'navori sync' para resolver conflicts; 'navori render --apply' para restaurar los bloques editados o distintos del asset incluido",
+            "run 'navori sync' to resolve conflicts; 'navori render --apply' to restore blocks that were edited or differ from the bundled asset",
+        )
+    }
+
+    /// `doctor.driftDowngradeRow`.
+    #[must_use]
+    pub fn drift_downgrade_row(self, a: &str) -> String {
+        if self.es() {
+            format!("({a}, disco adelantado)")
+        } else {
+            format!("({a}, disk ahead)")
+        }
+    }
+
+    /// `doctor.driftHintDowngrade`.
+    #[must_use]
+    pub fn drift_hint_downgrade(self) -> &'static str {
+        self.pick(
+            "el bloque en disco es más nuevo que tu CLI; render lo preserva (anti-retroceso), así que actualiza navori (p.ej. 'npm i -g navori@latest')",
+            "the on-disk block is newer than your CLI; render preserves it (anti-rollback), so update navori instead (e.g. 'npm i -g navori@latest')",
+        )
+    }
+
+    /// `doctor.corruptedSettings`.
+    #[must_use]
+    pub fn corrupted_settings(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Settings.json corrupto ({a}) — corre 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n{b}"
+            )
+        } else {
+            format!(
+                "Corrupted settings.json ({a}) — run 'navori render --force --apply' to regenerate from the bundle (the current file is backed up):\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.corruptedSettingsRow`.
+    #[must_use]
+    pub fn corrupted_settings_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— JSON inválido: {a}")
+        } else {
+            format!("— invalid JSON: {a}")
+        }
+    }
+
+    /// `doctor.missingInvariants`.
+    #[must_use]
+    pub fn missing_invariants(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Invariantes ausentes en el output ({a}) — una regla load-bearing desapareció; corre 'navori render --apply' o revisa el template:\n{b}"
+            )
+        } else {
+            format!(
+                "Invariants missing from the output ({a}) — a load-bearing rule disappeared; run 'navori render --apply' or check the template:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.missingInvariantRow`.
+    #[must_use]
+    pub fn missing_invariant_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— declarado por {a}")
+        } else {
+            format!("— declared by {a}")
+        }
+    }
+
+    /// `doctor.malformedMarkers`.
+    #[must_use]
+    pub fn malformed_markers(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Markers managed malformados ({a}) — navori ya no reconoce esta(s) línea(s) como marcador; el próximo render appendearía un bloque duplicado y dejaría la línea rota. Arréglalas a mano (o bórralas):\n{b}"
+            )
+        } else {
+            format!(
+                "Malformed managed markers ({a}) — navori no longer recognizes these line(s) as a marker; the next render would append a duplicate block and leave the line broken. Fix them (or delete them) by hand:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.malformedMarkerRowUnterminated`.
+    #[must_use]
+    pub fn malformed_marker_row_unterminated(self) -> &'static str {
+        self.pick("— falta el cierre '-->'", "— missing the closing '-->'")
+    }
+
+    /// `doctor.malformedMarkerRowMissingId`.
+    #[must_use]
+    pub fn malformed_marker_row_missing_id(self) -> &'static str {
+        self.pick(
+            "— sin id=\"…\" justo tras el nombre del marcador",
+            "— no id=\"…\" right after the marker name",
+        )
+    }
+
+    /// `doctor.duplicateMarkers`.
+    #[must_use]
+    pub fn duplicate_markers(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Bloques managed duplicados ({a}) — un mismo id aparece más de una vez en el archivo; navori solo ve la PRIMERA copia, así que la sobrante queda invisible a render/sync/doctor con contenido posiblemente stale. Elimina la copia sobrante a mano:\n{b}"
+            )
+        } else {
+            format!(
+                "Duplicate managed blocks ({a}) — the same id appears more than once in the file; navori only sees the FIRST copy, so the extra one is invisible to render/sync/doctor with possibly stale content. Remove the extra copy by hand:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.duplicateMarkerRow`.
+    #[must_use]
+    pub fn duplicate_marker_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— aparece {a} veces")
+        } else {
+            format!("— appears {a} times")
+        }
+    }
+
+    /// `doctor.claudeHookScriptsMissing`.
+    #[must_use]
+    pub fn claude_hook_scripts_missing(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Scripts de hooks ausentes ({a}) — un hook activo de .claude/settings.json referencia un archivo que no existe, así que el hook truena o no hace nada en cada Bash; corre 'navori render --apply' para regenerarlos:\n{b}"
+            )
+        } else {
+            format!(
+                "Missing hook scripts ({a}) — an active hook in .claude/settings.json references a file that doesn't exist, so the hook breaks or no-ops on every Bash; run 'navori render --apply' to regenerate them:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.claudeHookScriptMissingRow`.
+    #[must_use]
+    pub fn claude_hook_script_missing_row(self) -> &'static str {
+        self.pick(
+            "— referenciado por un hook activo pero no existe en disco",
+            "— referenced by an active hook but missing on disk",
+        )
+    }
+
+    /// `doctor.claudeHookScriptsNotExecutable`.
+    #[must_use]
+    pub fn claude_hook_scripts_not_executable(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Scripts de hooks sin permiso de ejecución ({a}) — Claude no dispara un hook cuyo script no es ejecutable; corre 'navori render --apply' para restaurar el bit +x:\n{b}"
+            )
+        } else {
+            format!(
+                "Non-executable hook scripts ({a}) — Claude won't fire a hook whose script lacks the exec bit; run 'navori render --apply' to restore the +x bit:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.claudeHookScriptNotExecutableRow`.
+    #[must_use]
+    pub fn claude_hook_script_not_executable_row(self) -> &'static str {
+        self.pick(
+            "— sin bit de ejecución (+x)",
+            "— missing the executable (+x) bit",
+        )
+    }
+
+    /// `doctor.legacyAgents`.
+    #[must_use]
+    pub fn legacy_agents(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Agentes legacy ({a}) — de un harness previo; navori ya provee sus equivalentes canónicos. No los toco (son tuyos), pero conviene archivarlos o borrarlos para no quedar con dos rosters en paralelo:\n{b}"
+            )
+        } else {
+            format!(
+                "Legacy agents ({a}) — from a previous harness; navori already provides their canonical equivalents. It doesn't touch them (they're yours), but archiving or deleting them avoids running two parallel rosters:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.legacyAgentRow`.
+    #[must_use]
+    pub fn legacy_agent_row(self, a: &str) -> String {
+        if self.es() {
+            format!("→ superado por '{a}'")
+        } else {
+            format!("→ superseded by '{a}'")
+        }
+    }
+
+    /// `doctor.availableExternalProviders`.
+    #[must_use]
+    pub fn available_external_providers(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Proveedores externos disponibles, no habilitados ({a}) — existen pero nadie los pidió:\n{b}"
+            )
+        } else {
+            format!(
+                "Available external providers, not enabled ({a}) — they exist but nobody asked for them:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.availableProviderRow`.
+    #[must_use]
+    pub fn available_provider_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— habilítalo con 'navori add {a}'")
+        } else {
+            format!("— enable it with 'navori add {a}'")
+        }
+    }
+
+    /// `doctor.externalProviderSetupHint`.
+    #[must_use]
+    pub fn external_provider_setup_hint(self, a: &str) -> String {
+        if self.es() {
+            format!("Guía de setup de codegraph/tgrep (índice + aprobación del MCP): {a}")
+        } else {
+            format!("codegraph/tgrep setup recipe (index + MCP approval): {a}")
+        }
+    }
+
+    /// `doctor.missingModelProfile`.
+    #[must_use]
+    pub fn missing_model_profile(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Agentes sin perfil de modelo/effort ({a}) — la clave no está en navori.config.json, así que el render omite la línea en silencio y el agente hereda el modelo/effort de la sesión. Válido como default, pero si buscabas el perfil de costo, declara 'models.<agente>' / 'effort.<agente>' (ver RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n{b}"
+            )
+        } else {
+            format!(
+                "Agents with no model/effort profile ({a}) — the key is absent from navori.config.json, so render silently drops the line and the agent inherits the session's model/effort. That's a valid default, but if you meant to set the cost profile, declare 'models.<agent>' / 'effort.<agent>' (see RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.missingModelProfileRow`.
+    #[must_use]
+    pub fn missing_model_profile_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— falta: {a}")
+        } else {
+            format!("— missing: {a}")
+        }
+    }
+
+    /// `doctor.controlGaps`.
+    #[must_use]
+    pub fn control_gaps(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Controles del harness no enforced ({a}) — cada engine configurado declara su estado en un único registro (engine-capabilities.ts); esto lista los que no bloquean:\n{b}"
+            )
+        } else {
+            format!(
+                "Harness controls not enforced ({a}) — each configured engine declares its state in one registry (engine-capabilities.ts); these are the ones that don't block:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.controlGapsWarn`.
+    #[must_use]
+    pub fn control_gaps_warn(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Controles con su flag activo pero no enforced ({a}) — activaste la condición y este engine no la aplica:\n{b}"
+            )
+        } else {
+            format!(
+                "Controls with their flag on but not enforced ({a}) — you turned the condition on and this engine doesn't apply it:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.orderInterleaved`.
+    #[must_use]
+    pub fn order_interleaved(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n  orden actual:   {a}\n  orden canónico: {b}{c}"
+            )
+        } else {
+            format!(
+                "CLAUDE.md managed blocks out of canonical order — they can NOT be reordered automatically because there is text of yours between blocks. Move that text above the first managed block or below the last; then run 'navori render --apply'.\n  current order:   {a}\n  canonical order: {b}{c}"
+            )
+        }
+    }
+
+    /// `doctor.orderReorderable`.
+    #[must_use]
+    pub fn order_reorderable(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "Bloques managed de CLAUDE.md fuera del orden canónico — corre 'navori render --apply' o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del harness).\n  orden actual:   {a}\n  orden canónico: {b}{c}"
+            )
+        } else {
+            format!(
+                "CLAUDE.md managed blocks out of canonical order — run 'navori render --apply' or 'navori sync' to reorder them (the first block marks the harness's center of gravity).\n  current order:   {a}\n  canonical order: {b}{c}"
+            )
+        }
+    }
+
+    /// `doctor.orderSpotlight`.
+    #[must_use]
+    pub fn order_spotlight(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!("\n  → '{a}' (centro de gravedad) está en posición {b} de {c}, debería ir 1º.")
+        } else {
+            format!("\n  → '{a}' (center of gravity) is at position {b} of {c}, should be 1st.")
+        }
+    }
+
+    /// `doctor.nextStepsTitle`.
+    #[must_use]
+    pub fn next_steps_title(self) -> &'static str {
+        self.pick("Próximos pasos", "Next steps")
+    }
+
+    /// `doctor.outroIssues`.
+    #[must_use]
+    pub fn outro_issues(self) -> &'static str {
+        self.pick("Issues found", "Issues found")
+    }
+
+    /// `doctor.outroDriftStrict`.
+    #[must_use]
+    pub fn outro_drift_strict(self) -> &'static str {
+        self.pick("Drift detected (--strict)", "Drift detected (--strict)")
+    }
+
+    /// `doctor.outroOk`.
+    #[must_use]
+    pub fn outro_ok(self) -> &'static str {
+        self.pick("OK", "OK")
+    }
+
+    /// `engine.localSkillForeignPointer`.
+    #[must_use]
+    pub fn local_skill_foreign_pointer(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "'{a}' no lo escribió navori; se conserva intacto. Bórralo para recibir el puntero generado hacia .claude/skills/<id>/SKILL.md."
+            )
+        } else {
+            format!(
+                "'{a}' wasn't written by navori; kept intact. Delete it to receive the generated pointer to .claude/skills/<id>/SKILL.md."
+            )
+        }
+    }
+}
