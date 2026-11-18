@@ -74,6 +74,52 @@ gate. No implementer→reviewer cycle. Any conflict in source (core-assets,
 `packages/**`, specs, user sections of `AGENTS.md`/`CLAUDE.md`) follows the
 normal cycle.
 
+## Native hook headers (`navori:native-hook`)
+
+A hook mirror wired to the native runtime (`.claude/hooks/*.sh`,
+`.pi/navori/hooks/*.sh`) opens with a generated `navori:native-hook`
+signature above its managed block, and `crates/ported.json` carries the
+block's hash. When a merge or rebase brings a change to one of those hooks,
+git usually conflicts on that generated header. The guard blocks shell
+writes to `.pi/navori` (`git checkout --ours/--theirs` included), so step 1
+does not apply there.
+
+1. **Check the condition first.** `-X` is allowed only when this lists
+   generated files and nothing else (hook headers in `.claude/` and `.pi/`,
+   `crates/ported.json`):
+
+   ```bash
+   git diff --name-only --diff-filter=U
+   ```
+
+   Any source or corpus file in the list: no `-X`. Resolve that conflict
+   normally or report it.
+2. Abort and redo the operation with `-X`, taking the side whose header you
+   want git to keep: `git merge --abort` then `git merge -X theirs <ref>`
+   (merging the base in), or `git rebase --abort` then
+   `git cherry-pick -X ours <commit>` onto the base.
+3. Regenerate and verify:
+
+   ```bash
+   bun run render:apply
+   bun run rust:hooks-sync --no-install
+   bun run rust:hooks-sync --check   # must exit 0
+   bun run render:apply              # must report no change
+   ```
+
+   Then confirm `.claude/settings.json` still wraps every ported hook with
+   `navori:native-runtime` (same count as the base).
+4. **If the other side also changed the block body**, `-X` keeps a header
+   hash that no longer matches the merged body. `render` then calls the
+   block user-edited and refuses it, and `hooks-sync --check` fails. The
+   two mirrors of that hook must go back to the base version (`git
+   checkout <base> --` on both paths) so render can rewrite them. The
+   guard blocks that on `.pi/navori`, so the user runs it outside the
+   agent; then step 3 runs again.
+
+Pending after 0.13: teach render to recognise a header with conflict
+markers and replace it, so none of the above needs the user.
+
 ## One-time setup
 
 ```bash
@@ -94,6 +140,8 @@ current side; `render:apply` then overwrites it.
       `--update` and its diff is understood.
 - [ ] Scoped gate green (plus tests of packages in main's incoming diff);
       `qualityGate.full` before the PR.
+- [ ] Native hook header conflicts: `--diff-filter=U` listed only
+      generated files before using `-X`, and `rust:hooks-sync --check` is 0.
 - [ ] Render-only conflicts skipped the implementer→reviewer cycle; source
       conflicts did not.
 

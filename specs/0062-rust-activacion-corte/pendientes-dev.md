@@ -203,6 +203,15 @@ y no tiene sentido llevarla sola a `dev`:
 | #1452, #1633 | `render --prune` y la detección de texto del usuario ignoran la firma nativa | `lib/render/removable.ts` |
 | #1405, #1406, #1669 | Journal y reporte de la sombra, y `navori tools rust-shadow` | `lib/rust-shadow/{command,journal,journal.schema,report}.ts`, `commands/tools.ts` |
 
+## Pendiente posterior a 0.13: el render reconoce una cabecera con marcadores de conflicto
+
+Decisión de Ulises del 18 nov (#247, opción C, diferida). Hoy, un conflicto en la cabecera generada
+`navori:native-hook` de un espejo de hook se resuelve con `-X` y regenerando (skill `rebase-rerender`). Si el otro
+lado también cambió el cuerpo del bloque, el usuario tiene que devolver los espejos a la base fuera del agente,
+porque la guarda bloquea esas escrituras en `.pi/navori`. La mejora es que `render --apply` reconozca una
+cabecera con marcadores de conflicto y la reemplace por la regenerada, sin tratar el bloque como editado por el
+usuario.
+
 ## Diferido para después de 0.13: `du` "no medido" en `doctor`
 
 Hoy un `du` que falla o pasa el plazo de 30 s se omite sin avisar. Para el usuario es igual que un directorio
