@@ -101,6 +101,12 @@ export const PERMANENT_DELEGATION = [
   { path: ["workspace"], subtree: true, reason: "workspace congelado en TS (#1503)" },
   { path: ["ticket"], subtree: true, reason: "ticket congelado en TS (#1503)" },
   { path: ["registry"], subtree: true, reason: "registry congelado en TS; su port de #1473 no entra (#1503)" },
+  {
+    path: ["doctor"],
+    flags: ["json"],
+    reason:
+      "el JSON de doctor incluye datos de origen del entrypoint de Node (invokedCli, entrypointSha256, host.node/host.bun) que el binario no puede reproducir sin falsearlos; --json se queda en TS por decisión de Ulises (17 nov)",
+  },
 ];
 validateDelegation(PERMANENT_DELEGATION);
 
