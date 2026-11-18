@@ -325,7 +325,7 @@ Así, un parcial nuevo sin test de comportamiento hace fallar la suite; no pasa 
 
 ## Commits y PRs
 
-- Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
+- Commits: Conventional, español neutro, atómicos (`feat|fix|chore|docs(scope): mensaje`).
 - Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (format, lint y typecheck en CI, sin
   tests). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.
