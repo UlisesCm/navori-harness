@@ -341,3 +341,113 @@ fn a_slow_complete_is_abandoned_at_the_deadline() -> TestResult {
     assert!(!survived, "grandchild {pid} survived");
     Ok(())
 }
+
+/// A repository whose project-directory read never returns until `release` is dropped.
+struct HungGit {
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+impl navori_hooks::shell::repo::Repo for HungGit {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, _: &str, _: navori_hooks::shell::repo::Loss) -> bool {
+        false
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        let _ = self.release.recv();
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// Shadow, native lane hung inside a rule: it spends only its own 3 s budget, reports not
+/// observed, and the shell answers with at least 5 s left of the 8.5 s shadow deadline.
+#[test]
+fn a_hung_native_guard_leaves_the_shell_time_to_answer() -> TestResult {
+    use navori_cli::hook_facts::{evaluate_native, native_deadline};
+    use navori_hooks::hooks::guard_destructive::Rendered;
+    use navori_hooks::hooks::guard_destructive::entry::{Context as Guard, Pii};
+    use navori_hooks::shell::Locale;
+    use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+    use navori_hooks::shell::hook_input::Host;
+    use navori_hooks::shell::payload::{Extractor, Profile};
+
+    let dir = scratch("hung-native")?;
+    let script = dir.join("hook.sh");
+    fs::write(&script, "exit 0\n")?;
+    let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+    let guard = Guard {
+        engine: Engine::Codex,
+        profile: Profile {
+            extractor: Extractor::JqAndNode,
+            locale: Locale::Utf8,
+        },
+        capture: CaptureContext {
+            shell: ShellDialect::Bash3,
+            script: Path::new("guard-destructive.sh"),
+            input_line: 1,
+            fallback_line: 1,
+        },
+        rendered: Rendered::from_script(
+            "base=x\nnv_pi_rules=-\nnv_owned_paths=-\nnavori_pg_lane=0\n",
+        )
+        .ok_or("rendered assignments")?,
+        host: Host::default(),
+        pii: Pii::default(),
+    };
+    let payload = br#"{"tool_name":"Bash","cwd":"/tmp/x","tool_input":{"command":"echo hi"}}"#;
+    let started = Instant::now();
+    let expiry = deadline_for("guard-destructive", started).ok_or("shadow deadline")?;
+    let (hold, release) = std::sync::mpsc::channel::<()>();
+    let result = run_until(
+        Context {
+            engine: Engine::Codex,
+            hook: "guard-destructive",
+            gating: true,
+        },
+        payload,
+        ShellInvocation {
+            script: &script,
+            args: &[],
+            cwd: &dir,
+            env: &env,
+        },
+        Some(expiry),
+        |bytes| {
+            let deadline = native_deadline(None, started, true);
+            evaluate_native(bytes, &guard, HungGit { release }, deadline, true)
+        },
+    );
+    let margin = expiry.saturating_duration_since(Instant::now());
+    drop(hold);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(result.comparison.native_unobserved);
+    assert!(!result.comparison.shell_failed);
+    assert_eq!(result.shell.code(), 0);
+    assert!(margin >= Duration::from_secs(5), "margin {margin:?}");
+    Ok(())
+}

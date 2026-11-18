@@ -24,7 +24,7 @@ use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline, Pii
 use navori_hooks::hooks::guard_destructive::pii_bash;
 use navori_hooks::runner::{self, Failure};
 use navori_hooks::shell::hook_input::Host;
-use navori_hooks::shell::repo::System;
+use navori_hooks::shell::repo::{Repo, System};
 
 use crate::facts_cache::{self, FactsCache};
 use crate::hook::{Evaluator, Invocation, Recorder, Snapshot};
@@ -152,14 +152,54 @@ pub fn prepare_guard_destructive<'a>(
         ),
     };
     // A value that is not UTF-8 is ignored, as the script's `case` ignores anything but 1..8.
-    let deadline = Deadline::from_env(
-        prepare::env_value(snapshot.env, "NAVORI_GUARD_DEADLINE").and_then(|value| value.to_str()),
-        snapshot.started,
-    );
+    let configured = prepare::env_value(snapshot.env, "NAVORI_GUARD_DEADLINE")
+        .and_then(|value| value.to_str())
+        .map(str::to_owned);
+    let started = snapshot.started;
     Ok(Box::new(move |payload: &[u8], recorder: &dyn Recorder| {
-        entry::evaluate_until(payload, &context, &System, deadline)
-            .map_err(|failure| shadow_failure(failure, recorder.shadow()))
+        let shadow = recorder.shadow();
+        let deadline = native_deadline(configured.as_deref(), started, shadow);
+        evaluate_native(payload, &context, System, deadline, shadow)
+            .map_err(|failure| shadow_failure(failure, shadow))
     }))
+}
+
+/// Seconds the native guard may use in shadow: the shell lane runs after it, inside the 8.5 s
+/// of [`crate::shadow::SHADOW_DEADLINES`], and needs the rest (as pii-egress-guard's budget).
+const SHADOW_NATIVE_SECONDS: u64 = 3;
+
+/// The guard's deadline for the native lane. Active: the script's own (#1671). Shadow: capped
+/// at [`SHADOW_NATIVE_SECONDS`], so a hung native lane leaves the shell time to answer.
+#[must_use]
+pub fn native_deadline(value: Option<&str>, started: Instant, shadow: bool) -> Deadline {
+    if !shadow {
+        return Deadline::from_env(value, started);
+    }
+    let lowered = value
+        .filter(|value| value.len() == 1)
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| (1..SHADOW_NATIVE_SECONDS).contains(seconds))
+        .unwrap_or(SHADOW_NATIVE_SECONDS);
+    Deadline::from_env(Some(&lowered.to_string()), started)
+}
+
+/// The native guard under `deadline`. In shadow a lane that ran out of time is not observed (its
+/// block is not a verdict to compare; the shell answers alone); in active mode it stands.
+///
+/// # Errors
+/// The errors of [`entry::evaluate_until`]; [`runner::unobserved`] for a shadow timeout.
+pub fn evaluate_native<R: Repo + Send + 'static>(
+    payload: &[u8],
+    context: &Context<'_>,
+    repo: R,
+    deadline: Deadline,
+    shadow: bool,
+) -> Result<runner::Evaluation, Failure> {
+    let result = entry::evaluate_until(payload, context, repo, deadline);
+    if shadow && Instant::now() >= deadline.at() {
+        return Err(runner::unobserved());
+    }
+    result
 }
 
 /// A lane the BSD locale leaves unmeasured is not a divergence in shadow: it is not observed.

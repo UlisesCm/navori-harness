@@ -5,6 +5,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline, Pii};
@@ -562,11 +563,11 @@ const HARMLESS: &[u8] = br#"{"tool_name":"Bash","tool_input":{"command":"echo hi
 fn deadline_expired_blocks_even_a_harmless_command() -> TestResult {
     let context = plain_context()?;
     let live = Deadline::from_env(None, Instant::now());
-    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, live)?;
+    let evaluation = entry::evaluate_until(HARMLESS, &context, NoState, live)?;
     assert_eq!(evaluation.verdict, Verdict::Permit);
 
     let expired = Deadline::from_env(Some("3"), ago(4)?);
-    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, expired)?;
+    let evaluation = entry::evaluate_until(HARMLESS, &context, NoState, expired)?;
     assert_eq!(evaluation.verdict, Verdict::Block);
     assert!(evaluation.stdout.is_empty());
     assert_eq!(
@@ -594,7 +595,7 @@ fn deadline_variable_can_only_lower_it() -> TestResult {
         Some(""),
     ] {
         let deadline = Deadline::from_env(value, started);
-        let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, deadline)?;
+        let evaluation = entry::evaluate_until(HARMLESS, &context, NoState, deadline)?;
         assert_eq!(evaluation.verdict, Verdict::Block, "{value:?}");
         assert!(
             String::from_utf8(evaluation.stderr)?.contains("within 8s"),
@@ -603,7 +604,7 @@ fn deadline_variable_can_only_lower_it() -> TestResult {
     }
     // Lowered and not reached yet: the rules answer.
     let lowered = Deadline::from_env(Some("5"), ago(1)?);
-    let evaluation = entry::evaluate_until(HARMLESS, &context, &NoState, lowered)?;
+    let evaluation = entry::evaluate_until(HARMLESS, &context, NoState, lowered)?;
     assert_eq!(evaluation.verdict, Verdict::Permit);
     Ok(())
 }
@@ -680,7 +681,7 @@ fn deadline_blocks_a_pii_lane_whose_grep_sleeps() -> TestResult {
     };
     let started = Instant::now();
     let deadline = Deadline::from_env(Some("1"), started);
-    let evaluation = entry::evaluate_until(REQUEST, &context, &NoState, deadline)?;
+    let evaluation = entry::evaluate_until(REQUEST, &context, NoState, deadline)?;
     assert!(started.elapsed() < Duration::from_secs(7), "unbounded");
     assert_eq!(evaluation.verdict, Verdict::Block);
     let stderr = String::from_utf8(evaluation.stderr)?;
@@ -723,8 +724,212 @@ fn deadline_expired_asks_for_no_matcher_and_no_git() -> TestResult {
         ..plain_context()?
     };
     let expired = Deadline::from_env(Some("2"), ago(3)?);
-    let evaluation = entry::evaluate_until(REQUEST, &context, &NoState, expired)?;
+    let evaluation = entry::evaluate_until(REQUEST, &context, NoState, expired)?;
     assert_eq!(evaluation.verdict, Verdict::Block);
     assert_eq!(sleepers.calls()?, 0);
+    Ok(())
+}
+
+/// The `Repo` call a [`Stuck`] repository never returns from, until the test lets it go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stall {
+    IsDir,
+    Toplevel,
+    Holds,
+    TgrepStatus,
+}
+
+/// A repository that hangs on one call (`stall`) and answers the others as an empty tree.
+/// `entered` tells the test the call was reached; dropping the paired sender lets it go.
+struct Stuck {
+    stall: Stall,
+    entered: mpsc::Sender<()>,
+    release: mpsc::Receiver<()>,
+}
+
+impl Stuck {
+    fn at(stall: Stall) -> (Self, mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (entered, reached) = mpsc::channel();
+        let (hold, release) = mpsc::channel();
+        (
+            Self {
+                stall,
+                entered,
+                release,
+            },
+            reached,
+            hold,
+        )
+    }
+
+    fn call(&self, at: Stall) {
+        if self.stall == at {
+            let _ = self.entered.send(());
+            // Returns an error once the test drops its sender.
+            let _ = self.release.recv();
+        }
+    }
+}
+
+impl Repo for Stuck {
+    fn is_dir(&self, _: &str) -> bool {
+        self.call(Stall::IsDir);
+        true
+    }
+
+    fn holds(&self, _: &str, _: Loss) -> bool {
+        self.call(Stall::Holds);
+        false
+    }
+
+    fn toplevel(&self, _: &str) -> Option<String> {
+        self.call(Stall::Toplevel);
+        None
+    }
+
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        self.call(Stall::TgrepStatus);
+        None
+    }
+}
+
+/// A repository whose every read panics.
+struct Panicky;
+
+impl Repo for Panicky {
+    fn is_dir(&self, _: &str) -> bool {
+        panic!("rule exploded");
+    }
+    fn holds(&self, _: &str, _: Loss) -> bool {
+        panic!("rule exploded");
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        panic!("rule exploded");
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        panic!("rule exploded");
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        panic!("rule exploded");
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        panic!("rule exploded");
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        panic!("rule exploded");
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        panic!("rule exploded");
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        panic!("rule exploded");
+    }
+    fn is_file(&self, _: &str) -> bool {
+        panic!("rule exploded");
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        panic!("rule exploded");
+    }
+}
+
+/// A call that never returns ends as the deadline's block: same message, nothing on stdout,
+/// the `block` audit label, well before the host's own kill.
+fn assert_stalled_block(
+    engine: Engine,
+    stall: Stall,
+    command: &str,
+    search_lane: bool,
+) -> TestResult {
+    let mut context = plain_context()?;
+    context.engine = engine;
+    context.rendered.search_lane = search_lane;
+    context.host.path = Some("/usr/bin:/bin".to_owned());
+    let payload = format!(
+        r#"{{"tool_name":"Bash","cwd":"/tmp/stalled","tool_input":{{"command":"{command}"}}}}"#
+    );
+    let (repo, reached, hold) = Stuck::at(stall);
+    let started = Instant::now();
+    let deadline = Deadline::from_env(Some("1"), started);
+    let evaluation = entry::evaluate_until(payload.as_bytes(), &context, repo, deadline)?;
+    let elapsed = started.elapsed();
+    reached
+        .try_recv()
+        .map_err(|_| "the stalled call was never reached")?;
+    drop(hold);
+    assert!(elapsed < Duration::from_secs(3), "took {elapsed:?}");
+    assert_eq!(evaluation.verdict, Verdict::Block);
+    assert!(evaluation.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(evaluation.stderr)?,
+        "[navori] BLOCKED by guard-destructive: inspection did not finish within 1s — nothing was approved\n"
+    );
+    let label = evaluation.audit.ok_or("audit label")?;
+    assert_eq!((label.verdict, label.reason.as_str()), ("block", ""));
+    Ok(())
+}
+
+/// The deadline cuts a hung project-directory read (Codex and Pi ask git for the toplevel).
+#[test]
+fn deadline_cuts_a_hung_toplevel() -> TestResult {
+    for engine in [Engine::Codex, Engine::Pi] {
+        assert_stalled_block(engine, Stall::Toplevel, "echo hi", false)?;
+    }
+    Ok(())
+}
+
+/// The deadline cuts a hung rule: rule 7's directory test and its work-tree read.
+#[test]
+fn deadline_cuts_a_hung_discard_rule() -> TestResult {
+    assert_stalled_block(Engine::Claude, Stall::IsDir, "git checkout -- .", false)?;
+    assert_stalled_block(Engine::Claude, Stall::Holds, "git checkout -- .", false)
+}
+
+/// The deadline cuts a hung `tgrep status` of the search lane.
+#[test]
+fn deadline_cuts_a_hung_search_lane() -> TestResult {
+    assert_stalled_block(Engine::Claude, Stall::TgrepStatus, "grep -rn foo src", true)
+}
+
+/// A rule that panics is an error, never a permit, and the answer carries nothing for stdout.
+#[test]
+fn a_panicking_rule_is_an_error_never_a_permit() -> TestResult {
+    let mut context = plain_context()?;
+    context.engine = Engine::Codex;
+    let deadline = Deadline::from_env(None, Instant::now());
+    let result = entry::evaluate_until(HARMLESS, &context, Panicky, deadline);
+    let failure = result.err().ok_or("a panic must not permit")?;
+    assert!(
+        failure.0.starts_with("panic: rule exploded"),
+        "{}",
+        failure.0
+    );
     Ok(())
 }
