@@ -81,7 +81,14 @@ navori_audit_reason=""
 navori_pi_ask=""
 navori_audit_on_exit() {
   navori_audit_code=$?
-  [ -z "${nv_watch:-}" ] || kill "$nv_watch" 2>/dev/null || true
+  # KILL, then reap right here: bash 5.2 can report a background child that ends while a later
+  # command substitution waits (`wait_for: No record of process N`), on the stderr of a call it
+  # approved (#1708). Reaping it now leaves no such child; KILL cannot be lost like the TERM of a
+  # watchdog that has not installed its trap yet, so the wait never hangs.
+  if [ -n "${nv_watch:-}" ]; then
+    kill -KILL "$nv_watch" 2>/dev/null || true
+    wait "$nv_watch" 2>/dev/null || true
+  fi
   # A command every block rule let through but an `ask` rule matched is answered here, after the
   # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
   # backslashes and control characters are dropped so the JSON below needs no escaping step.
@@ -113,10 +120,11 @@ fi
 # The watchdog is a separate `$BASH -c` process (not a subshell: bash 3.2 has no $BASHPID),
 # detached from stdin/stdout/stderr so the host never waits for it. A `sleep` that cannot run
 # (a stripped PATH) disarms the watchdog instead of firing at once: the rules still evaluate.
-# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which reaps it; what
-# runs before this point is the linear payload extraction. The TERM from that trap can be lost
-# when this shell exits within milliseconds of the launch (measured on bash 3.2), so the
-# watchdog also sleeps in 1s steps and leaves as soon as this shell is gone. At the deadline it
+# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which kills it with
+# KILL and reaps it; what runs before this point is the linear payload extraction. A TERM could
+# be lost when this shell exits within milliseconds of the launch (measured on bash 3.2), which
+# is why the trap sends KILL; the watchdog still sleeps in 1s steps and leaves as soon as this
+# shell is gone, and its last `sleep 1` outlives it by at most a second. At the deadline it
 # checks that its parent is still this shell (without `ps` it cannot tell, and signals anyway:
 # fail closed).
 nv_deadline=8
