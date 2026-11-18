@@ -115,6 +115,20 @@ export function hookPath(node = process.execPath) {
   return [dirname(node), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter);
 }
 
+/**
+ * Runs `run` once, discards that result, and returns the second. On a cold macOS runner the first
+ * runs of a freshly installed binary can exhaust its fixed host-fact probe budget twice in a row
+ * ("probe deadline expired", darwin-x64). The probe checks that the package delivers a native
+ * verdict, not cold-start latency, so the hook it counts runs warm.
+ * @template T
+ * @param {() => T} run
+ * @returns {T}
+ */
+export function afterWarmUp(run) {
+  run();
+  return run();
+}
+
 /** The program and leading arguments for a manager, with pnpm through npx when not installed. */
 function managerCommand(argv) {
   const [name, ...rest] = argv;
@@ -162,13 +176,15 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
     const c = blockingCase();
     const cwd = mkdtempSync(join(tmpdir(), "navori-probe-cwd-"));
     try {
-      const result = runRustHook({
-        binary: hook,
-        script: join(hooks, ".claude", "hooks", c.hook),
-        input: c.input,
-        cwd,
-        env: { PATH: hookPath(), NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
-      });
+      const result = afterWarmUp(() =>
+        runRustHook({
+          binary: hook,
+          script: join(hooks, ".claude", "hooks", c.hook),
+          input: c.input,
+          cwd,
+          env: { PATH: hookPath(), NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+        }),
+      );
       if (!result.available || result.status !== 2) {
         // The adapter keeps a deferral's stderr to itself; one direct run says why.
         const again = spawnSync(hook, ["hook", "--via-script", join(hooks, ".claude", "hooks", c.hook)], {

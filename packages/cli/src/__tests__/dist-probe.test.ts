@@ -19,6 +19,7 @@ interface Probe {
   blockingCase: () => { hook: string; engine: string; expected: { off: { status: number } } };
   isScript: (file: string) => boolean;
   hookPath: (node?: string) => string;
+  afterWarmUp: <T>(run: () => T) => T;
 }
 
 const repo = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -75,6 +76,11 @@ describe("dist-probe", () => {
     expect(probe.hookPath("/opt/node/bin/node")).toBe(
       "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     );
+
+    // the counted hook run is the second: the first only warms the freshly installed binary
+    let calls = 0;
+    expect(probe.afterWarmUp(() => ++calls)).toBe(2);
+    expect(calls).toBe(2);
 
     const blocking = probe.blockingCase();
     expect(blocking).toMatchObject({ hook: "guard-destructive.sh", engine: "claude" });
