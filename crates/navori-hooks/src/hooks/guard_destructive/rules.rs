@@ -1,7 +1,7 @@
 //! Rule bodies, transcribed from guard-destructive.sh. grep reads one segment per line, so each
 //! check runs per line and `$` means the end of that segment.
 
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 use regex::Regex;
 
@@ -65,94 +65,220 @@ impl Managed {
     }
 }
 
+/// One lazily compiled pattern: built on first use, the outcome kept for the process.
+type Lazy<T> = OnceLock<Result<T, String>>;
+
+/// Compile-on-demand cells. Each regex is built only when a rule evaluates it, so a command
+/// never pays for patterns its engine or state cannot reach.
+#[derive(Default)]
+struct Cells {
+    no_verify: Lazy<Regex>,
+    no_verify_short: Lazy<Regex>,
+    commit: Lazy<Regex>,
+    push_segment: Lazy<Regex>,
+    push_force: Lazy<Regex>,
+    recursive: Lazy<Regex>,
+    force: Lazy<Regex>,
+    dir: Lazy<Regex>,
+    git_rm_cached: Lazy<Regex>,
+    rm_root: Lazy<Regex>,
+    rm_var: Lazy<Regex>,
+    rm_var_post: Lazy<Regex>,
+    no_preserve_root: Lazy<Regex>,
+    fork_bomb: Lazy<Regex>,
+    block_device: Lazy<Regex>,
+    managed: Lazy<Managed>,
+    managed_pi: Lazy<Managed>,
+    pi: Lazy<pi::Patterns>,
+    discard: Lazy<Regex>,
+    trigger: Lazy<Regex>,
+}
+
+/// The rule patterns of one locale, compiled on first use (statics, so an invalid pattern is
+/// a build defect that `every_pattern_compiles` catches, not an input-dependent failure).
 struct Patterns {
-    no_verify: Regex,
-    no_verify_short: Regex,
-    commit: Regex,
-    push_segment: Regex,
-    push_force: Regex,
-    recursive: Regex,
-    force: Regex,
-    dir: Regex,
-    git_rm_cached: Regex,
-    rm_root: Regex,
-    rm_var: Regex,
-    rm_var_post: Regex,
-    no_preserve_root: Regex,
-    fork_bomb: Regex,
-    block_device: Regex,
-    managed: Managed,
-    managed_pi: Managed,
-    pi: pi::Patterns,
-    discard: Regex,
-    trigger: Regex,
+    locale: Locale,
+    cells: Cells,
+}
+
+/// Fill `cell` once with `build`; an invalid pattern keeps the `guard-destructive pattern` error.
+fn lazy<T>(cell: &Lazy<T>, build: impl FnOnce() -> Result<T, regex::Error>) -> Result<&T, String> {
+    cell.get_or_init(|| build().map_err(|e| format!("guard-destructive pattern: {e}")))
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn git_cp() -> String {
+    format!(r"(^|[[:space:]]|[;&|])git{GIT_OPTS}[[:space:]]+")
+}
+
+const RM_KILL: &str = r"-[a-zA-Z]*[rRf][a-zA-Z]*[[:space:]]+";
+const RM_REC: &str = r"-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+";
+
+fn rm_run() -> String {
+    format!(r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{RM_KILL}({RM_ARG})*")
+}
+
+fn rm_run_rec() -> String {
+    format!(r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{RM_REC}({RM_ARG})*")
 }
 
 impl Patterns {
-    fn new(locale: Locale) -> Result<Self, regex::Error> {
-        let re = |pattern: &str| locale.ere(pattern);
-        let git_cp = format!(r"(^|[[:space:]]|[;&|])git{GIT_OPTS}[[:space:]]+");
-        let git_opt = r"-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?";
-        let rm_kill = r"-[a-zA-Z]*[rRf][a-zA-Z]*[[:space:]]+";
-        let rm_rec = r"-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+";
-        let rm_run = format!(r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{rm_kill}({RM_ARG})*");
-        let rm_run_rec = format!(r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{rm_rec}({RM_ARG})*");
-        let rm_home = r"~(/[^[:space:]/]*)?|/(Users|home)(/[^[:space:]/]+(/[^[:space:]/]*)?)?";
-        let rm_root = r"/\*?|/(Applications|Library|System|Volumes|bin|boot|dev|etc|lib|lib64|mnt|opt|root|sbin|srv|sys|usr|var)(/[^[:space:]/]*)?";
-        let rm_tmp = r"/private(/tmp)?|/tmp";
-        let rm_end = format!(r"/?{RM_QUOTE}([[:space:]]|$)");
-        Ok(Self {
-            no_verify: re(&format!(r"{git_cp}(commit|push).*--no-verify"))?,
-            no_verify_short: re(&format!(
-                r"{git_cp}(commit|push).*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|$)"
-            ))?,
-            commit: re(&format!(r"{git_cp}commit([[:space:]]|$)"))?,
-            push_segment: re(&format!(r"^git{GIT_OPTS}[[:space:]]+push([[:space:]]|$)"))?,
-            push_force: re(
-                r"(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])",
-            )?,
-            recursive: re(r"(^|[[:space:]])--recursive([[:space:]]|$)")?,
-            force: re(r"(^|[[:space:]])--force([[:space:]]|$)")?,
-            dir: re(r"(^|[[:space:]])--dir([[:space:]]|$)")?,
-            git_rm_cached: re(&format!(
-                r"(^|[[:space:]])git([[:space:]]+({git_opt})*)rm([[:space:]])"
-            ))?,
-            rm_root: re(&format!(
-                r"{rm_run}{RM_QUOTE}(({rm_home}|{rm_root}|{rm_tmp}){rm_end})"
-            ))?,
-            rm_var: re(&format!(r"{rm_run_rec}{RM_QUOTE}\$"))?,
-            rm_var_post: re(&format!(
-                r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{RM_QUOTE}\$[^<>&[:space:]]*[[:space:]]+({RM_ARG})*-[a-zA-Z]*[rR][a-zA-Z]*([[:space:]]|$)"
-            ))?,
-            no_preserve_root: re(&format!(
-                r"(^|[[:space:]])rm[[:space:]](.*[[:space:]])?{RM_QUOTE}--no-preserve-root{RM_QUOTE}([[:space:]]|$)"
-            ))?,
-            fork_bomb: re(r":\(\)[[:space:]]*\{[[:space:]]*:\|:")?,
-            block_device: re(r"(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))")?,
-            managed: Managed::new(locale, false)?,
-            managed_pi: Managed::new(locale, true)?,
-            pi: pi::Patterns::new(locale)?,
-            discard: re(
-                r"^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)",
-            )?,
-            trigger: re(&format!(r"^git{GIT_OPTS}[[:space:]]+commit([[:space:]]|$)"))?,
-        })
+    fn new(locale: Locale) -> Self {
+        Self {
+            locale,
+            cells: Cells::default(),
+        }
     }
 
-    fn get(locale: Locale) -> Result<&'static Self, String> {
-        static UTF8: LazyLock<Result<Patterns, regex::Error>> =
-            LazyLock::new(|| Patterns::new(Locale::Utf8));
-        static GNU_UTF8: LazyLock<Result<Patterns, regex::Error>> =
-            LazyLock::new(|| Patterns::new(Locale::GnuUtf8));
-        static C: LazyLock<Result<Patterns, regex::Error>> =
-            LazyLock::new(|| Patterns::new(Locale::C));
+    fn get(locale: Locale) -> &'static Self {
+        static UTF8: LazyLock<Patterns> = LazyLock::new(|| Patterns::new(Locale::Utf8));
+        static GNU_UTF8: LazyLock<Patterns> = LazyLock::new(|| Patterns::new(Locale::GnuUtf8));
+        static C: LazyLock<Patterns> = LazyLock::new(|| Patterns::new(Locale::C));
         match locale {
             Locale::Utf8 => &UTF8,
             Locale::GnuUtf8 => &GNU_UTF8,
             Locale::C => &C,
         }
-        .as_ref()
-        .map_err(|e| format!("guard-destructive pattern: {e}"))
+    }
+
+    fn re<'a>(
+        &self,
+        cell: &'a Lazy<Regex>,
+        pattern: impl FnOnce() -> String,
+    ) -> Result<&'a Regex, String> {
+        lazy(cell, || self.locale.ere(&pattern()))
+    }
+
+    fn no_verify(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.no_verify, || {
+            format!(r"{}(commit|push).*--no-verify", git_cp())
+        })
+    }
+
+    fn no_verify_short(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.no_verify_short, || {
+            format!(
+                r"{}(commit|push).*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|$)",
+                git_cp()
+            )
+        })
+    }
+
+    fn commit(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.commit, || {
+            format!(r"{}commit([[:space:]]|$)", git_cp())
+        })
+    }
+
+    fn push_segment(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.push_segment, || {
+            format!(r"^git{GIT_OPTS}[[:space:]]+push([[:space:]]|$)")
+        })
+    }
+
+    fn push_force(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.push_force, || {
+            r"(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])"
+                .to_owned()
+        })
+    }
+
+    fn recursive(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.recursive, || {
+            r"(^|[[:space:]])--recursive([[:space:]]|$)".to_owned()
+        })
+    }
+
+    fn force(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.force, || {
+            r"(^|[[:space:]])--force([[:space:]]|$)".to_owned()
+        })
+    }
+
+    fn dir(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.dir, || {
+            r"(^|[[:space:]])--dir([[:space:]]|$)".to_owned()
+        })
+    }
+
+    fn git_rm_cached(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.git_rm_cached, || {
+            let git_opt = r"-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?";
+            format!(r"(^|[[:space:]])git([[:space:]]+({git_opt})*)rm([[:space:]])")
+        })
+    }
+
+    fn rm_root(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.rm_root, || {
+            let rm_home = r"~(/[^[:space:]/]*)?|/(Users|home)(/[^[:space:]/]+(/[^[:space:]/]*)?)?";
+            let rm_root = r"/\*?|/(Applications|Library|System|Volumes|bin|boot|dev|etc|lib|lib64|mnt|opt|root|sbin|srv|sys|usr|var)(/[^[:space:]/]*)?";
+            let rm_tmp = r"/private(/tmp)?|/tmp";
+            let rm_end = format!(r"/?{RM_QUOTE}([[:space:]]|$)");
+            format!(
+                r"{}{RM_QUOTE}(({rm_home}|{rm_root}|{rm_tmp}){rm_end})",
+                rm_run()
+            )
+        })
+    }
+
+    fn rm_var(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.rm_var, || {
+            format!(r"{}{RM_QUOTE}\$", rm_run_rec())
+        })
+    }
+
+    fn rm_var_post(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.rm_var_post, || {
+            format!(
+                r"(^|[[:space:]])rm[[:space:]]+({RM_ARG})*{RM_QUOTE}\$[^<>&[:space:]]*[[:space:]]+({RM_ARG})*-[a-zA-Z]*[rR][a-zA-Z]*([[:space:]]|$)"
+            )
+        })
+    }
+
+    fn no_preserve_root(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.no_preserve_root, || {
+            format!(
+                r"(^|[[:space:]])rm[[:space:]](.*[[:space:]])?{RM_QUOTE}--no-preserve-root{RM_QUOTE}([[:space:]]|$)"
+            )
+        })
+    }
+
+    fn fork_bomb(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.fork_bomb, || {
+            r":\(\)[[:space:]]*\{[[:space:]]*:\|:".to_owned()
+        })
+    }
+
+    fn block_device(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.block_device, || {
+            r"(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))".to_owned()
+        })
+    }
+
+    fn managed(&self) -> Result<&Managed, String> {
+        lazy(&self.cells.managed, || Managed::new(self.locale, false))
+    }
+
+    fn managed_pi(&self) -> Result<&Managed, String> {
+        lazy(&self.cells.managed_pi, || Managed::new(self.locale, true))
+    }
+
+    fn pi(&self) -> Result<&pi::Patterns, String> {
+        lazy(&self.cells.pi, || pi::Patterns::new(self.locale))
+    }
+
+    fn discard(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.discard, || {
+            r"^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)"
+                .to_owned()
+        })
+    }
+
+    fn trigger(&self) -> Result<&Regex, String> {
+        self.re(&self.cells.trigger, || {
+            format!(r"^git{GIT_OPTS}[[:space:]]+commit([[:space:]]|$)")
+        })
     }
 }
 
@@ -269,17 +395,17 @@ pub(super) fn evaluate(
             }
         }
     }
-    // Compiled only past the fast path: building these regexes is most of a short command's cost
-    // (~6 of ~9 ms), and a command the fast path skips never reads them. They are static, so the
-    // only error is an invalid pattern, which no input can trigger.
-    let patterns = Patterns::get(locale)?;
+    // Each pattern compiles on first use, past the fast path and only when a rule reads it:
+    // building them is most of a short command's cost. They are static, so the only error is an
+    // invalid pattern, which no input can trigger and `every_pattern_compiles` rules out.
+    let patterns = Patterns::get(locale);
     let live = inert::live(cmd, &skeleton, rules);
     let scan = inert::scan(&live, rules);
     let segments = inert::segments(&scan, rules);
     let unquoted: Vec<String> = segments.iter().map(|s| rules.remove_quotes(s)).collect();
 
     // 1. Skipping hooks/gates.
-    if any(&segments, &patterns.no_verify) || any(&unquoted, &patterns.no_verify_short) {
+    if any(&segments, patterns.no_verify()?) || any(&unquoted, patterns.no_verify_short()?) {
         return Ok(block(
             "git commit/push with --no-verify (skipping hooks/gates)",
             "no-verify",
@@ -288,8 +414,8 @@ pub(super) fn evaluate(
     }
     // 1b. The progress ratchet on a commit that does not provably land in another repository,
     // measured from the tree being committed.
-    if rendered.progress_lane == "1" && any(&segments, &patterns.commit) {
-        let facts = Facts::new(host, repo, locale, &patterns.trigger);
+    if rendered.progress_lane == "1" && any(&segments, patterns.commit()?) {
+        let facts = Facts::new(host, repo, locale, patterns.trigger()?);
         if !facts.foreign(cmd)? {
             let root = facts.worktree(cmd);
             let dir = match (root.as_str(), host.project_dir.as_str()) {
@@ -310,13 +436,14 @@ pub(super) fn evaluate(
         }
     }
     // 2. Force-push to the base branch; the three checks read the push segments as one text.
+    let push_segment = patterns.push_segment()?;
     let pushes: Vec<String> = segments
         .iter()
-        .filter(|s| patterns.push_segment.is_match(s))
+        .filter(|s| push_segment.is_match(s))
         .cloned()
         .collect();
     if !pushes.is_empty()
-        && any(&pushes, &patterns.push_force)
+        && any(&pushes, patterns.push_force()?)
         && !pushes.iter().any(|s| s.contains("force-with-lease"))
     {
         // `${base}` is spliced into the ERE. A base that is not a valid ERE makes grep fail,
@@ -337,27 +464,27 @@ pub(super) fn evaluate(
     let rm_segments: Vec<String> = segments
         .iter()
         .map(|segment| {
-            let s = patterns.recursive.replace_all(segment, "${1}-r${2}");
-            let s = patterns.force.replace_all(&s, "${1}-f${2}");
-            let s = patterns.dir.replace_all(&s, "${1}-d${2}");
-            if s.contains("--cached") {
+            let s = patterns.recursive()?.replace_all(segment, "${1}-r${2}");
+            let s = patterns.force()?.replace_all(&s, "${1}-f${2}");
+            let s = patterns.dir()?.replace_all(&s, "${1}-d${2}");
+            Ok(if s.contains("--cached") {
                 patterns
-                    .git_rm_cached
+                    .git_rm_cached()?
                     .replace_all(&s, "${1}git${2}git-rm${4}")
                     .into_owned()
             } else {
                 s.into_owned()
-            }
+            })
         })
-        .collect();
-    if any(&rm_segments, &patterns.rm_root) {
+        .collect::<Result<_, String>>()?;
+    if any(&rm_segments, patterns.rm_root()?) {
         return Ok(block(
             "recursive rm over root / home / system / scratch root",
             "rm-root",
             None,
         ));
     }
-    if any(&rm_segments, &patterns.rm_var) || any(&rm_segments, &patterns.rm_var_post) {
+    if any(&rm_segments, patterns.rm_var()?) || any(&rm_segments, patterns.rm_var_post()?) {
         return Ok(block(
             "recursive rm over a variable",
             "rm-var",
@@ -367,7 +494,7 @@ pub(super) fn evaluate(
         ));
     }
     // 3b. `--no-preserve-root` in an rm segment.
-    if any(&segments, &patterns.no_preserve_root) {
+    if any(&segments, patterns.no_preserve_root()?) {
         return Ok(block(
             "rm --no-preserve-root (disarms rm's own root protection)",
             "no-preserve-root",
@@ -376,10 +503,10 @@ pub(super) fn evaluate(
     }
     // 4-5. Fork bomb and raw block-device writes read `live`.
     let live_lines: Vec<String> = live.split('\n').map(str::to_owned).collect();
-    if any(&live_lines, &patterns.fork_bomb) {
+    if any(&live_lines, patterns.fork_bomb()?) {
         return Ok(block("fork bomb", "fork-bomb", None));
     }
-    if any(&live_lines, &patterns.block_device) {
+    if any(&live_lines, patterns.block_device()?) {
         return Ok(block(
             "direct write to a block device",
             "block-device",
@@ -389,9 +516,9 @@ pub(super) fn evaluate(
     // 6. Shell rewrites of a bare or `./`-relative managed path. `scan` keeps `>|` whole.
     let scan_lines: Vec<String> = scan.split('\n').map(str::to_owned).collect();
     let managed = if engine == Engine::Pi {
-        &patterns.managed_pi
+        patterns.managed_pi()?
     } else {
-        &patterns.managed
+        patterns.managed()?
     };
     if any(&scan_lines, &managed.redirect)
         || any(&segments, &managed.sed)
@@ -460,7 +587,7 @@ pub(super) fn evaluate(
     // 6c. The Pi arm.
     let mut ask = None;
     if engine == Engine::Pi {
-        match pi::evaluate(&segments, &scan_lines, &rendered.pi_rules, &patterns.pi) {
+        match pi::evaluate(&segments, &scan_lines, &rendered.pi_rules, patterns.pi()?) {
             pi::Verdict::Block {
                 message,
                 reason,
@@ -470,8 +597,50 @@ pub(super) fn evaluate(
         }
     }
     // 7. Whole-tree discards, decided by the target repository's state.
-    if let Some(found) = discard::evaluate(&segments, &patterns.discard, host, repo, locale) {
+    if let Some(found) = discard::evaluate(&segments, patterns.discard()?, host, repo, locale) {
         return Ok(block(found.message, found.reason, Some(found.route)));
     }
     Ok(Outcome::Allow { copy_only, ask })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Patterns compile on first use, so nothing at runtime proves they are all valid: this does.
+    #[test]
+    fn every_pattern_compiles() {
+        for locale in [Locale::Utf8, Locale::GnuUtf8, Locale::C] {
+            let p = Patterns::get(locale);
+            let regexes = [
+                p.no_verify(),
+                p.no_verify_short(),
+                p.commit(),
+                p.push_segment(),
+                p.push_force(),
+                p.recursive(),
+                p.force(),
+                p.dir(),
+                p.git_rm_cached(),
+                p.rm_root(),
+                p.rm_var(),
+                p.rm_var_post(),
+                p.no_preserve_root(),
+                p.fork_bomb(),
+                p.block_device(),
+                p.discard(),
+                p.trigger(),
+            ];
+            for (i, regex) in regexes.iter().enumerate() {
+                assert!(
+                    regex.is_ok(),
+                    "{locale:?} regex #{i}: {:?}",
+                    regex.as_ref().err()
+                );
+            }
+            assert!(p.managed().is_ok(), "{locale:?} managed");
+            assert!(p.managed_pi().is_ok(), "{locale:?} managed_pi");
+            assert!(p.pi().is_ok(), "{locale:?} pi");
+        }
+    }
 }
