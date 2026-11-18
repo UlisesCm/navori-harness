@@ -6,6 +6,7 @@ pub mod backup;
 pub(crate) mod clack;
 pub mod commands;
 pub mod delegate;
+pub mod doctor;
 pub mod dominio;
 pub mod dominio_inject;
 pub mod facts_cache;
@@ -281,6 +282,10 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["status"],
         run: status::run,
+    },
+    NativeCommand {
+        path: &["doctor"],
+        run: doctor::run,
     },
 ];
 
