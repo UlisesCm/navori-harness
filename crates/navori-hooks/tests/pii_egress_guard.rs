@@ -19,7 +19,8 @@ use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{
-    Code, EmailRead, HostProbe, Matcher, Pii, Probe, Secret, stderr as pii_stderr,
+    Code, EmailRead, HostGrep, HostProbe, Matcher, Pii, Probe, Secret, Unverifiable,
+    stderr as pii_stderr,
 };
 use serde_json::{Value, json};
 
@@ -451,6 +452,48 @@ fn invalid_utf8_and_nul_decide_as_the_script_does() -> TestResult {
         assert_eq!(status == 2, *blocks, "payload {index}");
         assert!(!contains(&actual.stderr, ID.as_bytes()), "payload {index}");
     }
+    Ok(())
+}
+
+/// A `grep` that is still running when the caller's instant arrives is killed at it: the answer
+/// is `Unverifiable` right then, not after the lane's own four-second budget.
+#[test]
+fn a_grep_still_running_at_the_deadline_is_cut_there() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    let temp = Temp::new()?;
+    // Staged by `/bin/cp`, a process of its own: a descriptor this test held open for writing
+    // would live on in a forked sibling and make the exec fail with ETXTBSY.
+    let staged = temp.0.join("grep.staged");
+    fs::write(&staged, "#!/bin/sh\nexec /bin/sleep 5\n")?;
+    let grep = temp.0.join("grep");
+    assert!(
+        Command::new("/bin/cp")
+            .arg(&staged)
+            .arg(&grep)
+            .status()?
+            .success()
+    );
+    fs::set_permissions(&grep, fs::Permissions::from_mode(0o700))?;
+    let env = environment(&[]);
+    let started = Instant::now();
+    let mut matcher =
+        HostGrep::new(Some(&grep), &temp.0, &env).until(Some(started + Duration::from_millis(300)));
+    let answer = matcher.has(ID.as_bytes(), "who is somebody");
+    let elapsed = started.elapsed();
+    assert_eq!(answer, Err(Unverifiable));
+    assert!(
+        elapsed >= Duration::from_millis(250),
+        "cut before the deadline: {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "left to its own budget: {elapsed:?}"
+    );
+    // The instant is spent: the next call fails closed without launching anything.
+    assert_eq!(matcher.has(ID.as_bytes(), "again"), Err(Unverifiable));
+    assert!(started.elapsed() < Duration::from_secs(2));
     Ok(())
 }
 
