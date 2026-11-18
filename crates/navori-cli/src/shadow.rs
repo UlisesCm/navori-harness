@@ -16,8 +16,11 @@ use std::time::{Duration, Instant};
 /// Wall-clock budget per shadow hook, anchored at the start of the hook process. A hook without
 /// an entry has no deadline. Each budget must stay below the lowest timeout the renders register
 /// for that hook, so the host never kills the process while it could still answer safely.
-pub const SHADOW_DEADLINES: &[(&str, Duration)] =
-    &[("guard-destructive", Duration::from_millis(8500))];
+pub const SHADOW_DEADLINES: &[(&str, Duration)] = &[
+    ("guard-destructive", Duration::from_millis(8500)),
+    // Native gets 3 s of it (`pii_egress_guard_hook::NATIVE_BUDGET`), the shell the rest.
+    ("pii-egress-guard", Duration::from_millis(8500)),
+];
 
 /// Absolute expiry for `hook`, counted from `start`; `None` when the hook has no deadline.
 #[must_use]

@@ -6,6 +6,7 @@ pub mod general_purpose_confirm;
 pub mod guard_destructive;
 pub mod implementer_no_markdown;
 pub mod model_advisor;
+pub mod pii_egress_guard;
 pub mod plan_gate;
 pub mod pr_publisher_confirm;
 pub mod quality_gate_pre_commit;

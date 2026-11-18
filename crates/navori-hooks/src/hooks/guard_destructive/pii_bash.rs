@@ -17,12 +17,8 @@
 //! panicking construct: a panic message could hold a slice of the command.
 #![deny(clippy::string_slice, clippy::indexing_slicing)]
 
-use std::ffi::OsString;
-use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
 
 use regex::Regex;
 
@@ -30,10 +26,8 @@ use super::tr;
 use crate::runner::Failure;
 use crate::shell::Locale;
 use crate::shell::inert::{self, Rules};
-use crate::shell::pii_egress::{
-    Code, EmailRead, HostGrep, Matcher, Secret, Unverifiable, is_local, verdict,
-};
-use crate::shell::subcommand::{self, Call, Capture, Input};
+use crate::shell::pii_egress::{Code, EmailRead, Matcher, Secret, is_local, verdict};
+pub use crate::shell::pii_egress::{HostProbe, NullProbe, Probe};
 
 /// The cheap gate of `navori_pii_bash_lane`: pure text, no process. HTTPie (`http https xh xhs`)
 /// matches only as a whole word: after the start, a blank, one of ``; & | ( ` ``, `'` or a path
@@ -225,17 +219,6 @@ pub fn is_unmeasured(failure: &Failure) -> bool {
     failure.0 == UNMEASURED
 }
 
-/// Host facts of the lane, asked only after [`gate`] matched. No implementor derives `Debug`:
-/// they hold the environment and an identifier.
-pub trait Probe {
-    /// `NAVORI_PERSONAL_IDS`, as the environment holds the bytes.
-    fn ids(&self) -> Option<&Secret>;
-    /// `$(git config user.email 2>/dev/null || true)` in the hook's directory and environment.
-    fn email(&self) -> EmailRead;
-    /// A fresh `_pii_has` for one evaluation: its time budget is per evaluation.
-    fn matcher(&self) -> Box<dyn Matcher + '_>;
-}
-
 /// What the lane decides for a command it measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
@@ -280,129 +263,4 @@ pub fn lane(
         Code::Clean => Lane::Pass,
         other => Lane::Deny(other),
     })
-}
-
-/// Wall time `git config user.email` may take, as tight as the `grep` budget of one evaluation.
-const EMAIL_BUDGET: Duration = Duration::from_secs(4);
-
-/// `$(…)` of `git config user.email`: the trailing newlines dropped, a NUL unreadable.
-fn parse_email(stdout: &[u8]) -> EmailRead {
-    let value = subcommand::substitution(stdout);
-    if value.contains(&0) {
-        EmailRead::Unreadable
-    } else if value.is_empty() {
-        EmailRead::Absent
-    } else {
-        EmailRead::Present(Secret::new(value))
-    }
-}
-
-/// `grep` behind the deadline: past `until` it is not launched.
-struct Until<'a> {
-    inner: HostGrep<'a>,
-    until: Option<Instant>,
-}
-
-impl Matcher for Until<'_> {
-    fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
-        if self.until.is_some_and(|until| Instant::now() >= until) {
-            return Err(Unverifiable);
-        }
-        self.inner.has(needle, text)
-    }
-}
-
-/// The host, as production reads it. `Debug` is written by hand and prints nothing of it.
-pub struct HostProbe<'a> {
-    /// The hook's complete environment.
-    pub env: &'a [(OsString, OsString)],
-    /// `command -v grep`, `None` when it did not resolve.
-    pub grep: Option<&'a Path>,
-    /// `command -v git`, `None` when it did not resolve (the email is then absent).
-    pub git: Option<&'a Path>,
-    /// The shell's working directory.
-    pub pwd: &'a Path,
-    /// `NAVORI_PERSONAL_IDS`.
-    pub ids: Option<&'a Secret>,
-    /// The script's deadline: past it nothing new is launched.
-    pub until: Option<Instant>,
-}
-
-impl fmt::Debug for HostProbe<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("HostProbe(<redacted>)")
-    }
-}
-
-impl Probe for HostProbe<'_> {
-    fn ids(&self) -> Option<&Secret> {
-        self.ids
-    }
-
-    /// `git config user.email` bound by the least of [`EMAIL_BUDGET`] and the time left to the
-    /// deadline; a bound that expires is unreadable (the lane denies), a git that cannot be
-    /// launched is absent, as in `read_user_email`.
-    fn email(&self) -> EmailRead {
-        let Some(git) = self.git else {
-            return EmailRead::Absent;
-        };
-        let budget = self.until.map_or(EMAIL_BUDGET, |until| {
-            EMAIL_BUDGET.min(until.saturating_duration_since(Instant::now()))
-        });
-        if budget.is_zero() {
-            return EmailRead::Unreadable;
-        }
-        let args = [OsString::from("config"), OsString::from("user.email")];
-        let env = subcommand::child_env(self.env, self.pwd.as_os_str(), None, git, &[]);
-        let Ok(done) = subcommand::run(&Call {
-            program: git,
-            args: &args,
-            cwd: self.pwd,
-            env: &env,
-            input: Input::Null,
-            capture: Capture::Separate,
-            timeout: Some(budget),
-        }) else {
-            return EmailRead::Absent;
-        };
-        if done.timed_out {
-            return EmailRead::Unreadable;
-        }
-        parse_email(&done.stdout)
-    }
-
-    fn matcher(&self) -> Box<dyn Matcher + '_> {
-        Box::new(Until {
-            inner: HostGrep::new(self.grep, self.pwd, self.env),
-            until: self.until,
-        })
-    }
-}
-
-/// A matcher that cannot answer.
-struct Refuse;
-
-impl Matcher for Refuse {
-    fn has(&mut self, _: &[u8], _: &str) -> Result<bool, Unverifiable> {
-        Err(Unverifiable)
-    }
-}
-
-/// A host with no identifiers, no email and no `grep`: for callers that only exercise the other
-/// rules.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NullProbe;
-
-impl Probe for NullProbe {
-    fn ids(&self) -> Option<&Secret> {
-        None
-    }
-
-    fn email(&self) -> EmailRead {
-        EmailRead::Absent
-    }
-
-    fn matcher(&self) -> Box<dyn Matcher + '_> {
-        Box::new(Refuse)
-    }
 }

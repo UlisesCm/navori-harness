@@ -35,11 +35,12 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::os::unix::ffi::OsStringExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::Locale;
+use super::prepare;
 use super::subcommand::{self, Call, Capture, Input};
 
 /// Total wall time the `grep` calls of one evaluation of the lane may take. The shell has no
@@ -163,6 +164,7 @@ pub struct HostGrep<'a> {
     cwd: &'a Path,
     env: &'a [(OsString, OsString)],
     budget: Duration,
+    until: Option<Instant>,
 }
 
 impl<'a> HostGrep<'a> {
@@ -175,14 +177,27 @@ impl<'a> HostGrep<'a> {
             cwd,
             env,
             budget: GREP_BUDGET,
+            until: None,
         }
+    }
+
+    /// Also bound every call by the time left to `until`: a `grep` already running when the
+    /// instant arrives is killed at it (fail closed), not left to its own budget.
+    #[must_use]
+    pub fn until(mut self, until: Option<Instant>) -> Self {
+        self.until = until;
+        self
     }
 }
 
 impl Matcher for HostGrep<'_> {
     fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
         let program = self.program.ok_or(Unverifiable)?;
-        if self.budget.is_zero() {
+        let timeout = self.until.map_or(self.budget, |until| {
+            self.budget
+                .min(until.saturating_duration_since(Instant::now()))
+        });
+        if timeout.is_zero() {
             return Err(Unverifiable);
         }
         let mut stdin = Vec::with_capacity(text.len() + 1);
@@ -202,7 +217,7 @@ impl Matcher for HostGrep<'_> {
             env: &env,
             input: Input::Bytes(&stdin),
             capture: Capture::Discard,
-            timeout: Some(self.budget),
+            timeout: Some(timeout),
         });
         self.budget = self.budget.saturating_sub(started.elapsed());
         match finished {
@@ -409,4 +424,182 @@ pub fn is_local(host: &str) -> bool {
                     _ => matches!(second, Some('0' | '1')),
                 }
         })
+}
+
+// --- Host probe, shared by the Bash lane of guard-destructive and pii-egress-guard. ---
+
+/// Host facts of the lane, asked only after [`gate`] matched. No implementor derives `Debug`:
+/// they hold the environment and an identifier.
+pub trait Probe {
+    /// `NAVORI_PERSONAL_IDS`, as the environment holds the bytes.
+    fn ids(&self) -> Option<&Secret>;
+    /// `$(git config user.email 2>/dev/null || true)` in the hook's directory and environment.
+    fn email(&self) -> EmailRead;
+    /// A fresh `_pii_has` for one evaluation: its time budget is per evaluation.
+    fn matcher(&self) -> Box<dyn Matcher + '_>;
+}
+
+/// Wall time `git config user.email` may take, as tight as the `grep` budget of one evaluation.
+const EMAIL_BUDGET: Duration = Duration::from_secs(4);
+
+/// `$(…)` of `git config user.email`: the trailing newlines dropped, a NUL unreadable.
+fn parse_email(stdout: &[u8]) -> EmailRead {
+    let value = subcommand::substitution(stdout);
+    if value.contains(&0) {
+        EmailRead::Unreadable
+    } else if value.is_empty() {
+        EmailRead::Absent
+    } else {
+        EmailRead::Present(Secret::new(value))
+    }
+}
+
+/// `grep` behind the deadline: past `until` it is not launched.
+struct Until<'a> {
+    inner: HostGrep<'a>,
+    until: Option<Instant>,
+}
+
+impl Matcher for Until<'_> {
+    fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
+        if self.until.is_some_and(|until| Instant::now() >= until) {
+            return Err(Unverifiable);
+        }
+        self.inner.has(needle, text)
+    }
+}
+
+/// The host, as production reads it. `Debug` is written by hand and prints nothing of it.
+pub struct HostProbe<'a> {
+    /// The hook's complete environment.
+    pub env: &'a [(OsString, OsString)],
+    /// `command -v grep`, `None` when it did not resolve.
+    pub grep: Option<&'a Path>,
+    /// `command -v git`, `None` when it did not resolve (the email is then absent).
+    pub git: Option<&'a Path>,
+    /// The shell's working directory.
+    pub pwd: &'a Path,
+    /// `NAVORI_PERSONAL_IDS`.
+    pub ids: Option<&'a Secret>,
+    /// The script's deadline: past it nothing new is launched.
+    pub until: Option<Instant>,
+}
+
+impl fmt::Debug for HostProbe<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("HostProbe(<redacted>)")
+    }
+}
+
+impl Probe for HostProbe<'_> {
+    fn ids(&self) -> Option<&Secret> {
+        self.ids
+    }
+
+    /// `git config user.email` bound by the least of [`EMAIL_BUDGET`] and the time left to the
+    /// deadline; a bound that expires is unreadable (the lane denies), a git that cannot be
+    /// launched is absent, as in `read_user_email`.
+    fn email(&self) -> EmailRead {
+        let Some(git) = self.git else {
+            return EmailRead::Absent;
+        };
+        let budget = self.until.map_or(EMAIL_BUDGET, |until| {
+            EMAIL_BUDGET.min(until.saturating_duration_since(Instant::now()))
+        });
+        if budget.is_zero() {
+            return EmailRead::Unreadable;
+        }
+        let args = [OsString::from("config"), OsString::from("user.email")];
+        let env = subcommand::child_env(self.env, self.pwd.as_os_str(), None, git, &[]);
+        let Ok(done) = subcommand::run(&Call {
+            program: git,
+            args: &args,
+            cwd: self.pwd,
+            env: &env,
+            input: Input::Null,
+            capture: Capture::Separate,
+            timeout: Some(budget),
+        }) else {
+            return EmailRead::Absent;
+        };
+        if done.timed_out {
+            return EmailRead::Unreadable;
+        }
+        parse_email(&done.stdout)
+    }
+
+    fn matcher(&self) -> Box<dyn Matcher + '_> {
+        Box::new(Until {
+            inner: HostGrep::new(self.grep, self.pwd, self.env).until(self.until),
+            until: self.until,
+        })
+    }
+}
+
+/// A matcher that cannot answer.
+struct Refuse;
+
+impl Matcher for Refuse {
+    fn has(&mut self, _: &[u8], _: &str) -> Result<bool, Unverifiable> {
+        Err(Unverifiable)
+    }
+}
+
+/// A host with no identifiers, no email and no `grep`: for callers that only exercise the other
+/// rules.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NullProbe;
+
+impl Probe for NullProbe {
+    fn ids(&self) -> Option<&Secret> {
+        None
+    }
+
+    fn email(&self) -> EmailRead {
+        EmailRead::Absent
+    }
+
+    fn matcher(&self) -> Box<dyn Matcher + '_> {
+        Box::new(Refuse)
+    }
+}
+
+/// The host facts of the PII-egress lane, fixed before stdin. `Debug` is written by hand and
+/// prints nothing: `env` is the whole environment and `ids` an identifier.
+#[derive(Clone, Default)]
+pub struct Pii<'a> {
+    /// The hook's complete environment (the `grep` and `git` calls run in it).
+    pub env: &'a [(OsString, OsString)],
+    /// `command -v grep`.
+    pub grep: Option<PathBuf>,
+    /// `command -v git`.
+    pub git: Option<PathBuf>,
+    /// `NAVORI_PERSONAL_IDS`, as raw bytes.
+    pub ids: Option<Secret>,
+}
+
+impl<'a> Pii<'a> {
+    /// Read `NAVORI_PERSONAL_IDS` from `env` as raw bytes: a value that is not UTF-8 is still an
+    /// identifier. `grep` and `git` are the resolved programs.
+    #[must_use]
+    pub fn from_env(
+        env: &'a [(OsString, OsString)],
+        grep: Option<PathBuf>,
+        git: Option<PathBuf>,
+    ) -> Self {
+        let ids = prepare::env_value(env, "NAVORI_PERSONAL_IDS")
+            .map(|value| Secret::new(value.as_encoded_bytes()));
+        Self {
+            env,
+            grep,
+            git,
+            ids,
+        }
+    }
+}
+
+impl fmt::Debug for Pii<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Pii(<redacted>)")
+    }
 }

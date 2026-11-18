@@ -192,10 +192,13 @@ fn codex_timeout(hook: &str) -> Result<Option<u32>, Box<dyn Error>> {
 
 // Covers: A3
 #[test]
-fn deadline_table_is_guard_destructive_only_and_below_every_render_timeout() -> TestResult {
+fn deadline_table_is_below_every_render_timeout() -> TestResult {
     let ids: Vec<&str> = SHADOW_DEADLINES.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, ["guard-destructive"]);
+    assert_eq!(ids, ["guard-destructive", "pii-egress-guard"]);
     assert_eq!(SHADOW_DEADLINES[0].1, Duration::from_millis(8500));
+    // pii-egress-guard is Claude-only: its one registered timeout is the bound.
+    let pii = claude_timeout("pii-egress-guard")?.ok_or("claude registers no pii timeout")?;
+    assert!(SHADOW_DEADLINES[1].1.as_secs_f64() < pii);
     let claude = claude_timeout("guard-destructive")?.ok_or("claude registers no timeout")?;
     let codex = codex_timeout("guard-destructive")?.ok_or("codex registers no timeout")?;
     let config = js_json::parse("{}").ok_or("config")?;
@@ -205,7 +208,7 @@ fn deadline_table_is_guard_destructive_only_and_below_every_render_timeout() -> 
         .map(|binding| binding.timeout_ms)
         .min()
         .ok_or("pi binds no guard-destructive")?;
-    for (id, budget) in SHADOW_DEADLINES {
+    for (id, budget) in SHADOW_DEADLINES.iter().take(1) {
         let lowest = claude.min(f64::from(codex)).min(f64::from(pi_ms) / 1000.0);
         assert!(
             budget.as_secs_f64() < lowest,
