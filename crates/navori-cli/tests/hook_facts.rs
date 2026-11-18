@@ -42,6 +42,20 @@ impl Drop for Temp {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(staging: &Path, path: &Path, body: &str) -> TestResult {
+    let staged = staging.join("executable.staged");
+    fs::write(&staged, body)?;
+    let status = Command::new("/bin/cp").arg(&staged).arg(path).status()?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
 fn env() -> Vec<(OsString, OsString)> {
     vec![
         ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
@@ -125,9 +139,7 @@ fn hangs_output_floods_and_descendant_held_outputs_are_bounded() -> TestResult {
         let temp = Temp::new()?;
         let bin = temp.0.join("bin");
         fs::create_dir(&bin)?;
-        let bash = bin.join("bash");
-        fs::write(&bash, format!("#!/bin/sh\n{body}\n"))?;
-        fs::set_permissions(&bash, fs::Permissions::from_mode(0o700))?;
+        install_executable(&temp.0, &bin.join("bash"), &format!("#!/bin/sh\n{body}\n"))?;
         let env = vec![
             ("PATH".into(), bin.into_os_string()),
             ("LC_ALL".into(), "C".into()),
