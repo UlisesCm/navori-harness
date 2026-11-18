@@ -78,8 +78,12 @@ export const AREAS = {
  * (its exact path: a child is not covered); with `flags`, only those flags of a subcommand the
  * manifest declares. `subtree: true` covers the path and every subcommand under it (compared by
  * whole segments, so `master` does not cover `masterx`); it cannot be combined with `flags`.
+ * `unless` records a runtime delegation of a subcommand the manifest declares: it delegates only
+ * when none of those flags is present (e.g. `restore` without `--yes` asks with clack's prompt).
+ * Such an entry excuses nothing in `cutover:check` (the subcommand and its flags stay declared) and
+ * cannot be combined with `flags` or `subtree`.
  * Entries arrive by PR and the cross review validates them (F46).
- * @typedef {{ path: string[], flags?: string[], subtree?: boolean, reason: string }} Delegation
+ * @typedef {{ path: string[], flags?: string[], subtree?: boolean, unless?: string[], reason: string }} Delegation
  */
 
 /**
@@ -87,11 +91,16 @@ export const AREAS = {
  * @param {ReadonlyArray<Delegation>} list
  */
 export function validateDelegation(list) {
-  for (const entry of list)
+  for (const entry of list) {
     if (entry.subtree === true && entry.flags !== undefined)
       throw new Error(
         `PERMANENT_DELEGATION entry "${entry.path.join(" ")}" sets subtree and flags: a subtree covers every flag, drop one of them`,
       );
+    if (entry.unless !== undefined && (entry.flags !== undefined || entry.subtree === true))
+      throw new Error(
+        `PERMANENT_DELEGATION entry "${entry.path.join(" ")}" sets unless with flags or subtree: a runtime delegation only names the flags that keep it native`,
+      );
+  }
 }
 
 /** @type {ReadonlyArray<Delegation>} */
@@ -106,6 +115,18 @@ export const PERMANENT_DELEGATION = [
     flags: ["json"],
     reason:
       "el JSON de doctor incluye datos de origen del entrypoint de Node (invokedCli, entrypointSha256, host.node/host.bun) que el binario no puede reproducir sin falsearlos; --json se queda en TS por decisión de Ulises (17 nov)",
+  },
+  {
+    path: ["backup", "restore"],
+    unless: ["yes"],
+    reason:
+      "prompt interactivo de clack: sin --yes el TS confirma con p.confirm; con --yes es nativo (T24, decisión de Ulises del 18 nov, #262)",
+  },
+  {
+    path: ["migrations", "restore"],
+    unless: ["yes"],
+    reason:
+      "prompt interactivo de clack: sin --yes el TS confirma con p.confirm; con --yes es nativo (T24, decisión de Ulises del 18 nov, #262)",
   },
 ];
 validateDelegation(PERMANENT_DELEGATION);
@@ -157,7 +178,8 @@ export function permanentShellHook(id, list = PERMANENT_SHELL_HOOKS) {
 }
 
 /**
- * Whether `PERMANENT_DELEGATION` (or `list`) covers a subcommand, or one of its flags.
+ * Whether `PERMANENT_DELEGATION` (or `list`) covers a subcommand, or one of its flags. An
+ * `unless` entry never covers anything: it only records a runtime delegation.
  * @param {string[]} path
  * @param {string} [flag]
  * @param {ReadonlyArray<Delegation>} [list]
@@ -167,6 +189,7 @@ export function permanentlyDelegated(path, flag, list = PERMANENT_DELEGATION) {
   const key = path.join(" ");
   return list.some(
     (entry) =>
+      entry.unless === undefined &&
       (entry.subtree === true
         ? entry.path.length <= path.length && entry.path.every((segment, i) => path[i] === segment)
         : entry.path.join(" ") === key) &&
