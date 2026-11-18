@@ -464,6 +464,29 @@ fn master_and_its_subcommands_delegate_to_the_ts() -> TestResult {
     Ok(())
 }
 
+// Covers: R20
+/// `codex`, `workspace`, `ticket` and `registry` stay in the TS for good (#1503): neither the
+/// group nor any subcommand is selected, and none of them has a native implementation.
+#[test]
+fn frozen_e3_groups_and_their_subcommands_delegate_to_the_ts() -> TestResult {
+    let embedded = Manifest::embedded()?;
+    for group in ["codex", "workspace", "ticket", "registry"] {
+        for path in [vec![group], vec![group, "ls"], vec![group, "nope"]] {
+            assert!(
+                dispatch(&embedded, &invocation(&path, &[])).is_none(),
+                "{path:?} must delegate to the TS"
+            );
+        }
+        assert!(
+            NATIVE
+                .iter()
+                .all(|native| native.path.first() != Some(&group)),
+            "{group} must not have a native implementation"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn unlisted_commands_reach_the_ts_cli_not_a_native_stub() -> TestResult {
     let dir = scratch("unlisted")?;

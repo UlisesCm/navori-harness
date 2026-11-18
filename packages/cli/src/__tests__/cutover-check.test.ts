@@ -281,12 +281,21 @@ describe("cutover-check (spec 0062 T8)", () => {
   });
 
   // Covers: R20
-  it("la lista de delegación permanente declara master como subárbol y cada entrada lleva motivo", () => {
+  it("la lista de delegación permanente declara master y los grupos congelados de E3 como subárboles y cada entrada lleva motivo", () => {
     for (const entry of areas.PERMANENT_DELEGATION) expect(entry.reason.trim()).not.toBe("");
-    expect(areas.PERMANENT_DELEGATION.map((e) => e.path.join(" "))).toEqual(["master"]);
-    expect(areas.PERMANENT_DELEGATION[0]?.subtree).toBe(true);
+    expect(areas.PERMANENT_DELEGATION.map((e) => e.path.join(" "))).toEqual([
+      "master",
+      "codex",
+      "workspace",
+      "ticket",
+      "registry",
+    ]);
+    for (const entry of areas.PERMANENT_DELEGATION) expect(entry.subtree).toBe(true);
     expect(() => areas.validateDelegation(areas.PERMANENT_DELEGATION)).not.toThrow();
-    // the real list covers master and any subcommand of it, and nothing else
+    // the real list covers those groups and any subcommand of them, and nothing else
+    expect(areas.permanentlyDelegated(["registry", "ls"])).toBe(true);
+    expect(areas.permanentlyDelegated(["codex", "trust"], "yes")).toBe(true);
+    expect(areas.permanentlyDelegated(["doctor"])).toBe(false);
     expect(areas.permanentlyDelegated(["master"])).toBe(true);
     expect(areas.permanentlyDelegated(["master", "close"])).toBe(true);
     expect(areas.permanentlyDelegated(["master", "inventado"])).toBe(true);

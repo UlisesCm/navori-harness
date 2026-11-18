@@ -97,6 +97,10 @@ export function validateDelegation(list) {
 /** @type {ReadonlyArray<Delegation>} */
 export const PERMANENT_DELEGATION = [
   { path: ["master"], subtree: true, reason: "master plan v2 vive en TS por diseño (#1503, 0063)" },
+  { path: ["codex"], subtree: true, reason: "Codex queda en TS por delegación y no bloquea el corte (#1503)" },
+  { path: ["workspace"], subtree: true, reason: "workspace congelado en TS (#1503)" },
+  { path: ["ticket"], subtree: true, reason: "ticket congelado en TS (#1503)" },
+  { path: ["registry"], subtree: true, reason: "registry congelado en TS; su port de #1473 no entra (#1503)" },
 ];
 validateDelegation(PERMANENT_DELEGATION);
 
