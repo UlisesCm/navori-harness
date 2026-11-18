@@ -840,7 +840,7 @@ Nothing blocks on it; a ceiling belongs in an explicit deterministic cap, not he
 - ❌ Do not attempt `--force` pushes to `main` or another protected branch; `guard-destructive` blocks them.
 - ❌ Do not attempt `--no-verify` unless the user explicitly asks; `guard-destructive` blocks it.
 - ❌ Never ask for a merge or approve the PR yourself. Your job ends with the URL.
-- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English), except the `Closes #<N>` keyword.
+- ✅ Commit and PR text follow `conventional-es` (`conventional-es` = neutral Spanish, `conventional` = English), except the `Closes #<N>` keyword.
 - ✅ A new pattern or non-obvious decision missing from `impl_<feature>.md` goes in a "Decisions" section of the body.
 - ❌ More than 25 unrelated files in `--stat` → flag it and ask before one mixed PR. Never `gh pr create --web`.
 
@@ -4457,7 +4457,14 @@ navori_audit_reason=""
 navori_pi_ask=""
 navori_audit_on_exit() {
   navori_audit_code=$?
-  [ -z "${nv_watch:-}" ] || kill "$nv_watch" 2>/dev/null || true
+  # KILL, then reap right here: bash 5.2 can report a background child that ends while a later
+  # command substitution waits (`wait_for: No record of process N`), on the stderr of a call it
+  # approved (#1708). Reaping it now leaves no such child; KILL cannot be lost like the TERM of a
+  # watchdog that has not installed its trap yet, so the wait never hangs.
+  if [ -n "${nv_watch:-}" ]; then
+    kill -KILL "$nv_watch" 2>/dev/null || true
+    wait "$nv_watch" 2>/dev/null || true
+  fi
   # A command every block rule let through but an `ask` rule matched is answered here, after the
   # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
   # backslashes and control characters are dropped so the JSON below needs no escaping step.
@@ -4489,10 +4496,11 @@ fi
 # The watchdog is a separate `$BASH -c` process (not a subshell: bash 3.2 has no $BASHPID),
 # detached from stdin/stdout/stderr so the host never waits for it. A `sleep` that cannot run
 # (a stripped PATH) disarms the watchdog instead of firing at once: the rules still evaluate.
-# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which reaps it; what
-# runs before this point is the linear payload extraction. The TERM from that trap can be lost
-# when this shell exits within milliseconds of the launch (measured on bash 3.2), so the
-# watchdog also sleeps in 1s steps and leaves as soon as this shell is gone. At the deadline it
+# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which kills it with
+# KILL and reaps it; what runs before this point is the linear payload extraction. A TERM could
+# be lost when this shell exits within milliseconds of the launch (measured on bash 3.2), which
+# is why the trap sends KILL; the watchdog still sleeps in 1s steps and leaves as soon as this
+# shell is gone, and its last `sleep 1` outlives it by at most a second. At the deadline it
 # checks that its parent is still this shell (without `ps` it cannot tell, and signals anyway:
 # fail closed).
 nv_deadline=8
@@ -16995,11 +17003,11 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 <!-- navori:managed id="idioma-rol" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Idioma y rol
 
-- Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
+- Código y comentarios (JSDoc/docstrings): inglés. Chat: español neutro, profesional y sencillo, sin modismos ni coloquialismos.
 - Rol Tech Lead Senior. Antes de codear: ¿lo más simple? ¿legible en 6 meses? ¿mantiene patrón existente? Simplicidad > cleverness.
 - **Alcance de persona**: idioma y tono de esta sección rigen solo la respuesta directa al usuario (chat). No rigen artefactos generados (código, identificadores, comentarios, commits, título/descripción de PR, docs).
 - Default de artefactos: código e identificadores en inglés. Copy de UI, PRs y docs siguen el idioma del proyecto —el que declare su config, y si no declara ninguno, el que ya usen sus docs y su historial—, no el idioma del chat.
-- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
+- Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones) en artefactos.
 <!-- /navori:managed id="idioma-rol" -->
 
 <!-- navori:managed id="formato-respuesta" hash="<HASH>" version="<VERSION>" source="@navori/core" -->

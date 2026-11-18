@@ -133,7 +133,7 @@ The whole model revolves around markers in generated files. Regeneration is idem
 ```text
 <!-- navori:managed id="idioma-rol" hash="a1b2c3" version="0.0.1" source="@navori/core" -->
 ## Idioma y rol
-- Código inglés. Chat español MX.            <- zona MANAGED (navori la regenera)
+- Código inglés. Chat español neutro.        <- zona MANAGED (navori la regenera)
 <!-- /navori:managed id="idioma-rol" -->
 
 ## Mis notas del proyecto                      <- zona USUARIO (navori nunca toca)
