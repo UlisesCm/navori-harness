@@ -67,7 +67,7 @@ fn run_args(args: &[OsString]) -> Option<ExitCode> {
 /// `wrapAnsi(text, columns, { hard: true, trim: false })` for plain text: words split on spaces,
 /// a space kept at the end of the row it ends. `None` for a word wider than `columns` (the hard
 /// break is not ported) or one Rust cannot measure.
-fn wrap(text: &str, columns: usize) -> Option<String> {
+pub(crate) fn wrap(text: &str, columns: usize) -> Option<String> {
     let mut out = Vec::new();
     for line in text.split('\n') {
         let mut rows = vec![String::new()];
@@ -98,7 +98,7 @@ fn wrap(text: &str, columns: usize) -> Option<String> {
 }
 
 /// `kv(rows)`: keys padded to the widest, `  key : value`.
-fn kv(rows: &[(&str, String)]) -> String {
+pub(crate) fn kv(rows: &[(&str, String)]) -> String {
     let width = rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     rows.iter()
         .map(|(k, v)| format!("  {k:<width$} : {v}"))
