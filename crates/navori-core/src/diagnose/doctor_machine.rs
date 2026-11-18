@@ -79,7 +79,7 @@ impl Host<'_> {
     }
 
     /// `process.env[name]`; a value that is not UTF-8 is [`Unmodeled`].
-    fn var(&self, name: &str) -> Result<Option<&str>, Unmodeled> {
+    pub(crate) fn var(&self, name: &str) -> Result<Option<&str>, Unmodeled> {
         self.env
             .iter()
             .rev()
@@ -89,12 +89,12 @@ impl Host<'_> {
     }
 
     /// `process.cwd()` as text.
-    fn cwd_text(&self) -> Result<&str, Unmodeled> {
+    pub(crate) fn cwd_text(&self) -> Result<&str, Unmodeled> {
         self.process_cwd.to_str().ok_or(Unmodeled)
     }
 
     /// `safeHomedir()`: `Ok(None)` where it throws (a relative `HOME`).
-    fn home(&self) -> Result<Option<String>, Unmodeled> {
+    pub(crate) fn home(&self) -> Result<Option<String>, Unmodeled> {
         match registry::home(self.env) {
             Ok(home) => home
                 .into_os_string()
@@ -122,7 +122,7 @@ const fn unmodeled(_: Stop) -> Unmodeled {
 }
 
 /// `value[key]` on a plain object.
-fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
+pub(crate) fn get<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     match value {
         JsValue::Object(object) => object.get(key),
         _ => None,
@@ -142,7 +142,7 @@ fn truthy(value: Option<&JsValue>) -> bool {
 
 /// A string-typed field: absent, `undefined` and `null` are `None`, any other type is
 /// [`Unmodeled`].
-fn text(value: Option<&JsValue>) -> Result<Option<String>, Unmodeled> {
+pub(crate) fn text(value: Option<&JsValue>) -> Result<Option<String>, Unmodeled> {
     match value {
         None | Some(JsValue::Undefined | JsValue::Null) => Ok(None),
         Some(JsValue::String(text)) => text.to_rust().map(Some).ok_or(Unmodeled),
@@ -151,7 +151,7 @@ fn text(value: Option<&JsValue>) -> Result<Option<String>, Unmodeled> {
 }
 
 /// An array of strings; absent is empty, anything else is [`Unmodeled`].
-fn texts(value: Option<&JsValue>) -> Result<Vec<String>, Unmodeled> {
+pub(crate) fn texts(value: Option<&JsValue>) -> Result<Vec<String>, Unmodeled> {
     match value {
         None | Some(JsValue::Undefined | JsValue::Null) => Ok(Vec::new()),
         Some(JsValue::Array(items)) => items
@@ -163,12 +163,12 @@ fn texts(value: Option<&JsValue>) -> Result<Vec<String>, Unmodeled> {
 }
 
 /// Array `.sort()` with no comparator: UTF-16 code-unit order.
-fn js_sort(items: &mut [String]) {
+pub(crate) fn js_sort(items: &mut [String]) {
     items.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
 }
 
 /// `path.join(base, name)` for an absolute, normalized `base`.
-fn join_text(base: &str, name: &str) -> String {
+pub(crate) fn join_text(base: &str, name: &str) -> String {
     if base.ends_with('/') {
         format!("{base}{name}")
     } else {
@@ -793,7 +793,7 @@ pub struct GlobalClaudeMdIssue {
 pub const GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS: usize = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 4;
 
 /// `claudeUserDir()`: `Ok(None)` where it throws.
-fn claude_user_dir(host: &Host<'_>) -> Result<Option<String>, Unmodeled> {
+pub(crate) fn claude_user_dir(host: &Host<'_>) -> Result<Option<String>, Unmodeled> {
     if let Some(dir) = host.var("CLAUDE_CONFIG_DIR")? {
         let trimmed = dir.trim_matches(is_js_whitespace);
         if !trimmed.is_empty() {
