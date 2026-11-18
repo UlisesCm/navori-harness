@@ -181,3 +181,31 @@ Queda pendiente y no bloquea 0.13. Mientras no se mida en un Mac real, esos host
 Para medirlo hace falta un Mac con `/usr/bin/grep` (BSD) y `/bin/bash` 3.2. Se corren el generador de la tabla de
 plegado de 1b (#1667), adaptado a BSD grep, y la sonda `exec 2>&1; : < /dev/null/navori-probe`, y se compara el
 resultado con la tabla y el texto de Linux.
+
+## Cambios de TS hechos en `migration/rust` que `dev` no tiene
+
+**Base comparada:** `migration/rust` en `e8e20fd0` (#1716) contra `dev` en `3da262da`, el último punto de `dev`
+sincronizado en la rama. Es el código de producto de `packages/`, sin pruebas ni goldens. Estos cambios llegan a
+`dev` con el corte, no por un sync. Hasta entonces, un arreglo equivalente en `dev` choca con ellos.
+
+**Corrección que no depende de Rust**, y conviene llevarla antes si `dev` publica una versión antes del corte:
+
+| PR | Qué cambió en el TS | Archivo | Efecto visible |
+| -- | -- | -- | -- |
+| #1718 (#1712) | `du` de `doctor` corre con un plazo de 30 s (`DU_TIMEOUT_MS`). Si se pasa, el directorio cuenta como no medido | `packages/cli/src/lib/diagnose/disk-usage.ts` | Un sistema de archivos colgado (un montaje de red muerto) ya no cuelga `doctor`. El aviso de disco se omite y no se informa nada más |
+
+**Infraestructura de convivencia con Rust.** No cambia la salida mientras el binario nativo no esté instalado,
+y no tiene sentido llevarla sola a `dev`:
+
+| PR | Qué agrega | Archivos |
+| -- | -- | -- |
+| #1391, #1432, #1438, #1452, #1454 | Firma `navori:native-hook` y envoltorio `native-runtime` de los hooks portados, en el render de Claude, Codex y Pi | `lib/render/native-hook.ts`, `lib/render/native-hook-render.ts`, `engines/{claude,codex,pi}/index.ts`, `engines/claude/build-settings.ts`, `engines/shared/execute-plan.ts` (`renderVars`) |
+| #1452, #1633 | `render --prune` y la detección de texto del usuario ignoran la firma nativa | `lib/render/removable.ts` |
+| #1405, #1406, #1669 | Journal y reporte de la sombra, y `navori tools rust-shadow` | `lib/rust-shadow/{command,journal,journal.schema,report}.ts`, `commands/tools.ts` |
+
+## Diferido para después de 0.13: `du` "no medido" en `doctor`
+
+Hoy un `du` que falla o pasa el plazo de 30 s se omite sin avisar. Para el usuario es igual que un directorio
+dentro del umbral. La mejora es que `doctor` diga que no pudo medirlo. Cambia el texto y el `--json` de
+`doctor` en el TS y en Rust a la vez (`scanDiskUsage` y `doctor_machine.rs`), así que espera a que pase 0.13 para
+no mover la paridad del oráculo durante el corte.
