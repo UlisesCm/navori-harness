@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 #[path = "support/codex_render.rs"]
 mod codex_render;
 
+use navori_hooks::hooks::guard_destructive::pii_bash::NullProbe;
 use navori_hooks::hooks::guard_destructive::{Rendered, ask_answer, decide};
 use navori_hooks::runner::Engine;
 use navori_hooks::shell::Locale;
@@ -218,7 +219,7 @@ fn compare(
     let mut mismatches = Vec::new();
     for &(lc_all, locale) in locales {
         for cmd in commands {
-            let decision = decide(cmd, &rendered, engine, &host, &System, locale)?;
+            let decision = decide(cmd, &rendered, engine, &host, &System, locale, &NullProbe)?;
             let want = Run {
                 status: decision.status,
                 stdout: decision.stdout.clone(),

@@ -1,6 +1,7 @@
 //! Pure text rules of guard-destructive.sh (spec 0057 T28, first increment).
 //!
 //! Ported so far, in the shell's order: empty command, the byte/line/heredoc ceilings, the
+//! PII-egress Bash lane ([`pii_bash`], behind a [`pii_bash::Probe`] for the host facts), the
 //! no-rule-token fast path and rules 1 (skip-verify), 1b (the progress ratchet on a commit, with
 //! its landing and worktree resolution), 2 (force-push to base), 3 (recursive rm
 //! over root/home/system/scratch root or a variable), 3b (`--no-preserve-root`), 4 (fork bomb),
@@ -11,6 +12,14 @@
 //! [`Repo`] ([`crate::shell::repo::System`] is the one adapter that runs `git`). The partials
 //! this script shares with other hooks (`hook-input`, `resolve-worktree`, `progress-ratchet`)
 //! live in [`crate::shell`].
+//!
+//! The PII lane is measured only under the glibc locales. Under `Locale::Utf8` (macOS, bash 3.2)
+//! a command that passes its gate is `Err(`[`pii_bash::UNMEASURED`]`)`: in shadow the CLI maps
+//! it to `runner::unobserved()`, and outside shadow it is a fail-closed `safe_failure` (`ask` on
+//! Claude, exit 2 on Codex and Pi), which is stricter than the shell. Promoting guard-destructive
+//! to `active` on macOS therefore requires deferring the hook to the shell in `prepare` (as
+//! before stdin) or making `pii_bash::eligible(Locale::Utf8)` true after measuring it. In
+//! shadow it also hides every rule for those commands, not only the PII one.
 
 pub mod copy_dest;
 mod discard;
@@ -28,6 +37,7 @@ pub use rendered::Rendered;
 use crate::runner::Engine;
 use crate::shell::Locale;
 use crate::shell::hook_input::Host;
+use crate::shell::pii_egress::{self, Code};
 use crate::shell::repo::Repo;
 
 /// What the ported rules decide for one command.
@@ -63,6 +73,12 @@ pub enum Outcome {
         /// The lane's two lines.
         stderr: String,
     },
+    /// The PII-egress lane blocked the request: exit 2, audit reason `pii-egress`, and the
+    /// lane's own stderr (never the command). `code` is never `Clean`.
+    PiiEgress {
+        /// Why it blocked.
+        code: Code,
+    },
 }
 
 /// Command lengths as the shell counts them: characters, or bytes under `LC_ALL=C`.
@@ -86,8 +102,9 @@ pub fn evaluate(
     host: &Host,
     repo: &dyn Repo,
     locale: Locale,
+    probe: &dyn pii_bash::Probe,
 ) -> Result<Outcome, String> {
-    rules::evaluate(cmd, rendered, engine, host, repo, locale)
+    rules::evaluate(cmd, rendered, engine, host, repo, locale, probe)
 }
 
 /// The whole script's answer: what the host sees and what the exit trap records.
@@ -118,6 +135,7 @@ pub fn decide(
     host: &Host,
     repo: &dyn Repo,
     locale: Locale,
+    probe: &dyn pii_bash::Probe,
 ) -> Result<Decision, String> {
     let blocked = |stderr: Vec<u8>, reason: &str| Decision {
         status: 2,
@@ -126,7 +144,17 @@ pub fn decide(
         verdict: "block",
         reason: reason.to_owned(),
     };
-    let (copy_only, ask) = match evaluate(cmd, rendered, engine, host, repo, locale)? {
+    let (copy_only, ask) = match evaluate(cmd, rendered, engine, host, repo, locale, probe)? {
+        // Its own stderr: the lane never prints the command, so it skips `block_stderr`.
+        Outcome::PiiEgress { code } => {
+            return Ok(Decision {
+                status: 2,
+                stdout: String::new(),
+                stderr: pii_egress::stderr(code).as_bytes().to_vec(),
+                verdict: "block",
+                reason: "pii-egress".to_owned(),
+            });
+        }
         Outcome::Block {
             message,
             reason,

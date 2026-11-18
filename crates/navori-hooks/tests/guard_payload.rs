@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 mod support;
 
 use navori_hooks::hooks::guard_destructive::Rendered;
-use navori_hooks::hooks::guard_destructive::entry::{self, Context};
+use navori_hooks::hooks::guard_destructive::entry::{self, Context, Pii};
 use navori_hooks::runner::{Engine, Verdict};
 use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::CaptureContext;
@@ -240,6 +240,7 @@ fn cada_cascada_de_extraccion_llega_al_veredicto_del_shell() -> TestResult {
                     path: Some(bin.to_string_lossy().into_owned()),
                     ..Host::default()
                 },
+                pii: Pii::default(),
             };
             for payload in payloads(&project_text) {
                 let shown = String::from_utf8_lossy(&payload).into_owned();

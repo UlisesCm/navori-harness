@@ -20,7 +20,9 @@ use navori_hooks::hooks::subagent_no_background::prepare::{
 };
 
 use navori_hooks::hooks::guard_destructive::Rendered;
-use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline};
+use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline, Pii};
+use navori_hooks::hooks::guard_destructive::pii_bash;
+use navori_hooks::runner::{self, Failure};
 use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::repo::System;
 
@@ -142,15 +144,48 @@ pub fn prepare_guard_destructive<'a>(
             path: text("PATH")?,
             ..Host::default()
         },
+        // `command -v` of the two programs the PII lane runs: stats along `PATH`, no fork.
+        pii: Pii::from_env(
+            snapshot.env,
+            command_v("grep", snapshot.env, snapshot.cwd),
+            command_v("git", snapshot.env, snapshot.cwd),
+        ),
     };
     // A value that is not UTF-8 is ignored, as the script's `case` ignores anything but 1..8.
     let deadline = Deadline::from_env(
         prepare::env_value(snapshot.env, "NAVORI_GUARD_DEADLINE").and_then(|value| value.to_str()),
         snapshot.started,
     );
-    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
+    Ok(Box::new(move |payload: &[u8], recorder: &dyn Recorder| {
         entry::evaluate_until(payload, &context, &System, deadline)
+            .map_err(|failure| shadow_failure(failure, recorder.shadow()))
     }))
+}
+
+/// A lane the BSD locale leaves unmeasured is not a divergence in shadow: it is not observed.
+/// Outside shadow, and for any other failure, `failure` stands.
+#[must_use]
+pub fn shadow_failure(failure: Failure, shadow: bool) -> Failure {
+    if shadow && pii_bash::is_unmeasured(&failure) {
+        runner::unobserved()
+    } else {
+        failure
+    }
+}
+
+/// `command -v name`: the first executable file along `PATH`, a relative entry resolved from
+/// `cwd`. `None` when `PATH` is unset or resolves nothing.
+#[must_use]
+pub fn command_v(name: &str, env: &[(OsString, OsString)], cwd: &Path) -> Option<PathBuf> {
+    let path = prepare::env_value(env, "PATH")?;
+    std::env::split_paths(path).find_map(|directory| {
+        let directory = if directory.is_absolute() {
+            directory
+        } else {
+            cwd.join(directory)
+        };
+        facts_cache::lookup(directory.as_os_str(), name)
+    })
 }
 
 /// Wall time allowed for `navori --version` (a cold TS CLI start is ~120 ms).
@@ -197,15 +232,7 @@ pub fn navori_cli(
         });
     };
     // `command -v navori`: relative entries resolve from the hook's working directory.
-    let found = std::env::split_paths(path).find_map(|directory| {
-        let directory = if directory.is_absolute() {
-            directory
-        } else {
-            cwd.join(directory)
-        };
-        facts_cache::lookup(directory.as_os_str(), "navori")
-    });
-    let Some(found) = found else {
+    let Some(found) = command_v("navori", env, cwd) else {
         return Ok(NavoriCli {
             path: None,
             version: None,
