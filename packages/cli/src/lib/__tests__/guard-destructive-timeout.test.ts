@@ -95,10 +95,32 @@ describe("guard-destructive own deadline (#1671)", () => {
     expect(watchdogsOf(r.pid)).toBe("");
   });
 
+  it("A2b: an approved call leaves stderr empty, every time (#1708)", () => {
+    // bash 5.2 used to print `wait_for: No record of process N` now and then while the EXIT trap
+    // reaped the watchdog; repeat the clean exit so a regression does not hide behind luck.
+    for (let i = 0; i < 20; i += 1) {
+      const r = run("git status --short");
+      expect(r.status).toBe(0);
+      // Only the recorder line this test substitutes for the audit log; nothing from bash.
+      expect(r.stderr).toBe("AUDIT skip no rule token in the command\n");
+    }
+  }, 30_000);
+
   it("ignores a NAVORI_GUARD_DEADLINE that would raise the deadline: 8s still applies", () => {
-    const command = `echo ${"w ".repeat(4000)}${'"$(x)" '.repeat(4000)}`;
-    const r = run(command, { NAVORI_GUARD_DEADLINE: "600" });
+    // Deterministic slow inspection (#1708): every `sed` on PATH hangs. The guard's first `sed`
+    // runs after the watchdog is armed (extraction uses jq or node; the watchdog uses no `sed`),
+    // so the inspection never finishes on its own, however fast the runner is.
+    const bin = join(dir, "slow-bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "sed"), "#!/bin/sh\nexec sleep 30\n");
+    chmodSync(join(bin, "sed"), 0o755);
+    const r = run("git push origin main", {
+      NAVORI_GUARD_DEADLINE: "600",
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+    });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("inspection did not finish within 8s");
+    expect(r.ms).toBeGreaterThanOrEqual(8000);
+    expect(r.ms).toBeLessThan(12_000);
   }, 15_000);
 });

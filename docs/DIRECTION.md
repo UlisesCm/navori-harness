@@ -287,7 +287,7 @@ a spec** on `specs/` and get it approved; only then is it implemented.
 
    Details not apparent from the command—the mirror re-render triggers, golden snapshots, and
    what qualifies as a documentation-only change—are in `CONTRIBUTING.md`.
-4. **Commits**: use Conventional Commits, write them in Mexican Spanish, and keep each commit atomic.
+4. **Commits**: use Conventional Commits, write them in neutral Spanish, and keep each commit atomic.
 5. **Branches and PRs**: start each ticket on a new branch based on `dev` and open a PR to `dev`.
    Only release PRs from `dev` go to `main`, using a merge commit (`branchBase`/`prTarget` in
    `navori.config.json`). Never commit a `/bonum` repository's local harness.
