@@ -81,7 +81,8 @@ A hook mirror wired to the native runtime (`.claude/hooks/*.sh`,
 signature above its managed block, and `crates/ported.json` carries the
 block's hash. When a merge or rebase brings a change to one of those hooks,
 git usually conflicts on that generated header. The guard blocks shell
-writes to `.pi/navori` (`git checkout --ours/--theirs` included), so step 1
+writes to `.pi/navori` (`git checkout --ours` and `git checkout --theirs`
+included), so step 1
 does not apply there.
 
 1. **Check the condition first.** `-X` is allowed only when this lists
