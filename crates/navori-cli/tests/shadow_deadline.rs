@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use navori_cli::delegate::Locations;
@@ -235,11 +236,25 @@ const MATCH: Comparison = Comparison {
     native_code: None,
 };
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(staging: &Path, path: &Path, body: &str) -> TestResult {
+    let staged = staging.join("executable.staged");
+    fs::write(&staged, body)?;
+    let status = Command::new("/bin/cp").arg(&staged).arg(path).status()?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
 /// A journal backed by a fake TS CLI whose body is `script`.
 fn fake_journal(dir: &Path, script: &str) -> Result<CliJournal, Box<dyn Error>> {
     let cli = dir.join("fake-navori");
-    fs::write(&cli, format!("#!/bin/sh\n{script}\n"))?;
-    fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+    install_executable(dir, &cli, &format!("#!/bin/sh\n{script}\n"))?;
     CliJournal::from_locations(&Locations {
         ts_cli: Some(cli.into_os_string()),
         checkout_dist: dir.join("missing/index.js"),
