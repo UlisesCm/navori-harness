@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+} from "node:fs";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -34,6 +43,33 @@ const entry = (gating = true): NativeHook => ({
   impl: `sha256:${"a".repeat(64)}`,
 });
 
+/**
+ * Spawn with `stdin` read from a regular file instead of a pipe. A hook that dies or exits before
+ * reading stdin (SIGSEGV, 101, closed stdout) made `spawnSync`'s `input` write hit a closed pipe
+ * and fail with EPIPE depending on scheduling (#1679); a file has no reader to lose.
+ */
+function spawnWithStdin(
+  shell: string,
+  args: readonly string[],
+  stdin: string,
+  options: { cwd?: string; env: NodeJS.ProcessEnv; timeout: number },
+): SpawnSyncReturns<string> {
+  const dir = mkdtempSync(join(tmpdir(), "native-failclosed-stdin-"));
+  dirs.push(dir);
+  const path = join(dir, "stdin");
+  writeFileSync(path, stdin);
+  const fd = openSync(path, "r");
+  try {
+    return spawnSync(shell, args, {
+      ...options,
+      stdio: [fd, "pipe", "pipe"],
+      encoding: "utf8",
+    });
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function project(body: string): string {
   const dir = mkdtempSync(join(tmpdir(), "native-failclosed-"));
   dirs.push(dir);
@@ -56,17 +92,16 @@ function run(
     invocation: '--via-script "$0"',
     args: '"$@"',
   });
-  const result = spawnSync(
+  const result = spawnWithStdin(
     shell,
     ["-c", `set -e\n${fragment}\nprintf 'shell:%s' "$(cat)"`, "fixture.sh", "first", "second"],
+    "payload",
     {
       env: {
         ...process.env,
         PATH: `${dir}:${process.env.PATH ?? ""}`,
         NAVORI_HOOK_IMPL: forced ?? "",
       },
-      input: "payload",
-      encoding: "utf8",
       timeout: 5000,
     },
   );
@@ -155,42 +190,52 @@ function runRegistered(
     // The Pi bridge spawns bash on the installed script, with the project as cwd.
     pi: `bash "${targetsOf(hook).pi}"`,
   }[engine];
-  const value = spawnSync(shell, ["-c", `${closeStdout ? "exec 1>&-\n" : ""}${command}`], {
-    cwd: dir,
-    env: {
-      ...process.env,
-      PATH: `${dir}:${process.env.PATH ?? ""}`,
-      CLAUDE_PROJECT_DIR: dir,
-      NAVORI_HOOK_IMPL: "",
-    },
-    input: JSON.stringify({
+  const value = spawnWithStdin(
+    shell,
+    ["-c", `${closeStdout ? "exec 1>&-\n" : ""}${command}`],
+    JSON.stringify({
       session_id: "failclosed",
       cwd: dir,
       hook_event_name: "PreToolUse",
       tool_name: "Bash",
       tool_input: { command: 'git commit -m "x"' },
     }),
-    encoding: "utf8",
-    timeout: 10000,
-  });
+    {
+      cwd: dir,
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH ?? ""}`,
+        CLAUDE_PROJECT_DIR: dir,
+        NAVORI_HOOK_IMPL: "",
+      },
+      timeout: 10000,
+    },
+  );
   if (value.error) throw value.error;
   return { code: value.status, stdout: value.stdout };
 }
 
 describe("native hook fail-closed wrapper", (): void => {
+  // Every gating hook, forced to `active`: today's shadow ones are tomorrow's active ones.
+  // One case per hook, so each case carries a tenth of the spawns instead of all of them.
+  const gating = Object.entries(loadNativeHooks())
+    .filter(([, descriptor]: [string, NativeHook]): boolean => descriptor.gating)
+    .map(([hook]: [string, NativeHook]): string => hook);
+
   // Covers: R83
-  it("ningún hook activo con compuerta permite ante SIGSEGV, 101 o stdout cerrado", (): void => {
-    const gating = Object.entries(loadNativeHooks()).filter(
-      ([, descriptor]: [string, NativeHook]): boolean => descriptor.gating,
-    );
+  it("el manifiesto declara hooks activos con compuerta", (): void => {
     expect(gating.length).toBeGreaterThan(0);
-    const failures = [
-      { body: "printf 'partial'; kill -SEGV $$", closeStdout: false },
-      { body: "printf 'partial'; exit 101", closeStdout: false },
-      { body: "printf 'complete'; exit 0", closeStdout: true },
-    ];
-    // Every gating hook, forced to `active`: today's shadow ones are tomorrow's active ones.
-    for (const [hook] of gating) {
+  });
+
+  // Covers: R83
+  it.each(gating)(
+    "ningún hook activo con compuerta permite ante SIGSEGV, 101 o stdout cerrado: %s",
+    (hook: string): void => {
+      const failures = [
+        { body: "printf 'partial'; kill -SEGV $$", closeStdout: false },
+        { body: "printf 'partial'; exit 101", closeStdout: false },
+        { body: "printf 'complete'; exit 0", closeStdout: true },
+      ];
       // The wrapper precedes the body and never depends on plugin blocks or sibling scripts, so
       // each hook renders with its core block alone (plugin extensions need their own fixtures).
       const manifestEntry = loadNativeHooks()[hook];
@@ -222,8 +267,8 @@ describe("native hook fail-closed wrapper", (): void => {
           }
         }
       }
-    }
-  });
+    },
+  );
 
   // Covers: R50
   it("quality-gate-pre-commit nunca permite ante SIGSEGV, 101 o stdout cerrado", (): void => {
