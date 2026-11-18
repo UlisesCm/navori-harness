@@ -29,7 +29,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use navori_core::config::{self, Config};
 use navori_core::diagnose::doctor_machine::{
-    Host, WorkspaceLinkIssue, capability_gap, probe_enabled_tool_versions,
+    DU_TIMEOUT, Host, WorkspaceLinkIssue, capability_gap, probe_enabled_tool_versions,
     scan_audit_root_permissions, scan_disk_usage, scan_external_tool_capabilities,
     scan_global_claude_md, scan_missing_external_tools, scan_missing_optional_tools,
     scan_pinned_version_drift, scan_stale_global_cli, scan_tool_updates, scan_version_advisories,
@@ -97,6 +97,7 @@ run('capabilities', () => withManifests(() => d.scanExternalToolCapabilities(cfg
 run('updates', () => tn.scanToolUpdates(cfg));
 run('optional', () => d.scanMissingOptionalTools());
 run('disk', () => du.scanDiskUsage(dir));
+run('duTimeout', () => du.DU_TIMEOUT_MS);
 run('audit', () => d.scanAuditRootPermissions());
 run('claudeMd', () => gc.scanGlobalClaudeMd(request.threshold));
 run('link', () => d.scanWorkspaceLink(dir, cfg));
@@ -143,6 +144,9 @@ struct Case {
     path: Vec<String>,
     /// Both sides run without `HOME`.
     no_home: bool,
+    /// How `HOME` is spelled on both sides (with `{base}`), when not the plain `{base}/home`; the
+    /// files still land in `{base}/home`.
+    home_spelling: Option<&'static str>,
     /// `capabilityProbe` overlaid onto the bundled `engram` manifest.
     probe: Option<Value>,
     /// The running CLI's version, for `scanStaleGlobalCli`.
@@ -171,6 +175,7 @@ fn case(name: &'static str, config: Value) -> Case {
         env_raw: Vec::new(),
         path: vec!["{base}/bin".into(), "{base}/sys".into()],
         no_home: false,
+        home_spelling: None,
         probe: None,
         current: "1.0.0",
         threshold: 100,
@@ -184,13 +189,13 @@ fn case(name: &'static str, config: Value) -> Case {
 fn link_base_utilities(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     for name in ["du", "yes", "head", "git"] {
-        let found = ["/usr/bin", "/bin"]
+        // A missing utility would turn the cases that rely on it into silent passes (#1712).
+        let real = ["/usr/bin", "/bin"]
             .iter()
             .map(|d| Path::new(d).join(name))
-            .find(|p| p.is_file());
-        if let Some(real) = found {
-            std::os::unix::fs::symlink(real, dir.join(name)).map_err(|e| e.to_string())?;
-        }
+            .find(|p| p.is_file())
+            .ok_or_else(|| format!("base utility `{name}` not found in /usr/bin or /bin"))?;
+        std::os::unix::fs::symlink(real, dir.join(name)).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -258,6 +263,17 @@ impl Case {
     fn no_home(mut self) -> Self {
         self.no_home = true;
         self
+    }
+    fn home_spelling(mut self, spelling: &'static str) -> Self {
+        self.home_spelling = Some(spelling);
+        self
+    }
+    /// `HOME` as both sides see it.
+    fn home_text(&self, machine: &Machine) -> String {
+        self.home_spelling.map_or_else(
+            || machine.home.display().to_string(),
+            |spelling| machine.fill(spelling),
+        )
     }
     fn probe(mut self, probe: Value) -> Self {
         self.probe = Some(probe);
@@ -531,7 +547,7 @@ fn rust_scans(case: &Case, machine: &Machine) -> Result<Vec<Scan>, String> {
         config::read(&bytes).map_err(|e| format!("rust rejects the fixture config: {e:?}"))?;
     let mut env: Vec<(OsString, OsString)> = Vec::new();
     if !case.no_home {
-        env.push(("HOME".into(), machine.home.as_os_str().to_owned()));
+        env.push(("HOME".into(), case.home_text(machine).into()));
     }
     env.push(("PATH".into(), case.path_text(machine).into()));
     for (k, v) in case.env_pairs(machine) {
@@ -683,6 +699,13 @@ fn rust_scans(case: &Case, machine: &Machine) -> Result<Vec<Scan>, String> {
             )
         }),
     ));
+    // Not a scan: the `du` limit has to be the same number on both sides (#1712).
+    out.push((
+        "duTimeout",
+        u64::try_from(DU_TIMEOUT.as_millis())
+            .map(|ms| json!(ms))
+            .map_err(|_| Unmodeled),
+    ));
     let uid = std::fs::metadata(&machine.home)
         .map_err(|e| e.to_string())?
         .uid();
@@ -781,7 +804,7 @@ fn check_in(case: &Case, machine: &Machine) -> Result<(), String> {
     // Rust first: the TS `loadWorkspace` migrates a legacy registry layout in place.
     let scans = rust_scans(case, machine)?;
     let ts = NODE.ask(&json!({
-        "dir": machine.root, "home": machine.home, "cwd": machine.cwd,
+        "dir": machine.root, "home": case.home_text(machine), "cwd": machine.cwd,
         "path": case.path_text(machine), "env": env, "noHome": case.no_home,
         "current": case.current, "threshold": case.threshold, "manifests": manifests,
     }))?;
@@ -1300,6 +1323,14 @@ fn audit_root_permissions() -> Result<(), String> {
             .mode("home/.navori/audits/alpha", 0o755)
             .mode("home/.navori/audits/mid", 0o755)
             .mode("home/.navori/audits/beta", 0o755)
+            .hits(&["audit"]),
+        // `path.join` normalizes the default root: a `HOME` spelled with `/./` and `//` reports
+        // the same paths on both sides (#1712).
+        case("open-root-unnormalized-home", json!({}))
+            .home_spelling("{base}/./home//")
+            .dir("home/.navori/audits/repo-a")
+            .mode("home/.navori/audits", 0o755)
+            .mode("home/.navori/audits/repo-a", 0o755)
             .hits(&["audit"]),
         // Files and symlinks under the root are never inspected.
         case("open-file-and-symlink", json!({}))
