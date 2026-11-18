@@ -113,8 +113,9 @@ const MAX_BUFFER: usize = 1024 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(5000);
 /// `runGlobalNavoriVersion`'s limit.
 const GLOBAL_CLI_TIMEOUT: Duration = Duration::from_millis(3000);
-/// `du` runs without a limit in the TS; a day stands in for "never".
-const DU_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+/// `DU_TIMEOUT_MS`: past it the directory reads as unmeasured, so a hung filesystem cannot hang
+/// `doctor` (#1712).
+pub const DU_TIMEOUT: Duration = Duration::from_millis(30_000);
 
 /// Any registry or manifest stop: a TS throw these scans do not catch, or a delegated branch.
 const fn unmodeled(_: Stop) -> Unmodeled {
@@ -729,9 +730,10 @@ fn audits_root(host: &Host<'_>) -> Result<Option<PathBuf>, Unmodeled> {
         }
         return Ok(Some(PathBuf::from(registry::resolve("/", override_root))));
     }
+    // `path.join` normalizes, so a `HOME` with `//` or `/./` reads the same as in the TS (#1712).
     Ok(host
         .home()?
-        .map(|home| PathBuf::from(home).join(".navori").join("audits")))
+        .map(|home| PathBuf::from(registry::resolve("/", &join_text(&home, ".navori/audits")))))
 }
 
 /// `scanAuditRootPermissions()`: lstat only. `uid` is `process.getuid()`.
