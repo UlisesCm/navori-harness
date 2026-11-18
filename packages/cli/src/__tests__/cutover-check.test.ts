@@ -281,7 +281,7 @@ describe("cutover-check (spec 0062 T8)", () => {
   });
 
   // Covers: R20
-  it("la lista de delegación permanente declara master y los grupos congelados de E3 como subárboles y cada entrada lleva motivo", () => {
+  it("la lista de delegación permanente declara master y los grupos congelados de E3 como subárboles, doctor --json por bandera, y cada entrada lleva motivo", () => {
     for (const entry of areas.PERMANENT_DELEGATION) expect(entry.reason.trim()).not.toBe("");
     expect(areas.PERMANENT_DELEGATION.map((e) => e.path.join(" "))).toEqual([
       "master",
@@ -289,8 +289,10 @@ describe("cutover-check (spec 0062 T8)", () => {
       "workspace",
       "ticket",
       "registry",
+      "doctor",
     ]);
-    for (const entry of areas.PERMANENT_DELEGATION) expect(entry.subtree).toBe(true);
+    for (const entry of areas.PERMANENT_DELEGATION.slice(0, 5)) expect(entry.subtree).toBe(true);
+    expect(areas.PERMANENT_DELEGATION[5]?.flags).toEqual(["json"]);
     expect(() => areas.validateDelegation(areas.PERMANENT_DELEGATION)).not.toThrow();
     // the real list covers those groups and any subcommand of them, and nothing else
     expect(areas.permanentlyDelegated(["registry", "ls"])).toBe(true);
@@ -302,6 +304,24 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(areas.permanentlyDelegated(["masterx"])).toBe(false);
     expect(areas.permanentlyDelegated(["plan", "master"])).toBe(false);
     expect(areas.permanentlyDelegated(["audit"])).toBe(false);
+    // doctor delega solo --json: el comando y sus demás banderas siguen contando
+    expect(areas.permanentlyDelegated(["doctor"], "json")).toBe(true);
+    expect(areas.permanentlyDelegated(["doctor"], "strict")).toBe(false);
+    expect(areas.permanentlyDelegated(["doctor", "fix"], "json")).toBe(false);
+  });
+
+  // Covers: R20
+  it("un doctor portado sin --json no deja esa bandera pendiente, y las demás sí", () => {
+    const input = ready();
+    delete input.delegation;
+    input.manifest.commands.push({ path: ["doctor"], flags: ["strict"] });
+    input.commands.push({ path: ["doctor"], flags: ["json", "strict"] });
+    expect(cutover.cutoverFindings(input)).toEqual([]);
+    const extra = ready();
+    delete extra.delegation;
+    extra.manifest.commands.push({ path: ["doctor"], flags: ["strict"] });
+    extra.commands.push({ path: ["doctor"], flags: ["json", "strict", "fix"] });
+    expect(cutover.cutoverFindings(extra)).toEqual([{ check: "flag", detail: "doctor --fix" }]);
   });
 
   // Covers: R20
