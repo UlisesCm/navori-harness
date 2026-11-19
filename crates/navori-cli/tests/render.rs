@@ -434,3 +434,64 @@ fn only_a_stale_name_in_the_registry_needs_a_refresh() -> TestResult {
     assert!(!needs(Some(r#"{"repos":{}}"#.to_owned()))?);
     Ok(())
 }
+
+/// A skill trigger cut at `TRIGGER_MAX - 1` UTF-16 units lands inside a surrogate pair. The prose
+/// engines write U+FFFD there, so the second `render --apply` finds every file as it left it: no
+/// write, no backup, an up-to-date summary. The TS reports the same files as `updated` on every
+/// render (#1750, a known difference of the oracle with Rust as the correct side).
+#[test]
+fn a_trigger_cut_inside_a_surrogate_pair_renders_unchanged_the_second_time() -> TestResult {
+    let dir = scratch("surrogate-cut")?;
+    let repo = dir.join("repo");
+    let home = dir.join("home");
+    let backups = dir.join("backups");
+    let skills = repo.join(".navori/presets/emoji/skills");
+    for path in [&skills, &home.join(".navori"), &backups] {
+        fs::create_dir_all(path)?;
+    }
+    fs::write(
+        repo.join("navori.config.json"),
+        r#"{"name":"demo","preset":"emoji","engines":["agents-md","cursor","copilot"],"language":"en","gitignoreHarness":"full"}"#,
+    )?;
+    fs::write(
+        repo.join(".navori/presets/emoji/emoji.json"),
+        r#"{"id":"emoji","displayName":"Emoji","extends":"core","extras":{"managed":[],"agents":[],"skills":[{"id":"emoji-skill","relPath":"skills/emoji-skill.md","destRelPath":".claude/skills/emoji-skill/SKILL.md"}],"hooks":[]}}"#,
+    )?;
+    let lead = "a".repeat(118);
+    fs::write(
+        skills.join("emoji-skill.md"),
+        format!("---\nname: emoji-skill\ndescription: {lead}\u{1F600}\u{1F600}\n---\n\nBody.\n"),
+    )?;
+    let run = || {
+        Process::new(env!("CARGO_BIN_EXE_navori-rust"))
+            .args(["render", "--apply"])
+            .current_dir(&repo)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &home)
+            .env("NAVORI_BACKUP_ROOT", &backups)
+            .env("NAVORI_TS_CLI", dir.join("missing/index.js"))
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .output()
+    };
+    let first = run()?;
+    let stdout = String::from_utf8(first.stdout)?;
+    assert_eq!(first.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("core: (embedded)"), "{stdout}");
+    let agents = fs::read_to_string(repo.join("AGENTS.md"))?;
+    assert!(
+        agents.contains(&format!("· {lead}\u{FFFD}\u{2026}")),
+        "{agents}"
+    );
+
+    let before = [snapshot(&repo)?, snapshot(&backups)?];
+    let second = run()?;
+    let stdout = String::from_utf8(second.stdout)?;
+    assert_eq!(second.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("core: (embedded)"), "{stdout}");
+    assert!(!stdout.contains("(updated)"), "{stdout}");
+    assert!(!stdout.contains("Backup:"), "{stdout}");
+    assert_eq!(before, [snapshot(&repo)?, snapshot(&backups)?]);
+    Ok(())
+}
