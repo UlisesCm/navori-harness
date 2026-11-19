@@ -32,3 +32,8 @@
 {"date":"2026-11-11","op":"port","id":"preset","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
 {"date":"2026-11-12","op":"port","id":"scan","reason":"scan nativo, re-land de E3 (0060, #1473)","pr":1685}
 {"date":"2026-11-12","op":"port","id":"status","reason":"status nativo, re-land de E3 (0060, #1473)","pr":1689}
+{"date":"2026-11-26","op":"activate","id":"plan-gate","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"general-purpose-confirm","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"session-start-context","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"model-advisor","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 11 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"pii-egress-guard","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
