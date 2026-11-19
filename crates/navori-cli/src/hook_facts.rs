@@ -365,6 +365,12 @@ pub fn collect_cached<'a>(
     let plan = prepare::plan(request, limits)?;
     let deadline = started + plan.limits().total;
     let env = plan.environment();
+    // `~/.jq` is loaded by every jq the shell runs and can redefine builtins: the shell answers.
+    if facts_cache::jq_init_present(env, cwd) {
+        return Err(Ineligible(
+            "$HOME/.jq exists and changes jq's behavior; the shell lane answers".into(),
+        ));
+    }
     let path = prepare::env_value(env, "PATH").ok_or_else(|| Ineligible("missing PATH".into()))?;
     let mut bash = None;
     for directory in std::env::split_paths(path) {
@@ -422,7 +428,20 @@ pub fn collect_cached<'a>(
         resolved(tool)?.ok_or_else(|| Ineligible("required tool missing".into()))
     };
     let jq = resolved(Tool::Jq)?
-        .map(|path| probe(&path, &["--version".into()], cwd, env, deadline))
+        .map(|path| {
+            probe(
+                &bash,
+                &[
+                    "-c".into(),
+                    prepare::JQ.into(),
+                    "jq-probe".into(),
+                    path.into_os_string(),
+                ],
+                cwd,
+                env,
+                deadline,
+            )
+        })
         .transpose()?;
     let node = resolved(Tool::Node)?
         .map(|path| probe(&path, &["--version".into()], cwd, env, deadline))

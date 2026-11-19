@@ -1,4 +1,4 @@
-# navori:native-hook v=1 file=sha256:f7380fb82c0939b594d6291bdb84e42bd3834f8a268f79486e3883f10f6198c7 impl=sha256:dcb66bace698b2b32c0dea4df780301ed209ede13e3b765691c9582be3e58326
+# navori:native-hook v=1 file=sha256:b4082ceacb5cd8e114fc34c1cea105a206097daa891aa254bb9a9927b48b5311 impl=sha256:4096f15ceb767db3ddf369aa0bbdf2449f2d5848b969b508713cbb2f0950a785
 # navori:managed start id="pii-egress-guard-base" hash="bfec6aa1" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start

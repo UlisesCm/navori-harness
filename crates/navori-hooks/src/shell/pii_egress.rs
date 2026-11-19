@@ -428,7 +428,7 @@ pub fn is_local(host: &str) -> bool {
 
 // --- Host probe, shared by the Bash lane of guard-destructive and pii-egress-guard. ---
 
-/// Host facts of the lane, asked only after [`gate`] matched. No implementor derives `Debug`:
+/// Host facts of the lane, asked only after the lane's `gate` matched. No implementor derives `Debug`:
 /// they hold the environment and an identifier.
 pub trait Probe {
     /// `NAVORI_PERSONAL_IDS`, as the environment holds the bytes.
@@ -451,21 +451,6 @@ fn parse_email(stdout: &[u8]) -> EmailRead {
         EmailRead::Absent
     } else {
         EmailRead::Present(Secret::new(value))
-    }
-}
-
-/// `grep` behind the deadline: past `until` it is not launched.
-struct Until<'a> {
-    inner: HostGrep<'a>,
-    until: Option<Instant>,
-}
-
-impl Matcher for Until<'_> {
-    fn has(&mut self, needle: &[u8], text: &str) -> Result<bool, Unverifiable> {
-        if self.until.is_some_and(|until| Instant::now() >= until) {
-            return Err(Unverifiable);
-        }
-        self.inner.has(needle, text)
     }
 }
 
@@ -529,10 +514,9 @@ impl Probe for HostProbe<'_> {
     }
 
     fn matcher(&self) -> Box<dyn Matcher + '_> {
-        Box::new(Until {
-            inner: HostGrep::new(self.grep, self.pwd, self.env).until(self.until),
-            until: self.until,
-        })
+        // Past the deadline `HostGrep::has` computes a zero timeout and answers `Unverifiable`
+        // without launching `grep`, so no separate deadline check is needed here.
+        Box::new(HostGrep::new(self.grep, self.pwd, self.env).until(self.until))
     }
 }
 
