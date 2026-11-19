@@ -5,8 +5,6 @@
 //! - enabled monorepo workspaces (every scan recurses into them);
 //! - Codex configured with a `.codex/` directory (`scanCodexHealth` reads its TOML and hook
 //!   modes, not ported);
-//! - `qualityGate.nativeHooks: true` or a plugin whose hooks `nativeHook` omits (`scanNativeHooks`
-//!   would inspect the git hooks; without a declaration its findings never flip `ok`);
 //! - a `.claude/settings.json` that cannot be read or parsed (the corrupted-settings report
 //!   carries the JS exception message);
 //! - a preset the loader delegates, and text that is not UTF-8.
@@ -18,8 +16,10 @@ use crate::diagnose::health::{
     DuplicateMarker, MissingPlugin, Unmodeled, collect_missing_plugins, configured_engines,
     read_rendered_text, read_text, scan_duplicate_markers,
 };
+use crate::diagnose::native_hooks::{NativeHooksReport, scan_native_hooks};
 use crate::js_json::{self, JsValue};
 use crate::posix::js_trim;
+use crate::process::{Env, ProcessRunner};
 use crate::render::assets;
 use crate::render::claude_md::has_monorepo_workspaces;
 use crate::render::plugins::PluginsLoadResult;
@@ -61,6 +61,8 @@ pub struct HealthVerdict {
     pub missing_preset_files: Vec<MissingPresetFile>,
     /// `duplicateMarkers`.
     pub duplicate_markers: Vec<DuplicateMarker>,
+    /// `nativeHooks`: `None` outside git when nothing is declared. Its errors flip `ok`.
+    pub native_hooks: Option<NativeHooksReport>,
 }
 
 fn member<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
@@ -194,7 +196,8 @@ fn scan_missing_preset_files(
     Ok(missing)
 }
 
-/// `computeHealthVerdict(cwd, config)`, with `plugins` the `loadEnabledPlugins` result.
+/// `computeHealthVerdict(cwd, config)`, with `plugins` the `loadEnabledPlugins` result and
+/// `runner` and `env` what `scanNativeHooks` asks git through.
 ///
 /// # Errors
 /// Any branch the module docs list as delegated.
@@ -202,19 +205,15 @@ pub fn compute_health_verdict(
     cwd: &Path,
     config: &Config,
     plugins: &PluginsLoadResult,
+    runner: &dyn ProcessRunner,
+    env: &Env,
 ) -> Result<HealthVerdict, Unmodeled> {
-    // Delegation triggers, before any scan: workspaces, Codex health, native hooks.
+    // Delegation triggers, before any scan: workspaces and Codex health.
     if has_monorepo_workspaces(&config.data) {
         return Err(Unmodeled);
     }
     let engines = configured_engines(&config.data).ok_or(Unmodeled)?;
     if engines.iter().any(|e| e == "codex") && cwd.join(".codex").exists() {
-        return Err(Unmodeled);
-    }
-    let gate_declared = member(&config.data, "qualityGate")
-        .and_then(|gate| member(gate, "nativeHooks"))
-        == Some(&JsValue::Bool(true));
-    if gate_declared || plugins.loaded.iter().any(|p| p.native_hook_omitted) {
         return Err(Unmodeled);
     }
     check_settings(cwd)?;
@@ -229,7 +228,12 @@ pub fn compute_health_verdict(
     .then(|| preset.clone());
     let missing_preset_files = scan_missing_preset_files(cwd, &preset)?;
     let duplicate_markers = scan_duplicate_markers(cwd, config)?;
-    let ok = missing_plugins.is_empty()
+    let native_hooks =
+        scan_native_hooks(cwd.to_str().ok_or(Unmodeled)?, config, plugins, runner, env)?;
+    let ok = native_hooks
+        .as_ref()
+        .is_none_or(|report| report.errors == 0)
+        && missing_plugins.is_empty()
         && missing_invariants.is_empty()
         && missing_preset.is_none()
         && missing_preset_files.is_empty()
@@ -241,12 +245,14 @@ pub fn compute_health_verdict(
         missing_preset,
         missing_preset_files,
         duplicate_markers,
+        native_hooks,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::RealRunner;
 
     fn config(text: &str) -> Result<Config, Unmodeled> {
         Ok(Config {
@@ -275,6 +281,8 @@ mod tests {
             &dir,
             &config(r#"{"engines":["claude"],"preset":"no-such-preset"}"#)?,
             &plugins,
+            &RealRunner,
+            &[],
         )?;
         assert!(!verdict.ok);
         assert_eq!(verdict.missing_plugins[0].id, "nope");
@@ -283,6 +291,8 @@ mod tests {
             &dir,
             &config(r#"{"engines":["claude"],"preset":"custom"}"#)?,
             &PluginsLoadResult::default(),
+            &RealRunner,
+            &[],
         )?;
         assert!(clean.ok);
         let _ = std::fs::remove_dir_all(&dir);
@@ -291,20 +301,29 @@ mod tests {
 
     // Covers: R73
     #[test]
-    fn unported_branches_delegate() -> Result<(), Unmodeled> {
+    fn unported_branches_delegate_and_native_hooks_count() -> Result<(), Unmodeled> {
         let dir = temp("delegate");
         let none = PluginsLoadResult::default();
         let gate = config(
             r#"{"engines":["claude"],"preset":"custom","qualityGate":{"nativeHooks":true}}"#,
         )?;
-        assert_eq!(compute_health_verdict(&dir, &gate, &none), Err(Unmodeled));
+        // Declared native hooks are counted natively: outside git `pre-commit` is absent.
+        let verdict = compute_health_verdict(&dir, &gate, &none, &RealRunner, &[])?;
+        assert!(!verdict.ok);
+        assert_eq!(verdict.native_hooks.map(|report| report.errors), Some(1));
         let _ = std::fs::create_dir_all(dir.join(".codex"));
         let codex = config(r#"{"engines":["codex"],"preset":"custom"}"#)?;
-        assert_eq!(compute_health_verdict(&dir, &codex, &none), Err(Unmodeled));
+        assert_eq!(
+            compute_health_verdict(&dir, &codex, &none, &RealRunner, &[]),
+            Err(Unmodeled)
+        );
         let _ = std::fs::create_dir_all(dir.join(".claude"));
         let _ = std::fs::write(dir.join(".claude/settings.json"), "{");
         let claude = config(r#"{"engines":["claude"],"preset":"custom"}"#)?;
-        assert_eq!(compute_health_verdict(&dir, &claude, &none), Err(Unmodeled));
+        assert_eq!(
+            compute_health_verdict(&dir, &claude, &none, &RealRunner, &[]),
+            Err(Unmodeled)
+        );
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
