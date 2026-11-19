@@ -522,7 +522,7 @@ pub struct NativeHooksReport {
 ///   absent.
 ///
 /// # Errors
-/// A git answer that is not UTF-8, or a plugin manifest without a text `id`.
+/// A git answer that is not UTF-8.
 pub fn scan_native_hooks(
     cwd: &str,
     config: &Config,
