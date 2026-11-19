@@ -111,63 +111,206 @@ enum Lookup {
     Unindexable,
 }
 
-/// Whether `text` has, outside any string, a bare `nan`, `inf` or `infinity` word (any case,
-/// optional sign): the non-finite literals jq accepts and RFC 8259 (so serde_json) rejects.
-fn has_non_finite_literal(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    let mut in_string = false;
+/// The index just past the JSON string that opens at `start` (a `"`), or the end of `bytes`.
+fn string_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start + 1;
     while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 1,
-                b'"' => in_string = false,
-                _ => {}
-            }
-            index += 1;
-        } else if byte == b'"' {
-            in_string = true;
-            index += 1;
-        } else if byte.is_ascii_alphanumeric() {
-            let end = bytes[index..]
-                .iter()
-                .position(|b| !b.is_ascii_alphanumeric())
-                .map_or(bytes.len(), |length| index + length);
-            let word = bytes[index..end].to_ascii_lowercase();
-            if matches!(word.as_slice(), b"nan" | b"inf" | b"infinity") {
-                return true;
-            }
-            index = end;
-        } else {
-            index += 1;
+        match bytes[index] {
+            b'\\' => index += 2,
+            b'"' => return index + 1,
+            _ => index += 1,
         }
     }
-    false
+    bytes.len()
+}
+
+/// Nesting from which some accredited jq rejects a document: 1.7 and 1.7.1 stop at 256 levels,
+/// 1.8.x at 10000. serde_json reads it, so the native extraction would see what the shell's
+/// `jq` does not.
+const JQ_DEPTH: usize = 256;
+
+/// The deepest nesting of arrays and objects in `text`, strings skipped.
+fn nesting(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let (mut index, mut depth, mut deepest) = (0, 0_usize, 0_usize);
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = string_end(bytes, index);
+                continue;
+            }
+            b'{' | b'[' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        index += 1;
+    }
+    deepest
+}
+
+/// How jq's lexer reads a literal token (`[A-Za-z0-9+.-]+`) as a number: `None` when it is not
+/// one jq accepts, else whether RFC 8259 accepts it too. jq takes an optional `+`, leading zeros
+/// and a bare `.` on either side of the digits (`+1`, `01`, `.5`, `1.`), which RFC 8259 rejects.
+fn number_token(token: &[u8]) -> Option<bool> {
+    let digits = |part: &[u8]| part.iter().all(u8::is_ascii_digit);
+    let unsigned = token
+        .strip_prefix(b"-")
+        .or_else(|| token.strip_prefix(b"+"))
+        .unwrap_or(token);
+    let (mantissa, exponent) = match unsigned.iter().position(|b| matches!(b, b'e' | b'E')) {
+        Some(at) => (&unsigned[..at], Some(&unsigned[at + 1..])),
+        None => (unsigned, None),
+    };
+    let (whole, fraction) = match mantissa.iter().position(|b| *b == b'.') {
+        Some(at) => (&mantissa[..at], Some(&mantissa[at + 1..])),
+        None => (mantissa, None),
+    };
+    let fraction_digits = fraction.unwrap_or_default();
+    if !digits(whole)
+        || !digits(fraction_digits)
+        || (whole.is_empty() && fraction_digits.is_empty())
+    {
+        return None;
+    }
+    if let Some(exponent) = exponent {
+        let exponent = exponent
+            .strip_prefix(b"-")
+            .or_else(|| exponent.strip_prefix(b"+"))
+            .unwrap_or(exponent);
+        if exponent.is_empty() || !digits(exponent) {
+            return None;
+        }
+    }
+    Some(
+        !token.starts_with(b"+")
+            && !whole.is_empty()
+            && (whole == b"0" || !whole.starts_with(b"0"))
+            && fraction.is_none_or(|part| !part.is_empty()),
+    )
+}
+
+/// Whether jq may read a document serde_json rejected (#1731), judged over its bytes only (it
+/// need not be valid JSON): a leading BOM, a raw control character in a string (U+001F, which
+/// 1.7 accepts), a `nan`- or `snan`-prefixed, `inf` or `infinity` literal in any case and
+/// sign (`NaN`, 1.7.1's `nan123`, the signaling `sNaN`, `-Infinity`), a number only jq's
+/// lexer accepts ([`number_token`]), or a valid first document followed by more text (jq reads
+/// the whole stream).
+fn jq_may_read(text: &str) -> bool {
+    let literal = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.');
+    let bytes = text.as_bytes();
+    let mut jq = text.starts_with('\u{feff}');
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                let end = string_end(bytes, index);
+                jq |= bytes[index..end].iter().any(|b| *b < 0x20);
+                index = end;
+            }
+            byte if literal(byte) => {
+                let end = bytes[index..]
+                    .iter()
+                    .position(|b| !literal(*b))
+                    .map_or(bytes.len(), |length| index + length);
+                let token = &bytes[index..end];
+                let word = token
+                    .strip_prefix(b"-")
+                    .or_else(|| token.strip_prefix(b"+"))
+                    .unwrap_or(token)
+                    .to_ascii_lowercase();
+                jq |= word.starts_with(b"nan")
+                    || word.starts_with(b"snan")
+                    || matches!(word.as_slice(), b"inf" | b"infinity")
+                    || number_token(token) == Some(false);
+                index = end;
+            }
+            _ => index += 1,
+        }
+    }
+    jq || serde_json::Deserializer::from_str(text)
+        .into_iter::<&RawValue>()
+        .next()
+        .is_some_and(|first| first.is_ok())
+}
+
+/// Whether every object in `raw` (valid JSON) lists its members in strictly ascending key order,
+/// the order serde_json's map renders them in. jq and Node render the source order and keep a
+/// repeated key at its first position, so any other object cannot be modeled (#1731).
+fn sorted_members(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    // One frame per open container: `Some(last key)` for an object, `None` for an array.
+    let mut frames: Vec<Option<Option<String>>> = Vec::new();
+    let mut key_next = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' => {
+                frames.push(Some(None));
+                key_next = true;
+            }
+            b'[' => {
+                frames.push(None);
+                key_next = false;
+            }
+            b'}' | b']' => {
+                frames.pop();
+                key_next = false;
+            }
+            b',' => key_next = matches!(frames.last(), Some(Some(_))),
+            b'"' => {
+                let end = string_end(bytes, index);
+                if key_next {
+                    let Ok(key) = serde_json::from_str::<String>(&raw[index..end]) else {
+                        return false;
+                    };
+                    if let Some(Some(last)) = frames.last_mut() {
+                        if last.as_ref().is_some_and(|previous| *previous >= key) {
+                            return false;
+                        }
+                        *last = Some(key);
+                    }
+                    key_next = false;
+                }
+                index = end;
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    true
 }
 
 /// Decode only the requested paths. Other fields remain raw; serde_json validates all syntax
 /// before the bounded string-escape adaptation.
 /// A requested-value decoding failure is distinct from a missing/null field and must not permit.
 ///
-/// A document serde_json rejects is empty only where the shell's extractor rejects it too. jq
-/// accepts `NaN`/`Infinity`/`-Infinity` and extracts the other fields, so in jq modes that
-/// document fails closed instead of reading as empty (#1731). The rest of the class jq
-/// accepts but RFC 8259 rejects (U+001F, `nan123`, depth 256-9999) is not modeled yet: #1731.
-/// Node's `JSON.parse` rejects non-finite literals, so `Node` keeps the empty answer.
+/// A document serde_json rejects is empty only where the shell's extractor rejects it too
+/// (#1731). Where jq may read it ([`jq_may_read`]) the jq modes fail, which defers the call to
+/// the shell, instead of reading it as empty. Node's `JSON.parse` rejects that whole class, so
+/// `Node` keeps the empty answer. A truncated or plainly malformed document keeps its modeled
+/// answer. The other way round, a document nested [`JQ_DEPTH`] levels or more, which serde
+/// reads and some accredited jq rejects, also fails in the jq modes.
 fn selected(
     text: &str,
     paths: &[&str],
     mode: Extractor,
 ) -> Result<Option<(Vec<Lookup>, bool)>, Failure> {
-    let valid: &RawValue = match serde_json::from_str(text) {
-        Ok(valid) => valid,
-        Err(_)
-            if matches!(mode, Extractor::JqOnly | Extractor::JqAndNode)
-                && has_non_finite_literal(text) =>
-        {
+    let jq = matches!(mode, Extractor::JqOnly | Extractor::JqAndNode);
+    let valid = match serde_json::from_str::<&RawValue>(text) {
+        Ok(valid) if jq && nesting(valid.get()) >= JQ_DEPTH => {
             return Err(Failure(
-                "payload has a non-finite number literal jq accepts and the native extraction cannot model"
+                "payload nesting some accredited jq rejects; the native extraction cannot model it"
+                    .to_owned(),
+            ));
+        }
+        Ok(valid) => valid,
+        Err(_) if jq && jq_may_read(text) => {
+            return Err(Failure(
+                "payload is JSON jq may read but RFC 8259 rejects; the native extraction cannot model it"
                     .to_owned(),
             ));
         }
@@ -218,18 +361,22 @@ fn lookup(root: &Object, path: &str) -> Result<Lookup, Failure> {
         raw = nested.remove(name);
     }
     raw.map_or(Ok(Lookup::Found(Value::Null)), |raw| {
+        if raw.get().starts_with(['{', '[']) && !sorted_members(raw.get()) {
+            return Err(Failure(format!(
+                "hook field {path} has an object whose member order the native extraction cannot model"
+            )));
+        }
         serde_json::from_str::<Value>(raw.get())
             .map(Lookup::Found)
             .map_err(|error| Failure(format!("hook field {path} decoding failed: {error}")))
     })
 }
 
-/// Format retained jq decimal literals, including scientific notation. Keeping decimal width
-/// matters at CMD_MAX; Node instead goes through f64 and the existing JS serializer.
+/// Format retained jq decimal literals, including scientific notation (`0.0000001` is `1E-7`).
+/// Keeping decimal width matters at CMD_MAX; Node instead goes through f64 and the existing JS
+/// serializer.
 fn jq_number(token: &str) -> String {
-    let Some((coefficient, exponent)) = token.split_once(['e', 'E']) else {
-        return token.to_owned();
-    };
+    let (coefficient, exponent) = token.split_once(['e', 'E']).unwrap_or((token, "0"));
     let Ok(exponent) = exponent.parse::<i64>() else {
         return token.to_owned();
     };
@@ -308,7 +455,7 @@ fn jq_json(value: &Value, pretty: bool, depth: usize) -> String {
                     format!(
                         "{}{}:{}{}",
                         pad(depth + 1),
-                        Value::String(key.clone()),
+                        jq_string(key),
                         if pretty { " " } else { "" },
                         jq_json(value, pretty, depth + 1)
                     )
@@ -317,8 +464,16 @@ fn jq_json(value: &Value, pretty: bool, depth: usize) -> String {
                 .join(separator);
             format!("{{{newline}{body}{newline}{}}}", pad(depth))
         }
+        Value::String(text) => jq_string(text),
         _ => value.to_string(),
     }
+}
+
+/// A string inside a structured jq value: JSON escapes, plus jq's `\u007f` for DEL.
+fn jq_string(text: &str) -> String {
+    Value::String(text.to_owned())
+        .to_string()
+        .replace('\u{7f}', "\\u007f")
 }
 
 /// Reuse the core's established JS number/string serialization for Node's bulk protocol.
@@ -684,12 +839,176 @@ mod jq_probe_tests {
             assert!(extract(payload, &["tool_input.command"], profile).is_err());
         }
         // Words inside strings and ordinary malformed JSON keep their old answers.
-        assert!(!has_non_finite_literal(r#"{"c":"NaN Infinity","x":1"#));
-        assert!(!has_non_finite_literal(r#"{"c":"a\"NaN"}"#));
-        assert!(!has_non_finite_literal("{broken"));
+        assert!(!jq_may_read(r#"{"c":"NaN Infinity","x":1"#));
+        assert!(!jq_may_read(r#"{"c":"a\"NaN""#));
+        assert!(!jq_may_read("{broken"));
         assert!(matches!(
             selected("{broken", &["c"], Extractor::JqAndNode),
             Ok(None)
         ));
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn a_document_jq_may_read_and_serde_rejects_defers_in_jq_modes() {
+        let lenient = [
+            "{\"c\":\"a\u{1f}b\"}",
+            r#"{"c":"ls","x":nan123}"#,
+            r#"{"c":"ls"}{"c":"rm -rf /"}"#,
+            r#"{"c":"ls"} trailing"#,
+            "\u{feff}{\"c\":\"ls\"}",
+            r#"{"c":"ls","x":01}"#,
+            r#"{"c":"ls","x":.5}"#,
+            r#"{"c":"ls","x":1.}"#,
+            r#"{"c":"ls","x":+1}"#,
+            r#"{"c":"ls","x":-.5}"#,
+            r#"{"c":"ls","x":1.e5}"#,
+            r#"{"c":"ls","x":sNaN}"#,
+            r#"{"c":"ls","x":+sNaN}"#,
+            r#"{"c":"ls","x":sNaN12}"#,
+            r#"{"c":"ls","x":INF}"#,
+        ];
+        for text in lenient {
+            assert!(
+                serde_json::from_str::<&RawValue>(text).is_err(),
+                "{text:.40}"
+            );
+            for mode in [Extractor::JqOnly, Extractor::JqAndNode] {
+                assert!(selected(text, &["c"], mode).is_err(), "{text:.40} {mode:?}");
+            }
+            // Node's JSON.parse rejects them too: the shell lane is empty there.
+            assert!(
+                matches!(selected(text, &["c"], Extractor::Node), Ok(None)),
+                "{text:.40}"
+            );
+        }
+        // Nesting some accredited jq rejects (1.7.x at 256) defers in the jq modes only.
+        for (levels, defers) in [(255, false), (256, true), (1_000, true)] {
+            let nested = format!(
+                r#"{{"c":"ls","x":{}1{}}}"#,
+                "[".repeat(levels - 1),
+                "]".repeat(levels - 1)
+            );
+            for mode in [Extractor::JqOnly, Extractor::JqAndNode] {
+                assert_eq!(
+                    selected(&nested, &["c"], mode).is_err(),
+                    defers,
+                    "{levels} {mode:?}"
+                );
+            }
+            assert!(
+                selected(&nested, &["c"], Extractor::Node).is_ok(),
+                "{levels}"
+            );
+        }
+        // What jq rejects too keeps the modeled answer: empty, or the sed lane without Node.
+        for text in [
+            "",
+            "{",
+            r#"{"tool_input":"#,
+            "gh pr create",
+            "general-purpose",
+            "navori master close",
+            r#"{"c":"ls","x":1e+}"#,
+            r#"{"c":"ls","x":0x10}"#,
+            r#"{"c":"ls","x":1.2.3}"#,
+            r#"{"c":"ls","x":1e}"#,
+            r#"{"c":"ls","x":1_0}"#,
+            r#"{"c":"ls","x":Infinity1}"#,
+            r#"{"c":"ls","x":true1}"#,
+            r#"{"c":"ls","x":qNaN}"#,
+            r#"{"c":"ls","x":infinite}"#,
+            r#"{"c":"ls","x":1"#,
+        ] {
+            for mode in [Extractor::JqOnly, Extractor::JqAndNode, Extractor::Node] {
+                assert!(
+                    matches!(selected(text, &["c"], mode), Ok(None)),
+                    "{text} {mode:?}"
+                );
+            }
+        }
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn number_tokens_follow_jq_s_lexer_and_rfc_8259() {
+        for (token, read) in [
+            ("0", Some(true)),
+            ("-0", Some(true)),
+            ("10", Some(true)),
+            ("1.5e-7", Some(true)),
+            ("-12E+3", Some(true)),
+            ("01", Some(false)),
+            ("00", Some(false)),
+            ("-01", Some(false)),
+            (".5", Some(false)),
+            ("-.5", Some(false)),
+            ("1.", Some(false)),
+            ("1.e5", Some(false)),
+            ("+1", Some(false)),
+            ("1e+", None),
+            ("1e", None),
+            ("0x10", None),
+            ("1.2.3", None),
+            ("-", None),
+            ("+", None),
+            (".", None),
+            ("true", None),
+        ] {
+            assert_eq!(number_token(token.as_bytes()), read, "{token}");
+        }
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn jq_numbers_without_an_exponent_use_its_scientific_form() {
+        for (token, jq) in [
+            ("0.0000001", "1E-7"),
+            ("0.00000000", "0E-8"),
+            ("-0.0000012", "-0.0000012"),
+            ("0.000001", "0.000001"),
+            ("0.0100", "0.0100"),
+            ("1.000", "1.000"),
+            ("100.0", "100.0"),
+            ("-0", "-0"),
+            ("0", "0"),
+            ("100000000000000000001", "100000000000000000001"),
+            ("1e2", "1E+2"),
+            ("1.5e-7", "1.5E-7"),
+        ] {
+            assert_eq!(jq_number(token), jq, "{token}");
+        }
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn structured_values_escape_del_and_defer_on_unsorted_members() {
+        let text = "{\"c\":[\"\u{7f}\",{\"\u{7f}k\":\"z\u{7f}\"}]}";
+        let found = selected(text, &["c"], Extractor::JqOnly)
+            .expect("no failure")
+            .expect("accepted")
+            .0;
+        let value = match &found[0] {
+            Lookup::Found(value) => value.clone(),
+            Lookup::Unindexable => Value::Null,
+        };
+        assert_eq!(
+            structured(&value, false, false),
+            r#"["\u007f",{"\u007fk":"z\u007f"}]"#
+        );
+        for (raw, sorted) in [
+            (r#"{"a":1,"b":{"c":2,"d":[{"e":1,"f":2}]}}"#, true),
+            (r#"[{"a":1},{"a":2},"b,\"a\":"]"#, true),
+            (r#"{"b":1,"a":2}"#, false),
+            (r#"{"a":1,"a":2}"#, false),
+            (r#"{"a":{"z":1,"y":2}}"#, false),
+            (r#"{"\u0062":1,"a":2}"#, false),
+        ] {
+            assert_eq!(sorted_members(raw), sorted, "{raw}");
+        }
+        for mode in [Extractor::JqOnly, Extractor::JqAndNode, Extractor::Node] {
+            assert!(selected(r#"{"c":{"b":1,"a":2}}"#, &["c"], mode).is_err());
+            assert!(selected(r#"{"c":"ls","x":{"b":1,"a":2}}"#, &["c"], mode).is_ok());
+        }
     }
 }
