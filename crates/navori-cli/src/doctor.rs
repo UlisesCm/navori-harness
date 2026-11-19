@@ -27,11 +27,12 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use navori_core::config::Config;
-use navori_core::diagnose::distribution::scan_distribution;
+use navori_core::diagnose::distribution::{DistributionReport, scan_distribution};
 use navori_core::diagnose::doctor_assets::{
-    ControlGap, ControlState, DEFAULT_PROGRESS_THRESHOLD_BYTES, MissingModelProfile, MissingTier,
-    doctor_skill_dirs, scan_control_gaps, scan_doc_budget, scan_empty_user_sections,
-    scan_flat_skills, scan_foreign_skill_indexes, scan_git_hygiene, scan_gitignore_harness,
+    BlockKind, ContextDelivery, ControlGap, ControlState, DEFAULT_PROGRESS_THRESHOLD_BYTES,
+    DocBudgetLever, DocBudgetReport, MissingModelProfile, MissingTier, doctor_skill_dirs,
+    scan_control_gaps, scan_doc_budget, scan_empty_user_sections, scan_flat_skills,
+    scan_foreign_skill_indexes, scan_git_hygiene, scan_gitignore_harness,
     scan_interpolation_artifacts, scan_missing_model_profile, scan_nested_worktrees,
     scan_prettier_ignore, scan_progress_size, scan_quality_gate_readiness, scan_stale_harness,
     scan_triggerless_local_skills, scan_workspace_full_harness,
@@ -60,6 +61,7 @@ use navori_core::diagnose::health::{
     configured_engines, known_drift_sources, list_markers, read_text, scan_managed_drift,
     scan_orphaned_engine_outputs, suggest_doctor_next_steps,
 };
+use navori_core::diagnose::native_hooks::{FindingCode, FindingLevel, NativeHookFinding};
 use navori_core::diagnose::verdict::{HealthVerdict, compute_health_verdict};
 use navori_core::i18n::Doctor;
 use navori_core::js_json::JsValue;
@@ -75,6 +77,12 @@ use crate::native_io::{Output, member, read_config, specs_dir};
 use crate::render::{home, pending_changes};
 use crate::status::{kv, wrap};
 use crate::{NativeCall, Outcome};
+
+/// `CODEX_PROJECT_DOC_WARN_RATIO`.
+const CODEX_PROJECT_DOC_WARN_RATIO: f64 = 0.8;
+
+/// `MAX_DISTRIBUTION_SAMPLE`: harness paths the uncommitted row names before it stops.
+const MAX_DISTRIBUTION_SAMPLE: usize = 3;
 
 /// Columns clack wraps a note's message at (`getColumns()` of a non-TTY minus 6).
 const NOTE_COLUMNS: usize = 74;
@@ -204,6 +212,8 @@ struct Report {
     model_profile: Vec<MissingModelProfile>,
     control_gaps: Vec<ControlGap>,
     order: Option<OrderReport>,
+    doc_budget: Option<DocBudgetReport>,
+    distribution: Option<DistributionReport>,
 }
 
 /// The scans `doctor` runs for this repo; `None` delegates.
@@ -231,18 +241,13 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
     if Path::new(&master).exists() {
         return None;
     }
-    // `scanNativeHooks` prints its note for every checkout (`git rev-parse --show-toplevel`).
-    let (inside_git, _) = git_succeeds(&env, process_cwd, cwd, &["rev-parse", "--show-toplevel"])?;
-    if inside_git {
-        return None;
-    }
 
     // Native sections.
     let claude_text = read_text(&root.join("CLAUDE.md")).ok()?.unwrap_or_default();
     let mut markers = list_markers(&claude_text);
     markers.extend(list_context_markers(root).ok()?);
     let plugins = load_enabled_plugins(member(Some(&config.data), "plugins")).ok()?;
-    let verdict = compute_health_verdict(root, config, &plugins).ok()?;
+    let verdict = compute_health_verdict(root, config, &plugins, &RealRunner, &env).ok()?;
     let known = known_drift_sources(&plugins.loaded);
     let drifts = scan_managed_drift(root, config, &known, navori_core::STAMP_VERSION).ok()?;
     let order = scan_managed_order(root, config).ok()?;
@@ -341,8 +346,8 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
     {
         return None;
     }
-    absent(scan_doc_budget(root, config, navori_core::STAMP_VERSION))?;
-    absent(scan_distribution(root, &config.data, &RealRunner, &env))?;
+    let doc_budget = scan_doc_budget(root, config, navori_core::STAMP_VERSION).ok()?;
+    let distribution = scan_distribution(root, &config.data, &RealRunner, &env).ok()?;
     absent(scan_workspace_drift(&host, root, config))?;
     none_found(scan_stale_harness(root, config, &env))?;
     absent(scan_workspace_full_harness(config))?;
@@ -404,6 +409,8 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         model_profile,
         control_gaps,
         order,
+        doc_budget,
+        distribution,
     })
 }
 
@@ -954,6 +961,37 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     .collect();
     note(&mut clack, &steps.join("\n"), td.next_steps_title())?;
 
+    // Spec 0045 D3: errors flip the verdict (counted in `compute_health_verdict`).
+    if let Some(hooks) = &verdict.native_hooks {
+        let rows = hooks
+            .findings
+            .iter()
+            .map(|f| {
+                let mark = match f.level {
+                    FindingLevel::Error => fail,
+                    FindingLevel::Warning => update,
+                    FindingLevel::Info => bullet,
+                };
+                Some(format!("  {mark} {}", native_hook_text(f, td)?))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        note(&mut clack, &lines(rows), td.native_hooks_title())?;
+    }
+    if let Some(budget) = &report.doc_budget {
+        note(
+            &mut clack,
+            &lines(doc_budget_lines(budget, td)?),
+            td.doc_budget_title(),
+        )?;
+    }
+    if let Some(distribution) = &report.distribution {
+        note(
+            &mut clack,
+            &lines(distribution_lines(distribution, td)?),
+            td.distribution_title(),
+        )?;
+    }
+
     let has_issues = !verdict.ok;
     // Without a `mcpCoherenceIssues` finding (delegated above), only drift can fail `--strict`.
     let strict_fail = strict && !report.drifts.is_empty();
@@ -966,6 +1004,252 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     });
     clack.out.code = if has_issues { 2 } else { u8::from(strict_fail) };
     Some(clack.out)
+}
+
+/// `nativeHookFindingText`; `None` for text clack cannot reproduce (non-ASCII paths).
+fn native_hook_text(f: &NativeHookFinding, td: Doctor) -> Option<String> {
+    let path = |p: &Option<String>| -> Option<Option<String>> {
+        match p {
+            Some(p) => ascii(p).map(|p| Some(p.to_owned())),
+            None => Some(None),
+        }
+    };
+    Some(match &f.code {
+        FindingCode::Found(state) => {
+            let manager = state.manager.filter(|_| state.active).map(|m| m.as_str());
+            td.native_hooks_found(
+                state.event.as_str(),
+                manager,
+                path(&state.path)?.as_deref(),
+                state.absence.map(|a| a.as_str()),
+            )
+        }
+        FindingCode::GateDeclaredMissing { state, git_version } => td.native_hooks_gate_missing(
+            state.manager.map(|m| m.as_str()),
+            state.absence.map(|a| a.as_str()),
+            git_version.as_deref().and_then(ascii),
+        ),
+        FindingCode::PluginDeclaredMissing {
+            plugin,
+            git_version,
+        } => td.native_hooks_plugin_missing(ascii(plugin)?, git_version.as_deref().and_then(ascii)),
+        FindingCode::PluginOnlyGuarantee(plugin) => {
+            td.native_hooks_plugin_only_guarantee(ascii(plugin)?)
+        }
+        FindingCode::Duplicate(state) => td.native_hooks_duplicate(
+            state.manager.map(|m| m.as_str()),
+            path(&state.path)?.as_deref(),
+        ),
+        FindingCode::WorktreeMissing(path) => td.native_hooks_worktree_missing(ascii(path)?),
+    })
+}
+
+/// `docBudgetLines`; `None` for text clack cannot reproduce.
+fn doc_budget_lines(r: &DocBudgetReport, td: Doctor) -> Option<Vec<String>> {
+    let bullet = "\u{b7}";
+    let update = "\u{21e1}";
+    let n = |v: usize| v.to_string();
+    let mut out = Vec::new();
+    if let Some(managed) = r.managed_words {
+        let unbudgeted = r.unbudgeted_words.unwrap_or(0);
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_summary(
+                &n(r.total_words.unwrap_or(0)),
+                &n(managed - unbudgeted),
+                &n(r.ceiling.unwrap_or(0)),
+                &r.own_words.unwrap_or(0).to_string(),
+            )
+        ));
+    }
+    if let Some(words) = r.per_subagent_words {
+        out.push(format!("  {bullet} {}", td.doc_budget_subagents(&n(words))));
+    }
+    if !r.mcp_servers.is_empty() {
+        let ids = r
+            .mcp_servers
+            .iter()
+            .map(|s| ascii(&s.id))
+            .collect::<Option<Vec<_>>>()?
+            .join(", ");
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_mcp_servers(&n(r.mcp_servers.len()), &ids)
+        ));
+        let always: Vec<&str> = r
+            .mcp_servers
+            .iter()
+            .filter(|s| s.always_load)
+            .map(|s| ascii(&s.id))
+            .collect::<Option<_>>()?;
+        if !always.is_empty() {
+            out.push(format!(
+                "  {bullet} {}",
+                td.doc_budget_mcp_always_load(&always.join(", "))
+            ));
+        }
+    }
+    if r.unbudgeted_words.unwrap_or(0) > 0 {
+        let ids = r
+            .blocks
+            .iter()
+            .filter(|b| b.kind == BlockKind::Unbudgeted)
+            .map(|b| ascii(&b.id))
+            .collect::<Option<Vec<_>>>()?
+            .join(", ");
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_unbudgeted(&n(r.unbudgeted_words.unwrap_or(0)), &ids)
+        ));
+    }
+    if !r.context_files.is_empty() {
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_context(
+                &n(r.context_files.len()),
+                &n(r.context_words),
+                &n(r.context_chars),
+                &n(r.context_delivery_budget),
+            )
+        ));
+        for f in r
+            .context_files
+            .iter()
+            .filter(|c| c.delivered == ContextDelivery::Pointer)
+        {
+            out.push(format!(
+                "  {update} {}",
+                td.doc_budget_context_pointer(
+                    ascii(&f.file.path)?,
+                    &n(f.ctx_chars_before),
+                    &n(r.context_delivery_budget),
+                )
+            ));
+        }
+    }
+    if let Some(agents) = &r.agents_md {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "byte counts are far below 2^53, as JS numbers"
+        )]
+        let ratio = agents.chars as f64 / r.agents_md_max_bytes as f64;
+        // `Math.round`: halves go up.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a non-negative percentage of a byte ratio"
+        )]
+        let pct = (ratio * 100.0 + 0.5).floor() as usize;
+        let args = (
+            n(agents.words),
+            n(agents.chars),
+            n(pct),
+            n(r.agents_md_max_bytes),
+        );
+        if ratio >= CODEX_PROJECT_DOC_WARN_RATIO {
+            out.push(format!(
+                "  {update} {}",
+                td.doc_budget_agents_md_near(&args.0, &args.1, &args.2, &args.3)
+            ));
+        } else {
+            out.push(format!(
+                "  {bullet} {}",
+                td.doc_budget_agents_md(&args.0, &args.1, &args.2, &args.3)
+            ));
+        }
+    }
+    if r.agents_md_over_by.unwrap_or(0) > 0 {
+        out.push(format!(
+            "  {update} {}",
+            td.doc_budget_agents_md_over_ceiling(
+                &n(r.agents_md.as_ref().map_or(0, |a| a.words)),
+                &n(r.agents_md_ceiling.unwrap_or(0)),
+                &n(r.agents_md_over_by.unwrap_or(0)),
+            )
+        ));
+    }
+    if let Some(cursor) = &r.cursor_rules {
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_cursor_rules(&n(cursor.words), &n(cursor.chars))
+        ));
+    }
+    if let Some(copilot) = &r.copilot_instructions {
+        out.push(format!(
+            "  {bullet} {}",
+            td.doc_budget_copilot_instructions(&n(copilot.words), &n(copilot.chars))
+        ));
+    }
+    for block in r.blocks.iter().filter(|b| b.over) {
+        let lever = match block.lever {
+            DocBudgetLever::ProjectContext => td.doc_budget_lever_project_context(),
+            DocBudgetLever::Preset => td.doc_budget_lever_preset(),
+            DocBudgetLever::Plugins => td.doc_budget_lever_plugins(),
+            DocBudgetLever::Core => td.doc_budget_lever_core(),
+        };
+        out.push(format!(
+            "  {update} {}",
+            td.doc_budget_over_block(
+                ascii(&block.id)?,
+                &n(block.words),
+                &n(block.ceiling.unwrap_or(0)),
+                lever,
+            )
+        ));
+    }
+    Some(out)
+}
+
+/// `distributionLines`; `None` for text clack cannot reproduce.
+fn distribution_lines(r: &DistributionReport, td: Doctor) -> Option<Vec<String>> {
+    let update = "\u{21e1}";
+    let mut out = Vec::new();
+    if !r.uncommitted.is_empty() {
+        let shown: Vec<&str> = r
+            .uncommitted
+            .iter()
+            .take(MAX_DISTRIBUTION_SAMPLE)
+            .map(|p| ascii(p))
+            .collect::<Option<_>>()?;
+        let rest = r.uncommitted.len() - shown.len();
+        let sample = if rest > 0 {
+            format!("{}, +{rest}", shown.join(", "))
+        } else {
+            shown.join(", ")
+        };
+        out.push(format!(
+            "  {update} {}",
+            td.distribution_uncommitted(&r.uncommitted.len().to_string(), &sample)
+        ));
+    }
+    if let Some(unpushed) = &r.unpushed {
+        out.push(format!(
+            "  {update} {}",
+            td.distribution_unpushed(&unpushed.commits.to_string(), ascii(&unpushed.upstream)?)
+        ));
+    }
+    if let Some(base) = &r.base {
+        let base_ref = ascii(&base.base_ref)?;
+        if base.files > 0 {
+            out.push(format!(
+                "  {update} {}",
+                td.distribution_vs_base(
+                    base_ref,
+                    &base.files.to_string(),
+                    ascii(base.local_version.as_deref().unwrap_or("?"))?,
+                    ascii(base.base_version.as_deref().unwrap_or("?"))?,
+                )
+            ));
+        }
+        if base.behind > 0 {
+            out.push(format!(
+                "  {update} {}",
+                td.distribution_behind_base(base_ref, &base.behind.to_string())
+            ));
+        }
+    }
+    out.push(format!("  \u{b7} {}", td.distribution_hint()));
+    Some(out)
 }
 
 /// One drift row of the warning.
