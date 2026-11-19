@@ -130,7 +130,8 @@ export function buildReport({
           begin.implementation === descriptor.impl &&
           begin.timeMs <= now,
       );
-      const first = Math.min(...current.map((begin) => begin.timeMs));
+      // reduce, not Math.min(...spread): a busy row can exceed the engine's argument limit.
+      const first = current.reduce((min, begin) => Math.min(min, begin.timeMs), Infinity);
       // Per-row close (R81): each hook and engine is judged at its own first row + the window.
       let closeAt = now;
       if (perRowClose && first !== Infinity) {
@@ -150,7 +151,8 @@ export function buildReport({
         row.lastMs = Math.max(row.lastMs ?? -Infinity, begin.timeMs);
         const end = ends.get(begin.id);
         if (!end) {
-          if (closeAt - begin.timeMs > PENDING_GRACE_MS) {
+          // Grace runs to `now`, not `closeAt`: a begin just before the close is lost by `now`.
+          if (now - begin.timeMs > PENDING_GRACE_MS) {
             row.pending++;
             row.pendingMs.push(begin.timeMs);
           }

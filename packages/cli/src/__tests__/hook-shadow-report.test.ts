@@ -18,6 +18,7 @@ interface Row {
   nativeFailed: number;
   shellFailed: number;
   divergences: number;
+  pending: number;
   legacyPayloadRows: number;
   problems: string[];
 }
@@ -335,4 +336,12 @@ it("una observación sin completar queda en ámbar y al cierre pasa a verde solo
   expect(grouped.rows[0]?.status).toBe("red");
   expect(grouped.rows[0]?.problems.join()).toContain("grouped");
   expect(grouped.rows[0]?.problems.join()).not.toContain("% of calls");
+
+  // A begin 5 minutes before the row closes (2 days ago) is long lost by NOW: it counts, not
+  // hidden by the grace measured against the close.
+  const lastMinute = 2 + 5 / 1440;
+  const late = report([lastMinute], {});
+  expect(late.rows[0]?.pending).toBe(1);
+  expect(late.rows[0]?.status).toBe("red");
+  expect(late.rows[0]?.problems.join()).toContain(lostAt(lastMinute));
 });
