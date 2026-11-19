@@ -4,9 +4,12 @@
 //! pure; every fact arrives through [`Repo`], and [`System`] is the one adapter that runs
 //! `git` or `tgrep`.
 
+use std::cell::RefCell;
 use std::fs::File;
+use std::io;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// What a discard destroys, as `_dsc_dirty` measures it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,16 +51,118 @@ pub trait Repo {
 
 /// The host's file system and `git`, read as the shell reads them. Residual: a non-empty
 /// `CDPATH` can redirect the shell's relative `cd`; this adapter never consults it.
+///
+/// On a thread that [`Children::track_this_thread`] marked, every `git`/`tgrep` it starts is
+/// recorded there, so whoever abandons that thread can kill them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct System;
 
+/// The `git`/`tgrep` processes [`System`] started on one thread and has not reaped yet.
+///
+/// A deadline that abandons a rule (guard-destructive's `entry::evaluate_until`) calls
+/// [`Children::stop`]: without it a hung `git` would outlive the hook process as an orphan.
+#[derive(Debug, Default)]
+pub struct Children(Mutex<Running>);
+
+#[derive(Debug, Default)]
+struct Running {
+    /// No new child may start; one that started meanwhile kills itself.
+    stopped: bool,
+    pids: Vec<u32>,
+}
+
+thread_local! {
+    static CHILDREN: RefCell<Option<Arc<Children>>> = const { RefCell::new(None) };
+}
+
+impl Children {
+    fn running(&self) -> MutexGuard<'_, Running> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Record here every child [`System`] starts from now on on the calling thread.
+    pub fn track_this_thread(self: &Arc<Self>) {
+        CHILDREN.set(Some(Arc::clone(self)));
+    }
+
+    /// Kill (`SIGKILL`) every recorded child still running and refuse new ones. Best effort:
+    /// it runs `kill`, since the standard library cannot signal a process by pid. A pid is
+    /// dropped right after its child is reaped, so the window for a reused pid is that gap.
+    pub fn stop(&self) {
+        let pids = {
+            let mut running = self.running();
+            running.stopped = true;
+            std::mem::take(&mut running.pids)
+        };
+        if pids.is_empty() {
+            return;
+        }
+        let _ = Command::new("kill")
+            .arg("-KILL")
+            .args(pids.iter().map(u32::to_string))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// One started child, recorded in its thread's [`Children`] until dropped.
+struct Tracked(Option<(Arc<Children>, u32)>);
+
+impl Tracked {
+    /// Record `child`; when the record is already stopped, kill and reap it instead.
+    fn new(child: &mut Child) -> io::Result<Self> {
+        let Some(children) = CHILDREN.with_borrow(Clone::clone) else {
+            return Ok(Self(None));
+        };
+        let pid = child.id();
+        {
+            let mut running = children.running();
+            if !running.stopped {
+                running.pids.push(pid);
+                drop(running);
+                return Ok(Self(Some((children, pid))));
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        Err(io::Error::other("the evaluation was abandoned"))
+    }
+}
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        if let Some((children, pid)) = &self.0 {
+            children.running().pids.retain(|running| running != pid);
+        }
+    }
+}
+
+/// Whether this thread's [`Children`] refuses new children.
+fn stopped() -> bool {
+    CHILDREN.with_borrow(|children| children.as_ref().is_some_and(|c| c.running().stopped))
+}
+
+/// `command.output()`, recorded in this thread's [`Children`]. The caller sets every stream.
+fn finish(command: &mut Command) -> io::Result<Output> {
+    if stopped() {
+        return Err(io::Error::other("the evaluation was abandoned"));
+    }
+    let mut child = command.spawn()?;
+    let _tracked = Tracked::new(&mut child)?;
+    child.wait_with_output()
+}
+
 /// `$(…)`: stdout with every trailing newline dropped, `None` when the command fails.
 fn capture(command: &mut Command) -> Option<String> {
-    let output = command
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+    let output = finish(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -141,13 +246,14 @@ impl Repo for System {
     }
 
     fn holds(&self, dir: &str, loss: Loss) -> bool {
-        let inside = git_in(dir)
-            .args(["rev-parse", "--git-dir"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success());
+        let inside = finish(
+            git_in(dir)
+                .args(["rev-parse", "--git-dir"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        )
+        .is_ok_and(|out| out.status.success());
         if !inside {
             return false;
         }
@@ -162,11 +268,13 @@ impl Repo for System {
             Loss::All => command.args(["ls-files", "--others"]),
         };
         // `[ -n "$(…)" ]` and `head -n 1` ignore git's exit status.
-        command
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .is_ok_and(|out| out.stdout.iter().any(|b| *b != b'\n'))
+        finish(
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .is_ok_and(|out| out.stdout.iter().any(|b| *b != b'\n'))
     }
 
     fn toplevel(&self, dir: &str) -> Option<String> {
@@ -190,13 +298,14 @@ impl Repo for System {
     }
 
     fn ignored(&self, root: &str, path: &str) -> bool {
-        git_from(root)
-            .args(["check-ignore", "-q", "--", path])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+        finish(
+            git_from(root)
+                .args(["check-ignore", "-q", "--", path])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        )
+        .is_ok_and(|out| out.status.success())
     }
 
     fn file_size(&self, root: &str, path: &str) -> u64 {
@@ -215,6 +324,9 @@ impl Repo for System {
 
     fn tgrep_status(&self, path: Option<&str>) -> Option<String> {
         let program = which("tgrep", path?)?;
+        if stopped() {
+            return None;
+        }
         let (mut reader, writer) = std::io::pipe().ok()?;
         let mut child = Command::new(program)
             .arg("status")
@@ -224,6 +336,7 @@ impl Repo for System {
             .stderr(writer)
             .spawn()
             .ok()?;
+        let _tracked = Tracked::new(&mut child).ok()?;
         let mut out = Vec::new();
         std::io::Read::read_to_end(&mut reader, &mut out).ok()?;
         child.wait().ok()?.success().then(|| {

@@ -624,7 +624,8 @@ fn deadline_variable_can_only_lower_it() -> TestResult {
     Ok(())
 }
 
-/// A directory with a `grep` and a `git` that log their pid and sleep, removed on drop.
+/// A directory with a `grep`, a `git` and a `tgrep` that log their pid and sleep, removed on
+/// drop.
 struct Sleepers {
     dir: PathBuf,
 }
@@ -635,7 +636,7 @@ impl Sleepers {
         let dir =
             std::env::temp_dir().join(format!("navori-deadline-{tag}-{}", std::process::id()));
         fs::create_dir_all(&dir)?;
-        for name in ["grep", "git"] {
+        for name in ["grep", "git", "tgrep"] {
             let program = dir.join(name);
             fs::write(
                 &program,
@@ -931,6 +932,38 @@ fn deadline_cuts_a_hung_discard_rule() -> TestResult {
 #[test]
 fn deadline_cuts_a_hung_search_lane() -> TestResult {
     assert_stalled_block(Engine::Claude, Stall::TgrepStatus, "grep -rn foo src", true)
+}
+
+/// A real `tgrep status` that hangs is killed at the deadline, not left running as an orphan
+/// once the process exits.
+#[test]
+fn the_deadline_kills_the_hung_tgrep_it_abandons() -> TestResult {
+    let sleepers = Sleepers::new("orphan")?;
+    let mut context = plain_context()?;
+    context.rendered.search_lane = true;
+    context.host.path = Some(format!("{}:/usr/bin:/bin", sleepers.dir.display()));
+    let payload =
+        br#"{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"grep -rn foo src"}}"#;
+    let deadline = Deadline::from_env(Some("1"), Instant::now());
+    let evaluation = entry::evaluate_until(payload, &context, System, deadline)?;
+    assert_eq!(evaluation.verdict, Verdict::Block);
+    let calls = fs::read_to_string(sleepers.dir.join("calls"))?;
+    let pid = calls.lines().next().ok_or("tgrep never ran")?.to_owned();
+    let alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", &pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    let limit = Instant::now() + Duration::from_secs(2);
+    while alive() {
+        if Instant::now() > limit {
+            return Err(format!("tgrep {pid} outlived the deadline").into());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(())
 }
 
 /// A rule that panics is an error, never a permit, and the answer carries nothing for stdout.
