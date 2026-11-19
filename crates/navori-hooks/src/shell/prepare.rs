@@ -163,10 +163,11 @@ printf '\0%s' "${#1}"
 /// printing `output\0rc\0` per invocation; [`expected_jq`] is the accredited answer.
 ///
 /// Scope: this accredits the behavior the native extraction models. It does NOT cover input
-/// jq extracts but RFC 8259 rejects, nor numbers/ordering the model renders differently:
-/// U+001F (1.7), `nan123` (1.7.1), depth 256-9999 (1.8), `0.0000001`, key order. NaN/Infinity
-/// fail closed in `payload::selected`. The rest is tracked in #1731 and must be closed in the
-/// model before any hook is promoted to `active`. A `~/.jq` init file changes the shell's jq
+/// jq extracts but RFC 8259 rejects (NaN/sNaN/Infinity, U+001F in 1.7, `nan123` in 1.7.1, numbers
+/// such as `01`, `.5`, `1.` or `+1`, a BOM, a second document or trailing text), nor nesting
+/// from 256 levels, where the accredited jq builds disagree: `payload::selected` defers those
+/// in jq modes (#1731). An object whose members are not in sorted order defers too, and the
+/// model renders `0.0000001` as jq does (`1E-7`). A `~/.jq` init file changes the shell's jq
 /// in ways this probe cannot enumerate, so the collector defers whenever one exists.
 pub const JQ: &str = r#""$1" --version 2>/dev/null
 F='[(.a? // "" | tostring),(.b.c? // "" | tostring)] as $v | if all($v[]; any(explode[]; . == 0) | not) then ($v[] | ., "\u0000"), "END\u0000" else empty end'
