@@ -300,6 +300,7 @@ export const CONFIG_KEY_RULE: ConfigObjectRule = {
     "models",
     "effort",
     "plugins",
+    "claudePlugins",
     "blocks",
     "progress",
     "project",
@@ -346,6 +347,8 @@ export const CONFIG_KEY_RULE: ConfigObjectRule = {
     },
     effort: { keys: AGENT_ROLE_KEYS },
     plugins: { keys: [], recordValues: { keys: ["enabled", "nativeHook"] }, allowExtensions: true },
+    // Open keys (plugin ids), boolean values — nothing nested to check.
+    claudePlugins: { keys: [], recordValues: { keys: [] }, allowExtensions: true },
     blocks: { keys: ["exclude"] },
     progress: { keys: ["dir", "currentFile", "historyFile"] },
     project: {
