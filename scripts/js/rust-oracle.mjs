@@ -72,10 +72,12 @@ const RUN_TIMEOUT_MS = 120_000;
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
  * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
- * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
+ * @typedef {{ issue: string, kinds: string[], why: string }} KnownDifference  see {@link applyKnown}
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string, known?: KnownDifference }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
  *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
  *   `note`: free text for humans (e.g. why a case is not native); the runner ignores it.
+ *   `known`: an accepted difference where Rust is the correct side (see {@link applyKnown}).
  * @typedef {{ kind: string, detail: string }} Difference
  * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>>, calls?: string[] }} Outcome  `calls`: the stub calls, one JSON line each
  * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
@@ -714,8 +716,35 @@ export function runCase(testCase, opts) {
   return {
     id: testCase.id,
     exit: ts.status,
-    differences: compareOutcomes(ts, rust, ctx, testCase.mask ?? []),
+    ...applyKnown(testCase, compareOutcomes(ts, rust, ctx, testCase.mask ?? [])),
   };
+}
+
+/**
+ * Splits a case's differences by its `known` entry: a difference the project accepts because the
+ * TS is wrong and Rust right, while the TS stays frozen (each entry names its issue and why Rust
+ * is right). Only the difference kinds the entry lists are tolerated; any other kind still counts.
+ * A known case that no longer differs is itself a difference, so the entry goes away as soon as
+ * the TS is fixed or the case disappears with the cut.
+ *
+ * @param {OracleCase} testCase
+ * @param {Difference[]} differences
+ * @returns {{ differences: Difference[], known: Difference[] }}
+ */
+export function applyKnown(testCase, differences) {
+  const entry = testCase.known;
+  if (!entry) return { differences, known: [] };
+  if (typeof entry.issue !== "string" || typeof entry.why !== "string" || !Array.isArray(entry.kinds))
+    throw new Error(`rust-oracle: case ${testCase.id}: \`known\` needs issue, kinds and why`);
+  const known = differences.filter((d) => entry.kinds.includes(d.kind));
+  const rest = differences.filter((d) => !entry.kinds.includes(d.kind));
+  if (known.length === 0) {
+    rest.push({
+      kind: "known",
+      detail: `${entry.issue} no longer differs: remove the case's \`known\` entry`,
+    });
+  }
+  return { differences: rest, known };
 }
 
 /**
@@ -967,7 +996,7 @@ export function main(argv) {
     return 2;
   }
   const base = realpathSync(mkdtempSync(join(tmpdir(), "navori-rust-oracle-")));
-  /** @type {Array<{ id: string, exit: number | null, differences: Difference[] }>} */
+  /** @type {Array<{ id: string, exit: number | null, differences: Difference[], known?: Difference[] }>} */
   const results = [];
   try {
     for (const testCase of cases) {
@@ -976,15 +1005,21 @@ export function main(argv) {
       for (const d of result.differences) {
         process.stdout.write(`DIFF ${result.id} [${d.kind}] ${d.detail}\n`);
       }
+      for (const d of result.known ?? []) {
+        process.stdout.write(`KNOWN ${result.id} (${testCase.known?.issue}) [${d.kind}] ${d.detail}\n`);
+      }
     }
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
   const total = results.reduce((n, r) => n + r.differences.length, 0);
-  const report = { cases: results.length, differences: total, results };
+  const known = results.reduce((n, r) => n + (r.known?.length ?? 0), 0);
+  const report = { cases: results.length, differences: total, known, results };
   const reportPath = flagValue(argv, "--report");
   if (reportPath) writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-  process.stdout.write(`rust-oracle: ${results.length} cases, ${total} differences\n`);
+  process.stdout.write(
+    `rust-oracle: ${results.length} cases, ${total} differences${known ? `, ${known} known` : ""}\n`,
+  );
   return total === 0 ? 0 : 1;
 }
 

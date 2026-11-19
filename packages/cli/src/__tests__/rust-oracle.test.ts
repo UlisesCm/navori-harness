@@ -40,6 +40,7 @@ interface OracleCase {
   setup?: unknown[];
   readonly?: string[];
   note?: string;
+  known?: { issue: string; kinds: string[]; why: string };
 }
 interface Rule {
   name: string;
@@ -81,7 +82,7 @@ interface Oracle {
       tsCli: string;
       base: string;
     },
-  ) => { id: string; exit: number | null; differences: Difference[] };
+  ) => { id: string; exit: number | null; differences: Difference[]; known: Difference[] };
   runCaseOrSetupFailure: (
     testCase: OracleCase,
     opts: {
@@ -232,6 +233,52 @@ describe("rust oracle", () => {
     expect(run(`printf 'y' > "$NAVORI_AUDITS_ROOT/a"`).differences).toMatchObject([
       { kind: "tree:backups" },
     ]);
+  });
+
+  it("una diferencia conocida solo tolera sus tipos y falla cuando deja de diferir (#1750)", () => {
+    const dir = tmp();
+    const base = tmp();
+    const known = { issue: "#1750", kinds: ["stdout"], why: "Rust is right" };
+    const run = (tsBody: string, rustBody: string, entry: OracleCase["known"] = known) =>
+      oracle.runCase(
+        { id: "known", fixture: "empty", args: [], known: entry },
+        {
+          ts: stub(dir, "ts.sh", tsBody),
+          rust: stub(dir, "rust.sh", rustBody),
+          tsCli: "/unused/index.js",
+          base,
+        },
+      );
+
+    const tolerated = run(`printf 'updated\\n'`, `printf 'unchanged\\n'`);
+    expect(tolerated.differences).toEqual([]);
+    expect(tolerated.known).toMatchObject([{ kind: "stdout" }]);
+
+    // a kind the entry does not list still counts
+    const other = run(`printf 'updated\\n'`, `printf 'unchanged\\n'; printf x > extra`);
+    expect(other.differences).toMatchObject([{ kind: "tree:repo" }]);
+    expect(other.known).toMatchObject([{ kind: "stdout" }]);
+
+    // once both sides agree, the entry itself is a difference
+    const fixed = run(`printf 'unchanged\\n'`, `printf 'unchanged\\n'`);
+    expect(fixed.differences).toMatchObject([
+      { kind: "known", detail: expect.stringContaining("#1750 no longer differs") },
+    ]);
+    expect(fixed.known).toEqual([]);
+
+    // without issue, kinds and why the entry is rejected
+    expect(() =>
+      run(`printf a`, `printf b`, { issue: "#1750" } as unknown as OracleCase["known"]),
+    ).toThrow("needs issue, kinds and why");
+
+    // the #1750 case is native and tolerates only the TS's `updated` report and its backups
+    const surrogate = oracle
+      .loadCases()
+      .find((c) => c.id === "prose-engines:render-apply-surrogate-cut");
+    expect(surrogate).toMatchObject({
+      native: true,
+      known: { issue: "#1750", kinds: ["stdout", "tree:backups"] },
+    });
   });
 
   it("los casos aceptan una nota y retired-context es nativo con la máscara de procedencia", () => {
