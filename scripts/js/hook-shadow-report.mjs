@@ -14,8 +14,9 @@ import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.
  * the migration worktrees is scattered: `--journals <dir>` (repeatable) adds the journals of other
  * checkouts. The manifest, history and registered engines always come from `--root`.
  *
- * The R81 close runs `--now <closing instant> --markdown [--batches <json>]`: the window is fixed, so
- * rows written after the close do not count, and the table adds failures and first/last row.
+ * The R81 close runs `--close-per-row --markdown [--batches <json>]`: each hook and engine is judged
+ * at its own first row + the window (later rows do not count; a window still open is red), and the
+ * table adds failures, first/last row and that closing instant. `--now <ISO>` replaces the clock.
  */
 
 const DAY_MS = 86_400_000;
@@ -59,9 +60,18 @@ export function approvedWithoutTraffic(historyText, hook) {
  *   approved: Record<string, string[]>,
  *   now: number,
  *   windowDays: number,
+ *   perRowClose?: boolean,
  * }} input
  */
-export function buildReport({ hooks, journals, engines, approved, now, windowDays }) {
+export function buildReport({
+  hooks,
+  journals,
+  engines,
+  approved,
+  now,
+  windowDays,
+  perRowClose = false,
+}) {
   const windowMs = windowDays * DAY_MS;
   const rows = [];
   for (const [hook, descriptor] of Object.entries(hooks)) {
@@ -93,22 +103,38 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         shellFailed: 0,
         firstMs: null,
         lastMs: null,
+        closesMs: null,
         legacyPayloadRows,
         spanDays: 0,
         problems: [...problems],
       };
-      let first = Infinity;
-      for (const begin of begins.values()) {
-        if (begin.engine !== engine || begin.implementation !== descriptor.impl) continue;
-        // A fixed `now` closes the window: later rows belong to the next one.
-        if (begin.timeMs > now) continue;
-        first = Math.min(first, begin.timeMs);
-        if (begin.timeMs < now - windowMs) continue;
+      // A fixed `now` closes the window: later rows belong to the next one.
+      const current = [...begins.values()].filter(
+        (begin) =>
+          begin.engine === engine &&
+          begin.implementation === descriptor.impl &&
+          begin.timeMs <= now,
+      );
+      const first = Math.min(...current.map((begin) => begin.timeMs));
+      // Per-row close (R81): each hook and engine is judged at its own first row + the window.
+      let closeAt = now;
+      if (perRowClose && first !== Infinity) {
+        row.closesMs = first + windowMs;
+        if (row.closesMs > now) {
+          // Advisory hooks only turn red on a divergence, as in the clock-based window.
+          if (descriptor.gating)
+            row.problems.push(`window open until ${new Date(row.closesMs).toISOString()}`);
+        } else {
+          closeAt = row.closesMs;
+        }
+      }
+      for (const begin of current) {
+        if (begin.timeMs > closeAt || begin.timeMs < closeAt - windowMs) continue;
         row.firstMs = Math.min(row.firstMs ?? Infinity, begin.timeMs);
         row.lastMs = Math.max(row.lastMs ?? -Infinity, begin.timeMs);
         const end = ends.get(begin.id);
         if (!end) {
-          if (now - begin.timeMs > PENDING_GRACE_MS) row.pending++;
+          if (closeAt - begin.timeMs > PENDING_GRACE_MS) row.pending++;
           continue;
         }
         row.invocations++;
@@ -117,14 +143,14 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         if (diverged(end.comparison)) row.divergences++;
         else if (end.comparison.nativeUnobserved === true) row.unobserved++;
       }
-      row.spanDays = first === Infinity ? 0 : (now - first) / DAY_MS;
+      row.spanDays = first === Infinity ? 0 : (closeAt - first) / DAY_MS;
       if (row.divergences > 0) row.problems.push(`${row.divergences} divergence(s)`);
       if (descriptor.gating) {
         if (row.pending > 0) row.problems.push(`${row.pending} observation(s) never completed`);
         if (row.invocations === 0) {
           if (!(approved[hook] ?? []).includes(engine))
             row.problems.push("no shadow traffic and no no-shadow-traffic approval (R82)");
-        } else if (row.spanDays < windowDays) {
+        } else if (row.spanDays < windowDays && !(perRowClose && row.closesMs > now)) {
           row.problems.push(`window ${row.spanDays.toFixed(3)} d is shorter than ${windowDays} d`);
         }
       }
@@ -144,6 +170,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         shellFailed: 0,
         firstMs: null,
         lastMs: null,
+        closesMs: null,
         legacyPayloadRows,
         spanDays: 0,
         problems: ["no engine renders the native block for this hook"],
@@ -154,7 +181,13 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
 }
 
 /** Collects the inputs of `buildReport` from a project root and the checkouts holding journals. */
-export function collect(root, windowDays, now = Date.now(), journalRoots = [root]) {
+export function collect(
+  root,
+  windowDays,
+  now = Date.now(),
+  journalRoots = [root],
+  perRowClose = false,
+) {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
   const historyPath = join(root, HISTORY);
   const history = existsSync(historyPath) ? readFileSync(historyPath, "utf8") : "";
@@ -169,7 +202,15 @@ export function collect(root, windowDays, now = Date.now(), journalRoots = [root
     engines[hook] = registeredEngines(root, hook);
     approved[hook] = approvedWithoutTraffic(history, hook);
   }
-  return buildReport({ hooks: manifest.hooks, journals, engines, approved, now, windowDays });
+  return buildReport({
+    hooks: manifest.hooks,
+    journals,
+    engines,
+    approved,
+    now,
+    windowDays,
+    perRowClose,
+  });
 }
 
 function format(report) {
@@ -198,14 +239,14 @@ export function formatMarkdown(report, batches = {}) {
   const lines = [
     `R81, window ${report.windowDays} d: ${report.ok ? "green" : "red"}`,
     "",
-    "| Hook | Engine | Gating | Calls | Divergences | nativeFailed | shellFailed | Pending | Unobserved | First row | Last row | Verdict |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Hook | Engine | Gating | Calls | Divergences | nativeFailed | shellFailed | Pending | Unobserved | First row | Last row | Closes at | Verdict |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const row of report.rows) {
     lines.push(
       `| ${row.hook} | ${row.engine} | ${row.gating ? "yes" : "no"} | ${row.invocations} | ` +
         `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
-        `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ` +
+        `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ${iso(row.closesMs)} | ` +
         `${row.ok ? "green" : `red: ${row.problems.join("; ")}`} |`,
     );
   }
@@ -254,7 +295,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (!Number.isFinite(now)) throw new Error("--now needs an ISO date");
     const batchesPath = value("--batches", undefined);
     const batches = batchesPath === undefined ? {} : JSON.parse(readFileSync(batchesPath, "utf8"));
-    const report = collect(root, windowDays, now, journalRoots);
+    const report = collect(root, windowDays, now, journalRoots, args.includes("--close-per-row"));
     console.log(
       args.includes("--json")
         ? JSON.stringify(report)

@@ -12,6 +12,7 @@ interface Row {
   invocations: number;
   firstMs: number | null;
   lastMs: number | null;
+  closesMs: number | null;
   nativeFailed: number;
   shellFailed: number;
   divergences: number;
@@ -29,6 +30,7 @@ interface ReportInput {
   approved: Record<string, string[]>;
   now: number;
   windowDays: number;
+  perRowClose?: boolean;
 }
 interface Module {
   buildReport: (input: ReportInput) => Report;
@@ -213,7 +215,7 @@ it("un now fijo cierra la ventana y la tabla da fallas, primera y última fila y
 
   const table = shadow.formatMarkdown(report, { B: ["example"], X: ["missing"] });
   expect(table).toContain(
-    `| ${new Date(NOW - 7 * DAY).toISOString()} | ${new Date(NOW - DAY).toISOString()} | green |`,
+    `| ${new Date(NOW - 7 * DAY).toISOString()} | ${new Date(NOW - DAY).toISOString()} | - | green |`,
   );
   expect(table).toContain("| B | example | green |");
   expect(table).toContain("| X | missing | red: no rows for missing");
@@ -242,4 +244,28 @@ it("un now fijo cierra la ventana y la tabla da fallas, primera y última fila y
   expect(shadow.formatMarkdown(twoEngines, { B: ["example"] })).toContain(
     "| B | example | red: example [pi] |",
   );
+});
+
+// Covers: R81
+it("con cierre por fila cada hook y engine se juzga a los 7 días de su primera fila", (): void => {
+  const perRow = (calls: Parameters<typeof journal>[2], gating = true): Report =>
+    shadow.buildReport({
+      hooks: { example: { gating, impl: IMPL } },
+      journals: { example: journal("example", "claude", calls) },
+      engines: { example: ["claude"] },
+      approved: {},
+      now: NOW,
+      windowDays: 7,
+      perRowClose: true,
+    });
+  // First row 9 d ago: the window closed 2 d ago, so the divergence 1 d ago does not count.
+  const closed = perRow([{ ageDays: 9 }, { ageDays: 5 }, { ageDays: 1, differs: true }]);
+  expect(closed.rows[0]).toMatchObject({ invocations: 2, divergences: 0, closesMs: NOW - 2 * DAY });
+  expect(closed.ok).toBe(true);
+  // First row 3 d ago: the window is still open, red for a gating hook only.
+  const open = perRow([{ ageDays: 3 }, { ageDays: 1 }]);
+  expect(open.rows[0]?.problems).toEqual([
+    `window open until ${new Date(NOW + 4 * DAY).toISOString()}`,
+  ]);
+  expect(perRow([{ ageDays: 3 }], false).ok).toBe(true);
 });
